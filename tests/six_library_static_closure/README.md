@@ -68,7 +68,12 @@ timeout or unknown permanently blocks requery, reap, retry, cancellation,
 signals and output reads for that child. No loader or candidate is executed.
 
 Readelf output scratch files use only the fresh fixed stage's private scratch,
-not a global /tmp fallback. FD unwinding is not process cleanup or recovery.
+not a global /tmp fallback. The supervisor explicitly carries that same fixed
+TMPDIR into the probe's environment. The source deadline is checked after the
+last pre-readelf event and again after private scratch opens, immediately
+before the owned tool spawn. Inert execution controls cover this environment
+handoff and delayed event/scratch-open refusal, not just source substrings.
+FD unwinding is not process cleanup or recovery.
 Final report writes require exact integer full-length completion, successful
 flush and a checked post-flush deadline; success and uncertainty seal the
 original scope permanently.

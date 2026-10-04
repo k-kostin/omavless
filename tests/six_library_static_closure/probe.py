@@ -22,7 +22,7 @@ PACKAGES = {
     'zlib': (CANDIDATES[4],), 'zstd': (CANDIDATES[5],)}
 CATALOG = Path('/var/lib/pacman/local')
 PINS = {'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
-        'owned.py': 'f5e57d69a7b3ba0f7a41e9cf07df9f8f86d203c8728401204d3a2a1c4a48fa89',
+        'owned.py': '473547131f72ac768b168370fb31f551b64a428520828ca47e200cd46885eefa',
         'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
         'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87'}
 # Catalog names only are measured. No package version/hash is guessed.
@@ -410,9 +410,11 @@ def capture_inner(base, helpers, owned, manifest):
         shape = header(raw)
         sources.recheck()  # ALL current original FDs before any tool execution.
         boundary('before_readelf')
+        sources.available()  # Final event/filesystem work cannot consume the next spawn budget.
         command = owned.command(base, [f'/proc/self/fd/{tool_fd}', '--wide', '--dynamic', '--program-headers',
                                 f'/proc/self/fd/{fd}'], pass_fds=(tool_fd, fd),
-                               env={'PATH':'/usr/bin', 'LANG':'C', 'LC_ALL':'C'})
+                               env={'PATH':'/usr/bin', 'LANG':'C', 'LC_ALL':'C'},
+                               deadline=sources.deadline)
         boundary('readelf_stderr')
         require(command.stderr == b'')
         boundary('readelf_decode')

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -26,6 +27,7 @@ def fixture():
     sources = Mock()
     sources.files, sources.package_files = {}, {}
     sources.packages_validated = False
+    sources.deadline = time.monotonic() + 120
     selected = {name: (name+'-1:2.3~rc1-4', '1:2.3~rc1-4') for name in probe.PACKAGES}
     names = tuple(sorted(directory for directory, _ in selected.values()))
     directory = metadata()
@@ -169,6 +171,18 @@ class ClosureTests(unittest.TestCase):
             probe.capture(base, helper, helper.owned, manifest)
         self.assertEqual(base.command.call_count, 1)
         self.assertNotIn('/usr/lib/third.so', sources.files)
+
+    def test_expired_final_event_prevents_next_readelf_spawn(self):
+        sources, base, helper, manifest = fixture()
+        sources.available.side_effect = lambda: probe.require(time.monotonic() < sources.deadline)
+        def delayed(phase):
+            if phase == 'before_readelf':
+                sources.deadline = 0
+        with patch.object(probe,'Sources',return_value=sources), patch.object(probe,'boundary',side_effect=delayed), \
+             self.assertRaises(RuntimeError):
+            probe.capture(base,helper,helper.owned,manifest)
+        base.command.assert_not_called()
+        self.assertEqual(sources.state,'refused')
 
     def test_any_new_candidate_alias_and_known_inode_change_refuse(self):
         for path in probe.CANDIDATES:
@@ -449,6 +463,55 @@ class CatalogTests(unittest.TestCase):
 
 
 class OwnershipTests(unittest.TestCase):
+    def files(self):
+        files = [Mock(),Mock()]
+        for item in files:
+            item.__enter__ = Mock(return_value=item)
+            item.__exit__ = Mock(return_value=False)
+            item.read.return_value = b''
+        return files
+
+    def test_executed_supervisor_child_environment_reaches_owned_scratch_check(self):
+        readelf_base = Mock(UNSETTLED=[],require=base_module.require)
+        readelf_base.OwnedProcess.return_value = SimpleNamespace(pid=321,returncode=None)
+        files = self.files()
+        seen = []
+        def capture(*args,**kwargs):
+            seen.append(kwargs['env'])
+            with patch.dict(owned.os.environ,kwargs['env'],clear=True), \
+                 patch.object(owned.tempfile,'TemporaryFile',side_effect=files), \
+                 patch.object(owned,'settle',side_effect=lambda b,c,s:setattr(c,'returncode',0)):
+                result = owned.command(readelf_base,
+                    ['/proc/self/fd/10','--wide','--dynamic','--program-headers','/proc/self/fd/11'],
+                    pass_fds=(10,11),env={'PATH':'/usr/bin','LANG':'C','LC_ALL':'C'},
+                    deadline=time.monotonic()+120)
+                self.assertEqual(result.returncode,0)
+                readelf_base.OwnedProcess.assert_called_once()
+            return SimpleNamespace(returncode=0)
+        outer = Mock()
+        outer.OwnedProcess.side_effect = capture
+        observed_owned = SimpleNamespace(settle=Mock())
+        supervisor.start_capture(outer,observed_owned,Mock(),Mock())
+        self.assertEqual(seen,[{'HOME':'/home/kdk_vm','PATH':'/usr/bin','LANG':'C',
+                               'TMPDIR':str(probe.STAGE/'scratch')}])
+        observed_owned.settle.assert_called_once()
+        self.assertEqual(observed_owned.settle.call_args.args[2],140)
+
+    def test_delayed_scratch_open_or_preexpired_source_budget_never_spawns(self):
+        for clock, count in (([11],0),([1,11],2)):
+            files = self.files()
+            base = Mock(UNSETTLED=[],require=base_module.require)
+            with patch.dict(owned.os.environ,{'TMPDIR':str(probe.STAGE/'scratch')}), \
+                 patch.object(owned.time,'monotonic',side_effect=clock), \
+                 patch.object(owned.tempfile,'TemporaryFile',side_effect=files) as opened:
+                with self.assertRaises(base_module.Refused):
+                    owned.command(base,['/proc/self/fd/10','--wide','--dynamic','--program-headers','/proc/self/fd/11'],
+                        pass_fds=(10,11),env={'PATH':'/usr/bin','LANG':'C','LC_ALL':'C'},deadline=10.0)
+                base.OwnedProcess.assert_not_called()
+                self.assertEqual(opened.call_count,count)
+                for item in files:
+                    item.seek.assert_not_called(); item.read.assert_not_called()
+
     def test_raw_waitid_field_aliases_float_bool_unknown_and_signal_are_terminal(self):
         for field in ('si_pid','si_code','si_status'):
             for bad in (False, 0.0, '0'):

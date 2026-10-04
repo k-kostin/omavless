@@ -1,5 +1,6 @@
 """Fixed read-only capture ownership: first uncertainty/nonzero is terminal."""
 import os
+import math
 import subprocess
 import tempfile
 import time
@@ -58,17 +59,21 @@ def settle(base, child, seconds):
         raise
 
 
-def command(base, args, *, pass_fds, env):
+def command(base, args, *, pass_fds, env, deadline):
     base.require(not base.UNSETTLED and len(pass_fds) == 2
                  and all(type(fd) is int and fd >= 0 for fd in pass_fds)
                  and args == [f'/proc/self/fd/{pass_fds[0]}', '--wide', '--dynamic',
                               '--program-headers', f'/proc/self/fd/{pass_fds[1]}']
-                 and env == {'PATH':'/usr/bin','LANG':'C','LC_ALL':'C'}, 'fixed_readelf_scope')
+                 and env == {'PATH':'/usr/bin','LANG':'C','LC_ALL':'C'}
+                 and type(deadline) is float and math.isfinite(deadline), 'fixed_readelf_scope')
     # The fixed wrapper supplies only its fresh private scratch directory.
     # No historical global /tmp fallback is used by this new generation.
     base.require(os.environ.get('TMPDIR') == '/home/kdk_vm/.cache/t3-six-library-static-closure-review-1/scratch',
                  'fixed_readelf_scratch')
+    base.require(time.monotonic() < deadline, 'fixed_readelf_source_deadline')
     with tempfile.TemporaryFile(dir=os.environ['TMPDIR']) as output, tempfile.TemporaryFile(dir=os.environ['TMPDIR']) as errors:
+        # Scratch opens can block: recheck immediately before the first process effect.
+        base.require(time.monotonic() < deadline, 'fixed_readelf_source_deadline')
         child = base.OwnedProcess(args, stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
                                   start_new_session=True, pass_fds=pass_fds, env=env)
         settle(base, child, 5)

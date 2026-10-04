@@ -7,14 +7,14 @@ import sys
 
 PARTS = ("home", "kdk_vm", ".cache", "t3-six-library-static-closure-review-1")
 PINS = {
-    'probe.py': '35d550b5f03ce9c471b3f0565756188b90644e55966e9b7a5b482a8d02c940cf',
-    'supervisor.py': '880dc03a381d73e7be5c1b13cfd65aace63ffaaa38f2d497b1e8d18b3ba79871',
+    'probe.py': 'ab7699f6df898bba9aade8a951ac76725a6203b8e03a310b24626a0e98c804a0',
+    'supervisor.py': 'f8c0c377ba1c9c4eed5344ac72ff9f25811e616f1b08c69d6fd9a281c60b631e',
     'validator.py': 'f68d1db1cb085d5c5bdd07a49b2607504c831e862d4e460af3850dab4d167f98',
-    'owned.py': 'f5e57d69a7b3ba0f7a41e9cf07df9f8f86d203c8728401204d3a2a1c4a48fa89',
+    'owned.py': '473547131f72ac768b168370fb31f551b64a428520828ca47e200cd46885eefa',
     "containment.py": "2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592",
     "helpers.py": "cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00",
     "copy-manifest.json": "b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87",
-    'vm-guard.sh': 'bcd83faf42261df313347042712396de740f2ef28ba5939d57aa1a202e2d8da2'
+    'vm-guard.sh': 'b8a290aad0d291c68bef1c0ab1275718e693c7b6613a68ebce4d47657ecdd11d'
 }
 FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 

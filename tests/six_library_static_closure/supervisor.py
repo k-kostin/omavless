@@ -9,8 +9,8 @@ import types
 
 STAGE = Path('/home/kdk_vm/.cache/t3-six-library-static-closure-review-1')
 PINS = {
-    'owned.py': 'f5e57d69a7b3ba0f7a41e9cf07df9f8f86d203c8728401204d3a2a1c4a48fa89',
-    'probe.py': '35d550b5f03ce9c471b3f0565756188b90644e55966e9b7a5b482a8d02c940cf',
+    'owned.py': '473547131f72ac768b168370fb31f551b64a428520828ca47e200cd46885eefa',
+    'probe.py': 'ab7699f6df898bba9aade8a951ac76725a6203b8e03a310b24626a0e98c804a0',
     'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
     'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
     'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87',
@@ -20,6 +20,16 @@ PINS = {
 def require(value):
     if not value:
         raise RuntimeError('fixed_six_library_supervision_refused')
+
+
+def start_capture(base, owned, output, error):
+    child = base.OwnedProcess(['/usr/bin/python3',str(STAGE/'probe.py'),'--capture-fixed-six-libraries'],
+                              stdin=base.subprocess.DEVNULL,stdout=output,stderr=error,
+                              env={'HOME':'/home/kdk_vm','PATH':'/usr/bin','LANG':'C',
+                                   'TMPDIR':str(STAGE/'scratch')},
+                              start_new_session=True,preexec_fn=base.limits)
+    owned.settle(base,child,140)
+    require(type(child.returncode) is int and child.returncode == 0)
 
 
 def run():
@@ -52,12 +62,7 @@ def run():
     owned.__file__ = str(STAGE/'owned.py')
     exec(compile(raw['owned.py'],owned.__file__,'exec'),owned.__dict__)
     with (STAGE/'result.json').open('xb') as output, (STAGE/'child.stderr').open('xb') as error:
-        child = base.OwnedProcess(['/usr/bin/python3',str(STAGE/'probe.py'),'--capture-fixed-six-libraries'],
-                                  stdin=base.subprocess.DEVNULL,stdout=output,stderr=error,
-                                  env={'HOME':'/home/kdk_vm','PATH':'/usr/bin','LANG':'C'},
-                                  start_new_session=True,preexec_fn=base.limits)
-        owned.settle(base,child,140)
-        require(type(child.returncode) is int and child.returncode == 0)
+        start_capture(base,owned,output,error)
 
 
 if __name__ == '__main__':
