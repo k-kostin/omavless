@@ -370,7 +370,12 @@ class Flow(unittest.TestCase):
         self.assertIn('"StopUnit"', adapter)
         for forbidden in ('SetProperties', 'StartTransientUnit', 'RestartUnit', 'KillUnit'):
             self.assertNotIn(forbidden, adapter)
-        self.assertIn('&(UNIT, "fail")', adapter)
+        self.assertIn('&(self.fixture.unit(), "fail")', adapter)
+        identities = (src / 'manager_fixture_identity.rs').read_text()
+        self.assertIn('pub(crate) enum Fixture', identities)
+        self.assertIn('PrivateLifecycle,', identities)
+        self.assertIn('RetainedLease,', identities)
+        self.assertNotIn('Deserialize', identities)
 
     def fixture(self):
         obj = object.__new__(guard.Observer)

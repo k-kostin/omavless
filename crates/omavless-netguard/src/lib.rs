@@ -30,6 +30,8 @@ mod manager_configured_dump;
 #[cfg(all(test, target_os = "linux"))]
 mod manager_configured_reference_fixture;
 #[cfg(test)]
+mod manager_fixture_identity;
+#[cfg(test)]
 mod manager_lifecycle_admission_dump;
 #[cfg(test)]
 mod manager_lifecycle_admission_fixture;

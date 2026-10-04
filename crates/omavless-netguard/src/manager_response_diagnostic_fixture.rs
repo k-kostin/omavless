@@ -1,4 +1,5 @@
 //! Developer-only configured facts. No start, lifecycle or ownership admission.
+use crate::manager_fixture_identity::Fixture;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -83,9 +84,13 @@ fn number(values: &HashMap<String, OwnedValue>, key: &str) -> Result<u64> {
 }
 
 fn identity(values: &HashMap<String, OwnedValue>) -> Result<Value> {
-    require(text(values, "Id")? == UNIT)?;
+    identity_for(Fixture::PrivateLifecycle, values)
+}
+
+fn identity_for(fixture: Fixture, values: &HashMap<String, OwnedValue>) -> Result<Value> {
+    require(text(values, "Id")? == fixture.unit())?;
     require(text(values, "LoadState")? == "loaded")?;
-    require(text(values, "FragmentPath")? == FRAGMENT)?;
+    require(text(values, "FragmentPath")? == fixture.fragment())?;
     require(text(values, "ActiveState")? == "inactive")?;
     require(text(values, "SubState")? == "dead")?;
     // Empty containers can convert without checking element types. Inspect the
@@ -110,7 +115,7 @@ fn identity(values: &HashMap<String, OwnedValue>) -> Result<Value> {
     .map_err(|_| REFUSE)?;
     require(job.0 == 0 && job.1.as_str() == "/")?;
     Ok(
-        json!({"Id": UNIT, "LoadState": "loaded", "FragmentPath": FRAGMENT,
+        json!({"Id": fixture.unit(), "LoadState": "loaded", "FragmentPath": fixture.fragment(),
         "ActiveState": "inactive", "SubState": "dead", "DropInPaths": [],
         "Job": {"type": "(uo)", "data": [0, "/"]}}),
     )
@@ -152,70 +157,98 @@ pub(super) enum Request {
 
 pub(super) trait FixedBus {
     fn request(&self, owner: &str, request: Request) -> Result<zbus::Message>;
+    fn fixture(&self) -> Fixture {
+        Fixture::PrivateLifecycle
+    }
 }
 
 impl FixedBus for Connection {
     fn request(&self, owner: &str, request: Request) -> Result<zbus::Message> {
-        let reply = match request {
-            Request::Owner => self.call_method(
-                Some("org.freedesktop.DBus"),
-                "/org/freedesktop/DBus",
-                Some("org.freedesktop.DBus"),
-                "GetNameOwner",
-                &("org.freedesktop.systemd1",),
-            ),
-            Request::Ref => self.call_method(
-                Some(owner),
-                MANAGER_PATH,
-                Some(MANAGER),
-                "RefUnit",
-                &(UNIT,),
-            ),
-            Request::VersionBefore | Request::VersionAfter => self.call_method(
-                Some(owner),
-                MANAGER_PATH,
-                Some("org.freedesktop.DBus.Properties"),
-                "Get",
-                &(MANAGER, "Version"),
-            ),
-            Request::Unit => self.call_method(
-                Some(owner),
-                UNIT_PATH,
-                Some("org.freedesktop.DBus.Properties"),
-                "GetAll",
-                &("org.freedesktop.systemd1.Unit",),
-            ),
-            Request::Service => self.call_method(
-                Some(owner),
-                UNIT_PATH,
-                Some("org.freedesktop.DBus.Properties"),
-                "GetAll",
-                &("org.freedesktop.systemd1.Service",),
-            ),
-            Request::Dump => self.call_method(
-                Some(owner),
-                MANAGER_PATH,
-                Some(MANAGER),
-                "DumpUnitsMatchingPatterns",
-                &(vec![UNIT],),
-            ),
-            Request::Unref => self.call_method(
-                Some(owner),
-                MANAGER_PATH,
-                Some(MANAGER),
-                "UnrefUnit",
-                &(UNIT,),
-            ),
-            Request::PostUnrefAll => self.call_method(
-                Some(owner),
-                UNIT_PATH,
-                Some("org.freedesktop.DBus.Properties"),
-                "GetAll",
-                &("",),
-            ),
-        };
-        reply.map_err(|_| REFUSE)
+        request_for(self, Fixture::PrivateLifecycle, owner, request)
     }
+}
+
+pub(super) struct FixedConnection {
+    pub(super) connection: Connection,
+    pub(super) fixture: Fixture,
+}
+
+impl FixedBus for FixedConnection {
+    fn request(&self, owner: &str, request: Request) -> Result<zbus::Message> {
+        request_for(&self.connection, self.fixture, owner, request)
+    }
+    fn fixture(&self) -> Fixture {
+        self.fixture
+    }
+}
+
+fn request_for(
+    connection: &Connection,
+    fixture: Fixture,
+    owner: &str,
+    request: Request,
+) -> Result<zbus::Message> {
+    let unit = fixture.unit();
+    let unit_path = fixture.unit_path();
+    let reply = match request {
+        Request::Owner => connection.call_method(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus"),
+            "GetNameOwner",
+            &("org.freedesktop.systemd1",),
+        ),
+        Request::Ref => connection.call_method(
+            Some(owner),
+            MANAGER_PATH,
+            Some(MANAGER),
+            "RefUnit",
+            &(unit,),
+        ),
+        Request::VersionBefore | Request::VersionAfter => connection.call_method(
+            Some(owner),
+            MANAGER_PATH,
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &(MANAGER, "Version"),
+        ),
+        Request::Unit => connection.call_method(
+            Some(owner),
+            unit_path,
+            Some("org.freedesktop.DBus.Properties"),
+            "GetAll",
+            &("org.freedesktop.systemd1.Unit",),
+        ),
+        Request::Service => connection.call_method(
+            Some(owner),
+            unit_path,
+            Some("org.freedesktop.DBus.Properties"),
+            "GetAll",
+            &("org.freedesktop.systemd1.Service",),
+        ),
+        Request::Dump => connection.call_method(
+            Some(owner),
+            MANAGER_PATH,
+            Some(MANAGER),
+            "DumpUnitsMatchingPatterns",
+            &(vec![unit],),
+        ),
+        Request::Unref => connection.call_method(
+            Some(owner),
+            MANAGER_PATH,
+            Some(MANAGER),
+            "UnrefUnit",
+            &(unit,),
+        ),
+        Request::PostUnrefAll => connection.call_method(
+            Some(owner),
+            unit_path,
+            Some("org.freedesktop.DBus.Properties"),
+            "GetAll",
+            &("",),
+        ),
+    };
+    reply.map_err(|_| REFUSE)
 }
 
 pub(super) struct Held<B = Connection> {
@@ -226,6 +259,7 @@ pub(super) struct Held<B = Connection> {
 
 impl<B: FixedBus> Held<B> {
     fn request(&self, owner: &str, request: Request) -> Result<zbus::Message> {
+        let fixture = self.connection.fixture();
         let (before, after) = match request {
             Request::Owner => ("rpc-00-before.json", "rpc-00-response.json"),
             Request::VersionBefore => ("rpc-01-before.json", "rpc-01-response.json"),
@@ -262,21 +296,25 @@ impl<B: FixedBus> Held<B> {
                 }
                 Request::Unit => {
                     let fields = decode::<Properties>(&reply)?.0;
-                    let facts =
-                        crate::manager_response_diagnostic_permissions::diagnostic(&fields, false)
-                            .map_err(|_| REFUSE)?;
+                    let facts = crate::manager_response_diagnostic_permissions::diagnostic_for(
+                        fixture, &fields, false,
+                    )
+                    .map_err(|_| REFUSE)?;
                     Ok((
-                        identity(&fields).is_ok()
-                            && crate::manager_response_diagnostic_permissions::check_unit(&fields)
-                                .is_ok(),
+                        identity_for(fixture, &fields).is_ok()
+                            && crate::manager_response_diagnostic_permissions::check_unit_for(
+                                fixture, &fields,
+                            )
+                            .is_ok(),
                         facts,
                     ))
                 }
                 Request::Service => {
                     let fields = decode::<Properties>(&reply)?.0;
-                    let facts =
-                        crate::manager_response_diagnostic_permissions::diagnostic(&fields, true)
-                            .map_err(|_| REFUSE)?;
+                    let facts = crate::manager_response_diagnostic_permissions::diagnostic_for(
+                        fixture, &fields, true,
+                    )
+                    .map_err(|_| REFUSE)?;
                     let valid = selected_service(&fields).is_ok()
                         && facts["mismatch_fields"]
                             .as_array()
@@ -286,11 +324,12 @@ impl<B: FixedBus> Held<B> {
                 Request::Dump => {
                     let dump: String = decode(&reply)?;
                     require(dump.len() <= 64 * 1024)?;
-                    let valid = crate::manager_response_diagnostic_dump::proposed_text_matches(
+                    let valid = crate::manager_response_diagnostic_dump::proposed_text_matches_for(
+                        fixture,
                         "261.2-1-arch",
-                        UNIT,
-                        FRAGMENT,
-                        crate::manager_response_diagnostic_dump::UNIT_SHA,
+                        fixture.unit(),
+                        fixture.fragment(),
+                        fixture.unit_sha(),
                         &dump,
                     )
                     .is_ok();
@@ -301,17 +340,19 @@ impl<B: FixedBus> Held<B> {
                 }
                 Request::PostUnrefAll => {
                     let fields = decode::<Properties<1024>>(&reply)?.0;
-                    let unit =
-                        crate::manager_response_diagnostic_permissions::diagnostic(&fields, false)
-                            .map_err(|_| REFUSE)?;
-                    let service =
-                        crate::manager_response_diagnostic_permissions::diagnostic(&fields, true)
-                            .map_err(|_| REFUSE)?;
+                    let unit = crate::manager_response_diagnostic_permissions::diagnostic_for(
+                        fixture, &fields, false,
+                    )
+                    .map_err(|_| REFUSE)?;
+                    let service = crate::manager_response_diagnostic_permissions::diagnostic_for(
+                        fixture, &fields, true,
+                    )
+                    .map_err(|_| REFUSE)?;
                     Ok((
-                        identity(&fields).is_ok()
+                        identity_for(fixture, &fields).is_ok()
                             && selected_service(&fields).is_ok()
-                            && crate::manager_response_diagnostic_permissions::check(
-                                &fields, &fields,
+                            && crate::manager_response_diagnostic_permissions::check_for(
+                                fixture, &fields, &fields,
                             )
                             .is_ok(),
                         json!({"unit":unit,"service":service}),
@@ -354,7 +395,7 @@ fn manager_version(message: &zbus::Message) -> Result<String> {
 }
 
 pub(super) fn admit_retaining_reference(
-    held: &Held,
+    held: &Held<impl FixedBus>,
     before_ref: impl FnOnce() -> std::result::Result<(), ()>,
 ) -> Result<String> {
     admitted_prefix_checked(held, before_ref)
@@ -368,6 +409,7 @@ fn admitted_prefix_checked(
     held: &Held<impl FixedBus>,
     before_ref: impl FnOnce() -> std::result::Result<(), ()>,
 ) -> Result<String> {
+    let fixture = held.connection.fixture();
     // Pin the manager's unique bus identity. Never follow a replacement owner.
     let reply = held.request("", Request::Owner)?;
     let owner: String = decode(&reply)?;
@@ -378,12 +420,13 @@ fn admitted_prefix_checked(
     let reference = held.request(&owner, Request::Ref)?;
     decode::<()>(&reference)?;
     let unit_properties = decode::<Properties>(&held.request(&owner, Request::Unit)?)?;
-    let unit = identity(&unit_properties.0)?;
-    crate::manager_response_diagnostic_permissions::check_unit(&unit_properties.0)
+    let unit = identity_for(fixture, &unit_properties.0)?;
+    crate::manager_response_diagnostic_permissions::check_unit_for(fixture, &unit_properties.0)
         .map_err(|_| REFUSE)?;
     let service_properties = decode::<Properties>(&held.request(&owner, Request::Service)?)?;
     let service = selected_service(&service_properties.0)?;
-    let permission_fields = crate::manager_response_diagnostic_permissions::recorded(
+    let permission_fields = crate::manager_response_diagnostic_permissions::recorded_for(
+        fixture,
         &unit_properties.0,
         &service_properties.0,
     )
@@ -391,11 +434,12 @@ fn admitted_prefix_checked(
     let reply = held.request(&owner, Request::Dump)?;
     let dump: String = decode(&reply)?;
     require(!dump.is_empty() && dump.len() <= MAX_REPLY && !dump.contains('\0'))?;
-    crate::manager_response_diagnostic_dump::proposed_text_matches(
+    crate::manager_response_diagnostic_dump::proposed_text_matches_for(
+        fixture,
         &version_before,
-        UNIT,
-        FRAGMENT,
-        crate::manager_response_diagnostic_dump::UNIT_SHA,
+        fixture.unit(),
+        fixture.fragment(),
+        fixture.unit_sha(),
         &dump,
     )
     .map_err(|_| REFUSE)?;
@@ -403,7 +447,7 @@ fn admitted_prefix_checked(
     let version_after = manager_version(&held.request(&owner, Request::VersionAfter)?)?;
     require(version_before == version_after)?;
     let version = json!({"schema": 2, "marker": "OBSERVED_VERSION_DATA_NOT_ADMISSION",
-        "unique_owner": owner, "unit": UNIT,
+        "unique_owner": owner, "unit": fixture.unit(),
         "before_ref": {"type": "s", "data": [version_before]},
         "while_ref_after_dump": {"type": "s", "data": [version_after]},
         "admission": false});
@@ -899,6 +943,84 @@ mod controls {
                     reply(&crate::manager_response_diagnostic_dump::tests::synthetic())
                 }
             })
+        }
+    }
+
+    #[test]
+    fn fresh_fixed_identity_uses_same_seven_rpc_prefix_and_crossed_replies_stop() {
+        struct Fresh {
+            fake: Fake,
+            crossed: Option<Request>,
+        }
+        impl FixedBus for Fresh {
+            fn fixture(&self) -> Fixture {
+                Fixture::RetainedLease
+            }
+            fn request(&self, owner: &str, request: Request) -> Result<zbus::Message> {
+                if self.crossed == Some(request)
+                    || !matches!(request, Request::Unit | Request::Service | Request::Dump)
+                {
+                    return self.fake.request(owner, request);
+                }
+                assert_eq!(owner, ":1.77");
+                self.fake.calls.borrow_mut().push(request);
+                Ok(match request {
+                    Request::Unit => {
+                        let mut facts = unit_values();
+                        facts.extend(
+                            crate::manager_response_diagnostic_permissions::expected_unit_for(
+                                self.fixture(),
+                            ),
+                        );
+                        reply(&facts)
+                    }
+                    Request::Service => reply(
+                        &crate::manager_response_diagnostic_permissions::expected_service_for(
+                            self.fixture(),
+                        ),
+                    ),
+                    Request::Dump => reply(
+                        &crate::manager_response_diagnostic_dump::tests::synthetic_for(
+                            self.fixture(),
+                        ),
+                    ),
+                    _ => unreachable!(),
+                })
+            }
+        }
+        for crossed in [
+            None,
+            Some(Request::Unit),
+            Some(Request::Service),
+            Some(Request::Dump),
+        ] {
+            let path = crate::test_temp::directory("k1-lease-prefix").unwrap();
+            let held = Held {
+                connection: Fresh {
+                    fake: Fake {
+                        calls: RefCell::new(Vec::new()),
+                        fail: None,
+                        malformed: false,
+                    },
+                    crossed,
+                },
+                stage: File::open(&path).unwrap(),
+            };
+            let result = admit_retaining_reference(&held, || Ok(()));
+            if let Some(request) = crossed {
+                assert!(result.is_err());
+                let count = ORDER.iter().position(|value| *value == request).unwrap() + 1;
+                assert_eq!(*held.connection.fake.calls.borrow(), ORDER[..count]);
+            } else {
+                assert_eq!(result.unwrap(), ":1.77");
+                assert_eq!(*held.connection.fake.calls.borrow(), ORDER[..7]);
+                let raw =
+                    std::fs::read(path.join("private-admission-manager-version.json")).unwrap();
+                let value: Value = serde_json::from_slice(&raw).unwrap();
+                assert_eq!(value["unit"], Fixture::RetainedLease.unit());
+            }
+            // Pure injected bus, no actual manager reference or child exists.
+            std::fs::remove_dir_all(path).unwrap();
         }
     }
 

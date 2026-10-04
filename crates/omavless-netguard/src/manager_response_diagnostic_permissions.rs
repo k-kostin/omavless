@@ -1,5 +1,6 @@
 //! Pure developer-fixture permission checks. No bus calls or start authority.
 //! Same-owner/version, raw unit/ELF FD continuity and phase remain caller duties.
+use crate::manager_fixture_identity::Fixture;
 use std::collections::HashMap;
 use zbus::zvariant::{OwnedValue, Value};
 
@@ -16,9 +17,14 @@ fn put(values: &mut Facts, key: &str, value: impl Into<Value<'static>>) {
 }
 
 pub(super) fn expected_unit() -> Facts {
+    expected_unit_for(Fixture::PrivateLifecycle)
+}
+
+pub(super) fn expected_unit_for(fixture: Fixture) -> Facts {
+    let unit = fixture.unit();
     let mut values = Facts::new();
     for (key, value) in [
-        ("Id", UNIT),
+        ("Id", unit),
         ("Following", ""),
         ("LoadState", "loaded"),
         ("ActiveState", "inactive"),
@@ -28,12 +34,8 @@ pub(super) fn expected_unit() -> Facts {
     ] {
         put(&mut values, key, value);
     }
-    put(&mut values, "Names", vec![UNIT.to_owned()]);
-    put(
-        &mut values,
-        "FragmentPath",
-        format!("/run/systemd/system/{UNIT}"),
-    );
+    put(&mut values, "Names", vec![unit.to_owned()]);
+    put(&mut values, "FragmentPath", fixture.fragment().to_owned());
     for key in [
         "DropInPaths",
         "Wants",
@@ -60,6 +62,10 @@ pub(super) fn expected_unit() -> Facts {
 }
 
 pub(super) fn expected_service() -> Facts {
+    expected_service_for(Fixture::PrivateLifecycle)
+}
+
+pub(super) fn expected_service_for(fixture: Fixture) -> Facts {
     let mut values = Facts::new();
     for (key, value) in [
         ("Type", "oneshot"),
@@ -125,7 +131,7 @@ pub(super) fn expected_service() -> Facts {
     put(
         &mut values,
         "Environment",
-        vec!["OMAVLESS_K1_RETAINED_LIFECYCLE_WRITER=1".to_owned()],
+        vec![fixture.environment().to_owned()],
     );
     put(
         &mut values,
@@ -175,11 +181,11 @@ pub(super) fn expected_service() -> Facts {
     ] {
         put(&mut values, key, Vec::<Exec>::new());
     }
-    let executable = format!("{STAGE}/probe");
+    let executable = format!("{}/probe", fixture.stage());
     let arguments = vec![
         executable.clone(),
         "--exact".into(),
-        WRITER.into(),
+        fixture.writer().into(),
         "--ignored".into(),
         "--nocapture".into(),
         "--test-threads=1".into(),
@@ -206,7 +212,11 @@ fn exact_selected(actual: &Facts, expected: &Facts) -> Result<(), ()> {
 }
 
 pub(super) fn check_unit(unit: &Facts) -> Result<(), ()> {
-    exact_selected(unit, &expected_unit())?;
+    check_unit_for(Fixture::PrivateLifecycle, unit)
+}
+
+pub(super) fn check_unit_for(fixture: Fixture, unit: &Facts) -> Result<(), ()> {
+    exact_selected(unit, &expected_unit_for(fixture))?;
     let value = unit.get("Requires").ok_or(())?;
     let first = OwnedValue::try_from(Value::from(vec!["sysinit.target", "system.slice"]))
         .map_err(|_| ())?;
@@ -219,14 +229,22 @@ pub(super) fn check_unit(unit: &Facts) -> Result<(), ()> {
 }
 
 pub(super) fn check(unit: &Facts, service: &Facts) -> Result<(), ()> {
-    check_unit(unit)?;
-    exact_selected(service, &expected_service())
+    check_for(Fixture::PrivateLifecycle, unit, service)
+}
+
+pub(super) fn check_for(fixture: Fixture, unit: &Facts, service: &Facts) -> Result<(), ()> {
+    check_unit_for(fixture, unit)?;
+    exact_selected(service, &expected_service_for(fixture))
 }
 
 // Runtime phase validation is separate, not replacement values injected into
 // the observed dictionary. Every unchanged security prerequisite still applies.
 pub(super) fn check_lifecycle_stable(actual: &Facts) -> Result<(), ()> {
-    let mut unit = expected_unit();
+    check_lifecycle_stable_for(Fixture::PrivateLifecycle, actual)
+}
+
+pub(super) fn check_lifecycle_stable_for(fixture: Fixture, actual: &Facts) -> Result<(), ()> {
+    let mut unit = expected_unit_for(fixture);
     unit.remove("ActiveState");
     unit.remove("SubState");
     exact_selected(actual, &unit)?;
@@ -238,7 +256,7 @@ pub(super) fn check_lifecycle_stable(actual: &Facts) -> Result<(), ()> {
     if requires != &first && requires != &second {
         return Err(());
     }
-    let mut service = expected_service();
+    let mut service = expected_service_for(fixture);
     for runtime in [
         "ControlGroup",
         "WatchdogUSec",
@@ -254,13 +272,21 @@ pub(super) fn check_lifecycle_stable(actual: &Facts) -> Result<(), ()> {
 }
 
 pub(super) fn recorded(unit: &Facts, service: &Facts) -> Result<serde_json::Value, ()> {
-    check(unit, service)?;
-    let mut selected_unit = expected_unit();
+    recorded_for(Fixture::PrivateLifecycle, unit, service)
+}
+
+pub(super) fn recorded_for(
+    fixture: Fixture,
+    unit: &Facts,
+    service: &Facts,
+) -> Result<serde_json::Value, ()> {
+    check_for(fixture, unit, service)?;
+    let mut selected_unit = expected_unit_for(fixture);
     put(&mut selected_unit, "Requires", Vec::<String>::new());
     let mut output = serde_json::Map::new();
     for (name, actual, selected) in [
         ("unit", unit, selected_unit),
-        ("service", service, expected_service()),
+        ("service", service, expected_service_for(fixture)),
     ] {
         let mut rows = serde_json::Map::new();
         for key in selected.keys() {
@@ -276,10 +302,18 @@ pub(super) fn recorded(unit: &Facts, service: &Facts) -> Result<serde_json::Valu
 
 // Diagnostic projection only. Selecting a received value does not admit it.
 pub(super) fn diagnostic(actual: &Facts, service: bool) -> Result<serde_json::Value, ()> {
+    diagnostic_for(Fixture::PrivateLifecycle, actual, service)
+}
+
+pub(super) fn diagnostic_for(
+    fixture: Fixture,
+    actual: &Facts,
+    service: bool,
+) -> Result<serde_json::Value, ()> {
     let mut expected = if service {
-        expected_service()
+        expected_service_for(fixture)
     } else {
-        expected_unit()
+        expected_unit_for(fixture)
     };
     if !service {
         put(
@@ -321,6 +355,58 @@ pub(super) fn diagnostic(actual: &Facts, service: bool) -> Result<serde_json::Va
         });
     }
     Ok(serde_json::json!({"selected":selected,"mismatch_fields":mismatches}))
+}
+
+#[test]
+fn fresh_lease_permissions_are_not_legacy_fixture_admission() {
+    assert_eq!(Fixture::PrivateLifecycle.writer(), WRITER);
+    assert_eq!(Fixture::PrivateLifecycle.stage(), STAGE);
+    assert_eq!(Fixture::PrivateLifecycle.unit(), UNIT);
+    for fixture in [Fixture::PrivateLifecycle, Fixture::RetainedLease] {
+        let mut unit = expected_unit_for(fixture);
+        put(
+            &mut unit,
+            "Requires",
+            vec!["system.slice", "sysinit.target"],
+        );
+        let service = expected_service_for(fixture);
+        assert_eq!(check_for(fixture, &unit, &service), Ok(()));
+        if fixture == Fixture::PrivateLifecycle {
+            assert_eq!(check_unit(&unit), Ok(()));
+            assert_eq!(
+                diagnostic(&service, true),
+                diagnostic_for(fixture, &service, true)
+            );
+        }
+        let other = if fixture == Fixture::PrivateLifecycle {
+            Fixture::RetainedLease
+        } else {
+            Fixture::PrivateLifecycle
+        };
+        assert!(check_for(other, &unit, &service).is_err());
+        for key in ["Id", "Names", "FragmentPath"] {
+            let mut crossed = expected_unit_for(fixture);
+            put(
+                &mut crossed,
+                "Requires",
+                vec!["system.slice", "sysinit.target"],
+            );
+            crossed.insert(key.into(), expected_unit_for(other).remove(key).unwrap());
+            assert!(check_for(fixture, &crossed, &service).is_err());
+        }
+        for key in ["Environment", "ExecStart"] {
+            let mut crossed = expected_service_for(fixture);
+            crossed.insert(key.into(), expected_service_for(other).remove(key).unwrap());
+            assert!(check_for(fixture, &unit, &crossed).is_err());
+        }
+        let records = recorded_for(fixture, &unit, &service).unwrap();
+        assert_eq!(
+            records["unit"]["Id"],
+            serde_json::json!({"signature":"s","value":fixture.unit()})
+        );
+        let projected = diagnostic_for(fixture, &service, true).unwrap();
+        assert_eq!(projected["mismatch_fields"], serde_json::json!([]));
+    }
 }
 
 #[test]

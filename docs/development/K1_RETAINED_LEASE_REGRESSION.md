@@ -7,10 +7,18 @@ No native fixture, manager operation or VM action has been executed for this
 checkpoint. Normal runtime ownership, package dependencies and K1 availability
 remain unchanged. Every actual effect remains under `cfg(test)`.
 
-The first source checkpoint supplies the restricted native writer, not a
-complete runnable delivery. A new fixed retained-manager adapter, unit,
-root guard, source pins, independently reviewed build/freeze provenance and
-explicit executor authorization are still required. Missing delivery pieces
+The source supplies the restricted native writer and its fixed unit, sharing
+the existing retained-manager coordinator, typed admission, configured-dump
+validator and original-FD negative witness. A closed test-only identity enum
+selects only the old fixture or this fresh fixture; no caller path, deserialization
+or production entry selects it. Crossed units, commands, environment, receipts
+and dumps refuse. The new adapter requires three acknowledged primary effects
+and the separately retained same-namespace PendingCreate receipt before Stop.
+The legacy entry keeps its own two-effect schema and fixed identity.
+
+This is not yet a complete runnable delivery. A fresh root guard, source pins,
+independently reviewed build/freeze provenance and explicit executor
+authorization are still required. Missing delivery pieces
 must not be filled with #631's identity or an arbitrary unit/source path.
 
 ## Fixed identity and sequence

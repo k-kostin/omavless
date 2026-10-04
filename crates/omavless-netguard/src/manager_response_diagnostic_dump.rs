@@ -1,5 +1,6 @@
 //! Pure fixed-version configured facts, never lifecycle/ownership admission.
 //! Caller must bind same-owner typed Version and original unit FD separately.
+use crate::manager_fixture_identity::Fixture;
 use std::collections::BTreeMap;
 
 const UNIT: &str = "omavless-k1-retained-private-lifecycle.service";
@@ -44,10 +45,28 @@ pub(super) fn proposed_text_matches(
     assumed_unit_sha: &str,
     dump: &str,
 ) -> Result<(), ()> {
+    proposed_text_matches_for(
+        Fixture::PrivateLifecycle,
+        assumed_version,
+        observed_unit,
+        observed_fragment,
+        assumed_unit_sha,
+        dump,
+    )
+}
+
+pub(super) fn proposed_text_matches_for(
+    fixture: Fixture,
+    assumed_version: &str,
+    observed_unit: &str,
+    observed_fragment: &str,
+    assumed_unit_sha: &str,
+    dump: &str,
+) -> Result<(), ()> {
     if assumed_version != "261.2-1-arch"
-        || observed_unit != UNIT
-        || observed_fragment != FRAGMENT
-        || assumed_unit_sha != UNIT_SHA
+        || observed_unit != fixture.unit()
+        || observed_fragment != fixture.fragment()
+        || assumed_unit_sha != fixture.unit_sha()
         || dump.len() > 64 * 1024
         || !dump.ends_with('\n')
         || dump
@@ -57,7 +76,14 @@ pub(super) fn proposed_text_matches(
         return Err(());
     }
     let mut lines = dump.split_terminator('\n');
-    if lines.next() != Some(HEADER) {
+    let header = format!("→ Unit {}:", fixture.unit());
+    let command = format!(
+        "\t\tCommand Line: {}/probe --exact {} --ignored --nocapture --test-threads=1",
+        fixture.stage(),
+        fixture.writer()
+    );
+    let selected = selected_for(fixture);
+    if lines.next() != Some(header.as_str()) {
         return Err(());
     }
     let mut seen = BTreeMap::new();
@@ -69,7 +95,7 @@ pub(super) fn proposed_text_matches(
             return Err(());
         }
         if line == EXEC {
-            if exec || lines.next() != Some(COMMAND) {
+            if exec || lines.next() != Some(command.as_str()) {
                 return Err(());
             }
             exec = true;
@@ -88,8 +114,8 @@ pub(super) fn proposed_text_matches(
         }
         let occurrences = seen.entry(label).or_insert(0_usize);
         *occurrences += 1;
-        if let Some((_, expected)) = SELECTED.iter().find(|(key, _)| *key == label) {
-            if value != *expected || *occurrences != 1 {
+        if let Some((_, expected)) = selected.iter().find(|(key, _)| *key == label) {
+            if value != expected || *occurrences != 1 {
                 return Err(());
             }
         } else if !OTHER_LABELS.split('|').any(|known| label == known)
@@ -103,13 +129,29 @@ pub(super) fn proposed_text_matches(
         }
     }
     if !exec
-        || SELECTED
+        || selected
             .iter()
             .any(|(label, _)| seen.get(label) != Some(&1))
     {
         return Err(());
     }
     Ok(())
+}
+
+fn selected_for(fixture: Fixture) -> Vec<(&'static str, String)> {
+    SELECTED
+        .iter()
+        .map(|(label, original)| {
+            let value = match *label {
+                "Fragment Path" => fixture.fragment().to_owned(),
+                "StandardOutputFileToAppend" => format!("{}/native.stdout", fixture.stage()),
+                "StandardErrorFileToAppend" => format!("{}/native.stderr", fixture.stage()),
+                "Environment" => fixture.environment().to_owned(),
+                _ => (*original).to_owned(),
+            };
+            (*label, value)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -125,8 +167,67 @@ pub(super) mod tests {
         text
     }
 
+    pub(crate) fn synthetic_for(fixture: Fixture) -> String {
+        let mut text = format!("→ Unit {}:\n", fixture.unit());
+        for (label, value) in selected_for(fixture) {
+            text.push_str(&format!("\t{label}: {value}\n"));
+        }
+        text.push_str(&format!("{EXEC}\n\t\tCommand Line: {}/probe --exact {} --ignored --nocapture --test-threads=1\n", fixture.stage(), fixture.writer()));
+        text
+    }
+
     fn check(text: &str) -> Result<(), ()> {
         proposed_text_matches("261.2-1-arch", UNIT, FRAGMENT, UNIT_SHA, text)
+    }
+
+    #[test]
+    fn both_fixed_dumps_reject_crossed_identity_command_and_paths() {
+        assert_eq!(Fixture::PrivateLifecycle.unit_sha(), UNIT_SHA);
+        for fixture in [Fixture::PrivateLifecycle, Fixture::RetainedLease] {
+            let mut text = format!("→ Unit {}:\n", fixture.unit());
+            for (label, value) in selected_for(fixture) {
+                text.push_str(&format!("\t{label}: {value}\n"));
+            }
+            text.push_str(&format!("{EXEC}\n\t\tCommand Line: {}/probe --exact {} --ignored --nocapture --test-threads=1\n", fixture.stage(), fixture.writer()));
+            let validate = |raw: &str| {
+                proposed_text_matches_for(
+                    fixture,
+                    "261.2-1-arch",
+                    fixture.unit(),
+                    fixture.fragment(),
+                    fixture.unit_sha(),
+                    raw,
+                )
+            };
+            assert_eq!(validate(&text), Ok(()));
+            let other = if fixture == Fixture::PrivateLifecycle {
+                Fixture::RetainedLease
+            } else {
+                Fixture::PrivateLifecycle
+            };
+            assert!(
+                proposed_text_matches_for(
+                    other,
+                    "261.2-1-arch",
+                    fixture.unit(),
+                    fixture.fragment(),
+                    fixture.unit_sha(),
+                    &text
+                )
+                .is_err()
+            );
+            for (from, to) in [
+                (fixture.unit(), other.unit()),
+                (fixture.stage(), other.stage()),
+                (fixture.writer(), other.writer()),
+                (fixture.environment(), other.environment()),
+            ] {
+                assert!(validate(&text.replace(from, to)).is_err());
+            }
+            if fixture == Fixture::PrivateLifecycle {
+                assert_eq!(text, synthetic());
+            }
+        }
     }
 
     #[test]
