@@ -28,7 +28,7 @@ def receipt():
         paths = sorted((executable, "/usr/lib/libc.so.6", "/usr/lib/ld-linux-x86-64.so.2"))
         maps[name] = [{"path": path, **{k: copies[path][k] for k in ("device", "inode", "size", "sha256")}}
                       for path in paths]
-    return dict(schema="encoder-libm-mapping-inventory-v1", outcome="OBSERVED_INVENTORY_ONLY",
+    return dict(schema="encoder-libm-mapping-batch-inventory-v1", outcome="OBSERVED_INVENTORY_ONLY",
                 source_sha256=validator.PROBE_SHA, pins=validator.PINS, known_outer_returncode=0,
                 broker_executed=False, core_executed=False, dns_mutations=False, compatibility_acceptance=False,
                 receipt=dict(initial=maps, final=copy.deepcopy(maps), copies=copies,
@@ -37,6 +37,19 @@ def receipt():
 
 
 class LiveFdReview2FixtureTests(unittest.TestCase):
+    def test_fresh_fixed_generation_and_prior_receipt_not_accepted(self):
+        from tests.encoder_libm_live_mapping import transport
+        expected = Path('/home/kdk_vm/.cache/t3-encoder-libm-mapping-review-2')
+        self.assertEqual(probe.STAGE, expected)
+        self.assertEqual(validator.STAGE, expected)
+        self.assertEqual(Path('/').joinpath(*transport.PARTS), expected)
+        guard = (ROOT / 'vm-guard.sh').read_text()
+        self.assertIn('task_stage=' + str(expected) + '\n', guard)
+        self.assertNotIn('t3-encoder-libm-mapping-review-1', guard)
+        old = receipt()
+        old['schema'] = 'encoder-libm-mapping-inventory-v1'
+        with self.assertRaises(ValueError): validator.validate(json.dumps(old).encode(), MANIFEST)
+
     def test_entire_dependency_graph_is_pinned(self):
         self.assertEqual(hashlib.sha256((ROOT / "probe.py").read_bytes()).hexdigest(), validator.PROBE_SHA)
         self.assertEqual(probe.PINS, validator.PINS)
