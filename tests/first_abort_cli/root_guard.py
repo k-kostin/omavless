@@ -255,6 +255,25 @@ def reserve_elf_slots(pins):
         RETAINED.append(number)
 
 
+def complete_publication(writer, original, name, source):
+    """Transfer this completed created inode to readonly retention before exec."""
+    available()
+    require(name in ('helper', 'omavless') and writer in RETAINED)
+    readonly = File(ARTIFACTS / name, UID, 0o500, ELF_LIMIT, source.sha)
+    require(identity(original) == identity(os.fstat(writer)) == identity(readonly.before))
+    readonly.recheck()
+    source.recheck()
+    os.fsync(writer)
+    require(identity(original) == identity(os.fstat(writer))
+            == identity(os.fstat(readonly.fd)) == identity(readonly.path.lstat())
+            and not os.listxattr(writer))
+    # A known successful close is the sole permitted release. A close error is
+    # terminal, never retried; fchmod0500 alone does not clear FMODE_WRITE.
+    os.close(writer)
+    RETAINED.remove(writer)
+    return readonly
+
+
 class Guard:
     def __init__(self, value, pins, support, lineage):
         self.value, self.pins, self.support, self.lineage = value, pins, support, lineage
@@ -429,6 +448,7 @@ class Guard:
         os.mkdir(ARTIFACTS, 0o700)
         directory = os.open(ARTIFACTS, FLAGS | os.O_DIRECTORY)
         RETAINED.append(directory)
+        writers = {}
         for name in ('helper', 'omavless'):
             pin = self.pins[name]
             pin.recheck()
@@ -445,12 +465,13 @@ class Guard:
             os.fchmod(fd, 0o500)
             os.fsync(fd)
             pin.recheck()
+            writers[name] = (fd, os.fstat(fd))
         os.fchown(directory, UID, UID)
         os.fsync(directory)
         os.fsync(self.home_pin.rows[-1][1])
         self.artifacts_pin = Parents(ARTIFACTS, UID)
         for name in ('helper', 'omavless'):
-            self.artifacts[name] = File(ARTIFACTS / name, UID, 0o500, ELF_LIMIT, self.pins[name].sha)
+            self.artifacts[name] = complete_publication(*writers[name], name, self.pins[name])
         for number, name in ((198, 'helper'), (199, 'omavless')):
             # Explicit owned root-source alias -> owned fixture-copy transition.
             require(identity(os.fstat(number)) == identity(self.pins[name].before))

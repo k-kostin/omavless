@@ -68,8 +68,20 @@ helper proves all four UID/GID slots, P/I/E/A capabilities zero, NNP and origina
 namespace/ELF descriptors before effects. It execs the actual normal CLI in
 the same owned PID. Only fixed read-only extra FDs198/199 are inherited; private
 archive/passphrase input is stdin, never an argument or public log.
+Both original publication writers are matched by complete metadata to newly
+retained read-only descriptors of those exact created inodes, with path/hash,
+mode/xattr, fsync and source rechecks. Only then are the known writable FDs
+closed once and removed from retention. `chmod0500` alone would leave writable
+aliases and make actual exec fail with ETXTBSY. A harmless local ELF-copy
+regression observes that failure, then exercises the actual transfer and exec
+success using raw owned-child completion. Unknown leaves its synthetic files
+and terminates the test runner without automatic cleanup or another query.
 
 Direct raw WNOWAIT and one exact matching waitpid retain process ownership.
+This stricter first-disallowed-status/no-reap rule is the NEW outer observer's
+contract. The unchanged normal CLI stopped-owner observer may reap an exactly
+observed known failed query child before refusing; its unknown path does not
+reap. The outer does not claim to change that existing production behavior.
 There is no Popen poll, cleanup supervisor, kill, timeout signal or retry.
 Any uncertainty, failed child, malformed receipt or preservation failure
 terminates before later reads/queries/effects. Known getent absence and pgrep
@@ -102,3 +114,6 @@ and root copies, fsyncs and reports create-only completion. It executes no
 delivered code. Failed/partial publication is retained with no overwrite or
 cleanup. The root guard is invoked separately only after successful delivery
 and explicit execution approval.
+The fixed installed account utilities and their OS policy/hooks remain the
+trusted operator/package baseline. Startup catalog matching is not independent
+semantic attestation of those utilities or every possible operating-system hook.

@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 from tests.first_abort_cli import root_guard as guard
 from tests.first_abort_cli import stage_loader as loader
+from tests.first_abort_process import vm_guard as owned_core
 
 
 class GuardTests(unittest.TestCase):
@@ -159,6 +160,88 @@ class GuardTests(unittest.TestCase):
             guard.reserve_elf_slots(pins)
             self.assertEqual([call.args for call in duplicate.call_args_list], [(10, 198), (11, 199)])
             self.assertTrue(all(call.kwargs == {'inheritable': False} for call in duplicate.call_args_list))
+
+    def test_real_publication_closes_writer_before_harmless_original_fd_exec(self):
+        # No TemporaryDirectory/finally cleanup: an unknown child leaves this
+        # bounded synthetic directory and descriptors retained, terminating the
+        # test runner rather than allowing subsequent observations or retries.
+        directory = Path(tempfile.mkdtemp(prefix='ov-publish-', dir=Path.home()))
+        directory.chmod(0o700)
+        path = directory / 'helper'
+        raw = Path('/usr/bin/true').read_bytes()
+        self.assertTrue(raw.startswith(b'\x7fELF'))
+        writer = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
+        self.assertEqual(os.write(writer, raw), len(raw))
+        os.fchmod(writer, 0o500)
+        os.fsync(writer)
+        original = os.fstat(writer)
+        held = [writer]
+        readonly_before = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+
+        def execute(fd, expect_busy):
+            receive, send = os.pipe2(os.O_CLOEXEC)
+            pid = os.fork()
+            if pid == 0:
+                os.close(receive)
+                try:
+                    os.execve(f'/proc/self/fd/{fd}', ['fixed-harmless-true'], {'PATH': '/usr/bin'})
+                except OSError as error:
+                    if expect_busy and error.errno == errno.ETXTBSY:
+                        os.write(send, b'EXACT_ETXTBSY')
+                        os._exit(0)
+                    os._exit(1)
+                except BaseException:
+                    os._exit(1)
+            os.close(send)
+            child = SimpleNamespace(pid=pid, returncode=None)
+            try:
+                guard.await_allowed(child, 5, (0,))
+            except BaseException:
+                raise KeyboardInterrupt('publication_child_unknown_preserve_no_cleanup') from None
+            marker = os.read(receive, 64)
+            os.close(receive)
+            self.assertEqual(marker, b'EXACT_ETXTBSY' if expect_busy else b'')
+
+        with patch.object(guard, 'core', owned_core), patch.object(owned_core, 'UNCERTAIN', False), \
+             patch.object(owned_core, 'RETAINED', []), patch.object(guard, 'RETAINED', held), \
+             patch.object(guard, 'ARTIFACTS', directory), patch.object(guard, 'UID', os.getuid()):
+            execute(readonly_before, True)  # chmod0500 is not sufficient.
+            source = SimpleNamespace(sha=hashlib.sha256(raw).hexdigest(), recheck=Mock())
+            readonly = guard.complete_publication(writer, original, 'helper', source)
+            self.assertNotIn(writer, held)
+            with self.assertRaises(OSError) as closed:
+                os.fstat(writer)
+            self.assertEqual(closed.exception.errno, errno.EBADF)
+            self.assertEqual(guard.identity(readonly.before), guard.identity(original))
+            source.recheck.assert_called_once()
+            execute(readonly.fd, False)
+        # Both exact own children have observed/reaped exit0. Only now clean
+        # this one known synthetic artifact; no general or recursive cleanup.
+        os.close(readonly_before)
+        for fd in held:
+            os.close(fd)
+        path.unlink()
+        directory.rmdir()
+
+    def test_publication_source_or_original_identity_failure_never_closes_writer(self):
+        original = SimpleNamespace(st_dev=1, st_ino=2, st_mode=0o100500, st_uid=guard.UID,
+                                   st_gid=guard.UID, st_nlink=1, st_size=4, st_mtime_ns=1, st_ctime_ns=1)
+        for fault in ('identity', 'source'):
+            before = SimpleNamespace(**vars(original))
+            if fault == 'identity':
+                before.st_ino += 1
+            readonly = SimpleNamespace(before=before, recheck=Mock())
+            source = SimpleNamespace(sha='a' * 64, recheck=Mock(side_effect=OSError('source unknown')
+                                                                  if fault == 'source' else None))
+            self.core.UNCERTAIN = False
+            with patch.object(guard, 'RETAINED', [55]) as held, \
+                 patch.object(guard, 'File', return_value=readonly), \
+                 patch.object(guard.os, 'fstat', return_value=original), \
+                 patch.object(guard.os, 'close') as close:
+                with self.assertRaises((OSError, guard.Refused)):
+                    guard.complete_publication(55, original, 'helper', source)
+                close.assert_not_called()
+                self.assertEqual(held, [55])
 
 
 class LoaderTests(unittest.TestCase):
