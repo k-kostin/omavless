@@ -74,12 +74,14 @@ class StaticElfTests(unittest.TestCase):
             with self.assertRaisesRegex(probe.Refused, "package_description_value"):
                 probe.owner_record("/usr/lib/a.so", (Path("/fixed"), {"/usr/lib/a.so": ["pkg"]}, {"pkg": "x"}))
 
-    def fake_capture(self, command_error=None, tool_hash=None):
+    def fake_capture(self, command_error=None, tool_hash=None, dependency_edge=None):
         next_fd, paths, stats = [90], {}, {}
         canonical = lambda path: INVENTORY["elfs"].get(path, {}).get("resolved_path", path)
         known = {row["resolved_path"]: row["sha256"] for row in INVENTORY["elfs"].values()}
         modes = {row["resolved_path"]: int(row["mode"], 8) for row in INVENTORY["elfs"].values()}
         def opened(path, flags):
+            if dependency_edge and dependency_edge[0] != "/usr/lib/libedge-A.so":
+                self.assertNotEqual(str(path), dependency_edge[0], "changed queued target opened before refusal")
             next_fd[0] += 1
             fd = next_fd[0]
             paths[fd] = str(path)
@@ -94,9 +96,15 @@ class StaticElfTests(unittest.TestCase):
         def owner(path, index):
             return {"name": "binutils", "version": "2.47-4", "file_list_sha256": empty_hash,
                     "description_sha256": empty_hash}, "binutils-2.47-4"
+        outputs = [b"Dynamic section at offset 0x1000 contains 1 entry:\n 0x01 (NEEDED) Shared library: [libedge.so]\n"] if dependency_edge else []
+        def run_tool(*args, **kwargs):
+            return SimpleNamespace(stdout=outputs.pop(0) if outputs else b"There is no dynamic section in this file.\n", stderr=b"")
+        def resolve(path):
+            return dependency_edge if dependency_edge and path == "/usr/lib/libedge.so" else (canonical(str(path)), [])
         with patch.object(probe.os, "getuid", return_value=1000), patch.object(probe.os, "geteuid", return_value=1000), \
              patch.object(probe, "bounded_file", return_value=RAW), patch.object(probe, "package_index", return_value=(Path("/public"), {}, {})), \
-             patch.object(probe, "canonical_public", side_effect=lambda path: (canonical(str(path)), [])), \
+             patch.object(probe, "canonical_public", side_effect=resolve), \
+             patch.object(probe, "resolve_needed", return_value=("/usr/lib/libedge.so", "/usr/lib/libedge-A.so", [])), \
              patch.object(probe.os, "open", side_effect=opened), patch.object(probe.os, "close") as closed, \
              patch.object(probe, "digest_fd", side_effect=digest), \
              patch.object(probe.os, "fstat", side_effect=lambda fd: stats[paths[fd]]), \
@@ -104,10 +112,25 @@ class StaticElfTests(unittest.TestCase):
              patch.object(probe.os, "getxattr", side_effect=OSError(errno.ENODATA, "absent")), \
              patch.object(probe, "owner_record", side_effect=owner), patch.object(probe, "package_bytes", return_value=b""), \
              patch.object(probe.base, "UNSETTLED", []), \
-             patch.object(probe.base, "command", side_effect=command_error,
+             patch.object(probe.base, "command", side_effect=command_error or run_tool,
                           return_value=SimpleNamespace(stdout=b"There is no dynamic section in this file.\n", stderr=b"")) as command:
             result = probe.capture()
         return result, command, closed
+
+    def test_queued_dependency_retains_discovered_target_and_chain_before_tool(self):
+        for actual in (("/usr/lib/libedge-B.so", []),
+                       ("/usr/lib/libedge-A.so", [{"path": "/usr/lib/libedge.so", "target": "changed-chain"}])):
+            with self.subTest(actual=actual):
+                result, command, closed = self.fake_capture(dependency_edge=actual)
+                self.assertEqual(result["outcome"], "NONPASS")
+                self.assertEqual(result["reason"], "queued_dependency_edge_changed")
+                self.assertEqual(command.call_count, 16)  # seeds only; queued target never decoded
+                self.assertEqual(closed.call_count, 17)  # tool + seed FDs only
+                self.assertEqual(result["records"][0]["dependencies"][0]["resolved_path"], "/usr/lib/libedge-A.so")
+        result, command, _ = self.fake_capture(dependency_edge=("/usr/lib/libedge-A.so", []))
+        self.assertEqual(result["outcome"], "OBSERVED_STATIC_CANDIDATE_CLOSURE")
+        self.assertEqual(command.call_count, 17)
+        self.assertEqual(result["records"][-1]["resolved_path"], "/usr/lib/libedge-A.so")
 
     def test_finite_positive_capture_executes_only_pinned_tool_fd_not_candidates(self):
         result, command, closed = self.fake_capture()
@@ -161,7 +184,7 @@ class StaticElfTests(unittest.TestCase):
                     probe.digest_fd(99, 1)
 
     def test_outer_guard_pins_source_and_all_baseline_categories(self):
-        guard = (ROOT / "vm-guard.sh").read_text()
+        guard = (ROOT / "vm-guard-queued-edge.sh").read_text()
         self.assertIn(hashlib.sha256((ROOT / "probe.py").read_bytes()).hexdigest(), guard)
         self.assertIn(probe.READELF_SHA, guard)
         for category in ("CANONICAL_EPOCH", "PRIVATE_FILES", "USER_SERVICE", "EXECUTABLE",

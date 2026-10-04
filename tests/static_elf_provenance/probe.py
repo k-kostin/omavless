@@ -264,17 +264,19 @@ def capture():
         require((tool_owner["name"], tool_owner["version"]) == ("binutils", "2.47-4"), "readelf_package_pin")
         package_snapshots[package] = tool_owner
         receipt["readelf"] = {"path": READELF, "sha256": tool_hash, "package": tool_owner}
-        queue = [(path, 0, "original_manifest") for path in inventory["elfs"]] + [(CANDIDATE, 0, "explicit_observation_candidate")]
+        queue = [(path, 0, "original_manifest", None) for path in inventory["elfs"]] + [(CANDIDATE, 0, "explicit_observation_candidate", None)]
         known = {row["resolved_path"]: row["sha256"] for row in inventory["elfs"].values()}
         known_modes = {row["resolved_path"]: int(row["mode"], 8) for row in inventory["elfs"].values()}
         seen, total, steps, aliases = set(), 0, 0, {}
         while queue:
             require(time.monotonic() < deadline and not base.UNSETTLED, "capture_deadline_or_child_unknown")
-            path, depth, source = queue.pop(0)
+            path, depth, source, expected_edge = queue.pop(0)
             steps += 1
             require(steps <= 512 and len(queue) <= 512, "static_edge_bound")
             require(depth <= MAX_DEPTH, "static_depth_bound")
             canonical, links = canonical_public(path)
+            require(expected_edge is None or (canonical, links) == expected_edge,
+                    "queued_dependency_edge_changed")
             if path in inventory["elfs"]:
                 require(canonical == inventory["elfs"][path]["resolved_path"], "original_alias_changed")
             require(path not in aliases or aliases[path] == (canonical, links), "candidate_alias_changed")
@@ -303,9 +305,10 @@ def capture():
             for name in dynamic["needed"]:
                 logical, resolved, chain = resolve_needed(name)
                 dependencies.append({"name": name, "logical_path": logical, "resolved_path": resolved, "links": chain})
-                queue.append((logical, depth + 1, "static_needed_candidate"))
+                queue.append((logical, depth + 1, "static_needed_candidate", (resolved, chain)))
             if dynamic["interpreter"]:
-                queue.append((dynamic["interpreter"], depth + 1, "fixed_interpreter_candidate"))
+                interpreter_edge = canonical_public(dynamic["interpreter"])
+                queue.append((dynamic["interpreter"], depth + 1, "fixed_interpreter_candidate", interpreter_edge))
             receipt["records"].append({"path": path, "resolved_path": canonical, "links": links,
                 "device": before.st_dev, "inode": before.st_ino, "uid": before.st_uid, "gid": before.st_gid,
                 "mode": before.st_mode, "nlink": before.st_nlink, "size": before.st_size, "sha256": digest,
@@ -324,6 +327,10 @@ def capture():
                     "package_provenance_changed")
         for path, expected in aliases.items():
             require(time.monotonic() < deadline and canonical_public(path) == expected, "final_alias_changed")
+        for record in receipt["records"]:
+            for edge in record["dependencies"]:
+                require(aliases.get(edge["logical_path"]) == (edge["resolved_path"], edge["links"]),
+                        "final_dependency_edge_changed")
         receipt["aliases"] = [{"path": path, "resolved_path": value[0], "links": value[1]}
                               for path, value in sorted(aliases.items())]
         require(digest_fd(tool_fd, deadline)[1] == READELF_SHA and identity(os.lstat(READELF)) == identity(tool_stat),

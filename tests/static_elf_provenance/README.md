@@ -52,3 +52,23 @@ No closure capture has yet executed. The earlier narrow tool-metadata lease was
 returned; its receipt contains only public fields and confirms canonical epoch.
 
 The fixed decode flags follow the primary [GNU readelf documentation](https://sourceware.org/binutils/docs/binutils/readelf.html).
+
+## Source-review refusal and queued-edge correction
+
+Initial source `651f333bd4304f9df2c8e0695660c3140b5da8f8` was **NONPASS in
+source review**, not executed in the VM. It recorded a discovered dependency's
+resolved path/link chain but did not carry that expectation through its queue;
+a changed A-to-B resolution could be adopted at the candidate's first processing.
+The original `vm-guard.sh` remains frozen with that source's hash and is not
+eligible for invocation.
+
+The corrected source carries every discovered dependency's expected canonical
+target and complete link metadata through the queue and checks them before
+opening or decoding the candidate, including already-seen targets. Fixed
+interpreter edges also retain their discovered expectation. Final receipt edges
+must match the final alias table. Regression cases replace A with B or change
+the chain while keeping A; both refuse before the queued target's FD/tool call.
+An unchanged positive edge remains accepted as static evidence only.
+
+`vm-guard-queued-edge.sh` is the separately pinned replacement proposal. No VM
+capture has occurred and none is authorized by this source correction alone.
