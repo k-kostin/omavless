@@ -55,6 +55,12 @@ def require(value, reason):
         raise Refused(reason)
 
 
+def clock():
+    value = time.monotonic()
+    require(type(value) is float and math.isfinite(value), 'typed_finite_clock')
+    return value
+
+
 def bounded(path, maximum, directory=None):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
                  dir_fd=directory)
@@ -83,7 +89,7 @@ class Session:
         self.retained = []
         self.isolated = False
         require(kind in ('inner', 'outer'), 'fixed_owner_kind')
-        start = time.monotonic()
+        start = clock()
         require(type(start) is float and math.isfinite(start), 'initial_clock')
         self.deadline = start + 90.0
         require(math.isfinite(self.deadline) and start < self.deadline, 'initial_clock')
@@ -91,13 +97,30 @@ class Session:
 
     def available(self):
         try:
-            now = time.monotonic()
+            now = clock()
             require(not self.sealed and type(now) is float and math.isfinite(now)
                     and type(self.deadline) is float and math.isfinite(self.deadline)
                     and now < self.deadline, 'session_sealed')
         except BaseException:
             self.sealed = True
             raise
+
+    @guarded
+    def local_deadline(self, seconds):
+        require(type(seconds) is int and seconds in (5, 6, 8, 65), 'fixed_deadline')
+        now = clock()
+        computed = now + seconds
+        require(type(computed) is float and math.isfinite(computed) and now < computed,
+                'typed_finite_deadline')
+        deadline = min(computed, self.deadline)
+        self.within(deadline)
+        return deadline
+
+    @guarded
+    def within(self, deadline):
+        require(not self.sealed and type(deadline) is float and math.isfinite(deadline)
+                and type(self.deadline) is float and math.isfinite(self.deadline)
+                and clock() < min(deadline, self.deadline), 'owned_deadline')
 
     @guarded
     def perform(self, operation, *args):
@@ -131,21 +154,23 @@ class Session:
     @guarded
     def settle_zero(self, child, seconds):
         require(type(seconds) is int and seconds in (5, 6, 65), 'fixed_deadline')
-        deadline = min(time.monotonic() + seconds, self.deadline)
+        deadline = self.local_deadline(seconds)
         while True:
-            require(time.monotonic() < deadline, 'owned_deadline')
-            if self.observation(child) is None:
+            self.within(deadline)
+            observed = self.observation(child)
+            self.within(deadline)
+            if observed is None:
                 time.sleep(0.02)
+                self.within(deadline)
                 continue
-            self.available()
-            require(time.monotonic() < deadline, 'owned_deadline')
+            self.within(deadline)
             pid, status = os.waitpid(child.pid, os.WNOHANG)
             require(type(pid) is int and type(status) is int and pid == child.pid
                     and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0,
                     'exact_zero_reap_unknown')
             child.returncode = 0
             self.zero_reaped[id(child)] = (pid, status)
-            require(time.monotonic() < deadline, 'owned_deadline')
+            self.within(deadline)
             return 0
 
     @guarded
@@ -240,16 +265,20 @@ class Session:
         row = self.anchors[name]
         require(row['state'] == 'spawned', 'ready_phase')
         socket = '/run/dbus/system_bus_socket' if name == 'bus' else '/run/systemd/resolve/io.systemd.Resolve'
-        deadline = time.monotonic() + 8
+        deadline = self.local_deadline(8)
         while True:
-            require(time.monotonic() < deadline, 'readiness_deadline')
+            self.within(deadline)
             for item in self.anchors.values():
                 self.live(item['child'])
+                self.within(deadline)
             try:
                 info = os.stat(socket, follow_symlinks=False)
             except FileNotFoundError:
+                self.within(deadline)
                 time.sleep(0.02)
+                self.within(deadline)
                 continue
+            self.within(deadline)
             require(stat.S_ISSOCK(info.st_mode), 'readiness_socket')
             row['state'] = 'ready'
             return
@@ -282,15 +311,21 @@ class Session:
                 'positive_shutdown_order')
         child = row['child']
         self.live(child)
-        copies.verify(time.monotonic() + 5)
-        require(copies.inventory(child, time.monotonic() + 5) == row['maps'], 'shutdown_maps')
+        deadline = self.local_deadline(5)
+        copies.verify(deadline)
+        self.within(deadline)
+        require(copies.inventory(child, deadline) == row['maps'], 'shutdown_maps')
+        self.within(deadline)
         if name == 'resolved':
             base.verify_child(child, 974, base.RESOLVER_CAPS)
+            self.within(deadline)
         self.live(child)
+        self.within(deadline)
         row['state'] = 'shutdown-authorized'
         # Only this positive path authorizes a single signal to the unreaped PID.
         # ESRCH or any error is uncertainty, never permission for another query.
         os.kill(child.pid, signal.SIGTERM)
+        self.within(deadline)
         row['state'] = 'term-sent'
         self.settle_zero(child, 6)
         # No proc or namespace read after exit. Retained FDs close only at normal

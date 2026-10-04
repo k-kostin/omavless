@@ -1,5 +1,6 @@
 """Inert retained child/role/zero-ledger controls, never subprocess execution."""
 import importlib.util
+import ast
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -126,6 +127,79 @@ class Controls(unittest.TestCase):
             with self.assertRaises(l.Refused):session.settle_zero(child,6)
             reap.assert_not_called()
         self.assertTrue(session.sealed)
+
+    def test_internal_nonfinite_clock_cannot_clamp_to_global_and_reap(self):
+        for bad in (float('inf'),float('nan'),True,1):
+            session=l.Session('outer');child=self.child(session,'namespace')
+            with patch.object(l.time,'monotonic',side_effect=[0.0,0.0,bad]), \
+                 patch.object(l.os,'waitid') as observe,patch.object(l.os,'waitpid') as reap:
+                with self.assertRaises(l.Refused):session.settle_zero(child,6)
+                observe.assert_not_called();reap.assert_not_called()
+            self.assertTrue(session.sealed)
+            with patch.object(l.os,'waitid') as observe:
+                with self.assertRaises(l.Refused):session.observation(child)
+                observe.assert_not_called()
+
+    def test_internal_readiness_clock_refuses_before_live_or_socket_query(self):
+        for bad in (float('inf'),float('nan'),True,1):
+            session=l.Session('inner');child=self.child(session,'bus')
+            session.anchors['bus']={'child':child,'state':'spawned'}
+            session.live=Mock()
+            with patch.object(l.time,'monotonic',side_effect=[0.0,0.0,bad]), \
+                 patch.object(l.os,'stat') as query:
+                with self.assertRaises(l.Refused):session.ready('bus')
+                query.assert_not_called();session.live.assert_not_called()
+            self.assertTrue(session.sealed)
+
+    def test_internal_shutdown_clock_refuses_before_images_or_signal(self):
+        for bad in (float('inf'),float('nan'),True,1):
+            session=l.Session('inner');child=self.child(session,'core')
+            session.anchors['core']={'child':child,'state':'mapped','maps':['synthetic']}
+            session.live=Mock();images=Mock()
+            with patch.object(l.time,'monotonic',side_effect=[0.0,0.0,bad]), \
+                 patch.object(l.os,'kill') as signal,patch.object(l.os,'waitid') as observe:
+                with self.assertRaises(l.Refused):session.shutdown('core',images,Mock())
+                images.verify.assert_not_called();images.inventory.assert_not_called()
+                signal.assert_not_called();observe.assert_not_called()
+            self.assertEqual(session.live.call_count,1)
+            self.assertTrue(session.sealed)
+
+    def test_late_image_verification_prevents_inventory_signal_or_wait(self):
+        session=l.Session('inner');child=self.child(session,'core');clock=[0.0]
+        session.anchors['core']={'child':child,'state':'mapped','maps':['synthetic']}
+        session.live=Mock();images=Mock()
+        images.verify.side_effect=lambda deadline:clock.__setitem__(0,5.0)
+        with patch.object(l.time,'monotonic',side_effect=lambda:clock[0]), \
+             patch.object(l.os,'kill') as signal,patch.object(l.os,'waitid') as observe:
+            with self.assertRaises(l.Refused):session.shutdown('core',images,Mock())
+            images.inventory.assert_not_called();signal.assert_not_called();observe.assert_not_called()
+        self.assertTrue(session.sealed)
+
+    def test_late_zero_reap_does_not_authorize_complete_or_any_followup_query(self):
+        session=l.Session('outer');child=self.child(session,'namespace');clock=[0.0]
+        def late(*args):clock[0]=6.0;return child.pid,0
+        with patch.object(l.time,'monotonic',side_effect=lambda:clock[0]), \
+             patch.object(l.os,'waitid',return_value=self.seen(child)) as observe, \
+             patch.object(l.os,'waitpid',side_effect=late) as reap:
+            with self.assertRaises(l.Refused):session.settle_zero(child,6)
+            self.assertTrue(session.sealed);clock[0]=0.0
+            with self.assertRaises(l.Refused):session.complete()
+            with self.assertRaises(l.Refused):session.observation(child)
+            self.assertEqual(observe.call_count,1);self.assertEqual(reap.call_count,1)
+
+    def test_only_clock_helper_samples_raw_monotonic(self):
+        tree=ast.parse(Path(__file__).with_name('lifecycle.py').read_text())
+        samples=[]
+        for function in tree.body:
+            if isinstance(function,ast.FunctionDef):
+                for node in ast.walk(function):
+                    if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) \
+                            and isinstance(node.func.value,ast.Name) and node.func.value.id=='time' \
+                            and node.func.attr=='monotonic':samples.append(function.name)
+        self.assertEqual(samples,['clock'])
+        for node in ast.walk(tree):
+            if isinstance(node,ast.FunctionDef) and node.name in ('settle_zero','ready','shutdown'):
+                self.assertNotIn('monotonic',ast.unparse(node))
 
     def test_initial_nonfinite_clock_keeps_sealed_before_any_spawn(self):
         for clock in (float('nan'),float('inf'),True,1,1e308):
