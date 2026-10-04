@@ -1,14 +1,5 @@
 {
   "schemaVersion": 1,
-  "version": "0.8.2",
-  "packages": {
-    "aarch64": {
-      "sha256": "ef53c795a62825b5bd1b928663c751b2d66f5c2da711fd5dc4542e367b7bbf57",
-      "sourceCommit": "22e23e64c49b8110088b6be3f063b5e641ba0853"
-    },
-    "x86_64": {
-      "sha256": "381a1427b2728f35bfd49247e4373238deb4ef53c5850eec2ad68e91de382b6c",
-      "sourceCommit": "22e23e64c49b8110088b6be3f063b5e641ba0853"
-    }
-  }
+  "version": "0.9.0-rc.1",
+  "packages": {}
 }

@@ -5,7 +5,8 @@ use super::batch::ActiveCancellation;
 use super::*;
 use crate::long_operation::{CommitFence, LongOperationError, LongOperationToken};
 use crate::long_operation_protocol::{
-    LongOperationMethod, parse_subscription_probe_results, parse_subscription_probe_start,
+    LongOperationMethod, parse_profile_probe_results, parse_profile_probe_start,
+    parse_subscription_probe_results, parse_subscription_probe_start,
 };
 use omavless_mihomo::probe_plan::ProbeResult;
 use omavless_profile::canonical::CanonicalProfile;
@@ -36,13 +37,26 @@ struct Snapshot {
     active_config: Option<[u8; 32]>,
 }
 
+enum ProbeTarget {
+    Subscription(String),
+    Profiles(Option<String>),
+}
+impl ProbeTarget {
+    fn method(&self) -> LongOperationMethod {
+        match self {
+            Self::Subscription(_) => LongOperationMethod::SubscriptionProbe,
+            Self::Profiles(_) => LongOperationMethod::ProfileProbe,
+        }
+    }
+}
+
 /// Non-cloneable private worker capability. Keep its ticket before spawning;
 /// dropping a job must be followed by ticket abort by the scheduler supervisor.
 pub struct NativeSubscriptionProbe {
     instance: String,
     operation: String,
     token: LongOperationToken,
-    subscription: String,
+    target: ProbeTarget,
     snapshot: Snapshot,
     profiles: Vec<(String, CanonicalProfile)>,
     template: String,
@@ -78,7 +92,7 @@ impl NativeSubscriptionProbe {
 pub(super) struct RetainedProbeResults {
     instance: String,
     operation: String,
-    subscription: String,
+    target: ProbeTarget,
     snapshot: Snapshot,
     rows: Vec<(String, ProbeResult)>,
 }
@@ -179,8 +193,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<Option<NativeSubscriptionProbe>, NativeOwnerError> {
-        let parsed = parse_subscription_probe_start(request)?;
-        let meta = parsed.metadata;
+        let (meta, target) = if request["method"] == "profiles.probe" {
+            let parsed = parse_profile_probe_start(request)?;
+            (parsed.metadata, ProbeTarget::Profiles(parsed.profile_id))
+        } else {
+            let parsed = parse_subscription_probe_start(request)?;
+            (
+                parsed.metadata,
+                ProbeTarget::Subscription(parsed.subscription_id),
+            )
+        };
         let _lock = self.batch_lock()?;
         let revision = self.revision();
         let ordinary = self.coordinator.operation_id_in_use(meta.operation_id())?;
@@ -195,7 +217,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             state
                 .registry
                 .start_method(
-                    LongOperationMethod::SubscriptionProbe,
+                    target.method(),
                     meta.instance_id(),
                     meta.operation_id(),
                     meta.digest(),
@@ -229,12 +251,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let (snapshot, store, template, active_config) = self.probe_inputs_locked()?;
         let store = omavless_domain::private_store::parse_private_store(&store)
             .map_err(|_| NativeOwnerError::Invariant)?;
-        let profiles = store
-            .into_subscription_probe_profiles(&parsed.subscription_id)
-            .map_err(|error| match error {
-                PrivateStoreError::SubscriptionNotFound => NativeOwnerError::RecordNotFound,
-                _ => NativeOwnerError::Invariant,
-            })?;
+        let profiles = match &target {
+            ProbeTarget::Subscription(id) => store.into_subscription_probe_profiles(id),
+            ProbeTarget::Profiles(id) => store.into_profile_probe_profiles(id.as_deref()),
+        }
+        .map_err(|error| match error {
+            PrivateStoreError::SubscriptionNotFound | PrivateStoreError::ProfileNotFound => {
+                NativeOwnerError::RecordNotFound
+            }
+            _ => NativeOwnerError::Invariant,
+        })?;
         if profiles.len() > 256 {
             return Err(NativeOwnerError::Invariant);
         }
@@ -245,7 +271,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let token = state
             .registry
             .start_method(
-                LongOperationMethod::SubscriptionProbe,
+                target.method(),
                 meta.instance_id(),
                 meta.operation_id(),
                 meta.digest(),
@@ -266,7 +292,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             instance: state.instance.clone(),
             operation: meta.operation_id().to_owned(),
             token,
-            subscription: parsed.subscription_id,
+            target,
             snapshot,
             profiles,
             template,
@@ -355,7 +381,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     self.probe_results.push_back(RetainedProbeResults {
                         instance: job.instance,
                         operation: job.operation,
-                        subscription: job.subscription,
+                        target: job.target,
                         snapshot: job.snapshot,
                         rows: job.profiles.into_iter().map(|v| v.0).zip(rows).collect(),
                     });
@@ -384,7 +410,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<Value, NativeOwnerError> {
-        let parsed = parse_subscription_probe_results(request)?;
+        let profile_result = request["method"] == "profiles.probe_results";
+        let parsed = if profile_result {
+            parse_profile_probe_results(request)?
+        } else {
+            parse_subscription_probe_results(request)?
+        };
         let _lock = self.batch_lock()?;
         let state = self
             .batch
@@ -405,8 +436,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             })
             .ok_or(NativeOwnerError::RecordNotFound)?;
         self.probe_snapshot_matches(&result.snapshot)?;
-        Ok(
-            serde_json::json!({"version":1,"subscriptionId":result.subscription,"results":result.rows.iter().map(|(id,row)|serde_json::json!({"id":id,"resolved":row.resolved,"reachable":row.reachable,"latencyMs":row.latency_ms})).collect::<Vec<_>>()}),
-        )
+        let mut projection = serde_json::json!({"version":1,"results":result.rows.iter().map(|(id,row)|serde_json::json!({"id":id,"resolved":row.resolved,"reachable":row.reachable,"latencyMs":row.latency_ms})).collect::<Vec<_>>()});
+        match &result.target {
+            ProbeTarget::Subscription(id) if !profile_result => {
+                projection["subscriptionId"] = serde_json::json!(id)
+            }
+            ProbeTarget::Profiles(id) if profile_result => {
+                projection["profileId"] = serde_json::json!(id)
+            }
+            _ => return Err(NativeOwnerError::RecordNotFound),
+        }
+        Ok(projection)
     }
 }
