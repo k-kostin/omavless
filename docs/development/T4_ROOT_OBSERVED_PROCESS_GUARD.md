@@ -139,14 +139,16 @@ Before the invocation, exact-source local gates passed: 558 source tests /
 including runtime 1,159 / 38 ignored / 1 filtered; separate cleanup, formatting,
 strict workspace/TUI Clippy, terminal and two parity tests. The 28 local
 root-guard/loader tests are included. These ordinary gates do not run the ignored
-process matrix. Root and independent incremental source review completed before
+process matrix. Parent-agent and independent incremental source review completed before
 staging and execution.
 
 The frozen ELF was compiled at the earlier `2300ddc` component and reused/retested
 at the tested head with byte-identical Rust/Cargo inputs, not represented as a
-fresh compilation. After all active gates finished, explicit owner authorization
-allowed the actual original mode 0700 to be normalized to 0755 under private
-parents, with original-FD/hash evidence retained; the frozen copy is 0500.
+fresh compilation. After all active gates finished, under the owner's standing
+development-session authority, the parent agent approved normalization of the
+actual original mode 0700 to 0755 under private parents, with original-FD/hash
+evidence retained; the frozen copy is 0500. This was not personally attended
+release acceptance.
 Artifact SHA-256 identities:
 
 | Artifact | SHA-256 |
@@ -172,7 +174,7 @@ at every requested checkpoint:
 | Full Abort terminal written | `aborted-still-fenced` |
 | Final wrapper observation | `aborted-still-fenced` |
 
-The root independently verified the complete captured archive structure, three
+The parent agent (Codex) independently verified the complete captured archive structure, three
 staged source hashes and original before/after comparisons. All nine canonical
 categories and the fixed four root-unit states matched; full IPv4/IPv6 addresses,
 routes and rules matched except four approved address-lifetime countdowns.
