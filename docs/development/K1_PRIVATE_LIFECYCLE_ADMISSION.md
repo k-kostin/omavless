@@ -58,8 +58,17 @@ parser controls are not an observation of this new unit's actual dump.
 
 ## Remaining gate
 
-Source integration, fixed native freeze and acyclic loader/guard/query/unit pins
-must be sealed and independently reviewed before any new capture. The original
+The native checkpoint is `e1c729f55235b277858706b5b7bdb1d3ca883657`;
+the frozen test ELF SHA-256 is
+`b506a8dcf2604a3a2b932e4985d0be72a9377d49cf59499680b082545ad5235d`.
+The outer, query and create-only loader have distinct new files; the latter
+requires trusted host-to-root source delivery, never execution of user-staged
+loader code. Its fixed input directory contains four pinned artifacts plus the
+unexecuted loader. No original fixture files were changed. Ordinary controls
+exercise typed mismatches, first-error/no-next-call, every outer phase refusal,
+unknown child, cleanup preconditions and exact source/pin/literal composition.
+
+Full source/Rust gates and independent review are required before capture. The original
 unit and ELF FDs must remain held/rechecked throughout the outer invocation.
 Any unknown/nonzero/helper failure stops all subsequent queries and cleanup;
 the native connection is retained on uncertainty, without compensating Unref.
@@ -73,3 +82,10 @@ in its own invocation, then the native writer must prove actual isolation before
 its first socket and at every effect boundary. No canonical namespace authority,
 ownership continuity, installed enforcement, full K1 or kill-switch acceptance
 is claimed here.
+
+The first new RPC negative test failed before exercising capture because its
+synthetic temporary-directory label exceeded the existing helper bound. The
+label was shortened; the bound and capture policies were not changed. Corrected
+focused native controls passed (20 plus 3 permission controls, two guest-only
+entries ignored); strict netguard clippy and formatting also passed. This is
+source evidence only, not a new guest result.
