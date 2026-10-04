@@ -56,11 +56,29 @@ remain byte-identical; the new unit's ignored writer selector points only at its
 new stage and is never executed by capture. Per-response evidence uses schema 1
 and explicit diagnostic/non-admission flags; the retained final configured-fact
 receipts preserve schema 2. The outer checks all eighteen response-boundary
-receipts before any known-success teardown. Native artifact pins remain
-deliberately impossible until a built original ELF has been frozen and bound.
+receipts before any known-success teardown. The initial checkpoint deliberately
+had an impossible artifact pin pending the actual build and freeze below.
 
 Initial focused source controls passed 23 native tests (one guest-only entry
 ignored) and 17 Python controls. The first copied Python literal-comparison
 control retained the predecessor selector in its expected transformation and
 failed; correcting that NEW test expectation preserved the literal-only writer
 comparison and all old tests. No guest invocation occurred.
+
+Native source `725f6ef9b14084f58cd3589f9eee09472add9422` passed the full
+Rust script (2,138 passing results across its test invocations, zero failures;
+workspace/TUI strict clippy, formatting and two-case parity passed). The main
+runtime suite passed 1,105 tests with 33 ignored; netguard passed 283 with 25
+ignored. Source checks passed 657 tests with two expected skips plus JS/QML.
+These are source-only results, not execution of the ignored guest fixture.
+
+The actual frozen diagnostic ELF SHA-256 is
+`a2b8dd3b7cc1658c536fd81bd25a74ae55255cb2159624cfe8f548c162ad0e9a`.
+Its private receipt SHA-256 is
+`4ff907db631850b03e37a5f94f369a04ee3a9f8345e8084f0b1eaf4dc48acaf7`.
+The source original was a single-link mode-0755 regular ELF; the exclusive
+single-link frozen copy is mode 0500. Original descriptors, ancestor/path
+identity and complete hashes were checked before and after copying. Subsequent
+outer artifact-pin changes do not relabel this native build's source head.
+The old #615 helper/reference remains uncertain and retained; this new capture
+does not query its unit/process state or claim its quiescence or recovery.
