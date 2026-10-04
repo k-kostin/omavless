@@ -42,8 +42,10 @@ strict-parse, membership/device-inode and target-verification boundaries.
 Logging an exception after the first failure would contradict the retained
 failure contract and is not proposed.
 
-Any stronger pre-admission public map-candidate record needs its own explicit
-reviewed grammar, count/byte limits and false-proof flags before implementation.
-It must not read an unadmitted object or silently extend the fixed table.
+The source-authorized successor's stronger pre-admission public map-candidate
+record has an explicit grammar, count/byte limits and false-proof flags; see
+[its fixture contract](../../tests/decoder_mapping_boundaries/README.md).
+It never reads an unadmitted object or silently extends the fixed table.
 The original seventeen-object manifest remains unchanged. Copy/lifecycle
-changes require additional evidence; none is justified by the current labels.
+predicate changes require additional evidence; none is justified by these labels.
+Full source review and a new exclusive lease remain prerequisites for execution.

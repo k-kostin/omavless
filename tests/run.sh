@@ -28,6 +28,11 @@ python3 -m unittest -v \
   "$here/test_decoder_live_transport.py" \
   "$here/test_decoder_live_bridge.py" \
   "$here/test_t3_mapping_boundary_gap.py" \
+  "$here/test_mapping_boundary_events.py" \
+  "$here/test_mapping_boundaries_bridge.py" \
+  "$here/test_mapping_boundaries_lifecycle.py" \
+  "$here/test_mapping_boundaries_fixture.py" \
+  "$here/test_mapping_boundaries_transport.py" \
   "$here/test_reviewed_tmpfs_bridge.py" \
   "$here/test_reviewed_tmpfs_fixture.py" \
   "$here/test_live_fd_bridge.py" \
