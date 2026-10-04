@@ -133,7 +133,7 @@ fn run() -> Result<(), CliError> {
         #[cfg(feature = "tui")]
         println!("  tui                             terminal controls; close leaves VPN unchanged");
         println!(
-            "{USAGE}\n  import preview                  read private input from stdin; private UI output\n  restore abort --confirm-rollback\n                                  read private recovery JSON from stdin; keeps fence"
+            "{USAGE}\n  import preview                  read private input from stdin; private UI output\n  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
         );
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");

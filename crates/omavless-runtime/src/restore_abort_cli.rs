@@ -17,6 +17,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 use zeroize::Zeroizing;
 
+#[path = "restore_abort_stopped_owner.rs"]
+mod stopped_owner;
+
 const MAX_INPUT: usize = 32 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -146,6 +149,18 @@ impl StoppedRuntime {
         let valid = (|| {
             let current = open_private_directory(&self.paths.directory, self.uid).ok()?;
             let named = open_lock(&current).ok()?;
+            // Never connect to, remove, or reinterpret even a stale socket.
+            // The separate process inventory also covers removed socket names.
+            if !matches!(
+                nix::sys::stat::fstatat(
+                    &current,
+                    crate::SOCKET_NAME,
+                    nix::fcntl::AtFlags::AT_SYMLINK_NOFOLLOW
+                ),
+                Err(nix::errno::Errno::ENOENT)
+            ) {
+                return Some(false);
+            }
             Some(
                 same_directory(&self.directory_identity, &self.directory.metadata().ok()?)
                     && same_directory(&self.directory_identity, &current.metadata().ok()?)
@@ -169,13 +184,16 @@ pub fn abort_from_private_input(input: impl Read) -> Result<(), Error> {
     }
     let paths = RuntimePaths::current().map_err(|_| Error::RuntimeNotStoppedOrUnsafe)?;
     let stopped = StoppedRuntime::acquire(paths, uid.as_raw())?;
+    let owner = stopped_owner::StoppedOwner::capture(uid.as_raw())
+        .map_err(|_| Error::RuntimeNotStoppedOrUnsafe)?;
+    let admitted = || stopped.recheck() && owner.recheck() && stopped.recheck();
     crate::production_owner::abort_first_restore_current(
         Path::new(request.archive.0.as_str()),
         request.passphrase.0.as_bytes(),
-        || stopped.recheck(),
+        admitted,
     )
     .map_err(|_| Error::RecoveryRefused)?;
-    if !stopped.recheck() {
+    if !admitted() {
         return Err(Error::RecoveryRefused);
     }
     Ok(())
@@ -275,9 +293,22 @@ mod tests {
     }
 
     #[test]
+    fn live_runtime_with_pre_acquire_replaced_lock_is_not_stopped() {
+        let (root, paths, uid) = fixture();
+        let _server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+        fs::rename(&paths.owner_lock, root.path().join("old-owner-lock")).unwrap();
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&paths.owner_lock)
+            .unwrap();
+        assert!(StoppedRuntime::acquire(paths, uid).is_err());
+    }
+
+    #[test]
     fn existing_lock_excludes_normal_owner_and_preserves_socket() {
         let (_root, paths, uid) = fixture();
-        fs::write(&paths.socket, b"retained socket placeholder").unwrap();
         let held = StoppedRuntime::acquire(paths.clone(), uid).unwrap();
         assert!(held.recheck());
         assert!(StoppedRuntime::acquire(paths.clone(), uid).is_err());
@@ -286,6 +317,8 @@ mod tests {
         let owner = crate::OwnerLock::acquire(&paths.owner_lock, uid).unwrap();
         assert!(StoppedRuntime::acquire(paths.clone(), uid).is_err());
         drop(owner);
+        fs::write(&paths.socket, b"retained socket placeholder").unwrap();
+        assert!(StoppedRuntime::acquire(paths.clone(), uid).is_err());
         assert_eq!(
             fs::read(&paths.socket).unwrap(),
             b"retained socket placeholder"

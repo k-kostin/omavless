@@ -1,0 +1,1213 @@
+// SPDX-License-Identifier: MIT
+//! CLI-private, conservative stopped-owner observation. Not owner authority.
+
+use nix::fcntl::{FcntlArg, OFlag, fcntl, open, openat};
+use nix::sys::stat::Mode;
+use nix::sys::statfs::{PROC_SUPER_MAGIC, fstatfs};
+use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid, waitpid};
+use nix::unistd::Pid;
+use std::cell::Cell;
+use std::collections::BTreeSet;
+use std::fs::{self, File, Metadata};
+use std::io::Read;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
+use std::os::unix::process::CommandExt;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+use zeroize::Zeroizing;
+
+type Result<T> = std::result::Result<T, ()>;
+const MAX_PIDS: usize = 4096;
+const MAX_STATUS: usize = 64 * 1024;
+const MAX_COMMAND: usize = 128 * 1024;
+const MAX_TOTAL: usize = 16 * 1024 * 1024;
+
+struct Budget {
+    until: Instant,
+    remaining: usize,
+}
+
+impl Budget {
+    fn new() -> Self {
+        Self {
+            until: Instant::now() + Duration::from_secs(2),
+            remaining: MAX_TOTAL,
+        }
+    }
+    fn check(&self) -> Result<()> {
+        if Instant::now() < self.until {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+    fn charge(&mut self, size: usize) -> Result<()> {
+        self.check()?;
+        self.remaining = self.remaining.checked_sub(size).ok_or(())?;
+        Ok(())
+    }
+}
+
+fn identity(a: &Metadata, b: &Metadata) -> bool {
+    a.dev() == b.dev()
+        && a.ino() == b.ino()
+        && a.mode() == b.mode()
+        && a.uid() == b.uid()
+        && a.gid() == b.gid()
+}
+
+fn executable_identity(a: &Metadata, b: &Metadata) -> bool {
+    identity(a, b)
+        && a.len() == b.len()
+        && a.nlink() == b.nlink()
+        && a.mtime() == b.mtime()
+        && a.mtime_nsec() == b.mtime_nsec()
+        && a.ctime() == b.ctime()
+        && a.ctime_nsec() == b.ctime_nsec()
+}
+
+struct TrustedExecutable {
+    file: File,
+    metadata: Metadata,
+    parents: Vec<(File, Metadata)>,
+    path: &'static str,
+}
+
+impl TrustedExecutable {
+    fn capture(path: &'static str) -> Result<Self> {
+        use std::path::Component;
+        let mut parent = File::from(
+            open(
+                Path::new("/"),
+                OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| ())?,
+        );
+        let components: Vec<_> = Path::new(path).components().collect();
+        if components.first() != Some(&Component::RootDir) || components.len() < 2 {
+            return Err(());
+        }
+        let mut parents = Vec::new();
+        for component in &components[1..components.len() - 1] {
+            let metadata = parent.metadata().map_err(|_| ())?;
+            if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+                return Err(());
+            }
+            let Component::Normal(name) = component else {
+                return Err(());
+            };
+            let next = directory(&parent, name.to_str().ok_or(())?)?;
+            parents.push((parent, metadata));
+            parent = next;
+        }
+        let metadata = parent.metadata().map_err(|_| ())?;
+        if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+            return Err(());
+        }
+        let Component::Normal(name) = components.last().ok_or(())? else {
+            return Err(());
+        };
+        let file = File::from(
+            openat(
+                &parent,
+                Path::new(name),
+                OFlag::O_PATH | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| ())?,
+        );
+        parents.push((parent, metadata));
+        let metadata = file.metadata().map_err(|_| ())?;
+        if !metadata.is_file()
+            || metadata.uid() != 0
+            || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o111 == 0
+            || metadata.nlink() == 0
+        {
+            return Err(());
+        }
+        Ok(Self {
+            file,
+            metadata,
+            parents,
+            path,
+        })
+    }
+
+    fn recheck(&self) -> Result<()> {
+        let current = Self::capture(self.path)?;
+        if !executable_identity(&self.metadata, &self.file.metadata().map_err(|_| ())?)
+            || !executable_identity(&self.metadata, &current.metadata)
+            || self.parents.len() != current.parents.len()
+        {
+            return Err(());
+        }
+        for ((held, metadata), (_, named)) in self.parents.iter().zip(&current.parents) {
+            if !identity(metadata, &held.metadata().map_err(|_| ())?) || !identity(metadata, named)
+            {
+                return Err(());
+            }
+        }
+        Ok(())
+    }
+
+    fn exec_path(&self) -> String {
+        // Linux resolves this original executable FD before exec's CLOEXEC
+        // close. No caller-selected program/FD or inherited private evidence.
+        format!("/proc/self/fd/{}", self.file.as_raw_fd())
+    }
+}
+
+fn directory(parent: &File, name: &str) -> Result<File> {
+    openat(
+        parent,
+        name,
+        OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    )
+    .map(File::from)
+    .map_err(|_| ())
+}
+
+fn proc_bytes(
+    parent: &File,
+    name: &str,
+    cap: usize,
+    budget: &mut Budget,
+) -> Result<Zeroizing<Vec<u8>>> {
+    budget.check()?;
+    let file = File::from(
+        openat(
+            parent,
+            name,
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| ())?,
+    );
+    if !file.metadata().map_err(|_| ())?.is_file()
+        || fstatfs(&file).map_err(|_| ())?.filesystem_type() != PROC_SUPER_MAGIC
+    {
+        return Err(());
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    file.take((cap + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ())?;
+    budget.charge(bytes.len())?;
+    if bytes.len() > cap {
+        return Err(());
+    }
+    Ok(bytes)
+}
+
+fn decimal(text: &[u8]) -> Result<u32> {
+    if text.is_empty() || !text.iter().all(u8::is_ascii_digit) {
+        return Err(());
+    }
+    std::str::from_utf8(text)
+        .map_err(|_| ())?
+        .parse()
+        .map_err(|_| ())
+}
+
+#[derive(PartialEq, Eq)]
+struct Status {
+    uids: [u32; 4],
+    namespace_pids: Vec<u32>,
+}
+
+fn status(bytes: &[u8], pid: u32) -> Result<Status> {
+    let mut uids = None;
+    let mut own_pid = None;
+    let mut namespace_pids = None;
+    for line in bytes.split(|b| *b == b'\n') {
+        if let Some(values) = line.strip_prefix(b"Uid:") {
+            if uids.is_some() {
+                return Err(());
+            }
+            let values: Vec<_> = values
+                .split(u8::is_ascii_whitespace)
+                .filter(|v| !v.is_empty())
+                .map(decimal)
+                .collect::<Result<_>>()?;
+            uids = Some(<[u32; 4]>::try_from(values).map_err(|_| ())?);
+        } else if let Some(value) = line.strip_prefix(b"Pid:") {
+            if own_pid.is_some() {
+                return Err(());
+            }
+            let values: Vec<_> = value
+                .split(u8::is_ascii_whitespace)
+                .filter(|v| !v.is_empty())
+                .collect();
+            if values.len() != 1 {
+                return Err(());
+            }
+            own_pid = Some(decimal(values[0])?);
+        } else if let Some(values) = line.strip_prefix(b"NSpid:") {
+            if namespace_pids.is_some() {
+                return Err(());
+            }
+            namespace_pids = Some(
+                values
+                    .split(u8::is_ascii_whitespace)
+                    .filter(|v| !v.is_empty())
+                    .map(decimal)
+                    .collect::<Result<Vec<_>>>()?,
+            );
+        }
+    }
+    let namespace_pids = namespace_pids.ok_or(())?;
+    if own_pid != Some(pid) || namespace_pids.first() != Some(&pid) || namespace_pids.len() > 32 {
+        return Err(());
+    }
+    Ok(Status {
+        uids: uids.ok_or(())?,
+        namespace_pids,
+    })
+}
+
+fn start_time(bytes: &[u8], pid: u32) -> Result<u64> {
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    if !text.ends_with('\n') {
+        return Err(());
+    }
+    let (first, _) = text.split_once(" (").ok_or(())?;
+    if decimal(first.as_bytes())? != pid {
+        return Err(());
+    }
+    let (_, fields) = text.rsplit_once(") ").ok_or(())?;
+    let fields: Vec<_> = fields.split_ascii_whitespace().collect();
+    if fields.len() != 50
+        || fields[0].len() != 1
+        || fields[1..]
+            .iter()
+            .any(|field| field.parse::<i128>().is_err())
+    {
+        return Err(());
+    }
+    let start = fields.get(19).ok_or(())?;
+    if !start.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(());
+    }
+    let start = start.parse::<u64>().map_err(|_| ())?;
+    if start == 0 {
+        return Err(());
+    }
+    Ok(start)
+}
+
+fn arguments(bytes: &[u8]) -> Result<Vec<&[u8]>> {
+    let body = bytes.strip_suffix(&[0]).ok_or(())?;
+    let args: Vec<_> = body.split(|b| *b == 0).collect();
+    if args.first().is_none_or(|arg| arg.is_empty()) {
+        return Err(());
+    }
+    Ok(args)
+}
+
+fn recovery_self(command: &[u8]) -> Result<()> {
+    let args = arguments(command)?;
+    if args.len() != 4 || args[1..] != [b"restore".as_slice(), b"abort", b"--confirm-rollback"] {
+        return Err(());
+    }
+    Ok(())
+}
+
+fn same_namespace(left: &File, right: &File) -> Result<()> {
+    if identity(
+        &left.metadata().map_err(|_| ())?,
+        &right.metadata().map_err(|_| ())?,
+    ) {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+fn owner_name(bytes: &[u8]) -> bool {
+    let bytes = bytes.strip_suffix(b" (deleted)").unwrap_or(bytes);
+    let name = bytes.rsplit(|b| *b == b'/').next().unwrap_or(bytes);
+    name.starts_with(b"omavless") || name.starts_with(b"OmaVLESS")
+}
+
+fn daemon_candidate(command: &[u8], executable: &[u8], comm: &[u8]) -> Result<bool> {
+    let args = arguments(command)?;
+    Ok(args.iter().any(|arg| *arg == b"daemon")
+        || owner_name(args[0])
+        || owner_name(executable)
+        || owner_name(comm.strip_suffix(b"\n").unwrap_or(comm)))
+}
+
+fn magic_file(parent: &File, name: &str) -> Result<File> {
+    // These are explicit procfs magic-link reads, not caller-selected paths.
+    openat(
+        parent,
+        name,
+        OFlag::O_PATH | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    )
+    .map(File::from)
+    .map_err(|_| ())
+}
+
+fn proc_link(parent: &File, name: &str) -> Result<Zeroizing<Vec<u8>>> {
+    use std::os::unix::ffi::OsStringExt;
+    let value =
+        fs::read_link(format!("/proc/self/fd/{}/{name}", parent.as_raw_fd())).map_err(|_| ())?;
+    let bytes = Zeroizing::new(value.into_os_string().into_vec());
+    if bytes.is_empty() || bytes.len() > 4096 {
+        return Err(());
+    }
+    Ok(bytes)
+}
+
+struct Process {
+    pid: u32,
+    directory: File,
+    directory_identity: Metadata,
+    start: u64,
+    status: Status,
+    command: Zeroizing<Vec<u8>>,
+    comm: Zeroizing<Vec<u8>>,
+    executable: File,
+    executable_identity: Metadata,
+    executable_name: Zeroizing<Vec<u8>>,
+}
+
+impl Process {
+    fn capture(root: &File, pid: u32, budget: &mut Budget) -> Result<Self> {
+        let directory = directory(root, &pid.to_string())?;
+        let directory_identity = directory.metadata().map_err(|_| ())?;
+        let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, pid)?;
+        let status = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, pid)?;
+        let command = proc_bytes(&directory, "cmdline", MAX_COMMAND, budget)?;
+        arguments(&command)?;
+        let comm = proc_bytes(&directory, "comm", 4096, budget)?;
+        let executable = magic_file(&directory, "exe")?;
+        let executable_identity = executable.metadata().map_err(|_| ())?;
+        if !executable_identity.is_file() {
+            return Err(());
+        }
+        let executable_name = proc_link(&directory, "exe")?;
+        let process = Self {
+            pid,
+            directory,
+            directory_identity,
+            start,
+            status,
+            command,
+            comm,
+            executable,
+            executable_identity,
+            executable_name,
+        };
+        process.recheck(root, budget)?;
+        Ok(process)
+    }
+
+    fn recheck(&self, root: &File, budget: &mut Budget) -> Result<()> {
+        budget.check()?;
+        let current = directory(root, &self.pid.to_string())?;
+        let executable = magic_file(&current, "exe")?;
+        if !identity(
+            &self.directory_identity,
+            &current.metadata().map_err(|_| ())?,
+        ) || !identity(
+            &self.directory_identity,
+            &self.directory.metadata().map_err(|_| ())?,
+        ) || !executable_identity(
+            &self.executable_identity,
+            &self.executable.metadata().map_err(|_| ())?,
+        ) || !executable_identity(
+            &self.executable_identity,
+            &executable.metadata().map_err(|_| ())?,
+        ) || self.start
+            != start_time(&proc_bytes(&current, "stat", MAX_STATUS, budget)?, self.pid)?
+            || self.status
+                != status(
+                    &proc_bytes(&current, "status", MAX_STATUS, budget)?,
+                    self.pid,
+                )?
+            || self.command != proc_bytes(&current, "cmdline", MAX_COMMAND, budget)?
+            || self.comm != proc_bytes(&current, "comm", 4096, budget)?
+            || self.executable_name != proc_link(&current, "exe")?
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+}
+
+fn pids(root: &File, budget: &Budget) -> Result<BTreeSet<u32>> {
+    let mut result = BTreeSet::new();
+    for entry in fs::read_dir(format!("/proc/self/fd/{}", root.as_raw_fd())).map_err(|_| ())? {
+        budget.check()?;
+        let entry = entry.map_err(|_| ())?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Err(());
+        };
+        if name.bytes().all(|b| b.is_ascii_digit()) {
+            let pid = decimal(name.as_bytes())?;
+            if pid == 0 || !result.insert(pid) || result.len() > MAX_PIDS {
+                return Err(());
+            }
+        }
+    }
+    if result.is_empty() {
+        return Err(());
+    }
+    Ok(result)
+}
+
+fn mount_id(bytes: &[u8]) -> Result<u32> {
+    let mut result = None;
+    for line in bytes.split(|b| *b == b'\n') {
+        if let Some(value) = line.strip_prefix(b"mnt_id:") {
+            if result.is_some() {
+                return Err(());
+            }
+            let values: Vec<_> = value
+                .split(u8::is_ascii_whitespace)
+                .filter(|v| !v.is_empty())
+                .collect();
+            if values.len() != 1 {
+                return Err(());
+            }
+            result = Some(decimal(values[0])?);
+        }
+    }
+    result.filter(|id| *id != 0).ok_or(())
+}
+
+fn visible_proc_mount(bytes: &[u8], id: u32) -> Result<()> {
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    if !text.ends_with('\n') {
+        return Err(());
+    }
+    let mut found = false;
+    for line in text.lines() {
+        let (left, right) = line.split_once(" - ").ok_or(())?;
+        let left: Vec<_> = left.split_ascii_whitespace().collect();
+        let right: Vec<_> = right.split_ascii_whitespace().collect();
+        if left.len() < 6 || right.len() != 3 {
+            return Err(());
+        }
+        if decimal(left[0].as_bytes())? != id {
+            continue;
+        }
+        if found || left[3] != "/" || left[4] != "/proc" || right[0] != "proc" {
+            return Err(());
+        }
+        found = true;
+        // Do not infer visibility from the proc mount type alone. hidepid can
+        // hide a nondumpable same-UID process before status can classify it.
+        for option in left[5].split(',').chain(right[2].split(',')) {
+            if !matches!(
+                option,
+                "rw" | "ro"
+                    | "nosuid"
+                    | "nodev"
+                    | "noexec"
+                    | "relatime"
+                    | "strictatime"
+                    | "noatime"
+                    | "nodiratime"
+                    | "lazytime"
+                    | "hidepid=0"
+            ) {
+                return Err(());
+            }
+        }
+    }
+    if found { Ok(()) } else { Err(()) }
+}
+
+fn proc_visibility(root: &File, myself: &Process, budget: &mut Budget) -> Result<()> {
+    let fdinfo = directory(&myself.directory, "fdinfo")?;
+    let id = mount_id(&proc_bytes(
+        &fdinfo,
+        &root.as_raw_fd().to_string(),
+        MAX_STATUS,
+        budget,
+    )?)?;
+    visible_proc_mount(
+        &proc_bytes(&myself.directory, "mountinfo", MAX_STATUS, budget)?,
+        id,
+    )
+}
+
+fn inventory(root: &File, uid: u32, myself: &Process, budget: &mut Budget) -> Result<()> {
+    let before = pids(root, budget)?;
+    let mut retained = Vec::new();
+    let mut classified = Vec::new();
+    for pid in &before {
+        let directory = directory(root, &pid.to_string())?;
+        let initial = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, *pid)?;
+        let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, *pid)?;
+        let metadata = directory.metadata().map_err(|_| ())?;
+        if initial.uids.contains(&uid) {
+            let process = Process::capture(root, *pid, budget)?;
+            if process.status != initial {
+                return Err(());
+            }
+            if *pid == myself.pid {
+                myself.recheck(root, budget)?;
+                if process.start != myself.start
+                    || !executable_identity(
+                        &process.executable_identity,
+                        &myself.executable_identity,
+                    )
+                {
+                    return Err(());
+                }
+            } else if daemon_candidate(&process.command, &process.executable_name, &process.comm)? {
+                return Err(());
+            }
+            retained.push(process);
+        }
+        // Do not silently classify a changing real/effective/saved/fs UID.
+        if status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, *pid)? != initial {
+            return Err(());
+        }
+        classified.push((*pid, directory, metadata, initial, start));
+    }
+    if pids(root, budget)? != before {
+        return Err(());
+    }
+    for process in retained {
+        process.recheck(root, budget)?;
+    }
+    for (pid, held, metadata, initial, start) in classified {
+        let current = directory(root, &pid.to_string())?;
+        if !identity(&metadata, &held.metadata().map_err(|_| ())?)
+            || !identity(&metadata, &current.metadata().map_err(|_| ())?)
+            || status(&proc_bytes(&current, "status", MAX_STATUS, budget)?, pid)? != initial
+            || start_time(&proc_bytes(&current, "stat", MAX_STATUS, budget)?, pid)? != start
+        {
+            return Err(());
+        }
+    }
+    if pids(root, budget)? != before {
+        return Err(());
+    }
+    budget.check()
+}
+
+fn service_record(bytes: &[u8], manager: bool) -> Result<u32> {
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    let mut active = None;
+    let mut sub = None;
+    let mut main = None;
+    let mut control = None;
+    for line in text.lines() {
+        let (key, value) = line.split_once('=').ok_or(())?;
+        match key {
+            "ActiveState" if active.is_none() => active = Some(value),
+            "SubState" if sub.is_none() => sub = Some(value),
+            "MainPID" if main.is_none() => main = Some(decimal(value.as_bytes())?),
+            "ControlPID" if control.is_none() => control = Some(decimal(value.as_bytes())?),
+            _ => return Err(()),
+        }
+    }
+    let pid = main.ok_or(())?;
+    if control != Some(0)
+        || (manager && (active != Some("active") || sub != Some("running") || pid == 0))
+        || (!manager && (active != Some("inactive") || sub != Some("dead") || pid != 0))
+    {
+        return Err(());
+    }
+    Ok(pid)
+}
+
+fn terminal(status: WaitStatus, pid: Pid) -> Result<Option<WaitStatus>> {
+    match status {
+        WaitStatus::StillAlive => Ok(None),
+        WaitStatus::Exited(found, _) | WaitStatus::Signaled(found, _, _) if found == pid => {
+            Ok(Some(status))
+        }
+        _ => Err(()),
+    }
+}
+
+fn known_reap(
+    status: WaitStatus,
+    pid: Pid,
+    reap: impl FnOnce() -> Result<WaitStatus>,
+) -> Result<()> {
+    if terminal(status, pid)?.is_none() || reap()? != status {
+        return Err(());
+    }
+    Ok(())
+}
+
+fn checked_once(refused: &Cell<bool>, observe: impl FnOnce() -> Result<()>) -> bool {
+    if refused.get() {
+        return false;
+    }
+    let result = observe();
+    refused.set(result.is_err());
+    result.is_ok()
+}
+
+fn query(uid: u32, unit: &str, system: bool, budget: &mut Budget) -> Result<Zeroizing<Vec<u8>>> {
+    budget.check()?;
+    let tool = TrustedExecutable::capture("/usr/bin/systemctl")?;
+    tool.recheck()?;
+    let mut child = Command::new(tool.exec_path())
+        .arg0("/usr/bin/systemctl")
+        .env_clear()
+        .env("LC_ALL", "C")
+        .env("SYSTEMD_COLORS", "0")
+        .env("XDG_RUNTIME_DIR", format!("/run/user/{uid}"))
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!("unix:path=/run/user/{uid}/bus"),
+        )
+        .env(
+            "DBUS_SYSTEM_BUS_ADDRESS",
+            "unix:path=/run/dbus/system_bus_socket",
+        )
+        .args([
+            if system { "--system" } else { "--user" },
+            "--no-pager",
+            "--no-ask-password",
+            "show",
+            unit,
+            "--property=ActiveState",
+            "--property=SubState",
+            "--property=MainPID",
+            "--property=ControlPID",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| ())?;
+    let pid = Pid::from_raw(i32::try_from(child.id()).map_err(|_| ())?);
+    let mut stdout = child.stdout.take().ok_or(())?;
+    // Child Drop never signals or waits. All outcomes below are raw, owned,
+    // exact waits. Unknown/timeout stops this observer, with no cleanup retry.
+    fcntl(&stdout, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).map_err(|_| ())?;
+    let mut output = Zeroizing::new(Vec::new());
+    let mut eof = false;
+    let mut observed = None;
+    loop {
+        budget.check()?;
+        if !eof {
+            let mut bytes = [0_u8; 4096];
+            match stdout.read(&mut bytes) {
+                Ok(0) => eof = true,
+                Ok(size) => {
+                    budget.charge(size)?;
+                    output.extend_from_slice(&bytes[..size]);
+                    if output.len() > MAX_STATUS {
+                        return Err(());
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => return Err(()),
+            }
+        }
+        if observed.is_none() {
+            observed = terminal(
+                waitid(
+                    Id::Pid(pid),
+                    WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT,
+                )
+                .map_err(|_| ())?,
+                pid,
+            )?;
+        }
+        if let Some(status) = observed
+            && (eof || status != WaitStatus::Exited(pid, 0))
+        {
+            known_reap(status, pid, || {
+                waitpid(pid, Some(WaitPidFlag::WNOHANG)).map_err(|_| ())
+            })?;
+            if status != WaitStatus::Exited(pid, 0) || !eof {
+                return Err(());
+            }
+            tool.recheck()?;
+            return Ok(output);
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn no_listener(bytes: &[u8]) -> Result<()> {
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    let mut lines = text.lines();
+    if lines.next() != Some("Num       RefCount Protocol Flags    Type St Inode Path") {
+        return Err(());
+    }
+    for line in lines {
+        let fields: Vec<_> = line.split_ascii_whitespace().collect();
+        if fields.len() < 7
+            || !fields[0].ends_with(':')
+            || fields[1..6]
+                .iter()
+                .any(|field| u64::from_str_radix(field, 16).is_err())
+            || fields[6].parse::<u64>().is_err()
+        {
+            return Err(());
+        }
+        // Refuse any ambiguous split of a canonical path, not just a currently
+        // reachable filesystem name. Removed listening sockets remain visible.
+        if line.contains("/omavless/control.sock") {
+            return Err(());
+        }
+    }
+    Ok(())
+}
+
+pub(super) struct StoppedOwner {
+    root: File,
+    root_identity: Metadata,
+    uid: u32,
+    myself: Process,
+    manager: Process,
+    manager_executable: TrustedExecutable,
+    namespaces: Vec<(&'static str, File, Metadata)>,
+    refused: Cell<bool>,
+}
+
+impl StoppedOwner {
+    pub(super) fn capture(uid: u32) -> Result<Self> {
+        let root = File::from(
+            open(
+                Path::new("/proc"),
+                OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| ())?,
+        );
+        if fstatfs(&root).map_err(|_| ())?.filesystem_type() != PROC_SUPER_MAGIC {
+            return Err(());
+        }
+        let root_identity = root.metadata().map_err(|_| ())?;
+        let mut budget = Budget::new();
+        let myself = Process::capture(&root, std::process::id(), &mut budget)?;
+        recovery_self(&myself.command)?;
+        if myself.status.uids != [uid; 4] || myself.status.namespace_pids != [myself.pid] {
+            return Err(());
+        }
+        proc_visibility(&root, &myself, &mut budget)?;
+        let mut namespaces = Vec::new();
+        for name in ["ns/pid", "ns/user", "ns/mnt", "ns/net"] {
+            let file = magic_file(&myself.directory, name)?;
+            let metadata = file.metadata().map_err(|_| ())?;
+            namespaces.push((name, file, metadata));
+        }
+        let pid = service_record(
+            &query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
+            true,
+        )?;
+        let manager = Process::capture(&root, pid, &mut budget)?;
+        let manager_executable = TrustedExecutable::capture("/usr/lib/systemd/systemd")?;
+        if !executable_identity(&manager_executable.metadata, &manager.executable_identity)
+            || manager.status.uids != [uid; 4]
+            || manager.status.namespace_pids != [pid]
+            || !arguments(&manager.command)?.contains(&b"--user".as_slice())
+        {
+            return Err(());
+        }
+        budget.check()?;
+        let observer = Self {
+            root,
+            root_identity,
+            uid,
+            myself,
+            manager,
+            manager_executable,
+            namespaces,
+            refused: Cell::new(false),
+        };
+        if !observer.recheck() {
+            return Err(());
+        }
+        Ok(observer)
+    }
+
+    pub(super) fn recheck(&self) -> bool {
+        checked_once(&self.refused, || self.observe())
+    }
+
+    fn namespace_boundary(&self) -> Result<()> {
+        if !identity(&self.root_identity, &fs::metadata("/proc").map_err(|_| ())?)
+            || !identity(&self.root_identity, &self.root.metadata().map_err(|_| ())?)
+        {
+            return Err(());
+        }
+        for (name, file, metadata) in &self.namespaces {
+            if !identity(metadata, &file.metadata().map_err(|_| ())?)
+                || !identity(
+                    metadata,
+                    &magic_file(&self.myself.directory, name)?
+                        .metadata()
+                        .map_err(|_| ())?,
+                )
+            {
+                return Err(());
+            }
+        }
+        for name in ["ns/pid", "ns/user"] {
+            same_namespace(
+                &magic_file(&self.manager.directory, name)?,
+                &magic_file(&self.myself.directory, name)?,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn observe(&self) -> Result<()> {
+        let mut budget = Budget::new();
+        self.namespace_boundary()?;
+        proc_visibility(&self.root, &self.myself, &mut budget)?;
+        self.manager.recheck(&self.root, &mut budget)?;
+        let pid = service_record(
+            &query(
+                self.uid,
+                &format!("user@{}.service", self.uid),
+                true,
+                &mut budget,
+            )?,
+            true,
+        )?;
+        if pid != self.manager.pid {
+            return Err(());
+        }
+        self.manager_executable.recheck()?;
+        for unit in ["omavless.service", "omavless-runtime.service"] {
+            service_record(&query(self.uid, unit, false, &mut budget)?, false)?;
+        }
+        inventory(&self.root, self.uid, &self.myself, &mut budget)?;
+        let net = directory(&self.myself.directory, "net")?;
+        no_listener(&proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?)?;
+        self.manager.recheck(&self.root, &mut budget)?;
+        self.myself.recheck(&self.root, &mut budget)?;
+        self.namespace_boundary()?;
+        proc_visibility(&self.root, &self.myself, &mut budget)?;
+        budget.check()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nix::sys::signal::Signal;
+    use std::io::Write;
+
+    fn proc_root() -> File {
+        File::open("/proc").unwrap()
+    }
+
+    #[test]
+    fn uid_inventory_uses_all_four_ids_not_proc_directory_owner() {
+        for ids in ["1000 0 0 0", "0 1000 0 0", "0 0 1000 0", "0 0 0 1000"] {
+            let raw = format!("Name:\tordinary\nPid:\t42\nUid:\t{ids}\nNSpid:\t42 1\n");
+            let state = status(raw.as_bytes(), 42).unwrap();
+            assert!(state.uids.contains(&1000));
+            assert_eq!(state.namespace_pids, [42, 1]);
+        }
+        for raw in [
+            "Pid: 42\nUid: 1000 1000 1000\nNSpid: 42\n",
+            "Pid: 42\nUid: 1000 1000 1000 true\nNSpid: 42\n",
+            "Pid: 42\nUid: 1000 1000 1000 1000\nUid: 0 0 0 0\nNSpid: 42\n",
+            "Pid: 43\nUid: 1000 1000 1000 1000\nNSpid: 42\n",
+            "Pid: 42\nUid: 1000 1000 1000 1000\nNSpid: 43\n",
+            "Pid: 42\nUid: 1000 1000 1000 1000\n",
+        ] {
+            assert!(status(raw.as_bytes(), 42).is_err());
+        }
+    }
+
+    #[test]
+    fn normal_renamed_deleted_and_mixed_version_daemons_refuse_without_netns_filter() {
+        // Classification deliberately receives no network namespace: a daemon
+        // in another netns is not filtered out before argv/exe inspection.
+        for (argv, executable, comm) in [
+            (
+                b"/usr/bin/omavless\0daemon\0".as_slice(),
+                b"/usr/bin/omavless".as_slice(),
+                b"omavless\n".as_slice(),
+            ),
+            (
+                b"/renamed/version\0daemon\0",
+                b"/removed/older-build (deleted)",
+                b"renamed\n",
+            ),
+            (b"alias\0daemon\0", b"/arbitrary/next-version", b"alias\n"),
+            (
+                b"alias\0",
+                b"/usr/bin/omavless-runtime (deleted)",
+                b"alias\n",
+            ),
+            (b"omavless-old\0", b"/renamed/file", b"renamed\n"),
+            (b"alias\0", b"/renamed/file", b"omavless_runtim\n"),
+        ] {
+            assert_eq!(daemon_candidate(argv, executable, comm), Ok(true));
+        }
+        assert_eq!(
+            daemon_candidate(b"/usr/bin/editor\0file\0", b"/usr/bin/editor", b"editor\n"),
+            Ok(false)
+        );
+        for argv in [b"".as_slice(), b"\0", b"alias", b"\0argument\0"] {
+            assert!(daemon_candidate(argv, b"/usr/bin/editor", b"editor\n").is_err());
+        }
+    }
+
+    #[test]
+    fn actual_original_proc_descriptor_detects_starttime_exec_and_argv_drift() {
+        let root = proc_root();
+        for change in 0..3 {
+            let mut process =
+                Process::capture(&root, std::process::id(), &mut Budget::new()).unwrap();
+            process.recheck(&root, &mut Budget::new()).unwrap();
+            match change {
+                0 => process.start += 1,
+                1 => process.executable_identity = root.metadata().unwrap(),
+                _ => process.command.push(b'X'),
+            }
+            assert!(process.recheck(&root, &mut Budget::new()).is_err());
+        }
+    }
+
+    #[test]
+    fn original_held_executable_metadata_cannot_adopt_same_bytes_new_inode() {
+        let mut old = tempfile::tempfile().unwrap();
+        let mut replacement = tempfile::tempfile().unwrap();
+        old.write_all(b"same bytes").unwrap();
+        replacement.write_all(b"same bytes").unwrap();
+        assert!(!executable_identity(
+            &old.metadata().unwrap(),
+            &replacement.metadata().unwrap()
+        ));
+        assert!(
+            !identity(&old.metadata().unwrap(), &replacement.metadata().unwrap()),
+            "namespace identity uses device/inode, not a label"
+        );
+    }
+
+    #[test]
+    fn only_exact_recovery_self_and_matching_namespace_can_be_exempted() {
+        assert!(recovery_self(b"binary\0restore\0abort\0--confirm-rollback\0").is_ok());
+        for command in [
+            b"binary\0daemon\0".as_slice(),
+            b"binary\0",
+            b"binary\0restore\0abort\0",
+            b"binary\0restore\0abort\0--confirm-rollback\0extra\0",
+        ] {
+            assert!(recovery_self(command).is_err());
+        }
+        let pid = File::open("/proc/self/ns/pid").unwrap();
+        let net = File::open("/proc/self/ns/net").unwrap();
+        assert!(same_namespace(&pid, &pid.try_clone().unwrap()).is_ok());
+        assert!(same_namespace(&pid, &net).is_err());
+    }
+
+    #[test]
+    fn bounds_deadline_and_proc_type_are_fail_closed() {
+        let root = proc_root();
+        let process = directory(&root, &std::process::id().to_string()).unwrap();
+        assert!(proc_bytes(&process, "status", 1, &mut Budget::new()).is_err());
+        let mut budget = Budget::new();
+        budget.remaining = 0;
+        assert!(proc_bytes(&process, "status", MAX_STATUS, &mut budget).is_err());
+        budget.until = Instant::now() - Duration::from_secs(1);
+        assert!(budget.check().is_err());
+        assert!(proc_bytes(&process, "fd", MAX_STATUS, &mut Budget::new()).is_err());
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("status"), b"pretend procfs").unwrap();
+        assert!(
+            proc_bytes(
+                &File::open(temp.path()).unwrap(),
+                "status",
+                MAX_STATUS,
+                &mut Budget::new()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn selected_proc_mount_rejects_hidden_partial_or_unbound_inventory() {
+        let id = mount_id(b"pos:\t0\nflags:\t0100000\nmnt_id:\t42\n").unwrap();
+        assert_eq!(id, 42);
+        for bytes in [
+            b"mnt_id: 42\nmnt_id: 42\n".as_slice(),
+            b"mnt_id: true\n",
+            b"other: 42\n",
+            b"mnt_id: 0\n",
+        ] {
+            assert!(mount_id(bytes).is_err());
+        }
+        let normal = "42 1 0:1 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n";
+        assert!(visible_proc_mount(normal.as_bytes(), 42).is_ok());
+        for option in [
+            "hidepid=1",
+            "hidepid=2",
+            "hidepid=invisible",
+            "subset=pid",
+            "gid=1000",
+            "unknown",
+        ] {
+            let raw = format!("42 1 0:1 / /proc rw - proc proc rw,{option}\n");
+            assert!(visible_proc_mount(raw.as_bytes(), 42).is_err());
+        }
+        assert!(visible_proc_mount(normal.as_bytes(), 43).is_err());
+        assert!(visible_proc_mount(format!("{normal}{normal}").as_bytes(), 42).is_err());
+        assert!(
+            visible_proc_mount(normal.replace("/ /proc", "/hidden /proc").as_bytes(), 42).is_err()
+        );
+        assert!(visible_proc_mount(normal.replace("- proc", "- tmpfs").as_bytes(), 42).is_err());
+        assert!(visible_proc_mount(normal.trim_end().as_bytes(), 42).is_err());
+    }
+
+    #[test]
+    fn fixed_service_shape_rejects_duplicates_types_missing_and_nonempty_state() {
+        let inactive = b"ActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\n";
+        let active = b"ActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\n";
+        assert_eq!(service_record(inactive, false), Ok(0));
+        assert_eq!(service_record(active, true), Ok(42));
+        assert!(service_record(active, false).is_err());
+        assert!(service_record(inactive, true).is_err());
+        for tail in ["MainPID=0\n", "Extra=0\n", "\n", "ControlPID=false\n"] {
+            let mut raw = inactive.to_vec();
+            raw.extend_from_slice(tail.as_bytes());
+            assert!(service_record(&raw, false).is_err());
+        }
+        for bad in [
+            "ActiveState=inactive\nSubState=dead\nMainPID=false\nControlPID=0\n",
+            "ActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=1\n",
+            "ActiveState=inactive\nMainPID=0\nControlPID=0\n",
+            "ActiveState=inactive\nSubState=dead\nMainPID=4294967296\nControlPID=0\n",
+        ] {
+            assert!(service_record(bad.as_bytes(), false).is_err());
+        }
+    }
+
+    #[test]
+    fn raw_wait_only_reaps_exact_known_terminal_and_never_promotes_unknown() {
+        let pid = Pid::from_raw(42);
+        for observed in [
+            WaitStatus::StillAlive,
+            WaitStatus::Exited(Pid::from_raw(43), 0),
+            WaitStatus::Stopped(pid, Signal::SIGSTOP),
+            WaitStatus::Continued(pid),
+        ] {
+            let called = Cell::new(false);
+            assert!(
+                known_reap(observed, pid, || {
+                    called.set(true);
+                    Ok(observed)
+                })
+                .is_err()
+            );
+            assert!(!called.get());
+        }
+        let exited = WaitStatus::Exited(pid, 0);
+        assert!(known_reap(exited, pid, || Err(())).is_err());
+        assert!(known_reap(exited, pid, || Ok(WaitStatus::Exited(pid, 1))).is_err());
+        assert!(known_reap(exited, pid, || Ok(exited)).is_ok());
+        assert_eq!(
+            terminal(WaitStatus::Signaled(pid, Signal::SIGKILL, false), pid),
+            Ok(Some(WaitStatus::Signaled(pid, Signal::SIGKILL, false)))
+        );
+    }
+
+    #[test]
+    fn first_uncertainty_blocks_all_followup_observation_or_query() {
+        let refused = Cell::new(false);
+        assert!(!checked_once(&refused, || Err(())));
+        assert!(!checked_once(&refused, || panic!(
+            "no retry, later query or invented recovery"
+        )));
+        let refused = Cell::new(false);
+        assert!(checked_once(&refused, || Ok(())));
+        assert!(!checked_once(&refused, || Err(())));
+        assert!(!checked_once(&refused, || panic!(
+            "failure cannot be healed"
+        )));
+    }
+
+    #[test]
+    fn kernel_listener_includes_unlinked_path_and_refuses_ambiguous_table() {
+        const HEADER: &str = "Num       RefCount Protocol Flags    Type St Inode Path\n";
+        assert!(
+            no_listener(
+                format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /unrelated/socket\n")
+                    .as_bytes()
+            )
+            .is_ok()
+        );
+        // There is deliberately no pathname-existence check.
+        assert!(no_listener(format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /removed/omavless/control.sock\n").as_bytes()).is_err());
+        assert!(no_listener(b"malformed\n").is_err());
+        assert!(no_listener(format!("{HEADER}missing fields\n").as_bytes()).is_err());
+    }
+
+    #[test]
+    // Exact waitid(WNOWAIT) + waitpid below deliberately replace Child::wait.
+    #[allow(clippy::zombie_processes)]
+    fn original_cloexec_elf_fd_executes_without_path_fallback() {
+        let tool = TrustedExecutable::capture("/usr/bin/true").unwrap();
+        let child = Command::new(tool.exec_path())
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = Pid::from_raw(i32::try_from(child.id()).unwrap());
+        let until = Instant::now() + Duration::from_secs(2);
+        loop {
+            assert!(
+                Instant::now() < until,
+                "quarantine: no timeout kill or reap"
+            );
+            let observed = terminal(
+                waitid(
+                    Id::Pid(pid),
+                    WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT,
+                )
+                .unwrap(),
+                pid,
+            )
+            .unwrap();
+            if let Some(status) = observed {
+                known_reap(status, pid, || {
+                    waitpid(pid, Some(WaitPidFlag::WNOHANG)).map_err(|_| ())
+                })
+                .unwrap();
+                assert_eq!(status, WaitStatus::Exited(pid, 0));
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        tool.recheck().unwrap();
+        assert!(
+            fcntl(&tool.file, FcntlArg::F_GETFD).unwrap() & nix::fcntl::FdFlag::FD_CLOEXEC.bits()
+                != 0
+        );
+    }
+
+    #[test]
+    fn pid_count_cap_and_root_owned_executable_type_are_real_boundaries() {
+        let root = tempfile::tempdir().unwrap();
+        for pid in 1..=MAX_PIDS + 1 {
+            File::create(root.path().join(pid.to_string())).unwrap();
+        }
+        let held = File::open(root.path()).unwrap();
+        assert!(pids(&held, &Budget::new()).is_err());
+        fs::remove_file(root.path().join((MAX_PIDS + 1).to_string())).unwrap();
+        assert_eq!(pids(&held, &Budget::new()).unwrap().len(), MAX_PIDS);
+        assert!(TrustedExecutable::capture("/proc/self/exe").is_err());
+        assert!(TrustedExecutable::capture("/dev/null").is_err());
+        assert!(TrustedExecutable::capture("/tmp/not-a-trusted-tool").is_err());
+    }
+}

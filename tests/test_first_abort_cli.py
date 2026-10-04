@@ -36,6 +36,23 @@ class FirstAbortCli(unittest.TestCase):
         self.assertIn("admitted()\n            && lock.authorizes", text)
         self.assertIn("first_abort_owner_external_admission_is_retained_at_every_checkpoint", text)
 
+    def test_stopped_owner_is_independent_of_initial_lock_inode_and_netns(self):
+        cli = (SRC / "restore_abort_cli.rs").read_text()
+        body = cli.split("pub fn abort_from_private_input", 1)[1].split("#[cfg(test)]", 1)[0]
+        self.assertLess(body.index("StoppedOwner::capture"), body.index("abort_first_restore_current"))
+        self.assertIn("stopped.recheck() && owner.recheck() && stopped.recheck()", body)
+        self.assertIn("live_runtime_with_pre_acquire_replaced_lock_is_not_stopped", cli)
+        text = (SRC / "restore_abort_stopped_owner.rs").read_text().split("#[cfg(test)]", 1)[0]
+        for token in ("initial.uids.contains(&uid)", "self.manager.recheck", "recovery_self(&myself.command)",
+                      "MAX_PIDS: usize = 4096", "16 * 1024 * 1024", "Duration::from_secs(2)",
+                      "WaitPidFlag::WNOWAIT", "known_reap", "checked_once", ".env_clear()",
+                      "proc_visibility", "visible_proc_mount", "hidepid=0",
+                      'TrustedExecutable::capture("/usr/bin/systemctl")', "Command::new(tool.exec_path())",
+                      '"/usr/lib/systemd/systemd"', '"omavless-runtime.service"', '"omavless.service"'):
+            self.assertIn(token, text)
+        for forbidden in (".try_wait(", ".kill(", ".wait(", "killpg", "pre_exec", "sudo", '"start"', '"stop"'):
+            self.assertNotIn(forbidden, text)
+
 
 if __name__ == "__main__":
     unittest.main()

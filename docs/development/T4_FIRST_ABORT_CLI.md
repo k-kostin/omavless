@@ -27,6 +27,59 @@ than accepting a later restored pathname. The ordinary daemon lock writer is
 unchanged. The checked recovery constructor remains module-private; there is
 no caller-supplied host/path override or generic IPC method.
 
+### Stopped-owner admission and limits
+
+The original CLI checkpoint `18b99a91a2ae78525f4d6c8d9cd7311965fc4cc0`
+was **incomplete**: a live, disconnected `RuntimeServer` could retain an older
+unlinked lock inode while recovery acquired its replacement. The explicit
+real-server regression failed on that implementation (exit 101). Its separate
+full Rust gate also failed the existing no-JSON-in-help contract (23 CLI tests
+passed, one failed; runtime library 1166 passed/38 ignored). These failures are
+retained, not reclassified by later fixes. Help wording now says private input;
+the existing help guard is unchanged.
+
+The correction adds a CLI-private stopped-owner observer, not a shared backend
+policy change. Any existing control-socket name refuses without unlinking it.
+The held daemon lock is only one boundary: fixed read-only system/user-manager
+queries must prove the canonical services inactive with zero MainPID/ControlPID.
+The root manager's `user@UID.service` identifies the actual user manager; retain
+that process's original executable/identity, bind it to the root-owned systemd
+executable and require the recovery process's PID/user namespaces to match.
+Namespace or manager identity drift refuses; nested/unverifiable ownership is
+unsupported, not silently treated as an empty host.
+
+Each admission also inventories every visible numeric PID using all four UIDs
+from bounded procfs status, never proc-directory ownership alone. Same-UID
+visibility also requires the original `/proc` FD's mount ID to identify an
+unrestricted procfs mount: hidden/partial PID views and unknown mount options
+refuse before service queries. Same-UID
+processes retain original proc/executable descriptors, start time, command bytes
+and identity across rereads and PID-set comparisons. Normal `daemon` argv and
+known OmaVLESS executable/argv0/comm identities refuse, including renamed,
+deleted or mixed-version daemons and daemons in another network namespace.
+Only the original exact recovery invocation may exempt itself. Local kernel
+Unix-listener observation supplements, never replaces, that process inventory.
+
+Limits per observation are 4096 numeric PIDs, 64 KiB status/stat or query output,
+128 KiB command line, 4 MiB Unix table, 16 MiB aggregate proc/query bytes and a
+two-second deadline. Permission errors (including unrelated same-UID nondumpable
+processes), empty/ambiguous argv, PID churn, exec/UID changes, malformed data or
+unsupported namespace evidence permanently refuse that invocation. These are
+bounded observations plus a retained cooperative lock, not an atomic global
+process snapshot or hostile same-UID security boundary.
+
+Observation queries clear inherited bus/loader environment overrides and use
+only fixed units and buses. The trusted original systemctl ELF FD is executed
+without a pathname fallback; only exact raw WNOWAIT/known-terminal waitpid
+completion permits result use. Unknown, timeout, malformed or nonzero outcomes
+cause no further query, signal, cleanup or automatic retry. Retained private
+process bytes are zeroizing and never exposed in public errors.
+
+An active canonical VM runtime must not be stopped just to obtain a positive
+test. Positive installed acceptance needs a separately approved disposable real
+UID/user-manager environment with its canonical units inactive, not a fake bus
+or nested PID namespace. Creating that environment is not authorized here.
+
 This is explicit recovery while the runtime is stopped, not a new dispatcher
 or an alternative live owner. Before the migration lease, retain an existing
 exclusive daemon singleton lock and its private directory. Missing, unsafe,
