@@ -28,6 +28,10 @@ state = base / "started"
 mode = "filtered" if link.is_symlink() and pathlib.Path(os.readlink(link)).name == "filtered.service" else "control"
 if name == "systemd-detect-virt":
     print("kvm")
+elif name == "python3":
+    if args != ["-I", str(stage / "typed-properties.py")]: sys.exit(41)
+    with (base / "calls").open("a") as log: log.write(json.dumps(["typed-query", mode]) + "\n")
+    if case in ("typed-failure", "typed-uncertainty", "property-drift:EnvironmentFiles"): sys.exit(2)
 elif name == "getcap":
     if case == "caps": print("probe cap_sys_admin=ep")
 elif name == "stat":
@@ -87,6 +91,8 @@ class NamespaceFilterRunnerTests(unittest.TestCase):
             probe = stage / "probe"
             probe.write_bytes(b"synthetic bytes never executed")
             probe.chmod(0o700)
+            (stage / "typed-properties.py").write_bytes((SUPPORT / "support/typed_manager_properties.py").read_bytes())
+            (stage / "query-guard.py").write_bytes((SUPPORT / "support/namespace_filter_guest_guard.py").read_bytes())
             for mode, suffix in [("control", "control"), ("filtered", "fixture")]:
                 data = (SUPPORT / f"fixtures/omavless-k1-generator-filter-{suffix}.service").read_bytes()
                 (stage / f"{mode}.service").write_bytes(data)
@@ -94,7 +100,7 @@ class NamespaceFilterRunnerTests(unittest.TestCase):
             source = RUNNER.read_text()
             changes = {
                 " && $EUID == 0": "",
-                "stage=/run/omavless-k1-generator-filter-fixture": f"stage={stage}",
+                "stage=/run/omavless-k1-typed-filter-fixture": f"stage={stage}",
                 "link=/run/systemd/system/$unit": f"link={base / 'unit-link'}",
                 "cgroup=/sys/fs/cgroup/system.slice/$unit": f"cgroup={base / 'cgroup'}",
                 "probe_sha=b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332":
@@ -107,7 +113,7 @@ class NamespaceFilterRunnerTests(unittest.TestCase):
             script.write_text(source)
             commands = base / "bin"
             commands.mkdir()
-            for name in ["systemctl", "stat", "getcap", "systemd-detect-virt"]:
+            for name in ["systemctl", "stat", "getcap", "systemd-detect-virt", "python3"]:
                 path = commands / name
                 path.write_text(f"#!{sys.executable}\n" + MOCK)
                 path.chmod(0o700)
@@ -154,6 +160,14 @@ class NamespaceFilterRunnerTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(retained)
                 self.assertNotIn('["start",', calls)
+
+    def test_failed_or_uncertain_typed_query_never_starts_or_unlinks(self):
+        for kind in ("typed-failure", "typed-uncertainty"):
+            result, retained, calls = self.execute(kind)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(retained)
+            self.assertNotIn('["start",', calls)
+            self.assertEqual(calls.count('["typed-query",'), 1)
 
 
 if __name__ == "__main__":

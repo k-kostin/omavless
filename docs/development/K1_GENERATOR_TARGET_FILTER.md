@@ -81,3 +81,6 @@ guard `c5f54f38909c674d5dc30791cab4d624ef7cfa384e879be97efd7915957a24d2`.
 The actual failed invocation is not changed by later diagnostics. Typed empty
 properties need a new generation and realistic omission/error counterexamples
 before another invocation. No filter/kernel or namespace authority was proven.
+
+The separate [typed manager-property generation](K1_TYPED_MANAGER_FILTER.md)
+continues that prerequisite without rerunning or altering the retained stage.

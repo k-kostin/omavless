@@ -24,6 +24,35 @@ class NamespaceFilterGuardTests(unittest.TestCase):
         runner = ROOT / "crates/omavless-netguard/tests/support/generator_filter_vm_fixture.sh"
         self.assertEqual(hashlib.sha256(runner.read_bytes()).hexdigest(), guard.RUNNER_SHA)
 
+    def test_runner_failure_stops_before_any_next_snapshot(self):
+        source = (ROOT / "crates/omavless-netguard/tests/support/generator_filter_guest_guard.py").read_text()
+        after = source.split("code = await_child(child)", 1)[1]
+        self.assertLess(after.index("require(code == 0)"), after.index("after = snapshot()"))
+        self.assertIn("query_guard_unchanged", source)
+
+    def test_actual_outer_main_failure_never_queries_after_runner_exit(self):
+        with tempfile.TemporaryDirectory(prefix="ov-typed-outer-") as temp, \
+             patch.object(guard, "STAGE", Path(temp)), \
+             patch.object(guard.Path, "lstat", return_value=SimpleNamespace(
+                 st_mode=0o040700, st_uid=0, st_gid=0)), \
+             patch.object(guard.os, "geteuid", return_value=0), \
+             patch.dict(guard.os.environ, {"OMAVLESS_K1_NAMESPACE_FILTER_GUARD": "1"}), \
+             patch.object(guard.sys, "argv", ["fixed-fixture"]), \
+             patch.object(guard, "LINK", SimpleNamespace(exists=lambda: False, is_symlink=lambda: False)), \
+             patch.object(guard, "CGROUP", SimpleNamespace(exists=lambda: False)), \
+             patch.object(guard, "pinned_file", return_value=(1, 2)), \
+             patch.object(guard, "command", return_value=b"kvm\n") as command, \
+             patch.object(guard, "snapshot", return_value={"synthetic": True}) as snapshot, \
+             patch.object(guard, "spawn") as spawn, \
+             patch.object(guard, "await_child", return_value=2):
+            with self.assertRaises(guard.Refused):
+                guard.main()
+            snapshot.assert_called_once()
+            command.assert_called_once_with(["/usr/bin/systemd-detect-virt", "--vm"])
+            spawn.assert_called_once()
+            self.assertTrue((Path(temp) / "runner.log").exists())
+            self.assertFalse((Path(temp) / "result.json").exists())
+
     def test_target_scope_adds_only_already_inventoried_user_generators(self):
         old = {"/usr/lib/systemd", "/etc/systemd", "/run/systemd", "/home/kdk_vm/.config/systemd"}
         added = set(guard.TARGET_ROOTS) - old

@@ -6,7 +6,7 @@ Description=OmaVLESS K1 namespace syscall filter fixture
 [Service]
 Type=exec
 User=root
-ExecStart=/run/omavless-k1-generator-filter-fixture/probe
+ExecStart=/run/omavless-k1-typed-filter-fixture/probe
 Environment=OMAVLESS_K1_NAMESPACE_FILTER_FIXTURE=control
 PrivateUsers=no
 PrivatePIDs=no

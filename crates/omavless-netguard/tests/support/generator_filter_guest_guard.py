@@ -14,13 +14,13 @@ import sys
 import tempfile
 import time
 
-STAGE = Path("/run/omavless-k1-generator-filter-fixture")
-UNIT = "omavless-k1-generator-filter-fixture.service"
+STAGE = Path("/run/omavless-k1-typed-filter-fixture")
+UNIT = "omavless-k1-typed-filter-fixture.service"
 LINK = Path("/run/systemd/system") / UNIT
 CGROUP = Path("/sys/fs/cgroup/system.slice") / UNIT
 PROBE_SHA = "b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332"
 # Filled only from reviewed, frozen runner bytes; an unset pin refuses.
-RUNNER_SHA = "32638562be557f4a568da906f93b9b0e22b904132a4045396a993ddc7ef69f81"
+RUNNER_SHA = "4b4c8bcb9535a26339efa7c0e483fb93827c863fa836b85f0169dee837a80cc3"
 SERVICE_FIELDS = ["ActiveState", "SubState", "MainPID"]
 NETWORK_COMMANDS = {
     "address": ["/usr/bin/ip", "-j", "address", "show"],
@@ -296,6 +296,8 @@ def main():
     require(not LINK.exists() and not LINK.is_symlink() and not CGROUP.exists())
     probe_identity = pinned_file(STAGE / "probe", PROBE_SHA, 0o700)
     runner_identity = pinned_file(STAGE / "runner.sh", RUNNER_SHA, 0o600)
+    query_identity = pinned_file(STAGE / "typed-properties.py", "2aef0c278a1510af8ed6d1800c963b07bcc7fbf6bbd1bf7071d9ec1986529c2e", 0o600)
+    query_guard_identity = pinned_file(STAGE / "query-guard.py", "c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40", 0o600)
     before = snapshot()
     # All output is private and create-only. Failure/timeout never removes evidence.
     log = os.open(STAGE / "runner.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -305,6 +307,8 @@ def main():
                                       "OMAVLESS_K1_NAMESPACE_FILTER_VM": "1"},
                                  stdout=stream, stderr=subprocess.STDOUT)
         code = await_child(child)
+    # No later command/snapshot can heal a failed or uncertain nested query.
+    require(code == 0)
     after = snapshot()
     checks = {
         "runner_exit_zero": code == 0,
@@ -313,6 +317,8 @@ def main():
         "cgroup_absent": not CGROUP.exists() and not CGROUP.is_symlink(),
         "probe_unchanged": pinned_file(STAGE / "probe", PROBE_SHA, 0o700) == probe_identity,
         "runner_unchanged": pinned_file(STAGE / "runner.sh", RUNNER_SHA, 0o600) == runner_identity,
+        "query_unchanged": pinned_file(STAGE / "typed-properties.py", "2aef0c278a1510af8ed6d1800c963b07bcc7fbf6bbd1bf7071d9ec1986529c2e", 0o600) == query_identity,
+        "query_guard_unchanged": pinned_file(STAGE / "query-guard.py", "c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40", 0o600) == query_guard_identity,
         "exact_receipts": (STAGE / "runner.log").read_text().splitlines() == [
             "K1_NAMESPACE_FILTER_control_PASS", "K1_NAMESPACE_FILTER_filtered_PASS",
             "K1_NAMESPACE_FILTER_VM_PASS"],

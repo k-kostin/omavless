@@ -6,12 +6,14 @@ export LC_ALL=C
 umask 077
 [[ ${OMAVLESS_K1_NAMESPACE_FILTER_VM:-} == 1 && $EUID == 0 && $# == 0 ]] || exit 2
 [[ $(systemd-detect-virt --vm) == kvm ]] || exit 2
-stage=/run/omavless-k1-generator-filter-fixture
+stage=/run/omavless-k1-typed-filter-fixture
 probe=$stage/probe
-unit=omavless-k1-generator-filter-fixture.service
+unit=omavless-k1-typed-filter-fixture.service
 link=/run/systemd/system/$unit
 cgroup=/sys/fs/cgroup/system.slice/$unit
 probe_sha=b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332
+query_sha=2aef0c278a1510af8ed6d1800c963b07bcc7fbf6bbd1bf7071d9ec1986529c2e
+query_guard_sha=c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40
 # A property missing from this systemd must not look like an expected empty one.
 property() {
     local reply
@@ -27,6 +29,10 @@ check_probe() {
     local caps
     caps=$(getcap "$probe") || return 2
     [[ -z $caps ]] || return 2
+    [[ -f $stage/typed-properties.py && ! -L $stage/typed-properties.py && $(stat -c '%u:%g:%a:%h' "$stage/typed-properties.py") == 0:0:600:1 ]] || return 2
+    [[ $(sha256sum "$stage/typed-properties.py" | cut -d ' ' -f 1) == "$query_sha" ]] || return 2
+    [[ -f $stage/query-guard.py && ! -L $stage/query-guard.py && $(stat -c '%u:%g:%a:%h' "$stage/query-guard.py") == 0:0:600:1 ]] || return 2
+    [[ $(sha256sum "$stage/query-guard.py" | cut -d ' ' -f 1) == "$query_guard_sha" ]] || return 2
 }
 check_unit() {
     [[ -f $source_unit && ! -L $source_unit && $(stat -c '%u:%g:%a:%h' "$source_unit") == 0:0:600:1 ]] || return 2
@@ -67,10 +73,10 @@ trap finish EXIT
 for mode in control filtered; do
     case $mode in
         control) source_unit=$stage/control.service
-            digest=b646eedc82c38704eb5b8e3845bfaad64540450a23bc0807fab3e846f22a15f5
+            digest=b7adcf6e33b3f2f03308285c0a93ec31110a8f0e6955bf3a8376cc2ab3f4dc57
             restriction=no ;;
         filtered) source_unit=$stage/filtered.service
-            digest=0c9389bae1353e34df761e12eb8a68d5d78bdb35423a50534389067d37cd522d
+            digest=f3274fb882364e2ec1dc62000192642481f65ab16e650b8147e2435ae300408a
             restriction=yes ;;
     esac
     check_probe
@@ -86,13 +92,16 @@ for mode in control filtered; do
     [[ $(property ExecStart) == "$expected" ]] || exit 2
     for name in DropInPaths Wants BindsTo PartOf Upholds OnFailure OnSuccess \
         TriggeredBy Requisite PropagatesStopTo StopPropagatedFrom \
-        ExecCondition ExecStartPre ExecStartPost ExecReload ExecStop ExecStopPost \
-        CapabilityBoundingSet AmbientCapabilities SystemCallFilter \
-        PassEnvironment EnvironmentFiles SupplementaryGroups RootDirectory RootImage \
+        CapabilityBoundingSet AmbientCapabilities \
+        PassEnvironment SupplementaryGroups RootDirectory RootImage \
         NetworkNamespacePath JoinsNamespaceOf; do
         value=$(property "$name") || exit 2
         [[ -z $value ]] || exit 2
     done
+    # Structured empty arrays have no reliable systemctl text representation.
+    # Fixed typed query failure/uncertainty exits before any start or cleanup.
+    check_probe
+    python3 -I "$stage/typed-properties.py"
     [[ $(property User) == root ]] || exit 2
     [[ $(property NoNewPrivileges) == yes ]] || exit 2
     [[ $(property Delegate) == no ]] || exit 2
