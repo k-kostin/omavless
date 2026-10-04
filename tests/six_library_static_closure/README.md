@@ -1,5 +1,22 @@
 # Six recorded public candidates: bounded static closure
 
+## Parent-recorded invocation of exact source checkpoint
+
+The sole VM observer recorded all ten preparation actions at known zero and
+one #644 wrapper at known zero (`d56c91`, 0.746 seconds), against exact source
+`45feb7e13ea71485d032b8d6a1e2319edcedacc7`. Its private stdout receipt hash is
+`9da582bd73653be2ade11907d5f8852cf569b78cf3e82cac984b2c8cd4c6f3b0`.
+It contains the typed static-only and same-invocation canonical/private-file,
+service, executable, namespace, core, TUN, resolver and non-timer network
+baseline markers. This paragraph is a separate documentation follow-up, not
+the tested code head. The author performed no guest action.
+
+The previous #640/#642 failures remain NONPASS; no cause is inferred from the
+passing successor. A separately reviewed file-only collector is still needed
+to export and revalidate the measured package/ELF data. No copy allowlist,
+candidate execution, loaded-object identity or compatibility acceptance is
+adopted by this static invocation or its receipt. Scoped R6 is unchanged.
+
 ## Exact package-directory selection successor
 
 This developer-only successor starts at #642
