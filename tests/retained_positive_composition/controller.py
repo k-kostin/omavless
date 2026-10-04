@@ -115,7 +115,7 @@ class Target:
 
 
 class Controller:
-    def __init__(self, owner, core):
+    def __init__(self, owner, core, ownership):
         self.sealed = True
         self.owner, self.core = owner, core
         self._identity = object()
@@ -126,6 +126,11 @@ class Controller:
             self.deadline = start + 40.0
             deadline = start + 3.0
             remaining(deadline)
+            # ownership is the launcher's exact pinned loaded module, never
+            # IPC input. Require its concrete retained classes, not duck anchors.
+            require(type(owner) is ownership.Session and type(core) is ownership.OwnedProcess
+                    and owner.kind == 'inner' and owner.roles.get(id(core)) == 'core'
+                    and any(child is core for child in owner.children))
             self.io(deadline, owner.available)
             require(owner.anchors.get('core', {}).get('child') is core)
             self.io(deadline, owner.live, core)

@@ -181,6 +181,14 @@ class Controls(unittest.TestCase):
         self.assertTrue(value.sealed and value.owner.sealed)
         self.assertNotIn(FIRST,repr(selected));self.assertNotIn('42',repr(selected))
 
+    def test_constructor_rejects_duck_core_or_owner_before_any_fd_open(self):
+        own,core=owner()
+        module=SimpleNamespace(Session=type('Session',(),{}),OwnedProcess=type('OwnedProcess',(),{}))
+        with patch.object(c.os,'open') as opened:
+            with self.assertRaises(c.Refused):c.Controller(own,core,module)
+            opened.assert_not_called()
+        self.assertTrue(own.sealed)
+
     def test_exact_empty_effect_receipts_and_wrong_token_not_parent_authority(self):
         for code,expected in ((204,'closed'),(404,'missing'),(409,'changed')):
             value,_,_=controller();selected=c.Target(FIRST,'42',value._identity,value.core)

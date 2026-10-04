@@ -42,9 +42,25 @@ argv/UID absence claim. Before chroot, fixed bootstrap tempfiles require the new
 stage scratch TMPDIR; only the successful private FD-inventory boundary switches
 to private /tmp. The session is developer-only, not a normal owner authority.
 
-The actual positive launcher, artifact admission, original-to-copy-to-loaded
-identity graph, fresh scoped quiescence and canonical wrapper are NOT yet
-implemented here. The existing real-resolved legacy
+Fixed artifact admission now binds the exact unchanged c4 developer manifest,
+61,083,808-byte core, 5,124,576-byte broker and 49,630,768-byte real-resolver helper
+through original no-follow nonblocking namespace FDs (no ELF execution here).
+The literal four-member /artifacts catalog, exact size/hash/mode/owner/single-link,
+xattrs and x86_64 ELF header precede use; repeated catalog scans reset the same
+original directory FD. Sources are retained, and device/inode membership must
+pass BEFORE any mapped-target hash. 128 MiB admitted content, 90-second lifetime,
+20-second construction and 15-second shared recheck budgets are explicit sampled
+bounds. Expected native staging modes are 0555, not capabilities or installed
+package attestation. The trusted HOST-original-to-guest builder and actual
+loaded-process/reread adapter remain separate required steps. Nine inert controls
+use small nonexecuted synthetic ELF-shaped bytes and replaced literal test table;
+they do not establish actual artifact execution or adoption.
+
+The actual positive launcher, original-to-copy-to-loaded identity graph, fresh
+scoped quiescence and canonical wrapper are NOT yet implemented here.
+Controller construction now requires the concrete Session/OwnedProcess classes
+from the launcher's pinned ownership module plus exact inner/core role; mock
+anchors alone cannot pass construction. The existing real-resolved legacy
 exercise/group-cleanup path is not adopted or invoked. New fresh owned-child
 ledger proof must replace global shared argv/UID absence checks without
 silently dropping ownership constraints. Owner-loss and quarantine cases are
@@ -61,6 +77,7 @@ fixture after FULL parent/independent graph review and sealed full gates.
 Run `python3 -I -B tests/retained_positive_composition/test_controller.py -v`
 only for inert pure and mocked ownership controls; no actual socket/core/process
 or namespace is created. The sibling `test_lifecycle.py` also runs inert only.
-The actual launcher must supply the concrete pinned Session and its own
-OwnedProcess core, not merely duck-typed/mock anchors used by these controls.
+The actual launcher must supply the exact pinned ownership module and its own
+Session/OwnedProcess core; private HOST delivery/native loaded mapping remain
+required and are not inferred from a source hash or a mocked control.
 Full source/native results belong to exact later heads.
