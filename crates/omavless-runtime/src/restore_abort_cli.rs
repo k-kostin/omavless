@@ -209,7 +209,7 @@ pub(crate) fn diagnose_current_stopped() -> Result<(), ()> {
     diagnostic::run(|| {
         diagnostic::before(diagnostic::Phase::CurrentPaths)?;
         let uid = Uid::current();
-        if uid.as_raw() != 48048 || uid != Uid::effective() {
+        if uid.as_raw() != 48049 || uid != Uid::effective() {
             return Err(());
         }
         let paths = RuntimePaths::current().map_err(|_| ())?;

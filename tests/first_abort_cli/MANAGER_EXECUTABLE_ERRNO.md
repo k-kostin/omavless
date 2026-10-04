@@ -50,9 +50,12 @@ failure, forced-success refusal, one write, short/throw/overcount terminal refus
 and permanent no-fallback/no-retry sealing. Source controls bind the latch to the
 single original `openat`, compile-time elimination, exact flags and output order.
 
-This initial diagnostic checkpoint is not a delivery graph or VM-ready build.
-The inherited v7 delivery identities are historical only: a fresh separately
-reviewed identity, exact source/native/build pins, full source/Rust gates, new
+This diagnostic checkpoint is not a VM-ready build. The fresh source proposal
+uses UID/GID48049, account `ov-t4-abort-v6`, HOME `/home/ov-t4-abort-v6`, runtime
+`/run/user/48049`, delivery `/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v8`,
+root stage `/run/ov-t4-cli-guard-v8` and receipt schema v8. Absence is not asserted.
+The inherited v7 receipts are historical only: exact new source/native/build
+pins, full source/Rust gates, new
 frozen originals and reviewed HOST/guest proposals are mandatory before ROOT's
 sole authorized future invocation. No old frozen artifact is rebuilt in place,
 and no old stopped scope may be reused. Main/RC/release are untouched.

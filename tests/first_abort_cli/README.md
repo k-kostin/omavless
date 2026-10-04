@@ -3,7 +3,7 @@
 The narrow source-only successor is [same-result executable-open diagnostic](MANAGER_EXECUTABLE_ERRNO.md).
 It preserves the stopped v7 outcome and does not authorize inherited v7 delivery.
 
-The fresh UID48048/v7 source-only continuation is scoped in
+The older UID48048/v7 continuation is scoped in
 [manager capture boundaries](MANAGER_CAPTURE_BOUNDARIES.md). The older scaffold
 and generations below are retained history, not authority for that proposal.
 
