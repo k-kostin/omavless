@@ -68,3 +68,30 @@ exclusive VM lease remain required. Only the root operator may execute the
 guest workflow. This source checkpoint performs no VM, account, service,
 network or ignored native-fixture invocation. No product T4 PASS, merge,
 candidate integration or publication is claimed.
+
+## Python-only elapsed-boundary continuation
+
+The loader and root guard check elapsed time immediately after potentially
+blocking reads/rechecks and before the next create, copy write, owner/mode
+change, sync, descriptor transition or owned successful writer close. Copy
+writes require exact integer full counts; bool/float aliases and unknown/short
+results are terminal. The guard retains its own deadline-aware create-only
+evidence sink rather than changing the historical support module. Its one
+bounded write and each file/directory sync must remain inside the budget.
+
+Fresh typed WNOWAIT completion must still be within both local and whole-run
+budgets before the one reap. Raw reaped status must exactly equal the admitted
+exit code shifted into its exit-status field; arithmetic aliases are refused.
+A late reap remains unknown, never returned as zero or followed by log reads.
+Exact typed terminal output checks the budget after write/before flush and
+after flush, permanently sealing success or uncertainty. No second output
+attempt, syscall cancellation or undo of an already-started effect is claimed.
+
+Mocked delayed-return controls execute these reached copy, evidence, wait and
+terminal paths without any process, ELF, account, service, network or guest
+operation. Native inputs are unchanged. New source/guard head pins may reuse
+only the known-zero original frozen checkpoint285 artifacts with honestly
+retained actual build headb69 after complete native-source equivalence checks;
+they do not claim a new native build or repeat original normalization. Every
+new host delivery remains create-only and separately reviewed; old sealed
+deliveries and failed scopes stay retained.

@@ -7,6 +7,7 @@ python3 -m unittest -v \
   "$here/test_t4_startup_followup.py" \
   "$here/test_t4_cli_lineage.py" \
   "$here/test_t4_cli_root_guard.py" \
+  "$here/test_t4_cli_deadline_boundaries.py" \
   "$here/test_t4_startup_inventory.py" \
   "$here/test_first_abort_cli.py" \
   "$here/test_first_abort_root_vm_guard.py" \

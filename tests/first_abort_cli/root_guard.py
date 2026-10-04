@@ -72,6 +72,7 @@ PHASE = 'admission'
 RETAINED = []
 core = None
 DEADLINE = float('inf')
+TERMINAL = False
 
 
 class Refused(Exception):
@@ -92,13 +93,20 @@ def available():
 def await_allowed(child, seconds, allowed):
     """First disallowed WNOWAIT result seals before any reap or other query."""
     available()
-    require(allowed in ((0,), (2,), (0, 1)))
+    require(type(allowed) is tuple and all(type(code) is int for code in allowed)
+            and allowed in ((0,), (2,), (0, 1))
+            and type(child.pid) is int and child.pid > 0)
     deadline = min(DEADLINE, time.monotonic() + seconds)
+    def owned_gate():
+        if time.monotonic() >= deadline or core.UNCERTAIN:
+            core.quarantine(child)
     try:
         if child.returncode is not None:
             core.quarantine(child)
         while time.monotonic() < deadline:
+            owned_gate()
             seen = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            owned_gate()
             if seen is None:
                 time.sleep(0.02)
                 continue
@@ -106,10 +114,12 @@ def await_allowed(child, seconds, allowed):
                     and type(seen.si_code) is int and seen.si_code == os.CLD_EXITED
                     and type(seen.si_status) is int and seen.si_status in allowed):
                 core.quarantine(child)
+            owned_gate()
             pid, status = os.waitpid(child.pid, os.WNOHANG)
             if not (type(pid) is int and type(status) is int and pid == child.pid
-                    and os.WIFEXITED(status) and os.WEXITSTATUS(status) == seen.si_status):
+                    and status == seen.si_status << 8):
                 core.quarantine(child)
+            owned_gate()
             child.returncode = seen.si_status
             return seen.si_status
         core.quarantine(child)
@@ -294,6 +304,7 @@ def reserve_elf_slots(pins):
         else:
             require(False)
         pins[name].recheck()
+        available()
         os.dup2(pins[name].fd, number, inheritable=False)
         require(identity(os.fstat(number)) == identity(pins[name].before))
         RETAINED.append(number)
@@ -307,22 +318,84 @@ def complete_publication(writer, original, name, source):
     require(identity(original) == identity(os.fstat(writer)) == identity(readonly.before))
     readonly.recheck()
     source.recheck()
+    available()
     os.fsync(writer)
+    available()
     require(identity(original) == identity(os.fstat(writer))
             == identity(os.fstat(readonly.fd)) == identity(readonly.path.lstat())
             and not os.listxattr(writer))
     # A known successful close is the sole permitted release. A close error is
     # terminal, never retried; fchmod0500 alone does not clear FMODE_WRITE.
+    available()
     os.close(writer)
+    available()
     RETAINED.remove(writer)
     return readonly
+
+
+class DeadlineEvidence:
+    """This guard's fixed evidence sink; no change to historical support code."""
+    def __init__(self, stage, support):
+        stage.recheck()
+        available()
+        os.mkdir('evidence', mode=0o700, dir_fd=stage.fd)
+        available()
+        self.directory = support.Directory(stage.path / 'evidence', 0)
+        self.count = 0
+
+    def create(self, name):
+        available()
+        require(type(name) is str and re.fullmatch(r'[a-zA-Z0-9_.-]+', name) is not None)
+        self.directory.recheck()
+        available()
+        fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=self.directory.fd)
+        RETAINED.append(fd)
+        available()
+        m = os.fstat(fd)
+        require(stat.S_ISREG(m.st_mode) and m.st_uid == m.st_gid == 0
+                and stat.S_IMODE(m.st_mode) == 0o600 and m.st_nlink == 1)
+        return fd
+
+    def write(self, name, value):
+        fd = self.create(name)
+        data = json.dumps(value, sort_keys=True).encode()
+        require(len(data) <= LIMIT)
+        available()
+        count = os.write(fd, data)
+        require(type(count) is int and count == len(data))
+        available()
+        os.fsync(fd)
+        available()
+        os.fsync(self.directory.fd)
+        available()
+
+
+def copy_elf(pin, fd):
+    offset = 0
+    while offset < pin.before.st_size:
+        available()
+        data = os.pread(pin.fd, min(65536, pin.before.st_size - offset), offset)
+        require(data)
+        available()
+        written = os.write(fd, data)
+        require(type(written) is int and written == len(data))
+        available()
+        offset += len(data)
+    available()
+    os.fchown(fd, UID, UID)
+    available()
+    os.fchmod(fd, 0o500)
+    available()
+    os.fsync(fd)
+    available()
 
 
 class Guard:
     def __init__(self, value, pins, support, lineage):
         self.value, self.pins, self.support, self.lineage = value, pins, support, lineage
         self.stage = support.Directory(ROOT, 0)
-        self.evidence = support.Evidence(self.stage)
+        self.evidence = DeadlineEvidence(self.stage, support)
         self.count, self.log_bytes, self.catalogs, self.artifacts = 0, 0, [], {}
 
     def run_child(self, argv, uid, tag, *, executable=None, pass_fds=(), stdin=subprocess.DEVNULL,
@@ -342,8 +415,11 @@ class Guard:
         require(os.fstat(out).st_size <= LIMIT and os.fstat(err).st_size <= LIMIT)
         self.log_bytes += os.fstat(out).st_size + os.fstat(err).st_size
         require(self.log_bytes <= 64 * 1024 * 1024)
+        available()
         os.fsync(out)
+        available()
         os.fsync(err)
+        available()
         return code, os.pread(out, LIMIT + 1, 0), os.pread(err, LIMIT + 1, 0)
 
     def baseline_command(self, evidence, argv, allowed=(0,)):
@@ -490,12 +566,18 @@ class Guard:
             0, 'account-create')
         available()
         parent = Parents(HOME.parent, 0)
+        available()
         os.mkdir(HOME.name, 0o700, dir_fd=parent.rows[-1][1])
+        available()
         fd = os.open(HOME.name, FLAGS | os.O_DIRECTORY, dir_fd=parent.rows[-1][1])
         RETAINED.append(fd)
+        available()
         os.fchown(fd, UID, UID)
+        available()
         os.fsync(fd)
+        available()
         os.fsync(parent.rows[-1][1])
+        available()
         self.home_pin = Parents(HOME, UID)
         require(HOME.lstat().st_uid == HOME.lstat().st_gid == UID and stat.S_IMODE(HOME.lstat().st_mode) == 0o700)
         require(os.listdir(fd) == [])
@@ -549,36 +631,36 @@ class Guard:
 
     def publish_elfs(self):
         self.home_pin.recheck()
+        available()
         os.mkdir(ARTIFACTS, 0o700)
+        available()
         directory = os.open(ARTIFACTS, FLAGS | os.O_DIRECTORY)
         RETAINED.append(directory)
         writers = {}
         for name in ('helper', 'omavless'):
             pin = self.pins[name]
             pin.recheck()
+            available()
             fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                          0o600, dir_fd=directory)
             RETAINED.append(fd)
-            offset = 0
-            while offset < pin.before.st_size:
-                available()
-                data = os.pread(pin.fd, min(65536, pin.before.st_size - offset), offset)
-                require(data and os.write(fd, data) == len(data))
-                offset += len(data)
-            os.fchown(fd, UID, UID)
-            os.fchmod(fd, 0o500)
-            os.fsync(fd)
+            copy_elf(pin, fd)
             pin.recheck()
             writers[name] = (fd, os.fstat(fd))
+        available()
         os.fchown(directory, UID, UID)
+        available()
         os.fsync(directory)
+        available()
         os.fsync(self.home_pin.rows[-1][1])
+        available()
         self.artifacts_pin = Parents(ARTIFACTS, UID)
         for name in ('helper', 'omavless'):
             self.artifacts[name] = complete_publication(*writers[name], name, self.pins[name])
         for number, name in ((198, 'helper'), (199, 'omavless')):
             # Explicit owned root-source alias -> owned fixture-copy transition.
             require(identity(os.fstat(number)) == identity(self.pins[name].before))
+            available()
             os.dup2(self.artifacts[name].fd, number, inheritable=False)
             require(identity(os.fstat(number)) == identity(self.artifacts[name].before))
         self.namespace_pins = {}
@@ -727,6 +809,26 @@ class Guard:
             'outcome': 'NORMAL_CLI_ABORT_AND_REENTRY_SYNTHETIC_INTENT_STILL_FENCED'})
 
 
+def emit_terminal(raw, stream, *, success):
+    global TERMINAL
+    try:
+        require(not TERMINAL and type(raw) is bytes and len(raw) <= 8192)
+        require(time.monotonic() < DEADLINE)
+        if success:
+            available()
+        written = stream.write(raw)
+        require(type(written) is int and written == len(raw))
+        require(time.monotonic() < DEADLINE)
+        if success:
+            available()
+        stream.flush()
+        require(time.monotonic() < DEADLINE)
+        if success:
+            available()
+    finally:
+        TERMINAL = True
+
+
 def main():
     global core, DEADLINE
     DEADLINE = time.monotonic() + 600
@@ -753,7 +855,8 @@ def main():
     lineage = module(pins['lineage.py'])
     lineage.GATE = available
     Guard(value, pins, support, lineage).execute()
-    print('T4_NORMAL_CLI_ABORT_REENTRY_STILL_FENCED_NOT_FULL_PRODUCT_PASS')
+    emit_terminal(b'T4_NORMAL_CLI_ABORT_REENTRY_STILL_FENCED_NOT_FULL_PRODUCT_PASS\n',
+                  sys.stdout.buffer, success=True)
 
 
 if __name__ == '__main__':
@@ -763,5 +866,10 @@ if __name__ == '__main__':
     except BaseException:
         if core is not None:
             core.UNCERTAIN = True
-        print('T4_NORMAL_CLI_NONPASS_RETAINED_' + PHASE, file=sys.stderr)
+        if not TERMINAL:
+            try:
+                emit_terminal(('T4_NORMAL_CLI_NONPASS_RETAINED_' + PHASE + '\n').encode(),
+                              sys.stderr.buffer, success=False)
+            except BaseException:
+                pass
         sys.exit(2)

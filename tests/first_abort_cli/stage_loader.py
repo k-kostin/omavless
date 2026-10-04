@@ -17,6 +17,7 @@ ELFS = ('helper', 'omavless')
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 HELD = []
 DEADLINE = float('inf')
+TERMINAL = False
 HEADROOM = 512 * 1024 * 1024
 
 
@@ -45,6 +46,7 @@ def unique(items):
 def parents(path, uid):
     rows = []
     for part in reversed((path, *path.parents)):
+        need(True)
         parent = rows[-1][1] if rows else None
         fd = os.open(part.name if parent is not None else '/', FLAGS | os.O_DIRECTORY, dir_fd=parent)
         HELD.append(fd)
@@ -79,6 +81,7 @@ def digest(fd, size):
 
 
 def admit(parent, name, mode, maximum, expected):
+    need(True)
     fd = os.open(name, FLAGS, dir_fd=parent)
     HELD.append(fd)
     s = os.fstat(fd)
@@ -111,6 +114,23 @@ def remaining_capacity(run_fd, home_fd, root_copy, home_copy):
         available[device] = min(available.get(device, free), free)
         required[device] = required.get(device, 0) + count + HEADROOM
     need(all(available[device] >= count for device, count in required.items()))
+
+
+def copy_file(source, target, size, mode):
+    need(type(size) is int and size > 0 and type(mode) is int and mode in (0o500, 0o600))
+    offset = 0
+    while offset < size:
+        need(True)
+        block = os.pread(source, min(65536, size - offset), offset)
+        need(block)
+        written = os.write(target, block)
+        need(type(written) is int and written == len(block))
+        offset += len(block)
+    need(True)
+    os.fchmod(target, mode)
+    need(True)
+    os.fsync(target)
+    need(True)
 
 
 def deliver(expected):
@@ -173,7 +193,9 @@ def deliver(expected):
     recheck_parents(home)
     recheck_parents(destination)
     recheck_parents(source)
+    need(True)
     os.mkdir(DESTINATION.name, 0o700, dir_fd=destination[-1][1])
+    need(True)
     out = os.open(DESTINATION.name, FLAGS | os.O_DIRECTORY, dir_fd=destination[-1][1])
     HELD.append(out)
     original = os.fstat(out)
@@ -182,17 +204,11 @@ def deliver(expected):
     for name, (fd, s, sha) in pins.items():
         need(True)
         recheck(parent, name, pins[name])
+        need(True)
         target = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                          0o600, dir_fd=out)
         HELD.append(target)
-        offset = 0
-        while offset < s.st_size:
-            need(True)
-            block = os.pread(fd, min(65536, s.st_size - offset), offset)
-            need(block and os.write(target, block) == len(block))
-            offset += len(block)
-        os.fchmod(target, 0o600 if name == 'receipt.json' else 0o500)
-        os.fsync(target)
+        copy_file(fd, target, s.st_size, 0o600 if name == 'receipt.json' else 0o500)
         m = os.fstat(target)
         need(m.st_uid == m.st_gid == 0 and m.st_nlink == 1 and not os.listxattr(target)
              and digest(target, s.st_size) == sha
@@ -209,8 +225,23 @@ def deliver(expected):
     recheck_parents(source)
     recheck_parents(destination)
     need(directory_identity(original) == directory_identity(os.fstat(out)) == directory_identity(DESTINATION.lstat()))
+    need(True)
     os.fsync(out)
+    need(True)
     os.fsync(destination[-1][1])
+    need(True)
+
+
+def emit_terminal(raw, stream):
+    global TERMINAL
+    try:
+        need(not TERMINAL and type(raw) is bytes and len(raw) <= 8192)
+        written = stream.write(raw)
+        need(type(written) is int and written == len(raw))
+        stream.flush()
+        need(True)
+    finally:
+        TERMINAL = True  # Success or uncertainty: never a second output attempt.
 
 
 if __name__ == '__main__':
@@ -221,7 +252,11 @@ if __name__ == '__main__':
              and os.getresuid() == os.getresgid() == (0, 0, 0)
              and len(sys.argv) == 2)
         deliver(sys.argv[1])
-        print('T4_CLI_V2_CREATE_ONLY_DELIVERY_NOT_EXECUTED')
+        emit_terminal(b'T4_CLI_V2_CREATE_ONLY_DELIVERY_NOT_EXECUTED\n', sys.stdout.buffer)
     except BaseException:
-        print('T4_CLI_DELIVERY_NONPASS_RETAINED', file=sys.stderr)
+        if not TERMINAL:
+            try:
+                emit_terminal(b'T4_CLI_DELIVERY_NONPASS_RETAINED\n', sys.stderr.buffer)
+            except BaseException:
+                pass  # A failed terminal output never authorizes another attempt.
         sys.exit(2)
