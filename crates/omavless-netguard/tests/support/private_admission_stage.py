@@ -7,13 +7,13 @@ import pwd
 import stat
 import sys
 
-SOURCE = Path('/home/kdk_vm/.cache/k1-private-admission-c0d7773-stage-1')
+SOURCE = Path('/home/kdk_vm/.cache/k1-private-admission-e15ee7b-stage-1')
 DESTINATION = Path('/run/omavless-k1-private-lifecycle-admission')
 MEMBERS = {
-    'probe': ('fcbabf0dc55f69fcf5dae3f02db029965b3b58a2a7094aca70cceedc15cbc1c0', 0o500, 0o500, 128 * 1024 * 1024),
+    'probe': ('0f0563d22067f4c0a4ef0f7ed1e129f1a610361bd06937d25e622dadca1aaad0', 0o500, 0o500, 128 * 1024 * 1024),
     'query-guard.py': ('f189dec0e3c525d72ed75a27e63553d2688ff81b180c8d7755872a99d13c348d', 0o400, 0o600, 256 * 1024),
     'fixture.service': ('7912c3204829773d7b5598fbd7bfb9174e14674d69ef5c30579631324a180f85', 0o400, 0o600, 16384),
-    'guard.py': ('e24c0e31541900e2f138193ad8903db79a2092b96b7be21b6760506934d253f3', 0o400, 0o500, 256 * 1024),
+    'guard.py': ('de5dbebce6d1f2082b9e26496581830ac68a75f10c0fec9cc6c9775a210ab297', 0o400, 0o500, 256 * 1024),
 }
 
 
