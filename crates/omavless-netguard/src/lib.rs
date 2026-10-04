@@ -20,6 +20,8 @@ pub mod locked_state;
 mod manager_config_dump_proposal;
 #[cfg(all(test, target_os = "linux"))]
 mod manager_config_reference_fixture;
+#[cfg(all(test, target_os = "linux"))]
+mod manager_version_reference_fixture;
 pub mod nft;
 #[allow(dead_code)] // Inactive local package-group identity candidate.
 mod package_group_candidate;
