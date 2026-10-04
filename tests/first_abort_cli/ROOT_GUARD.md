@@ -1,5 +1,42 @@
 # Fixed disposable UID normal-CLI guard
 
+## Cache-delivery successor
+
+This source-only generation follows immutable #617
+`3c724c5eaf55776517d865ef0042209a5f415bfa`. Its first read-only preflight
+was NONPASS; the separately reviewed boundary observation was also NONPASS at
+the delivery-capacity predicate. The completed prefix observed the fixed
+canonical pins, local account files, six path absences and run/HOME capacity;
+it was not an atomic complete admission. Neither invocation created a stage,
+account or manager. Those failures remain unchanged.
+
+The fixed delivery source is now
+`/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v2`; the independent create-only
+root destination is `/run/ov-t4-cli-guard-v2`. No runtime tmpfs is mounted,
+remounted or resized. Native UID48044 HOME/runtime/test paths, native source
+`2bfedf3ce203ad639c766ca5dcd8c4d35f5f2c38` and ELF bytes remain unchanged.
+Delivery receipts use schema `t4-disposable-cli-delivery-v2` and bind the new
+guard head; old receipts cannot authorize this successor.
+
+Before transferring source files, a separately reviewed fresh read-only
+preflight must budget the source ELF copy plus the future disposable HOME copy
+on their actual devices, adding both when they share a filesystem, and the
+single root ELF copy under `/run`. It retains canonical/account/path checks.
+Each storage scope includes explicit headroom; free-space observations are not
+reservations. After all source files are admitted, the loader checks remaining
+root publication bytes plus future HOME ELF bytes, with512MiB headroom per
+scope and same-device aggregation, before its first publication. The root guard
+checks remaining HOME ELF bytes and512MiB per scope again before account
+creation; both deliveries are already allocated at that boundary. Original
+FD, ancestor, hash, mode, link-count and xattr checks remain unchanged.
+
+The new invocation has explicit authority for the existing finite before/after
+root-unit observations, including the old615 unit. They are new independent
+read-side observations, not continuation or repair of the failed615 guard.
+No old helper query, Ref/Unref, recovery or cleanup is authorized. The guard's
+two-phase delivery/known-zero execution boundary and terminal uncertainty
+rules remain unchanged. No actual successor invocation has occurred.
+
 Source implementation only. No account, manager, helper or CLI execution has
 been performed for this guard. A VM lease, complete parent/peer source review,
 sealed source gates and original-FD frozen artifact receipt remain required.

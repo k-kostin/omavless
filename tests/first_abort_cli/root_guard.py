@@ -12,7 +12,7 @@ import sys
 import types
 import time
 
-ROOT = Path('/run/ov-t4-cli-guard-v1')
+ROOT = Path('/run/ov-t4-cli-guard-v2')
 UID = 48044
 NAME = 'ov-t4-abort-v1'
 HOME = Path('/home/ov-t4-abort-v1')
@@ -200,7 +200,7 @@ def module(pin):
 def receipt(data):
     value = decode(data)
     require(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'})
-    require(value['schema'] == 't4-disposable-cli-delivery-v1' and value['native_head'] == NATIVE_HEAD
+    require(value['schema'] == 't4-disposable-cli-delivery-v2' and value['native_head'] == NATIVE_HEAD
             and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head']))
     require(type(value['code']) is dict and set(value['code']) == set(CODE)
             and type(value['elfs']) is dict and set(value['elfs']) == {'helper', 'omavless'})
@@ -346,6 +346,25 @@ class Guard:
                 pass
             else:
                 require(False)
+
+    def remaining_capacity(self):
+        """Both deliveries already exist; only the HOME ELF copy remains."""
+        available()
+        run, home = Parents(Path('/run'), 0), Parents(HOME.parent, 0)
+        required, free = {}, {}
+        copies = sum(self.pins[name].before.st_size for name in ('helper', 'omavless'))
+        for parent, count in ((run, 0), (home, copies)):
+            available()
+            fd = parent.rows[-1][1]
+            device = os.fstat(fd).st_dev
+            filesystem = os.fstatvfs(fd)
+            value = filesystem.f_bavail * filesystem.f_frsize
+            require(type(value) is int and value >= 0)
+            free[device] = min(free.get(device, value), value)
+            required[device] = required.get(device, 0) + count + 512 * 1024 * 1024
+            parent.recheck()
+        require(all(free[device] >= count for device, count in required.items()))
+        run.recheck(); home.recheck()
 
     def account_snapshot(self, created):
         output = {}
@@ -587,6 +606,8 @@ class Guard:
         self.evidence.write('baseline-before.json', before)
         self.evidence.write('accounts-before.json', accounts)
         self.absent_account()
+        PHASE = 'remaining-capacity'
+        self.remaining_capacity()
         PHASE = 'account-create'
         self.create_account()
         PHASE = 'manager-start'

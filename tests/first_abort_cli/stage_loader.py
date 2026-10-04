@@ -9,14 +9,15 @@ import stat
 import sys
 import time
 
-SOURCE = Path('/run/user/1000/ov-t4-cli-delivery-v1')
-DESTINATION = Path('/run/ov-t4-cli-guard-v1')
+SOURCE = Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v2')
+DESTINATION = Path('/run/ov-t4-cli-guard-v2')
 CODE = ('core.py', 'support.py', 'startup_inventory.py', 'startup_followup.py',
         'lineage.py', 'root_guard.py')
 ELFS = ('helper', 'omavless')
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 HELD = []
 DEADLINE = float('inf')
+HEADROOM = 512 * 1024 * 1024
 
 
 def need(value):
@@ -97,6 +98,21 @@ def recheck(parent, name, row):
          == identity(os.stat(name, dir_fd=parent, follow_symlinks=False)))
 
 
+def remaining_capacity(run_fd, home_fd, root_copy, home_copy):
+    """Source is already allocated. Reserve remaining copies, never tmpfs resize."""
+    need(type(root_copy) is int and type(home_copy) is int and root_copy > 0 and home_copy > 0)
+    available, required = {}, {}
+    for fd, count in ((run_fd, root_copy), (home_fd, home_copy)):
+        need(True)
+        device = os.fstat(fd).st_dev
+        filesystem = os.fstatvfs(fd)
+        free = filesystem.f_bavail * filesystem.f_frsize
+        need(type(free) is int and free >= 0)
+        available[device] = min(available.get(device, free), free)
+        required[device] = required.get(device, 0) + count + HEADROOM
+    need(all(available[device] >= count for device, count in required.items()))
+
+
 def deliver(expected):
     need(type(expected) is str and re.fullmatch('[0-9a-f]{64}', expected))
     source = parents(SOURCE, 1000)
@@ -113,7 +129,7 @@ def deliver(expected):
     value = json.loads(os.pread(fd, s.st_size + 1, 0), object_pairs_hook=unique,
                        parse_constant=lambda _: need(False))
     need(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'}
-         and value['schema'] == 't4-disposable-cli-delivery-v1'
+         and value['schema'] == 't4-disposable-cli-delivery-v2'
          and value['native_head'] == '2bfedf3ce203ad639c766ca5dcd8c4d35f5f2c38'
          and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head'])
          and type(value['code']) is dict and set(value['code']) == set(CODE)
@@ -146,10 +162,17 @@ def deliver(expected):
         need(pins[name][1].st_size == row['size'] and os.pread(pins[name][0], 4, 0) == b'\x7fELF')
     # No publication until every original source FD and all metadata are admitted.
     destination = parents(DESTINATION.parent, 0)
+    home = parents(Path('/home'), 0)
     for name, row in pins.items():
         recheck(parent, name, row)
     recheck_parents(source)
     recheck_parents(destination)
+    remaining_capacity(destination[-1][1], home[-1][1],
+                       sum(row[1].st_size for row in pins.values()),
+                       sum(pins[name][1].st_size for name in ELFS))
+    recheck_parents(home)
+    recheck_parents(destination)
+    recheck_parents(source)
     os.mkdir(DESTINATION.name, 0o700, dir_fd=destination[-1][1])
     out = os.open(DESTINATION.name, FLAGS | os.O_DIRECTORY, dir_fd=destination[-1][1])
     HELD.append(out)
@@ -198,7 +221,7 @@ if __name__ == '__main__':
              and os.getresuid() == os.getresgid() == (0, 0, 0)
              and len(sys.argv) == 2)
         deliver(sys.argv[1])
-        print('T4_CLI_CREATE_ONLY_DELIVERY_NOT_EXECUTED')
+        print('T4_CLI_V2_CREATE_ONLY_DELIVERY_NOT_EXECUTED')
     except BaseException:
         print('T4_CLI_DELIVERY_NONPASS_RETAINED', file=sys.stderr)
         sys.exit(2)

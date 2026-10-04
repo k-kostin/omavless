@@ -28,7 +28,7 @@ class GuardTests(unittest.TestCase):
         obj.manager_pid = 123
         obj.chain = Mock()
         obj.evidence = Mock()
-        for name in ('source_admission', 'absent_account', 'create_account', 'manager_start',
+        for name in ('source_admission', 'absent_account', 'remaining_capacity', 'create_account', 'manager_start',
                      'publish_elfs', 'normal_cli_case', 'manager_stopped_app', 'source_recheck'):
             setattr(obj, name, Mock())
         obj.run_child = Mock(return_value=(0, b'kvm\n', b''))
@@ -37,7 +37,7 @@ class GuardTests(unittest.TestCase):
         return obj
 
     def test_each_phase_failure_never_reaches_next_phase_or_result(self):
-        names = ('source_admission', 'absent_account', 'create_account', 'manager_start',
+        names = ('source_admission', 'absent_account', 'remaining_capacity', 'create_account', 'manager_start',
                  'publish_elfs', 'normal_cli_case', 'manager_stopped_app',
                  'exact_fixture_absence', 'source_recheck')
         for index, name in enumerate(names):
@@ -60,6 +60,36 @@ class GuardTests(unittest.TestCase):
                 obj.execute()
             obj.absent_account.assert_not_called()
             obj.create_account.assert_not_called()
+
+    def test_pre_account_capacity_refusal_seals_before_any_mutation(self):
+        obj = self.fixture()
+        obj.pins = {name: SimpleNamespace(before=SimpleNamespace(st_size=100))
+                    for name in ('helper', 'omavless')}
+        parent = SimpleNamespace(rows=[(Path('/fixed'), 10, None)], recheck=Mock())
+        obj.remaining_capacity = lambda: guard.Guard.remaining_capacity(obj)
+        with patch.object(guard, 'Parents', return_value=parent), \
+             patch.object(guard.os, 'fstat', return_value=SimpleNamespace(st_dev=1)), \
+             patch.object(guard.os, 'fstatvfs', return_value=SimpleNamespace(f_bavail=1, f_frsize=1)):
+            with self.assertRaises(guard.Refused): obj.execute()
+        self.assertTrue(self.core.UNCERTAIN)
+        obj.create_account.assert_not_called(); obj.manager_start.assert_not_called()
+        obj.publish_elfs.assert_not_called(); obj.normal_cli_case.assert_not_called()
+        self.assertEqual(self.core.snapshot.call_count, 1)
+
+    def test_pre_account_same_device_reserves_home_copy_and_both_headrooms(self):
+        obj = self.fixture()
+        obj.pins = {name: SimpleNamespace(before=SimpleNamespace(st_size=100))
+                    for name in ('helper', 'omavless')}
+        parent = SimpleNamespace(rows=[(Path('/fixed'), 10, None)], recheck=Mock())
+        minimum = 200 + 1024 * 1024 * 1024
+        for free, accepted in ((minimum, True), (minimum - 1, False)):
+            self.core.UNCERTAIN = False
+            with patch.object(guard, 'Parents', return_value=parent), \
+                 patch.object(guard.os, 'fstat', return_value=SimpleNamespace(st_dev=1)), \
+                 patch.object(guard.os, 'fstatvfs', return_value=SimpleNamespace(f_bavail=free, f_frsize=1)):
+                if accepted: guard.Guard.remaining_capacity(obj)
+                else:
+                    with self.assertRaises(guard.Refused): guard.Guard.remaining_capacity(obj)
 
     def test_bad_after_baseline_never_publishes_result(self):
         obj = self.fixture()
@@ -245,13 +275,37 @@ class GuardTests(unittest.TestCase):
 
 
 class LoaderTests(unittest.TestCase):
+    def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v2'))
+        self.assertEqual(loader.DESTINATION, guard.ROOT)
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v2'))
+        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v1'))
+        self.assertEqual(guard.RUNTIME, Path('/run/user/48044'))
+
+    def test_loader_capacity_separate_and_shared_devices(self):
+        for devices, amounts, accepted in (
+            ((1,2), (100 + loader.HEADROOM, 200 + loader.HEADROOM), True),
+            ((1,2), (99 + loader.HEADROOM, 200 + loader.HEADROOM), False),
+            ((1,2), (100 + loader.HEADROOM, 199 + loader.HEADROOM), False),
+            ((1,1), (300 + 2 * loader.HEADROOM,) * 2, True),
+            ((1,1), (299 + 2 * loader.HEADROOM,) * 2, False),
+        ):
+            with patch.object(loader.os, 'fstat', side_effect=[SimpleNamespace(st_dev=d) for d in devices]), \
+                 patch.object(loader.os, 'fstatvfs', side_effect=[SimpleNamespace(f_bavail=n, f_frsize=1) for n in amounts]):
+                if accepted: loader.remaining_capacity(10, 11, 100, 200)
+                else:
+                    with self.assertRaises(RuntimeError): loader.remaining_capacity(10, 11, 100, 200)
+        with patch.object(loader.os, 'fstat') as observed:
+            with self.assertRaises(RuntimeError): loader.remaining_capacity(10, 11, True, 200)
+            observed.assert_not_called()
+
     def test_real_files_all_admitted_before_publication_mode_hash_and_inode(self):
         with tempfile.TemporaryDirectory(dir=Path.home()) as temporary:
             root = Path(temporary)
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v1',
+            value = {'schema': 't4-disposable-cli-delivery-v2',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),
@@ -274,7 +328,7 @@ class LoaderTests(unittest.TestCase):
                 # timestamps, mode, size and link count remain unchanged.
                 names = ('st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
                 return SimpleNamespace(**{name: getattr(s, name) for name in names}, st_uid=1000, st_gid=1000)
-            for fault in ('mode', 'hash', 'same-byte-inode'):
+            for fault in ('mode', 'hash', 'same-byte-inode', 'capacity'):
                 for name, raw in data.items():
                     path = root / name
                     if path.exists():
@@ -309,6 +363,8 @@ class LoaderTests(unittest.TestCase):
                          patch.object(loader.os, 'stat', side_effect=lambda *a, **k: synthetic_uid(real_stat(*a, **k))), \
                          patch.object(loader, 'admit', wraps=loader.admit) as admit, \
                          patch.object(loader, 'recheck', side_effect=check), \
+                         patch.object(loader, 'remaining_capacity', side_effect=RuntimeError('space refused')
+                                      if fault == 'capacity' else None), \
                          patch.object(loader.os, 'mkdir') as publish:
                         with self.assertRaises(RuntimeError):
                             loader.deliver(receipt_sha)
