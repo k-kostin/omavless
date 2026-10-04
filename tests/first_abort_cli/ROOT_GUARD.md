@@ -1,5 +1,10 @@
 # Fixed disposable UID normal-CLI guard
 
+The current source-only UID48046 generation adds the bounded read-only helper
+entry in [ADMISSION_BOUNDARIES.md](ADMISSION_BOUNDARIES.md). Its fresh paths
+and rebuilt native artifacts govern that generation; the older identities
+below remain historical contracts, never reusable invocation authority.
+
 The [fresh-account successor](FRESH_ACCOUNT.md) records #624's actual NONPASS
 and the new fixed generation/defaults gate. The cache-generation identities
 below are preserved historical context, not permission to reuse UID48044 or

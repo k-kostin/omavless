@@ -15,6 +15,31 @@ from tests.first_abort_process import vm_guard as owned_core
 
 
 class GuardTests(unittest.TestCase):
+    def test_diagnostic_trace_is_exact_success_only(self):
+        before=b''.join(('T4_STOPPED_BEFORE_V1 '+phase+'\n').encode() for phase in guard.ADMISSION_PHASES)
+        good=before+b'T4_STOPPED_READONLY_OBSERVATION_NOT_ADMISSION\n'
+        guard.admission_trace(good)
+        for bad in (b'', good.decode(), good+b'\n', good[1:], before,
+                    before+b'T4_STOPPED_FAILED_AT_V1 final_lock\n',
+                    good.replace(b'existing_lock',b'unknown'), b'x'*16385):
+            self.core.UNCERTAIN=False
+            with self.assertRaises(guard.Refused):guard.admission_trace(bad)
+            self.assertTrue(self.core.UNCERTAIN)
+
+    def test_diagnostic_failure_never_calls_normal_cli_or_reentry(self):
+        obj=guard.Guard.__new__(guard.Guard)
+        obj.typed_case=Mock();obj.evidence=Mock()
+        chain=Mock(files={guard.ARTIFACTS/'request.json':(17,)})
+        obj.lineage=SimpleNamespace(Lineage=Mock(return_value=chain))
+        calls=[]
+        def native(entry,tag,request=None):
+            calls.append((entry,tag))
+            if entry=='diagnose':raise guard.Refused()
+        obj.native=native
+        with self.assertRaises(guard.Refused):obj.normal_cli_case()
+        self.assertEqual(calls,[('setup','setup'),('diagnose','stopped-admission-diagnostic')])
+        chain.first_completed.assert_not_called();chain.reentry_boundary.assert_not_called()
+
     def test_only_fixed_root_defaults_accept_exact_safe_mode_tuple(self):
         for actual in (0o600, 0o644):
             parent = SimpleNamespace(rows=[(Path('/etc/default'), 17, None)])
@@ -101,7 +126,7 @@ class GuardTests(unittest.TestCase):
         self.assertNotIn('CREATE_MAIL_SPOOL=no',argv)
         self.assertIn('SUB_UID_COUNT=0',argv)
         self.assertIn('SUB_GID_COUNT=0',argv)
-        self.assertIn('48045',argv)
+        self.assertIn('48046',argv)
         self.assertNotIn('48044',argv)
 
     def setUp(self):
@@ -365,11 +390,11 @@ class GuardTests(unittest.TestCase):
 
 class LoaderTests(unittest.TestCase):
     def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v4'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v5'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v4'))
-        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v2'))
-        self.assertEqual(guard.RUNTIME, Path('/run/user/48045'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v5'))
+        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v3'))
+        self.assertEqual(guard.RUNTIME, Path('/run/user/48046'))
 
     def test_loader_capacity_separate_and_shared_devices(self):
         for devices, amounts, accepted in (
@@ -394,7 +419,7 @@ class LoaderTests(unittest.TestCase):
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v4',
+            value = {'schema': 't4-disposable-cli-delivery-v5',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),

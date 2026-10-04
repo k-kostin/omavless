@@ -1,5 +1,10 @@
 # Fresh account generation after #624 NONPASS
 
+This document retains the #628/#630 generation and its original prerequisites.
+The new UID48046 source generation and the later #630 NONPASS observation are
+scoped separately in [ADMISSION_BOUNDARIES.md](ADMISSION_BOUNDARIES.md); its
+fixed identities supersede the historical invocation identities below.
+
 This successor generation is source-only. Immutable #624 at
 `5bc852e847d1e29f50c92687e3b11f5a129525fb` ended NONPASS in `account-create`.
 A separately reviewed read-only original-file observation found the unknown

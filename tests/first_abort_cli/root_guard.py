@@ -12,13 +12,13 @@ import sys
 import types
 import time
 
-ROOT = Path('/run/ov-t4-cli-guard-v4')
-UID = 48045
-NAME = 'ov-t4-abort-v2'
-HOME = Path('/home/ov-t4-abort-v2')
-RUNTIME = Path('/run/user/48045')
+ROOT = Path('/run/ov-t4-cli-guard-v5')
+UID = 48046
+NAME = 'ov-t4-abort-v3'
+HOME = Path('/home/ov-t4-abort-v3')
+RUNTIME = Path('/run/user/48046')
 ARTIFACTS = HOME / '.t4-first-abort'
-NATIVE_HEAD = '69557f12f6d077ef8f248f8ade87d7e595617efd'
+NATIVE_HEAD = '05802344789fc7b80450534dd7e234ba45167ba0'
 LIMIT = 8 * 1024 * 1024
 ELF_LIMIT = 512 * 1024 * 1024
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
@@ -39,8 +39,26 @@ CATALOGS = (
      '6e81df4ed1a1fd7aedb536eda1804ff5d480f1849da7cdbc090c678cef584921'),
 )
 ENTRIES = {'setup': 'setup_mixed_intent', 'launch': 'launch_normal_cli',
-           'first': 'verify_first_abort', 'reentry': 'verify_abort_reentry'}
+           'first': 'verify_first_abort', 'reentry': 'verify_abort_reentry',
+           'diagnose': 'diagnose_stopped_admission'}
 PREFIX = 'production_owner::first_abort::cli_vm_fixture::'
+ADMISSION_PHASES = ('current_paths', 'existing_lock', 'proc_root', 'self_process',
+    'self_arguments', 'proc_visibility', 'namespace_handles', 'manager_query',
+    'manager_record', 'manager_process', 'manager_executable', 'manager_identity',
+    'namespace_boundary', 'proc_visibility', 'manager_recheck', 'manager_query',
+    'manager_record', 'manager_identity_recheck', 'legacy_unit_query', 'legacy_unit_record',
+    'runtime_unit_query', 'runtime_unit_record', 'inventory', 'unix_table', 'unix_parser',
+    'final_manager', 'final_self', 'final_namespaces', 'final_proc_visibility',
+    'final_budget', 'final_lock')
+
+
+def admission_trace(raw):
+    # Only after exact known-zero child completion. Never parse failure into success.
+    require(type(raw) is bytes and len(raw) <= 16384)
+    expected = b''.join(('T4_STOPPED_BEFORE_V1 ' + phase + '\n').encode('ascii')
+                        for phase in ADMISSION_PHASES)
+    require(raw == expected + b'T4_STOPPED_READONLY_OBSERVATION_NOT_ADMISSION\n')
+
 EXTRA_ROOT_UNITS = (
     'omavless-k1-typed-order-filter-fixture.service',
     'omavless-k1-manager-private-lifecycle.service',
@@ -211,7 +229,7 @@ def module(pin):
 def receipt(data):
     value = decode(data)
     require(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'})
-    require(value['schema'] == 't4-disposable-cli-delivery-v4' and value['native_head'] == NATIVE_HEAD
+    require(value['schema'] == 't4-disposable-cli-delivery-v5' and value['native_head'] == NATIVE_HEAD
             and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head']))
     require(type(value['code']) is dict and set(value['code']) == set(CODE)
             and type(value['elfs']) is dict and set(value['elfs']) == {'helper', 'omavless'})
@@ -379,8 +397,8 @@ class Guard:
     def check_fresh_instances(self, parent, missing):
         parent.recheck()
         names = ((missing,) if missing is not None else
-                 ('user@48045.service', 'user@48045.service.d',
-                  'user-runtime-dir@48045.service', 'user-runtime-dir@48045.service.d'))
+                 ('user@48046.service', 'user@48046.service.d',
+                  'user-runtime-dir@48046.service', 'user-runtime-dir@48046.service.d'))
         for name in names:
             try:
                 os.stat(name, dir_fd=parent.rows[-1][1], follow_symlinks=False)
@@ -450,10 +468,10 @@ class Guard:
             if own:
                 parts = own[0].rstrip(b'\n').split(b':')
                 if name == 'passwd':
-                    require(len(parts) == 7 and parts[2:4] == [b'48045', b'48045']
+                    require(len(parts) == 7 and parts[2:4] == [b'48046', b'48046']
                             and parts[5:] == [str(HOME).encode(), b'/usr/bin/nologin'])
                 elif name == 'group':
-                    require(len(parts) == 4 and parts[2:] == [b'48045', b''])
+                    require(len(parts) == 4 and parts[2:] == [b'48046', b''])
                 elif name == 'shadow':
                     require(len(parts) == 9 and parts[1].startswith((b'!', b'*')))
                 else:
@@ -464,9 +482,9 @@ class Guard:
 
     def create_account(self):
         self.source_recheck()
-        self.run_child(['/usr/bin/groupadd', '--gid', '48045', NAME], 0, 'group-create')
+        self.run_child(['/usr/bin/groupadd', '--gid', '48046', NAME], 0, 'group-create')
         self.source_recheck()
-        self.run_child(['/usr/bin/useradd', '--uid', '48045', '--gid', '48045', '--no-user-group',
+        self.run_child(['/usr/bin/useradd', '--uid', '48046', '--gid', '48046', '--no-user-group',
             '--no-create-home', '--home-dir', str(HOME), '--shell', '/usr/bin/nologin', '--no-log-init',
             '--key', 'SUB_UID_COUNT=0', '--key', 'SUB_GID_COUNT=0', NAME],
             0, 'account-create')
@@ -484,11 +502,11 @@ class Guard:
 
     def manager_start(self):
         self.source_recheck()
-        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user-runtime-dir@48045.service'],
+        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user-runtime-dir@48046.service'],
                        0, 'runtime-dir-start', seconds=45)
         self.source_recheck()
         self.home_pin.recheck()
-        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user@48045.service'],
+        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user@48046.service'],
                        0, 'manager-start', seconds=45)
         self.runtime_pin = Parents(RUNTIME, UID)
         require(RUNTIME.lstat().st_uid == RUNTIME.lstat().st_gid == UID
@@ -498,7 +516,7 @@ class Guard:
     def manager_stopped_app(self):
         self.home_pin.recheck()
         args = [arg for key in core.FIELDS for arg in ('-p', key)]
-        _, out, _ = self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'show', 'user@48045.service', *args],
+        _, out, _ = self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'show', 'user@48046.service', *args],
                                    0, 'manager-observe')
         data = fields(out, core.FIELDS)
         require(data['LoadState'] == 'loaded' and data['ActiveState'] == 'active'
@@ -511,7 +529,7 @@ class Guard:
         status = (proc / 'status').read_bytes()
         require(len(status) <= 65536)
         values = pairs(line.split(b':', 1) for line in status.splitlines() if b':' in line)
-        require(values[b'Uid'].split() == values[b'Gid'].split() == [b'48045'] * 4)
+        require(values[b'Uid'].split() == values[b'Gid'].split() == [b'48046'] * 4)
         loaded = os.open(proc / 'exe', FLAGS & ~os.O_NOFOLLOW)
         RETAINED.append(loaded)
         installed = self.catalogs[1][1].nodes[Path('/usr/lib/systemd/systemd')][2]
@@ -587,7 +605,10 @@ class Guard:
             '--ignored', '--nocapture', '--test-threads=1', '--quiet'], UID, tag,
             executable='/proc/self/fd/198', pass_fds=(198, 199), env=env,
             stdin=subprocess.DEVNULL if request is None else request, seconds=180)
-        require(err == b'')
+        if entry == 'diagnose':
+            admission_trace(err)
+        else:
+            require(err == b'')
         if entry == 'launch':
             require(out == b'\nrunning 1 test\nOLD restored; recovery fence remains. Normal startup is still blocked.\n')
         else:
@@ -612,6 +633,8 @@ class Guard:
         request = chain.files[ARTIFACTS / 'request.json'][0]
         chain.before_first()
         self.evidence.write('lineage-before.json', chain.mixed_receipt())
+        self.native('diagnose', 'stopped-admission-diagnostic')
+        chain.before_first()
         self.native('launch', 'normal-cli-first', request)
         self.native('first', 'verify-first')
         first = self.typed_case('after-first.json', 'ABORTED_OLD_PAIR_STILL_FENCED')
@@ -645,7 +668,7 @@ class Guard:
                 values = pairs(line.split(b':', 1) for line in status.splitlines() if b':' in line)
                 ids = values[b'Uid'].split()
                 require(len(ids) == 4 and all(v.isdigit() for v in ids))
-                if b'48045' not in ids:
+                if b'48046' not in ids:
                     continue
                 require(before_stat[0] not in (b'Z', b'X'))
                 fd = os.open(proc / 'exe', os.O_RDONLY | os.O_CLOEXEC)

@@ -9,8 +9,8 @@ import stat
 import sys
 import time
 
-SOURCE = Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v4')
-DESTINATION = Path('/run/ov-t4-cli-guard-v4')
+SOURCE = Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v5')
+DESTINATION = Path('/run/ov-t4-cli-guard-v5')
 CODE = ('core.py', 'support.py', 'startup_inventory.py', 'startup_followup.py',
         'lineage.py', 'root_guard.py')
 ELFS = ('helper', 'omavless')
@@ -129,7 +129,7 @@ def deliver(expected):
     value = json.loads(os.pread(fd, s.st_size + 1, 0), object_pairs_hook=unique,
                        parse_constant=lambda _: need(False))
     need(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'}
-         and value['schema'] == 't4-disposable-cli-delivery-v4'
+         and value['schema'] == 't4-disposable-cli-delivery-v5'
          and value['native_head'] == '69557f12f6d077ef8f248f8ade87d7e595617efd'
          and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head'])
          and type(value['code']) is dict and set(value['code']) == set(CODE)
