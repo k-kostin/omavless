@@ -39,8 +39,11 @@ mod manager_response_diagnostic_dump;
 mod manager_response_diagnostic_fixture;
 #[cfg(test)]
 mod manager_response_diagnostic_permissions;
+
 #[cfg(test)]
 mod manager_retained_dump;
+#[cfg(test)]
+mod manager_retained_lifecycle;
 #[cfg(test)]
 mod manager_retained_reference_fixture;
 pub mod nft;
