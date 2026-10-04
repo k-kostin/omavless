@@ -1,7 +1,7 @@
 //! Inactive shared-lock transaction composition, exercised with synthetic ports.
 //! No production caller or provenance provider exists. Receipts cannot turn an
 //! untrusted orphan into an owned table. There is deliberately no recovery API.
-use crate::effect_port::{EffectIdentity, EffectPort, EffectSnapshot};
+use crate::effect_port::{EffectIdentity, EffectPort, EffectSnapshot, ExchangeBoundary};
 use crate::enrollment::EnrollmentBinding;
 
 use crate::policy::Policy;
@@ -46,6 +46,7 @@ struct Snapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ExchangeError {
     NoEnrollment,
+    AuthorityUnavailable,
     Receive(TransportError),
     ReplyDeliveryUnknown(TransportError),
 }
@@ -121,6 +122,9 @@ impl LockedState {
         kernel: &mut K,
         mut checkpoint: impl FnMut(ExchangePoint),
     ) -> Result<(), ExchangeError> {
+        kernel
+            .exchange_boundary(ExchangeBoundary::BeforeReceive)
+            .map_err(|_| ExchangeError::AuthorityUnavailable)?;
         let binding = self
             .enrollment
             .as_ref()
@@ -128,11 +132,17 @@ impl LockedState {
         let request = transport_candidate::receive_request(&stream, binding)
             .map_err(ExchangeError::Receive)?;
         checkpoint(ExchangePoint::Received);
+        kernel
+            .exchange_boundary(ExchangeBoundary::AfterReceive)
+            .map_err(|_| ExchangeError::AuthorityUnavailable)?;
         let response = match self.request(request, namespace, kernel) {
             Ok(response) => response,
             Err(code) => Response::Error { code },
         };
         checkpoint(ExchangePoint::BeforeResponse);
+        kernel
+            .exchange_boundary(ExchangeBoundary::BeforeReply)
+            .map_err(|_| ExchangeError::AuthorityUnavailable)?;
         // Reborrow the same binding after request's mutable borrow. A failed
         // socket write never undoes a durable transaction or replays effects.
         let binding = self
@@ -140,7 +150,12 @@ impl LockedState {
             .as_ref()
             .ok_or(ExchangeError::NoEnrollment)?;
         transport_candidate::send_response(&stream, binding, response)
-            .map_err(ExchangeError::ReplyDeliveryUnknown)
+            .map_err(ExchangeError::ReplyDeliveryUnknown)?;
+        // Failure here cannot retract bytes already delivered or roll back a
+        // committed record. It only seals the bound provider's future work.
+        kernel
+            .exchange_boundary(ExchangeBoundary::AfterReply)
+            .map_err(|_| ExchangeError::AuthorityUnavailable)
     }
 
     /// Namespace and port facts remain independently supplied proof obligations,
@@ -433,6 +448,7 @@ mod tests {
     mod exchange {
         include!("locked_state_exchange_tests.rs");
         include!("locked_state_session_tests.rs");
+        include!("locked_state_authority_tests.rs");
     }
 
     use super::*;
