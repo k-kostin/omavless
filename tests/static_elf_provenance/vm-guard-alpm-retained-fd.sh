@@ -15,7 +15,7 @@ test ! -L "$task_stage"
 test "$(stat -c %u:%g "$task_stage")" = 1000:1000
 test "$(stat -c %a "$task_stage")" = 700
 test "$(sha256sum "$task_stage/probe.py" | cut -d' ' -f1)" = 5c696390ccdfdc536a77650cb0d85d5b7f4b817bc7b84eedba22166e914752d5
-test "$(sha256sum "$task_stage/supervisor.py" | cut -d' ' -f1)" = d3a381def32d1f2c62cecd8f793ba4bfbc54ce83a279321ded65211e5e5add88
+test "$(sha256sum "$task_stage/supervisor.py" | cut -d' ' -f1)" = 37e1e7fa4e1d393bd6df8e80a2c06623015afe6c0fa8dd5fc823919196ad80a6
 test "$(sha256sum "$task_stage/containment.py" | cut -d' ' -f1)" = 2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592
 test "$(sha256sum /usr/bin/mihomo | cut -d' ' -f1)" = ba7a74ed6bbc3098930e6e172fa9b7d4ef7e42a77f7a516046d61fbeb3bfcfe6
 task_private_before=$(sha256sum /home/kdk_vm/.config/omavless/profiles.json /home/kdk_vm/.config/omavless/route-template.yaml /home/kdk_vm/.local/state/omavless/desired.json /home/kdk_vm/.local/state/omavless/ownership.json | sha256sum)
@@ -58,7 +58,9 @@ snapshot_network before
 task_failed=0
 if ! env -i HOME=/home/kdk_vm PATH=/usr/bin LANG=C /usr/bin/python3 "$task_stage/supervisor.py" --run-metadata-child > "$task_stage/supervisor.log" 2>&1; then
   printf '%s\n' ALPM_SHAPE_DIAGNOSTIC_NONPASS
-  task_failed=1
+  # Failure can mean unknown child ownership. Retain before snapshots and stop:
+  # no result reads, baseline queries, quiescence checks, signals or cleanup.
+  exit 1
 fi
 if ! python3 - "$task_stage/result.json" <<'PY'
 import json, pathlib, sys

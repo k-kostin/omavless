@@ -18,10 +18,7 @@ def identity(value):
             value.st_mode, value.st_nlink, value.st_mtime_ns, value.st_ctime_ns)
 
 
-def load_containment():
-    path = Path(__file__).with_name("containment.py")
-    if not path.exists():
-        path = Path(__file__).parent.parent / "real_resolved_binary/probe.py"
+def load_containment(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         before = os.fstat(fd)
@@ -38,7 +35,9 @@ def load_containment():
     return module
 
 
-base = load_containment()
+# Import is inert. Tests explicitly load the frozen repository helper; actual
+# execution below permits only the fixed stage, never a repository fallback.
+base = None
 
 
 def run_child(stage):
@@ -67,6 +66,9 @@ def run_child(stage):
 
 
 if __name__ == "__main__":
+    if Path(__file__) != STAGE / "supervisor.py":
+        raise RuntimeError("fixed_supervisor_path")
+    base = load_containment(STAGE / "containment.py")
     base.require(sys.argv[1:] == ["--run-metadata-child"], "explicit_metadata_supervision")
     os.umask(0o077)
     receipt = run_child(STAGE)

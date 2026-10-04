@@ -164,3 +164,14 @@ The runner creates result, stderr and supervisor receipt exclusively. All origin
 canonical and baseline/network checks remain; quiescence checks both fixed child
 and supervisor forms. Full source review and a separate exclusive lease are
 required before **one** invocation. No VM diagnosis or ELF admission is claimed.
+
+The `5efed20` source review also refused wrapper continuation after a failed
+supervisor and its missing-stage helper fallback; that head was not executed.
+The wrapper now exits immediately on any supervisor failure, preserving existing
+before snapshots without further guest queries, result reads or effects. Thus
+after-state preservation is **unproven** on that path, not implicitly claimed.
+Only successful supervision reaches later baseline/quiescence checks. A shell
+regression executes the exact failed-supervisor branch with a synthetic failure
+and verifies no later action occurs. Supervisor import is inert; actual main
+requires the exact fixed stage script and helper, while tests explicitly load
+the hash-pinned repository helper. A missing staged helper has no fallback.

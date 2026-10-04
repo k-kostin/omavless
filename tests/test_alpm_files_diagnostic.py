@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -16,6 +17,8 @@ SPEC.loader.exec_module(probe)
 SUPERVISOR_SPEC = importlib.util.spec_from_file_location("alpm_files_supervisor", ROOT / "alpm_files_supervisor.py")
 supervisor = importlib.util.module_from_spec(SUPERVISOR_SPEC)
 SUPERVISOR_SPEC.loader.exec_module(supervisor)
+assert supervisor.base is None
+supervisor.base = supervisor.load_containment(ROOT.parent / "real_resolved_binary/probe.py")
 
 
 def meta(**changes):
@@ -25,6 +28,25 @@ def meta(**changes):
 
 
 class AlpmFilesTests(unittest.TestCase):
+    def test_missing_staged_helper_has_no_repository_fallback(self):
+        fixed = supervisor.STAGE / "containment.py"
+        with patch.object(supervisor.os, "open", side_effect=FileNotFoundError) as opened:
+            with self.assertRaises(FileNotFoundError):
+                supervisor.load_containment(fixed)
+        opened.assert_called_once()
+        self.assertEqual(opened.call_args.args[0], fixed)
+
+    def test_wrapper_supervisor_failure_stops_before_every_later_action(self):
+        guard = (ROOT / "vm-guard-alpm-retained-fd.sh").read_text()
+        block = guard.split('if ! env -i ', 1)[1].split('\nfi\n', 1)[0]
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as temporary:
+            script = 'env() { return 1; }; task_stage="$1"\nif ! env -i ' + block + '\nfi\nprintf FORBIDDEN_LATER_ACTION\n'
+            result = subprocess.run(["/bin/bash", "-c", script, "test", temporary],
+                                    check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "ALPM_SHAPE_DIAGNOSTIC_NONPASS\n")
+        self.assertNotIn("FORBIDDEN", result.stdout)
+
     def test_wrapper_pins_metadata_only_source_and_preservation(self):
         guard = (ROOT / "vm-guard-alpm-retained-fd.sh").read_text()
         self.assertIn(hashlib.sha256((ROOT / "alpm_files_diagnostic.py").read_bytes()).hexdigest(), guard)
