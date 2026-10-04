@@ -24,6 +24,12 @@ class NamespaceFilterGuardTests(unittest.TestCase):
         runner = ROOT / "crates/omavless-netguard/tests/support/generator_filter_vm_fixture.sh"
         self.assertEqual(hashlib.sha256(runner.read_bytes()).hexdigest(), guard.RUNNER_SHA)
 
+    def test_runner_failure_stops_before_any_next_snapshot(self):
+        source = (ROOT / "crates/omavless-netguard/tests/support/generator_filter_guest_guard.py").read_text()
+        after = source.split("code = await_child(child)", 1)[1]
+        self.assertLess(after.index("require(code == 0)"), after.index("after = snapshot()"))
+        self.assertIn("query_guard_unchanged", source)
+
     def test_target_scope_adds_only_already_inventoried_user_generators(self):
         old = {"/usr/lib/systemd", "/etc/systemd", "/run/systemd", "/home/kdk_vm/.config/systemd"}
         added = set(guard.TARGET_ROOTS) - old
