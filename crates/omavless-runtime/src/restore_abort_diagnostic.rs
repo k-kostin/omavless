@@ -5,7 +5,73 @@ use std::io::Write;
 
 pub(crate) const ENTRY: &str =
     "production_owner::first_abort::cli_vm_fixture::diagnose_stopped_admission";
-const HELPER: &[u8] = b"/home/ov-t4-abort-v4/.t4-first-abort/helper";
+const HELPER: &[u8] = b"/home/ov-t4-abort-v5/.t4-first-abort/helper";
+
+/// Private test-only latch: no extra observation, error details or output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ManagerCaptureStep {
+    DirectoryOpen,
+    DirectoryMetadata,
+    StatRead,
+    StatParse,
+    StatusRead,
+    StatusParse,
+    CommandRead,
+    CommandParse,
+    CommRead,
+    ExecutableOpen,
+    ExecutableMetadata,
+    ExecutableType,
+    ExecutableLink,
+    RecheckBudget,
+    RecheckDirectory,
+    RecheckExecutable,
+    RecheckNamedDirectoryMetadata,
+    RecheckHeldDirectoryMetadata,
+    RecheckHeldExecutableMetadata,
+    RecheckNamedExecutableMetadata,
+    RecheckStatRead,
+    RecheckStatParse,
+    RecheckStatusRead,
+    RecheckStatusParse,
+    RecheckCommandRead,
+    RecheckCommRead,
+    RecheckExecutableLink,
+}
+
+impl ManagerCaptureStep {
+    fn name(self) -> &'static str {
+        match self {
+            Self::DirectoryOpen => "directory_open",
+            Self::DirectoryMetadata => "directory_metadata",
+            Self::StatRead => "stat_read",
+            Self::StatParse => "stat_parse",
+            Self::StatusRead => "status_read",
+            Self::StatusParse => "status_parse",
+            Self::CommandRead => "command_read",
+            Self::CommandParse => "command_parse",
+            Self::CommRead => "comm_read",
+            Self::ExecutableOpen => "executable_open",
+            Self::ExecutableMetadata => "executable_metadata",
+            Self::ExecutableType => "executable_type",
+            Self::ExecutableLink => "executable_link",
+            Self::RecheckBudget => "recheck_budget",
+            Self::RecheckDirectory => "recheck_directory",
+            Self::RecheckExecutable => "recheck_executable",
+            Self::RecheckNamedDirectoryMetadata => "recheck_named_directory_metadata",
+            Self::RecheckHeldDirectoryMetadata => "recheck_held_directory_metadata",
+            Self::RecheckHeldExecutableMetadata => "recheck_held_executable_metadata",
+            Self::RecheckNamedExecutableMetadata => "recheck_named_executable_metadata",
+            Self::RecheckStatRead => "recheck_stat_read",
+            Self::RecheckStatParse => "recheck_stat_parse",
+            Self::RecheckStatusRead => "recheck_status_read",
+            Self::RecheckStatusParse => "recheck_status_parse",
+            Self::RecheckCommandRead => "recheck_command_read",
+            Self::RecheckCommRead => "recheck_comm_read",
+            Self::RecheckExecutableLink => "recheck_executable_link",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Phase {
@@ -81,6 +147,7 @@ struct Trace {
     reported: bool,
     count: usize,
     last: Option<Phase>,
+    manager_capture_step: Option<ManagerCaptureStep>,
 }
 
 impl Trace {
@@ -97,12 +164,26 @@ impl Trace {
             return Err(());
         }
         self.last = Some(phase);
+        self.manager_capture_step = None;
         self.count += 1;
         let raw = format!("T4_STOPPED_BEFORE_V1 {}\n", phase.name());
         if !matches!(write(raw.as_bytes()), Ok(size) if size == raw.len()) {
             self.sealed = true;
             self.reported = true;
             return Err(());
+        }
+        Ok(())
+    }
+
+    fn manager_capture_before(&mut self, step: ManagerCaptureStep) -> Result<(), ()> {
+        if !self.active {
+            return Ok(());
+        }
+        if self.sealed || self.reported {
+            return Err(());
+        }
+        if self.last == Some(Phase::ManagerProcess) {
+            self.manager_capture_step = Some(step);
         }
         Ok(())
     }
@@ -122,9 +203,20 @@ impl Trace {
         let raw = if success {
             "T4_STOPPED_READONLY_OBSERVATION_NOT_ADMISSION\n".to_owned()
         } else {
-            format!("T4_STOPPED_FAILED_AT_V1 {}\n", phase.name())
+            let mut raw = format!("T4_STOPPED_FAILED_AT_V1 {}\n", phase.name());
+            if phase == Phase::ManagerProcess
+                && let Some(step) = self.manager_capture_step
+            {
+                raw.push_str("T4_STOPPED_MANAGER_CAPTURE_BEFORE_V1 ");
+                raw.push_str(step.name());
+                raw.push('\n');
+            }
+            raw
         };
-        if !matches!(write(raw.as_bytes()), Ok(size) if size == raw.len()) || !success {
+        if raw.len() > 256
+            || !matches!(write(raw.as_bytes()), Ok(size) if size == raw.len())
+            || !success
+        {
             return Err(());
         }
         Ok(())
@@ -132,6 +224,15 @@ impl Trace {
 }
 
 thread_local! { static TRACE: Cell<Trace> = Cell::new(Trace::default()); }
+
+pub(super) fn manager_capture_before(step: ManagerCaptureStep) -> Result<(), ()> {
+    TRACE.with(|cell| {
+        let mut trace = cell.get();
+        let result = trace.manager_capture_before(step);
+        cell.set(trace);
+        result
+    })
+}
 
 pub(super) fn before(phase: Phase) -> Result<(), ()> {
     TRACE.with(|cell| {
@@ -312,5 +413,87 @@ fn every_phase_short_write_prevents_its_operation_and_all_later_sinks() {
                 .finish(false, |_| panic!("late failure sink"))
                 .is_err()
         );
+    }
+}
+
+#[test]
+fn manager_capture_latch_is_private_finite_reset_and_terminal() {
+    for step in [
+        ManagerCaptureStep::DirectoryOpen,
+        ManagerCaptureStep::DirectoryMetadata,
+        ManagerCaptureStep::StatRead,
+        ManagerCaptureStep::StatParse,
+        ManagerCaptureStep::StatusRead,
+        ManagerCaptureStep::StatusParse,
+        ManagerCaptureStep::CommandRead,
+        ManagerCaptureStep::CommandParse,
+        ManagerCaptureStep::CommRead,
+        ManagerCaptureStep::ExecutableOpen,
+        ManagerCaptureStep::ExecutableMetadata,
+        ManagerCaptureStep::ExecutableType,
+        ManagerCaptureStep::ExecutableLink,
+        ManagerCaptureStep::RecheckBudget,
+        ManagerCaptureStep::RecheckDirectory,
+        ManagerCaptureStep::RecheckExecutable,
+        ManagerCaptureStep::RecheckNamedDirectoryMetadata,
+        ManagerCaptureStep::RecheckHeldDirectoryMetadata,
+        ManagerCaptureStep::RecheckHeldExecutableMetadata,
+        ManagerCaptureStep::RecheckNamedExecutableMetadata,
+        ManagerCaptureStep::RecheckStatRead,
+        ManagerCaptureStep::RecheckStatParse,
+        ManagerCaptureStep::RecheckStatusRead,
+        ManagerCaptureStep::RecheckStatusParse,
+        ManagerCaptureStep::RecheckCommandRead,
+        ManagerCaptureStep::RecheckCommRead,
+        ManagerCaptureStep::RecheckExecutableLink,
+    ] {
+        let mut inactive = Trace::default();
+        inactive.manager_capture_before(step).unwrap();
+        assert_eq!(inactive.manager_capture_step, None);
+        assert_eq!(inactive.count, 0);
+        let mut trace = Trace {
+            active: true,
+            ..Trace::default()
+        };
+        trace
+            .before(Phase::SelfProcess, |raw| Ok(raw.len()))
+            .unwrap();
+        trace.manager_capture_before(step).unwrap();
+        assert_eq!(trace.manager_capture_step, None);
+        trace
+            .before(Phase::ManagerProcess, |raw| Ok(raw.len()))
+            .unwrap();
+        trace.manager_capture_before(step).unwrap();
+        assert_eq!(trace.count, 2, "latch neither emits nor charges a BEFORE");
+        let mut writes = 0;
+        assert!(trace.finish(false, |raw| {
+            writes += 1;
+            let expected = format!("T4_STOPPED_FAILED_AT_V1 manager_process\nT4_STOPPED_MANAGER_CAPTURE_BEFORE_V1 {}\n", step.name());
+            assert_eq!(raw, expected.as_bytes());
+            assert!(raw.len() <= 256);
+            Ok(raw.len())
+        }).is_err());
+        assert_eq!(writes, 1);
+        assert!(trace.manager_capture_before(step).is_err());
+        assert!(trace.finish(false, |_| panic!("second terminal")).is_err());
+
+        let mut trace = Trace {
+            active: true,
+            ..Trace::default()
+        };
+        trace
+            .before(Phase::ManagerProcess, |raw| Ok(raw.len()))
+            .unwrap();
+        trace.manager_capture_before(step).unwrap();
+        trace
+            .before(Phase::ManagerExecutable, |raw| Ok(raw.len()))
+            .unwrap();
+        assert_eq!(trace.manager_capture_step, None);
+        trace
+            .finish(true, |raw| {
+                assert_eq!(raw, b"T4_STOPPED_READONLY_OBSERVATION_NOT_ADMISSION\n");
+                Ok(raw.len())
+            })
+            .unwrap();
     }
 }

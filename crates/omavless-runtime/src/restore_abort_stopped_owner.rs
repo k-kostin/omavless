@@ -28,6 +28,18 @@ macro_rules! checkpoint {
     };
 }
 
+// Each body keeps its original evaluation point and short-circuit order.
+// Ordinary builds contain neither the latch nor evaluation of its enum.
+macro_rules! capture_step {
+    ($step:ident, $body:expr) => {{
+        #[cfg(test)]
+        crate::restore_abort_cli::diagnostic::manager_capture_before(
+            crate::restore_abort_cli::diagnostic::ManagerCaptureStep::$step,
+        )?;
+        $body
+    }};
+}
+
 enum SelfInvocation {
     Recovery,
     #[cfg(test)]
@@ -398,19 +410,31 @@ struct Process {
 
 impl Process {
     fn capture(root: &File, pid: u32, budget: &mut Budget) -> Result<Self> {
-        let directory = directory(root, &pid.to_string())?;
-        let directory_identity = directory.metadata().map_err(|_| ())?;
-        let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, pid)?;
-        let status = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, pid)?;
-        let command = proc_bytes(&directory, "cmdline", MAX_COMMAND, budget)?;
-        arguments(&command)?;
-        let comm = proc_bytes(&directory, "comm", 4096, budget)?;
-        let executable = magic_file(&directory, "exe")?;
-        let executable_identity = executable.metadata().map_err(|_| ())?;
-        if !executable_identity.is_file() {
+        let directory = capture_step!(DirectoryOpen, directory(root, &pid.to_string()))?;
+        let directory_identity =
+            capture_step!(DirectoryMetadata, directory.metadata()).map_err(|_| ())?;
+        let raw = capture_step!(StatRead, proc_bytes(&directory, "stat", MAX_STATUS, budget))?;
+        let start = capture_step!(StatParse, start_time(&raw, pid))?;
+        drop(raw);
+        let raw = capture_step!(
+            StatusRead,
+            proc_bytes(&directory, "status", MAX_STATUS, budget)
+        )?;
+        let status = capture_step!(StatusParse, status(&raw, pid))?;
+        drop(raw);
+        let command = capture_step!(
+            CommandRead,
+            proc_bytes(&directory, "cmdline", MAX_COMMAND, budget)
+        )?;
+        capture_step!(CommandParse, arguments(&command))?;
+        let comm = capture_step!(CommRead, proc_bytes(&directory, "comm", 4096, budget))?;
+        let executable = capture_step!(ExecutableOpen, magic_file(&directory, "exe"))?;
+        let executable_identity =
+            capture_step!(ExecutableMetadata, executable.metadata()).map_err(|_| ())?;
+        if !capture_step!(ExecutableType, executable_identity.is_file()) {
             return Err(());
         }
-        let executable_name = proc_link(&directory, "exe")?;
+        let executable_name = capture_step!(ExecutableLink, proc_link(&directory, "exe"))?;
         let process = Self {
             pid,
             directory,
@@ -428,31 +452,45 @@ impl Process {
     }
 
     fn recheck(&self, root: &File, budget: &mut Budget) -> Result<()> {
-        budget.check()?;
-        let current = directory(root, &self.pid.to_string())?;
-        let executable = magic_file(&current, "exe")?;
+        capture_step!(RecheckBudget, budget.check())?;
+        let current = capture_step!(RecheckDirectory, directory(root, &self.pid.to_string()))?;
+        let executable = capture_step!(RecheckExecutable, magic_file(&current, "exe"))?;
         if !identity(
             &self.directory_identity,
-            &current.metadata().map_err(|_| ())?,
+            &capture_step!(RecheckNamedDirectoryMetadata, current.metadata()).map_err(|_| ())?,
         ) || !identity(
             &self.directory_identity,
-            &self.directory.metadata().map_err(|_| ())?,
+            &capture_step!(RecheckHeldDirectoryMetadata, self.directory.metadata())
+                .map_err(|_| ())?,
         ) || !executable_identity(
             &self.executable_identity,
-            &self.executable.metadata().map_err(|_| ())?,
+            &capture_step!(RecheckHeldExecutableMetadata, self.executable.metadata())
+                .map_err(|_| ())?,
         ) || !executable_identity(
             &self.executable_identity,
-            &executable.metadata().map_err(|_| ())?,
-        ) || self.start
-            != start_time(&proc_bytes(&current, "stat", MAX_STATUS, budget)?, self.pid)?
-            || self.status
-                != status(
-                    &proc_bytes(&current, "status", MAX_STATUS, budget)?,
-                    self.pid,
-                )?
-            || self.command != proc_bytes(&current, "cmdline", MAX_COMMAND, budget)?
-            || self.comm != proc_bytes(&current, "comm", 4096, budget)?
-            || self.executable_name != proc_link(&current, "exe")?
+            &capture_step!(RecheckNamedExecutableMetadata, executable.metadata())
+                .map_err(|_| ())?,
+        ) || self.start != {
+            let raw = capture_step!(
+                RecheckStatRead,
+                proc_bytes(&current, "stat", MAX_STATUS, budget)
+            )?;
+            capture_step!(RecheckStatParse, start_time(&raw, self.pid))?
+        } || self.status != {
+            let raw = capture_step!(
+                RecheckStatusRead,
+                proc_bytes(&current, "status", MAX_STATUS, budget)
+            )?;
+            capture_step!(RecheckStatusParse, status(&raw, self.pid))?
+        } || self.command
+            != capture_step!(
+                RecheckCommandRead,
+                proc_bytes(&current, "cmdline", MAX_COMMAND, budget)
+            )?
+            || self.comm
+                != capture_step!(RecheckCommRead, proc_bytes(&current, "comm", 4096, budget))?
+            || self.executable_name
+                != capture_step!(RecheckExecutableLink, proc_link(&current, "exe"))?
         {
             return Err(());
         }
@@ -1058,6 +1096,34 @@ mod tests {
 
     fn proc_root() -> File {
         File::open("/proc").unwrap()
+    }
+
+    #[test]
+    fn capture_step_keeps_original_short_circuit_and_failure_order() -> Result<()> {
+        // Actual production wrapper, synthetic bodies: no proc or process IO.
+        let calls = Cell::new(0);
+        let stopped = capture_step!(RecheckNamedDirectoryMetadata, {
+            calls.set(calls.get() + 1);
+            true
+        }) || capture_step!(RecheckHeldDirectoryMetadata, {
+            panic!("short-circuited later predicate")
+        });
+        assert!(stopped);
+        assert_eq!(calls.get(), 1);
+        let result = (|| {
+            capture_step!(StatRead, {
+                calls.set(calls.get() + 1);
+                Err::<(), ()>(())
+            })?;
+            capture_step!(StatParse, {
+                calls.set(99);
+                Ok::<(), ()>(())
+            })?;
+            Ok::<(), ()>(())
+        })();
+        assert!(result.is_err());
+        assert_eq!(calls.get(), 2);
+        Ok(())
     }
 
     #[test]

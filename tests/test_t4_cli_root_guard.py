@@ -24,8 +24,8 @@ class GuardTests(unittest.TestCase):
         cli = (native / 'restore_abort_cli.rs').read_text()
         diagnostic = (native / 'restore_abort_diagnostic.rs').read_text()
         fixture = (native / 'restore_first_abort_cli_vm_tests.rs').read_text()
-        self.assertEqual(guard.UID, 48047)
-        self.assertEqual(guard.NAME, 'ov-t4-abort-v4')
+        self.assertEqual(guard.UID, 48048)
+        self.assertEqual(guard.NAME, 'ov-t4-abort-v5')
         self.assertEqual(guard.HOME, Path('/home') / guard.NAME)
         self.assertEqual(guard.RUNTIME, Path('/run/user') / str(guard.UID))
         self.assertEqual(guard.ARTIFACTS, guard.HOME / '.t4-first-abort')
@@ -45,11 +45,37 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((lineage.UID, lineage.HOME, lineage.ARTIFACTS, lineage.RUNTIME),
                          (guard.UID, guard.HOME, guard.ARTIFACTS, guard.RUNTIME / 'omavless'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v6'))
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v6'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v7'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7'))
         for source in (cli, diagnostic, fixture):
-            for stale in ('48046', 'ov-t4-abort-v3', 'guard-v5', 'delivery-v5'):
+            for stale in ('48046', '48047', 'ov-t4-abort-v3', 'ov-t4-abort-v4',
+                          'guard-v5', 'guard-v6', 'delivery-v5', 'delivery-v6'):
                 self.assertNotIn(stale, source)
+
+    def test_manager_capture_diagnostic_has_no_extra_observation_or_eager_parse(self):
+        native = Path(__file__).resolve().parents[1] / 'crates/omavless-runtime/src'
+        source = (native / 'restore_abort_stopped_owner.rs').read_text()
+        diagnostic = (native / 'restore_abort_diagnostic.rs').read_text()
+        macro = source.split('macro_rules! capture_step {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('#[cfg(test)]', macro)
+        self.assertIn('crate::restore_abort_cli::diagnostic::manager_capture_before(', macro)
+        self.assertTrue(macro.rstrip().endswith('$body\n    }};'))
+        steps = re.findall(r'Self::(\w+) => "([a-z_]+)",',
+                           diagnostic.split('impl ManagerCaptureStep {', 1)[1].split('\n}', 1)[0])
+        self.assertEqual(len(steps), 27)
+        self.assertEqual(len(set(name for _, name in steps)), 27)
+        used = re.findall(r'capture_step!\(\s*(\w+),', source.split('impl Process {', 1)[1].split('\nfn pids(', 1)[0])
+        self.assertEqual(set(used), {name for name, _ in steps})
+        latch = diagnostic.split('fn manager_capture_before(&mut self,', 1)[1].split('\n    fn finish(', 1)[0]
+        self.assertIn('self.last == Some(Phase::ManagerProcess)', latch)
+        for forbidden in ('write(', 'format!', 'File', 'read', 'budget', 'Instant'):
+            self.assertNotIn(forbidden, latch)
+        for first, second in (('StatRead', 'StatParse'), ('StatusRead', 'StatusParse'),
+                              ('RecheckStatRead', 'RecheckStatParse'),
+                              ('RecheckStatusRead', 'RecheckStatusParse')):
+            body = source.split('impl Process {', 1)[1].split('\nfn pids(', 1)[0]
+            self.assertLess(re.search(r'capture_step!\(\s*'+first+r',', body).start(),
+                            re.search(r'capture_step!\(\s*'+second+r',', body).start())
 
     def test_diagnostic_trace_is_exact_success_only(self):
         before=b''.join(('T4_STOPPED_BEFORE_V1 '+phase+'\n').encode() for phase in guard.ADMISSION_PHASES)
@@ -162,7 +188,7 @@ class GuardTests(unittest.TestCase):
         self.assertNotIn('CREATE_MAIL_SPOOL=no',argv)
         self.assertIn('SUB_UID_COUNT=0',argv)
         self.assertIn('SUB_GID_COUNT=0',argv)
-        self.assertIn('48047',argv)
+        self.assertIn('48048',argv)
         self.assertNotIn('48044',argv)
 
     def setUp(self):
@@ -426,11 +452,11 @@ class GuardTests(unittest.TestCase):
 
 class LoaderTests(unittest.TestCase):
     def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v6'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v6'))
-        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v4'))
-        self.assertEqual(guard.RUNTIME, Path('/run/user/48047'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v7'))
+        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v5'))
+        self.assertEqual(guard.RUNTIME, Path('/run/user/48048'))
 
     def test_loader_capacity_separate_and_shared_devices(self):
         for devices, amounts, accepted in (
@@ -455,7 +481,7 @@ class LoaderTests(unittest.TestCase):
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v6',
+            value = {'schema': 't4-disposable-cli-delivery-v7',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),

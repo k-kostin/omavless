@@ -1,6 +1,8 @@
 # Fixed disposable UID normal-CLI guard
 
-The fresh quoted-delivery UID48047/v4/v6 successor is scoped in
+The fresh manager-capture UID48048/v5/v7 successor is scoped in
+[MANAGER_CAPTURE_BOUNDARIES.md](MANAGER_CAPTURE_BOUNDARIES.md). The earlier
+quoted-delivery UID48047/v4/v6 generation is retained in
 [DELIVERY_TRANSPORT.md](DELIVERY_TRANSPORT.md). The generation identities and
 source-only statements below retain their historical checkpoint meaning.
 

@@ -1,5 +1,9 @@
 # Disposable-real-UID first-Abort CLI gate (source scaffold)
 
+The fresh UID48048/v7 source-only continuation is scoped in
+[manager capture boundaries](MANAGER_CAPTURE_BOUNDARIES.md). The older scaffold
+and generations below are retained history, not authority for that proposal.
+
 The separately versioned [root guard implementation](ROOT_GUARD.md) now supplies
 the proposed bounded delivery, bootstrap and normal-CLI orchestration. It is
 source-only pending full review, frozen receipts and an explicit VM lease.
