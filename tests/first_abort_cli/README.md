@@ -1,5 +1,10 @@
 # Disposable-real-UID first-Abort CLI gate (source scaffold)
 
+The separately versioned [root guard implementation](ROOT_GUARD.md) now supplies
+the proposed bounded delivery, bootstrap and normal-CLI orchestration. It is
+source-only pending full review, frozen receipts and an explicit VM lease.
+The native-scaffold checkpoint described below remains separate evidence.
+
 Not executable acceptance yet. No account, manager, application, VM or network
 operation has been run for this scaffold. Its root guard, artifact receipt and
 trusted loader still require implementation and complete review. The ignored
