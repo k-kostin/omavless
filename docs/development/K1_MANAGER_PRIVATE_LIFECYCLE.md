@@ -46,7 +46,7 @@ asserts durable pending and competing-lock Busy at each effect. A second socket
 cannot acquire creator causality from identical rules, port/handle or receipts.
 The normal production crate/API and all older fixture artifacts are unchanged.
 
-## Retention, launch and remaining work
+## Retention and source-only launch composition
 
 All fixture state lives under the new fixed root-owned 0700
 `/run/omavless-k1-manager-private-lifecycle`, outside installed NetGuard paths.
@@ -58,14 +58,38 @@ automatic restart, start/runtime/stop deadline, ExecStop or automatic kill.
 Successful completion leaves the unit active/exited through RemainAfterExit.
 These intentional retention semantics require an exclusive development VM.
 
-**Not ready for invocation:** a separately reviewed fixed outer observer/loader
-must still be supplied before any publication or start. It must seal/pin the
-ELF, unit, guard and root stage, reject existing evidence/unit/link/cgroup,
-check complete effective properties (typed empty arrays where necessary), and
-capture the existing full host baseline. It must issue only fixed
-`systemctl start --no-block` and bounded observations, never a synchronous
-unbounded Start wait. Unknown/nonzero/deadline stops all further queries and
-effects without signals, cleanup or retry. A fully verified native success,
+**Not ready for invocation:** the new `manager_private_guard.py` and
+`manager_private_stage.py` require complete root review and an explicitly
+transferred VM lease before publication or start. The create-only loader admits
+all four fixed artifacts into memory from stable original user-owned FDs before
+creating any root artifact. Its literal source directory has exactly those four
+members plus the loader; no caller path, argv, environment dispatch or generic
+privileged interface exists. Each root file is exclusive and synchronized.
+The loader pins the guard; the guard pins the unit, original #603 read-side
+query definitions and native ELF. This is an acyclic pin graph. The native ELF
+is the ordinary test build of `28bdba2ee398db2e3da75a8ab11a7465ba7beef8`, SHA-256
+`a3f224c7f9e0e288a2e93a64b428c65c4b03207388368cfc6e13572bc0cffa28`;
+rebuilding is not permission to substitute another artifact.
+
+The observer retains original root artifact FDs and a root evidence-directory
+FD. It refuses pre-existing evidence/unit/link/cgroup, synchronizes its full
+before-baseline before publication, and rejects unknown or missing effective
+properties. Exact typed Service properties cover empty additional Exec lists,
+EnvironmentFiles, SystemCallFilter, mount/view overlays, the sole read-only
+OpenFile anchor and no extra passed descriptors. Requires permits only the two
+order permutations of the exact sysinit.target/system.slice pair. Fixed scalar
+properties cover credentials, capabilities, environment, no joining paths,
+drop-ins or auxiliary dependencies, timeouts, kill/restart and standard I/O.
+The fixed ExecStart must still have never-started metadata. This is deliberately
+fail-closed on a manager version with an unfamiliar representation.
+
+The observer reuses the hash-pinned old #603 guard's **definitions only** for
+bounded owned subprocess waiting and the complete existing host/network/
+installed-state baseline. It never invokes that guard's original main or runner.
+It issues fixed `systemctl start --no-block`, then bounded coherent own-unit
+observations, never a synchronous unbounded Start wait.
+Unknown/nonzero/deadline seals this invocation permanently and stops all further
+queries and effects without signals, cleanup or retry. A verified native success,
 Closed/Retired records, absence, zero manager PIDs and exact unchanged own-unit
 identity are prerequisites to explicit known-success teardown. Only then may
 the observer compare its complete after-baseline and publish whole-run PASS.
@@ -79,5 +103,15 @@ safe namespace API, orphan recovery, package/runtime, physical NIC/DNS/boot
 gates in [KILL_SWITCH](../roadmap/KILL_SWITCH.md) remain open.
 
 Ordinary gates run pure credential/isolation rejection and launch-source
-boundary tests only. The ignored native test must never run on the primary PC,
+boundary tests only. They also execute the actual observer control flow with
+mocked external observations, asserting permanent refusal and no stop/after-query
+following baseline, launch, observation or evidence failure; they do not prove
+real manager behavior. Loader tests exercise actual ordinary UID1000 file FDs,
+wrong hashes/modes, symlinks and hard links without privileged staging.
+The ignored native test must never run on the primary PC,
 from cargo, or without the reviewed observer and explicit VM lease.
+
+Primary manager representation references: systemd v261
+[Service properties](https://github.com/systemd/systemd/blob/v261/src/core/dbus-service.c)
+and [execution properties](https://github.com/systemd/systemd/blob/v261/src/core/dbus-execute.c).
+No actual result for this new fixture is recorded here.
