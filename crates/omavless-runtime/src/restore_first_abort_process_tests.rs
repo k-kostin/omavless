@@ -313,6 +313,36 @@ struct FrozenElf {
     expected: String,
 }
 
+fn normalized_host_build_path(value: &std::ffi::OsStr) -> Option<PathBuf> {
+    let path = PathBuf::from(value);
+    let bytes = value.as_encoded_bytes();
+    if !path.is_absolute()
+        || bytes.len() > 4096
+        || bytes.contains(&0)
+        || bytes.windows(2).any(|pair| pair == b"//")
+        || bytes.ends_with(b"/")
+        || bytes
+            .split(|b| *b == b'/')
+            .any(|part| part == b"." || part == b"..")
+    {
+        return None;
+    }
+    Some(path)
+}
+
+#[test]
+fn original_host_build_path_is_lexical_not_a_fabricated_guest_directory() {
+    assert_eq!(
+        normalized_host_build_path("/host/private/cargo-build".as_ref()),
+        Some(PathBuf::from("/host/private/cargo-build"))
+    );
+    for path in [
+        "relative", "/a/../b", "/a/./b", "/a//b", "/a/", "/", "/a\0b",
+    ] {
+        assert!(normalized_host_build_path(path.as_ref()).is_none());
+    }
+}
+
 impl FrozenElf {
     fn capture() -> Self {
         let elf = fs::canonicalize(
@@ -324,9 +354,11 @@ impl FrozenElf {
             elf
         );
         assert!(!elf.components().any(|c| c.as_os_str() == "target"));
-        let build_target = fs::canonicalize(
-            std::env::var_os("OMAVLESS_ABORT_BUILD_TARGET")
-                .expect("explicit build target provenance"),
+        // Host's canonical build path is attested by the separately reviewed
+        // sealed-copy receipt, not a claim that a guest build directory exists.
+        let build_target = normalized_host_build_path(
+            &std::env::var_os("OMAVLESS_ABORT_BUILD_TARGET")
+                .expect("explicit original host build provenance"),
         )
         .unwrap();
         assert!(

@@ -33,7 +33,9 @@ exclusive private location outside Cargo's target tree. Record commit and SHA-25
 chmod 0500, and invoke only that frozen executable with the exact ignored matrix
 name. The harness and every child verify current executable path, ELF magic,
 read-only private mode, single link, bounded size, SHA-256 and exclusion from the declared
-build-target tree. Original O_NOFOLLOW descriptor and parent identity stay held;
+host build-target tree. The canonical host source path is recorded and validated
+on the build host; a copied guest receives only normalized lexical host provenance,
+not a claim that this build directory exists in the guest. Original O_NOFOLLOW descriptor and parent identity stay held;
 path/descriptor metadata are checked before and after the bounded streamed hash.
 A retained /proc/self/exe descriptor must match that same inode, including in
 each worker, rather than accepting a same-byte replacement as executed identity.
@@ -70,3 +72,31 @@ Child convenience supervision and writable/path-only ELF provenance were not
 adequate. Its process matrix was never executed. Those gate results do not
 authorize the fixture or erase this review NONPASS. Corrections require a new
 exact head, pure uncertainty/FD-substitution tests and repeated full gates.
+
+## Whole-invocation VM guard (not yet executed)
+
+`tests/first_abort_process/vm_guard.py` is developer-only, separately reviewed
+before a lease or invocation. A private schema-1 sealed-copy receipt binds full
+head, original host build/FD metadata, frozen host copy and guest ELF hash plus
+guard hash. The guest validates lexical host provenance separately from its real
+guest original descriptors; it never creates a dummy build directory. Staging
+and ELF descriptors/metadata/hashes are checked before and after, mode 0500.
+
+The guard reuses T3 #597's nine literal preservation checks: CANONICAL_EPOCH,
+PRIVATE_FILES (four hashes), USER_SERVICE, EXECUTABLE, NAMESPACE, CORE_INVENTORY,
+TUN_INVENTORY, RESOLVER and RESOLVCONF. It pins the approved active PID938 epoch,
+and snapshots full IPv4/IPv6 address/routes-all-tables/rules. The sole comparison
+exception is the precise approved address valid/preferred lifetime countdown.
+Fixed read-only root unit metadata also preserves omavless-dns-broker.service,
+systemd-resolved.service, omavless-k1-namespace-filter-fixture.service and
+omavless-k1-generator-filter-fixture.service; neither presence nor inactivity
+confers authority to change them. No activation traversal policy is imported.
+
+All guest inventory commands and the one matrix child use raw WNOWAIT/exact
+waitpid with permanent uncertainty quarantine and no hidden Popen reap. A
+nonzero matrix may represent unsettled descendants: stop without after-query,
+signals or cleanup, retain private evidence, and request separately authorized
+diagnosis. Only exact success may collect five bounded case receipts, verify
+no residual executed-ELF inode, compare the complete baseline and recheck staged
+objects. The guard is not automatically run by source gates; tests use only
+pure mocked process outcomes and local synthetic file substitutions.
