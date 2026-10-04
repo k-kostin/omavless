@@ -59,6 +59,26 @@ known OmaVLESS executable/argv0/comm identities refuse, including renamed,
 deleted or mixed-version daemons and daemons in another network namespace.
 Only the original exact recovery invocation may exempt itself. Local kernel
 Unix-listener observation supplements, never replaces, that process inventory.
+It matches only the exact retained caller socket path and the fixed
+`/run/user/UID/omavless/control.sock`; another UID's listener is not evidence of
+this user's ownership. Encoded spaces are preserved, not split or normalized;
+prefix/suffix matches are not treated as the same pathname. Cross-XDG and
+cross-network-namespace same-UID daemon detection remains the full proc inventory.
+
+The pre-scope-correction checkpoint `26e0372108752e947695a26b41c039241686b1eb`
+passed ordinary source (562 tests/two skips plus JS/QML), fmt/strict Clippy and
+full Rust (runtime 1180 passed/38 ignored; CLI 25 passed). This does not accept
+its overly broad other-UID listener refusal or supply VM/product acceptance.
+A separate actual cached-owner child regression exercises the corrected
+inventory path with both filesystem names removed: its frozen HOME-private ELF
+runs a real `RuntimeServer`, retains the old unlinked flock/listener, and the
+same original-proc-FD inventory reader returns `KnownOwner` for that exact child.
+The test changes only traversal order within the complete enumerated PID set,
+validated for equality/count; production order stays sorted. No process subset,
+fake proc tree or service-query response is used. This is positive identification
+and refusal of a live owner, not a complete absence proof. Uncertainty preserves
+the fixture without signals, reaps, retries or cleanup; only exact known child
+completion permits deletion of that test's synthetic root.
 
 Limits per observation are 4096 numeric PIDs, 64 KiB status/stat or query output,
 128 KiB command line, 4 MiB Unix table, 16 MiB aggregate proc/query bytes and a

@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 type Result<T> = std::result::Result<T, ()>;
+
+#[cfg(test)]
+#[path = "restore_abort_cached_owner_tests.rs"]
+mod cached_owner_tests;
 const MAX_PIDS: usize = 4096;
 const MAX_STATUS: usize = 64 * 1024;
 const MAX_COMMAND: usize = 128 * 1024;
@@ -541,11 +545,47 @@ fn proc_visibility(root: &File, myself: &Process, budget: &mut Budget) -> Result
     )
 }
 
-fn inventory(root: &File, uid: u32, myself: &Process, budget: &mut Budget) -> Result<()> {
+#[derive(Debug, PartialEq, Eq)]
+enum InventoryError {
+    Unknown,
+    KnownOwner(u32),
+}
+
+impl From<()> for InventoryError {
+    fn from(_: ()) -> Self {
+        Self::Unknown
+    }
+}
+
+fn inventory(
+    root: &File,
+    uid: u32,
+    myself: &Process,
+    budget: &mut Budget,
+) -> std::result::Result<(), InventoryError> {
     let before = pids(root, budget)?;
+    let order = before.iter().copied().collect();
+    inspect_inventory(root, uid, myself, budget, &before, order)
+}
+
+fn inspect_inventory(
+    root: &File,
+    uid: u32,
+    myself: &Process,
+    budget: &mut Budget,
+    before: &BTreeSet<u32>,
+    order: Vec<u32>,
+) -> std::result::Result<(), InventoryError> {
+    if before.is_empty()
+        || before.len() > MAX_PIDS
+        || order.len() != before.len()
+        || order.iter().copied().collect::<BTreeSet<_>>() != *before
+    {
+        return Err(InventoryError::Unknown);
+    }
     let mut retained = Vec::new();
     let mut classified = Vec::new();
-    for pid in &before {
+    for pid in &order {
         let directory = directory(root, &pid.to_string())?;
         let initial = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, *pid)?;
         let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, *pid)?;
@@ -553,7 +593,7 @@ fn inventory(root: &File, uid: u32, myself: &Process, budget: &mut Budget) -> Re
         if initial.uids.contains(&uid) {
             let process = Process::capture(root, *pid, budget)?;
             if process.status != initial {
-                return Err(());
+                return Err(InventoryError::Unknown);
             }
             if *pid == myself.pid {
                 myself.recheck(root, budget)?;
@@ -563,21 +603,21 @@ fn inventory(root: &File, uid: u32, myself: &Process, budget: &mut Budget) -> Re
                         &myself.executable_identity,
                     )
                 {
-                    return Err(());
+                    return Err(InventoryError::Unknown);
                 }
             } else if daemon_candidate(&process.command, &process.executable_name, &process.comm)? {
-                return Err(());
+                return Err(InventoryError::KnownOwner(*pid));
             }
             retained.push(process);
         }
         // Do not silently classify a changing real/effective/saved/fs UID.
         if status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, *pid)? != initial {
-            return Err(());
+            return Err(InventoryError::Unknown);
         }
         classified.push((*pid, directory, metadata, initial, start));
     }
-    if pids(root, budget)? != before {
-        return Err(());
+    if pids(root, budget)? != *before {
+        return Err(InventoryError::Unknown);
     }
     for process in retained {
         process.recheck(root, budget)?;
@@ -589,13 +629,13 @@ fn inventory(root: &File, uid: u32, myself: &Process, budget: &mut Budget) -> Re
             || status(&proc_bytes(&current, "status", MAX_STATUS, budget)?, pid)? != initial
             || start_time(&proc_bytes(&current, "stat", MAX_STATUS, budget)?, pid)? != start
         {
-            return Err(());
+            return Err(InventoryError::Unknown);
         }
     }
-    if pids(root, budget)? != before {
-        return Err(());
+    if pids(root, budget)? != *before {
+        return Err(InventoryError::Unknown);
     }
-    budget.check()
+    budget.check().map_err(Into::into)
 }
 
 fn service_record(bytes: &[u8], manager: bool) -> Result<u32> {
@@ -739,16 +779,50 @@ fn query(uid: u32, unit: &str, system: bool, budget: &mut Budget) -> Result<Zero
     }
 }
 
-fn no_listener(bytes: &[u8]) -> Result<()> {
-    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
-    let mut lines = text.lines();
-    if lines.next() != Some("Num       RefCount Protocol Flags    Type St Inode Path") {
+fn listener_paths(uid: u32, socket: &Path) -> Result<[String; 2]> {
+    let socket = socket.to_str().ok_or(())?;
+    if socket.len() > 4096
+        || !Path::new(socket).is_absolute()
+        || !socket.ends_with("/omavless/control.sock")
+        || socket.bytes().any(|b| b.is_ascii_control())
+    {
+        return Err(());
+    }
+    Ok([
+        socket.to_owned(),
+        format!("/run/user/{uid}/omavless/control.sock"),
+    ])
+}
+
+fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
+    std::str::from_utf8(bytes).map_err(|_| ())?;
+    let body = bytes.strip_suffix(b"\n").ok_or(())?;
+    let mut lines = body.split(|b| *b == b'\n');
+    if lines.next() != Some(b"Num       RefCount Protocol Flags    Type St Inode Path".as_slice()) {
         return Err(());
     }
     for line in lines {
-        let fields: Vec<_> = line.split_ascii_whitespace().collect();
-        if fields.len() < 7
-            || !fields[0].ends_with(':')
+        let mut cursor = 0;
+        let mut fields = Vec::new();
+        for index in 0..7 {
+            let start = cursor;
+            while cursor < line.len() && line[cursor] != b' ' {
+                cursor += 1;
+            }
+            if start == cursor {
+                return Err(());
+            }
+            fields.push(std::str::from_utf8(&line[start..cursor]).map_err(|_| ())?);
+            if index < 6 {
+                if line.get(cursor) != Some(&b' ') {
+                    return Err(());
+                }
+                cursor += 1;
+            }
+        }
+        if fields[0]
+            .strip_suffix(':')
+            .is_none_or(|n| n.is_empty() || u64::from_str_radix(n, 16).is_err())
             || fields[1..6]
                 .iter()
                 .any(|field| u64::from_str_radix(field, 16).is_err())
@@ -756,10 +830,16 @@ fn no_listener(bytes: &[u8]) -> Result<()> {
         {
             return Err(());
         }
-        // Refuse any ambiguous split of a canonical path, not just a currently
-        // reachable filesystem name. Removed listening sockets remain visible.
-        if line.contains("/omavless/control.sock") {
-            return Err(());
+        if cursor < line.len() {
+            // Only the one kernel separator is removed. Spaces inside or after
+            // a pathname are data; never normalize a foreign listener into ours.
+            if line[cursor] != b' ' {
+                return Err(());
+            }
+            let pathname = &line[cursor + 1..];
+            if own.iter().any(|name| pathname == name.as_bytes()) {
+                return Err(());
+            }
         }
     }
     Ok(())
@@ -773,11 +853,13 @@ pub(super) struct StoppedOwner {
     manager: Process,
     manager_executable: TrustedExecutable,
     namespaces: Vec<(&'static str, File, Metadata)>,
+    listeners: [String; 2],
     refused: Cell<bool>,
 }
 
 impl StoppedOwner {
-    pub(super) fn capture(uid: u32) -> Result<Self> {
+    pub(super) fn capture(uid: u32, socket: &Path) -> Result<Self> {
+        let listeners = listener_paths(uid, socket)?;
         let root = File::from(
             open(
                 Path::new("/proc"),
@@ -825,6 +907,7 @@ impl StoppedOwner {
             manager,
             manager_executable,
             namespaces,
+            listeners,
             refused: Cell::new(false),
         };
         if !observer.recheck() {
@@ -885,9 +968,12 @@ impl StoppedOwner {
         for unit in ["omavless.service", "omavless-runtime.service"] {
             service_record(&query(self.uid, unit, false, &mut budget)?, false)?;
         }
-        inventory(&self.root, self.uid, &self.myself, &mut budget)?;
+        inventory(&self.root, self.uid, &self.myself, &mut budget).map_err(|_| ())?;
         let net = directory(&self.myself.directory, "net")?;
-        no_listener(&proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?)?;
+        no_listener(
+            &proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?,
+            &self.listeners,
+        )?;
         self.manager.recheck(&self.root, &mut budget)?;
         self.myself.recheck(&self.root, &mut budget)?;
         self.namespace_boundary()?;
@@ -1138,17 +1224,70 @@ mod tests {
     #[test]
     fn kernel_listener_includes_unlinked_path_and_refuses_ambiguous_table() {
         const HEADER: &str = "Num       RefCount Protocol Flags    Type St Inode Path\n";
+        let own = listener_paths(1001, Path::new("/removed/omavless/control.sock")).unwrap();
         assert!(
             no_listener(
                 format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /unrelated/socket\n")
-                    .as_bytes()
+                    .as_bytes(),
+                &own
             )
             .is_ok()
         );
         // There is deliberately no pathname-existence check.
-        assert!(no_listener(format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /removed/omavless/control.sock\n").as_bytes()).is_err());
-        assert!(no_listener(b"malformed\n").is_err());
-        assert!(no_listener(format!("{HEADER}missing fields\n").as_bytes()).is_err());
+        assert!(no_listener(format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /removed/omavless/control.sock\n").as_bytes(), &own).is_err());
+        assert!(no_listener(b"malformed\n", &own).is_err());
+        assert!(no_listener(format!("{HEADER}missing fields\n").as_bytes(), &own).is_err());
+    }
+
+    #[test]
+    fn listener_scope_preserves_exact_encoded_paths_and_other_uids() {
+        use std::os::unix::ffi::OsStrExt;
+        const HEADER: &str = "Num       RefCount Protocol Flags    Type St Inode Path\n";
+        let own = listener_paths(1001, Path::new("/private path/omavless/control.sock")).unwrap();
+        for name in [&own[0], &own[1]] {
+            let row = format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 {name}\n");
+            assert!(no_listener(row.as_bytes(), &own).is_err());
+        }
+        for name in [
+            "/run/user/1000/omavless/control.sock",
+            "/run/user/10010/omavless/control.sock",
+            "/run/user/1001/omavless/control.sock.extra",
+            "/prefix/run/user/1001/omavless/control.sock",
+            "/run/user/1001/omavless/control.sock ",
+            "/different /private path/omavless/control.sock",
+            "/private  path/omavless/control.sock",
+            "/private\tpath/omavless/control.sock",
+        ] {
+            let row = format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 {name}\n");
+            assert!(no_listener(row.as_bytes(), &own).is_ok());
+        }
+        for invalid in [
+            "relative/omavless/control.sock",
+            "/private\npath/omavless/control.sock",
+            "/private/omavless/control.sock ",
+            "/private/other.sock",
+        ] {
+            assert!(listener_paths(1001, Path::new(invalid)).is_err());
+        }
+        let oversized = format!("/{} /omavless/control.sock", "x".repeat(4096));
+        assert!(listener_paths(1001, Path::new(&oversized)).is_err());
+        assert!(
+            listener_paths(
+                1001,
+                Path::new(std::ffi::OsStr::from_bytes(
+                    b"/invalid\xff/omavless/control.sock"
+                ))
+            )
+            .is_err()
+        );
+        assert!(
+            no_listener(
+                format!("{HEADER}0000:  00000002 00000000 00010000 0001 01 42 /unrelated\n")
+                    .as_bytes(),
+                &own
+            )
+            .is_err()
+        );
     }
 
     #[test]

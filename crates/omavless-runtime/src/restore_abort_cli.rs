@@ -184,7 +184,7 @@ pub fn abort_from_private_input(input: impl Read) -> Result<(), Error> {
     }
     let paths = RuntimePaths::current().map_err(|_| Error::RuntimeNotStoppedOrUnsafe)?;
     let stopped = StoppedRuntime::acquire(paths, uid.as_raw())?;
-    let owner = stopped_owner::StoppedOwner::capture(uid.as_raw())
+    let owner = stopped_owner::StoppedOwner::capture(uid.as_raw(), &stopped.paths.socket)
         .map_err(|_| Error::RuntimeNotStoppedOrUnsafe)?;
     let admitted = || stopped.recheck() && owner.recheck() && stopped.recheck();
     crate::production_owner::abort_first_restore_current(
