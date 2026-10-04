@@ -27,6 +27,10 @@ mod manager_version_reference_fixture;
 mod manager_configured_dump;
 #[cfg(all(test, target_os = "linux"))]
 mod manager_configured_reference_fixture;
+#[cfg(test)]
+mod manager_retained_dump;
+#[cfg(test)]
+mod manager_retained_reference_fixture;
 pub mod nft;
 #[allow(dead_code)] // Inactive local package-group identity candidate.
 mod package_group_candidate;
