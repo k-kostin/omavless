@@ -139,7 +139,7 @@ class Controller:
             self.directory_identity = identity(self.io(deadline, os.fstat, self.directory))
             self.socket_identity = identity(self.io(deadline, os.fstat, self.socket))
             self.sealed = False
-            self.check()
+            self.check(deadline=deadline)
             remaining(deadline)
         except BaseException:
             self.sealed = owner.sealed = True
@@ -151,42 +151,46 @@ class Controller:
         remaining(deadline)
         return value
 
-    def check(self, stream=None):
+    def check(self, stream=None, *, deadline=None):
         try:
-            self._check(stream)
+            self._check(stream, self.deadline if deadline is None else min(deadline, self.deadline))
         except BaseException:
             self.sealed = self.owner.sealed = True
             raise Refused() from None
 
-    def _check(self, stream=None):
+    def _check(self, stream, deadline):
         require(not self.sealed)
-        self.io(self.deadline, self.owner.available)
-        self.io(self.deadline, self.owner.live, self.core)
-        directory = self.io(self.deadline, os.fstat, self.directory)
-        controller = self.io(self.deadline, os.fstat, self.socket)
+        self.io(deadline, self.owner.available)
+        self.io(deadline, self.owner.live, self.core)
+        directory = self.io(deadline, os.fstat, self.directory)
+        controller = self.io(deadline, os.fstat, self.socket)
         require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == directory.st_gid == 1000
                 and stat.S_IMODE(directory.st_mode) == 0o700
                 and identity(directory) == self.directory_identity
-                == identity(self.io(self.deadline, os.stat, DIRECTORY, follow_symlinks=False)))
+                == identity(self.io(deadline, os.stat, DIRECTORY, follow_symlinks=False)))
         require(stat.S_ISSOCK(controller.st_mode) and controller.st_uid == controller.st_gid == 1000
                 and stat.S_IMODE(controller.st_mode) == 0o600 and controller.st_nlink == 1
                 and identity(controller) == self.socket_identity
-                == identity(self.io(self.deadline, os.stat, 'controller.sock', dir_fd=self.directory, follow_symlinks=False))
-                == identity(self.io(self.deadline, os.stat, SOCKET, follow_symlinks=False)))
+                == identity(self.io(deadline, os.stat, 'controller.sock', dir_fd=self.directory, follow_symlinks=False))
+                == identity(self.io(deadline, os.stat, SOCKET, follow_symlinks=False)))
         require(self.owner.anchors.get('core', {}).get('child') is self.core)
         if stream is not None:
-            raw = self.io(self.deadline, stream.getsockopt, socket.SOL_SOCKET,
+            raw = self.io(deadline, stream.getsockopt, socket.SOL_SOCKET,
                           socket.SO_PEERCRED, struct.calcsize('3i'))
             pid, uid, gid = struct.unpack('3i', raw)
             require(pid == self.core.pid and uid == gid == 1000)
-        self.io(self.deadline, self.owner.live, self.core)
+        self.io(deadline, self.owner.live, self.core)
 
     def exchange(self, kind, selected=None, wrong_token=False):
         """Fixed semantic reads or developer-selected conditional-close witness."""
         try:
             require(kind in ('capabilities', 'snapshot', 'conditional_close')
                     and type(wrong_token) is bool)
-            self.check()
+            start = time.monotonic()
+            require(type(start) is float and math.isfinite(start))
+            deadline = min(start + 3.0, self.deadline)
+            remaining(deadline)
+            self.check(deadline=deadline)
             if kind == 'conditional_close':
                 require(type(selected) is Target and selected._session is self._identity
                         and selected._core is self.core and ID.fullmatch(selected._id)
@@ -199,21 +203,18 @@ class Controller:
                 require(selected is None and wrong_token is False)
                 path = '/connections/conditional-capabilities' if kind == 'capabilities' else '/connections'
                 request = f'GET {path} HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode('ascii')
-            start = time.monotonic()
-            require(type(start) is float and math.isfinite(start))
-            deadline = min(start + 3.0, self.deadline)
             remaining(deadline)
             stream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.streams.append(stream)  # Retain on any unknown; no failure close.
             remaining(deadline)
             stream.settimeout(remaining(deadline))
-            self.check()
+            self.check(deadline=deadline)
             remaining(deadline)
             stream.connect(SOCKET)
             remaining(deadline)
-            self.check(stream)
+            self.check(stream, deadline=deadline)
             stream.settimeout(remaining(deadline))
-            self.check(stream)  # Exact peer, retained socket/core/session before EVERY write.
+            self.check(stream, deadline=deadline)  # Exact peer/core/session before EVERY write.
             remaining(deadline)
             # One write attempt; short sends are unknown, never continuation/resend.
             sent = stream.send(request)
@@ -230,7 +231,7 @@ class Controller:
                 if not chunk:
                     break
                 raw += chunk
-            self.check(stream)
+            self.check(stream, deadline=deadline)
             remaining(deadline)
             result = parse_http(raw)
             remaining(deadline)

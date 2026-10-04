@@ -22,13 +22,29 @@ same private selection, not a caller-supplied ID/header. Exact empty 204/404/409
 receipts distinguish closed/missing/changed. Partial writes or lost/malformed
 replies are terminal unknown, never resent or inferred from later absence.
 Each request has three seconds within the fixed 40-second controller lifetime;
+the local deadline is threaded through every ownership/peer/filesystem check,
+including constructor checks, rather than allowing a later read-only continuation.
 this is pre/post sampled checking, not syscall hard cancellation or concurrent
 reload serialization. All first unknowns seal the controller and retained owner,
 preserving originals and unknown streams; no failure cleanup occurs.
 
-The actual positive launcher/retained multi-role session, artifact admission,
-original-to-copy-to-loaded identity graph, fresh scoped quiescence and canonical
-wrapper are NOT yet implemented here. The existing real-resolved legacy
+The developer multi-role retained Session now tracks five inner roles and every
+utility, or one outer namespace child. Its nonreaping observations require exact
+integer PID/CLD_EXITED/zero status; one raw waitpid must return exact PID and
+normal zero. An independent retained ledger, not a bare returncode field, must
+cover every child before completion. All five inner role anchors must finish
+zero-reaped, with core -> broker -> host -> resolved -> bus ordering. Mapping
+checks must precede the single positive SIGTERM to each signal-eligible role;
+host completion uses observed zero only, never a cancellation signal. Late or
+unknown wait/reap permanently refuses all further queries, effects and cases.
+The explicit receipt scopes fresh direct children and makes no global shared
+argv/UID absence claim. Before chroot, fixed bootstrap tempfiles require the new
+stage scratch TMPDIR; only the successful private FD-inventory boundary switches
+to private /tmp. The session is developer-only, not a normal owner authority.
+
+The actual positive launcher, artifact admission, original-to-copy-to-loaded
+identity graph, fresh scoped quiescence and canonical wrapper are NOT yet
+implemented here. The existing real-resolved legacy
 exercise/group-cleanup path is not adopted or invoked. New fresh owned-child
 ledger proof must replace global shared argv/UID absence checks without
 silently dropping ownership constraints. Owner-loss and quarantine cases are
@@ -44,4 +60,7 @@ fixture after FULL parent/independent graph review and sealed full gates.
 
 Run `python3 -I -B tests/retained_positive_composition/test_controller.py -v`
 only for inert pure and mocked ownership controls; no actual socket/core/process
-or namespace is created. Full source/native results belong to exact later heads.
+or namespace is created. The sibling `test_lifecycle.py` also runs inert only.
+The actual launcher must supply the concrete pinned Session and its own
+OwnedProcess core, not merely duck-typed/mock anchors used by these controls.
+Full source/native results belong to exact later heads.

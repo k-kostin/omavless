@@ -113,7 +113,7 @@ class Controls(unittest.TestCase):
 
     def test_every_single_write_immediately_rechecks_exact_owner_and_peer(self):
         value,_,_=controller();peer=stream();events=[]
-        value.check=Mock(side_effect=lambda current=None:events.append(('check',current)))
+        value.check=Mock(side_effect=lambda current=None,**kw:events.append(('check',current)))
         def send(raw):
             self.assertEqual(events[-1],('check',peer));events.append(('send',None));return len(raw)
         peer.send.side_effect=send
@@ -158,6 +158,19 @@ class Controls(unittest.TestCase):
                 with self.assertRaises(c.Refused):value.exchange('snapshot')
                 opened.assert_not_called()
             self.assertTrue(value.sealed and value.owner.sealed)
+
+    def test_local_request_deadline_stops_inside_readonly_check_before_next_io(self):
+        value,directory,sock=controller();clock=[0.0]
+        def late(fd):
+            clock[0]=3.0
+            return directory
+        with patch.object(c.time,'monotonic',side_effect=lambda:clock[0]), \
+             patch.object(c.os,'fstat',side_effect=late) as meta,patch.object(c.os,'stat') as named, \
+             patch.object(c.socket,'socket') as created:
+            with self.assertRaises(c.Refused):value.exchange('snapshot')
+            self.assertEqual(meta.call_count,1)
+            named.assert_not_called();created.assert_not_called()
+        self.assertTrue(value.sealed and value.owner.sealed)
 
     def test_cross_session_same_numeric_core_refuses_before_readiness(self):
         value,_,_=controller();other,_,_=controller();other.core=value.core
