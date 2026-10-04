@@ -10,6 +10,11 @@ The native helper and normal CLI are from
 Its receipt binds both source identities, all six Python sources and both
 original/frozen host ELF metadata records and hashes. Guest copies have their
 own identities, never forged host build identities.
+The existing normal host Cargo CLI has exactly two links: its normal path and
+the retained exact `debug/deps/omavless-d33dc6fb2bf25c86` alias. Both original
+descriptors, complete metadata and hashes are checked before/after freezing.
+That host-only alias receipt is provenance, not guest admission. The helper
+host original, all frozen copies and every guest executable remain single-link.
 
 ## Finite startup admission
 

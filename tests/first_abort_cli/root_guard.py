@@ -71,6 +71,36 @@ def available():
     require(time.monotonic() < DEADLINE and (core is None or not core.UNCERTAIN))
 
 
+def await_allowed(child, seconds, allowed):
+    """First disallowed WNOWAIT result seals before any reap or other query."""
+    available()
+    require(allowed in ((0,), (2,), (0, 1)))
+    deadline = min(DEADLINE, time.monotonic() + seconds)
+    try:
+        if child.returncode is not None:
+            core.quarantine(child)
+        while time.monotonic() < deadline:
+            seen = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            if seen is None:
+                time.sleep(0.02)
+                continue
+            if not (type(seen.si_pid) is int and seen.si_pid == child.pid
+                    and type(seen.si_code) is int and seen.si_code == os.CLD_EXITED
+                    and type(seen.si_status) is int and seen.si_status in allowed):
+                core.quarantine(child)
+            pid, status = os.waitpid(child.pid, os.WNOHANG)
+            if not (type(pid) is int and type(status) is int and pid == child.pid
+                    and os.WIFEXITED(status) and os.WEXITSTATUS(status) == seen.si_status):
+                core.quarantine(child)
+            child.returncode = seen.si_status
+            return seen.si_status
+        core.quarantine(child)
+    except BaseException:
+        if not core.UNCERTAIN:
+            core.quarantine(child)
+        raise
+
+
 def pairs(items):
     out = {}
     for k, v in items:
@@ -177,8 +207,8 @@ def receipt(data):
     for name, digest in value['code'].items():
         require(type(digest) is str and re.fullmatch('[0-9a-f]{64}', digest)
                 and (name not in PINNED or digest == PINNED[name]))
-    for row in value['elfs'].values():
-        require(type(row) is dict and set(row) == {'sha256', 'size', 'host_original', 'host_frozen'})
+    for name, row in value['elfs'].items():
+        require(type(row) is dict and set(row) == {'sha256', 'size', 'host_original', 'host_frozen', 'host_alias'})
         require(type(row['sha256']) is str and re.fullmatch('[0-9a-f]{64}', row['sha256'])
                 and type(row['size']) is int and 0 < row['size'] <= ELF_LIMIT)
         for key in ('host_original', 'host_frozen'):
@@ -186,7 +216,18 @@ def receipt(data):
             require(type(meta) is list and len(meta) == 9
                     and all(type(n) is int and 0 <= n < 2**64 for n in meta)
                     and stat.S_ISREG(meta[2]) and stat.S_IMODE(meta[2]) == (0o755 if key == 'host_original' else 0o500)
-                    and meta[3] == meta[4] == 1000 and meta[5] == 1 and meta[6] == row['size'])
+                    and meta[3] == meta[4] == 1000
+                    and meta[5] == (2 if key == 'host_original' and name == 'omavless' else 1)
+                    and meta[6] == row['size'])
+        alias = row['host_alias']
+        if name == 'helper':
+            require(alias is None)
+        else:
+            require(type(alias) is dict and set(alias) == {'relative_path', 'identity', 'sha256'}
+                    and alias['relative_path'] == 'debug/deps/omavless-d33dc6fb2bf25c86'
+                    and type(alias['identity']) is list and len(alias['identity']) == 9
+                    and all(type(n) is int for n in alias['identity'])
+                    and alias['identity'] == row['host_original'] and alias['sha256'] == row['sha256'])
     return value
 
 
@@ -215,7 +256,7 @@ class Guard:
             user=uid, group=uid, extra_groups=(), umask=0o077, close_fds=True,
             env=env if env is not None else dict(ROOT_ENV if uid == 0 else PRIMARY_ENV if uid == 1000 else ENV),
             stdin=stdin, stdout=out, stderr=err)
-        code = core.await_exact(child, min(seconds, max(0, DEADLINE - time.monotonic())))
+        code = await_allowed(child, min(seconds, max(0, DEADLINE - time.monotonic())), allowed)
         require(type(code) is int and code in allowed)  # No observation after failure/unknown.
         available()
         require(os.fstat(out).st_size <= LIMIT and os.fstat(err).st_size <= LIMIT)

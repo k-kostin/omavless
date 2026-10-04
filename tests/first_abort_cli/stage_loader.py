@@ -124,14 +124,24 @@ def deliver(expected):
         pins[name] = admit(parent, name, 0o500, 8 * 1024 * 1024, sha)
     for name in ELFS:
         row = value['elfs'][name]
-        need(type(row) is dict and set(row) == {'sha256', 'size', 'host_original', 'host_frozen'}
+        need(type(row) is dict and set(row) == {'sha256', 'size', 'host_original', 'host_frozen', 'host_alias'}
              and type(row['sha256']) is str and re.fullmatch('[0-9a-f]{64}', row['sha256'])
              and type(row['size']) is int and 0 < row['size'] <= 512 * 1024 * 1024)
         for key, mode in (('host_original', 0o755), ('host_frozen', 0o500)):
             m = row[key]
             need(type(m) is list and len(m) == 9 and all(type(v) is int and 0 <= v < 2**64 for v in m)
                  and stat.S_ISREG(m[2]) and stat.S_IMODE(m[2]) == mode
-                 and m[3] == m[4] == 1000 and m[5] == 1 and m[6] == row['size'])
+                 and m[3] == m[4] == 1000 and m[5] == (2 if key == 'host_original' and name == 'omavless' else 1)
+                 and m[6] == row['size'])
+        alias = row['host_alias']
+        if name == 'helper':
+            need(alias is None)
+        else:
+            need(type(alias) is dict and set(alias) == {'relative_path', 'identity', 'sha256'}
+                 and alias['relative_path'] == 'debug/deps/omavless-d33dc6fb2bf25c86'
+                 and type(alias['identity']) is list and len(alias['identity']) == 9
+                 and all(type(n) is int for n in alias['identity'])
+                 and alias['identity'] == row['host_original'] and alias['sha256'] == row['sha256'])
         pins[name] = admit(parent, name, 0o500, 512 * 1024 * 1024, row['sha256'])
         need(pins[name][1].st_size == row['size'] and os.pread(pins[name][0], 4, 0) == b'\x7fELF')
     # No publication until every original source FD and all metadata are admitted.

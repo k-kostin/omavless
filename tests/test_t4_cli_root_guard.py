@@ -75,15 +75,15 @@ class GuardTests(unittest.TestCase):
             obj.count = 0
             obj.evidence.create.return_value = 10
             self.core.spawn = Mock(return_value=object())
-            self.core.await_exact = Mock(side_effect=status if isinstance(status, Exception) else None,
-                                         return_value=status)
-            with patch.object(guard.os, 'fstat') as metadata, patch.object(guard.os, 'pread') as read:
+            with patch.object(guard, 'await_allowed', side_effect=status if isinstance(status, Exception) else None,
+                              return_value=status) as awaited, \
+                 patch.object(guard.os, 'fstat') as metadata, patch.object(guard.os, 'pread') as read:
                 with self.assertRaises((guard.Refused, OSError)):
                     guard.Guard.run_child(obj, ['/fixed'], 0, 'pure')
                 metadata.assert_not_called()
                 read.assert_not_called()
             self.core.spawn.assert_called_once()
-            self.core.await_exact.assert_called_once()
+            awaited.assert_called_once()
         self.core.UNCERTAIN = True
         obj = self.fixture()
         with self.assertRaises(guard.Refused):
@@ -101,6 +101,46 @@ class GuardTests(unittest.TestCase):
         with self.assertRaises(guard.Refused):
             guard.fields(b'MainPID=1\nMainPID=2\n', ('MainPID',))
 
+    def test_raw_disallowed_signal_malformed_timeout_and_unknown_never_reap(self):
+        def quarantine(child):
+            self.core.UNCERTAIN = True
+            raise guard.Refused()
+        self.core.quarantine = quarantine
+        for first in (SimpleNamespace(si_pid=123, si_code=os.CLD_EXITED, si_status=1),
+                      SimpleNamespace(si_pid=123, si_code=os.CLD_KILLED, si_status=9),
+                      SimpleNamespace(si_pid=123, si_code=os.CLD_DUMPED, si_status=11),
+                      SimpleNamespace(si_pid=124, si_code=os.CLD_EXITED, si_status=0),
+                      SimpleNamespace(si_pid=123, si_code=os.CLD_EXITED, si_status=False),
+                      OSError('ECHILD'), KeyboardInterrupt()):
+            self.core.UNCERTAIN = False
+            child = SimpleNamespace(pid=123, returncode=None)
+            with patch.object(guard.os, 'waitid', side_effect=first if isinstance(first, BaseException) else None,
+                              return_value=first) as observe, patch.object(guard.os, 'waitpid') as reap:
+                with self.assertRaises(guard.Refused):
+                    guard.await_allowed(child, 1, (0,))
+                with self.assertRaises(guard.Refused):
+                    guard.await_allowed(child, 1, (0,))
+                observe.assert_called_once()
+                reap.assert_not_called()
+                self.assertIsNone(child.returncode)
+        self.core.UNCERTAIN = False
+        with patch.object(guard.os, 'waitid') as observe, patch.object(guard.os, 'waitpid') as reap:
+            with self.assertRaises(guard.Refused):
+                guard.await_allowed(SimpleNamespace(pid=123, returncode=None), 0, (0,))
+            observe.assert_not_called()
+            reap.assert_not_called()
+
+    def test_raw_only_expected_zero_or_readonly_absence_gets_matching_reap(self):
+        for code, allowed in ((0, (0,)), (2, (2,)), (1, (0, 1))):
+            child = SimpleNamespace(pid=123, returncode=None)
+            seen = SimpleNamespace(si_pid=123, si_code=os.CLD_EXITED, si_status=code)
+            with patch.object(guard.os, 'waitid', return_value=seen) as observe, \
+                 patch.object(guard.os, 'waitpid', return_value=(123, code << 8)) as reap:
+                self.assertEqual(guard.await_allowed(child, 1, allowed), code)
+                self.assertEqual(child.returncode, code)
+                observe.assert_called_once_with(os.P_PID, 123, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                reap.assert_called_once_with(123, os.WNOHANG)
+
 
 class LoaderTests(unittest.TestCase):
     def test_real_files_all_admitted_before_publication_mode_hash_and_inode(self):
@@ -116,6 +156,12 @@ class LoaderTests(unittest.TestCase):
                          'host_original': [1, 2, 0o100755, 1000, 1000, 1, len(data[name]), 1, 1],
                          'host_frozen': [1, 3, 0o100500, 1000, 1000, 1, len(data[name]), 1, 1]}
                          for name in loader.ELFS}}
+            for name, row in value['elfs'].items():
+                row['host_alias'] = None
+                if name == 'omavless':
+                    row['host_original'][5] = 2
+                    row['host_alias'] = {'relative_path': 'debug/deps/omavless-d33dc6fb2bf25c86',
+                                         'identity': list(row['host_original']), 'sha256': row['sha256']}
             data['receipt.json'] = json.dumps(value).encode()
             receipt_sha = hashlib.sha256(data['receipt.json']).hexdigest()
             directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
