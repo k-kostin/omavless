@@ -22,9 +22,87 @@ def load(name):
 
 guard = load('private_admission_guard')
 stage = load('private_admission_stage')
+query = load('private_admission_guest_guard')
 
 
 class Flow(unittest.TestCase):
+    def test_waitable_nonzero_signal_malformed_and_unknown_never_reap_or_query_again(self):
+        observations = [
+            SimpleNamespace(si_pid=913, si_code=os.CLD_EXITED, si_status=7),
+            SimpleNamespace(si_pid=913, si_code=os.CLD_KILLED, si_status=9),
+            SimpleNamespace(si_pid=913, si_code=os.CLD_DUMPED, si_status=11),
+            SimpleNamespace(si_pid=914, si_code=os.CLD_EXITED, si_status=0),
+            SimpleNamespace(si_pid=913, si_code=True, si_status=0),
+            SimpleNamespace(si_pid=913, si_code=os.CLD_EXITED, si_status=False),
+            SimpleNamespace(si_pid=913, si_code=os.CLD_EXITED),
+            ChildProcessError(), OSError(),
+        ]
+        for seen in observations:
+            child = SimpleNamespace(pid=913, returncode=None)
+            with patch.object(query, 'UNCERTAIN', False), patch.object(query, 'RETAINED', []), \
+                 patch.object(query.os, 'waitid', side_effect=seen if isinstance(seen, BaseException) else None,
+                              return_value=seen) as waitid, \
+                 patch.object(query.os, 'waitpid') as reap, \
+                 patch.object(query, 'OwnedProcess') as spawn, \
+                 patch.object(query.tempfile, 'TemporaryFile') as output:
+                with self.assertRaises(query.Refused):
+                    query.await_child(child, seconds=1)
+                self.assertTrue(query.UNCERTAIN)
+                self.assertEqual(query.RETAINED, [child])
+                self.assertIsNone(child.returncode)
+                for action in (lambda: query.await_child(child, 1),
+                               lambda: query.await_child_once(child, 1),
+                               lambda: query.command(['/usr/bin/true']),
+                               lambda: query.spawn(['/usr/bin/true'])):
+                    with self.assertRaises(query.Refused):
+                        action()
+                waitid.assert_called_once()
+                reap.assert_not_called(); spawn.assert_not_called(); output.assert_not_called()
+
+    def test_only_typed_waitable_zero_allows_one_exact_zero_reap(self):
+        for result in [(913, 0), (913, False), (913, 7), (0, 0), None]:
+            child = SimpleNamespace(pid=913, returncode=None)
+            seen = SimpleNamespace(si_pid=913, si_code=os.CLD_EXITED, si_status=0)
+            with patch.object(query, 'UNCERTAIN', False), patch.object(query, 'RETAINED', []), \
+                 patch.object(query.os, 'waitid', return_value=seen), \
+                 patch.object(query.os, 'waitpid', return_value=result) as reap:
+                if result == (913, 0) and type(result[1]) is int:
+                    self.assertEqual(query.await_child(child, 1), 0)
+                    self.assertFalse(query.UNCERTAIN)
+                    self.assertEqual(child.returncode, 0)
+                else:
+                    with self.assertRaises(query.Refused):
+                        query.await_child(child, 1)
+                    self.assertTrue(query.UNCERTAIN)
+                reap.assert_called_once_with(913, os.WNOHANG)
+
+    def test_wait_deadline_preserves_child_without_reap(self):
+        for clock in ([0, 2], [0, 0, 2]):
+            child = SimpleNamespace(pid=913, returncode=None)
+            with patch.object(query, 'UNCERTAIN', False), patch.object(query, 'RETAINED', []), \
+                 patch.object(query.time, 'monotonic', side_effect=clock), patch.object(query.time, 'sleep'), \
+                 patch.object(query.os, 'waitid', return_value=None) as waitid, \
+                 patch.object(query.os, 'waitpid') as reap:
+                with self.assertRaises(query.Refused):
+                    query.await_child(child, 1)
+                self.assertTrue(query.UNCERTAIN)
+                self.assertEqual(waitid.call_count, len(clock) - 2)
+                reap.assert_not_called()
+
+    def test_actual_command_nonzero_never_reads_output_or_reaps(self):
+        child = SimpleNamespace(pid=913, returncode=None)
+        seen = SimpleNamespace(si_pid=913, si_code=os.CLD_EXITED, si_status=7)
+        with patch.object(query, 'UNCERTAIN', False), patch.object(query, 'RETAINED', []), \
+             patch.object(query, 'OwnedProcess', return_value=child), \
+             patch.object(query.tempfile, 'TemporaryFile') as files, \
+             patch.object(query.os, 'waitid', return_value=seen), patch.object(query.os, 'waitpid') as reap:
+            with self.assertRaises(query.Refused):
+                query.command(['/usr/bin/true'])
+            self.assertTrue(query.UNCERTAIN)
+            output = files.return_value.__enter__.return_value
+            output.tell.assert_not_called(); output.seek.assert_not_called(); output.read.assert_not_called()
+            reap.assert_not_called()
+
     def test_loader_real_retained_fd_refuses_hash_mode_bounds_and_aliases(self):
         if os.getuid() != 1000 or os.getgid() != 1000:
             self.skipTest('ordinary uid1000 source-file control only')

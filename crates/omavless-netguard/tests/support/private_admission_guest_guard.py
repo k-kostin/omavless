@@ -361,23 +361,24 @@ def await_child(child, seconds=45):
 
 
 def await_child_once(child, seconds):
-    # Keep the waitable leader until its actual exit has been observed. Do not
-    # use Popen.wait's ECHILD compatibility fallback as an exit-zero receipt.
+    # ONLY an exact typed waitable exit-zero observation permits one reap.
+    # Nonzero/signaled/malformed/unknown states retain the waitable child.
+    require(not UNCERTAIN and type(child.pid) is int and child.pid > 0)
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         seen = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
         if seen is None:
             time.sleep(0.05)
             continue
-        require(seen.si_pid == child.pid and seen.si_code in
-                {os.CLD_EXITED, os.CLD_KILLED, os.CLD_DUMPED})
-        reaped, status = os.waitpid(child.pid, os.WNOHANG)
-        require(reaped == child.pid and (os.WIFEXITED(status) or os.WIFSIGNALED(status)))
-        code = os.waitstatus_to_exitcode(status)
-        expected = seen.si_status if seen.si_code == os.CLD_EXITED else -seen.si_status
-        require(code == expected)
-        child.returncode = code
-        return code
+        require(type(seen.si_pid) is int and seen.si_pid == child.pid
+                and type(seen.si_code) is int and seen.si_code == os.CLD_EXITED
+                and type(seen.si_status) is int and seen.si_status == 0)
+        result = os.waitpid(child.pid, os.WNOHANG)
+        require(type(result) is tuple and len(result) == 2
+                and type(result[0]) is int and result[0] == child.pid
+                and type(result[1]) is int and result[1] == 0)
+        child.returncode = 0
+        return 0
     # No signal/reap or subsequent unit command after a timeout or query error.
     raise Refused()
 
