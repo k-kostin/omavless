@@ -1,8 +1,9 @@
 # Fixed root observation of the private Abort process-loss matrix
 
-Source-only successor to Draft #598 at `3110230`. No VM invocation is authorized
-by this implementation. Root source review, exact-head gates, sealed artifacts,
-explicit staging/host authorization and a new exclusive lease remain required.
+Developer-only successor to Draft #598 at `3110230`. One separately authorized
+exact-head invocation is recorded below; the implementation itself grants no
+VM authority. Any further invocation requires its own review, sealed artifacts,
+explicit staging/host authorization and exclusive lease.
 The [earlier report](T4_FIRST_ABORT_PROCESS_REENTRY.md#exact-head-execution-and-retained-nonpass)
 is immutable: five inner cases passed, its outer guard failed, and the later
 independent root observation did not repair that NONPASS or prove its exception.
@@ -17,7 +18,7 @@ process signals/reaps the fixture's workers, changes services/network state,
 or performs application start/stop. Root directly owns and raw-reaps only its
 own matrix and fixed read-only inventory-command children.
 
-The future invocation must use `/usr/bin/python3 -I -B` and a reviewed root-owned
+An authorized invocation must use `/usr/bin/python3 -I -B` and a reviewed root-owned
 0500 script in a new root-owned 0700 `/run/ov-abort-root-<32 lower-hex>` directory.
 Never invoke root Python on a user-writable script or import tree. This trusted
 bootstrap and owner-reviewed sealed-copy operation are explicit preconditions;
@@ -125,3 +126,73 @@ cover credential/stdin admission, original source replacement, fixed names,
 receipt syntax, hash mismatch before privileged creation, existing destination
 and partial-copy failures. These controls do not change the reviewed guard's
 behavior or convert its pure success control into an executed VM claim.
+
+## Exact-head execution — 2026-10-04
+
+Tested source: `a2eeb423ed202ec6e78af68d7b44e88e04a64acf`, Draft #605,
+in the x86_64 Omarchy development VM. This documentation update does not change
+the tested guard, loader, fixture or runtime behavior; it is not a new execution
+on the later documentation head.
+
+Before the invocation, exact-source local gates passed: 558 source tests /
+2 skipped plus JS/QML; full Rust exit 0 with 2,058 aggregate passing executions,
+including runtime 1,159 / 38 ignored / 1 filtered; separate cleanup, formatting,
+strict workspace/TUI Clippy, terminal and two parity tests. The 28 local
+root-guard/loader tests are included. These ordinary gates do not run the ignored
+process matrix. Root and independent incremental source review completed before
+staging and execution.
+
+The frozen ELF was compiled at the earlier `2300ddc` component and reused/retested
+at the tested head with byte-identical Rust/Cargo inputs, not represented as a
+fresh compilation. After all active gates finished, explicit owner authorization
+allowed the actual original mode 0700 to be normalized to 0755 under private
+parents, with original-FD/hash evidence retained; the frozen copy is 0500.
+Artifact SHA-256 identities:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Frozen test ELF | `d90ce376f5519c0bc95b765ec70f0b13ca27c95d9e5bca238e4ae6be59b100dc` |
+| Root observer | `100428aae8271c9489454b5f0384ba3dc75287938c5b586c6f71ec3de8da286c` |
+| Unchanged legacy definitions | `3631492302b3e87beb0b2a801ded9ee5df1235a5c125117b0f4728596067049d` |
+| Trusted-stdin staging loader | `a3ee5f25b46e4c96e71893f402b440efd4d429ec497a213b9d8a40debe07e98f` |
+| Sealed-copy receipt | `0be8615e37acb5a263b2beccbbd0ccbc79715c046692b25d7f010779bb1c5772` |
+
+The sole create-only trusted-stdin staging operation exited 0, followed by one
+authorized root-observed guard invocation. The matrix passed in 127.56 seconds;
+the outer guard exited 0 with the bounded marker
+`T4_ROOT_OBSERVED_PROCESS_LOSS_NOT_POWERLOSS_OR_PRODUCT_PASS`.
+Independent review of all five exact-schema case receipts confirmed signal 9
+at every requested checkpoint:
+
+| Checkpoint | Fresh re-entry result |
+| --- | --- |
+| OLD store slot linked | `aborted-still-fenced` |
+| First member OLD, template NEW | `aborted-still-fenced` |
+| Empty terminal created | `refused-preserved` |
+| Full Abort terminal written | `aborted-still-fenced` |
+| Final wrapper observation | `aborted-still-fenced` |
+
+The root independently verified the complete captured archive structure, three
+staged source hashes and original before/after comparisons. All nine canonical
+categories and the fixed four root-unit states matched; full IPv4/IPv6 addresses,
+routes and rules matched except four approved address-lifetime countdowns.
+The root observation inspected 44 current UID-1000 executables and found the
+exact frozen executable inode absent at that observation. This is point-in-time
+descriptor evidence, not atomic absence of all descendants or escaped processes.
+
+Private root-evidence archive SHA-256:
+`34bf2ae91ea47192892606907f74867e343e1bf589ff518282cb6d3819641942`.
+Private five-case archive SHA-256:
+`a1c8afea33a83b076c4c1241507bdf8448cb962d9ded8f400354fc4fba78dba8`.
+Raw logs, case paths, staged files and archives remain private outside Git.
+
+All previous failures remain retained. In particular, the initial `2300ddc`
+full-Rust invocation with inherited umask 077 remains NONPASS: five netguard
+fixture-mode failures. A separately authorized child-only umask 022 gate passed
+without weakening tests. The earlier #598 inner five-case PASS / outer NONPASS
+and its later independent diagnostic remain unchanged; this new invocation does
+not repair or reinterpret them.
+
+This is bounded synthetic volatile process-loss/re-entry evidence only. Normal
+backup/restore registration, installed product acceptance, reboot, durability,
+power-loss, full product T4 completion, main merge and release remain unclaimed.
