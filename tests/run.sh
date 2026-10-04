@@ -19,6 +19,7 @@ python3 -m unittest -v \
   "$here/test_real_resolved_inventory.py" \
   "$here/test_private_tmpfs_elf.py" \
   "$here/test_reviewed_tmpfs_elf.py" \
+  "$here/test_reviewed_tmpfs_bridge.py" \
   "$here/test_static_elf_provenance.py" \
   "$here/test_static_elf_four_mib.py" \
   "$here/test_static_capture_supervisor.py" \
