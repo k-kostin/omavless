@@ -331,3 +331,6 @@ mod manager_private;
 // Literal-only new developer tuple. Same existing creator, never a second API.
 #[path = "kernel_private_admission_fixture.rs"]
 mod private_admission;
+
+#[path = "kernel_response_diagnostic_fixture.rs"]
+mod response_diagnostic;

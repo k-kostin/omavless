@@ -34,6 +34,12 @@ mod manager_lifecycle_admission_fixture;
 #[cfg(test)]
 mod manager_lifecycle_permissions;
 #[cfg(test)]
+mod manager_response_diagnostic_dump;
+#[cfg(test)]
+mod manager_response_diagnostic_fixture;
+#[cfg(test)]
+mod manager_response_diagnostic_permissions;
+#[cfg(test)]
 mod manager_retained_dump;
 #[cfg(test)]
 mod manager_retained_reference_fixture;
