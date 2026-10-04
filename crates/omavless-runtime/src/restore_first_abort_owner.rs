@@ -24,6 +24,10 @@ const REFUSE: ProductionOwnerError = ProductionOwnerError::ManualRecoveryRequire
 #[path = "restore_first_abort_process_tests.rs"]
 mod process_reentry;
 
+#[cfg(test)]
+#[path = "restore_first_abort_cli_vm_tests.rs"]
+mod cli_vm_fixture;
+
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     AbortedStillFenced,
