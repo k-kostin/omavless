@@ -8,15 +8,15 @@ import stat
 import sys
 import unicodedata
 
-STAGE = Path('/run/omavless-k1-admission-response-diagnostic')
-UNIT = 'omavless-k1-admission-response-diagnostic.service'
+STAGE = Path('/run/omavless-k1-supported-socket-admission')
+UNIT = 'omavless-k1-supported-socket-admission.service'
 PARENT = Path('/run/systemd/system')
 LINK = PARENT / UNIT
 CGROUP = Path('/sys/fs/cgroup/system.slice') / UNIT
-QUERY_SHA = 'ee277f747c3e654e21606a228172606cfc39d839ec7091074b778268566f2ec0'
-UNIT_SHA = 'a3b03103bbd8c43f6e6ca6755c063a7e851f40a006303c93028be80aec411e58'
-PROBE_SHA = 'a2b8dd3b7cc1658c536fd81bd25a74ae55255cb2159624cfe8f548c162ad0e9a'
-NATIVE_SOURCE = '725f6ef9b14084f58cd3589f9eee09472add9422'
+QUERY_SHA = '60ea1b6b1f510e3375ad09be0601a0f85c971e90ba7e9d69d9cd22cfc60099cf'
+UNIT_SHA = '030714757ae81c146822b68a7a6a3dfdace38ce8ae683ff7d26eeee3d8dbb730'
+PROBE_SHA = '0000000000000000000000000000000000000000000000000000000000000000'
+NATIVE_SOURCE = '0000000000000000000000000000000000000000'
 TEST = 'manager_response_diagnostic_fixture::capture_effective_config'
 MARKER = 'OBSERVED_CONFIGURED_FACTS_NOT_LIFECYCLE_ADMISSION'
 PHASES = ('preflight', 'before-baseline', 'publish-link', 'native-helper',
@@ -161,11 +161,11 @@ def expected_permissions():
             require(key not in where)
             where[key] = {'signature': signature, 'value': value}
     add(unit, 's', dict(Id=UNIT, LoadState='loaded', ActiveState='inactive', SubState='dead',
-        FailureAction='none', SuccessAction='none', FragmentPath=str(LINK)))
+        FailureAction='none', SuccessAction='none', FragmentPath=str(LINK), Following=''))
     add(unit, 'as', {key: [] for key in ('DropInPaths', 'Wants', 'BindsTo', 'PartOf', 'Upholds',
         'OnFailure', 'OnSuccess', 'TriggeredBy', 'Requisite', 'PropagatesStopTo',
         'StopPropagatedFrom', 'JoinsNamespaceOf')})
-    add(unit, 'as', dict(Conflicts=['shutdown.target'], Requires=['sysinit.target', 'system.slice']))
+    add(unit, 'as', dict(Conflicts=['shutdown.target'], Requires=['sysinit.target', 'system.slice'], Names=[UNIT]))
     add(unit, 'b', dict(RefuseManualStart=False, RefuseManualStop=False))
     add(unit, 't', dict(JobTimeoutUSec=2**64-1, JobRunningTimeoutUSec=2**64-1))
     add(service, 's', dict(Type='oneshot', User='root', Group='root', PrivatePIDs='no', Restart='no',
@@ -180,8 +180,8 @@ def expected_permissions():
     add(service, 'u', dict(MainPID=0, ControlPID=0, ExecMainPID=0, FileDescriptorStoreMax=0,
         NFileDescriptorStore=0, UMask=0o77))
     add(service, 'as', {key: [] for key in ('PassEnvironment', 'UnsetEnvironment', 'SupplementaryGroups',
-        'Sockets', 'ExtraFileDescriptorNames', 'ExtensionDirectories')})
-    add(service, 'as', dict(Environment=['OMAVLESS_K1_RESPONSE_DIAGNOSTIC_WRITER=1']))
+        'ExtraFileDescriptorNames', 'ExtensionDirectories')})
+    add(service, 'as', dict(Environment=['OMAVLESS_K1_SUPPORTED_SOCKET_WRITER=1']))
     add(service, 'a(sb)', dict(EnvironmentFiles=[]))
     add(service, '(bas)', dict(SystemCallFilter=[False, []]))
     add(service, 'a(sst)', dict(OpenFile=[['/proc/1/ns/net', 'k1-host-netns', 1]]))
@@ -338,7 +338,7 @@ class Observer:
                     '--nocapture', '--test-threads=1'], executable=f'/proc/self/fd/{probe.fd}',
                     pass_fds=(probe.fd,), stdin=-3, stdout=logs[0], stderr=logs[1],
                     user=0, group=0, extra_groups=[], close_fds=True,
-                    env={'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_RESPONSE_DIAGNOSTIC': '1'})
+                    env={'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_SUPPORTED_SOCKET': '1'})
             code = self.ns['await_child'](child, seconds=45)
             require(type(code) is int and code == 0)
             self.helper_known_zero = True
@@ -442,7 +442,7 @@ class Observer:
 
 def main():
     require(os.getuid() == os.geteuid() == os.getgid() == os.getegid() == 0
-            and len(sys.argv) == 1 and os.environ.get('OMAVLESS_K1_RESPONSE_DIAGNOSTIC_GUARD') == '1')
+            and len(sys.argv) == 1 and os.environ.get('OMAVLESS_K1_SUPPORTED_SOCKET_GUARD') == '1')
     for path in (Path('/run'), Path('/run/systemd'), PARENT):
         meta = path.lstat()
         require(stat.S_ISDIR(meta.st_mode) and meta.st_uid == meta.st_gid == 0 and meta.st_mode & 0o022 == 0)
@@ -457,7 +457,7 @@ def main():
             Pin(STAGE / 'guard.py', 0o500, 256 * 1024)]
     require(Path(__file__) == STAGE / 'guard.py')
     Observer(load_query(query), pins, fd, parent_fd).execute()
-    print('K1_RESPONSE_DIAGNOSTIC_CAPTURE_PRESERVED_NOT_ADMISSION')
+    print('K1_SUPPORTED_SOCKET_CAPTURE_PRESERVED_NOT_ADMISSION')
 
 
 if __name__ == '__main__':
@@ -465,5 +465,5 @@ if __name__ == '__main__':
     try:
         main()
     except BaseException:
-        print('K1_RESPONSE_DIAGNOSTIC_NONPASS_RETAINED', file=sys.stderr)
+        print('K1_SUPPORTED_SOCKET_NONPASS_RETAINED', file=sys.stderr)
         sys.exit(2)

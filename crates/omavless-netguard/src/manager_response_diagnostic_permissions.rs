@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use zbus::zvariant::{OwnedValue, Value};
 
-pub(super) const UNIT: &str = "omavless-k1-admission-response-diagnostic.service";
-pub(super) const STAGE: &str = "/run/omavless-k1-admission-response-diagnostic";
+pub(super) const UNIT: &str = "omavless-k1-supported-socket-admission.service";
+pub(super) const STAGE: &str = "/run/omavless-k1-supported-socket-admission";
 pub(super) const WRITER: &str =
     "kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle";
 type Facts = HashMap<String, OwnedValue>;
@@ -19,6 +19,7 @@ pub(super) fn expected_unit() -> Facts {
     let mut values = Facts::new();
     for (key, value) in [
         ("Id", UNIT),
+        ("Following", ""),
         ("LoadState", "loaded"),
         ("ActiveState", "inactive"),
         ("SubState", "dead"),
@@ -27,6 +28,7 @@ pub(super) fn expected_unit() -> Facts {
     ] {
         put(&mut values, key, value);
     }
+    put(&mut values, "Names", vec![UNIT.to_owned()]);
     put(
         &mut values,
         "FragmentPath",
@@ -115,7 +117,6 @@ pub(super) fn expected_service() -> Facts {
         "PassEnvironment",
         "UnsetEnvironment",
         "SupplementaryGroups",
-        "Sockets",
         "ExtraFileDescriptorNames",
         "ExtensionDirectories",
     ] {
@@ -124,7 +125,7 @@ pub(super) fn expected_service() -> Facts {
     put(
         &mut values,
         "Environment",
-        vec!["OMAVLESS_K1_RESPONSE_DIAGNOSTIC_WRITER=1".to_owned()],
+        vec!["OMAVLESS_K1_SUPPORTED_SOCKET_WRITER=1".to_owned()],
     );
     put(
         &mut values,
@@ -325,6 +326,48 @@ fn exact_synthetic_permissions_are_not_runtime_or_namespace_proof() {
         put(&mut unit, "Requires", bad);
         assert!(check(&unit, &expected_service()).is_err());
     }
+}
+
+#[test]
+fn supported_socket_and_alias_properties_are_required_not_missing_fallbacks() {
+    let valid_unit = || {
+        let mut values = expected_unit();
+        put(
+            &mut values,
+            "Requires",
+            vec!["sysinit.target", "system.slice"],
+        );
+        values
+    };
+    let unit = valid_unit();
+    let service = expected_service();
+    assert!(!service.contains_key("Sockets"));
+    assert!(check(&unit, &service).is_ok());
+    for key in ["Names", "Following", "TriggeredBy", "Wants"] {
+        let mut missing = valid_unit();
+        missing.remove(key);
+        assert!(check(&missing, &service).is_err());
+        let mut wrong_type = valid_unit();
+        wrong_type.insert(key.into(), OwnedValue::from(false));
+        assert!(check(&wrong_type, &service).is_err());
+    }
+    for (key, value) in [
+        ("Names", vec![UNIT, "synthetic-alias.service"]),
+        ("Names", vec![UNIT, UNIT]),
+        ("Names", vec!["synthetic-other.service"]),
+        ("TriggeredBy", vec!["synthetic.socket"]),
+        ("Wants", vec!["synthetic.socket"]),
+    ] {
+        let mut wrong = valid_unit();
+        put(&mut wrong, key, value);
+        assert!(check(&wrong, &service).is_err());
+    }
+    let mut following = valid_unit();
+    put(&mut following, "Following", "synthetic-other.service");
+    assert!(check(&following, &service).is_err());
+    let mut missing_service = expected_service();
+    missing_service.remove("ExtraFileDescriptorNames");
+    assert!(check(&unit, &missing_service).is_err());
 }
 
 #[test]

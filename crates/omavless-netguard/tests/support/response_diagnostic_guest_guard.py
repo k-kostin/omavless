@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE = Path("/run/omavless-k1-admission-response-diagnostic")
+STAGE = Path("/run/omavless-k1-supported-socket-admission")
 SERVICE_FIELDS = ["ActiveState", "SubState", "MainPID"]
 NETWORK_COMMANDS = {
     "address": ["/usr/bin/ip", "-j", "address", "show"],
@@ -125,6 +125,15 @@ FAILED_PINS = {
     'probe': (0o500, 128 * 1024 * 1024, '803f7959df873660d262da02b19a7676cb00f36ef16ec0709120ff03582ad242'),
 }
 FAILED_ACTIVATION = None
+RESPONSE_LINK = Path('/run/systemd/system/omavless-k1-admission-response-diagnostic.service')
+RESPONSE_STAGE = Path('/run/omavless-k1-admission-response-diagnostic')
+RESPONSE_PINS = {
+    'guard.py': (0o500, 256 * 1024, 'cc19409a109393f11f1328bfa41d951a185276c5e202eb9f3bc069213cf10565'),
+    'query-guard.py': (0o600, 256 * 1024, 'ee277f747c3e654e21606a228172606cfc39d839ec7091074b778268566f2ec0'),
+    'fixture.service': (0o600, 16384, 'a3b03103bbd8c43f6e6ca6755c063a7e851f40a006303c93028be80aec411e58'),
+    'probe': (0o500, 128 * 1024 * 1024, 'a2b8dd3b7cc1658c536fd81bd25a74ae55255cb2159624cfe8f548c162ad0e9a'),
+}
+RESPONSE_ACTIVATION = None
 
 
 def exact_identity(m):
@@ -137,25 +146,28 @@ def parent_identity(m):
 
 
 class RetainedFailedActivation:
-    """Exact old #615 files only; never process/reference state or recovery."""
-    def __init__(self):
+    """Only two literal historical tuples; no caller paths or manager queries."""
+    def __init__(self, generation=615):
+        require(type(generation) is int and generation in (615, 621))
+        self.stage, self.link_path, pins = ((FAILED_STAGE, FAILED_LINK, FAILED_PINS)
+            if generation == 615 else (RESPONSE_STAGE, RESPONSE_LINK, RESPONSE_PINS))
         self.sealed = False
         self.parents, self.files = [], {}
         try:
-            for path in (Path('/'), Path('/run'), FAILED_STAGE,
-                         Path('/run/systemd'), FAILED_LINK.parent):
+            for path in (Path('/'), Path('/run'), self.stage,
+                         Path('/run/systemd'), self.link_path.parent):
                 fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
                 info = os.fstat(fd)
                 self.parents.append((path, fd, info))
                 require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022
                         and parent_identity(info) == parent_identity(path.lstat()))
             require(stat.S_IMODE(self.parents[2][2].st_mode) == 0o700)
-            self.link_fd = os.open(FAILED_LINK.name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+            self.link_fd = os.open(self.link_path.name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
                                    dir_fd=self.parents[4][1])
             self.link = os.fstat(self.link_fd)
             require(stat.S_ISLNK(self.link.st_mode) and self.link.st_uid == self.link.st_gid == 0
                     and self.link.st_nlink == 1)
-            for name, (mode, maximum, sha) in FAILED_PINS.items():
+            for name, (mode, maximum, sha) in pins.items():
                 fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
                              dir_fd=self.parents[2][1])
                 info = os.fstat(fd)
@@ -175,8 +187,8 @@ class RetainedFailedActivation:
                 require(parent_identity(info) == parent_identity(os.fstat(fd)) == parent_identity(path.lstat()))
             require(exact_identity(self.parents[2][2]) == exact_identity(os.fstat(self.parents[2][1])))
             require(exact_identity(self.link) == exact_identity(os.fstat(self.link_fd))
-                    == exact_identity(os.stat(FAILED_LINK.name, dir_fd=self.parents[4][1], follow_symlinks=False)))
-            require(os.readlink(FAILED_LINK.name, dir_fd=self.parents[4][1]) == str(FAILED_STAGE / 'fixture.service'))
+                    == exact_identity(os.stat(self.link_path.name, dir_fd=self.parents[4][1], follow_symlinks=False)))
+            require(os.readlink(self.link_path.name, dir_fd=self.parents[4][1]) == str(self.stage / 'fixture.service'))
             for name, (fd, info, sha) in self.files.items():
                 require(exact_identity(info) == exact_identity(os.fstat(fd))
                         == exact_identity(os.stat(name, dir_fd=self.parents[2][1], follow_symlinks=False))
@@ -189,8 +201,8 @@ class RetainedFailedActivation:
                         and exact_identity(info) == exact_identity(os.fstat(fd))
                         == exact_identity(os.stat(name, dir_fd=self.parents[2][1], follow_symlinks=False)))
             require(exact_identity(self.link) == exact_identity(os.fstat(self.link_fd))
-                    == exact_identity(os.stat(FAILED_LINK.name, dir_fd=self.parents[4][1], follow_symlinks=False)))
-            require(os.readlink(FAILED_LINK.name, dir_fd=self.parents[4][1]) == str(FAILED_STAGE / 'fixture.service'))
+                    == exact_identity(os.stat(self.link_path.name, dir_fd=self.parents[4][1], follow_symlinks=False)))
+            require(os.readlink(self.link_path.name, dir_fd=self.parents[4][1]) == str(self.stage / 'fixture.service'))
             for path, fd, info in self.parents:
                 require(parent_identity(info) == parent_identity(os.fstat(fd)) == parent_identity(path.lstat()))
             require(exact_identity(self.parents[2][2]) == exact_identity(os.fstat(self.parents[2][1])))
@@ -200,11 +212,11 @@ class RetainedFailedActivation:
 
     def admits(self, link, target):
         self.recheck()
-        return link == FAILED_LINK and target == FAILED_STAGE / 'fixture.service'
+        return link == self.link_path and target == self.stage / 'fixture.service'
 
     def file_record(self, path, info):
         self.recheck()
-        require(path.parent == FAILED_STAGE and path.name in self.files)
+        require(path.parent == self.stage and path.name in self.files)
         _, original, sha = self.files[path.name]
         require(exact_identity(info) == exact_identity(original))
         return ["file", sha]
@@ -218,6 +230,19 @@ def retained_failed_activation():
             FAILED_ACTIVATION = RetainedFailedActivation()
         FAILED_ACTIVATION.recheck()
         return FAILED_ACTIVATION
+    except BaseException:
+        ACTIVATION_REFUSED = True
+        raise
+
+
+def retained_response_activation():
+    global RESPONSE_ACTIVATION, ACTIVATION_REFUSED
+    require(not ACTIVATION_REFUSED)
+    try:
+        if RESPONSE_ACTIVATION is None:
+            RESPONSE_ACTIVATION = RetainedFailedActivation(621)
+        RESPONSE_ACTIVATION.recheck()
+        return RESPONSE_ACTIVATION
     except BaseException:
         ACTIVATION_REFUSED = True
         raise
@@ -306,6 +331,7 @@ def _inventory():
     """Complete path/type/mode/owner/link/content inventory; never follow links."""
     retained = retained_activation()
     failed = retained_failed_activation()
+    response = retained_response_activation()
     records = {}
     total = 0
 
@@ -331,6 +357,8 @@ def _inventory():
                 row += ["file", digest(raw)]
             elif path.parent == FAILED_STAGE and path.name in FAILED_PINS:
                 row += failed.file_record(path, info)
+            elif path.parent == RESPONSE_STAGE and path.name in RESPONSE_PINS:
+                row += response.file_record(path, info)
             else:
                 row += ["file", digest(path.read_bytes())]
         elif stat.S_ISDIR(info.st_mode):
@@ -344,7 +372,8 @@ def _inventory():
         if stat.S_ISLNK(info.st_mode):
             target = path.resolve(strict=True)
             require(target == Path("/dev/null") or any(target.is_relative_to(Path(prefix))
-                    for prefix in TARGET_ROOTS) or retained.admits(path, target) or failed.admits(path, target))
+                    for prefix in TARGET_ROOTS) or retained.admits(path, target)
+                    or failed.admits(path, target) or response.admits(path, target))
             visit(target)
         if stat.S_ISDIR(info.st_mode):
             for child in sorted(path.iterdir()):
@@ -354,8 +383,10 @@ def _inventory():
         visit(Path(root))
     retained.recheck()
     failed.recheck()
+    response.recheck()
     require(str(RETAINED_LINK) in records and str(RETAINED_FRAGMENT) in records)
     require(str(FAILED_LINK) in records and str(FAILED_STAGE / 'fixture.service') in records)
+    require(str(RESPONSE_LINK) in records and str(RESPONSE_STAGE / 'fixture.service') in records)
     return records
 
 

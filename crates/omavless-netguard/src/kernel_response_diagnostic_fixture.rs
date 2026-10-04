@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt};
 use std::path::Path;
 
-const STAGE: &str = "/run/omavless-k1-admission-response-diagnostic";
+const STAGE: &str = "/run/omavless-k1-supported-socket-admission";
 const TEST: &str =
     "kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle";
 const CAP_NET_ADMIN: &str = "0000000000001000";
@@ -266,7 +266,7 @@ fn run(held: &mut Held) -> Result<()> {
 #[ignore = "fixed manager-owned PrivateNetwork fixture; dedicated VM lease and reviewed outer guard required"]
 fn manager_private_lifecycle() {
     assert_eq!(
-        std::env::var("OMAVLESS_K1_RESPONSE_DIAGNOSTIC_WRITER").as_deref(),
+        std::env::var("OMAVLESS_K1_SUPPORTED_SOCKET_WRITER").as_deref(),
         Ok("1")
     );
     assert_eq!(

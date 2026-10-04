@@ -9,16 +9,16 @@ use std::time::Duration;
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedValue, Type};
 
-const UNIT: &str = "omavless-k1-admission-response-diagnostic.service";
-const STAGE: &str = "/run/omavless-k1-admission-response-diagnostic";
-const FRAGMENT: &str = "/run/systemd/system/omavless-k1-admission-response-diagnostic.service";
+const UNIT: &str = "omavless-k1-supported-socket-admission.service";
+const STAGE: &str = "/run/omavless-k1-supported-socket-admission";
+const FRAGMENT: &str = "/run/systemd/system/omavless-k1-supported-socket-admission.service";
 const UNIT_PATH: &str =
-    "/org/freedesktop/systemd1/unit/omavless_2dk1_2dadmission_2dresponse_2ddiagnostic_2eservice";
+    "/org/freedesktop/systemd1/unit/omavless_2dk1_2dsupported_2dsocket_2dadmission_2eservice";
 const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
 const MANAGER: &str = "org.freedesktop.systemd1.Manager";
 const TEST: &str = "manager_response_diagnostic_fixture::capture_effective_config";
 const MAX_REPLY: usize = 1024 * 1024;
-const REFUSE: &str = "K1_RESPONSE_DIAGNOSTIC_UNCERTAIN_RETAINED";
+const REFUSE: &str = "K1_SUPPORTED_SOCKET_UNCERTAIN_RETAINED";
 type Result<T> = std::result::Result<T, &'static str>;
 
 struct Properties<const LIMIT: usize = 512>(HashMap<String, OwnedValue>);
@@ -437,7 +437,7 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
 #[ignore = "root-reviewed fixed metadata capture; dedicated VM lease only, never ordinary cargo"]
 fn capture_effective_config() {
     assert_eq!(
-        std::env::var("OMAVLESS_K1_RESPONSE_DIAGNOSTIC").as_deref(),
+        std::env::var("OMAVLESS_K1_SUPPORTED_SOCKET").as_deref(),
         Ok("1")
     );
     assert_eq!(
@@ -456,21 +456,19 @@ fn capture_effective_config() {
         .read(true)
         .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
         .open(STAGE)
-        .expect("K1_RESPONSE_DIAGNOSTIC_STAGE_REFUSED");
-    let meta = stage
-        .metadata()
-        .expect("K1_RESPONSE_DIAGNOSTIC_STAGE_REFUSED");
+        .expect("K1_SUPPORTED_SOCKET_STAGE_REFUSED");
+    let meta = stage.metadata().expect("K1_SUPPORTED_SOCKET_STAGE_REFUSED");
     assert!(meta.is_dir() && meta.uid() == 0 && meta.gid() == 0 && meta.mode() & 0o7777 == 0o700);
     // Literal transport: DBUS_SYSTEM_BUS_ADDRESS and caller arguments cannot
     // redirect it. Construction/send stalls are bounded by the outer observer;
     // method_timeout bounds waiting for a reply, not the whole connection setup.
     let connection =
         zbus::blocking::connection::Builder::address("unix:path=/run/dbus/system_bus_socket")
-            .expect("K1_RESPONSE_DIAGNOSTIC_ADDRESS_REFUSED")
+            .expect("K1_SUPPORTED_SOCKET_ADDRESS_REFUSED")
             .max_queued(8)
             .method_timeout(Duration::from_secs(5))
             .build()
-            .expect("K1_RESPONSE_DIAGNOSTIC_CONNECT_REFUSED");
+            .expect("K1_SUPPORTED_SOCKET_CONNECT_REFUSED");
     let held = Box::leak(Box::new(Held { connection, stage }));
     if !matches!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| capture(held))),
@@ -481,7 +479,7 @@ fn capture_effective_config() {
             std::thread::park();
         }
     }
-    println!("K1_RESPONSE_DIAGNOSTIC_CAPTURED_UNREF_ACKNOWLEDGED_NOT_ADMISSION");
+    println!("K1_SUPPORTED_SOCKET_CAPTURED_UNREF_ACKNOWLEDGED_NOT_ADMISSION");
 }
 
 #[test]
@@ -505,6 +503,26 @@ mod controls {
     use super::*;
     use std::cell::RefCell;
     use zbus::zvariant::{DynamicType, Str};
+
+    #[test]
+    fn literal_object_path_belongs_only_to_this_unit() {
+        let escaped = UNIT
+            .bytes()
+            .map(|byte| {
+                if byte.is_ascii_alphanumeric() {
+                    char::from(byte).to_string()
+                } else {
+                    format!("_{byte:02x}")
+                }
+            })
+            .collect::<String>();
+        assert_eq!(
+            UNIT_PATH,
+            format!("/org/freedesktop/systemd1/unit/{escaped}")
+        );
+        assert_eq!(UNIT, crate::manager_response_diagnostic_permissions::UNIT);
+        assert_eq!(STAGE, crate::manager_response_diagnostic_permissions::STAGE);
+    }
 
     const ORDER: [Request; 9] = [
         Request::Owner,
@@ -761,6 +779,68 @@ mod controls {
             assert_eq!(*held.connection.0.calls.borrow(), ORDER[..end]);
             assert_eq!(std::fs::read_dir(&path).unwrap().count(), end * 2);
             std::fs::remove_dir_all(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn supported_socket_and_alias_failures_stop_on_pre_or_post_reply() {
+        struct Unsafe(Fake, Request, &'static str, bool);
+        impl FixedBus for Unsafe {
+            fn request(&self, owner: &str, request: Request) -> Result<zbus::Message> {
+                if request != self.1 {
+                    return self.0.request(owner, request);
+                }
+                self.0.calls.borrow_mut().push(request);
+                let mut facts = unit_values();
+                if request == Request::PostUnrefAll {
+                    facts.extend(service_values());
+                }
+                if self.3 {
+                    facts.remove(self.2);
+                } else if self.2 == "Following" {
+                    facts.insert(self.2.into(), string("other.service"));
+                } else {
+                    let names = if self.2 == "Names" {
+                        vec![UNIT.to_owned(), "alias.service".to_owned()]
+                    } else {
+                        vec!["synthetic.socket".to_owned()]
+                    };
+                    facts.insert(
+                        self.2.into(),
+                        OwnedValue::try_from(zbus::zvariant::Value::from(names)).unwrap(),
+                    );
+                }
+                Ok(reply(&facts))
+            }
+        }
+        for (request, end) in [(Request::Unit, 4), (Request::PostUnrefAll, 9)] {
+            for field in ["Names", "Following", "TriggeredBy", "Wants"] {
+                for missing in [false, true] {
+                    let path = crate::test_temp::directory("k1-socket-refuse").unwrap();
+                    let held = Held {
+                        connection: Unsafe(
+                            Fake {
+                                calls: RefCell::new(Vec::new()),
+                                fail: None,
+                                malformed: false,
+                            },
+                            request,
+                            field,
+                            missing,
+                        ),
+                        stage: File::open(&path).unwrap(),
+                    };
+                    assert!(capture(&held).is_err());
+                    assert_eq!(*held.connection.0.calls.borrow(), ORDER[..end]);
+                    assert!(
+                        !path
+                            .join("private-admission-post-unref-state.json")
+                            .exists()
+                    );
+                    // Pure fake bus: no live manager reference or child exists.
+                    std::fs::remove_dir_all(path).unwrap();
+                }
+            }
         }
     }
 
