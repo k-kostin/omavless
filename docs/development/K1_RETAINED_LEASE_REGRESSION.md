@@ -86,8 +86,18 @@ The whole guard requires the actual primary create/replace/delete, generation
 refusal with retained PendingCreate, typed manager lifecycle proofs and strict
 before/after preservation including the network baseline. This success belongs
 only to that restricted fixture and exact graph. A separately reviewed semantic
-fixed-file evidence collection remains pending; raw private evidence is not
-included here. No canonical production authority, orphan recovery, product K1
+fixed-file collector subsequently completed zero. Its filtered report validated
+61 retained files, three primary effects, generation refusal/Pending retention,
+two recorded start observations and one stop observation. The mode-0600,
+single-link 1,278-byte public report hashes to
+`046e23f7a2bc459c252fc0b7192925597c8fe3e04eba9f246b6662324a01f264`;
+its internally hashed evidence manifest is
+`38f48e0ee0486605c03cf45799c5819f36bb8a654f7e73d9394bcaf944f4007b`.
+The collector source was
+`7353be7107c5f347a9be9d97df465103b08a82ac63e8ef3277a01bb4ee9d4833`;
+filtered HOST validation completed zero (`d0a078`). It read fixed evidence only,
+without process/manager/network queries or independently replaying runtime
+predicates. Raw private evidence is not included here. No canonical production authority, orphan recovery, product K1
 completion, cleanup permission or replay authorization follows from this result.
 
 Native source `90bed8477bbc1eb6127f5e4d0072743b40902a21` completed full Rust gates
