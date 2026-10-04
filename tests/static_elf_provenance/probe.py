@@ -155,7 +155,13 @@ def package_index(deadline):
         raw = package_bytes(folder / "files")
         total += len(raw)
         require(total <= 64 * 1024 * 1024, "package_database_bound")
-        rows = raw.decode("utf-8", "strict").splitlines()
+        text = raw.decode("utf-8", "strict")
+        # ALPM permits an empty file list. Only literal newline-separated
+        # empty rows qualify: no whitespace/CR/BOM stripping or owner inference.
+        if all(row == "" for row in text.split("\n")):
+            databases[name] = hashlib.sha256(raw).hexdigest()
+            continue
+        rows = text.splitlines()
         require(rows.count("%FILES%") == 1, "package_file_list_shape")
         active = False
         for row in rows:

@@ -24,6 +24,52 @@ def meta(**changes):
 
 
 class StaticElfTests(unittest.TestCase):
+    def package_index(self, contents):
+        with patch.object(probe.Path, "is_dir", return_value=True), \
+             patch.object(probe.Path, "is_symlink", return_value=False), \
+             patch.object(probe.Path, "stat", return_value=meta(st_mode=0o40755)), \
+             patch.object(probe.os, "listdir", return_value=list(contents)), \
+             patch.object(probe, "package_bytes", side_effect=lambda path: contents[path.parent.name]):
+            return probe.package_index(float("inf"))
+
+    def test_empty_newlines_have_exact_hash_and_no_ownership_edges(self):
+        for raw in (b"", b"\n", b"\n\n"):
+            with self.subTest(raw=raw):
+                index = self.package_index({"base-3-3": raw})
+                self.assertEqual(index[1], {})
+                self.assertEqual(index[2], {"base-3-3": hashlib.sha256(raw).hexdigest()})
+                with self.assertRaisesRegex(probe.Refused, "package_owner_not_unique"):
+                    probe.owner_record("/usr/lib/libexample.so", index)
+
+    def test_mixed_empty_and_valid_preserve_exact_unique_and_duplicate_owners(self):
+        valid = b"%FILES%\nusr/lib/libexample.so\n\n"
+        index = self.package_index({"base-3-3": b"", "example-1-1": valid})
+        self.assertEqual(index[1], {"/usr/lib/libexample.so": ["example-1-1"]})
+        with patch.object(probe, "package_bytes", return_value=b"%NAME%\nexample\n%VERSION%\n1-1\n"):
+            owner, name = probe.owner_record("/usr/lib/libexample.so", index)
+        self.assertEqual(name, "example-1-1")
+        self.assertEqual(owner["file_list_sha256"], hashlib.sha256(valid).hexdigest())
+        duplicate = self.package_index({"base-3-3": b"\n", "example-1-1": valid, "other-1-1": valid})
+        with self.assertRaisesRegex(probe.Refused, "package_owner_not_unique"):
+            probe.owner_record("/usr/lib/libexample.so", duplicate)
+
+    def test_nonempty_malformed_records_refuse_before_any_tool_command(self):
+        actual_index = probe.package_index
+        for raw in (b" ", b"\t\n", b"\r\n", b"\xef\xbb\xbf", b"\xff", b"%OTHER%\n",
+                    b"%FILES%\nx\n%FILES%\ny\n"):
+            def index(deadline):
+                with patch.object(probe, "package_index", actual_index):
+                    return self.package_index({"invalid-1-1": raw})
+            with self.subTest(raw=raw), patch.object(probe.os, "getuid", return_value=1000), \
+                 patch.object(probe.os, "geteuid", return_value=1000), \
+                 patch.object(probe, "bounded_file", return_value=RAW), \
+                 patch.object(probe, "package_index", side_effect=index), \
+                 patch.object(probe.base, "command") as command:
+                result = probe.capture()
+            self.assertEqual(result["outcome"], "NONPASS")
+            self.assertEqual(result["records"], [])
+            command.assert_not_called()
+
     def test_dynamic_decoder_keeps_basename_only_fixed_search_and_interpreter(self):
         raw = DYNAMIC + b" 0x000000000000001d (RUNPATH) Library runpath: [$ORIGIN:/usr/lib]\n [Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]\n"
         result = probe.decode_readelf(raw)
@@ -74,7 +120,20 @@ class StaticElfTests(unittest.TestCase):
             with self.assertRaisesRegex(probe.Refused, "package_description_value"):
                 probe.owner_record("/usr/lib/a.so", (Path("/fixed"), {"/usr/lib/a.so": ["pkg"]}, {"pkg": "x"}))
 
-    def fake_capture(self, command_error=None, tool_hash=None, dependency_edge=None):
+    def test_empty_package_count_and_existing_total_bound_are_unchanged(self):
+        with self.assertRaisesRegex(probe.Refused, "package_count_bound"):
+            self.package_index({f"empty-{number}-1": b"" for number in range(4097)})
+        raw = b"\n" * (2 * 1024 * 1024)
+        with self.assertRaisesRegex(probe.Refused, "package_database_bound"):
+            self.package_index({f"empty-{number}-1": raw for number in range(33)})
+
+    def test_original_selected_package_final_hash_mutation_still_refuses(self):
+        result, command, _ = self.fake_capture(final_package_bytes=b"changed")
+        self.assertEqual(result["outcome"], "NONPASS")
+        self.assertEqual(result["reason"], "package_provenance_changed")
+        self.assertEqual(command.call_count, 16)
+
+    def fake_capture(self, command_error=None, tool_hash=None, dependency_edge=None, final_package_bytes=b""):
         next_fd, paths, stats = [90], {}, {}
         canonical = lambda path: INVENTORY["elfs"].get(path, {}).get("resolved_path", path)
         known = {row["resolved_path"]: row["sha256"] for row in INVENTORY["elfs"].values()}
@@ -110,7 +169,7 @@ class StaticElfTests(unittest.TestCase):
              patch.object(probe.os, "fstat", side_effect=lambda fd: stats[paths[fd]]), \
              patch.object(probe.os, "lstat", side_effect=lambda path: stats[str(path)]), \
              patch.object(probe.os, "getxattr", side_effect=OSError(errno.ENODATA, "absent")), \
-             patch.object(probe, "owner_record", side_effect=owner), patch.object(probe, "package_bytes", return_value=b""), \
+             patch.object(probe, "owner_record", side_effect=owner), patch.object(probe, "package_bytes", return_value=final_package_bytes), \
              patch.object(probe.base, "UNSETTLED", []), \
              patch.object(probe.base, "command", side_effect=command_error or run_tool,
                           return_value=SimpleNamespace(stdout=b"There is no dynamic section in this file.\n", stderr=b"")) as command:
@@ -185,7 +244,9 @@ class StaticElfTests(unittest.TestCase):
 
     def test_outer_guard_pins_source_and_all_baseline_categories(self):
         guard = (ROOT / "vm-guard-queued-edge.sh").read_text()
-        self.assertIn(hashlib.sha256((ROOT / "probe.py").read_bytes()).hexdigest(), guard)
+        # Historical measured wrapper remains immutable and is NOT eligible
+        # to execute the corrected probe without a separately reviewed wrapper.
+        self.assertIn("b5f9c9651c9469e70f2d290252c897de62f11410228701c47d270fefa33831ec", guard)
         self.assertIn(probe.READELF_SHA, guard)
         for category in ("CANONICAL_EPOCH", "PRIVATE_FILES", "USER_SERVICE", "EXECUTABLE",
                          "NAMESPACE", "CORE_INVENTORY", "TUN_INVENTORY", "RESOLVER", "RESOLVCONF"):

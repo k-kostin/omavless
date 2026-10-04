@@ -202,3 +202,20 @@ in guest `/home/kdk_vm/.cache/` and host
 The host retains the separate `alpm-files-512ce77-invocation.log` preservation
 receipt and `alpm-files-512ce77-quiescence.log`. These are metadata-only evidence,
 not static closure, loaded ELF proof, compatibility or installed acceptance.
+
+### Narrow empty-record source correction (not executed)
+
+`package_index` now permits only UTF-8 empty/newline-only records to contribute
+zero ownership edges, retaining the exact raw file-list hash. It does not strip
+whitespace, CR or BOM; malformed UTF-8 and nonempty records follow the existing
+refusal/section logic unchanged. The broader proposed parser is still unwired.
+Tests cover empty-package owner refusal, mixed valid ownership, duplicate-owner
+refusal, pre-tool malformed-record refusal, original count/total bounds and final
+selected-package hash mutation. Manifest, candidate paths, fixed dependency
+search, queued-edge identity and tool/ELF authority are unchanged.
+
+All historical wrappers remain frozen, including `vm-guard-queued-edge.sh` with
+its original measured `b5f9c965…` probe pin. **No wrapper currently authorizes the
+corrected static probe.** A separate terminal-unknown-safe supervisor/wrapper and
+exact-pin full review are required before any new capture; the historical GNU
+timeout/continuation path must not be reused as new execution authority.
