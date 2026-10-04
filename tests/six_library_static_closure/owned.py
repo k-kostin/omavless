@@ -68,7 +68,7 @@ def command(base, args, *, pass_fds, env, deadline):
                  and type(deadline) is float and math.isfinite(deadline), 'fixed_readelf_scope')
     # The fixed wrapper supplies only its fresh private scratch directory.
     # No historical global /tmp fallback is used by this new generation.
-    base.require(os.environ.get('TMPDIR') == '/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1/scratch',
+    base.require(os.environ.get('TMPDIR') == '/home/kdk_vm/.cache/t3-six-library-exact-package-review-1/scratch',
                  'fixed_readelf_scratch')
     base.require(time.monotonic() < deadline, 'fixed_readelf_source_deadline')
     with tempfile.TemporaryFile(dir=os.environ['TMPDIR']) as output, tempfile.TemporaryFile(dir=os.environ['TMPDIR']) as errors:

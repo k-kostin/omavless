@@ -11,7 +11,7 @@ import sys
 import time
 import types
 
-STAGE = Path('/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1')
+STAGE = Path('/home/kdk_vm/.cache/t3-six-library-exact-package-review-1')
 CANDIDATES = (
     '/usr/lib/libcrypto.so.3', '/usr/lib/libidn2.so.0.4.0',
     '/usr/lib/libssl.so.3', '/usr/lib/libunistring.so.5.2.1',
@@ -22,14 +22,18 @@ PACKAGES = {
     'zlib': (CANDIDATES[4],), 'zstd': (CANDIDATES[5],)}
 CATALOG = Path('/var/lib/pacman/local')
 PINS = {'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
-        'owned.py': '2068087b00aa6e2cb47b850f98e7696e3d83403f4d3ae5bc3c180267794212f6',
+        'owned.py': 'fe33819270686b54fff5608cbc4db1a6dc7252f3e884c7d0b4e3f9cad123769a',
         'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
         'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87'}
 # Catalog names only are measured. No package version/hash is guessed.
 def directory_version(name, package):
     require(type(name) is str and type(package) is str and package in PACKAGES
             and name.startswith(package + '-'))
-    version = name[len(package) + 1:]
+    # libalpm splits local NAME-VERSION at the last two hyphens: NAME may
+    # contain hyphens, pkgver may not. Never confuse openssl-1.1 with openssl.
+    parts = name.rsplit('-', 2)
+    require(len(parts) == 3 and parts[0] == package)
+    version = parts[1] + '-' + parts[2]
     require(re.fullmatch(r'(?:[0-9]+:)?[A-Za-z0-9_+.~]+-[0-9]+(?:\.[0-9]+)*', version)
             and len(version) <= 160)
     return version
@@ -264,7 +268,7 @@ class Sources:
             names = self.names(fd)
             selected = {}
             for package in PACKAGES:
-                matches = [n for n in names if n.startswith(package + '-')]
+                matches = [n for n in names if n.rsplit('-', 2)[0] == package]
                 require(len(matches) == 1)
                 selected[package] = (matches[0], directory_version(matches[0], package))
             self.catalog = (fd, before, names)

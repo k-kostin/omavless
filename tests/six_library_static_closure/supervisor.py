@@ -7,10 +7,10 @@ import stat
 import sys
 import types
 
-STAGE = Path('/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1')
+STAGE = Path('/home/kdk_vm/.cache/t3-six-library-exact-package-review-1')
 PINS = {
-    'owned.py': '2068087b00aa6e2cb47b850f98e7696e3d83403f4d3ae5bc3c180267794212f6',
-    'probe.py': 'e9d34befea298f2b8c4dc3e840f7790ac402bdd4248a15e9ead360c07e96abde',
+    'owned.py': 'fe33819270686b54fff5608cbc4db1a6dc7252f3e884c7d0b4e3f9cad123769a',
+    'probe.py': '740374d92fd20c051a8f1432caf40271a16b3402cdb30b363c8b306c9080ee65',
     'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
     'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
     'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87',
