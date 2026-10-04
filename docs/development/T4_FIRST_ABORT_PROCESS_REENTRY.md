@@ -1,7 +1,8 @@
 # First-Abort fixed-current process-loss fixture
 
 Base: reviewed `ffe6116dfa937e0e1f9e8713bee1bcd601717bf0`, Draft #594.
-This is source implementation pending review, not an executed acceptance claim.
+The exact-head execution disposition below separates inner fixture evidence,
+failed whole-invocation guarding and a later independent observation.
 
 The stable cfg(test)-only `restore_first_abort_process_tests.rs` module adds an
 explicitly ignored parent matrix and worker. The ordinary build has no hook,
@@ -19,7 +20,8 @@ uncertainty is refusal, not a fabricated successful checkpoint. The absent
 managed-pair selector is not replaced by a fake receipt. A symlink to the frozen
 test ELF supplies only executable-path resolution; it is not Mihomo and is never
 executed as a core or treated as managed package authority. No application
-start/stop, host network mutation or VM action is involved.
+start/stop or host network mutation is involved. VM execution requires its own
+explicit lease and authorization.
 
 Archive ancestry policy rejects /var/tmp and /tmp because they are writable by
 other users. Instead, the fixture requires a create-only random private subtree
@@ -73,7 +75,7 @@ adequate. Its process matrix was never executed. Those gate results do not
 authorize the fixture or erase this review NONPASS. Corrections require a new
 exact head, pure uncertainty/FD-substitution tests and repeated full gates.
 
-## Whole-invocation VM guard (not yet executed)
+## Whole-invocation VM guard
 
 `tests/first_abort_process/vm_guard.py` is developer-only, separately reviewed
 before a lease or invocation. A private schema-1 sealed-copy receipt binds full
@@ -100,3 +102,50 @@ diagnosis. Only exact success may collect five bounded case receipts, verify
 no residual executed-ELF inode, compare the complete baseline and recheck staged
 objects. The guard is not automatically run by source gates; tests use only
 pure mocked process outcomes and local synthetic file substitutions.
+
+## Exact-head execution and retained NONPASS
+
+Tested source: `3a2504052d24a1f699e40933292976e3b0d80642`, Draft #598.
+Ordinary gates passed: source 530 tests / 2 skipped plus QML; full Rust 2057
+aggregate passing executions, including runtime 1158 / 38 ignored / 1 filtered,
+separate cleanup test, formatting, strict workspace/TUI Clippy and parity.
+These counts do not include an automatically executed process matrix.
+
+One separately authorized invocation used the sealed ELF SHA-256
+`0189c495cccfaf3c32da75da0aac2f40996adaa656e8af9474dccf71b6d84bb0`, guard
+`3631492302b3e87beb0b2a801ded9ee5df1235a5c125117b0f4728596067049d` and receipt
+`41a198502f40c1f3de4000b88afb4e6b85a74718226c050ebd07099591ea9803`.
+The inner matrix reported 1 passed / 0 failed in 125.95 seconds. All five private
+schema-1 case receipts were independently inspected: signal 9 at each checkpoint;
+linked, mixed, full and final reported `aborted-still-fenced`; empty reported
+`refused-preserved`. Fourteen captured worker stderr files were empty.
+
+**The outer guard exited 2: NONPASS.** Its before-baseline exists, but its
+after-baseline and final result do not. The confirmed failure interval is after
+inner matrix completion and before after-baseline persistence; the original
+exception and exact failing operation remain unproven. There was no automatic
+retry, signal, reap, cleanup or after-query following the failed invocation.
+
+A separately authorized read-only user diagnostic copied only the five exact
+named fixture roots and bounded stage evidence. Its process inventory stopped
+on `PermissionError`: independent quiescence was UNKNOWN, not established by an
+empty partial inventory. Private capture archive SHA-256:
+`500bcb8fdd70ff43fcae1fd396da49c02fdb9cc4e13b2a2e69c12911f43be443`.
+
+A subsequent, separately reviewed and authorized fixed read-only root diagnostic
+(`f487f144f90572b443972a516f1975eb1633f4cddab6986c3916e81b115ae492`)
+exited 0. It observed 44 current UID-1000 executables using stable original
+descriptors and found the exact fixture inode absent at that observation. Its
+comparison against the original before-baseline matched all nine canonical
+categories plus the fixed root-unit category; full IPv4/IPv6 matched except the
+already approved address-lifetime countdown. Independent private result SHA-256:
+`00e45ce530859c53ea7b2025f8418d0c7cc5dc74383e2b8167c0e1655e16cac2`;
+independent after-baseline SHA-256:
+`35daccecc937e78aac7c062a4e89f907620c24847d5bf76a2880a22cffb9ed97`.
+
+This later point-in-time observation is neither atomic general descendant
+absence nor evidence of uninterrupted preservation across the original guard.
+It does not repair that guard's NONPASS or establish its original exception.
+All guest originals, private archives and earlier failures remain retained.
+Inner synthetic process-loss cases PASS; whole-invocation acceptance NONPASS;
+product, installed, reboot and power-loss acceptance remain unclaimed.
