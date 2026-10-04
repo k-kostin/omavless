@@ -51,13 +51,28 @@ original directory FD. Sources are retained, and device/inode membership must
 pass BEFORE any mapped-target hash. 128 MiB admitted content, 90-second lifetime,
 20-second construction and 15-second shared recheck budgets are explicit sampled
 bounds. Expected native staging modes are 0555, not capabilities or installed
-package attestation. The trusted HOST-original-to-guest builder and actual
-loaded-process/reread adapter remain separate required steps. Nine inert controls
+package attestation. The trusted HOST-original-to-guest builder remains a
+separate required step. Nine inert controls
 use small nonexecuted synthetic ELF-shaped bytes and replaced literal test table;
 they do not establish actual artifact execution or adoption.
 
-The actual positive launcher, original-to-copy-to-loaded identity graph, fresh
-scoped quiescence and canonical wrapper are NOT yet implemented here.
+The loaded-image adapter now binds all five fixed roles to the exact retained
+Session/OwnedProcess classes. Kernel `exe` opens follow only the kernel link
+through each live child's original proc-directory FD, and its original object
+metadata must match the fixed copied executable or native artifact BEFORE maps
+or object hashing. Maps text is read only from that same original proc FD;
+unknown/private/deleted paths and wrong device/inode membership refuse before
+any target open. The complete second mapping read, second kernel exe object and
+live anchor must agree. Native core/broker/helper paths are eligible only for
+their own role; the original library adapter admits exactly the copied 25 rows.
+All failures permanently seal the owner, artifacts and copied-object adapter,
+retaining even late proc-file descriptors and never retrying or cleaning up.
+Fifteen inert controls include actual synthetic directory-FD maps reads, mocked
+kernel-exe identity, all five roles, changed rereads, early membership refusal,
+late/throwing reads and strict public parser bounds. They do not execute a
+candidate, prove actual live mappings or remove the inherited copied-adapter
+sampled elapsed-time limitations. The actual positive launcher, fresh scoped
+quiescence and canonical wrapper are NOT yet implemented here.
 Controller construction now requires the concrete Session/OwnedProcess classes
 from the launcher's pinned ownership module plus exact inner/core role; mock
 anchors alone cannot pass construction. The existing real-resolved legacy
