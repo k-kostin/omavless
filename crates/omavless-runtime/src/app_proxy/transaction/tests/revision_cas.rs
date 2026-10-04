@@ -338,3 +338,94 @@ fn revision_exhaustion_is_terminal_without_wrapping_or_mutation() {
     assert!(manager.state == before);
     assert_terminal(&mut protocol, &mut manager);
 }
+
+#[test]
+fn apply_at_last_revision_then_restore_exhaustion_retains_owned_value_and_seals() {
+    for key in EnvironmentKey::ALL {
+        for client in [
+            EnvironmentValue::Absent,
+            present(""),
+            present("synthetic-prior"),
+        ] {
+            let mut manager = FakeManager::new(key, client);
+            manager.state.stamp.revision = u64::MAX - 1;
+            let mut protocol = Protocol::capture(&mut manager, key);
+            let original = protocol.original.clone();
+            protocol.step(&mut manager, Delivery::Known).unwrap();
+            assert_eq!(protocol.phase, Phase::Active);
+            assert_eq!(manager.state.stamp.revision, u64::MAX);
+            assert!(manager.state.client[index(key)] == present("synthetic-owned"));
+            let owned = manager.state.clone();
+            let acknowledged = protocol.expected.clone();
+            assert_eq!(
+                protocol.step(&mut manager, Delivery::Known),
+                Err(Refusal::Exhausted)
+            );
+            assert!(manager.state == owned);
+            assert!(protocol.expected == acknowledged && protocol.original == original);
+            assert_eq!(
+                manager.transcript,
+                [
+                    Event::Snapshot,
+                    Event::Compare,
+                    Event::Commit,
+                    Event::Compare
+                ]
+            );
+            assert_terminal(&mut protocol, &mut manager);
+        }
+    }
+}
+
+#[test]
+fn other_key_drift_or_aba_in_either_layer_blocks_apply_and_restore_without_mutation() {
+    for key in EnvironmentKey::ALL {
+        for other in EnvironmentKey::ALL {
+            if key == other {
+                continue;
+            }
+            for active in [false, true] {
+                for transient in [false, true] {
+                    for aba in [false, true] {
+                        let mut manager = FakeManager::new(key, present("synthetic-prior"));
+                        let mut protocol = Protocol::capture(&mut manager, key);
+                        if active {
+                            protocol.step(&mut manager, Delivery::Known).unwrap();
+                        }
+                        let acknowledged = protocol.expected.clone();
+                        let original = protocol.original.clone();
+                        let other_before = if transient {
+                            manager.state.transient[index(other)].clone()
+                        } else {
+                            manager.state.client[index(other)].clone()
+                        };
+                        manager.foreign(other, transient, present("synthetic-other-key-edit"));
+                        if aba {
+                            manager.foreign(other, transient, other_before);
+                            assert!(manager.state.client == acknowledged.client);
+                            assert!(manager.state.transient == acknowledged.transient);
+                        }
+                        assert!(
+                            manager.state.client[index(key)] == acknowledged.client[index(key)]
+                        );
+                        assert!(
+                            manager.state.transient[index(key)]
+                                == acknowledged.transient[index(key)]
+                        );
+                        let foreign = manager.state.clone();
+                        let mut expected_events = manager.transcript.clone();
+                        expected_events.extend([Event::Compare, Event::Conflict]);
+                        assert_eq!(
+                            protocol.step(&mut manager, Delivery::Known),
+                            Err(Refusal::Conflict)
+                        );
+                        assert!(manager.state == foreign);
+                        assert!(protocol.expected == acknowledged && protocol.original == original);
+                        assert_eq!(manager.transcript, expected_events);
+                        assert_terminal(&mut protocol, &mut manager);
+                    }
+                }
+            }
+        }
+    }
+}

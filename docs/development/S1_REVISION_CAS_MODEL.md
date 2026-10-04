@@ -55,12 +55,23 @@ There is no journal, host adapter, D-Bus call, child process or filesystem use.
 The fake operation is synchronous and indivisible by construction, so it cannot
 prove any real asynchronous implementation supplies these guarantees.
 
-Six deterministic tests cover all ten keys where applicable: original absent,
+Eight deterministic tests cover all ten keys where applicable: original absent,
 empty and nonempty restoration; owner/incarnation/revision drift before apply
 and restore; masked transient edits; same-value and ABA edits in either layer;
 lost completion before and after commits in either phase; and revision
 exhaustion. Terminal controls compare the entire state and transcript after
 three attempted follow-up steps, requiring no new model operation or mutation.
+
+The narrow successor to immutable #620
+`46fe13717b5a5f74f04c049f3827a190bceccbe9` adds coverage, not protocol behavior.
+Starting at MAX-1, apply may consume the last revision; restore then refuses
+without wrapping, changing any field or releasing the owned override. All ten
+keys and absent/empty/nonempty original client states are covered. A separate
+matrix edits each of the other nine keys, in either layer, before apply and
+before restore, with direct drift or ABA back to the original value. All 720
+combinations preserve the complete current state and last acknowledged snapshot
+on conflict and remain sealed. These cases explicitly expose conservative
+cross-key coupling; no multi-key transaction or automatic recovery is added.
 
 ```sh
 cargo test --locked -p omavless-runtime revision_cas
@@ -73,8 +84,14 @@ listener lifetime, supported new-application consumption and global App Proxy
 acceptance remain unimplemented or independently gated. The existing GIO child
 consumer evidence is neither rerun nor broadened by this proposal.
 
-Source checks for this slice: six focused Rust tests PASS; runtime all-target
+The original #620 source checks were six focused Rust tests PASS; runtime all-target
 strict clippy, workspace formatting and diff checks PASS; `tests/run.sh` PASS
 (326 Python tests, two existing opt-in skips, JS and QML contracts). Private
 fixture scratch was outside Git ancestry. No runtime or VM check was requested
 or performed. The Draft records the immutable source head for these checks.
+
+Successor checks: all eight focused tests PASS, including the 30 exhaustion and
+720 cross-key combinations above; runtime all-target strict clippy, workspace
+formatting and diff checks PASS. Full source checks remain 326 Python tests,
+two existing opt-in skips, and passing JS/QML contracts. Only test functions
+and this document changed; the model protocol and production behavior did not.
