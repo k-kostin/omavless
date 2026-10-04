@@ -92,11 +92,14 @@ def available():
 
 def await_allowed(child, seconds, allowed):
     """First disallowed WNOWAIT result seals before any reap or other query."""
-    available()
-    require(type(allowed) is tuple and all(type(code) is int for code in allowed)
-            and allowed in ((0,), (2,), (0, 1))
-            and type(child.pid) is int and child.pid > 0)
-    deadline = min(DEADLINE, time.monotonic() + seconds)
+    try:
+        available()
+        require(type(allowed) is tuple and all(type(code) is int for code in allowed)
+                and allowed in ((0,), (2,), (0, 1))
+                and type(child.pid) is int and child.pid > 0)
+        deadline = min(DEADLINE, time.monotonic() + seconds)
+    except BaseException:
+        core.quarantine(child)  # Even late entry retains the exact spawned owner.
     def owned_gate():
         if time.monotonic() >= deadline or core.UNCERTAIN:
             core.quarantine(child)
@@ -409,7 +412,12 @@ class Guard:
             user=uid, group=uid, extra_groups=(), umask=0o077, close_fds=True,
             env=env if env is not None else dict(ROOT_ENV if uid == 0 else PRIMARY_ENV if uid == 1000 else ENV),
             stdin=stdin, stdout=out, stderr=err)
-        code = await_allowed(child, min(seconds, max(0, DEADLINE - time.monotonic())), allowed)
+        try:
+            available()
+            budget = min(seconds, max(0, DEADLINE - time.monotonic()))
+        except BaseException:
+            core.quarantine(child)  # A late spawn must not lose its retained Popen.
+        code = await_allowed(child, budget, allowed)
         require(type(code) is int and code in allowed)  # No observation after failure/unknown.
         available()
         require(os.fstat(out).st_size <= LIMIT and os.fstat(err).st_size <= LIMIT)
@@ -682,6 +690,7 @@ class Guard:
                     == (os.stat('/proc/self/ns/' + name).st_dev, os.stat('/proc/self/ns/' + name).st_ino))
             env['OV_T4_NS_' + name.upper()] = f'{dev}:{ino}'
         if request is not None:
+            available()
             os.lseek(request, 0, os.SEEK_SET)
         _, out, err = self.run_child([str(ARTIFACTS / 'helper'), '--exact', PREFIX + ENTRIES[entry],
             '--ignored', '--nocapture', '--test-threads=1', '--quiet'], UID, tag,

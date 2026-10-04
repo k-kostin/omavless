@@ -56,6 +56,41 @@ class Boundaries(unittest.TestCase):
                     observed.assert_called_once(); reaped.assert_called_once()
                     self.assertIsNone(child.returncode)
 
+    def test_spawn_returning_late_retains_exact_original_before_wait_or_output(self):
+        obj = guard.Guard.__new__(guard.Guard)
+        obj.count = obj.log_bytes = 0
+        obj.evidence = Mock()
+        obj.evidence.create.side_effect = [10, 11]
+        child = SimpleNamespace(pid=123, returncode=None)
+        def spawn(*_, **__):
+            guard.DEADLINE = 0
+            return child
+        self.core.spawn = Mock(side_effect=spawn)
+        with patch.object(guard.os, 'waitid') as observed, patch.object(guard.os, 'waitpid') as reaped, \
+             patch.object(guard.os, 'pread') as read:
+            with self.assertRaises(guard.Refused): obj.run_child(['/fixed'], 0, 'fixed')
+            observed.assert_not_called(); reaped.assert_not_called(); read.assert_not_called()
+        self.assertEqual(self.core.retained, [child])
+        self.assertIsNone(child.returncode)
+        with patch.object(guard.os, 'waitid') as observed:
+            with self.assertRaises(guard.Refused): guard.await_allowed(child, 5, (0,))
+            observed.assert_not_called()
+        self.assertIs(self.core.retained[-1], child)
+
+    def test_late_namespace_observation_never_rewinds_request_or_starts_child(self):
+        obj = guard.Guard.__new__(guard.Guard)
+        obj.source_recheck = Mock(); obj.artifacts_pin = Mock()
+        obj.artifacts = {name:SimpleNamespace(sha='a'*64,recheck=Mock()) for name in ('helper','omavless')}
+        obj.namespace_pins = {'net':(17,1,2)}
+        obj.run_child = Mock()
+        def inspect(*_, **__):
+            guard.DEADLINE = 0
+            return SimpleNamespace(st_dev=1,st_ino=2)
+        with patch.object(guard.os, 'fstat', side_effect=inspect),patch.object(guard.os, 'stat', side_effect=inspect), \
+             patch.object(guard.os, 'lseek') as rewound:
+            with self.assertRaises(guard.Refused): obj.native('launch','fixed',request=12)
+            rewound.assert_not_called(); obj.run_child.assert_not_called()
+
     def copy_controls(self, module, operation, mutations):
         for late in ('pread', *mutations):
             self.core.UNCERTAIN = False
