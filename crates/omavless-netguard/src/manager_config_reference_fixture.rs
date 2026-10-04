@@ -21,29 +21,29 @@ const MAX_REPLY: usize = 1024 * 1024;
 const REFUSE: &str = "K1_CONFIG_REFERENCE_UNCERTAIN_RETAINED";
 type Result<T> = std::result::Result<T, &'static str>;
 
-struct Properties(HashMap<String, OwnedValue>);
+struct Properties<const LIMIT: usize = 512>(HashMap<String, OwnedValue>);
 
-impl Type for Properties {
+impl<const LIMIT: usize> Type for Properties<LIMIT> {
     const SIGNATURE: &'static zbus::zvariant::Signature = <HashMap<String, OwnedValue>>::SIGNATURE;
 }
 
-impl<'de> serde::Deserialize<'de> for Properties {
+impl<'de, const LIMIT: usize> serde::Deserialize<'de> for Properties<LIMIT> {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
-        struct Unique;
-        impl<'de> serde::de::Visitor<'de> for Unique {
-            type Value = Properties;
+        struct Unique<const LIMIT: usize>;
+        impl<'de, const LIMIT: usize> serde::de::Visitor<'de> for Unique<LIMIT> {
+            type Value = Properties<LIMIT>;
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("bounded unique D-Bus property dictionary")
             }
             fn visit_map<M: serde::de::MapAccess<'de>>(
                 self,
                 mut map: M,
-            ) -> std::result::Result<Properties, M::Error> {
+            ) -> std::result::Result<Properties<LIMIT>, M::Error> {
                 let mut values = HashMap::new();
                 while let Some((key, value)) = map.next_entry::<String, OwnedValue>()? {
-                    if values.len() >= 512
+                    if values.len() >= LIMIT
                         || key.is_empty()
                         || key.len() > 128
                         || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
@@ -56,7 +56,7 @@ impl<'de> serde::Deserialize<'de> for Properties {
                 Ok(Properties(values))
             }
         }
-        deserializer.deserialize_map(Unique)
+        deserializer.deserialize_map(Unique::<LIMIT>)
     }
 }
 
@@ -102,9 +102,17 @@ fn identity(values: &HashMap<String, OwnedValue>) -> Result<Value> {
     )
     .map_err(|_| REFUSE)?;
     require(drops.is_empty())?;
+    let job_value = values.get("Job").ok_or(REFUSE)?;
+    require(job_value.value_signature() == <(u32, zbus::zvariant::OwnedObjectPath)>::SIGNATURE)?;
+    let job = <(u32, zbus::zvariant::OwnedObjectPath)>::try_from(
+        job_value.try_clone().map_err(|_| REFUSE)?,
+    )
+    .map_err(|_| REFUSE)?;
+    require(job.0 == 0 && job.1.as_str() == "/")?;
     Ok(
         json!({"Id": UNIT, "LoadState": "loaded", "FragmentPath": FRAGMENT,
-        "ActiveState": "inactive", "SubState": "dead", "DropInPaths": []}),
+        "ActiveState": "inactive", "SubState": "dead", "DropInPaths": [],
+        "Job": {"type": "(uo)", "data": [0, "/"]}}),
     )
 }
 
@@ -124,6 +132,8 @@ fn selected_service(values: &HashMap<String, OwnedValue>) -> Result<Value> {
         result.insert(key.to_owned(), json!(pid));
     }
     require(number(values, "ExecMainStartTimestampMonotonic")? == 0)?;
+    require(text(values, "ControlGroup")?.is_empty())?;
+    result.insert("ControlGroup".to_owned(), json!(""));
     Ok(Value::Object(result))
 }
 
@@ -135,6 +145,7 @@ enum Request {
     Service,
     Dump,
     Unref,
+    PostUnrefAll,
 }
 
 trait FixedBus {
@@ -185,6 +196,13 @@ impl FixedBus for Connection {
                 Some(MANAGER),
                 "UnrefUnit",
                 &(UNIT,),
+            ),
+            Request::PostUnrefAll => self.call_method(
+                Some(owner),
+                UNIT_PATH,
+                Some("org.freedesktop.DBus.Properties"),
+                "GetAll",
+                &("",),
             ),
         };
         reply.map_err(|_| REFUSE)
@@ -238,6 +256,16 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
     // Only the complete known capture permits the sole explicit Unref.
     let reply = held.connection.request(&owner, Request::Unref)?;
     decode::<()>(&reply)?;
+    // One dispatch collects all interfaces. The exact object-path fallback can
+    // load a unit collected after Unref; absence/missing facts are never success.
+    // This is not another Ref and does not follow a replacement manager owner.
+    let current =
+        decode::<Properties<1024>>(&held.connection.request(&owner, Request::PostUnrefAll)?)?;
+    let post_state = json!({"schema": 1, "phase": "post-unref-single-getall",
+        "unit": identity(&current.0)?, "service": selected_service(&current.0)?, "admission": false});
+    let post_bytes = serde_json::to_vec(&post_state).map_err(|_| REFUSE)?;
+    require(post_bytes.len() <= 16384)?;
+    write_exclusive(&held.stage, "reference-post-unref-state.json", &post_bytes)?;
     write_exclusive(
         &held.stage,
         "reference-unref-ack.json",
@@ -317,13 +345,14 @@ mod controls {
     use std::cell::RefCell;
     use zbus::zvariant::{DynamicType, Str};
 
-    const ORDER: [Request; 6] = [
+    const ORDER: [Request; 7] = [
         Request::Owner,
         Request::Ref,
         Request::Unit,
         Request::Service,
         Request::Dump,
         Request::Unref,
+        Request::PostUnrefAll,
     ];
 
     fn reply<T: serde::Serialize + DynamicType>(body: &T) -> zbus::Message {
@@ -356,6 +385,14 @@ mod controls {
             "DropInPaths".to_owned(),
             OwnedValue::try_from(zbus::zvariant::Value::from(Vec::<String>::new())).unwrap(),
         );
+        values.insert(
+            "Job".to_owned(),
+            OwnedValue::try_from(zbus::zvariant::Value::from((
+                0_u32,
+                zbus::zvariant::ObjectPath::try_from("/").unwrap(),
+            )))
+            .unwrap(),
+        );
         values
     }
 
@@ -366,6 +403,7 @@ mod controls {
             ("Type", "oneshot"),
             ("User", "root"),
             ("Group", "root"),
+            ("ControlGroup", ""),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_owned(), string(v)))
@@ -410,6 +448,11 @@ mod controls {
                 Request::Ref | Request::Unref => reply(&()),
                 Request::Unit => reply(&unit_values()),
                 Request::Service => reply(&service_values()),
+                Request::PostUnrefAll => {
+                    let mut all = unit_values();
+                    all.extend(service_values());
+                    reply(&all)
+                }
                 // Not a proposed systemd grammar or a configured-proof parser.
                 Request::Dump => reply(&"SYNTHETIC_OPAQUE_CAPTURE_ONLY"),
             })
@@ -464,6 +507,16 @@ mod controls {
             0o600
         );
         assert!(path.join("reference-unref-ack.json").exists());
+        let post: Value = serde_json::from_slice(
+            &std::fs::read(path.join("reference-post-unref-state.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(post["phase"], "post-unref-single-getall");
+        assert_eq!(
+            post["unit"]["Job"],
+            json!({"type": "(uo)", "data": [0, "/"]})
+        );
+        assert_eq!(post["service"]["ControlGroup"], "");
         std::fs::remove_dir_all(path).unwrap();
     }
 
@@ -493,7 +546,7 @@ mod controls {
     fn duplicate_and_oversized_property_dictionary_refuse() {
         struct Entries(Vec<(String, u64)>);
         impl Type for Entries {
-            const SIGNATURE: &'static zbus::zvariant::Signature = Properties::SIGNATURE;
+            const SIGNATURE: &'static zbus::zvariant::Signature = Properties::<512>::SIGNATURE;
         }
         impl serde::Serialize for Entries {
             fn serialize<S: serde::Serializer>(
@@ -526,6 +579,21 @@ mod controls {
                 .len(),
             1
         );
+        let combined = Entries((0..1024).map(|i| (format!("Field{i}"), 0)).collect());
+        assert_eq!(
+            decode::<Properties<1024>>(&reply(&combined))
+                .unwrap()
+                .0
+                .len(),
+            1024
+        );
+        assert!(decode::<Properties>(&reply(&combined)).is_err());
+        let excess = Entries((0..1025).map(|i| (format!("Field{i}"), 0)).collect());
+        assert!(decode::<Properties<1024>>(&reply(&excess)).is_err());
+        let duplicate = Entries(vec![("Job".to_owned(), 0), ("Job".to_owned(), 0)]);
+        assert!(decode::<Properties<1024>>(&reply(&duplicate)).is_err());
+        let oversized = reply(&"x".repeat(MAX_REPLY));
+        assert!(decode::<String>(&oversized).is_err());
     }
 
     #[test]
@@ -545,5 +613,101 @@ mod controls {
             OwnedValue::from(1_u64),
         );
         assert!(selected_service(&service).is_err());
+    }
+
+    #[test]
+    fn post_unref_invalid_current_state_stops_without_any_further_call_or_success_ack() {
+        struct PostFake {
+            inner: Fake,
+            current: HashMap<String, OwnedValue>,
+        }
+        impl FixedBus for PostFake {
+            fn request(&self, owner: &str, request: Request) -> Result<zbus::Message> {
+                if request == Request::PostUnrefAll {
+                    assert_eq!(owner, ":1.77");
+                    self.inner.calls.borrow_mut().push(request);
+                    Ok(reply(&self.current))
+                } else {
+                    self.inner.request(owner, request)
+                }
+            }
+        }
+        for bad in 0..6 {
+            let mut current = unit_values();
+            current.extend(service_values());
+            match bad {
+                0 => {
+                    current.remove("Job");
+                }
+                1 => {
+                    current.insert("LoadState".to_owned(), string("not-found"));
+                }
+                2 => {
+                    current.insert("MainPID".to_owned(), OwnedValue::from(9_u32));
+                }
+                3 => {
+                    current.insert(
+                        "ControlGroup".to_owned(),
+                        string("/system.slice/other.service"),
+                    );
+                }
+                4 => {
+                    current.insert(
+                        "Job".to_owned(),
+                        OwnedValue::try_from(zbus::zvariant::Value::from((0_u32, "/"))).unwrap(),
+                    );
+                }
+                _ => {
+                    current.insert(
+                        "Job".to_owned(),
+                        OwnedValue::try_from(zbus::zvariant::Value::from((
+                            1_u32,
+                            zbus::zvariant::ObjectPath::try_from("/").unwrap(),
+                        )))
+                        .unwrap(),
+                    );
+                }
+            }
+            let path = crate::test_temp::directory("k1-ref-postbad").unwrap();
+            let held = Held {
+                connection: PostFake {
+                    inner: Fake {
+                        calls: RefCell::new(Vec::new()),
+                        fail: None,
+                        malformed: false,
+                    },
+                    current,
+                },
+                stage: File::open(&path).unwrap(),
+            };
+            assert!(capture(&held).is_err());
+            assert_eq!(*held.connection.inner.calls.borrow(), ORDER);
+            assert!(path.join("reference-config-data.json").exists());
+            assert!(!path.join("reference-post-unref-state.json").exists());
+            assert!(!path.join("reference-unref-ack.json").exists());
+            std::fs::remove_dir_all(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn post_unref_output_collision_retains_prior_evidence_without_retry() {
+        let path = crate::test_temp::directory("k1-ref-postexists").unwrap();
+        std::fs::write(path.join("reference-post-unref-state.json"), b"sentinel").unwrap();
+        let held = Held {
+            connection: Fake {
+                calls: RefCell::new(Vec::new()),
+                fail: None,
+                malformed: false,
+            },
+            stage: File::open(&path).unwrap(),
+        };
+        assert!(capture(&held).is_err());
+        assert_eq!(*held.connection.calls.borrow(), ORDER);
+        assert_eq!(
+            std::fs::read(path.join("reference-post-unref-state.json")).unwrap(),
+            b"sentinel"
+        );
+        assert!(!path.join("reference-unref-ack.json").exists());
+        std::fs::remove_dir_all(path).unwrap();
     }
 }
