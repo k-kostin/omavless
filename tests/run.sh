@@ -3,6 +3,12 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_six_library_mapping_boundaries_bridge.py" \
+  "$here/test_six_library_mapping_boundaries_transport.py" \
+  "$here/test_six_library_mapping_boundaries_fixture.py" \
+  "$here/test_six_library_mapping_boundaries_lifecycle.py" \
+  "$here/test_six_library_mapping_boundary_events.py" \
+  "$here/test_six_library_copy_admission.py" \
   "$here/test_six_library_static_closure.py" \
   "$here/test_six_library_catalog_diagnostic.py" \
   "$here/test_six_library_exact_package_directory.py" \
