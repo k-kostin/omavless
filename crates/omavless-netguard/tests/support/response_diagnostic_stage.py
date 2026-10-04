@@ -10,10 +10,10 @@ import sys
 SOURCE = Path('/home/kdk_vm/.cache/k1-supported-socket-stage-v1')
 DESTINATION = Path('/run/omavless-k1-supported-socket-admission')
 MEMBERS = {
-    'probe': ('0000000000000000000000000000000000000000000000000000000000000000', 0o500, 0o500, 128 * 1024 * 1024),
+    'probe': ('6e3c6608ce6f3e3501c83c32d97979bc1219b1040820e69b626c7724bb431507', 0o500, 0o500, 128 * 1024 * 1024),
     'query-guard.py': ('60ea1b6b1f510e3375ad09be0601a0f85c971e90ba7e9d69d9cd22cfc60099cf', 0o400, 0o600, 256 * 1024),
     'fixture.service': ('030714757ae81c146822b68a7a6a3dfdace38ce8ae683ff7d26eeee3d8dbb730', 0o400, 0o600, 16384),
-    'guard.py': ('b5d1ab652f4c66be4b1a0c90e0d70b750f2532196eea08f2d609b9fbacd76a08', 0o400, 0o500, 256 * 1024),
+    'guard.py': ('715fc2714f4f393c4fed4db2a1e0d70ee2c5f6875c0e8e0bdb0fc9d34e970715', 0o400, 0o500, 256 * 1024),
 }
 
 

@@ -67,6 +67,19 @@ failure is promoted by this source work.
 Initial native controls: 26 passed, one ignored VM entry; Python controls:
 23 passed. The first native run's test-directory label length failure was
 corrected without changing admission behavior; that failed log is retained.
-The initial source checkpoint deliberately carries zero executable/source pins:
-no previous executable is eligible for this tuple. Full gates and a fresh
-immutable executable freeze/repin are pending, with no VM invocation.
+The initial source checkpoint `38b720a31de53e193586dd84ca463965e5610d19`
+deliberately carried zero executable/source pins: no previous executable was
+eligible for this tuple. Its sealed full source gate passed 663 Python tests
+(two skipped), frontend and QML checks. Full Rust gates completed with 129
+test summaries, 2,141 passed, zero failed and 84 ignored, including formatting,
+strict Clippy, TUI checks and parity. The first full Rust attempt failed three
+unrelated Unix-socket tests with explicit `SUN_LEN` errors from an overly long
+HOME temporary-directory prefix; the unchanged source passed with a shorter
+private HOME prefix. The first unsealed Python run observed a mid-edit pin
+transition and is retained as NONPASS, not sealed-head evidence.
+
+The fresh original-FD-frozen ELF is 76,304,224 bytes, mode `0500`, one link,
+SHA-256 `6e3c6608ce6f3e3501c83c32d97979bc1219b1040820e69b626c7724bb431507`.
+Only subsequent source/executable pins and this ledger change after that native
+checkpoint; final source revalidation and parent/peer review remain required.
+There has been no VM invocation or lifecycle/admission acceptance.
