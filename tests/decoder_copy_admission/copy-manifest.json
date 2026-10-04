@@ -1,0 +1,484 @@
+{
+  "schema": "reviewed-decoder-copy-manifest-v1",
+  "source_head": "9c71ecdbb90b3b93748a7549c8873ee804532ba9",
+  "source_result_sha256": "38dcbd17f3062ec642ef9376382cd22a0ff04fdedb07be6a5803a41f0862b76a",
+  "original_manifest_sha256": "4f1b92aeaff78f5f376576fc1da722cf9077735ff5c36d8674ff92581342ada4",
+  "elfs": {
+    "/lib64/ld-linux-x86-64.so.2": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/ld-linux-x86-64.so.2",
+      "sha256": "d011113b7054c641c8ca064f58bcc23804fd2654a3dff2444dad06ddeda61bfb",
+      "uid": 0
+    },
+    "/usr/bin/dbus-daemon": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/dbus-daemon",
+      "sha256": "e9ffeaea83965fa53077f716e352d3038794200bacb8eee043fe55117ce2c7d7",
+      "uid": 0
+    },
+    "/usr/bin/newgidmap": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/newgidmap",
+      "sha256": "326370106ae7d202a21216d75eb74dfc38ba93ac81d0fe9dc3ddd19bd68efa2f",
+      "uid": 0
+    },
+    "/usr/bin/newuidmap": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/newuidmap",
+      "sha256": "85099fcbafde31fe5f27dbca529e3da1531f9b97f899db84758132313445af36",
+      "uid": 0
+    },
+    "/usr/bin/setpriv": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/setpriv",
+      "sha256": "3bc16fb066583cbdce19af898ada51014de1352695f5463003b156924d4b766b",
+      "uid": 0
+    },
+    "/usr/bin/unshare": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/unshare",
+      "sha256": "1fd26966b5ef37a3021e00059a00afb4ddc3fcee181ba2431001f08a372e5179",
+      "uid": 0
+    },
+    "/usr/lib/libaudit.so.1": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libaudit.so.1.0.0",
+      "sha256": "16813308197ab091526836d4d9ee79b7780a49e63a0ee1d7e01da2b662d057c3",
+      "uid": 0
+    },
+    "/usr/lib/libc.so.6": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libc.so.6",
+      "sha256": "e221b10fee9ee4776d8f0f1701253bc06817f7a4dbe6c5292487277d0bf8ffff",
+      "uid": 0
+    },
+    "/usr/lib/libcap-ng.so.0": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libcap-ng.so.0.0.0",
+      "sha256": "583c413d5a6d6dbe43fbcb7e1d41eb347fc68b0afe8d48dd4a8022af12ec32e9",
+      "uid": 0
+    },
+    "/usr/lib/libdbus-1.so.3": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libdbus-1.so.3.38.3",
+      "sha256": "61be5c82b1d494a3690ad38abd756691bc129a51ba3fb7d5b9074016861b7d60",
+      "uid": 0
+    },
+    "/usr/lib/libexpat.so.1": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libexpat.so.1.12.4",
+      "sha256": "516a880ec607ee15f664d92eeb587deeb609f6ef6d05c947e9bfeb781a9debaf",
+      "uid": 0
+    },
+    "/usr/lib/libgcc_s.so.1": {
+      "mode": "0o644",
+      "resolved_path": "/usr/lib/libgcc_s.so.1",
+      "sha256": "e618cb9c90c2eb3a1dad1cfea5b6c1eebcf2e799ad805976f4ae47bdd61c716a",
+      "uid": 0
+    },
+    "/usr/lib/libsystemd.so.0": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libsystemd.so.0.44.0",
+      "sha256": "2e971237c56af98844a847344edeae0f59ae2e3437de84162b37f308f82c1615",
+      "uid": 0
+    },
+    "/usr/lib/systemd/libsystemd-shared-261.2-1.so": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/systemd/libsystemd-shared-261.2-1.so",
+      "sha256": "a9138b761996fb49bb45511b2a3f365e5bfac26c461d23d93788c58a5fb6d6f5",
+      "uid": 0
+    },
+    "/usr/lib/systemd/systemd-resolved": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/systemd/systemd-resolved",
+      "sha256": "feb36cd417f4e6a065222be0f88ce25933244bc22a9f5dd54030f0fa6ac5cfcd",
+      "uid": 0
+    },
+    "/usr/lib64/ld-linux-x86-64.so.2": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/ld-linux-x86-64.so.2",
+      "sha256": "d011113b7054c641c8ca064f58bcc23804fd2654a3dff2444dad06ddeda61bfb",
+      "uid": 0
+    },
+    "/usr/lib/libbrotlicommon.so.1.2.0": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libbrotlicommon.so.1.2.0",
+      "sha256": "4f895094b7b6ff9c82909e6516bc9cf212e2ec5af451d39bf1bcbc5e5fa225b2",
+      "uid": 0
+    },
+    "/usr/lib/libbrotlidec.so.1.2.0": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libbrotlidec.so.1.2.0",
+      "sha256": "0883fb05fa42aa6a883722098530ab08551ed317e38a2311f5c96e94dd460979",
+      "uid": 0
+    }
+  },
+  "source_provenance": {
+    "/usr/lib/ld-linux-x86-64.so.2": {
+      "device": 31,
+      "inode": 3425,
+      "size": 263152,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "d011113b7054c641c8ca064f58bcc23804fd2654a3dff2444dad06ddeda61bfb",
+      "package": {
+        "description_sha256": "2ffdc9e3ae2fc944730a6a9d0029b8cc103fd28eade7f35f5cf89ecd9de2abbc",
+        "file_list_sha256": "4561378a0ee8d0288a52cbc6aef7305a6dc0073ee0a58bce639f95066ea8e3f5",
+        "name": "glibc",
+        "version": "2.44+r24+g16be1518495f-1"
+      }
+    },
+    "/usr/bin/dbus-daemon": {
+      "device": 31,
+      "inode": 26297,
+      "size": 199176,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "e9ffeaea83965fa53077f716e352d3038794200bacb8eee043fe55117ce2c7d7",
+      "package": {
+        "description_sha256": "031c00d389834cd5fdcbf50d310bed5443219f58072b32d4655ef7ee4133e66c",
+        "file_list_sha256": "36935780bf7ec04b5ff97c31ceb93e0835392de60af00de29c278a64075d65aa",
+        "name": "dbus",
+        "version": "1.16.2-1"
+      }
+    },
+    "/usr/bin/newgidmap": {
+      "device": 31,
+      "inode": 22714,
+      "size": 37576,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "326370106ae7d202a21216d75eb74dfc38ba93ac81d0fe9dc3ddd19bd68efa2f",
+      "package": {
+        "description_sha256": "db5f97b2c9362a8a16cb2f3b78a3849a92f155180abbac3674f7d255459d8a64",
+        "file_list_sha256": "f6fa9255737d05ac331b12b9e8b17e90e9fac7b6ea43bebd6d5848bfe7863cc5",
+        "name": "shadow",
+        "version": "4.20.0.arch1-1"
+      }
+    },
+    "/usr/bin/newuidmap": {
+      "device": 31,
+      "inode": 22715,
+      "size": 37576,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "85099fcbafde31fe5f27dbca529e3da1531f9b97f899db84758132313445af36",
+      "package": {
+        "description_sha256": "db5f97b2c9362a8a16cb2f3b78a3849a92f155180abbac3674f7d255459d8a64",
+        "file_list_sha256": "f6fa9255737d05ac331b12b9e8b17e90e9fac7b6ea43bebd6d5848bfe7863cc5",
+        "name": "shadow",
+        "version": "4.20.0.arch1-1"
+      }
+    },
+    "/usr/bin/setpriv": {
+      "device": 31,
+      "inode": 23222,
+      "size": 47272,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "3bc16fb066583cbdce19af898ada51014de1352695f5463003b156924d4b766b",
+      "package": {
+        "description_sha256": "7d91fadf7fbb2373cbcd33364277e4b242062a19d316a4d093746de682ed423e",
+        "file_list_sha256": "56eb50d5261dfadb34226fb437023dea4a2cde66b044805e7a860f970a2d5d04",
+        "name": "util-linux",
+        "version": "2.42.3-1"
+      }
+    },
+    "/usr/bin/unshare": {
+      "device": 31,
+      "inode": 23238,
+      "size": 43408,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "1fd26966b5ef37a3021e00059a00afb4ddc3fcee181ba2431001f08a372e5179",
+      "package": {
+        "description_sha256": "7d91fadf7fbb2373cbcd33364277e4b242062a19d316a4d093746de682ed423e",
+        "file_list_sha256": "56eb50d5261dfadb34226fb437023dea4a2cde66b044805e7a860f970a2d5d04",
+        "name": "util-linux",
+        "version": "2.42.3-1"
+      }
+    },
+    "/usr/lib/libaudit.so.1.0.0": {
+      "device": 31,
+      "inode": 15905,
+      "size": 157648,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "16813308197ab091526836d4d9ee79b7780a49e63a0ee1d7e01da2b662d057c3",
+      "package": {
+        "description_sha256": "908d1035ce09516af22d846c4bf3d438e52a5f2f325e8491c3193a5a0ed742ce",
+        "file_list_sha256": "5b955378d849bba39a45ffd516109044590511045a1aa3eee99641ee00c02ff8",
+        "name": "audit",
+        "version": "4.2.1-1"
+      }
+    },
+    "/usr/lib/libc.so.6": {
+      "device": 31,
+      "inode": 3434,
+      "size": 2215072,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "e221b10fee9ee4776d8f0f1701253bc06817f7a4dbe6c5292487277d0bf8ffff",
+      "package": {
+        "description_sha256": "2ffdc9e3ae2fc944730a6a9d0029b8cc103fd28eade7f35f5cf89ecd9de2abbc",
+        "file_list_sha256": "4561378a0ee8d0288a52cbc6aef7305a6dc0073ee0a58bce639f95066ea8e3f5",
+        "name": "glibc",
+        "version": "2.44+r24+g16be1518495f-1"
+      }
+    },
+    "/usr/lib/libcap-ng.so.0.0.0": {
+      "device": 31,
+      "inode": 15842,
+      "size": 34896,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "583c413d5a6d6dbe43fbcb7e1d41eb347fc68b0afe8d48dd4a8022af12ec32e9",
+      "package": {
+        "description_sha256": "9614f0fd7a29572078b890487e234262b5f65aa4dbfc017627770364bee538a5",
+        "file_list_sha256": "58f360653f5b15fdadbd98b00c346d73663a74042027c8aeda04125b5ecaf10f",
+        "name": "libcap-ng",
+        "version": "0.9.5-1"
+      }
+    },
+    "/usr/lib/libdbus-1.so.3.38.3": {
+      "device": 31,
+      "inode": 26334,
+      "size": 334008,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "61be5c82b1d494a3690ad38abd756691bc129a51ba3fb7d5b9074016861b7d60",
+      "package": {
+        "description_sha256": "031c00d389834cd5fdcbf50d310bed5443219f58072b32d4655ef7ee4133e66c",
+        "file_list_sha256": "36935780bf7ec04b5ff97c31ceb93e0835392de60af00de29c278a64075d65aa",
+        "name": "dbus",
+        "version": "1.16.2-1"
+      }
+    },
+    "/usr/lib/libexpat.so.1.12.4": {
+      "device": 31,
+      "inode": 26283,
+      "size": 182216,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "516a880ec607ee15f664d92eeb587deeb609f6ef6d05c947e9bfeb781a9debaf",
+      "package": {
+        "description_sha256": "09e5b8b6d29563a753e5e1a186abec7c7c6830bf1f91ad3244815541fc8baf5e",
+        "file_list_sha256": "bd88311850ebf7afa4c1b269cdfcd415bfa5c8373cc441f6c2432999661eded4",
+        "name": "expat",
+        "version": "2.8.4-1"
+      }
+    },
+    "/usr/lib/libgcc_s.so.1": {
+      "device": 31,
+      "inode": 4253,
+      "size": 182512,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33188,
+      "nlink": 1,
+      "sha256": "e618cb9c90c2eb3a1dad1cfea5b6c1eebcf2e799ad805976f4ae47bdd61c716a",
+      "package": {
+        "description_sha256": "d583f9fa31e69776194f2418f4637a2fd46c2f968464087a5da866ba51595893",
+        "file_list_sha256": "b857e78967d6f8dd48f91ddc0561d3871a5fa86c841365c00c987e47fc5647ef",
+        "name": "libgcc",
+        "version": "16.2.1+r23+gd564253eb6c8-1"
+      }
+    },
+    "/usr/lib/libsystemd.so.0.44.0": {
+      "device": 31,
+      "inode": 16324,
+      "size": 1336840,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "2e971237c56af98844a847344edeae0f59ae2e3437de84162b37f308f82c1615",
+      "package": {
+        "description_sha256": "0c15a95547a5d5ab9caea254399102c765ec6cfa2eb2e2a2bda1c3932e20567a",
+        "file_list_sha256": "ba1af8e9dc1e1b0e3ed25d9ecf5df817586e93242711b0412922a73e4c91722b",
+        "name": "systemd-libs",
+        "version": "261.2-1"
+      }
+    },
+    "/usr/lib/systemd/libsystemd-shared-261.2-1.so": {
+      "device": 31,
+      "inode": 27564,
+      "size": 6071736,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "a9138b761996fb49bb45511b2a3f365e5bfac26c461d23d93788c58a5fb6d6f5",
+      "package": {
+        "description_sha256": "7ea5fc387a900ea0e18dfb4694f9b61a5bcab21030662b5a641f7095d4e12630",
+        "file_list_sha256": "c526e894605b86533c701fbab34c0e087e529069e4e44776fa64595c31cc0d58",
+        "name": "systemd",
+        "version": "261.2-1"
+      }
+    },
+    "/usr/lib/systemd/systemd-resolved": {
+      "device": 31,
+      "inode": 28127,
+      "size": 596376,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "feb36cd417f4e6a065222be0f88ce25933244bc22a9f5dd54030f0fa6ac5cfcd",
+      "package": {
+        "description_sha256": "7ea5fc387a900ea0e18dfb4694f9b61a5bcab21030662b5a641f7095d4e12630",
+        "file_list_sha256": "c526e894605b86533c701fbab34c0e087e529069e4e44776fa64595c31cc0d58",
+        "name": "systemd",
+        "version": "261.2-1"
+      }
+    },
+    "/usr/lib/libbrotlicommon.so.1.2.0": {
+      "device": 31,
+      "inode": 8046,
+      "size": 141264,
+      "uid": 0,
+      "gid": 0,
+      "mode": 33261,
+      "nlink": 1,
+      "sha256": "4f895094b7b6ff9c82909e6516bc9cf212e2ec5af451d39bf1bcbc5e5fa225b2",
+      "package": {
+        "description_sha256": "974d3bdc717e12ac7f08e3f15afe3a67168d07aa854237269cf6528a05e1e0cc",
+        "file_list_sha256": "ff22c1aea2a86cca33a7b4028870948e6e76b292722bdcd49c9e0dac2465c3d4",
+        "name": "brotli",
+        "version": "1.2.0-1"
+      }
+    },
+    "/usr/lib/libbrotlidec.so.1.2.0": {
+      "device": 31,
+      "inode": 8049,
+      "mode": 33261,
+      "uid": 0,
+      "gid": 0,
+      "nlink": 1,
+      "size": 55168,
+      "sha256": "0883fb05fa42aa6a883722098530ab08551ed317e38a2311f5c96e94dd460979",
+      "package": {
+        "name": "brotli",
+        "version": "1.2.0-1",
+        "description_sha256": "974d3bdc717e12ac7f08e3f15afe3a67168d07aa854237269cf6528a05e1e0cc",
+        "file_list_sha256": "ff22c1aea2a86cca33a7b4028870948e6e76b292722bdcd49c9e0dac2465c3d4"
+      }
+    }
+  },
+  "predecessor_manifest_sha256": "40a95c1e682f94ee379a8f1cf8c387e60cdbe08ac16516309ede5e0711a5f5fb",
+  "decoder_evidence": {
+    "source_head": "9876005ed109aef844b21d7c095dfccead487c1e",
+    "archive_sha256": "81fecc9b4338b908617560a26c780bd112e906974bd86fb450c0f66de2cfea3d",
+    "result_sha256": "86909eccc7a6a4fe148c2dd1728d027ae0f42eb3c2009b855020e10c143f1a58",
+    "candidate": "/usr/lib/libbrotlidec.so.1.2.0",
+    "header": {
+      "data_encoding": 1,
+      "elf_class": 2,
+      "header_size": 64,
+      "machine": 62,
+      "object_type": 3,
+      "program_header_count": 11,
+      "version": 1
+    },
+    "dynamic": {
+      "declared_search_tokens": [],
+      "interpreter": null,
+      "needed": [
+        "libbrotlicommon.so.1",
+        "libc.so.6"
+      ]
+    },
+    "dependencies": [
+      {
+        "links": [
+          {
+            "identity": [
+              31,
+              8045,
+              24,
+              0,
+              0,
+              41471,
+              1,
+              1767465015000000000,
+              1790010875505109771
+            ],
+            "path": "/usr/lib/libbrotlicommon.so.1",
+            "target": "libbrotlicommon.so.1.2.0"
+          }
+        ],
+        "logical_path": "/usr/lib/libbrotlicommon.so.1",
+        "name": "libbrotlicommon.so.1",
+        "resolved_path": "/usr/lib/libbrotlicommon.so.1.2.0"
+      },
+      {
+        "links": [],
+        "logical_path": "/usr/lib/libc.so.6",
+        "name": "libc.so.6",
+        "resolved_path": "/usr/lib/libc.so.6"
+      }
+    ],
+    "original_identity": [
+      31,
+      8049,
+      33261,
+      0,
+      0,
+      1,
+      55168,
+      1767465015000000000,
+      1790010875505501684
+    ],
+    "package_record_identities": {
+      "desc": [
+        31,
+        8063,
+        33188,
+        0,
+        0,
+        1,
+        441,
+        1790010875506620487,
+        1790010875506620487
+      ],
+      "files": [
+        31,
+        8064,
+        33188,
+        0,
+        0,
+        1,
+        913,
+        1790010875506636396,
+        1790010875506636396
+      ]
+    },
+    "global_package_owner_uniqueness_proven": false,
+    "candidate_elf_executed": false,
+    "loaded_elf_identity_proven": false,
+    "compatibility_acceptance": false,
+    "observed_aliases_adopted": false
+  }
+}
