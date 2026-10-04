@@ -1,5 +1,10 @@
 # K1 response-boundary diagnostic
 
+Historical #621 contract, retained at immutable `c82044ba`. Its actual capture
+remains NONPASS. On the successor branch, the response modules implement the
+[supported socket-property generation](K1_SUPPORTED_SOCKET_ADMISSION.md);
+that source work does not repair or resume this invocation.
+
 Developer-only successor to the first `fe944166` capture NONPASS. The old
 unit, retained reference, stage, executable and evidence remain unchanged.
 This generation is not a retry of the old invocation, a lifecycle gate or

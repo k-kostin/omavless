@@ -38,14 +38,15 @@ class Flow(unittest.TestCase):
         self.assertNotEqual(query.FAILED_PINS['probe'][2],guard.PROBE_SHA)
         self.assertNotIn(str(query.FAILED_STAGE),query.TARGET_ROOTS)
 
-    def test_retained_615_exact_files_no_query_and_same_byte_swaps_refuse(self):
+    def test_retained_exact_files_no_query_and_same_byte_swaps_refuse(self):
         # Real FDs/inodes; only ownership is normalized for ordinary CI UID.
         original_fstat, original_stat = os.fstat, os.stat
         original_lstat = Path.lstat
         def root_meta(info):
             return SimpleNamespace(**{name: (0 if name in ('st_uid','st_gid') else getattr(info,name))
                 for name in ('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')})
-        for swap in ('none','link','fragment','source','metadata'):
+        for generation, swap in ((g, s) for g in (615,621)
+                                 for s in ('none','link','fragment','source','metadata','retarget','hash')):
             with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
                 root = Path(temp); stage_dir = root / 'stage'; stage_dir.mkdir(mode=0o700)
                 links = root / 'links'; links.mkdir(mode=0o700)
@@ -56,12 +57,13 @@ class Flow(unittest.TestCase):
                     file.write_bytes(raw); file.chmod(0o600)
                     pins[name] = (0o600,4096,hashlib.sha256(raw).hexdigest())
                 held = None
-                with patch.object(query,'FAILED_STAGE',stage_dir), patch.object(query,'FAILED_LINK',link), \
-                     patch.object(query,'FAILED_PINS',pins), patch.object(query,'command',side_effect=AssertionError('query')) as command, \
+                prefix = 'FAILED' if generation == 615 else 'RESPONSE'
+                with patch.object(query,prefix+'_STAGE',stage_dir), patch.object(query,prefix+'_LINK',link), \
+                     patch.object(query,prefix+'_PINS',pins), patch.object(query,'command',side_effect=AssertionError('query')) as command, \
                      patch.object(query.os,'fstat',side_effect=lambda fd:root_meta(original_fstat(fd))), \
                      patch.object(query.os,'stat',side_effect=lambda *a,**kw:root_meta(original_stat(*a,**kw))), \
                      patch.object(Path,'lstat',lambda p:root_meta(original_lstat(p))):
-                    held = query.RetainedFailedActivation()
+                    held = query.RetainedFailedActivation(generation)
                     self.assertTrue(held.admits(link,stage_dir/'fixture.service'))
                     self.assertFalse(held.admits(links/'other.service',stage_dir/'fixture.service'))
                     self.assertFalse(held.admits(link,stage_dir/'guard.py'))
@@ -72,6 +74,11 @@ class Flow(unittest.TestCase):
                         raw=file.read_bytes(); file.unlink(); file.write_bytes(raw);file.chmod(0o600)
                     elif swap == 'metadata':
                         (stage_dir/'probe').chmod(0o400)
+                    elif swap == 'retarget':
+                        link.unlink(); link.symlink_to(stage_dir/'guard.py')
+                    elif swap == 'hash':
+                        fd, info, _ = held.files['probe']
+                        held.files['probe'] = (fd, info, '0'*64)
                     if swap == 'none':
                         held.recheck()
                         self.assertEqual(held.file_record(stage_dir/'fixture.service',root_meta(original_stat(stage_dir/'fixture.service'))),
@@ -89,6 +96,35 @@ class Flow(unittest.TestCase):
                     os.close(held.link_fd)
                     for fd,_,_ in held.files.values(): os.close(fd)
 
+    def test_retained_621_fixed_pins_and_generation_are_not_dispatch(self):
+        self.assertEqual(query.RESPONSE_PINS['fixture.service'][2],
+                         'a3b03103bbd8c43f6e6ca6755c063a7e851f40a006303c93028be80aec411e58')
+        self.assertEqual(query.RESPONSE_PINS['probe'][2],
+                         'a2b8dd3b7cc1658c536fd81bd25a74ae55255cb2159624cfe8f548c162ad0e9a')
+        self.assertNotIn(str(query.RESPONSE_STAGE),query.TARGET_ROOTS)
+        for unknown in (True, '621', 622, None, '/run/other'):
+            with patch.object(query.os,'open') as opened:
+                with self.assertRaises(query.Refused): query.RetainedFailedActivation(unknown)
+                opened.assert_not_called()
+        with patch.object(query,'ACTIVATION_REFUSED',False), patch.object(query,'RESPONSE_ACTIVATION',None), \
+             patch.object(query,'RetainedFailedActivation',side_effect=query.Refused) as constructor:
+            for _ in range(2):
+                with self.assertRaises(query.Refused): query.retained_response_activation()
+            constructor.assert_called_once_with(621)
+            with self.assertRaises(query.Refused): query.retained_failed_activation()
+
+    def test_supported_socket_alias_fields_required_before_and_after(self):
+        self.assertNotIn('Sockets',guard.expected_permissions()['service'])
+        for field, wrong in [('Names',[guard.UNIT,'alias.service']),
+                             ('Names',[guard.UNIT,guard.UNIT]),
+                             ('Following','other.service'),
+                             ('TriggeredBy',['synthetic.socket']),('Wants',['synthetic.socket'])]:
+            for missing in (False,True):
+                value=guard.expected_permissions()
+                if missing: del value['unit'][field]
+                else: value['unit'][field]['value']=wrong
+                with self.assertRaises(RuntimeError): guard.validate_permissions(value)
+
     def test_failed_activation_refusal_latches_before_second_constructor(self):
         with patch.object(query,'ACTIVATION_REFUSED',False), patch.object(query,'FAILED_ACTIVATION',None), \
              patch.object(query,'RetainedFailedActivation',side_effect=query.Refused) as constructor:
@@ -104,19 +140,27 @@ class Flow(unittest.TestCase):
             new_fragment=new_stage/'fixture.service'; new_fragment.write_bytes(b'old615')
             old_link=links/'old609.service'; old_link.symlink_to(old_fragment)
             new_link=links/'old615.service'; new_link.symlink_to(new_fragment)
+            response_stage=root/'old621'; response_stage.mkdir()
+            response_fragment=response_stage/'fixture.service'; response_fragment.write_bytes(b'old621')
+            response_link=links/'old621.service'; response_link.symlink_to(response_fragment)
             unrelated=new_stage/'other.service'; unrelated.write_bytes(b'old615')
             old=SimpleNamespace(fragment=old_fragment.stat(),recheck=Mock(return_value=b'old609'),
                 admits=lambda link,target:link==old_link and target==old_fragment)
             failed=SimpleNamespace(recheck=Mock(),admits=lambda link,target:link==new_link and target==new_fragment,
                 file_record=lambda path,info:['file',hashlib.sha256(b'old615').hexdigest()])
+            response=SimpleNamespace(recheck=Mock(),admits=lambda link,target:link==response_link and target==response_fragment,
+                file_record=lambda path,info:['file',hashlib.sha256(b'old621').hexdigest()])
             with patch.object(query,'ACTIVATION_ROOTS',(str(links),)), patch.object(query,'TARGET_ROOTS',()), \
                  patch.object(query,'RETAINED_LINK',old_link),patch.object(query,'RETAINED_FRAGMENT',old_fragment), \
                  patch.object(query,'FAILED_LINK',new_link),patch.object(query,'FAILED_STAGE',new_stage), \
                  patch.object(query,'retained_activation',return_value=old), \
                  patch.object(query,'retained_failed_activation',return_value=failed), \
+                 patch.object(query,'RESPONSE_LINK',response_link),patch.object(query,'RESPONSE_STAGE',response_stage), \
+                 patch.object(query,'retained_response_activation',return_value=response), \
                  patch.object(query,'command',side_effect=AssertionError('query')) as command:
                 records=query._inventory()
                 self.assertIn(str(new_fragment),records)
+                self.assertIn(str(response_fragment),records)
                 self.assertNotIn(str(unrelated),records)
                 failed.recheck.assert_called()
                 # Same stage directory is not a general target exception.
@@ -282,9 +326,9 @@ class Flow(unittest.TestCase):
         old = (src / 'kernel_manager_private_fixture.rs').read_text()
         new = (src / 'kernel_response_diagnostic_fixture.rs').read_text()
         expected = old.replace('omavless-k1-manager-private-lifecycle',
-            'omavless-k1-admission-response-diagnostic').replace('::manager_private::',
+            'omavless-k1-supported-socket-admission').replace('::manager_private::',
             '::response_diagnostic::').replace('OMAVLESS_K1_MANAGER_PRIVATE',
-            'OMAVLESS_K1_RESPONSE_DIAGNOSTIC_WRITER')
+            'OMAVLESS_K1_SUPPORTED_SOCKET_WRITER')
         self.assertEqual(new, expected.replace('const TEST: &str = "', 'const TEST: &str =\n    "'))
         outer = (SUPPORT / 'response_diagnostic_guard.py').read_text()
         native = (src / 'manager_response_diagnostic_fixture.rs').read_text()

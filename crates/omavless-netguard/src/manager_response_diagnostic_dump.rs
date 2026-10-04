@@ -2,13 +2,13 @@
 //! Caller must bind same-owner typed Version and original unit FD separately.
 use std::collections::BTreeMap;
 
-const UNIT: &str = "omavless-k1-admission-response-diagnostic.service";
-const FRAGMENT: &str = "/run/systemd/system/omavless-k1-admission-response-diagnostic.service";
+const UNIT: &str = "omavless-k1-supported-socket-admission.service";
+const FRAGMENT: &str = "/run/systemd/system/omavless-k1-supported-socket-admission.service";
 pub(super) const UNIT_SHA: &str =
-    "a3b03103bbd8c43f6e6ca6755c063a7e851f40a006303c93028be80aec411e58";
-const HEADER: &str = "→ Unit omavless-k1-admission-response-diagnostic.service:";
+    "030714757ae81c146822b68a7a6a3dfdace38ce8ae683ff7d26eeee3d8dbb730";
+const HEADER: &str = "→ Unit omavless-k1-supported-socket-admission.service:";
 const EXEC: &str = "\t→ ExecStart:";
-const COMMAND: &str = "\t\tCommand Line: /run/omavless-k1-admission-response-diagnostic/probe --exact kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle --ignored --nocapture --test-threads=1";
+const COMMAND: &str = "\t\tCommand Line: /run/omavless-k1-supported-socket-admission/probe --exact kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle --ignored --nocapture --test-threads=1";
 const SELECTED: &[(&str, &str)] = &[
     ("Fragment Path", FRAGMENT),
     ("WatchdogSec", "0"),
@@ -16,17 +16,17 @@ const SELECTED: &[(&str, &str)] = &[
     ("StandardError", "append"),
     (
         "StandardOutputFileToAppend",
-        "/run/omavless-k1-admission-response-diagnostic/native.stdout",
+        "/run/omavless-k1-supported-socket-admission/native.stdout",
     ),
     (
         "StandardErrorFileToAppend",
-        "/run/omavless-k1-admission-response-diagnostic/native.stderr",
+        "/run/omavless-k1-supported-socket-admission/native.stderr",
     ),
     ("RefuseManualStart", "no"),
     ("Type", "oneshot"),
     ("User", "root"),
     ("Group", "root"),
-    ("Environment", "OMAVLESS_K1_RESPONSE_DIAGNOSTIC_WRITER=1"),
+    ("Environment", "OMAVLESS_K1_SUPPORTED_SOCKET_WRITER=1"),
     ("Open File", "/proc/1/ns/net:k1-host-netns:read-only"),
 ];
 
