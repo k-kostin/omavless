@@ -80,6 +80,18 @@ and refusal of a live owner, not a complete absence proof. Uncertainty preserves
 the fixture without signals, reaps, retries or cleanup; only exact known child
 completion permits deletion of that test's synthetic root.
 
+Checkpoint `52595b13a67e3bb3a4e960eb280da35816642e1e` remains NONPASS:
+ordinary source (563 tests/two skips plus JS/QML) and strict Clippy passed,
+but full Rust stopped at the DNS journal singleton test's final reacquisition
+(50 passed, one failed, one ignored in that suite). The log does not establish
+its underlying errno or cause. Independent review also found that the cached
+worker's ordinary stack-owned server could be dropped on protocol EOF/error.
+The follow-up keeps the server in `ManuallyDrop` immediately after binding;
+protocol error, EOF, malformed input or panic retains it and parks permanently.
+Only explicit finish plus successfully written/flushed acknowledgment consumes
+and drops it. Pure lifecycle controls test these failure branches without
+launching intentionally parked children. Prior evidence is not reclassified.
+
 Limits per observation are 4096 numeric PIDs, 64 KiB status/stat or query output,
 128 KiB command line, 4 MiB Unix table, 16 MiB aggregate proc/query bytes and a
 two-second deadline. Permission errors (including unrelated same-UID nondumpable

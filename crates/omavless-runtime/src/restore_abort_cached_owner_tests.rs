@@ -6,6 +6,7 @@ use nix::unistd::Uid;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
+use std::mem::ManuallyDrop;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 const WORKER: &str = "restore_abort_cli::stopped_owner::cached_owner_tests::cached_owner_worker";
@@ -136,25 +137,132 @@ fn token(stdout: &mut impl Read, pid: Pid, expected: &[u8]) {
 fn cached_owner_worker() {
     let root = std::path::PathBuf::from(std::env::var_os(ROOT_ENV).unwrap());
     let paths = crate::RuntimePaths::below(&root);
-    let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
-    std::io::stdout().write_all(b"ready\n").unwrap();
-    std::io::stdout().flush().unwrap();
+    // Retain immediately: even EOF, broken stdout or unwinding must not invoke
+    // RuntimeServer::drop and silently remove/release the cached owner.
+    let server = ManuallyDrop::new(crate::RuntimeServer::bind(paths.clone()).unwrap());
+    let completed = finish_retained(server, |server| {
+        worker_protocol(&mut std::io::stdin(), &mut std::io::stdout(), || {
+            let cached = server._owner._file.metadata()?;
+            assert_eq!(cached.nlink(), 0);
+            assert_ne!(cached.ino(), fs::metadata(&paths.owner_lock)?.ino());
+            assert!(!paths.socket.exists());
+            assert_eq!(
+                server.listener.local_addr()?.as_pathname(),
+                Some(paths.socket.as_path())
+            );
+            Ok(())
+        })
+    });
+    if !completed {
+        loop {
+            std::thread::park();
+        }
+    }
+}
+
+fn worker_protocol(
+    input: &mut impl Read,
+    output: &mut impl Write,
+    verify: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    output.write_all(b"ready\n")?;
+    output.flush()?;
     let mut request = [0_u8; 1];
-    std::io::stdin().read_exact(&mut request).unwrap();
+    input.read_exact(&mut request)?;
     assert_eq!(request, [b'v']);
-    let cached = server._owner._file.metadata().unwrap();
-    assert_eq!(cached.nlink(), 0);
-    assert_ne!(cached.ino(), fs::metadata(&paths.owner_lock).unwrap().ino());
-    assert!(!paths.socket.exists());
-    assert_eq!(
-        server.listener.local_addr().unwrap().as_pathname(),
-        Some(paths.socket.as_path())
-    );
-    std::io::stdout().write_all(b"retained\n").unwrap();
-    std::io::stdout().flush().unwrap();
-    std::io::stdin().read_exact(&mut request).unwrap();
+    verify()?;
+    output.write_all(b"retained\n")?;
+    output.flush()?;
+    input.read_exact(&mut request)?;
     assert_eq!(request, [b'f']);
-    drop(server);
+    output.write_all(b"finishing\n")?;
+    output.flush()
+}
+
+fn finish_retained<T>(
+    held: ManuallyDrop<T>,
+    protocol: impl FnOnce(&T) -> std::io::Result<()>,
+) -> bool {
+    if matches!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| protocol(&held))),
+        Ok(Ok(()))
+    ) {
+        // Sole drop after explicit known finish and successful acknowledgment.
+        // Ownership is consumed, so the caller cannot access it again.
+        drop(ManuallyDrop::into_inner(held));
+        true
+    } else {
+        false
+    }
+}
+
+#[test]
+fn worker_protocol_uncertainty_never_drops_retained_owner() {
+    struct Owner<'a>(&'a Cell<usize>);
+    impl Drop for Owner<'_> {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    struct FailingOutput {
+        operation: usize,
+        fail: usize,
+    }
+    impl FailingOutput {
+        fn next(&mut self) -> std::io::Result<()> {
+            let operation = self.operation;
+            self.operation += 1;
+            if operation == self.fail {
+                Err(std::io::Error::other("synthetic pipe failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl Write for FailingOutput {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.next()?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.next()
+        }
+    }
+    for fail in 0..6 {
+        let count = Cell::new(0);
+        let held = ManuallyDrop::new(Owner(&count));
+        let mut output = FailingOutput { operation: 0, fail };
+        assert!(!finish_retained(held, |_| worker_protocol(
+            &mut &b"vf"[..],
+            &mut output,
+            || Ok(())
+        )));
+        assert_eq!(count.get(), 0);
+        assert_eq!(output.operation, fail + 1);
+    }
+    for bytes in [b"".as_slice(), b"x", b"v", b"vx", b"vf"] {
+        let count = Cell::new(0);
+        let held = ManuallyDrop::new(Owner(&count));
+        let completed = finish_retained(held, |_| {
+            worker_protocol(&mut &bytes[..], &mut Vec::new(), || Ok(()))
+        });
+        assert_eq!(completed, bytes == b"vf");
+        assert_eq!(count.get(), usize::from(completed));
+        // Unknown retains this pure dummy only; no parked process is spawned.
+    }
+    for phase in 0..3 {
+        let count = Cell::new(0);
+        let held = ManuallyDrop::new(Owner(&count));
+        let completed = finish_retained(held, |_| match phase {
+            0 => worker_protocol(&mut &b"vf"[..], &mut std::io::sink(), || {
+                Err(std::io::Error::other("synthetic verification refusal"))
+            }),
+            1 => worker_protocol(&mut &b"vf"[..], &mut &mut [][..], || Ok(())),
+            _ => panic!("synthetic retained-owner panic"),
+        });
+        assert!(!completed);
+        assert_eq!(count.get(), 0);
+    }
 }
 
 #[test]
