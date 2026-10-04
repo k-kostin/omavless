@@ -12,6 +12,7 @@ use std::{
 };
 
 mod manager_layers;
+mod revision_cas;
 
 struct Temp(PathBuf);
 impl Temp {
