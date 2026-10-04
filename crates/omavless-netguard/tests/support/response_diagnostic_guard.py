@@ -310,6 +310,18 @@ def validate_lifecycle(value, native, stopped, owner):
         'zero_pids': True, 'no_job': True, 'empty_cgroup': True})
 
 
+def validate_negative_witness(witness, stage_identity):
+    require(type(witness) is dict and set(witness) == {'schema', 'fixture_unit',
+        'stage_device', 'stage_inode', 'namespace_device', 'namespace_inode',
+        'negative_witness_only', 'canonical_authority'})
+    for key in ('namespace_device', 'namespace_inode'):
+        require(type(witness[key]) is int and 0 < witness[key] < 2**64)
+    strict_equal({k: v for k, v in witness.items() if k not in ('namespace_device', 'namespace_inode')},
+        {'schema': 1, 'fixture_unit': UNIT, 'stage_device': stage_identity[0],
+         'stage_inode': stage_identity[1], 'negative_witness_only': True, 'canonical_authority': False})
+    return witness['namespace_device'], witness['namespace_inode']
+
+
 class Observer:
     def __init__(self, ns, pins, directory_fd, parent_fd):
         self.ns, self.pins, self.directory_fd, self.parent_fd = ns, pins, directory_fd, parent_fd
@@ -429,14 +441,7 @@ class Observer:
         witness_pin = Pin(STAGE / 'host-negative-witness.json', 0o600, 2048)
         witness = json.loads(witness_pin.data(), object_pairs_hook=pairs)
         stage_meta = os.fstat(self.directory_fd)
-        require(type(witness) is dict and set(witness) == {'schema', 'fixture_unit',
-            'stage_device', 'stage_inode', 'namespace_device', 'namespace_inode',
-            'negative_witness_only', 'canonical_authority'})
-        for key in ('namespace_device', 'namespace_inode'):
-            require(type(witness[key]) is int and 0 < witness[key] < 2**64)
-        strict_equal({k: v for k, v in witness.items() if k not in ('namespace_device', 'namespace_inode')},
-            {'schema': 1, 'fixture_unit': UNIT, 'stage_device': stage_meta.st_dev,
-             'stage_inode': stage_meta.st_ino, 'negative_witness_only': True, 'canonical_authority': False})
+        negative_identity = validate_negative_witness(witness, (stage_meta.st_dev, stage_meta.st_ino))
         self.pins.append(witness_pin)
         for path in (STAGE / 'state', STAGE / 'state/omavless-netguard'):
             self.pins.append(DirectoryPin(path))
@@ -455,8 +460,7 @@ class Observer:
             'host_netns_epoch', 'netns_device', 'netns_inode', 'operation', 'phase', 'table_handle'})
         for key in ('netns_device', 'netns_inode'):
             require(type(receipt[key]) is int and 0 < receipt[key] < 2**64)
-        require((receipt['netns_device'], receipt['netns_inode']) !=
-                (witness['namespace_device'], witness['namespace_inode']))
+        require((receipt['netns_device'], receipt['netns_inode']) != negative_identity)
         strict_equal({k: v for k, v in receipt.items() if k not in ('netns_device', 'netns_inode')},
             {'version': 1, 'enrolled_uid': 1001, 'boot': [0x31]*16, 'host_netns_epoch': [0x32]*16,
              'operation': 2, 'phase': 'retired', 'table_handle': 0})

@@ -303,7 +303,9 @@ fn never_started(f: &Facts) -> Result<()> {
     let value = f.get("InvocationID").ok_or(())?;
     ensure(value.value_signature() == Vec::<u8>::SIGNATURE)?;
     let invocation = Vec::<u8>::try_from(value.try_clone().map_err(|_| ())?).map_err(|_| ())?;
-    ensure(invocation == [0; 16])
+    // v261 bus_property_get_id128 emits an empty typed ay for a null ID,
+    // not an array of sixteen zeros. Missing or alternative encodings refuse.
+    ensure(invocation.is_empty())
 }
 
 fn start_phase(f: &Facts, job: &Job) -> Result<Option<Execution>> {
@@ -355,7 +357,7 @@ fn stop_phase(f: &Facts, job: &Job, prior: &Execution) -> Result<bool> {
 }
 
 struct Real {
-    witness: Option<crate::manager_private_negative_witness::RootWitness>,
+    witness: Option<crate::manager_negative_witness::RootWitness>,
     admitted: admission::Held,
     dirs: Vec<Directory>,
     pins: Vec<Pin>,
@@ -626,7 +628,7 @@ impl FixedLifecycle for Real {
     fn admit_retaining_reference(&mut self) -> Result<()> {
         self.recheck(true)?;
         ensure(self.witness.is_none())?;
-        self.witness = Some(crate::manager_private_negative_witness::RootWitness::capture()?);
+        self.witness = Some(crate::manager_negative_witness::RootWitness::capture()?);
         self.recheck(true)?;
         self.owner = admission::admit_retaining_reference(&self.admitted, || self.recheck(true))
             .map_err(|_| ())?;
@@ -854,7 +856,7 @@ mod tests {
             "Job",
             (job.id, OwnedObjectPath::try_from(job.path.clone()).unwrap())
         );
-        field!(f, "InvocationID", vec![0_u8; 16]);
+        field!(f, "InvocationID", Vec::<u8>::new());
         field!(f, "ExecMainExitTimestampMonotonic", 0_u64);
         field!(f, "ExecMainCode", 0_i32);
         field!(f, "ExecMainStatus", 0_i32);
@@ -913,6 +915,29 @@ mod tests {
         let mut f = running(job, true);
         field!(f, "Job", (0_u32, OwnedObjectPath::try_from("/").unwrap()));
         f
+    }
+
+    #[test]
+    fn never_started_requires_exact_upstream_empty_byte_array_not_zero_id_aliases() {
+        let job = Job::from_path("/org/freedesktop/systemd1/job/17").unwrap();
+        assert!(never_started(&queued(&job)).is_ok());
+        for bytes in [vec![0_u8; 16], vec![1_u8; 16], vec![0_u8], vec![1_u8; 17]] {
+            let mut facts = queued(&job);
+            field!(facts, "InvocationID", bytes);
+            assert!(never_started(&facts).is_err());
+        }
+        let mut facts = queued(&job);
+        facts.remove("InvocationID");
+        assert!(never_started(&facts).is_err());
+        field!(facts, "InvocationID", Vec::<u64>::new());
+        assert!(never_started(&facts).is_err());
+        field!(facts, "InvocationID", "");
+        assert!(never_started(&facts).is_err());
+        let mut after = completed(&job);
+        for bytes in [vec![], vec![0_u8; 16]] {
+            field!(after, "InvocationID", bytes);
+            assert!(execution(&after, true).is_err());
+        }
     }
 
     #[test]

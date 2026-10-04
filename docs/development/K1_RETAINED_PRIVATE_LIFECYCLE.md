@@ -49,8 +49,10 @@ the fixed unit, original stage device/inode and namespace device/inode, with
 `negative_witness_only=true` and `canonical_authority=false`. Both processes
 retain original receipt FDs and stage ancestry; metadata, no-xattrs, digest,
 duplicate/unknown/type rejection and exact identities are rechecked. Root also
-rechecks its original/current namespace anchors before Ref and every subsequent
-RPC/effect boundary. Its retained FD prevents namespace inode reuse.
+rechecks its original/current namespace anchors immediately before Ref and at
+each subsequent lifecycle-adapter RPC/effect boundary (the read-only admission
+prefix remains its own bounded sequence). Its retained FD prevents namespace
+inode reuse.
 
 The restricted child retains inherited FD3 before any other opener, reads only
 this fixed receipt, and requires its own network namespace to differ. Receipt
@@ -165,6 +167,10 @@ count are typed. Never-started runtime Watchdog infinity and post-start zero are
 distinct from configured Dump WatchdogSec zero. A seen running invocation cannot
 be replaced by another one before completion. Stop observes the same historical
 completed invocation; missing or unfamiliar states are failures, not absence.
+Never-started InvocationID is exactly an empty typed byte array, matching v261's
+[ID getter](https://github.com/systemd/systemd/blob/v261/src/shared/bus-get-properties.c#L59).
+Sixteen zero bytes, missing data and alternate variant types are not aliases;
+post-start identity instead requires exactly sixteen bytes with a nonzero value.
 
 Private finite before-RPC and selected-runtime observation records identify
 boundaries without publishing raw values or claiming validation. Native receipt,
@@ -187,3 +193,12 @@ selection caught the old encoded unit object path in the admission prefix
 (119 passed, one failed, ten ignored); it was corrected to the new exact literal
 before any execution. These intermediate failures remain NONPASS and are not
 evidence for a guest invocation.
+
+Full Rust at intermediate `0e79d67` finished with 129 suites, 2,157 passed,
+zero failed and 85 ignored, plus fmt/Clippy/TUI/parity. Its full source gate
+retained one failure (666 tests, two skips): a new test-only module name collided
+with the unchanged old `manager_private` substring boundary assertion. The
+module was renamed rather than weakening that assertion. Primary-source review
+also corrected the initial synthetic sixteen-zero-byte InvocationID hypothesis
+to the exact empty-array wire representation before any freeze or guest run.
+These intermediate results do not replace corrected-head verification.

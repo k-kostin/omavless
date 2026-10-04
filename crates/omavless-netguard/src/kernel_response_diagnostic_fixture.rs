@@ -3,7 +3,7 @@
 //! No canonical namespace or installed authority is established here.
 use super::*;
 use crate::locked_state::LockedState;
-use crate::manager_private_negative_witness::Witness;
+use crate::manager_negative_witness::Witness;
 use crate::protocol::{Health, Mode, Protection, Request, Response};
 use crate::receipt::NamespaceObservation;
 use crate::root_state::RootStateStore;

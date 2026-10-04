@@ -26,6 +26,23 @@ query = load('response_diagnostic_guest_guard')
 
 
 class Flow(unittest.TestCase):
+    def test_negative_witness_is_exact_non_authorizing_and_bound_to_original_stage(self):
+        value = {'schema': 1, 'fixture_unit': guard.UNIT, 'stage_device': 2, 'stage_inode': 3,
+                 'namespace_device': 5, 'namespace_inode': 9,
+                 'negative_witness_only': True, 'canonical_authority': False}
+        self.assertEqual(guard.validate_negative_witness(value, (2, 3)), (5, 9))
+        for key in value:
+            missing = dict(value); del missing[key]
+            with self.assertRaises(RuntimeError): guard.validate_negative_witness(missing, (2, 3))
+            wrong = dict(value); wrong[key] = []
+            with self.assertRaises(RuntimeError): guard.validate_negative_witness(wrong, (2, 3))
+        for key, bad in [('namespace_inode', 0), ('namespace_device', True), ('namespace_inode', 2**64),
+                         ('canonical_authority', True), ('negative_witness_only', False),
+                         ('fixture_unit', 'other.service'), ('stage_inode', 4), ('schema', True),
+                         ('extra', 0)]:
+            wrong = dict(value); wrong[key] = bad
+            with self.assertRaises(RuntimeError): guard.validate_negative_witness(wrong, (2, 3))
+
     def test_retained_615_pins_are_the_original_four_not_current_candidate(self):
         self.assertEqual(set(query.FAILED_PINS),{'guard.py','query-guard.py','fixture.service','probe'})
         for name, path in {
@@ -330,10 +347,15 @@ class Flow(unittest.TestCase):
         run = new.split('fn run(held: &mut Held)')[1]
         self.assertLess(run.index('held.isolation.recheck()?'),run.index('FixtureCreator::open'))
         self.assertIn('setns(&null, CloneFlags::empty())', new)
-        witness = (src / 'manager_private_negative_witness.rs').read_text()
+        witness = (src / 'manager_negative_witness.rs').read_text()
         self.assertIn('canonical_authority:false', witness.replace(' ', ''))
         self.assertIn('OFlags::EXCL', witness)
         self.assertIn('deny_unknown_fields', witness)
+        self.assertIn(f'const STAGE: &str = "{guard.STAGE}";', witness)
+        self.assertIn(f'const UNIT: &str = "{guard.UNIT}";', witness)
+        old = (src / 'kernel_manager_private_fixture.rs').read_text()
+        self.assertEqual(new.split('fn run(held: &mut Held)')[1].split('#[test]')[0],
+                         old.split('fn run(held: &mut Held)')[1].split('#[test]')[0])
         outer = (SUPPORT / 'response_diagnostic_guard.py').read_text()
         native = (src / 'manager_response_diagnostic_fixture.rs').read_text()
         for forbidden in ('StartUnit', 'StopUnit', 'SetProperties', 'ReloadUnit'):
