@@ -28,6 +28,7 @@ class Controls(unittest.TestCase):
 
     def fixture(self, directory):
         root=Path(directory);root.chmod(0o755);artifacts=root/'artifacts';artifacts.mkdir(mode=0o755)
+        artifacts.chmod(0o755)  # Explicit namespace staging mode, even under private umask077.
         elf=bytearray(64);elf[:6]=b'\x7fELF\x02\x01';elf[18:20]=b'\x3e\x00'
         core=bytes(elf);broker=core+b'broker';helper=core+b'helper'
         sha={name:hashlib.sha256(raw).hexdigest() for name,raw in
@@ -84,6 +85,15 @@ class Controls(unittest.TestCase):
                 record=value.mapped_identity('mihomo',info.st_dev,info.st_ino)
                 self.assertEqual(record['path'],'/artifacts/mihomo');self.assertEqual(record['sha256'],sha)
                 self.assertFalse(value.sealed)
+
+    def test_inert_namespace_staging_explicit_modes_under_private_umask(self):
+        previous=os.umask(0o077)
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                directory,stack=self.fixture(temp)
+                self.assertEqual(directory.stat().st_mode&0o777,0o755)
+                with stack:value=self.construct();value.recheck();self.assertFalse(value.sealed)
+        finally:os.umask(previous)
 
     def test_member_ambiguity_prevents_any_elf_open(self):
         with tempfile.TemporaryDirectory() as temp:
