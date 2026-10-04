@@ -10,6 +10,7 @@ if ! command -v cc >/dev/null 2>&1; then
 fi
 
 cargo fmt --all -- --check
+python3 -m unittest -v tests.test_k1_launch_acquisition_types
 # This fixture forks a helper holding an inherited flock and tests a fixed
 # cleanup budget. Running it beside unrelated process-heavy tests can spend
 # that budget on scheduler contention, not the owned-group cleanup under test.

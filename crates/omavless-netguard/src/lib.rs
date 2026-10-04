@@ -13,6 +13,8 @@ mod enrollment_provision_candidate;
 pub mod full_vpn_wire;
 #[cfg(target_os = "linux")]
 pub mod kernel_observer;
+#[allow(dead_code)] // Inactive acquisition prerequisite; no real constructor.
+mod launch_acquisition;
 #[allow(dead_code)] // Inactive prerequisite, not an installed socket publisher.
 mod listener_admission;
 #[allow(dead_code)] // Inactive first publication candidate; no installed service.

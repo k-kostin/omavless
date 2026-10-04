@@ -5,6 +5,7 @@
 use crate::effect_port::{
     EffectError, EffectIdentity, EffectPort, EffectSnapshot, ExchangeBoundary,
 };
+use crate::launch_acquisition::AcquiredCreator;
 use crate::listener_admission::AdmittedListener;
 use crate::locked_state::LockedState;
 use crate::policy::Policy;
@@ -44,7 +45,7 @@ pub(crate) trait CanonicalCreator: EffectPort + sealed::Sealed {
 }
 
 pub(crate) struct BoundEffects<C: CanonicalCreator> {
-    creator: C,
+    creator: AcquiredCreator<C>,
     epoch: Option<HostEpoch>,
     sealed: bool,
     // Moving a creator to a different thread could change the namespace
@@ -53,7 +54,7 @@ pub(crate) struct BoundEffects<C: CanonicalCreator> {
 }
 
 impl<C: CanonicalCreator> BoundEffects<C> {
-    fn new(creator: C) -> Self {
+    fn new(creator: AcquiredCreator<C>) -> Self {
         Self {
             creator,
             epoch: None,
@@ -63,7 +64,9 @@ impl<C: CanonicalCreator> BoundEffects<C> {
     }
 
     fn admit(&mut self) -> NamespaceObservation {
-        if let Ok(epoch) = self.creator.retained_epoch(Boundary::Admission)
+        if let Ok(epoch) = self
+            .creator
+            .with_lease(|c| c.retained_epoch(Boundary::Admission))
             && epoch.boot != [0; 16]
             && epoch.namespace_epoch != [0; 16]
             && epoch.namespace_inode != 0
@@ -87,7 +90,7 @@ impl<C: CanonicalCreator> BoundEffects<C> {
         }
         // Set before entering provider code: unwind cannot revive this owner.
         self.sealed = true;
-        let epoch = self.creator.retained_epoch(boundary)?;
+        let epoch = self.creator.with_lease(|c| c.retained_epoch(boundary))?;
         if Some(epoch) != self.epoch {
             return Err(EffectError::UnavailableOrUncertain);
         }
@@ -103,8 +106,11 @@ impl<C: CanonicalCreator> BoundEffects<C> {
     ) -> Result<T, EffectError> {
         self.check(before)?;
         self.sealed = true;
-        let value = effect(&mut self.creator)?;
-        let epoch = self.creator.retained_epoch(after)?;
+        let (value, epoch) = self.creator.with_lease(|creator| {
+            let value = effect(creator)?;
+            let epoch = creator.retained_epoch(after)?;
+            Ok((value, epoch))
+        })?;
         if Some(epoch) != self.epoch {
             return Err(EffectError::UnavailableOrUncertain);
         }
@@ -156,7 +162,7 @@ impl<C: CanonicalCreator> AuthoritySession<C> {
     pub(crate) fn from_admitted(
         listener: AdmittedListener,
         state: LockedState,
-        creator: C,
+        creator: AcquiredCreator<C>,
     ) -> std::io::Result<Self> {
         let bound = BoundEffects::new(creator);
         SessionOwner::from_admitted_retaining(listener, state, bound, BoundEffects::admit).map(
@@ -190,6 +196,9 @@ impl<C: CanonicalCreator> AuthoritySession<C> {
     /// Synthetic-only teardown. Normal compilation deliberately has no release.
     #[cfg(test)]
     pub(crate) fn release_synthetic(self) {
-        drop(ManuallyDrop::into_inner(self.owner));
+        ManuallyDrop::into_inner(self.owner)
+            .into_test_kernel()
+            .creator
+            .release_synthetic();
     }
 }

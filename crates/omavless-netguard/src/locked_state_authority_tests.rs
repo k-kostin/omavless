@@ -15,6 +15,8 @@ mod authority_composition_controls {
         effect_error: bool,
         effect_panic: bool,
         post_effect_observe: bool,
+        launch_lost: Rc<std::cell::Cell<bool>>,
+        lose_launch_after_effect: bool,
     }
     struct Provider { kernel: Kernel, control: Rc<RefCell<Control>> }
     impl Drop for Provider {
@@ -37,6 +39,7 @@ mod authority_composition_controls {
     impl Provider {
         fn returned<T>(&self, value: Result<T, EffectError>) -> Result<T, EffectError> {
             let control = self.control.borrow();
+            if control.lose_launch_after_effect { control.launch_lost.set(true); }
             assert!(!control.effect_panic, "synthetic effect panic after execution");
             if control.effect_error { Err(EffectError::UnavailableOrUncertain) } else { value }
         }
@@ -65,8 +68,10 @@ mod authority_composition_controls {
         // only canonical/kernel observations are synthetic, not socket/state IO.
         let listener = publish_test_parent(File::open(parent).unwrap(), &path,
             permissions, permissions.1, || true).unwrap();
+        let lost = control.borrow().launch_lost.clone();
         let provider = Provider { kernel: Kernel::new(f), control };
-        (AuthoritySession::from_admitted(listener, bound_state(f, peer_uid()), provider).unwrap(), path)
+        (AuthoritySession::from_admitted(listener, bound_state(f, peer_uid()),
+            crate::launch_acquisition::AcquiredCreator::synthetic_controlled(provider, lost)).unwrap(), path)
     }
     fn assert_sealed(owner: &mut AuthoritySession<Provider>, control: &Rc<RefCell<Control>>) {
         control.borrow_mut().fail = None;
@@ -275,5 +280,32 @@ mod authority_composition_controls {
         assert_sealed(&mut owner, &control);
         assert_eq!(control.borrow().effects, 0);
         owner.release_synthetic();
+    }
+
+    #[test]
+    fn acquisition_loss_after_effect_preserves_actual_pending_and_never_retries() {
+        for kind in 0..3 {
+            let f = Fixture::new();
+            let control = Rc::new(RefCell::new(Control::default()));
+            let (mut owner, path) = owner(&f, control.clone());
+            if kind != 0 {
+                let mut stream = client(&path, ARM);
+                assert_eq!(owner.poll_one(), SessionProgress::Served);
+                receive(&mut stream);
+            }
+            control.borrow_mut().lose_launch_after_effect = true;
+            let _stream = client(&path, if kind == 2 { DISARM } else { ARM });
+            assert_ne!(owner.poll_one(), SessionProgress::Served);
+            let pending = match kind {
+                0 => ReceiptState::PendingCreate,
+                1 => ReceiptState::PendingReplace { old_handle: 5 },
+                _ => ReceiptState::PendingDelete { old_handle: 5 },
+            };
+            assert_eq!(record(owner.test_state()).state(), pending);
+            assert_eq!(control.borrow().effects, if kind == 0 { 1 } else { 2 });
+            control.borrow().launch_lost.set(false);
+            assert_sealed(&mut owner, &control);
+            owner.release_synthetic();
+        }
     }
 }

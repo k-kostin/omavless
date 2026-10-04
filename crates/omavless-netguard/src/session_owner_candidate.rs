@@ -179,4 +179,9 @@ impl<K: EffectPort> SessionOwner<K> {
     pub(crate) fn test_kernel(&self) -> &K {
         &self.kernel
     }
+
+    #[cfg(test)]
+    pub(crate) fn into_test_kernel(self) -> K {
+        self.kernel
+    }
 }

@@ -1,0 +1,18 @@
+[Unit]
+Description=OmaVLESS NetGuard inactive launch contract
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=exec
+ExecStart=/usr/lib/omavless/omavless-netguard serve
+User=root
+Group=root
+NoNewPrivileges=yes
+RestrictNamespaces=yes
+PrivateNetwork=no
+PrivateUsers=no
+PrivateMounts=no
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
