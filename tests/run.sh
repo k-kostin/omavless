@@ -3,6 +3,11 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_encoder_libm_mapping_boundaries_bridge.py" \
+  "$here/test_encoder_libm_mapping_boundaries_transport.py" \
+  "$here/test_encoder_libm_mapping_boundaries_fixture.py" \
+  "$here/test_encoder_libm_mapping_boundaries_lifecycle.py" \
+  "$here/test_encoder_libm_mapping_boundary_events.py" \
   "$here/test_encoder_libm_closure.py" \
   "$here/test_encoder_libm_copy_admission.py" \
   "$here/test_encoder_unlisted.py" \
