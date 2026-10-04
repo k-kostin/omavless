@@ -32,4 +32,40 @@ Pure tests cover both fixed positive permutations, exact argv for both calls,
 bad counts/signatures/duplicates/extras/missing framing, first-query refusal
 before the second call and second-query uncertainty. Full source gates and an
 independent exact-head review precede any new create-only staging/invocation.
-No VM invocation has occurred for this generation.
+## Exact-head development-VM evidence
+
+Measured code is `b6ab5b647f2d8f598969073c6ad5c384c7c4e509`.
+The source gate passed 568 tests with two pre-existing skips and frontend
+checks; 25 focused pure/runner/guard cases passed. Root and independent
+architecture reviews inspected the complete scoped source before invocation.
+
+One create-only, explicitly authorized KVM invocation passed both control and
+filtered cases and the outer guard on 2026-10-04. The frozen probe hash is
+`b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332`;
+runner hash is
+`d573b198ea685495399475732dd84cd1cbd687c12404966cb9eccb8ed69d8637`.
+The probe distinguishes EINVAL for the fixed invalid `/dev/null` setns control
+from EPERM with the namespace filter. It performs no valid namespace
+transition, firewall write, socket delegation or canonical authorization.
+
+The outer receipt confirms exact three-line case output, known exit zero,
+unchanged probe/runner/query identities, absent owned unit link and cgroup,
+and complete before/after preservation. That includes canonical runtime epoch,
+core/TUN/private-file inventory, resolver, installed packages/executable
+capabilities, service/activation/environment graph and full IPv4/IPv6 state.
+Only the explicitly bounded address-lifetime countdown exception is allowed.
+The root stage and all evidence remain retained; no failure cleanup occurred.
+
+The private nine-member archive was copied and independently checked on the
+host. Guest and host SHA-256 agree:
+`594662c42c6ccc98baefdfd8f6f73d05d5eefb7041c9e0057dea65c3fba6f348`.
+All seven source/executable member hashes match the sealed generation, all
+typed result booleans are true, and the exact case output was independently
+read. Raw private observations are not published.
+
+This new-generation PASS does not change the preceding #593/#599/#601
+NONPASS results. It does not prove manager-created private-network isolation,
+namespace type/cookie authority, complete nft ownership, installed kill-switch
+integration, reboot/power-loss behavior or product readiness. Those retain
+their separate contracts and acceptance gates. Main, RC and installed product
+packages were unchanged; primary-PC networking was not used.
