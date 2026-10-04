@@ -26,6 +26,57 @@ const WORKER: &str = "production_owner::first_abort::process_reentry::process_wo
 const TOKEN: &str = "OVABORT-CHECKPOINT-v1";
 const CASES: [&str; 5] = ["linked", "mixed", "empty", "full", "final"];
 
+fn unprivileged_status(status: &str, home: &str) -> bool {
+    if status.len() > 65536 || home != "/home/kdk_vm" {
+        return false;
+    }
+    let keys = [
+        "Uid", "Gid", "Groups", "CapInh", "CapPrm", "CapEff", "CapAmb",
+    ];
+    keys.iter().all(|key| {
+        let mut values = status.lines().filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            (name == *key).then_some(value.trim())
+        });
+        let Some(value) = values.next() else {
+            return false;
+        };
+        values.next().is_none()
+            && match *key {
+                "Uid" | "Gid" => value.split_whitespace().collect::<Vec<_>>() == ["1000"; 4],
+                "Groups" => value.is_empty(),
+                _ => value.len() == 16 && value.bytes().all(|byte| byte == b'0'),
+            }
+    })
+}
+
+fn require_unprivileged_process() {
+    let status = fs::read_to_string("/proc/self/status").unwrap();
+    assert!(unprivileged_status(
+        &status,
+        &std::env::var("HOME").unwrap()
+    ));
+}
+
+#[test]
+fn process_credentials_reject_saved_root_groups_capabilities_and_missing_fields() {
+    let good = "Uid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nGroups:\t\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapAmb:\t0000000000000000\n";
+    assert!(unprivileged_status(good, "/home/kdk_vm"));
+    assert!(!unprivileged_status(good, "/root"));
+    for bad in [
+        good.replacen("1000\t1000\t1000\t1000", "1000\t1000\t0\t1000", 1),
+        good.replace("Groups:\t", "Groups:\t1000"),
+        good.replace("CapEff:\t0000000000000000", "CapEff:\t0000000000000001"),
+        good.replace("CapPrm:\t0000000000000000", "CapPrm:\t0000000000000001"),
+        good.replace("CapInh:\t0000000000000000", "CapInh:\t0000000000000001"),
+        good.replace("CapAmb:\t0000000000000000", "CapAmb:\t0000000000000001"),
+        good.replace("CapAmb:", "Missing:"),
+        format!("{good}Uid:\t1000\t1000\t1000\t1000\n"),
+    ] {
+        assert!(!unprivileged_status(&bad, "/home/kdk_vm"));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Point {
     Gate,
@@ -222,6 +273,7 @@ fn reached(root: &Path, case: &str, point: Point) -> bool {
 #[test]
 #[ignore = "private subprocess worker; only reviewed frozen-ELF harness"]
 fn process_worker() {
+    require_unprivileged_process();
     let _frozen = FrozenElf::capture();
     let root = PathBuf::from(
         std::env::var_os("OMAVLESS_ABORT_PROCESS_ROOT").expect("explicit fixture required"),
@@ -366,6 +418,13 @@ impl FrozenElf {
             "worker executable must be frozen outside Cargo"
         );
         let metadata = fs::symlink_metadata(&elf).unwrap();
+        for (name, actual) in [
+            ("OMAVLESS_ABORT_EXPECTED_DEVICE", metadata.dev()),
+            ("OMAVLESS_ABORT_EXPECTED_INODE", metadata.ino()),
+        ] {
+            let expected: u64 = std::env::var(name).unwrap().parse().unwrap();
+            assert_eq!(actual, expected, "original outer-guard executable identity");
+        }
         assert!(
             metadata.is_file()
                 && metadata.uid() == Uid::current().as_raw()
@@ -485,7 +544,13 @@ fn success(status: WaitStatus) -> bool {
 #[test]
 #[ignore = "requires root-reviewed frozen executable; process loss, not power loss"]
 fn fixed_current_process_loss_and_fresh_reentry() {
+    require_unprivileged_process();
     let elf = FrozenElf::capture();
+    eprintln!(
+        "matrix-executed-identity={}:{}",
+        elf.metadata.dev(),
+        elf.metadata.ino()
+    );
     let quarantine = std::rc::Rc::new(std::cell::Cell::new(false));
     for case in CASES {
         assert!(!quarantine.get());
@@ -594,4 +659,11 @@ fn fixed_current_process_loss_and_fresh_reentry() {
         );
         // No automatic cleanup; parent/root may review the private case roots.
     }
+    elf.recheck();
+    require_unprivileged_process();
+    eprintln!(
+        "matrix-completed-identity={}:{}",
+        elf.metadata.dev(),
+        elf.metadata.ino()
+    );
 }

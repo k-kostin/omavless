@@ -149,3 +149,6 @@ It does not repair that guard's NONPASS or establish its original exception.
 All guest originals, private archives and earlier failures remain retained.
 Inner synthetic process-loss cases PASS; whole-invocation acceptance NONPASS;
 product, installed, reboot and power-loss acceptance remain unclaimed.
+
+The separate [root-observed successor design](T4_ROOT_OBSERVED_PROCESS_GUARD.md)
+does not modify this tested guard or reinterpret its failed invocation.
