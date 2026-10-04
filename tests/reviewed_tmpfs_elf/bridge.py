@@ -13,10 +13,19 @@ import time
 STORE = "/elf-copy-store"
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 PUBLIC = re.compile(r"/usr/(?:lib|bin)/[A-Za-z0-9_./+:-]+\Z")
+MAP_LINE = re.compile(r"([0-9a-f]+)-([0-9a-f]+) ([r-][w-][x-][ps]) ([0-9a-f]+) "
+                      r"([0-9a-f]{2,}):([0-9a-f]{2,}) ([0-9]+)(?: +(.*))?\Z")
 
 
 class Refused(RuntimeError):
     pass
+
+
+class UnknownMapping(Refused):
+    def __init__(self, path):
+        super().__init__("unknown_public_mapping")
+        self.diagnostic = {"schema": "unknown-public-mapping-v1", "path": path,
+                           "loaded_elf_identity_proven": False, "allowlist_adoption": False}
 
 
 def require(value, reason):
@@ -79,17 +88,24 @@ def no_writable_fds(device):
 def map_objects(text):
     require(type(text) is str and len(text) <= 1024 * 1024, "mapping_bound")
     objects = {}
+    previous_end = 0
     for line in text.splitlines():
-        row = line.split(maxsplit=5)
-        require(len(row) >= 5, "mapping_shape")
-        if len(row) == 5 or row[5].startswith("["):
+        match = MAP_LINE.fullmatch(line)
+        require(match is not None, "mapping_shape")
+        start, end, _, offset, major, minor, inode, path = match.groups()
+        start, end, offset = int(start, 16), int(end, 16), int(offset, 16)
+        require(previous_end <= start < end <= 2**64 - 1 and offset <= 2**64 - 1,
+                "mapping_range")
+        previous_end = end
+        identity = os.makedev(int(major, 16), int(minor, 16)), int(inode)
+        if path is None or path == "" or path.startswith("["):
+            require(identity == (0, 0) and offset == 0
+                    and (not path or re.fullmatch(r"\[[A-Za-z0-9_:.-]+\]", path)),
+                    "anonymous_mapping_shape")
             continue
-        path = row[5]
         require(len(path) <= 4096 and PUBLIC.fullmatch(path)
                 and all(p not in ("", ".", "..") for p in path.split("/")[1:]),
                 "mapping_nonpublic_or_deleted")
-        major, minor = row[3].split(":")
-        identity = os.makedev(int(major, 16), int(minor, 16)), int(row[4])
         require(identity[1] > 0 and (path not in objects or objects[path] == identity),
                 "mapping_identity_conflict")
         objects[path] = identity
@@ -236,6 +252,9 @@ class Bridge:
             mount_policy(path, True)
             require(self.admission.digest(fd, value.st_size, deadline) == record["sha256"],
                     "copy_target_hash")
+            require(self.admission.identity(value) == self.admission.identity(os.fstat(fd))
+                    == self.admission.identity(os.stat(path, follow_symlinks=False)),
+                    "copy_target_replaced_during_hash")
         finally:
             os.close(fd)
 
@@ -252,14 +271,27 @@ class Bridge:
         self._verify_all(deadline)
         self.state = "ready"
 
+    def _child_binding(self, child):
+        require(type(child.pid) is int and child.pid > 0
+                and os.readlink("/proc/self") == str(os.getpid())
+                and os.readlink(f"/proc/{child.pid}/ns/pid") == os.readlink("/proc/self/ns/pid"),
+                "mapping_pid_namespace")
+        fields = bounded_text(f"/proc/{child.pid}/stat", 4096).rsplit(")", 1)
+        require(len(fields) == 2 and fields[0].split(" (", 1)[0] == str(child.pid), "mapping_pid_shape")
+        state = fields[1].split()
+        require(len(state) >= 20 and state[0] not in ("Z", "X")
+                and int(state[1]) == os.getpid(), "mapping_direct_child")
+
     def inventory(self, child, deadline):
         self._require_state("ready")
         self.state = "refused"
         require(self.base.child_status(child) is None, "mapping_child_not_live")
+        self._child_binding(child)
         before = map_objects(bounded_text(f"/proc/{child.pid}/maps", 1024 * 1024))
         result = []
         for path, identity in sorted(before.items()):
-            require(path in self.records, "uncopied_loaded_object")
+            if path not in self.records:
+                raise UnknownMapping(path)  # Grammar-checked public path, no object open/hash.
             row = self.records[path]
             require(identity == (row["device"], row["inode"]), "mapped_copy_identity")
             # Device/inode refusal precedes opening or hashing any target.

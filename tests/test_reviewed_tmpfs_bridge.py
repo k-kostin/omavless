@@ -17,10 +17,32 @@ BLOCK = b"\x7fELFsynthetic-not-executable"
 
 def fixture():
     base = SimpleNamespace(UNSETTLED=[], command=Mock(), child_status=Mock(return_value=None))
-    return bridge.Bridge(base, admission, RAW)
+    value = bridge.Bridge(base, admission, RAW)
+    value._child_binding = Mock()  # Explicit pure map controls, separately tested below.
+    return value
 
 
 class ReviewedBridgeTests(unittest.TestCase):
+    def test_strict_mapping_grammar_and_direct_child_binding(self):
+        good = "1000-2000 r--p 00000000 00:2c 1 /usr/lib/known.so\n"
+        for text in (good.replace("r--p", "r--q"), good.replace("1000-2000", "2000-1000"),
+                     good.replace("00000000", "xyz"), good + good,
+                     good.replace("known.so", "../known.so")):
+            with self.assertRaises(bridge.Refused):
+                bridge.map_objects(text)
+        obj = fixture()
+        valid_stat = "123 (synthetic) S 42 " + "0 " * 20
+        def link(path):
+            return "42" if path == "/proc/self" else "pid:[12]"
+        with patch.object(bridge.os, "getpid", return_value=42), \
+             patch.object(bridge.os, "readlink", side_effect=link), \
+             patch.object(bridge, "bounded_text", return_value=valid_stat):
+            bridge.Bridge._child_binding(obj, SimpleNamespace(pid=123))
+        with patch.object(bridge.os, "getpid", return_value=42), \
+             patch.object(bridge.os, "readlink", return_value="999"), \
+             patch.object(bridge, "bounded_text") as read, self.assertRaises(bridge.Refused):
+            bridge.Bridge._child_binding(obj, SimpleNamespace(pid=123))
+        read.assert_not_called()
     def test_store_requires_ro_superblock_and_perfile_flags(self):
         good = "40 1 0:44 / /elf-copy-store ro,nosuid,nodev - tmpfs tmpfs ro\n"
         with patch.object(bridge, "bounded_text", return_value=good):
