@@ -13,6 +13,63 @@ pub enum LocalPolicyInventory {
     OtherUntrusted,
 }
 
+/// A complete local readback borrowing its original namespace and socket owner.
+/// This is neither canonical namespace authority nor evidence of creation.
+/// Keeping this value alive prevents another operation through the session;
+/// dropping it performs no exchange, cleanup or mutation.
+///
+/// ```compile_fail
+/// use omavless_netguard::kernel_observer::LocalReadSession;
+/// fn overlapping(session: &mut LocalReadSession) {
+///     let lease = session.borrow_policy_inventory().unwrap();
+///     session.inspect_policy_inventory().unwrap();
+///     let _ = lease.observed();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use omavless_netguard::kernel_observer::LocalInventoryLease;
+/// fn duplicate(lease: LocalInventoryLease<'_>) {
+///     let moved = lease;
+///     let _ = lease.observed();
+///     let _ = moved.observed();
+/// }
+/// ```
+pub struct LocalInventoryLease<'a> {
+    pub(super) session: &'a mut LocalReadSession,
+    pub(super) inventory: LocalPolicyInventory,
+    pub(super) generation: u32,
+    pub(super) table: Option<TableMetadata>,
+    pub(super) deadline: Instant,
+}
+
+impl LocalInventoryLease<'_> {
+    /// A copied classification is explicitly untrusted, not a transferable
+    /// lease or an ownership receipt.
+    pub fn observed(&self) -> LocalPolicyInventory {
+        self.inventory
+    }
+
+    /// Recheck the same original resources and the original readback budget.
+    /// A refusal permanently poisons the session; no fresh budget is acquired.
+    pub fn recheck(&mut self) -> Result<()> {
+        let result = (|| {
+            require(
+                self.generation != 0
+                    && self.session.last_generation == Some(self.generation)
+                    && self.table.is_none()
+                        == (self.inventory == LocalPolicyInventory::TableAbsent),
+            )?;
+            self.session.check(self.deadline)?;
+            require(Instant::now() < self.deadline)
+        })();
+        if result.is_err() {
+            self.session.poisoned = true;
+        }
+        result
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Kind {
     Set,
@@ -264,16 +321,38 @@ impl LocalReadSession {
     /// inside one bounded generation window on this retained descriptor. Even
     /// ExactUntrusted cannot become a receipt, Table::OwnedVerified or EffectPort.
     pub fn inspect_policy_inventory(&mut self) -> Result<LocalPolicyInventory> {
-        let result = self.inspect_policy_inventory_once().map(|v| v.0);
+        self.borrow_policy_inventory().map(|lease| lease.observed())
+    }
+
+    /// Borrow a complete generation-bracketed inventory on the actual retained
+    /// session. No caller-supplied descriptor, epoch or inventory can construct it.
+    pub fn borrow_policy_inventory(&mut self) -> Result<LocalInventoryLease<'_>> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let result = self.inspect_policy_inventory_before(deadline);
         if result.is_err() {
             self.poisoned = true;
         }
-        result
+        let (inventory, generation, table) = result?;
+        Ok(LocalInventoryLease {
+            session: self,
+            inventory,
+            generation,
+            table,
+            deadline,
+        })
     }
+    #[cfg(test)]
     pub(super) fn inspect_policy_inventory_once(
         &mut self,
     ) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {
-        let deadline = Instant::now() + Duration::from_secs(1);
+        let lease = self.borrow_policy_inventory()?;
+        Ok((lease.inventory, lease.generation, lease.table))
+    }
+
+    fn inspect_policy_inventory_before(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {
         self.check(deadline)?;
         let first = self.next_sequence;
         require(first != 0)?;
@@ -310,3 +389,7 @@ impl LocalReadSession {
 #[cfg(test)]
 #[path = "kernel_inventory_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "kernel_inventory_lease_tests.rs"]
+mod lease_tests;
