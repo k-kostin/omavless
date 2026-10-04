@@ -138,7 +138,7 @@ def deliver(expected):
             need(alias is None)
         else:
             need(type(alias) is dict and set(alias) == {'relative_path', 'identity', 'sha256'}
-                 and alias['relative_path'] == 'debug/deps/omavless-d33dc6fb2bf25c86'
+                 and alias['relative_path'] == 'debug/deps/omavless-3eaa741bede04cf2'
                  and type(alias['identity']) is list and len(alias['identity']) == 9
                  and all(type(n) is int for n in alias['identity'])
                  and alias['identity'] == row['host_original'] and alias['sha256'] == row['sha256'])

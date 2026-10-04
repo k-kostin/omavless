@@ -224,7 +224,7 @@ def receipt(data):
             require(alias is None)
         else:
             require(type(alias) is dict and set(alias) == {'relative_path', 'identity', 'sha256'}
-                    and alias['relative_path'] == 'debug/deps/omavless-d33dc6fb2bf25c86'
+                    and alias['relative_path'] == 'debug/deps/omavless-3eaa741bede04cf2'
                     and type(alias['identity']) is list and len(alias['identity']) == 9
                     and all(type(n) is int for n in alias['identity'])
                     and alias['identity'] == row['host_original'] and alias['sha256'] == row['sha256'])
@@ -236,6 +236,23 @@ def fields(raw, expected):
     result = pairs(line.split('=', 1) for line in raw.decode('utf-8').splitlines())
     require(set(result) == set(expected))
     return result
+
+
+def reserve_elf_slots(pins):
+    # Catalog admission retains hundreds of FDs. Reserve before that allocation,
+    # using our original root ELF FDs, never an unrelated occupied descriptor.
+    for number, name in ((198, 'helper'), (199, 'omavless')):
+        available()
+        try:
+            os.fstat(number)
+        except OSError as error:
+            require(error.errno == errno.EBADF)
+        else:
+            require(False)
+        pins[name].recheck()
+        os.dup2(pins[name].fd, number, inheritable=False)
+        require(identity(os.fstat(number)) == identity(pins[name].before))
+        RETAINED.append(number)
 
 
 class Guard:
@@ -435,14 +452,10 @@ class Guard:
         for name in ('helper', 'omavless'):
             self.artifacts[name] = File(ARTIFACTS / name, UID, 0o500, ELF_LIMIT, self.pins[name].sha)
         for number, name in ((198, 'helper'), (199, 'omavless')):
-            try:
-                os.fstat(number)
-            except OSError as error:
-                require(error.errno == errno.EBADF)
-            else:
-                require(False)
+            # Explicit owned root-source alias -> owned fixture-copy transition.
+            require(identity(os.fstat(number)) == identity(self.pins[name].before))
             os.dup2(self.artifacts[name].fd, number, inheritable=False)
-            RETAINED.append(number)
+            require(identity(os.fstat(number)) == identity(self.artifacts[name].before))
         self.namespace_pins = {}
         for name in ('pid', 'user', 'mnt', 'net'):
             fd = os.open('/proc/self/ns/' + name, os.O_RDONLY | os.O_CLOEXEC)
@@ -602,6 +615,7 @@ def main():
     core = module(pins['core.py'])
     core.available = available
     core.ROOT_UNITS = (*core.ROOT_UNITS, *EXTRA_ROOT_UNITS)
+    reserve_elf_slots(pins)
     support = module(pins['support.py'])
     support.core = core
     lineage = module(pins['lineage.py'])

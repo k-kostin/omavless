@@ -1,5 +1,6 @@
 """Pure terminal-flow controls. No account, manager, executable or VM effects."""
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -141,6 +142,24 @@ class GuardTests(unittest.TestCase):
                 observe.assert_called_once_with(os.P_PID, 123, os.WEXITED | os.WNOHANG | os.WNOWAIT)
                 reap.assert_called_once_with(123, os.WNOHANG)
 
+    def test_fixed_fd_reservation_never_overwrites_foreign_slot(self):
+        meta = SimpleNamespace(st_dev=1, st_ino=2, st_mode=0o100500, st_uid=0,
+                               st_gid=0, st_nlink=1, st_size=4, st_mtime_ns=1, st_ctime_ns=1)
+        pins = {name: SimpleNamespace(fd=10 + index, before=meta, recheck=Mock())
+                for index, name in enumerate(('helper', 'omavless'))}
+        with patch.object(guard.os, 'fstat', return_value=meta), patch.object(guard.os, 'dup2') as duplicate:
+            with self.assertRaises(guard.Refused):
+                guard.reserve_elf_slots(pins)
+            duplicate.assert_not_called()
+        self.core.UNCERTAIN = False
+        with patch.object(guard, 'RETAINED', []), \
+             patch.object(guard.os, 'fstat', side_effect=[OSError(errno.EBADF, 'closed'), meta,
+                                                        OSError(errno.EBADF, 'closed'), meta]), \
+             patch.object(guard.os, 'dup2') as duplicate:
+            guard.reserve_elf_slots(pins)
+            self.assertEqual([call.args for call in duplicate.call_args_list], [(10, 198), (11, 199)])
+            self.assertTrue(all(call.kwargs == {'inheritable': False} for call in duplicate.call_args_list))
+
 
 class LoaderTests(unittest.TestCase):
     def test_real_files_all_admitted_before_publication_mode_hash_and_inode(self):
@@ -160,7 +179,7 @@ class LoaderTests(unittest.TestCase):
                 row['host_alias'] = None
                 if name == 'omavless':
                     row['host_original'][5] = 2
-                    row['host_alias'] = {'relative_path': 'debug/deps/omavless-d33dc6fb2bf25c86',
+                    row['host_alias'] = {'relative_path': 'debug/deps/omavless-3eaa741bede04cf2',
                                          'identity': list(row['host_original']), 'sha256': row['sha256']}
             data['receipt.json'] = json.dumps(value).encode()
             receipt_sha = hashlib.sha256(data['receipt.json']).hexdigest()
