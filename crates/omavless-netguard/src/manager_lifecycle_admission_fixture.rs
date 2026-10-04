@@ -684,7 +684,9 @@ mod controls {
                     all.extend(service_values());
                     reply(&all)
                 }
-                Request::Dump => reply(&crate::manager_lifecycle_admission_dump::tests::synthetic()),
+                Request::Dump => {
+                    reply(&crate::manager_lifecycle_admission_dump::tests::synthetic())
+                }
             })
         }
     }
