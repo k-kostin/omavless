@@ -324,3 +324,6 @@ impl EffectPort for FixtureCreator {
 #[cfg(test)]
 #[path = "kernel_creator_lifecycle_tests.rs"]
 mod tests;
+
+#[path = "kernel_manager_private_fixture.rs"]
+mod manager_private;

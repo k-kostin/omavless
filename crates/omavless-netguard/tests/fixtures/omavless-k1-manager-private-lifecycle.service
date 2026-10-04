@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# Developer-only. Never package/install/enable. Outer reviewed guard required.
+[Unit]
+Description=OmaVLESS K1 isolated manager-created lifecycle fixture
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+SupplementaryGroups=
+ExecStart=/run/omavless-k1-manager-private-lifecycle/probe --exact kernel_observer::creator_lifecycle::manager_private::manager_private_lifecycle --ignored --nocapture --test-threads=1
+Environment=OMAVLESS_K1_MANAGER_PRIVATE=1
+OpenFile=/proc/1/ns/net:k1-host-netns:read-only
+PrivateUsers=no
+PrivatePIDs=no
+PrivateNetwork=yes
+RestrictNamespaces=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
+Restart=no
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+RuntimeMaxSec=infinity
+KillMode=none
+SendSIGKILL=no
+StandardInput=null
+StandardOutput=append:/run/omavless-k1-manager-private-lifecycle/native.stdout
+StandardError=append:/run/omavless-k1-manager-private-lifecycle/native.stderr
