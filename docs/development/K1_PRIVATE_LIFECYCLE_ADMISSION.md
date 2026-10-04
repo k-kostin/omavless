@@ -91,6 +91,16 @@ was preserved; only the NEW metadata helper/parser modules were renamed to
 files were unchanged. This required a new frozen ELF and fresh artifact pins;
 the earlier native freeze is retained as superseded source evidence.
 
+Independent review of `083569e` found two admission-order blockers despite its
+green source/Rust gates. The corrected helper validates the finite configured
+Dump immediately, BEFORE the Version-after RPC; malformed text cannot cause a
+subsequent query. The NEW query guard now permits one `waitpid` only after an
+exact typed WNOWAIT exit-zero result. Nonzero, signaled, malformed, unknown or
+deadline results latch permanent refusal before any reap, output read or later
+query. Direct primitive controls exercise these cases and the command path;
+older query guards and historical evidence remain immutable. No version of
+this new fixture has been invoked in the guest.
+
 The first new RPC negative test failed before exercising capture because its
 synthetic temporary-directory label exceeded the existing helper bound. The
 label was shortened; the bound and capture policies were not changed. Corrected

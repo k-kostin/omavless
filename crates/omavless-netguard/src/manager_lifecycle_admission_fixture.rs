@@ -270,8 +270,6 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
     let reply = held.connection.request(&owner, Request::Dump)?;
     let dump: String = decode(&reply)?;
     require(!dump.is_empty() && dump.len() <= MAX_REPLY && !dump.contains('\0'))?;
-    let version_after = manager_version(&held.connection.request(&owner, Request::VersionAfter)?)?;
-    require(version_before == version_after)?;
     crate::manager_lifecycle_admission_dump::proposed_text_matches(
         &version_before,
         UNIT,
@@ -280,6 +278,9 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
         &dump,
     )
     .map_err(|_| REFUSE)?;
+    // An invalid configured dump is terminal BEFORE any subsequent RPC.
+    let version_after = manager_version(&held.connection.request(&owner, Request::VersionAfter)?)?;
+    require(version_before == version_after)?;
     let version = json!({"schema": 2, "marker": "OBSERVED_VERSION_DATA_NOT_ADMISSION",
         "unique_owner": owner, "unit": UNIT,
         "before_ref": {"type": "s", "data": [version_before]},
@@ -539,7 +540,7 @@ mod controls {
             assert!(capture(&held).is_err());
             assert_eq!(
                 *held.connection.0.calls.borrow(),
-                ORDER[..if version { 2 } else { 7 }]
+                ORDER[..if version { 2 } else { 6 }]
             );
             assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
             std::fs::remove_dir(path).unwrap();
