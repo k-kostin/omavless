@@ -3,6 +3,9 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_brotli_encoder_provenance.py" \
+  "$here/test_brotli_encoder_owned.py" \
+  "$here/test_brotli_encoder_transport.py" \
   "$here/test_brotli_decoder_provenance.py" \
   "$here/test_brotli_decoder_owned.py" \
   "$here/test_brotli_decoder_transport.py" \
