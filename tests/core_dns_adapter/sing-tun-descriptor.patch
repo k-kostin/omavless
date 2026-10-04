@@ -1,0 +1,16 @@
+--- a/tun_linux.go
++++ b/tun_linux.go
+@@ -83,6 +83,13 @@
+ 	return 0
+ }
+ 
++// SyscallConn permits a trusted lifecycle owner to duplicate the actual TUN
++// descriptor without reopening an interface by name. Control protects its
++// lifetime during the callback; callers must not close the original descriptor.
++func (t *NativeTun) SyscallConn() (syscall.RawConn, error) {
++	return t.tunFile.SyscallConn()
++}
++
+ func (t *NativeTun) Read(p []byte) (n int, err error) {
+ 	if t.vnetHdr {
+ 		n, err = t.tunFile.Read(t.writeBuffer)

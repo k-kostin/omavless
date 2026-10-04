@@ -6,6 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const parser = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../plugin/NativeSnapshot.js'), 'utf8'), parser);
+const presentation = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../plugin/NativePresentation.js'), 'utf8'), presentation);
 let count = 0;
 function test(name, fn) { try { fn(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
 function frame(result) { return {api:'omavless.control', version:1, id:'synthetic-request', ok:true, revision:4, result}; }
@@ -104,7 +106,7 @@ test('all canonical public error codes retain code and discard raw private messa
   const start=source.indexOf('pub const fn as_str(');
   const body=source.slice(start,source.indexOf('\n    }',start));
   const codes=[...body.matchAll(/=> "([a-z_]+)"/g)].map(m=>m[1]);
-  assert.equal(codes.length,15);
+  assert.equal(codes.length,16);
   for(const code of codes){
     const p={api:'omavless.control',version:1,id:'request',ok:false,revision:4,
       error:{code,message:'https://private.invalid/password?key=private-token',retryable:false}};
@@ -126,20 +128,22 @@ test('malformed oversized and invalid Unicode inputs fail without throwing or ec
 });
 function serviceHarness() {
   const source=fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
-  const context=vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeSnapshotFailed:false,
+  const context=vm.createContext({NativeSnapshot:parser,NativePresentation:presentation,nativeOwner:true,nativeSnapshotFailed:false,
     nativeSnapshot:{instanceId:'instance-one',revision:4,lastKnownActual:'disconnected',desired:{connected:false,mode:'rule',generation:3},
       profiles:[{id:'profile-one',missing:false,subscriptionId:'',favorite:false},{id:'profile-missing',missing:true,subscriptionId:''},
-        {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}]},
+        {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}],subscriptions:[],lastProfileId:''},
     nativeObservation:{instanceId:'instance-one',revision:4,desired:{connected:false,mode:'rule',generation:3},
       availability:'observed',lastKnownActual:'disconnected',manualRecoveryRequired:false},nativePending:null,nativeOutcomeUnknown:false,
     nativeActionCode:'',nativeSubscriptionDraft:null,nativeSubscriptionCode:'',nativeQuitting:false,_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
+    nativeConnectionTransitionTimeout:{stop(){}},
+    nativeRefusalVerificationTimeout:{stop(){},restart(){}},nativeRefusalVerification:null,
     nativeActionProcess:{command:[],running:false},profiles:[{id:'legacy-profile',active:false}]});
   for(const name of ['nativeActionRunning','nativeFactsCurrent','nativeCanAct','nativeCanStop']) {
     const match=source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:readonly )?property|\\n  function)'));
     assert(match,name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',context);
   }
-  for(const name of ['requestNativeAction','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
+  for(const name of ['requestNativeAction','beginNativeProfileLifecycleTransition','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
     const start=source.indexOf('  function '+name+'(');
     const end=source.indexOf('\n  }',start)+4;
     assert(start>=0 && end>start,name);
@@ -290,5 +294,29 @@ test('optional core counters stay bounded and never promote internet verificatio
   }
   p.result.coreDiagnostics=null;assert(parser.parseObservation(JSON.stringify(p)));
   delete p.result.coreDiagnostics;assert(parser.parseObservation(JSON.stringify(p)));
+});
+test('T3 log-hint extension preserves coherent disconnected action admission',()=>{
+  const p=observation();
+  p.result.coreLogHints={schemaVersion:1,scope:'latest_owned_core_log_categories',availability:'unavailable',
+    items:null,incomplete:null,interpretation:'log_hints_not_health'};
+  assert(parseObservation(p));
+  p.result.coreLogHints.availability='observed'; p.result.coreLogHints.incomplete=false;
+  const categories=['dns','tls','timeout','connection','other','oversized','tun_setup','firewall_setup','setup_permission'];
+  p.result.coreLogHints.items=Array.from({length:24},(_,i)=>({sequence:i+1,category:categories[i%categories.length]}));
+  assert(parseObservation(p));
+  assert.equal(parseObservation(p).coreLogHints,undefined); // not a raw-log UI surface
+  const copy=()=>JSON.parse(JSON.stringify(p));
+  for(const mutate of [
+    r=>r.raw='private',r=>r.coreLogHints.raw='vless://private',
+    r=>r.coreLogHints.schemaVersion=2,r=>r.coreLogHints.interpretation='healthy',
+    r=>r.coreLogHints.items.push({sequence:25,category:'dns'}),
+    r=>r.coreLogHints.items[0].category='password=private',
+    r=>r.coreLogHints.items[0].sequence=0,r=>r.coreLogHints.items[0].sequence=true,
+    r=>r.coreLogHints.items[1].sequence=1,r=>r.coreLogHints.items[0].sequence=4294967296,
+    r=>r.coreLogHints.items[0].raw='https://private.invalid',
+    r=>r.coreLogHints.availability='unknown',r=>r.coreLogHints.incomplete=null
+  ]){const bad=copy();mutate(bad.result);assert.equal(parseObservation(bad),null);}
+  p.result.coreLogHints=null; assert(parseObservation(p));
+  delete p.result.coreLogHints; assert(parseObservation(p));
 });
 console.log(`${count} native action/observation tests passed`);

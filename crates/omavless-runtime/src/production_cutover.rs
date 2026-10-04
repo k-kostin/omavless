@@ -186,7 +186,7 @@ impl<B: ProductionPluginBridge> ProductionCutoverHost<B> {
             None,
         )
         .map_err(|_| rejected)?;
-        if crate::routing_preset::pending(&self.paths.desired) {
+        if crate::pending_private_transaction::pending(&self.paths.desired) {
             return Err(rejected);
         }
         let text = read_private_utf8(&self.paths.store, self.uid).map_err(|_| rejected)?;

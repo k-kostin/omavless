@@ -4,6 +4,38 @@ Status: accepted K0 threat model and host-integration contract, 2026-08-28.
 This document makes K1 implementation-ready. It does not install a helper,
 change nftables, alter routes or advertise a working kill switch.
 
+September 29 development candidate: the [offline foundation](../development/K1_FOUNDATION.md)
+adds strict fixed protocol, acknowledged helper transactions and symbolic policy
+tests. An [offline fixed renderer candidate](../development/K1_RENDERER.md) now
+adds JSON creation and strict readback with independently supplied ownership
+facts; it has no executor or production caller. K1 implementation,
+host acceptance and product availability remain incomplete.
+The [current-RC creator lifecycle research](../development/K1_CREATOR_LIFECYCLE_RESEARCH.md)
+selectively composes those inactive mechanisms with actual kernel effects only
+under test compilation. It does not provide a production EffectPort or activate
+an installed kill switch.
+The [shared atomic ACK contract](../development/K1_SHARED_ATOMIC_ACK.md) removes
+test-adapter encoder/collector duplication using normal-compiled inactive code.
+Its measured isolated-kernel continuation leaves every result untrusted and
+does not establish production namespace, ownership or installed authority.
+The [retained-session generation observation fence](../development/K1_SESSION_GENERATION_OBSERVATION.md)
+also shares regression refusal across all five readers and test-only delete
+readbacks. Its 76 isolated scenario executions and pure lower-generation wire
+prefixes are mechanism evidence, not proof of kernel-reset/namespace continuity
+or production ownership.
+The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
+tests synthetic egress and near-miss exceptions without a production service;
+its results do not replace this contract's host/physical acceptance matrix.
+The later [inactive transaction coordinator](../development/K1_COORDINATOR.md)
+connects the planner and durable marker using a synthetic kernel port; it is
+not a root executor or a working host kill switch.
+An [inactive receipt assessment](../development/K1_RECEIPT_ADMISSION.md) now
+models bounded receipt decoding and uncertain-outcome refusal. It supplies no
+kernel ownership authority, receipt storage adapter or automatic orphan recovery.
+The subsequent [shared-lock transaction candidate](../development/K1_LOCKED_STATE.md)
+combines durable marker/receipt writes with synthetic kernel effects and strict
+pending-phase refusal. It provides no production ownership or recovery adapter.
+
 ## 1. Decision summary
 
 K1 is an opt-in, **Full VPN only** kill switch enforced by a separately
@@ -135,8 +167,10 @@ temporary lockout, not a leak.
 1. Persist desired disconnected.
 2. Stop the owned core and verify service/process/TUN/controller cleanup.
 3. Ask NetGuard to disarm the matching generation.
-4. NetGuard removes the persistent armed marker, atomically deletes only its
-   own nftables table, verifies absence, then reports disarmed.
+4. NetGuard durably replaces the armed marker with a closed-generation fence,
+   atomically deletes only its proven-owned nftables table, verifies absence,
+   then reports disarmed. That generation and every older generation can never
+   arm again, including after restart.
 5. Publish disconnected/disarmed.
 
 If core cleanup or disarm cannot be verified, return
@@ -166,10 +200,24 @@ subscription data or provider content.
 
 Initial K1 supports one explicitly enrolled non-root desktop UID. Enrollment is
 an administrator action which validates an existing local account and records
-only its numeric UID in a root-owned mode-`0600` configuration. The socket is
+only its numeric UID in a root-owned mode-`0600` configuration. The inactive
+reader pins `/etc/omavless-netguard/enrollment-v1.json`; provisioning and
+account validation remain separate gates. The socket is
 root-owned, accessible through a dedicated package group, and every request is
 checked against kernel `SO_PEERCRED`; a caller can act only for its own enrolled
 UID. The request never carries a selectable UID.
+
+An inactive first-enrollment producer now covers the missing *initial write*
+side for synthetic tests. It resolves one unique, non-root local login account
+from a bounded, root-owned `/etc/passwd` snapshot and writes only its canonical
+numeric UID record to an exclusively created private directory/file. It
+synchronizes and reopens that record through the existing enrollment reader;
+an existing enrollment, root-state directory, unsafe account source or
+interrupted publication refuses without replacement or automatic cleanup.
+The producer has no administrator command or installed caller. It does not
+create the package group, enable the helper, grant current-session socket
+access or report the kill switch as ready. Actual provisioning must also
+coordinate with the later package/service lifetime and account-removal policy.
 
 Group membership alone is not authorization. Multiple concurrently protected
 desktop users are rejected in v1 rather than given ambiguous host-wide policy.
@@ -189,6 +237,38 @@ The caller cannot provide nft syntax, commands, executables, paths, marks,
 ports, addresses, DNS servers, interface names, systemd units or arbitrary
 environment values. Responses contain no endpoint, credential or rule dump.
 
+An inactive transport candidate tests one four-byte big-endian length plus one
+bounded JSON request/response on an already connected Unix stream. It checks
+the fixed root enrollment binding and kernel `SO_PEERCRED` UID before reading,
+revalidates enrollment after decoding, and applies one two-second total receive
+budget so a peer cannot indefinitely drip bytes. A later inactive composition
+dispatches at most one request through the shared-lock transaction with that
+same pinned enrollment and rechecks it before a response. It does not bind a
+socket, supply a real kernel port, package a service or change nftables. Lost
+socket acknowledgement is not an automatic retry ticket. The future service
+still needs reviewed provenance, listener lifetime, provisioning and host
+acceptance; framing alone grants no privileged authority.
+
+An additional inactive session-owner candidate holds one already-bound Unix
+listener, the same locked state and one kernel port across sequential clients.
+Each poll accepts at most one client and performs one existing exchange; a
+failed accept does not spin, a stalled client has the bounded receive deadline,
+and lost enrollment seals the owner before the next accept. Dropping a listener
+does not disarm or erase a durable armed record. Synthetic tests cover restart,
+replaced enrollment, failed replies and poisoned transactions. This is not a
+socket publisher or installed service: the listener path, ownership, group,
+backlog, namespace and real kernel-port provenance still need separate proof.
+
+An inactive listener path-admission candidate now pins the already-bound
+`/run/omavless-netguard/control.sock` directory and filesystem entry, checks
+root/package-group modes, and refuses replacement before or after accept.
+This is not complete descriptor provenance: a socket's reported path is not
+proof that its descriptor corresponds to the *current* path entry after
+unlink/rebind. The future trusted service must bind while group access is
+closed, prove that lifetime, then publish access; package-group resolution,
+backlog, namespace and installation remain separate. Tests use private
+temporary listeners only; no host socket is created or used.
+
 The user runtime never invokes sudo or pkexec. Administrator setup/recovery is
 performed intentionally in a terminal.
 
@@ -199,7 +279,11 @@ performed intentionally in a terminal.
 NetGuard owns only `inet omavless_netguard`. Every change is constructed from a
 compiled/audited template and committed as one nftables transaction. It never
 uses `flush ruleset`, rewrites `/etc/nftables.conf` or adopts another firewall's
-table.
+table. Observations distinguish proven absence, independently proven ownership
+(verified or unrecognized policy), foreign ownership and unreadable/incomplete
+facts. Foreign/unreadable tables refuse normal and restart mutations; a fixed
+name alone never authorizes replace/delete. Create must refuse a raced table,
+and replace/delete must revalidate ownership before committing.
 
 The output policy is route-independent and evaluated late enough that an
 unmarked physical path cannot be accepted merely by an earlier base chain.
@@ -275,9 +359,20 @@ atomically replaced and directory-fsynced. It contains only schema/policy
 version, enrolled UID, generation, armed state and fixed-policy flags. It has
 no profile ID, endpoint, hostname, URI, password, key or subscription URL.
 
-Missing state means disarmed. An existing malformed/newer armed document is
-treated as emergency protected state: install the most restrictive fixed
-policy and require explicit recovery rather than assuming disconnected.
+Missing state means fresh/disarmed only after kernel table absence is verified.
+It cannot prove that an interrupted arm left no rules: a stale proven-owned
+table requires reconciliation, and foreign/unreadable facts require refusal.
+The inactive [root-state foundation](../development/K1_ROOT_STATE.md) implements
+only marker persistence, not a service or kernel ownership receipt.
+Normal disarm retains a durable
+closed-generation fence in the same record, even when no table remains. Future
+arms require a strictly greater generation; exhaustion never wraps. Recovery
+and upgrade must preserve this fence rather than silently recycling generations.
+An existing malformed/newer document requires emergency handling: install the
+most restrictive fixed policy only if the table is absent or proven-owned,
+then report emergency protection and require explicit recovery. Foreign or
+unreadable table facts refuse mutation and report recovery without claiming
+protection. Neither case is assumed disconnected.
 
 ### Boot ordering
 
@@ -322,8 +417,12 @@ The root package provides one console command equivalent to:
 sudo omavless-netguard recover
 ```
 
-It requires a terminal/admin decision, deletes only the dedicated OmaVLESS
-table and root armed state, verifies both are absent and prints bounded status.
+It requires a terminal/admin decision, deletes only the proven-owned dedicated
+OmaVLESS table and clears armed intent, retaining any known closed-generation
+fence. It verifies table/armed-intent absence and prints bounded status.
+If the generation cannot be trusted, renewed arm requires separately reviewed
+enrollment/generation recovery; simply deleting invalid state must not silently
+re-admit previously delayed requests.
 It accepts no shell fragment, nft expression, path, table name, interface,
 address or command. Recovery intentionally restores direct connectivity and is
 therefore never invoked automatically by QML or the unprivileged runtime.
@@ -396,6 +495,25 @@ K1 should remain reviewable:
 
 No slice adds Routing protection, LAN exceptions, permanent Lockdown,
 WireGuard/AWG, arbitrary firewall configuration or a generic privileged IPC.
+
+The [2026-10-02 first-listener publication checkpoint](../testing/K1_FIRST_LISTENER_PUBLICATION_2026-10-02.md)
+records an inactive bind-before-group-access candidate. It is not a packaged
+helper or evidence that any kill switch is available.
+The [fixed Emergency reply transcript candidate](../development/K1_EMERGENCY_REPLY_TRANSCRIPT.md)
+adds bounded raw-byte parsing without a socket, effect, ownership proof or
+installed caller; it does not make K1 available.
+The [fixed FullVpn atomic wire candidate](../development/K1_FULL_VPN_ATOMIC_WIRE.md)
+encodes the existing ten-rule policy without execution. Its independent pure
+tests do not establish kernel compatibility or packet enforcement.
+The [FullVpn reply transcript candidate](../development/K1_FULL_VPN_REPLY_TRANSCRIPT.md)
+checks a bounded fixed raw reply shape only; completion remains untrusted and
+does not confer namespace, ownership or effect authority.
+The separate [raw FullVpn packet candidate](../development/K1_RAW_FULL_PACKET_GATE.md)
+reuses the isolated 53-vector matrix with exact encoded bytes and a retained
+creator; it introduces no installed caller or physical-host acceptance.
+The [package-group identity follow-up](../testing/K1_PACKAGE_GROUP_IDENTITY_2026-10-02.md)
+checks a proposed fixed local group name before publishing access; package
+creation and real session membership are still separate gates.
 
 ## 11. Source basis
 

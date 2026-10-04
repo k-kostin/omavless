@@ -32,6 +32,17 @@ pub trait BudgetedSubscriptionTransport {
         url: &str,
         budget: Duration,
     ) -> Result<PrivateSubscriptionBody, SubscriptionTransportError>;
+
+    /// Optional private read; old/test transports supply no usage claim.
+    fn fetch_usage_with_budget(
+        &self,
+        url: &str,
+        budget: Duration,
+    ) -> Result<crate::subscription_transport::FetchedSubscription, SubscriptionTransportError>
+    {
+        self.fetch_with_budget(url, budget)
+            .map(|body| crate::subscription_transport::FetchedSubscription { body, usage: None })
+    }
 }
 
 impl BudgetedSubscriptionTransport for HttpsSubscriptionTransport {
@@ -41,6 +52,15 @@ impl BudgetedSubscriptionTransport for HttpsSubscriptionTransport {
         budget: Duration,
     ) -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
         HttpsSubscriptionTransport::fetch_with_budget(self, url, budget)
+    }
+
+    fn fetch_usage_with_budget(
+        &self,
+        url: &str,
+        budget: Duration,
+    ) -> Result<crate::subscription_transport::FetchedSubscription, SubscriptionTransportError>
+    {
+        self.fetch_with_usage_with_budget(url, budget)
     }
 }
 

@@ -61,3 +61,22 @@ Use `finish` to close only the isolated instance, then check that the real
 plugin/runtime state is unchanged. Keep raw scratch captures outside Git; only
 reviewed credential-free selected assets belong under `docs/marketing/images/`.
 Do not run Install or real VPN transitions to create marketing imagery.
+
+## Development UI state review
+
+The same isolated instance supports `reviewState LOCALE KIND WIDTH`, where
+locale is `en`/`ru`, width is 360/460 logical pixels and kind is `normal`,
+`empty`, `unavailable`, `missing`, `subscription-empty` or `search`.
+It stops only this synthetic product's polling timers and projects bounded
+fixture states through unchanged production QML. `reviewInspect` exposes
+only state/row counts, expansion and hint geometry/focus booleans.
+`reviewFocus`, `reviewToggle` and `reviewClearSearch` operate this isolated
+panel's presentation, never runtime mutations. `reviewCapture PUBLIC-SLUG`
+also permits the explicit unavailable state; the ordinary marketing `capture`
+still requires Disconnected. These captures are development evidence only.
+
+Inspect EN/RU empty/unavailable/missing-subscription guidance, focus and actual
+pointer hover at both widths. During `search`, the matching subscription must
+be expanded, toggling must preserve the stored false preference, and clearing
+search must restore collapsed. Review the saved PNGs yourself. Real installed
+runtime/package behavior remains a separate gate.

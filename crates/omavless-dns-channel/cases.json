@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "frameBytes": 8,
+  "magic": "OVDN",
+  "version": 1,
+  "requests": [
+    {"name": "acquire", "bytes": [79, 86, 68, 78, 1, 1, 1, 0], "fds": 1},
+    {"name": "release", "bytes": [79, 86, 68, 78, 1, 1, 2, 0], "fds": 0}
+  ],
+  "responses": [
+    {"name": "applying", "bytes": [79, 86, 68, 78, 1, 2, 1, 0], "fds": 0},
+    {"name": "ready", "bytes": [79, 86, 68, 78, 1, 2, 2, 0], "fds": 0},
+    {"name": "releasing", "bytes": [79, 86, 68, 78, 1, 2, 3, 0], "fds": 0},
+    {"name": "released", "bytes": [79, 86, 68, 78, 1, 2, 4, 0], "fds": 0},
+    {"name": "rejected", "bytes": [79, 86, 68, 78, 1, 2, 5, 0], "fds": 0},
+    {"name": "recovery_required", "bytes": [79, 86, 68, 78, 1, 2, 6, 0], "fds": 0}
+  ]
+}

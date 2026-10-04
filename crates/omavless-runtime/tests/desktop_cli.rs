@@ -21,6 +21,18 @@ impl Fixture {
         Self(path)
     }
 
+    fn publish_tool(&self, name: &str, body: &[u8]) {
+        let path = self.0.join(name);
+        let staged = self.0.join(format!(".{name}.staged"));
+        fs::write(&staged, body).unwrap();
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(staged, path).unwrap();
+        // Match desktop/core unit fixtures: publish a closed inode and allow
+        // overlay runners to settle before executing a freshly written script.
+        // Production helper/error handling gets no retry or timing changes.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
     fn call(&self, args: &[&str], input: &[u8]) -> Output {
         let mut child = Command::new(env!("CARGO_BIN_EXE_omavless"))
             .args(args)
@@ -77,9 +89,7 @@ fn qr_data_uri_cli_preserves_binary_command_and_keeps_input_private() {
     assert_eq!(missing.status.code(), Some(2));
     assert!(missing.stdout.is_empty());
     assert!(!String::from_utf8_lossy(&missing.stderr).contains("private-token"));
-    let tool = f.0.join("qrencode");
-    fs::write(&tool, b"#!/bin/bash\ntest \"$*\" = '-o - -s 8 -m 2' || exit 9\nIFS= read -r input\ntest \"$input\" = 'private-token' || exit 8\nprintf '\\211PNG\\r\\n\\032\\n'\n").unwrap();
-    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    f.publish_tool("qrencode", b"#!/bin/bash\ntest \"$*\" = '-o - -s 8 -m 2' || exit 9\nIFS= read -r input\ntest \"$input\" = 'private-token' || exit 8\nprintf '\\211PNG\\r\\n\\032\\n'\n");
     let binary = f.call(&["desktop", "qr"], b"private-token\n");
     let encoded = f.call(&["desktop", "qr-data-uri"], b"private-token\n");
     assert!(binary.status.success() && encoded.status.success());
@@ -112,12 +122,12 @@ fn qr_data_uri_cli_preserves_binary_command_and_keeps_input_private() {
         assert!(output.stdout.is_empty());
         assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
     }
-    fs::write(&tool, b"#!/bin/bash\nprintf 'private-token'\nexit 1\n").unwrap();
+    f.publish_tool("qrencode", b"#!/bin/bash\nprintf 'private-token'\nexit 1\n");
     let failed = f.call(&["desktop", "qr-data-uri"], b"private-token");
     assert_eq!(failed.status.code(), Some(2));
     assert!(failed.stdout.is_empty());
     assert!(!String::from_utf8_lossy(&failed.stderr).contains("private-token"));
-    fs::write(&tool, b"#!/bin/bash\nprintf 'private-invalid-image'\n").unwrap();
+    f.publish_tool("qrencode", b"#!/bin/bash\nprintf 'private-invalid-image'\n");
     let invalid = f.call(&["desktop", "qr-data-uri"], b"private-token");
     assert_eq!(invalid.status.code(), Some(2));
     assert!(invalid.stdout.is_empty());
@@ -185,9 +195,7 @@ fn desktop_cli_paths_and_secrets_are_only_stdin_and_private_output() {
 #[test]
 fn desktop_dialog_cancellation_retains_exit_three_without_error_output() {
     let f = Fixture::new();
-    let tool = f.0.join("zenity");
-    fs::write(&tool, b"#!/bin/bash\nexit 1\n").unwrap();
-    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    f.publish_tool("zenity", b"#!/bin/bash\nexit 1\n");
     for operation in ["pick-import", "edit"] {
         let response = f.call(&["desktop", operation], b"");
         assert_eq!(response.status.code(), Some(3));
@@ -214,9 +222,7 @@ fn desktop_dialog_cancellation_retains_exit_three_without_error_output() {
 #[test]
 fn save_chooser_cli_only_releases_destination_after_explicit_selection() {
     let f = Fixture::new();
-    let tool = f.0.join("zenity");
-    fs::write(&tool, b"#!/bin/bash\ntest \"$4\" = --filename=omavless-report.json || exit 9\nprintf '/tmp/synthetic-destination.json\\n'\n").unwrap();
-    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    f.publish_tool("zenity", b"#!/bin/bash\ntest \"$4\" = --filename=omavless-report.json || exit 9\nprintf '/tmp/synthetic-destination.json\\n'\n");
     let selected = f.call(&["desktop", "pick-report-export"], b"en");
     assert!(selected.status.success() && selected.stderr.is_empty());
     assert_eq!(selected.stdout, b"/tmp/synthetic-destination.json");
@@ -234,15 +240,16 @@ fn save_chooser_cli_only_releases_destination_after_explicit_selection() {
 fn desktop_editor_cold_start_creates_only_safe_client_scratch() {
     use std::os::unix::fs::symlink;
     let f = Fixture::new();
-    let tool = f.0.join("zenity");
-    fs::write(
-        &tool,
+    f.publish_tool(
+        "zenity",
         b"#!/bin/bash\nfile=${3#--filename=}\n/usr/bin/cat -- \"$file\"\n",
-    )
-    .unwrap();
-    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    );
     let response = f.call(&["desktop", "edit"], b"synthetic editor seed");
-    assert!(response.status.success());
+    assert!(
+        response.status.success(),
+        "safe desktop failure: {:?}",
+        String::from_utf8_lossy(&response.stderr)
+    );
     assert!(response.stdout == b"synthetic editor seed");
     let scratch = f.0.join("omavless-desktop");
     assert_eq!(

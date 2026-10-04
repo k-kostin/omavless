@@ -19,6 +19,17 @@ pub fn directory(label: &str) -> io::Result<PathBuf> {
     })
 }
 
+/// For tests whose production path policy deliberately refuses world-writable
+/// ancestors such as /tmp. The caller must select a trusted private or
+/// non-writable parent; the allocator keeps the same collision guarantees.
+// This shared fixture module is included by crates that do not need this path.
+#[allow(dead_code)]
+pub fn directory_under(parent: &Path, label: &str) -> io::Result<PathBuf> {
+    allocate(parent, label, std::process::id(), || {
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    })
+}
+
 fn allocate(
     parent: &Path,
     label: &str,

@@ -21,6 +21,10 @@ pub struct PreparedProfileMutation {
 }
 
 impl PreparedProfileMutation {
+    #[cfg(test)]
+    pub(crate) fn research_matches_candidate(&self, bytes: &[u8]) -> bool {
+        self.prepared.research_matches_candidate(bytes)
+    }
     #[must_use]
     pub const fn changed(&self) -> bool {
         self.prepared.changed()
