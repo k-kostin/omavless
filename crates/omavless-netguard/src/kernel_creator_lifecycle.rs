@@ -70,7 +70,10 @@ impl FixtureCreator {
         result
     }
     fn pending(&self, phase: &str) {
-        let root = self.state_parent.join("omavless-netguard");
+        Self::pending_at(&self.state_parent, phase)
+    }
+    fn pending_at(state_parent: &std::path::Path, phase: &str) {
+        let root = state_parent.join("omavless-netguard");
         let bytes = std::fs::read(root.join("table-receipt-v1.json")).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["phase"], phase);
@@ -81,10 +84,10 @@ impl FixtureCreator {
             assert_eq!(marker["armed"], false);
             assert_eq!(marker["generation"], 7);
         }
-        let meta = std::fs::metadata(&self.state_parent).unwrap();
+        let meta = std::fs::metadata(state_parent).unwrap();
         assert!(matches!(
             crate::root_state::RootStateStore::open_test_parent(
-                File::open(&self.state_parent).unwrap(),
+                File::open(state_parent).unwrap(),
                 (meta.uid(), meta.gid()),
                 1001
             ),
@@ -114,104 +117,16 @@ impl FixtureCreator {
             panic!("isolated crash checkpoint was not killed");
         }
     }
-    fn send_full(&mut self, generation: u32, old: Option<u64>, deadline: Instant) -> Result<()> {
-        let requests = full_batch(generation, self.session.next_sequence, old)?;
-        self.send_batch(requests, deadline)
-    }
     fn send_batch(&mut self, requests: AtomicBatch, deadline: Instant) -> Result<()> {
-        self.session.next_sequence = self
-            .session
-            .next_sequence
-            .checked_add(requests.len() as u32)
-            .ok_or(REFUSE)?;
-        let batch = requests.concat();
-        let mut replies = BatchReplies::new(requests, self.session.local.pid())?;
-        self.session.check(deadline)?;
-        // From this syscall onward uncertainty is terminal. There is no retry.
-        self.effects += 1;
-        require(
-            sendto(
-                self.session.socket.as_raw_fd(),
-                &batch,
-                &NetlinkAddr::new(0, 0),
-                MsgFlags::MSG_DONTWAIT,
-            )
-            .map_err(|_| REFUSE)?
-                == batch.len(),
-        )?;
-        self.send_cut
-            .after_send(self.session.socket.as_raw_fd(), &replies)?;
-        while !replies.complete() {
-            self.session.check(deadline)?;
-            let mut bytes = [0; LIMIT];
-            let capacity = self
-                .receive_fault
-                .capacity(self.session.socket.as_raw_fd())?;
-            let mut iov = [IoSliceMut::new(&mut bytes[..capacity])];
-            match recvmsg::<NetlinkAddr>(
-                self.session.socket.as_raw_fd(),
-                &mut iov,
-                None,
-                MsgFlags::MSG_DONTWAIT,
-            ) {
-                Ok(reply) => {
-                    let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
-                    require(length <= capacity)?;
-                    self.receive_fault.received(length, flags)?;
-                    // These are the real received bytes/sender/flags. In the
-                    // one-byte fault case the existing collector must refuse.
-                    let (delivered, lost_end) = self.end_ack_loss.deliver(
-                        self.session.socket.as_raw_fd(),
-                        &bytes[..length],
-                        sender,
-                        flags,
-                        replies.requests().last().ok_or(REFUSE)?,
-                        self.session.local.pid(),
-                    )?;
-                    let prefix_request = replies
-                        .requests()
-                        .get(self.prefix_ack_loss.target().unwrap_or(0))
-                        .ok_or(REFUSE)?;
-                    let consumed_before = self.prefix_ack_loss.observed().0;
-                    let delivered = self.prefix_ack_loss.deliver(
-                        self.session.socket.as_raw_fd(),
-                        &delivered,
-                        sender,
-                        flags,
-                        prefix_request,
-                        self.session.local.pid(),
-                    )?;
-                    let lost_prefix = self.prefix_ack_loss.observed().0 != consumed_before;
-                    if !delivered.is_empty() || (!lost_end && !lost_prefix) {
-                        replies.receive(&delivered, sender, flags)?;
-                    }
-                    if replies.finish_prefix_loss(&mut self.prefix_ack_loss)? {
-                        return Err(REFUSE);
-                    }
-                    if lost_end {
-                        require(
-                            !replies.poisoned()
-                                && !replies.changed()
-                                && !replies.complete()
-                                && !replies.acks().last().copied().ok_or(REFUSE)?
-                                && replies.acks()[..replies.acks().len() - 1]
-                                    .iter()
-                                    .all(|ack| *ack),
-                        )?;
-                        self.end_ack_loss.confirm_prefix();
-                        replies.poison();
-                        require(!replies.complete())?;
-                        // Actual END was consumed by this observer, not
-                        // delivered to the collector. No timeout or retry.
-                        return Err(REFUSE);
-                    }
-                }
-                Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
-                Err(_) => return Err(REFUSE),
-            }
+        BatchSender {
+            session: &mut self.session,
+            effects: &mut self.effects,
+            receive_fault: &mut self.receive_fault,
+            end_ack_loss: &mut self.end_ack_loss,
+            prefix_ack_loss: &mut self.prefix_ack_loss,
+            send_cut: &mut self.send_cut,
         }
-        self.session.check(deadline)?;
-        require(!replies.changed())
+        .send_batch(requests, deadline)
     }
     fn full(
         &mut self,
@@ -219,7 +134,10 @@ impl FixtureCreator {
     ) -> std::result::Result<EffectIdentity, EffectError> {
         let result = (|| -> Result<EffectIdentity> {
             let deadline = Instant::now() + Duration::from_secs(1);
-            let (inventory, generation, table) = self.inspect()?;
+            let expected = old.map(|id| self.id(id.table_handle));
+            let mut lease = self.session.borrow_policy_inventory()?;
+            let inventory = lease.observed();
+            let table = &lease.table;
             match old {
                 None => require(
                     inventory == LocalPolicyInventory::TableAbsent && self.created.is_none(),
@@ -227,19 +145,36 @@ impl FixtureCreator {
                 Some(id) => require(
                     inventory == LocalPolicyInventory::ExactUntrusted(Policy::FullVpn)
                         && self.created == Some(id.table_handle)
-                        && id == self.id(id.table_handle)
+                        && Some(id) == expected
                         && table.as_ref().is_some_and(|t| t.handle == id.table_handle),
                 )?,
             }
-            self.pending(if old.is_some() {
-                "pending_replace"
-            } else {
-                "pending_create"
-            });
+            Self::pending_at(
+                &self.state_parent,
+                if old.is_some() {
+                    "pending_replace"
+                } else {
+                    "pending_create"
+                },
+            );
             if self.change_generation_before_send {
                 tests::fixed_foreign_change();
             }
-            self.send_full(generation, old.map(|id| id.table_handle), deadline)?;
+            lease.recheck()?;
+            let requests = full_batch(
+                lease.generation,
+                lease.session.next_sequence,
+                old.map(|id| id.table_handle),
+            )?;
+            BatchSender {
+                session: lease.session,
+                effects: &mut self.effects,
+                receive_fault: &mut self.receive_fault,
+                end_ack_loss: &mut self.end_ack_loss,
+                prefix_ack_loss: &mut self.prefix_ack_loss,
+                send_cut: &mut self.send_cut,
+            }
+            .send_batch(requests, deadline.min(lease.deadline))?;
             let (inventory, _, table) = self.inspect()?;
             require(inventory == LocalPolicyInventory::ExactUntrusted(Policy::FullVpn))?;
             let handle = table.ok_or(REFUSE)?.handle;
@@ -334,3 +269,112 @@ mod private_admission;
 
 #[path = "kernel_response_diagnostic_fixture.rs"]
 mod response_diagnostic;
+
+/// Split borrows keep the real readback's exclusive session borrow across the
+/// conditional send; fault injection and counters remain fixture-only.
+struct BatchSender<'a> {
+    session: &'a mut LocalReadSession,
+    effects: &'a mut usize,
+    receive_fault: &'a mut receive_truncation::OneShotTruncation,
+    end_ack_loss: &'a mut end_ack_loss::OneShotEndAckLoss,
+    prefix_ack_loss: &'a mut prefix_ack_loss::OneShotPrefixAckLoss,
+    send_cut: &'a mut send_return_cut::OneShotSendCut,
+}
+impl BatchSender<'_> {
+    fn send_batch(&mut self, requests: AtomicBatch, deadline: Instant) -> Result<()> {
+        self.session.next_sequence = self
+            .session
+            .next_sequence
+            .checked_add(requests.len() as u32)
+            .ok_or(REFUSE)?;
+        let batch = requests.concat();
+        let mut replies = BatchReplies::new(requests, self.session.local.pid())?;
+        self.session.check(deadline)?;
+        require(Instant::now() < deadline)?;
+        // From this syscall onward uncertainty is terminal. There is no retry.
+        *self.effects += 1;
+        require(
+            sendto(
+                self.session.socket.as_raw_fd(),
+                &batch,
+                &NetlinkAddr::new(0, 0),
+                MsgFlags::MSG_DONTWAIT,
+            )
+            .map_err(|_| REFUSE)?
+                == batch.len(),
+        )?;
+        self.send_cut
+            .after_send(self.session.socket.as_raw_fd(), &replies)?;
+        while !replies.complete() {
+            self.session.check(deadline)?;
+            let mut bytes = [0; LIMIT];
+            let capacity = self
+                .receive_fault
+                .capacity(self.session.socket.as_raw_fd())?;
+            let mut iov = [IoSliceMut::new(&mut bytes[..capacity])];
+            match recvmsg::<NetlinkAddr>(
+                self.session.socket.as_raw_fd(),
+                &mut iov,
+                None,
+                MsgFlags::MSG_DONTWAIT,
+            ) {
+                Ok(reply) => {
+                    let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
+                    require(length <= capacity)?;
+                    self.receive_fault.received(length, flags)?;
+                    // These are the real received bytes/sender/flags. In the
+                    // one-byte fault case the existing collector must refuse.
+                    let (delivered, lost_end) = self.end_ack_loss.deliver(
+                        self.session.socket.as_raw_fd(),
+                        &bytes[..length],
+                        sender,
+                        flags,
+                        replies.requests().last().ok_or(REFUSE)?,
+                        self.session.local.pid(),
+                    )?;
+                    let prefix_request = replies
+                        .requests()
+                        .get(self.prefix_ack_loss.target().unwrap_or(0))
+                        .ok_or(REFUSE)?;
+                    let consumed_before = self.prefix_ack_loss.observed().0;
+                    let delivered = self.prefix_ack_loss.deliver(
+                        self.session.socket.as_raw_fd(),
+                        &delivered,
+                        sender,
+                        flags,
+                        prefix_request,
+                        self.session.local.pid(),
+                    )?;
+                    let lost_prefix = self.prefix_ack_loss.observed().0 != consumed_before;
+                    if !delivered.is_empty() || (!lost_end && !lost_prefix) {
+                        replies.receive(&delivered, sender, flags)?;
+                    }
+                    if replies.finish_prefix_loss(self.prefix_ack_loss)? {
+                        return Err(REFUSE);
+                    }
+                    if lost_end {
+                        require(
+                            !replies.poisoned()
+                                && !replies.changed()
+                                && !replies.complete()
+                                && !replies.acks().last().copied().ok_or(REFUSE)?
+                                && replies.acks()[..replies.acks().len() - 1]
+                                    .iter()
+                                    .all(|ack| *ack),
+                        )?;
+                        self.end_ack_loss.confirm_prefix();
+                        replies.poison();
+                        require(!replies.complete())?;
+                        // Actual END was consumed by this observer, not
+                        // delivered to the collector. No timeout or retry.
+                        return Err(REFUSE);
+                    }
+                }
+                Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(_) => return Err(REFUSE),
+            }
+        }
+        self.session.check(deadline)?;
+        require(Instant::now() < deadline && !replies.changed())
+    }
+}

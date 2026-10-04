@@ -15,32 +15,20 @@ pub(super) enum DeleteOutcome {
 /// Exclusive borrowed session, not reconstructible from serialized labels.
 /// Drop/cancel does nothing. Consume never retries an uncertain datagram.
 pub(super) struct InventoryDelete<'a> {
-    session: &'a mut LocalReadSession,
-    generation: u32,
+    lease: LocalInventoryLease<'a>,
     handle: u64,
-    deadline: Instant,
 }
 
 impl LocalReadSession {
     pub(super) fn prepare_inventory_delete(&mut self) -> Result<InventoryDelete<'_>> {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let prepared = self.inspect_policy_inventory_once();
-        let (inventory, generation, table) = match prepared {
-            Ok(v) => v,
-            Err(error) => {
-                self.poisoned = true;
-                return Err(error);
-            }
-        };
-        require(matches!(inventory, LocalPolicyInventory::ExactUntrusted(_)))?;
-        let table = table.ok_or(REFUSE)?;
-        self.check(deadline)?;
-        Ok(InventoryDelete {
-            session: self,
-            generation,
-            handle: table.handle,
-            deadline,
-        })
+        let mut lease = self.borrow_policy_inventory()?;
+        require(matches!(
+            lease.observed(),
+            LocalPolicyInventory::ExactUntrusted(_)
+        ))?;
+        let handle = lease.table.as_ref().ok_or(REFUSE)?.handle;
+        lease.recheck()?;
+        Ok(InventoryDelete { lease, handle })
     }
 }
 
@@ -88,26 +76,27 @@ impl InventoryDelete<'_> {
         prefix_ack_loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
         send_cut: &mut send_return_cut::OneShotSendCut,
     ) -> DeleteOutcome {
-        let deadline = self.deadline;
-        if self.session.check(deadline).is_err() {
-            self.session.poisoned = true;
+        let Self { mut lease, handle } = self;
+        if lease.recheck().is_err() {
             return DeleteOutcome::RefusedBeforeSend;
         }
-        let first = self.session.next_sequence;
-        let Ok(wire) = encode(self.generation, self.handle, first) else {
-            self.session.poisoned = true;
+        let deadline = lease.deadline;
+        let session = lease.session;
+        let first = session.next_sequence;
+        let Ok(wire) = encode(lease.generation, handle, first) else {
+            session.poisoned = true;
             return DeleteOutcome::RefusedBeforeSend;
         };
-        self.session.next_sequence = first + 3;
-        let Ok(mut replies) = Replies::new(wire, self.session.local.pid()) else {
-            self.session.poisoned = true;
+        session.next_sequence = first + 3;
+        let Ok(mut replies) = Replies::new(wire, session.local.pid()) else {
+            session.poisoned = true;
             return DeleteOutcome::RefusedBeforeSend;
         };
         let batch = replies.requests().concat();
         // Encoding/collector work may consume the budget. Recheck identity and
         // the clock after that work, immediately before the first syscall.
-        if self.session.check(deadline).is_err() || Instant::now() >= deadline {
-            self.session.poisoned = true;
+        if session.check(deadline).is_err() || Instant::now() >= deadline {
+            session.poisoned = true;
             return DeleteOutcome::RefusedBeforeSend;
         }
         // After the first syscall, even an error is unknown. No resend, fresh
@@ -115,7 +104,7 @@ impl InventoryDelete<'_> {
         let result = (|| -> Result<()> {
             require(
                 sendto(
-                    self.session.socket.as_raw_fd(),
+                    session.socket.as_raw_fd(),
                     &batch,
                     &NetlinkAddr::new(0, 0),
                     MsgFlags::MSG_DONTWAIT,
@@ -123,14 +112,14 @@ impl InventoryDelete<'_> {
                 .map_err(|_| REFUSE)?
                     == batch.len(),
             )?;
-            send_cut.after_send(self.session.socket.as_raw_fd(), &replies)?;
+            send_cut.after_send(session.socket.as_raw_fd(), &replies)?;
             while !replies.complete() {
-                self.session.check(deadline)?;
+                session.check(deadline)?;
                 let mut bytes = [0; LIMIT];
-                let capacity = receive_fault.capacity(self.session.socket.as_raw_fd())?;
+                let capacity = receive_fault.capacity(session.socket.as_raw_fd())?;
                 let mut iov = [IoSliceMut::new(&mut bytes[..capacity])];
                 match recvmsg::<NetlinkAddr>(
-                    self.session.socket.as_raw_fd(),
+                    session.socket.as_raw_fd(),
                     &mut iov,
                     None,
                     MsgFlags::MSG_DONTWAIT,
@@ -140,12 +129,12 @@ impl InventoryDelete<'_> {
                         require(length <= capacity)?;
                         receive_fault.received(length, flags)?;
                         let (delivered, lost_end) = end_ack_loss.deliver(
-                            self.session.socket.as_raw_fd(),
+                            session.socket.as_raw_fd(),
                             &bytes[..length],
                             sender,
                             flags,
                             &replies.requests()[2],
-                            self.session.local.pid(),
+                            session.local.pid(),
                         )?;
                         let prefix_request = match prefix_ack_loss.target() {
                             None | Some(0) => &replies.requests()[0],
@@ -154,12 +143,12 @@ impl InventoryDelete<'_> {
                         };
                         let consumed_before = prefix_ack_loss.observed().0;
                         let delivered = prefix_ack_loss.deliver(
-                            self.session.socket.as_raw_fd(),
+                            session.socket.as_raw_fd(),
                             &delivered,
                             sender,
                             flags,
                             prefix_request,
-                            self.session.local.pid(),
+                            session.local.pid(),
                         )?;
                         let lost_prefix = prefix_ack_loss.observed().0 != consumed_before;
                         if !delivered.is_empty() || (!lost_end && !lost_prefix) {
@@ -187,23 +176,23 @@ impl InventoryDelete<'_> {
                     Err(_) => return Err(REFUSE),
                 }
             }
-            self.session.check(deadline)?;
+            session.check(deadline)?;
             Ok(())
         })();
         if result.is_err() {
-            self.session.poisoned = true;
+            session.poisoned = true;
             return DeleteOutcome::Unknown;
         }
         if replies.changed() {
             // Old witness is consumed. Explicit refusal is not fresh authority.
-            self.session.poisoned = true;
+            session.poisoned = true;
             return DeleteOutcome::GenerationChanged;
         }
         // A fresh bounded kernel exchange is a readback/barrier, never a retry.
-        match self.session.inspect_policy_inventory() {
+        match session.inspect_policy_inventory() {
             Ok(LocalPolicyInventory::TableAbsent) => DeleteOutcome::AcknowledgedAndAbsent,
             _ => {
-                self.session.poisoned = true;
+                session.poisoned = true;
                 DeleteOutcome::Unknown
             }
         }

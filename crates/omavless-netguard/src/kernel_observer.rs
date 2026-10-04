@@ -17,7 +17,7 @@ use nix::sys::statfs::{NSFS_MAGIC, PROC_SUPER_MAGIC, fstatfs};
 pub use rule_wire::LocalRuleInventory;
 #[path = "kernel_inventory.rs"]
 mod inventory;
-pub use inventory::LocalPolicyInventory;
+pub use inventory::{LocalInventoryLease, LocalPolicyInventory};
 #[cfg(test)]
 #[path = "kernel_conditional_delete.rs"]
 mod conditional_delete;
