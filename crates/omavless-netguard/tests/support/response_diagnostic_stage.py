@@ -7,13 +7,13 @@ import pwd
 import stat
 import sys
 
-SOURCE = Path('/home/kdk_vm/.cache/k1-supported-socket-stage-v1')
-DESTINATION = Path('/run/omavless-k1-supported-socket-admission')
+SOURCE = Path('/home/kdk_vm/.cache/k1-retained-private-stage-v1')
+DESTINATION = Path('/run/omavless-k1-retained-private-lifecycle')
 MEMBERS = {
-    'probe': ('6e3c6608ce6f3e3501c83c32d97979bc1219b1040820e69b626c7724bb431507', 0o500, 0o500, 128 * 1024 * 1024),
-    'query-guard.py': ('60ea1b6b1f510e3375ad09be0601a0f85c971e90ba7e9d69d9cd22cfc60099cf', 0o400, 0o600, 256 * 1024),
-    'fixture.service': ('030714757ae81c146822b68a7a6a3dfdace38ce8ae683ff7d26eeee3d8dbb730', 0o400, 0o600, 16384),
-    'guard.py': ('715fc2714f4f393c4fed4db2a1e0d70ee2c5f6875c0e8e0bdb0fc9d34e970715', 0o400, 0o500, 256 * 1024),
+    'probe': ('0000000000000000000000000000000000000000000000000000000000000000', 0o500, 0o500, 128 * 1024 * 1024),
+    'query-guard.py': ('69d840b5a014f501b0246c78a4e9fa486ad31b86dea31f72eb8ad64e0bcb8f45', 0o400, 0o600, 256 * 1024),
+    'fixture.service': ('198730a79751ccee045c6173d4cbb75db7ece33a784f5390f255cb65aa5e72b5', 0o400, 0o600, 16384),
+    'guard.py': ('2ea3bbe94ad8325c8b6414096bb354e0023ec729280462714f99ed0f6d790690', 0o400, 0o500, 256 * 1024),
 }
 
 
@@ -71,7 +71,7 @@ def main():
             os.fsync(stream.fileno())
     os.fsync(destination_fd)
     os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', '-B', str(DESTINATION / 'guard.py')],
-              {'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_SUPPORTED_SOCKET_GUARD': '1'})
+              {'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_RETAINED_LIFECYCLE_GUARD': '1'})
 
 
 if __name__ == '__main__':
@@ -79,5 +79,5 @@ if __name__ == '__main__':
     try:
         main()
     except BaseException:
-        print('K1_SUPPORTED_SOCKET_STAGING_NONPASS_RETAINED', file=sys.stderr)
+        print('K1_RETAINED_LIFECYCLE_STAGING_NONPASS_RETAINED', file=sys.stderr)
         sys.exit(2)

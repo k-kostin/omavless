@@ -291,6 +291,11 @@ impl Exchange {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn private_fixture_namespace_identity(fd: &File) -> Result<(u64, u64)> {
+    namespace_identity(fd)
+}
+
 fn namespace_identity(fd: &File) -> Result<(u64, u64)> {
     require(fstatfs(fd).map_err(|_| REFUSE)?.filesystem_type() == NSFS_MAGIC)?;
     let metadata = fd.metadata().map_err(|_| REFUSE)?;

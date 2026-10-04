@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Fixed capture-only VM observer. Unknown children and artifacts are retained."""
+"""Fixed private lifecycle observer. Unknown children/artifacts are retained."""
 import hashlib
 import json
 import os
@@ -8,16 +8,16 @@ import stat
 import sys
 import unicodedata
 
-STAGE = Path('/run/omavless-k1-supported-socket-admission')
-UNIT = 'omavless-k1-supported-socket-admission.service'
+STAGE = Path('/run/omavless-k1-retained-private-lifecycle')
+UNIT = 'omavless-k1-retained-private-lifecycle.service'
 PARENT = Path('/run/systemd/system')
 LINK = PARENT / UNIT
 CGROUP = Path('/sys/fs/cgroup/system.slice') / UNIT
-QUERY_SHA = '60ea1b6b1f510e3375ad09be0601a0f85c971e90ba7e9d69d9cd22cfc60099cf'
-UNIT_SHA = '030714757ae81c146822b68a7a6a3dfdace38ce8ae683ff7d26eeee3d8dbb730'
-PROBE_SHA = '6e3c6608ce6f3e3501c83c32d97979bc1219b1040820e69b626c7724bb431507'
-NATIVE_SOURCE = '38b720a31de53e193586dd84ca463965e5610d19'
-TEST = 'manager_response_diagnostic_fixture::capture_effective_config'
+QUERY_SHA = '69d840b5a014f501b0246c78a4e9fa486ad31b86dea31f72eb8ad64e0bcb8f45'
+UNIT_SHA = '198730a79751ccee045c6173d4cbb75db7ece33a784f5390f255cb65aa5e72b5'
+PROBE_SHA = '0000000000000000000000000000000000000000000000000000000000000000'
+NATIVE_SOURCE = '0000000000000000000000000000000000000000'
+TEST = 'manager_retained_lifecycle::adapter::run_private_lifecycle'
 MARKER = 'OBSERVED_CONFIGURED_FACTS_NOT_LIFECYCLE_ADMISSION'
 PHASES = ('preflight', 'before-baseline', 'publish-link', 'native-helper',
           'validate-evidence', 'cleanup-admission', 'unlink-own-link',
@@ -48,13 +48,13 @@ def pairs(items):
 
 
 class Pin:
-    def __init__(self, path, mode, maximum, expected=None):
+    def __init__(self, path, mode, maximum, expected=None, empty=False):
         self.path, self.maximum = path, maximum
         self.fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
         self.meta = os.fstat(self.fd)
         require(stat.S_ISREG(self.meta.st_mode) and self.meta.st_uid == self.meta.st_gid == 0
                 and stat.S_IMODE(self.meta.st_mode) == mode and self.meta.st_nlink == 1
-                and 0 < self.meta.st_size <= maximum and not os.listxattr(self.fd))
+                and (0 if empty else 1) <= self.meta.st_size <= maximum and not os.listxattr(self.fd))
         self.sha = self.hash()
         require(expected is None or self.sha == expected)
         self.recheck()
@@ -83,6 +83,20 @@ class Pin:
         return raw
 
 
+class DirectoryPin:
+    def __init__(self, path):
+        self.path = path
+        self.fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        self.meta = os.fstat(self.fd)
+        require(stat.S_ISDIR(self.meta.st_mode) and self.meta.st_uid == self.meta.st_gid == 0
+                and stat.S_IMODE(self.meta.st_mode) == 0o700)
+        self.recheck()
+
+    def recheck(self):
+        require(directory_identity(self.meta) == directory_identity(os.fstat(self.fd))
+                == directory_identity(self.path.lstat()))
+
+
 def load_query(pin):
     require(pin.sha == QUERY_SHA)
     ns = {'__name__': 'config_reference_definitions_only', '__file__': str(pin.path)}
@@ -107,7 +121,7 @@ def validate_state(unit, service):
     require(type(service['WatchdogUSec']) is int and service['WatchdogUSec'] == 2**64 - 1)
 
 
-def validate_capture(value, ack):
+def validate_config(value):
     require(type(value) is dict and set(value) == {'schema', 'marker', 'unit', 'service', 'dump', 'permission_fields'}
             and type(value['schema']) is int and value['schema'] == 2 and value['marker'] == MARKER)
     validate_state(value['unit'], value['service'])
@@ -117,6 +131,12 @@ def validate_capture(value, ack):
             and type(dump['data']) is list and len(dump['data']) == 1
             and type(dump['data'][0]) is str and '\0' not in dump['data'][0]
             and 0 < len(dump['data'][0].encode()) <= 1024 * 1024)
+
+
+def validate_capture(value, ack):
+    # Retained pure metadata controls; the real lifecycle uses validate_config
+    # and its distinct terminal schema, never an invented post-Unref snapshot.
+    validate_config(value)
     require(type(ack) is dict and set(ack) == {'schema', 'unref_acknowledged', 'admission'}
             and type(ack['schema']) is int and ack['schema'] == 2
             and ack['unref_acknowledged'] is True and ack['admission'] is False)
@@ -181,7 +201,7 @@ def expected_permissions():
         NFileDescriptorStore=0, UMask=0o77))
     add(service, 'as', {key: [] for key in ('PassEnvironment', 'UnsetEnvironment', 'SupplementaryGroups',
         'ExtraFileDescriptorNames', 'ExtensionDirectories')})
-    add(service, 'as', dict(Environment=['OMAVLESS_K1_SUPPORTED_SOCKET_WRITER=1']))
+    add(service, 'as', dict(Environment=['OMAVLESS_K1_RETAINED_LIFECYCLE_WRITER=1']))
     add(service, 'a(sb)', dict(EnvironmentFiles=[]))
     add(service, '(bas)', dict(SystemCallFilter=[False, []]))
     add(service, 'a(sst)', dict(OpenFile=[['/proc/1/ns/net', 'k1-host-netns', 1]]))
@@ -259,12 +279,43 @@ def validate_rpc(index, before, response, version, data):
         selected('unit', facts['unit']); selected('service', facts['service'])
 
 
+def validate_lifecycle(value, native, stopped, owner):
+    require(type(value) is dict and set(value) == {'schema', 'unit', 'unique_owner',
+        'start_job', 'stop_job', 'execution', 'effects', 'closed_retired', 'absent',
+        'stopped', 'unref_acknowledged', 'synthetic_epoch', 'production_admission'})
+    strict_equal({k: v for k, v in value.items() if k not in ('start_job', 'stop_job', 'execution')},
+        {'schema': 1, 'unit': UNIT, 'unique_owner': owner, 'effects': 2, 'closed_retired': True,
+         'absent': True, 'stopped': True, 'unref_acknowledged': True,
+         'synthetic_epoch': True, 'production_admission': False})
+    for key in ('start_job', 'stop_job'):
+        job = value[key]
+        require(type(job) is dict and set(job) == {'id', 'path'} and type(job['id']) is int
+                and 0 < job['id'] <= 2**32-1
+                and job['path'] == f'/org/freedesktop/systemd1/job/{job["id"]}')
+    require(value['start_job'] != value['stop_job'])
+    execution = value['execution']
+    require(type(execution) is dict and set(execution) ==
+            {'invocation', 'pid', 'start', 'exit', 'command_start', 'command_exit'})
+    invocation = execution['invocation']
+    require(type(invocation) is list and len(invocation) == 16
+            and all(type(v) is int and 0 <= v <= 255 for v in invocation) and any(invocation))
+    require(type(execution['pid']) is int and 1 < execution['pid'] < 2**32)
+    for key in ('start', 'exit', 'command_start', 'command_exit'):
+        require(type(execution[key]) is int and 0 < execution[key] < 2**64-1)
+    require(execution['exit'] >= execution['start']
+            and execution['command_exit'] >= execution['command_start'])
+    strict_equal(native, {'schema': 1, 'execution': execution, 'effects': 2,
+        'closed_retired': True, 'absent': True, 'synthetic_epoch': True})
+    strict_equal(stopped, {'schema': 1, 'execution': execution, 'inactive_dead': True,
+        'zero_pids': True, 'no_job': True, 'empty_cgroup': True})
+
+
 class Observer:
     def __init__(self, ns, pins, directory_fd, parent_fd):
         self.ns, self.pins, self.directory_fd, self.parent_fd = ns, pins, directory_fd, parent_fd
         self.directory, self.parent = os.fstat(directory_fd), os.fstat(parent_fd)
         self.sealed, self.link_identity = False, None
-        self.post_validated = False
+        self.lifecycle_validated = False
         self.helper_known_zero = False
         self.phase = 'not-entered'
 
@@ -338,8 +389,8 @@ class Observer:
                     '--nocapture', '--test-threads=1'], executable=f'/proc/self/fd/{probe.fd}',
                     pass_fds=(probe.fd,), stdin=-3, stdout=logs[0], stderr=logs[1],
                     user=0, group=0, extra_groups=[], close_fds=True,
-                    env={'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_SUPPORTED_SOCKET': '1'})
-            code = self.ns['await_child'](child, seconds=45)
+                    env={'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_RETAINED_LIFECYCLE': '1'})
+            code = self.ns['await_child'](child, seconds=180)
             require(type(code) is int and code == 0)
             self.helper_known_zero = True
             require(all(os.fstat(fd).st_size <= 65536 for fd in logs))
@@ -354,29 +405,71 @@ class Observer:
     def evidence(self):
         version = Pin(STAGE / 'private-admission-manager-version.json', 0o600, 4096)
         data = Pin(STAGE / 'private-admission-config-data.json', 0o600, 2 * 1024 * 1024)
-        ack = Pin(STAGE / 'private-admission-unref-ack.json', 0o600, 4096)
-        post = Pin(STAGE / 'private-admission-post-unref-state.json', 0o600, 16384)
         version_value = json.loads(version.data(), object_pairs_hook=pairs)
         data_value = json.loads(data.data(), object_pairs_hook=pairs)
         validate_version(version_value)
-        validate_capture(data_value,
-                         json.loads(ack.data(), object_pairs_hook=pairs))
-        validate_post_state(json.loads(post.data(), object_pairs_hook=pairs))
-        self.pins.extend([version, data, ack, post])
-        for index in range(9):
+        validate_config(data_value)
+        self.pins.extend([version, data])
+        for index in range(7):
             before = Pin(STAGE / f'rpc-{index:02}-before.json', 0o600, 4096)
             response = Pin(STAGE / f'rpc-{index:02}-response.json', 0o600, 2 * 1024 * 1024)
             validate_rpc(index, json.loads(before.data(), object_pairs_hook=pairs),
                          json.loads(response.data(), object_pairs_hook=pairs), version_value, data_value)
             self.pins.extend([before, response])
-        self.post_validated = True
+        proofs = [Pin(STAGE / name, 0o600, 16384) for name in
+                  ('lifecycle-result.json', 'lifecycle-native-proof.json', 'lifecycle-stopped-proof.json')]
+        validate_lifecycle(*(json.loads(pin.data(), object_pairs_hook=pairs) for pin in proofs),
+                           version_value['unique_owner'])
+        self.pins.extend(proofs)
+        self.native_evidence()
+        self.lifecycle_validated = True
+
+    def native_evidence(self):
+        # Active lifecycle evidence, not the inert capture's never-started proof.
+        witness_pin = Pin(STAGE / 'host-negative-witness.json', 0o600, 2048)
+        witness = json.loads(witness_pin.data(), object_pairs_hook=pairs)
+        stage_meta = os.fstat(self.directory_fd)
+        require(type(witness) is dict and set(witness) == {'schema', 'fixture_unit',
+            'stage_device', 'stage_inode', 'namespace_device', 'namespace_inode',
+            'negative_witness_only', 'canonical_authority'})
+        for key in ('namespace_device', 'namespace_inode'):
+            require(type(witness[key]) is int and 0 < witness[key] < 2**64)
+        strict_equal({k: v for k, v in witness.items() if k not in ('namespace_device', 'namespace_inode')},
+            {'schema': 1, 'fixture_unit': UNIT, 'stage_device': stage_meta.st_dev,
+             'stage_inode': stage_meta.st_ino, 'negative_witness_only': True, 'canonical_authority': False})
+        self.pins.append(witness_pin)
+        for path in (STAGE / 'state', STAGE / 'state/omavless-netguard'):
+            self.pins.append(DirectoryPin(path))
+        specifications = (
+            ('native-result.json', {'schema': 1, 'synthetic_epoch': True, 'effects': 2,
+                'full_inventory': True, 'second_socket_untrusted': True, 'absent': True}),
+            ('state/omavless-netguard/armed-v1.json', {'version': 1, 'policy_version': 1,
+                'enrolled_uid': 1001, 'generation': 7, 'armed': False, 'flags': 0}))
+        for name, expected in specifications:
+            pin = Pin(STAGE / name, 0o600, 16384)
+            strict_equal(json.loads(pin.data(), object_pairs_hook=pairs), expected)
+            self.pins.append(pin)
+        pin = Pin(STAGE / 'state/omavless-netguard/table-receipt-v1.json', 0o600, 16384)
+        receipt = json.loads(pin.data(), object_pairs_hook=pairs)
+        require(type(receipt) is dict and set(receipt) == {'version', 'enrolled_uid', 'boot',
+            'host_netns_epoch', 'netns_device', 'netns_inode', 'operation', 'phase', 'table_handle'})
+        for key in ('netns_device', 'netns_inode'):
+            require(type(receipt[key]) is int and 0 < receipt[key] < 2**64)
+        require((receipt['netns_device'], receipt['netns_inode']) !=
+                (witness['namespace_device'], witness['namespace_inode']))
+        strict_equal({k: v for k, v in receipt.items() if k not in ('netns_device', 'netns_inode')},
+            {'version': 1, 'enrolled_uid': 1001, 'boot': [0x31]*16, 'host_netns_epoch': [0x32]*16,
+             'operation': 2, 'phase': 'retired', 'table_handle': 0})
+        self.pins.append(pin)
+        for name in ('native.stdout', 'native.stderr'):
+            self.pins.append(Pin(STAGE / name, 0o600, 65536, empty=True))
 
     def cleanup_known_success(self):
         self.before('cleanup-admission')
-        require(self.post_validated and self.helper_known_zero)
+        require(self.lifecycle_validated and self.helper_known_zero)
         self.recheck(linked=True)
-        # All current manager cleanup facts come from the helper's one typed
-        # post-Unref GetAll("") reply, not separate clients racing unit GC.
+        # The same retained helper completed native proof and exact Stop before
+        # Unref. No post-Unref manager query can heal an incomplete lifecycle.
         require(not CGROUP.exists() and not CGROUP.is_symlink())
         self.recheck(linked=True)
         self.before('unlink-own-link')
@@ -419,9 +512,10 @@ class Observer:
         require(self.ns['preserve'](before, after))
         self.recheck()
         self.before('publish-result')
-        self.write('result.json', {'schema': 2, 'marker': MARKER, 'preserved': True,
+        self.write('result.json', {'schema': 3, 'marker': 'PRIVATE_LIFECYCLE_PRESERVED_NOT_PRODUCTION', 'preserved': True,
                                   'native_source': NATIVE_SOURCE, 'probe_sha256': PROBE_SHA,
-                                  'unref_acknowledged': True, 'admission': False})
+                                  'unref_acknowledged': True, 'native_closed_retired': True,
+                                  'private_lifecycle': True, 'admission': False})
 
     def execute(self):
         self.available()
@@ -442,7 +536,7 @@ class Observer:
 
 def main():
     require(os.getuid() == os.geteuid() == os.getgid() == os.getegid() == 0
-            and len(sys.argv) == 1 and os.environ.get('OMAVLESS_K1_SUPPORTED_SOCKET_GUARD') == '1')
+            and len(sys.argv) == 1 and os.environ.get('OMAVLESS_K1_RETAINED_LIFECYCLE_GUARD') == '1')
     for path in (Path('/run'), Path('/run/systemd'), PARENT):
         meta = path.lstat()
         require(stat.S_ISDIR(meta.st_mode) and meta.st_uid == meta.st_gid == 0 and meta.st_mode & 0o022 == 0)
@@ -457,7 +551,7 @@ def main():
             Pin(STAGE / 'guard.py', 0o500, 256 * 1024)]
     require(Path(__file__) == STAGE / 'guard.py')
     Observer(load_query(query), pins, fd, parent_fd).execute()
-    print('K1_SUPPORTED_SOCKET_CAPTURE_PRESERVED_NOT_ADMISSION')
+    print('K1_RETAINED_PRIVATE_LIFECYCLE_PRESERVED_NOT_PRODUCTION')
 
 
 if __name__ == '__main__':
@@ -465,5 +559,5 @@ if __name__ == '__main__':
     try:
         main()
     except BaseException:
-        print('K1_SUPPORTED_SOCKET_NONPASS_RETAINED', file=sys.stderr)
+        print('K1_RETAINED_LIFECYCLE_NONPASS_RETAINED', file=sys.stderr)
         sys.exit(2)

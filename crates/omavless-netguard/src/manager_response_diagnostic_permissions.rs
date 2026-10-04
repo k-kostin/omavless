@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use zbus::zvariant::{OwnedValue, Value};
 
-pub(super) const UNIT: &str = "omavless-k1-supported-socket-admission.service";
-pub(super) const STAGE: &str = "/run/omavless-k1-supported-socket-admission";
+pub(super) const UNIT: &str = "omavless-k1-retained-private-lifecycle.service";
+pub(super) const STAGE: &str = "/run/omavless-k1-retained-private-lifecycle";
 pub(super) const WRITER: &str =
     "kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle";
 type Facts = HashMap<String, OwnedValue>;
@@ -125,7 +125,7 @@ pub(super) fn expected_service() -> Facts {
     put(
         &mut values,
         "Environment",
-        vec!["OMAVLESS_K1_SUPPORTED_SOCKET_WRITER=1".to_owned()],
+        vec!["OMAVLESS_K1_RETAINED_LIFECYCLE_WRITER=1".to_owned()],
     );
     put(
         &mut values,
@@ -221,6 +221,36 @@ pub(super) fn check_unit(unit: &Facts) -> Result<(), ()> {
 pub(super) fn check(unit: &Facts, service: &Facts) -> Result<(), ()> {
     check_unit(unit)?;
     exact_selected(service, &expected_service())
+}
+
+// Runtime phase validation is separate, not replacement values injected into
+// the observed dictionary. Every unchanged security prerequisite still applies.
+pub(super) fn check_lifecycle_stable(actual: &Facts) -> Result<(), ()> {
+    let mut unit = expected_unit();
+    unit.remove("ActiveState");
+    unit.remove("SubState");
+    exact_selected(actual, &unit)?;
+    let requires = actual.get("Requires").ok_or(())?;
+    let first = OwnedValue::try_from(Value::from(vec!["sysinit.target", "system.slice"]))
+        .map_err(|_| ())?;
+    let second = OwnedValue::try_from(Value::from(vec!["system.slice", "sysinit.target"]))
+        .map_err(|_| ())?;
+    if requires != &first && requires != &second {
+        return Err(());
+    }
+    let mut service = expected_service();
+    for runtime in [
+        "ControlGroup",
+        "WatchdogUSec",
+        "ExecMainStartTimestampMonotonic",
+        "MainPID",
+        "ControlPID",
+        "ExecMainPID",
+        "ExecStart",
+    ] {
+        service.remove(runtime);
+    }
+    exact_selected(actual, &service)
 }
 
 pub(super) fn recorded(unit: &Facts, service: &Facts) -> Result<serde_json::Value, ()> {

@@ -1262,8 +1262,10 @@ name = "omavless-netguard"
 version = "0.9.7-rc.1"
 dependencies = [
  "nix",
+ "rustix",
  "serde",
  "serde_json",
+ "sha2",
  "zbus",
 ]
 

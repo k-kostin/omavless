@@ -40,6 +40,8 @@ mod manager_response_diagnostic_fixture;
 #[cfg(test)]
 mod manager_response_diagnostic_permissions;
 
+#[cfg(all(test, target_os = "linux"))]
+mod manager_private_negative_witness;
 #[cfg(test)]
 mod manager_retained_dump;
 #[cfg(test)]

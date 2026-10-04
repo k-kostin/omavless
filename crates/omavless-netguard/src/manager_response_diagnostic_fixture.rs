@@ -9,19 +9,19 @@ use std::time::Duration;
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedValue, Type};
 
-const UNIT: &str = "omavless-k1-supported-socket-admission.service";
-const STAGE: &str = "/run/omavless-k1-supported-socket-admission";
-const FRAGMENT: &str = "/run/systemd/system/omavless-k1-supported-socket-admission.service";
+const UNIT: &str = "omavless-k1-retained-private-lifecycle.service";
+const STAGE: &str = "/run/omavless-k1-retained-private-lifecycle";
+const FRAGMENT: &str = "/run/systemd/system/omavless-k1-retained-private-lifecycle.service";
 const UNIT_PATH: &str =
-    "/org/freedesktop/systemd1/unit/omavless_2dk1_2dsupported_2dsocket_2dadmission_2eservice";
+    "/org/freedesktop/systemd1/unit/omavless_2dk1_2dretained_2dprivate_2dlifecycle_2eservice";
 const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
 const MANAGER: &str = "org.freedesktop.systemd1.Manager";
 const TEST: &str = "manager_response_diagnostic_fixture::capture_effective_config";
 const MAX_REPLY: usize = 1024 * 1024;
-const REFUSE: &str = "K1_SUPPORTED_SOCKET_UNCERTAIN_RETAINED";
+const REFUSE: &str = "K1_RETAINED_LIFECYCLE_UNCERTAIN_RETAINED";
 type Result<T> = std::result::Result<T, &'static str>;
 
-struct Properties<const LIMIT: usize = 512>(HashMap<String, OwnedValue>);
+pub(super) struct Properties<const LIMIT: usize = 512>(pub(super) HashMap<String, OwnedValue>);
 
 impl<const LIMIT: usize> Type for Properties<LIMIT> {
     const SIGNATURE: &'static zbus::zvariant::Signature = <HashMap<String, OwnedValue>>::SIGNATURE;
@@ -64,7 +64,7 @@ fn require(ok: bool) -> Result<()> {
     if ok { Ok(()) } else { Err(REFUSE) }
 }
 
-fn decode<T: DeserializeOwned + Type>(message: &zbus::Message) -> Result<T> {
+pub(super) fn decode<T: DeserializeOwned + Type>(message: &zbus::Message) -> Result<T> {
     // The library has already received the message (upstream limit 128 MiB).
     // This is a tighter decoding/output bound, not a preallocation bound.
     require(message.data().len() <= MAX_REPLY && message.data().fds().is_empty())?;
@@ -138,7 +138,7 @@ fn selected_service(values: &HashMap<String, OwnedValue>) -> Result<Value> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Request {
+pub(super) enum Request {
     Owner,
     VersionBefore,
     Ref,
@@ -150,7 +150,7 @@ enum Request {
     PostUnrefAll,
 }
 
-trait FixedBus {
+pub(super) trait FixedBus {
     fn request(&self, owner: &str, request: Request) -> Result<zbus::Message>;
 }
 
@@ -218,10 +218,10 @@ impl FixedBus for Connection {
     }
 }
 
-struct Held<B = Connection> {
+pub(super) struct Held<B = Connection> {
     // Leaked before the first possible RefUnit. No destructor/Unref on failure.
-    connection: B,
-    stage: File,
+    pub(super) connection: B,
+    pub(super) stage: File,
 }
 
 impl<B: FixedBus> Held<B> {
@@ -329,7 +329,7 @@ impl<B: FixedBus> Held<B> {
     }
 }
 
-fn write_exclusive(stage: &File, name: &'static str, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_exclusive(stage: &File, name: &str, bytes: &[u8]) -> Result<()> {
     use nix::fcntl::{OFlag, openat};
     use nix::sys::stat::Mode;
     let fd = openat(
@@ -353,13 +353,28 @@ fn manager_version(message: &zbus::Message) -> Result<String> {
     Ok(text.to_owned())
 }
 
-fn capture(held: &Held<impl FixedBus>) -> Result<()> {
+pub(super) fn admit_retaining_reference(
+    held: &Held,
+    before_ref: impl FnOnce() -> std::result::Result<(), ()>,
+) -> Result<String> {
+    admitted_prefix_checked(held, before_ref)
+}
+
+fn admitted_prefix(held: &Held<impl FixedBus>) -> Result<String> {
+    admitted_prefix_checked(held, || Ok(()))
+}
+
+fn admitted_prefix_checked(
+    held: &Held<impl FixedBus>,
+    before_ref: impl FnOnce() -> std::result::Result<(), ()>,
+) -> Result<String> {
     // Pin the manager's unique bus identity. Never follow a replacement owner.
     let reply = held.request("", Request::Owner)?;
     let owner: String = decode(&reply)?;
     zbus::names::UniqueName::try_from(owner.as_str()).map_err(|_| REFUSE)?;
     let version_before = manager_version(&held.request(&owner, Request::VersionBefore)?)?;
     require(version_before == "261.2-1-arch")?;
+    before_ref().map_err(|_| REFUSE)?;
     let reference = held.request(&owner, Request::Ref)?;
     decode::<()>(&reference)?;
     let unit_properties = decode::<Properties>(&held.request(&owner, Request::Unit)?)?;
@@ -407,6 +422,11 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
     let bytes = serde_json::to_vec(&evidence).map_err(|_| REFUSE)?;
     require(bytes.len() <= 2 * MAX_REPLY)?;
     write_exclusive(&held.stage, "private-admission-config-data.json", &bytes)?;
+    Ok(owner)
+}
+
+fn capture(held: &Held<impl FixedBus>) -> Result<()> {
+    let owner = admitted_prefix(held)?;
     // Only the complete known capture permits the sole explicit Unref.
     let reply = held.request(&owner, Request::Unref)?;
     decode::<()>(&reply)?;
@@ -437,7 +457,7 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
 #[ignore = "root-reviewed fixed metadata capture; dedicated VM lease only, never ordinary cargo"]
 fn capture_effective_config() {
     assert_eq!(
-        std::env::var("OMAVLESS_K1_SUPPORTED_SOCKET").as_deref(),
+        std::env::var("OMAVLESS_K1_RETAINED_LIFECYCLE").as_deref(),
         Ok("1")
     );
     assert_eq!(
@@ -456,19 +476,21 @@ fn capture_effective_config() {
         .read(true)
         .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
         .open(STAGE)
-        .expect("K1_SUPPORTED_SOCKET_STAGE_REFUSED");
-    let meta = stage.metadata().expect("K1_SUPPORTED_SOCKET_STAGE_REFUSED");
+        .expect("K1_RETAINED_LIFECYCLE_STAGE_REFUSED");
+    let meta = stage
+        .metadata()
+        .expect("K1_RETAINED_LIFECYCLE_STAGE_REFUSED");
     assert!(meta.is_dir() && meta.uid() == 0 && meta.gid() == 0 && meta.mode() & 0o7777 == 0o700);
     // Literal transport: DBUS_SYSTEM_BUS_ADDRESS and caller arguments cannot
     // redirect it. Construction/send stalls are bounded by the outer observer;
     // method_timeout bounds waiting for a reply, not the whole connection setup.
     let connection =
         zbus::blocking::connection::Builder::address("unix:path=/run/dbus/system_bus_socket")
-            .expect("K1_SUPPORTED_SOCKET_ADDRESS_REFUSED")
+            .expect("K1_RETAINED_LIFECYCLE_ADDRESS_REFUSED")
             .max_queued(8)
             .method_timeout(Duration::from_secs(5))
             .build()
-            .expect("K1_SUPPORTED_SOCKET_CONNECT_REFUSED");
+            .expect("K1_RETAINED_LIFECYCLE_CONNECT_REFUSED");
     let held = Box::leak(Box::new(Held { connection, stage }));
     if !matches!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| capture(held))),
@@ -479,7 +501,7 @@ fn capture_effective_config() {
             std::thread::park();
         }
     }
-    println!("K1_SUPPORTED_SOCKET_CAPTURED_UNREF_ACKNOWLEDGED_NOT_ADMISSION");
+    println!("K1_RETAINED_LIFECYCLE_CAPTURED_UNREF_ACKNOWLEDGED_NOT_ADMISSION");
 }
 
 #[test]
@@ -878,6 +900,23 @@ mod controls {
                 }
             })
         }
+    }
+
+    #[test]
+    fn failed_original_witness_recheck_prevents_ref_and_all_later_rpcs() {
+        let path = crate::test_temp::directory("k1-pre-ref").unwrap();
+        let held = Held {
+            connection: Fake {
+                calls: RefCell::new(Vec::new()),
+                fail: None,
+                malformed: false,
+            },
+            stage: File::open(&path).unwrap(),
+        };
+        assert!(admitted_prefix_checked(&held, || Err(())).is_err());
+        assert_eq!(*held.connection.calls.borrow(), ORDER[..2]);
+        assert!(!path.join("rpc-02-before.json").exists());
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     #[test]

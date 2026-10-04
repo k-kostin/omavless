@@ -1,5 +1,10 @@
 # K1 supported socket-dependency admission
 
+This document retains the immutable #625 capture contract and historical gate
+ledger. The separate [retained private lifecycle successor](K1_RETAINED_PRIVATE_LIFECYCLE.md)
+owns the new #631 tuple and actual cfg(test) coordinator; #625 evidence does not
+transfer lifecycle authority to it.
+
 Source-only successor to immutable #621 `c82044ba6f863af04773caf9986cbdae8e97811f`.
 Its first capture remains NONPASS. Separately authorized file observation found
 RPCs 0–3 validated and RPC 4 refused exactly the missing `Sockets` field. This

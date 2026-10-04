@@ -2,9 +2,11 @@
 
 Source-only successor to #625 `76f2c73a7cff7eafbb280eda0e4bf769d55d02aa`.
 It reuses the existing #604 creator composition, not a second nft writer.
-The first checkpoint contains only a cfg(test) coordinator and deterministic
-ordering controls. **No real adapter, Start dispatch, new guest generation,
-frozen executable or VM-ready guard is wired at this checkpoint.**
+The first checkpoint `bc1a642395b4fbc418ceb183d498eba84b543951` contained only
+a cfg(test) coordinator and deterministic ordering controls. The successor
+implementation adds its fixed bus/file adapter and outer guard. **It remains
+source-only until sealed full gates, fresh executable pins and complete review;
+no VM invocation is authorized by this document.**
 
 ## Evidence and remaining boundary
 
@@ -28,15 +30,47 @@ same-session delete → absent and Closed/Retired. Unknown outcomes retain the
 actual creator, state and namespace/socket owners in a parked process.
 The synthetic epoch and PID1 namespace negative witness remain non-authorizing.
 
+### Material private-witness provenance change
+
+The restricted writer no longer dereferences `/proc/1/ns/net`. This is a
+material change, not just a literal tuple rebind: Linux
+[proc namespace links](https://github.com/torvalds/linux/blob/v6.17/fs/proc/namespaces.c#L39)
+require `PTRACE_MODE_READ_FSCREDS`, and
+[commoncap](https://github.com/torvalds/linux/blob/v6.17/security/commoncap.c#L154)
+requires the caller's effective capabilities to cover the target's permitted
+set or CAP_SYS_PTRACE. CAP_NET_ADMIN alone therefore cannot generally read PID1's
+namespace link. No CAP_SYS_PTRACE or CAP_SYS_ADMIN is added.
+
+The test-only root adapter retains original PID1 and own-current network
+namespace FDs, checks nsfs plus the exact network namespace label and equality,
+then exclusively publishes `host-negative-witness.json` through its retained
+root-private stage FD before Ref. This bounded schema-1 root0600 receipt binds
+the fixed unit, original stage device/inode and namespace device/inode, with
+`negative_witness_only=true` and `canonical_authority=false`. Both processes
+retain original receipt FDs and stage ancestry; metadata, no-xattrs, digest,
+duplicate/unknown/type rejection and exact identities are rechecked. Root also
+rechecks its original/current namespace anchors before Ref and every subsequent
+RPC/effect boundary. Its retained FD prevents namespace inode reuse.
+
+The restricted child retains inherited FD3 before any other opener, reads only
+this fixed receipt, and requires its own network namespace to differ. Receipt
+checks precede the first netlink socket and existing transaction checks. This
+is an explicitly trusted-root/exclusive-VM **negative fixture bridge**, never
+canonical namespace authority, adoption or a production IPC surface. Tests
+cover malformed/short/missing/duplicate/wrong/stale records, original-FD
+replacement/mutation, modes, xattrs and failure before simulated socket access.
+
 What #625 does not provide is a retained-reference launch/completion bridge.
 It Unrefs before its inert-only cleanup. The old #604 Python observer is not an
 eligible substitute: its property representation and owned-wait composition
 predate the corrected admission path. The next adapter must keep the same
 unique-owner connection and reference through the actual lifecycle.
 
-## Fixed future composition
+## Fixed composition
 
-1. Create one fresh literal developer tuple. Retain original root-owned unit,
+1. Create the fresh literal `omavless-k1-retained-private-lifecycle.service`,
+   root stage `/run/omavless-k1-retained-private-lifecycle` and delivery source
+   `/home/kdk_vm/.cache/k1-retained-private-stage-v1`. Retain original root-owned unit,
    ELF, link and evidence-directory FDs; reject reuse or any unknown ancestry.
    Preserve the full before baseline before publishing the own link.
 2. Pin the manager's unique owner and exact `261.2-1-arch` version. Ref once;
@@ -88,10 +122,68 @@ The actual child checks before sockets/effects remain mandatory regardless of
 typed manager observations. No host namespace adoption or product authority is
 created by this assumption.
 
-The initial coordinator controls cover exact successful ordering, every callback
+The coordinator controls cover exact successful ordering, every callback
 error and panic, permanent non-reusability, canonical job paths, pending polling
 and both count/elapsed bounds. They use no system bus, process, namespace, nft,
-unit or guest operation. The fixed adapter still needs strict typed phase
-counterexamples, original-FD continuity controls, real retained lifetime tests,
-full source/Rust gates, a fresh frozen ELF and acyclic pins, complete parent and
-independent review, and a separate exclusive VM lease before any invocation.
+unit or guest operation. Adapter controls add strict typed phase/unchanged-field
+counterexamples and real original-FD replacement, reversion, contents, mode,
+bound, symlink and hard-link rejection. Full source/Rust gates, a fresh frozen
+ELF and acyclic pins, complete parent and independent review, and a separate
+exclusive VM lease are required before any invocation.
+
+## Retention, timing and evidence details
+
+The adapter uses the existing supported admission prefix on its original
+connection, including the duplicate-rejecting dictionary decoder, exact distro
+version and strict configured Dump parser. The original metadata-only ignored
+entry and its controls remain separate; the new guard selects only
+`manager_retained_lifecycle::adapter::run_private_lifecycle`. It does not run
+that capture first and then start through another client.
+
+The new adapter retains the raw unit bytes (exact compiled public unit), original
+ELF identity/content digest, root directory ancestors and exact own symlink.
+The outer guard independently pins the frozen ELF hash before execution through
+its original read-only FD. The native adapter compares its actual executable
+identity with the retained stage ELF; its self-content digest is continuity,
+not a self-attesting replacement for the outer frozen hash. Initial outer xattr
+checks remain mandatory; native metadata includes ctime and every effect boundary
+also rehashes the original admitted files. Existing root-only ancestry and the
+exclusive trusted-root assumption remain part of this composition.
+
+Each start/stop observation phase has both a 450-query count bound and a
+45-second elapsed bound checked before and after replies. Known pending replies
+alone allow a 100-ms delay and another observation. The direct helper has a
+180-second outer owned-wait deadline, with exact typed zero WNOWAIT required
+before the sole reap. No deadline sends a signal or cancels a job.
+The bus library's upstream receive allocation ceiling is unchanged; the 1-MiB
+message/FD-free bound is a decode bound, not a preallocation guarantee.
+
+Stable security fields are never patched into received dictionaries. Only the
+explicit runtime fields are separately phase-checked. InvocationID, ExecStart
+and main-exec history, exact job path/ID, control/main live PIDs, result and restart
+count are typed. Never-started runtime Watchdog infinity and post-start zero are
+distinct from configured Dump WatchdogSec zero. A seen running invocation cannot
+be replaced by another one before completion. Stop observes the same historical
+completed invocation; missing or unfamiliar states are failures, not absence.
+
+Private finite before-RPC and selected-runtime observation records identify
+boundaries without publishing raw values or claiming validation. Native receipt,
+Closed marker and Retired receipt are read from stable original FDs with strict
+duplicate/unknown/type rejection. Before Stop the native helper checks the exact
+own cgroup twice empty (or stable absent), including its populated flag; it does
+not scan unrelated processes or use recorded PIDs as signal authority. This
+proof is for the fixed no-fork native unit, not general descendant quiescence.
+The outer independently validates terminal/native files after known helper zero.
+Any error retains the admitted connection, reference, original unit/ELF/state
+owners and parked native owners; temporary failed read/decoded message objects
+are not creator or connection owners and make no cleanup effects when dropped.
+Retaining a connection object cannot guarantee that a server-side reference
+survives a transport or manager failure; uncertainty is retained, not represented
+as proof that the manager reference remains live.
+
+The first unsealed Python transition run had three stale budget/source-string/
+pin assertions; after correction all 26 controls passed. An expanded Rust
+selection caught the old encoded unit object path in the admission prefix
+(119 passed, one failed, ten ignored); it was corrected to the new exact literal
+before any execution. These intermediate failures remain NONPASS and are not
+evidence for a guest invocation.

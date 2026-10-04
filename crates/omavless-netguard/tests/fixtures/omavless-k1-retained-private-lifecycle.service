@@ -10,8 +10,8 @@ RemainAfterExit=yes
 User=root
 Group=root
 SupplementaryGroups=
-ExecStart=/run/omavless-k1-supported-socket-admission/probe --exact kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle --ignored --nocapture --test-threads=1
-Environment=OMAVLESS_K1_SUPPORTED_SOCKET_WRITER=1
+ExecStart=/run/omavless-k1-retained-private-lifecycle/probe --exact kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle --ignored --nocapture --test-threads=1
+Environment=OMAVLESS_K1_RETAINED_LIFECYCLE_WRITER=1
 OpenFile=/proc/1/ns/net:k1-host-netns:read-only
 PrivateUsers=no
 PrivatePIDs=no
@@ -28,5 +28,5 @@ RuntimeMaxSec=infinity
 KillMode=none
 SendSIGKILL=no
 StandardInput=null
-StandardOutput=append:/run/omavless-k1-supported-socket-admission/native.stdout
-StandardError=append:/run/omavless-k1-supported-socket-admission/native.stderr
+StandardOutput=append:/run/omavless-k1-retained-private-lifecycle/native.stdout
+StandardError=append:/run/omavless-k1-retained-private-lifecycle/native.stderr

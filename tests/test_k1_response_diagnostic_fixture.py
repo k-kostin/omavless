@@ -321,27 +321,37 @@ class Flow(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 guard.validate_permissions(value)
 
-    def test_old_writer_is_only_rebound_not_reimplemented_and_no_start_dispatch(self):
+    def test_writer_provenance_delta_and_start_only_in_fixed_native_adapter(self):
         src = ROOT / 'crates/omavless-netguard/src'
-        old = (src / 'kernel_manager_private_fixture.rs').read_text()
         new = (src / 'kernel_response_diagnostic_fixture.rs').read_text()
-        expected = old.replace('omavless-k1-manager-private-lifecycle',
-            'omavless-k1-supported-socket-admission').replace('::manager_private::',
-            '::response_diagnostic::').replace('OMAVLESS_K1_MANAGER_PRIVATE',
-            'OMAVLESS_K1_SUPPORTED_SOCKET_WRITER')
-        self.assertEqual(new, expected.replace('const TEST: &str = "', 'const TEST: &str =\n    "'))
+        self.assertNotIn('File::open("/proc/1/ns/net")', new)
+        self.assertIn('Witness::read(host_id)', new)
+        self.assertIn('self.witness.recheck(self.host_id)', new)
+        run = new.split('fn run(held: &mut Held)')[1]
+        self.assertLess(run.index('held.isolation.recheck()?'),run.index('FixtureCreator::open'))
+        self.assertIn('setns(&null, CloneFlags::empty())', new)
+        witness = (src / 'manager_private_negative_witness.rs').read_text()
+        self.assertIn('canonical_authority:false', witness.replace(' ', ''))
+        self.assertIn('OFlags::EXCL', witness)
+        self.assertIn('deny_unknown_fields', witness)
         outer = (SUPPORT / 'response_diagnostic_guard.py').read_text()
         native = (src / 'manager_response_diagnostic_fixture.rs').read_text()
         for forbidden in ('StartUnit', 'StopUnit', 'SetProperties', 'ReloadUnit'):
             self.assertNotIn(forbidden, native)
-        self.assertNotIn("'start'", outer)
-        self.assertNotIn("'stop'", outer)
-        self.assertIn("manager_response_diagnostic_fixture::capture_effective_config", outer)
+        self.assertNotIn("'/usr/bin/systemctl', 'start'", outer)
+        self.assertNotIn("'/usr/bin/systemctl', 'stop'", outer)
+        self.assertIn("manager_retained_lifecycle::adapter::run_private_lifecycle", outer)
+        adapter = (src / 'manager_retained_lifecycle_adapter.rs').read_text()
+        self.assertIn('"StartUnit"', adapter)
+        self.assertIn('"StopUnit"', adapter)
+        for forbidden in ('SetProperties', 'StartTransientUnit', 'RestartUnit', 'KillUnit'):
+            self.assertNotIn(forbidden, adapter)
+        self.assertIn('&(UNIT, "fail")', adapter)
 
     def fixture(self):
         obj = object.__new__(guard.Observer)
         obj.directory_fd, obj.parent_fd = 17, 18
-        obj.sealed, obj.post_validated, obj.helper_known_zero = False, False, False
+        obj.sealed, obj.lifecycle_validated, obj.helper_known_zero = False, False, False
         obj.phase, obj.pins = 'not-entered', []
         obj.ns = {'UNCERTAIN': False, 'ACTIVATION_REFUSED': False}
         return obj
@@ -372,7 +382,7 @@ class Flow(unittest.TestCase):
 
         def evidence():
             event('evidence')
-            obj.post_validated = True
+            obj.lifecycle_validated = True
 
         def cleanup():
             for phase in guard.PHASES[5:9]:
@@ -399,7 +409,7 @@ class Flow(unittest.TestCase):
         phases = [x for x in trace if isinstance(x, str) and x.startswith('phase-')]
         self.assertEqual(phases, [f'phase-{i:02d}-{p}.json' for i, p in enumerate(guard.PHASES)])
         self.assertEqual(trace[-1], 'result.json')
-        self.assertTrue(obj.helper_known_zero and obj.post_validated)
+        self.assertTrue(obj.helper_known_zero and obj.lifecycle_validated)
         self.assertLess(trace.index('before'), trace.index('publish'))
         self.assertLess(trace.index('helper'), trace.index('evidence'))
 
@@ -442,12 +452,12 @@ class Flow(unittest.TestCase):
                     obj.helper()
             self.assertFalse(obj.helper_known_zero)
             self.assertEqual(obj.ns['spawn'].call_args.kwargs['executable'], '/proc/self/fd/25')
-            obj.ns['await_child'].assert_called_once_with(child, seconds=45)
+            obj.ns['await_child'].assert_called_once_with(child, seconds=180)
 
     def test_cleanup_requires_both_known_child_and_receipts_before_unlink(self):
         for known, evidence in ((False, True), (True, False), (False, False)):
             obj = self.fixture()
-            obj.helper_known_zero, obj.post_validated = known, evidence
+            obj.helper_known_zero, obj.lifecycle_validated = known, evidence
             obj.phase = 'validate-evidence'
             obj.write = Mock()
             obj.recheck = Mock()
@@ -466,7 +476,7 @@ class Flow(unittest.TestCase):
     def test_actual_cleanup_checks_pinned_unit_and_cgroup_before_exact_unlink(self):
         for cgroup in (False, True):
             obj = self.fixture()
-            obj.helper_known_zero = obj.post_validated = True
+            obj.helper_known_zero = obj.lifecycle_validated = True
             obj.phase = 'validate-evidence'
             trace = []
             obj.write = lambda name, value: trace.append(name)
@@ -515,6 +525,64 @@ class Flow(unittest.TestCase):
             self.assertEqual(stage.MEMBERS[name][0], hashlib.sha256(path.read_bytes()).hexdigest())
         self.assertEqual(stage.MEMBERS['probe'][0], guard.PROBE_SHA)
         self.assertEqual(stage.DESTINATION, guard.STAGE)
+
+    def lifecycle(self):
+        execution = dict(invocation=[7]*16, pid=123, start=100, exit=200,
+                         command_start=100, command_exit=200)
+        result = dict(schema=1, unit=guard.UNIT, unique_owner=':1.77',
+            start_job={'id':17, 'path':'/org/freedesktop/systemd1/job/17'},
+            stop_job={'id':23, 'path':'/org/freedesktop/systemd1/job/23'},
+            execution=execution, effects=2, closed_retired=True, absent=True,
+            stopped=True, unref_acknowledged=True, synthetic_epoch=True, production_admission=False)
+        native = dict(schema=1, execution=execution, effects=2, closed_retired=True,
+                      absent=True, synthetic_epoch=True)
+        stopped = dict(schema=1, execution=execution, inactive_dead=True,
+                       zero_pids=True, no_job=True, empty_cgroup=True)
+        return result, native, stopped
+
+    def test_lifecycle_receipts_bind_same_execution_and_exact_jobs_without_product_claim(self):
+        records = self.lifecycle()
+        guard.validate_lifecycle(*records, ':1.77')
+        for index, key in [(0,'unit'),(0,'unique_owner'),(0,'closed_retired'),(0,'stopped'),
+                           (0,'unref_acknowledged'),(0,'production_admission'),
+                           (1,'closed_retired'),(1,'absent'),(2,'zero_pids'),(2,'empty_cgroup')]:
+            changed = json.loads(json.dumps(records))
+            changed[index][key] = 'wrong'
+            with self.assertRaises(RuntimeError):
+                guard.validate_lifecycle(*changed, ':1.77')
+        for index in range(3):
+            changed = json.loads(json.dumps(records))
+            changed[index]['schema'] = True
+            with self.assertRaises(RuntimeError):
+                guard.validate_lifecycle(*changed, ':1.77')
+
+    def test_lifecycle_pid_time_invocation_job_types_and_cross_proof_change_refuse(self):
+        records = self.lifecycle()
+        for key, value in [('pid',True),('pid',0),('start',True),('start',0),('exit',2**64-1),
+                           ('invocation',[0]*16),('invocation',[True]*16),('command_exit',99)]:
+            changed = json.loads(json.dumps(records))
+            changed[0]['execution'][key] = value
+            with self.assertRaises(RuntimeError):
+                guard.validate_lifecycle(*changed, ':1.77')
+        for value in [{'id':True,'path':'/org/freedesktop/systemd1/job/1'},
+                      {'id':17,'path':'/org/freedesktop/systemd1/job/017'}, records[0]['start_job']]:
+            changed = json.loads(json.dumps(records))
+            changed[0]['stop_job'] = value
+            with self.assertRaises(RuntimeError):
+                guard.validate_lifecycle(*changed, ':1.77')
+        changed = json.loads(json.dumps(records))
+        changed[2]['execution']['invocation'][0] = 8
+        with self.assertRaises(RuntimeError):
+            guard.validate_lifecycle(*changed, ':1.77')
+
+    def test_no_inert_post_unref_or_nine_rpc_cleanup_path_in_actual_evidence(self):
+        import inspect
+        evidence = inspect.getsource(guard.Observer.evidence)
+        self.assertIn('range(7)', evidence)
+        self.assertIn('validate_lifecycle', evidence)
+        self.assertIn('self.native_evidence()', evidence)
+        self.assertNotIn('private-admission-post-unref-state.json', evidence)
+        self.assertNotIn('private-admission-unref-ack.json', evidence)
 
 
 if __name__ == '__main__':

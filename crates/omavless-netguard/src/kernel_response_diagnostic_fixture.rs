@@ -3,6 +3,7 @@
 //! No canonical namespace or installed authority is established here.
 use super::*;
 use crate::locked_state::LockedState;
+use crate::manager_private_negative_witness::Witness;
 use crate::protocol::{Health, Mode, Protection, Request, Response};
 use crate::receipt::NamespaceObservation;
 use crate::root_state::RootStateStore;
@@ -14,7 +15,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt};
 use std::path::Path;
 
-const STAGE: &str = "/run/omavless-k1-supported-socket-admission";
+const STAGE: &str = "/run/omavless-k1-retained-private-lifecycle";
 const TEST: &str =
     "kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle";
 const CAP_NET_ADMIN: &str = "0000000000001000";
@@ -83,8 +84,8 @@ fn loopback_only(text: &str) -> Result<()> {
     )
 }
 
-fn distinct(host: (u64, u64), own: (u64, u64), manager: (u64, u64)) -> Result<()> {
-    require(host.1 != 0 && own.1 != 0 && host == manager && own != host)
+fn distinct(host: (u64, u64), own: (u64, u64)) -> Result<()> {
+    require(host.1 != 0 && own.1 != 0 && own != host)
 }
 
 struct Isolation {
@@ -92,17 +93,21 @@ struct Isolation {
     own: File,
     host_id: (u64, u64),
     own_id: (u64, u64),
+    witness: Witness,
 }
 impl Isolation {
     fn capture() -> Result<Self> {
         // First open: missing FD3 cannot accidentally become our own ns opener.
         let host = File::open("/proc/self/fd/3").map_err(|_| REFUSE)?;
+        let host_id = namespace_identity(&host)?;
+        let witness = Witness::read(host_id).map_err(|_| REFUSE)?;
         let own = namespace_file()?;
         let value = Self {
-            host_id: namespace_identity(&host)?,
+            host_id,
             own_id: namespace_identity(&own)?,
             host,
             own,
+            witness,
         };
         value.recheck()?;
         Ok(value)
@@ -118,8 +123,10 @@ impl Isolation {
                 == self.host_id,
         )?;
         require(namespace_identity(&namespace_file()?)? == self.own_id)?;
-        let manager = File::open("/proc/1/ns/net").map_err(|_| REFUSE)?;
-        distinct(self.host_id, self.own_id, namespace_identity(&manager)?)?;
+        // Only the retained root adapter dereferences PID1. This restricted
+        // child verifies the fixed negative receipt; it gains no host authority.
+        self.witness.recheck(self.host_id).map_err(|_| REFUSE)?;
+        distinct(self.host_id, self.own_id)?;
         loopback_only(&bounded("/proc/thread-self/net/dev")?)?;
         let null = File::open("/dev/null").map_err(|_| REFUSE)?;
         let meta = null.metadata().map_err(|_| REFUSE)?;
@@ -266,7 +273,7 @@ fn run(held: &mut Held) -> Result<()> {
 #[ignore = "fixed manager-owned PrivateNetwork fixture; dedicated VM lease and reviewed outer guard required"]
 fn manager_private_lifecycle() {
     assert_eq!(
-        std::env::var("OMAVLESS_K1_SUPPORTED_SOCKET_WRITER").as_deref(),
+        std::env::var("OMAVLESS_K1_RETAINED_LIFECYCLE_WRITER").as_deref(),
         Ok("1")
     );
     assert_eq!(
@@ -323,13 +330,9 @@ fn actual_credentials_require_only_net_admin_and_effective_filter() {
 
 #[test]
 fn skipped_private_network_wrong_anchor_and_extra_interfaces_refuse() {
-    assert!(distinct((5, 1), (5, 2), (5, 1)).is_ok());
-    for (host, own, manager) in [
-        ((5, 1), (5, 1), (5, 1)),
-        ((5, 3), (5, 2), (5, 1)),
-        ((5, 0), (5, 2), (5, 0)),
-    ] {
-        assert!(distinct(host, own, manager).is_err());
+    assert!(distinct((5, 1), (5, 2)).is_ok());
+    for (host, own) in [((5, 1), (5, 1)), ((5, 0), (5, 2))] {
+        assert!(distinct(host, own).is_err());
     }
     assert!(loopback_only("header\nheader\n lo: 0 0\n").is_ok());
     for value in [

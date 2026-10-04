@@ -1,6 +1,9 @@
-//! Developer-only coordinator prerequisite. No real bus adapter is wired yet.
+//! Developer-only fixed retained-reference coordinator.
 //! The existing FixtureCreator remains the sole kernel writer.
 use std::time::{Duration, Instant};
+
+#[path = "manager_retained_lifecycle_adapter.rs"]
+mod adapter;
 
 const MAX_POLLS: usize = 450;
 const PHASE_BUDGET: Duration = Duration::from_secs(45);

@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE = Path("/run/omavless-k1-supported-socket-admission")
+STAGE = Path("/run/omavless-k1-retained-private-lifecycle")
 SERVICE_FIELDS = ["ActiveState", "SubState", "MainPID"]
 NETWORK_COMMANDS = {
     "address": ["/usr/bin/ip", "-j", "address", "show"],
