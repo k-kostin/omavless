@@ -1,8 +1,10 @@
 //! Inactive acquisition boundary. There is NO normal constructor or verifier.
 //! Exact configuration bytes are evidence, never trusted launch provenance.
 
-use crate::authority_composition::CanonicalCreator;
-use crate::effect_port::EffectError;
+use crate::authority_composition::{Boundary, CanonicalCreator};
+use crate::effect_port::{EffectError, EffectIdentity, EffectSnapshot};
+use crate::policy::Policy;
+use crate::receipt::HostEpoch;
 use std::fs::File;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -92,7 +94,9 @@ impl<C: CanonicalCreator> AcquiredCreator<C> {
     /// cannot extract a borrow or replace the held descriptors through this API.
     /// Structural no-setns remains a trusted-launch obligation: !Send alone is
     /// not proof against same-thread switch-and-return or a hostile kernel/root.
-    pub(crate) fn with_lease<T>(
+    // Module-private: callers must never receive &mut C, because even a
+    // non-escaping borrow would permit mem::replace of the paired creator.
+    fn with_lease<T>(
         &mut self,
         callback: impl FnOnce(&mut C) -> Result<T, EffectError>,
     ) -> Result<T, EffectError> {
@@ -115,6 +119,48 @@ impl<C: CanonicalCreator> AcquiredCreator<C> {
         originals.verifier.recheck(borrow())?;
         self.sealed = false;
         Ok(value)
+    }
+
+    pub(crate) fn retained_epoch(&mut self, boundary: Boundary) -> Result<HostEpoch, EffectError> {
+        self.with_lease(|creator| creator.retained_epoch(boundary))
+    }
+
+    pub(crate) fn observe(&mut self) -> Result<(EffectSnapshot, HostEpoch), EffectError> {
+        self.with_lease(|creator| {
+            let value = creator.observe()?;
+            Ok((value, creator.retained_epoch(Boundary::AfterObserve)?))
+        })
+    }
+
+    pub(crate) fn create_if_absent(
+        &mut self,
+        policy: Policy,
+    ) -> Result<(EffectIdentity, HostEpoch), EffectError> {
+        self.with_lease(|creator| {
+            let value = creator.create_if_absent(policy)?;
+            Ok((value, creator.retained_epoch(Boundary::AfterCreate)?))
+        })
+    }
+
+    pub(crate) fn replace_owned(
+        &mut self,
+        identity: EffectIdentity,
+        policy: Policy,
+    ) -> Result<(EffectIdentity, HostEpoch), EffectError> {
+        self.with_lease(|creator| {
+            let value = creator.replace_owned(identity, policy)?;
+            Ok((value, creator.retained_epoch(Boundary::AfterReplace)?))
+        })
+    }
+
+    pub(crate) fn delete_owned(
+        &mut self,
+        identity: EffectIdentity,
+    ) -> Result<((), HostEpoch), EffectError> {
+        self.with_lease(|creator| {
+            creator.delete_owned(identity)?;
+            Ok(((), creator.retained_epoch(Boundary::AfterDelete)?))
+        })
     }
 
     // The ONLY constructor is synthetic. It cannot be reached by a normal

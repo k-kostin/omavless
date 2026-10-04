@@ -64,9 +64,7 @@ impl<C: CanonicalCreator> BoundEffects<C> {
     }
 
     fn admit(&mut self) -> NamespaceObservation {
-        if let Ok(epoch) = self
-            .creator
-            .with_lease(|c| c.retained_epoch(Boundary::Admission))
+        if let Ok(epoch) = self.creator.retained_epoch(Boundary::Admission)
             && epoch.boot != [0; 16]
             && epoch.namespace_epoch != [0; 16]
             && epoch.namespace_inode != 0
@@ -90,7 +88,7 @@ impl<C: CanonicalCreator> BoundEffects<C> {
         }
         // Set before entering provider code: unwind cannot revive this owner.
         self.sealed = true;
-        let epoch = self.creator.with_lease(|c| c.retained_epoch(boundary))?;
+        let epoch = self.creator.retained_epoch(boundary)?;
         if Some(epoch) != self.epoch {
             return Err(EffectError::UnavailableOrUncertain);
         }
@@ -101,16 +99,11 @@ impl<C: CanonicalCreator> BoundEffects<C> {
     fn operation<T>(
         &mut self,
         before: Boundary,
-        after: Boundary,
-        effect: impl FnOnce(&mut C) -> Result<T, EffectError>,
+        effect: impl FnOnce(&mut AcquiredCreator<C>) -> Result<(T, HostEpoch), EffectError>,
     ) -> Result<T, EffectError> {
         self.check(before)?;
         self.sealed = true;
-        let (value, epoch) = self.creator.with_lease(|creator| {
-            let value = effect(creator)?;
-            let epoch = creator.retained_epoch(after)?;
-            Ok((value, epoch))
-        })?;
+        let (value, epoch) = effect(&mut self.creator)?;
         if Some(epoch) != self.epoch {
             return Err(EffectError::UnavailableOrUncertain);
         }
@@ -125,26 +118,22 @@ impl<C: CanonicalCreator> EffectPort for BoundEffects<C> {
         self.check(Boundary::Exchange(boundary))
     }
     fn observe(&mut self) -> Result<EffectSnapshot, EffectError> {
-        self.operation(Boundary::BeforeObserve, Boundary::AfterObserve, C::observe)
+        self.operation(Boundary::BeforeObserve, AcquiredCreator::observe)
     }
     fn create_if_absent(&mut self, policy: Policy) -> Result<EffectIdentity, EffectError> {
-        self.operation(Boundary::BeforeCreate, Boundary::AfterCreate, |c| {
-            c.create_if_absent(policy)
-        })
+        self.operation(Boundary::BeforeCreate, |c| c.create_if_absent(policy))
     }
     fn replace_owned(
         &mut self,
         identity: EffectIdentity,
         policy: Policy,
     ) -> Result<EffectIdentity, EffectError> {
-        self.operation(Boundary::BeforeReplace, Boundary::AfterReplace, |c| {
+        self.operation(Boundary::BeforeReplace, |c| {
             c.replace_owned(identity, policy)
         })
     }
     fn delete_owned(&mut self, identity: EffectIdentity) -> Result<(), EffectError> {
-        self.operation(Boundary::BeforeDelete, Boundary::AfterDelete, |c| {
-            c.delete_owned(identity)
-        })
+        self.operation(Boundary::BeforeDelete, |c| c.delete_owned(identity))
     }
 }
 

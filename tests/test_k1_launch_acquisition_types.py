@@ -1,6 +1,6 @@
 """Compile actual inactive acquisition source; never execute produced code.
 
-Only its two imported trait/error names are inert harness stubs. The tested
+Only its imported interface names are inert harness stubs. The tested
 owner fields, constructor visibility, callback lifetimes and markers are the
 unchanged real module. Run with the Rust gate, not the Python-only gate.
 """
@@ -16,12 +16,28 @@ PRELUDE = r'''
 #![forbid(unsafe_code)]
 mod effect_port {
     #[derive(Debug)] pub enum EffectError { UnavailableOrUncertain }
+    pub struct EffectIdentity;
+    pub struct EffectSnapshot;
+    pub trait EffectPort {
+        fn observe(&mut self) -> Result<EffectSnapshot, EffectError> { unimplemented!() }
+        fn create_if_absent(&mut self, _: crate::policy::Policy) -> Result<EffectIdentity, EffectError> { unimplemented!() }
+        fn replace_owned(&mut self, _: EffectIdentity, _: crate::policy::Policy) -> Result<EffectIdentity, EffectError> { unimplemented!() }
+        fn delete_owned(&mut self, _: EffectIdentity) -> Result<(), EffectError> { unimplemented!() }
+    }
 }
-mod authority_composition { pub(crate) trait CanonicalCreator {} }
+mod policy { pub struct Policy; }
+mod receipt { pub struct HostEpoch; }
+mod authority_composition {
+    pub enum Boundary { Admission, AfterObserve, AfterCreate, AfterReplace, AfterDelete }
+    pub(crate) trait CanonicalCreator: crate::effect_port::EffectPort {
+        fn retained_epoch(&mut self, _: Boundary) -> Result<crate::receipt::HostEpoch, crate::effect_port::EffectError> { unimplemented!() }
+    }
+}
 #[path = SOURCE_LITERAL] mod launch_acquisition;
 use launch_acquisition::{AcquiredCreator, ConfigurationEvidence};
 struct Candidate;
 impl authority_composition::CanonicalCreator for Candidate {}
+impl effect_port::EffectPort for Candidate {}
 '''
 
 
@@ -44,8 +60,8 @@ class AcquisitionTypes(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(diagnostic, result.stderr)
 
-    def test_positive_actual_module_and_owned_callback_compile(self):
-        result = self.compile("fn check(x: &mut AcquiredCreator<Candidate>) { let _ = x.with_lease(|_| Ok(7)); }")
+    def test_positive_actual_module_fixed_operations_compile(self):
+        result = self.compile("fn check(x: &mut AcquiredCreator<Candidate>) { let _ = x.retained_epoch(authority_composition::Boundary::Admission); let _ = x.observe(); let _ = x.create_if_absent(policy::Policy); let _ = x.replace_owned(effect_port::EffectIdentity, policy::Policy); let _ = x.delete_owned(effect_port::EffectIdentity); }")
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_actual_owner_is_not_send(self):
@@ -57,9 +73,15 @@ class AcquisitionTypes(unittest.TestCase):
     def test_actual_owner_is_not_copy(self):
         self.rejected("fn check(x: AcquiredCreator<Candidate>) { let y = x; drop(x); drop(y); }", "E0382")
 
-    def test_callback_cannot_extract_creator_borrow(self):
+    def test_callback_is_private_and_cannot_extract_creator_borrow(self):
         self.rejected("fn check(x: &mut AcquiredCreator<Candidate>) -> &mut Candidate { x.with_lease(|c| Ok(c)).unwrap() }",
-                      "lifetime may not live long enough")
+                      "E0624")
+
+    def test_callback_cannot_replace_the_paired_creator(self):
+        self.rejected("fn check(x: &mut AcquiredCreator<Candidate>) { let _ = x.with_lease(|c| { let _old = std::mem::replace(c, Candidate); Ok(()) }); }", "E0624")
+
+    def test_original_creator_field_cannot_be_replaced(self):
+        self.rejected("fn check(x: &mut AcquiredCreator<Candidate>) { let _old = std::mem::replace(&mut x.retained.creator, Candidate); }", "E0616")
 
     def test_normal_build_has_no_synthetic_constructor(self):
         self.rejected("fn check() { let _ = AcquiredCreator::synthetic(Candidate); }", "E0599")

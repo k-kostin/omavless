@@ -18,7 +18,9 @@ receipts, paths, root UID or PID 1. It is non-Copy and not Send/Sync, records
 the actual acquisition thread, and supplies lifetime-bounded descriptor borrows
 to the verifier. The same original owners remain held through each callback.
 The latch is set before precheck, callback and postcheck; any error or unwind
-permanently refuses this instance. Callback results cannot leak a creator borrow.
+permanently refuses this instance. The generic callback is module-private;
+other modules can call only fixed epoch/observe/create/replace/delete methods,
+never receive `&mut C` or replace the paired creator via `mem::replace`/swap.
 Normal drop retains all owners through ManuallyDrop; only synthetic teardown
 can release them. This is process-lifetime retention, not crash persistence.
 
@@ -80,13 +82,24 @@ replace and delete cut retains actual Pending without compensation or retry.
 No nft datagram, namespace transition or root-manager query is needed by these
 new controls.
 
-The Rust gate also compiles the unchanged actual acquisition module against two
-inert trait/error name stubs. A positive compile verifies the harness before
-negative Send/Sync/Copy, callback-borrow escape, absent normal constructor and
-configuration-to-acquisition conversion checks. Produced metadata is not run.
+The Rust gate also compiles the unchanged actual acquisition module against
+inert imported-interface stubs. A positive compile exercises all five fixed
+method signatures before negative Send/Sync/Copy, private callback/creator
+replacement, absent normal constructor and configuration-to-acquisition
+conversion checks. Produced metadata is not run.
 The harness is not a replacement implementation or kernel acceptance.
 
 The first native compile correctly found a missing result-type annotation in
 the test's deliberately unreachable panic callback. It was corrected in the
 test without changing production behavior. Exact checkpoint gates belong to
 the PR; no source-only success implies installed authority.
+
+ROOT review of the initial `09d6529` checkpoint identified that its crate-visible
+generic callback could replace C despite preventing borrow escape. That checkpoint
+remains preserved, not retrospectively called immutable creator pairing. The
+successor makes that callback private and supplies only fixed semantic methods;
+actual-module compile controls reject callback and direct-field replacement.
+This restricts callers, not malicious internals of a future trusted C itself:
+the missing production constructor/verifier must still bind C's actual exclusive
+socket and audit its lifetime-preserving implementation, not a matching second
+socket or copied labels.
