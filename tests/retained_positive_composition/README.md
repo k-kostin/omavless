@@ -373,6 +373,66 @@ No device/inode, membership, hash, anonymous-map grammar or authority predicate
 is relaxed. Complete new source, bounded-copy/retention controls and immutable
 capsule reviews precede any separately selected fresh ROOT-only invocation.
 
+### Native tmpfs successor: changed source closure, no invocation
+
+The new stage is t3-retained-native-tmpfs-review-1. The original containment
+bind remains a covered provenance object; the25 packaged loader/library copies
+are prepared, sealed and published before native copying. New native_copy.py
+then admits the exact original four-member bind catalog/path identities and
+mount row, retains that directory, and mounts a fresh independent128MiB tmpfs
+over /artifacts. It performs ordinary exclusive byte writes, not bind copies,
+reflinks, archive extraction or native execution. The fixed115,843,333 admitted
+bytes stream in at most65536-byte chunks; exact full writes, size/mode/root
+owner/single-link/no-xattr and SHA checks precede admission. A close is allowed
+only after a known completed writer stage. Newly opened destinations are
+retained even before their post-open deadline check; late/unknown close never
+authorizes reopening or another copy. Refusal has no cleanup, retry or output.
+
+The new mount is executable but nosuid/nodev, then sealed read-only before
+artifact admission or native entry. Mount readback permits exactly the captured
+covered row plus one new tmpfs row matching the retained destination device;
+it never assumes the covered row disappeared or permits arbitrary extra rows.
+Current named directory/file identities, read-only statvfs, exact catalog and
+full destination hashes are rechecked. A live, bounded512-FD scandir snapshot
+requires every FD on that tmpfs to be read-only; it follows the previously
+reviewed live-iterator ownership sequence rather than materializing names and
+ignoring closed internal FDs. This is a single-threaded owned-process snapshot,
+not a global atomic FD inventory. All partial resources remain retained.
+
+Sources now requires the exact ready retained NativeStore and shares the
+unchanged absolute Session cap. Every artifact recheck first repeats the
+native store's seal/no-writer/original-source/destination proof within the same
+caller15-second-or-stricter local cap. Images explicitly threads its unchanged
+five-second mapping deadline through both artifact recheck and mapped-identity
+hashing into every native-store substep; no nested staging cap extends it.
+Construction has20 seconds within the
+existing65-second namespace budget, not a new whole deadline. These are sampled
+pre/post bounds, not blocking-syscall preemption or a total heap/RSS limit.
+The loader/library Bridge, Case, native exec paths, executable/maps equality,
+whole membership, strict anonymous grammar and target hashes remain unchanged.
+
+Only two fixed staging labels are added: before_native_copy and
+after_native_copy. The complete conservative path has116 baseline/role labels
++76 one-shot inventory labels +2 host Boolean observations =194 attempts,
+196 distinct vocabulary labels, Session cap195 and independent Bridge cap128
+(combined lexical cap323). New graph membership is14 pinned sources, with
+20 total entries including the existing fixed extras. Native source pins are
+unchanged; copying does not upgrade provenance to installed compatibility,
+authority, preservation, actual cause or a whole-flow PASS.
+
+Source-only controls: both Python3.14 and3.12.13 full test runs pass1150 tests
+(two existing skips), all JS/QML contracts and diff whitespace checks. Fourteen
+copy controls use nonexecuted synthetic bytes and mocked mount/identity custody,
+including genuine byte writes, new destination inodes, source/hash replacement,
+short/late I/O retention, seal refusal, covered/extra mount rejection, live FD
+inventory grammar and shared lifetime/caller-cap refusal. They do not prove an
+actual tmpfs mount or ELF execution. Thirteen artifact controls include exact
+NativeStore-class admission, seal refusal before later metadata/hash I/O, and
+typed finite caller-deadline propagation/refusal.
+The initial developer run's stale phase-budget assertion remains a recorded
+source-test failure, corrected in the new source; it was not a native scope.
+Fresh whole source/capsule reviews and exact-head cloud gates remain pending.
+
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and
 socket `/home/core/controller.sock` are retained O_PATH originals, owner1000,

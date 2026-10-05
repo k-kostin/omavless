@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -62,7 +63,11 @@ class Controls(unittest.TestCase):
         return artifacts,patched()
 
     def construct(self):
-        value=a.Sources.__new__(a.Sources);self.instances.append(value);value.__init__();return value
+        class NativeStore:
+            ready=True;sealed=False;artifacts=a;deadline=65.0
+            def verify(self,deadline):pass  # Explicit inert custody adapter, not tmpfs evidence.
+        value=a.Sources.__new__(a.Sources);self.instances.append(value)
+        value.__init__(NativeStore(),SimpleNamespace(NativeStore=NativeStore));return value
 
     def test_fixed_table_matches_exact_retained_provenance_and_bounds(self):
         base=ast.parse((SOURCE.parents[1]/'real_resolved_binary/probe.py').read_text())
@@ -85,6 +90,38 @@ class Controls(unittest.TestCase):
                 record=value.mapped_identity('mihomo',info.st_dev,info.st_ino)
                 self.assertEqual(record['path'],'/artifacts/mihomo');self.assertEqual(record['sha256'],sha)
                 self.assertFalse(value.sealed)
+
+    def test_unknown_native_store_refuses_before_any_artifact_open(self):
+        value=a.Sources.__new__(a.Sources);self.instances.append(value)
+        with patch.object(a.os,'open') as opened:
+            with self.assertRaises(a.Refused):value.__init__(SimpleNamespace(),SimpleNamespace(NativeStore=type))
+            opened.assert_not_called()
+
+    def test_native_seal_refusal_precedes_artifact_metadata_and_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _,stack=self.fixture(temp)
+            with stack:
+                value=self.construct()
+                with patch.object(value.native,'verify',side_effect=RuntimeError('synthetic')), \
+                     patch.object(a.os,'stat') as named,patch.object(a.os,'pread') as hashed:
+                    with self.assertRaises(a.Refused):value.recheck()
+                    named.assert_not_called();hashed.assert_not_called()
+                self.assertTrue(value.sealed)
+
+    def test_mapping_caller_deadline_is_shared_through_native_seal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _,stack=self.fixture(temp)
+            with stack:
+                value=self.construct()
+                with patch.object(value.native,'verify') as seal:
+                    value.recheck(5.0)
+                    seal.assert_called_once_with(5.0)
+                for invalid in (True,1,float('nan'),float('inf'),66.0,0.0):
+                    # Independent bounded adapter objects, never retry refusal.
+                    fresh=self.construct()
+                    with patch.object(fresh.native,'verify') as seal:
+                        with self.assertRaises(a.Refused):fresh.recheck(invalid)
+                        seal.assert_not_called()
 
     def test_inert_namespace_staging_explicit_modes_under_private_umask(self):
         previous=os.umask(0o077)

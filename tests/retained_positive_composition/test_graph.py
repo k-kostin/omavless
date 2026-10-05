@@ -14,7 +14,7 @@ HERE=Path(__file__).parent
 spec=importlib.util.spec_from_file_location('retained_graph',HERE/'graph.py')
 g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
 SOURCES={name:HERE/name for name in ('lifecycle.py','artifacts.py','images.py','controller.py',
-    'helper.py','positive.py','streams.py','bootstrap.py')}
+    'helper.py','positive.py','streams.py','bootstrap.py','native_copy.py')}
 SOURCES.update({'bridge.py':HERE.parent/'six_library_live_mapping/bridge.py',
     'admission.py':HERE.parent/'six_library_copy_admission/admission.py',
     'copy-manifest.json':HERE.parent/'six_library_copy_admission/copy-manifest.json',
@@ -74,9 +74,9 @@ class Controls(unittest.TestCase):
             with self.assertRaises(g.Refused):value.recheck()
             opened.assert_not_called();named.assert_not_called()
 
-    def test_exact_thirteen_pins_originals_and_three_rescans_then_fixed_definitions(self):
+    def test_exact_fourteen_pins_originals_and_three_rescans_then_fixed_definitions(self):
         value=self.fixture()
-        self.assertEqual(set(value.raw),set(g.PINS));self.assertEqual(len(value.records),13)
+        self.assertEqual(set(value.raw),set(g.PINS));self.assertEqual(len(value.records),14)
         value.recheck();modules=value.load()
         self.assertEqual(set(modules),{name for name in g.PINS if name.endswith('.py')})
         base=modules['containment.py']
@@ -145,10 +145,10 @@ class Controls(unittest.TestCase):
             with self.assertRaises(g.Refused):value.load()
             self.assertEqual(opening.call_count,1)
 
-    def test_positive_directory_release_closes_only_known_dirs_and_retains_thirteen_files(self):
+    def test_positive_directory_release_closes_only_known_dirs_and_retains_fourteen_files(self):
         value=self.fixture();value.load();originals={fd for fd,_ in value.records.values()}
         value.release_directories_positive()
-        self.assertEqual(set(value.held),originals);self.assertEqual(len(value.held),13)
+        self.assertEqual(set(value.held),originals);self.assertEqual(len(value.held),14)
         for fd in value.held:self.assertTrue(stat.S_ISREG(os.fstat(fd).st_mode))
         with patch.object(g.os,'close') as closing:
             with self.assertRaises(g.Refused):value.release_directories_positive()

@@ -21,10 +21,10 @@ import sys
 import time
 import types
 
-STAGE='/home/kdk_vm/.cache/t3-retained-positive-composition-review-7'
+STAGE='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-1'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='e258441e48a08dbdd60db175c5bcb2af42f2fe5317d96d818b1dfbfe75649a95'
+GRAPH='1deff759f35a765c5da03a1e942483efcec232ca77e2531bab58e54f5085fbda'
 VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']
@@ -145,10 +145,11 @@ def namespace_frame(value):
 
 @guarded
 def native_originals(entry,artifact_module):
-    """ALL four fixed originals before bind/execution; no receipt path selector.
+    """ALL four fixed originals before bind/copy/execution; no receipt selector.
 
     The separate HOST builder proves its original-to-staging transfer. These
-    guest originals and later read-only /artifacts originals must still agree.
+    Guest originals retain provenance across chroot. Fresh tmpfs destinations
+    must match their exact bytes, not pretend to retain the source inode.
     """
     directory=entry.opened(NATIVE,FLAGS|os.O_DIRECTORY)
     before=entry.call(os.fstat,directory)
@@ -218,15 +219,23 @@ def child(entry,frame):
     owner.phase('before_copy_prepare');entry.available()
     owner.perform(copies.prepare,original);entry.available()
     owner.phase('after_copy_prepare');entry.available()
+    native=loaded['native_copy.py'].NativeStore.__new__(loaded['native_copy.py'].NativeStore)
+    owner.retained.append(native)
+    owner.phase('before_native_copy');entry.available()
+    owner.perform(native.__init__,owner,ownership,originals,loaded['artifacts.py']);entry.available()
+    owner.phase('after_native_copy');entry.available()
     artifacts=loaded['artifacts.py'].Sources.__new__(loaded['artifacts.py'].Sources)
     owner.retained.append(artifacts)
     owner.phase('before_artifact_admission');entry.available()
-    owner.perform(artifacts.__init__);entry.available()
+    owner.perform(artifacts.__init__,native,loaded['native_copy.py']);entry.available()
     owner.phase('after_artifact_admission');entry.available()
     owner.phase('before_artifact_crosscheck');entry.available()
+    owner.perform(native.verify);entry.available()
     for name,(fd,original) in originals.items():
-        current=entry.call(os.fstat,fd);_,bound,_=artifacts.files[name]
-        require(identity(original)==identity(current)==identity(bound))
+        current=entry.call(os.fstat,fd);copied_fd,copied=native.files[name]
+        _,bound,_=artifacts.files[name]
+        require(identity(original)==identity(current)
+            and identity(copied)==identity(entry.call(os.fstat,copied_fd))==identity(bound))
     owner.phase('after_artifact_crosscheck');entry.available()
     owner.phase('before_case_constructor');entry.available()
     case=loaded['positive.py'].Case(owner,ownership,base,copies,loaded['bridge.py'],

@@ -56,8 +56,9 @@ class Controls(unittest.TestCase):
         artifacts=Artifacts();artifacts.sealed=False;artifacts.recheck=Mock()
         artifacts.files={name:(55,SimpleNamespace(st_dev=31,st_ino=90),'b'*64)
                          for name in ('developer-manifest.json','mihomo','omavless-dns-broker','host-fixture')}
-        def native(name,device,inode):
+        def native(name,device,inode,deadline):
             self.assertEqual((device,inode),(31,90))
+            self.assertIs(type(deadline),float)
             return {'path':'/artifacts/'+name,'device':device,'inode':inode,'size':64,'sha256':'b'*64}
         artifacts.mapped_identity=Mock(side_effect=native)
         value=i.Images(owner,ownership,copies,SimpleNamespace(Bridge=Bridge),artifacts,
@@ -522,7 +523,7 @@ class Controls(unittest.TestCase):
                if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='mark']
         self.assertEqual(set(marks),{(side,step) for step in i.INVENTORY_STEPS for side in ('before','after')})
         self.assertEqual(len(marks),22)
-        self.assertEqual((114+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2,owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(192,193,321))
+        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2,owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(194,195,323))
 
     def test_host_required_member_categories_preserve_exact_predicate_and_no_target_on_refusal(self):
         for variant,classes in (('equal',('present','identity_equal')),

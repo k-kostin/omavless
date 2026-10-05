@@ -159,7 +159,7 @@ class Controls(unittest.TestCase):
                 with patch.object(l.os,'open',return_value=fd) as opened, \
                      patch.object(l.os,'stat',return_value=real_stat):
                     reader=l.pinned_module(entry,'graph.py')
-                    self.assertEqual(reader.PINS['images.py'],'cdeb5b7cc3dd8496ae80ba052b081d91b68fcce2cc3e8a4ff35e4c8caf6f05c8')
+                    self.assertEqual(reader.PINS['images.py'],'d1e6fabdfe0487485c6b130490bf11c6519684ef553c98d99b09e95cbc1095f1')
                 opened.assert_called_once_with(l.STAGE+'/graph.py',l.FLAGS)
                 self.assertIn(fd,l.HELD)
             finally:os.close(fd)
@@ -200,9 +200,14 @@ class Controls(unittest.TestCase):
                 assert any(item is self for item in owner.retained)
                 steps.append('bridge_retained_before_init');self.prepare=lambda original:steps.append('prepare_copies')
         class Artifacts:
-            def __init__(self):
+            def __init__(self,*args):
                 assert any(item is self for item in owner.retained)
                 steps.append('artifacts_retained_before_init');self.files={'mihomo':(50,bound,'fixed')}
+        class NativeStore:
+            def __init__(self,*args):
+                assert any(item is self for item in owner.retained)
+                steps.append('native_retained_before_init');self.files={'mihomo':(51,info)}
+            def verify(self):steps.append('native_verified')
         class Case:
             def __init__(self,*args):steps.append('case_constructed')
             def run(self):
@@ -211,6 +216,7 @@ class Controls(unittest.TestCase):
                 return f.fixture()
         self_clock=self.clock
         loaded={'bridge.py':SimpleNamespace(Bridge=Bridge),'artifacts.py':SimpleNamespace(Sources=Artifacts),
+                'native_copy.py':SimpleNamespace(NativeStore=NativeStore),
                 'positive.py':SimpleNamespace(Case=Case)}
         loaded.update({name:SimpleNamespace() for name in ('admission.py','images.py','controller.py',
             'helper.py','streams.py','bootstrap.py')})
@@ -225,12 +231,13 @@ class Controls(unittest.TestCase):
              patch.object(l.os,'write',side_effect=lambda fd,raw:writes.append(raw) or len(raw)):
             self.assertEqual(l.main(['--isolated-child',json.dumps(frame())]),0)
         self.assertEqual(steps,['release_source_dirs','isolate','bridge_retained_before_init','prepare_copies',
-                                'artifacts_retained_before_init','case_constructed','case_run'])
+                                'native_retained_before_init','artifacts_retained_before_init',
+                                'native_verified','case_constructed','case_run'])
         self.assertEqual(len(writes),1);record=v.decode(writes[0]);v.validate_case(record['case'],f.RAW)
         self.assertFalse(record['parent_whole_known_zero']);self.assertFalse(record['production_effect_authority'])
-        self.assertEqual(len(context[3].retained),3)
+        self.assertEqual(len(context[3].retained),4)
         self.assertEqual([call.args[0] for call in context[3].phase.call_args_list],
-            ['before_copy_prepare','after_copy_prepare','before_artifact_admission',
+            ['before_copy_prepare','after_copy_prepare','before_native_copy','after_native_copy','before_artifact_admission',
              'after_artifact_admission','before_artifact_crosscheck','after_artifact_crosscheck',
              'before_case_constructor','after_case_constructor','before_case_run','after_case_run',
              'before_case_receipt_validation','after_case_receipt_validation','before_inner_record_output'])
@@ -314,17 +321,17 @@ class Controls(unittest.TestCase):
         child=next(n for n in launcher.body if isinstance(n,ast.FunctionDef) and n.name=='child')
         run=next(n for n in case.body if isinstance(n,ast.FunctionDef) and n.name=='run')
         outer_labels=calls(child.body);case_labels=calls(run.body)
-        self.assertEqual((len(outer_labels),len(case_labels)),(13,101))
+        self.assertEqual((len(outer_labels),len(case_labels)),(15,101))
         inventory_labels={label for label in owner.PHASES if '_initial_inventory_' in label}
         self.assertEqual(owner.INVENTORY_ROLES,('bus','host'))
         self.assertEqual(len(inventory_labels),80)
         self.assertEqual(set(outer_labels+case_labels)|inventory_labels,owner.PHASES)
-        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),194)
+        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),196)
         # Four new alternatives, but exactly one presence and one equality
         # category occur on the sole initial host attempt.
-        self.assertEqual(len(outer_labels+case_labels)+76+2,192)
-        self.assertEqual(owner.PHASE_LIMIT,193)
-        self.assertEqual(128+owner.PHASE_LIMIT,321)
+        self.assertEqual(len(outer_labels+case_labels)+76+2,194)
+        self.assertEqual(owner.PHASE_LIMIT,195)
+        self.assertEqual(128+owner.PHASE_LIMIT,323)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
         phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
         phases+=['before_bind']*50+['before_verify_copies']

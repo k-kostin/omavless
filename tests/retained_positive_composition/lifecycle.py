@@ -15,8 +15,9 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-7/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-1/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
+    'before_native_copy','after_native_copy',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
     'after_artifact_crosscheck','before_case_constructor','after_case_constructor',
     'before_case_run','after_case_run','before_case_receipt_validation',
@@ -48,13 +49,13 @@ PHASES |= frozenset('before_'+role+'_initial_inventory_'+step+'_'+category for r
                    for step in ('first_parse','second_parse') for category in ANONYMOUS_CLASSES)
 PHASES |= frozenset('before_host_initial_inventory_required_members_'+category
                    for category in REQUIRED_CLASSES)
-# 114 role/launcher labels + two one-shot inventories each with 22 paired
+# 116 role/launcher labels + two one-shot inventories each with 22 paired
 # labels and at most16 first-instance classes across two parses + exactly two
-# host required-member categories =192 attempts (194 distinct vocabulary).
+# host required-member categories =194 attempts (196 distinct vocabulary).
 # Some rejecting
 # classes cannot complete; this conservative complete-path bound includes all.
-# Bridge's independent cap remains128; combined lexical cap321, not authority.
-PHASE_LIMIT = 193
+# Bridge's independent cap remains128; combined lexical cap323, not authority.
+PHASE_LIMIT = 195
 
 
 class Refused(RuntimeError):

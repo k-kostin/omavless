@@ -1,7 +1,8 @@
 """Fixed unsigned developer artifacts: original-FD admission, never execution.
 
-Used only AFTER the future pinned launcher creates its private root/artifacts
-read-only bind. These bytes are independent of the 25 copied packaged objects.
+Used only AFTER the pinned launcher creates and seals its private /artifacts
+native byte-copy tmpfs. These destination originals are independent of the
+25 copied packaged objects; native source provenance is checked separately.
 HOST-to-guest delivery provenance and current loaded process identity remain
 separate proof steps. No path/hash from a receipt can select another input.
 """
@@ -48,7 +49,7 @@ def pairs(items):
 
 
 class Sources:
-    def __init__(self):
+    def __init__(self,native,native_module):
         self.sealed=True
         self.held,self.iterators,self.files=[],[],{}
         start=time.monotonic()
@@ -58,6 +59,12 @@ class Sources:
         self.sealed=False
         try:
             self.available()
+            require(type(native) is native_module.NativeStore and native.ready is True
+                    and not native.sealed and native.artifacts.TABLE is TABLE)
+            self.native=native
+            require(type(native.deadline) is float and math.isfinite(native.deadline))
+            self.deadline=min(self.deadline,native.deadline)
+            self.local_budget=min(self.local_budget,self.deadline)
             require(os.getresuid()==os.getresgid()==(OWNER,OWNER,OWNER))
             self.root=self.open('/',FLAGS|os.O_DIRECTORY)
             self.root_identity=identity(self.io(os.fstat,self.root))
@@ -165,7 +172,7 @@ class Sources:
             self.sealed=True
             raise Refused() from None
 
-    def recheck(self):
+    def recheck(self,enclosing_deadline=None):
         try:
             self.available()
             old_budget=self.local_budget
@@ -173,8 +180,13 @@ class Sources:
             require(type(start) is float and math.isfinite(start))
             local=start+15.0
             require(math.isfinite(local) and start<local)
+            if enclosing_deadline is not None:
+                require(type(enclosing_deadline) is float and math.isfinite(enclosing_deadline)
+                        and enclosing_deadline<=self.deadline)
+                local=min(local,enclosing_deadline)
             self.local_budget=min(local,self.deadline) if old_budget is None else min(local,self.deadline,old_budget)
             self.available()
+            self.io(self.native.verify,self.local_budget)
             require(identity(self.io(os.fstat,self.root))==self.root_identity
                     ==identity(self.io(os.stat,'/',follow_symlinks=False)))
             require(identity(self.io(os.fstat,self.directory))==self.directory_identity
@@ -193,14 +205,14 @@ class Sources:
             self.sealed=True
             raise Refused() from None
 
-    def mapped_identity(self,name,device,inode):
+    def mapped_identity(self,name,device,inode,enclosing_deadline=None):
         """Membership/device/inode BEFORE hash; caller owns live/map reread proof."""
         try:
             self.available()
             require(name in ROLES.values() and type(device) is int and type(inode) is int)
             fd,before,sha=self.files[name]
             require((device,inode)==(before.st_dev,before.st_ino))
-            self.recheck()
+            self.recheck(enclosing_deadline)
             return {'path':DIRECTORY+'/'+name,'device':device,'inode':inode,
                     'size':before.st_size,'sha256':sha}
         except BaseException:

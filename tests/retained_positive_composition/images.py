@@ -144,7 +144,7 @@ class Images:
             self.available(deadline)
             self.copies.verify(deadline)
             self.available(deadline)
-            self.artifacts.recheck()
+            self.artifacts.recheck(deadline)
             self.available(deadline)
         except BaseException:
             self.refuse()
@@ -315,7 +315,7 @@ class Images:
                     result.append({'path':path,'device':row['device'],'inode':row['inode'],
                                    'size':row['size'],'sha256':row['sha256']})
                 elif path == ROLES[name] and name in ('core','broker','host'):
-                    result.append(self.artifacts.mapped_identity(path.rsplit('/',1)[1],*identity))
+                    result.append(self.artifacts.mapped_identity(path.rsplit('/',1)[1],*identity,deadline))
                     self.available(deadline)
                 else:
                     raise Refused()  # No unknown/other role's path opened or echoed.

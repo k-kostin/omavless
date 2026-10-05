@@ -9,6 +9,7 @@ python3 -m unittest -v \
   "$here/retained_positive_composition/test_controller.py" \
   "$here/retained_positive_composition/test_lifecycle.py" \
   "$here/retained_positive_composition/test_artifacts.py" \
+  "$here/retained_positive_composition/test_native_copy.py" \
   "$here/retained_positive_composition/test_images.py" \
   "$here/retained_positive_composition/test_helper.py" \
   "$here/retained_positive_composition/test_positive.py" \
