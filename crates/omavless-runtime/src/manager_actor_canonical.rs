@@ -411,6 +411,7 @@ pub(crate) struct Canonical {
     systemd: Option<usize>,
     observer_ns: [Option<usize>; 4],
     fdinfo: Option<usize>,
+    visibility: Option<usize>,
     mountinfo: Option<usize>,
     net: Option<usize>,
     unix: Option<usize>,
@@ -425,6 +426,46 @@ pub(crate) struct Canonical {
     consumed: bool,
     completed: bool,
     refused: bool,
+    authentication: Authentication,
+}
+
+#[derive(Default, PartialEq, Eq)]
+enum Authentication {
+    #[default]
+    Fresh,
+    Pending,
+    Checking,
+    Complete,
+    Revoked,
+}
+impl Authentication {
+    fn admit(&mut self, observed: bool) -> std::result::Result<(), Unavailable> {
+        if !observed || *self != Self::Fresh {
+            *self = Self::Revoked;
+            return Err(Unavailable);
+        }
+        *self = Self::Pending; // consume BEFORE refresh or receiving private bytes
+        Ok(())
+    }
+    fn before_final(&mut self) -> std::result::Result<(), Unavailable> {
+        if *self != Self::Pending {
+            *self = Self::Revoked;
+            return Err(Unavailable);
+        }
+        *self = Self::Checking; // only one final refresh attempt
+        Ok(())
+    }
+    fn checked(&mut self) -> std::result::Result<(), Unavailable> {
+        if *self != Self::Checking {
+            *self = Self::Revoked;
+            return Err(Unavailable);
+        }
+        *self = Self::Complete;
+        Ok(())
+    }
+    fn may_finish(&self) -> bool {
+        matches!(self, Self::Fresh | Self::Complete)
+    }
 }
 impl Canonical {
     pub(crate) fn reserve() -> std::result::Result<Self, Unavailable> {
@@ -463,6 +504,7 @@ impl Canonical {
             systemd: None,
             observer_ns: [None; 4],
             fdinfo: None,
+            visibility: None,
             mountinfo: None,
             net: None,
             unix: None,
@@ -477,6 +519,7 @@ impl Canonical {
             consumed: false,
             completed: false,
             refused: false,
+            authentication: Authentication::default(),
         })
     }
     fn keep(&mut self, file: File) -> usize {
@@ -776,14 +819,21 @@ impl Canonical {
             same_namespace(&self.files[left], &self.files[right])?;
         }
         let fdinfo = self.fdinfo.ok_or(())?;
-        let index = self.open(
-            Some(fdinfo),
-            &self.files[root].as_raw_fd().to_string(),
-            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW,
-            budget,
-        )?;
-        // Fixed visibility observations occur only twice: these originals do
-        // not recycle on error, and are counted within34 fixed slots.
+        let index = match self.visibility {
+            Some(index) => index,
+            None => {
+                let index = self.open(
+                    Some(fdinfo),
+                    &self.files[root].as_raw_fd().to_string(),
+                    OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW,
+                    budget,
+                )?;
+                self.visibility = Some(index);
+                index
+            }
+        };
+        // The one retained fdinfo original is current-bound through `named`
+        // on every later pass. Explicit-offset reads refresh, not copied facts.
         read_original(&self.files[index], MAX_STATUS, &mut self.buffer, budget)?;
         let id = mount_id(&self.buffer)?;
         read_original(
@@ -1411,7 +1461,7 @@ impl Canonical {
     }
     pub(crate) fn observe(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
         if self.refused || self.consumed {
-            self.refused = true;
+            self.revoke();
             return Err(Unavailable);
         }
         self.consumed = true;
@@ -1424,9 +1474,100 @@ impl Canonical {
         }
         result
     }
-    pub(crate) fn finish(&mut self) -> std::result::Result<(), Unavailable> {
+
+    fn refresh_inner(&mut self, until: Instant) -> Result<()> {
+        let mut budget = Budget::new();
+        budget.until = budget.until.min(until);
+        phase(b"t4_actor_before_canonical_refresh\n", &budget)?;
+        let pid = self.manager.as_ref().ok_or(())?.pid;
+        // Original-zero/EOF queries finish BEFORE freezing the process set;
+        // their own temporary children cannot become inventory churn.
+        self.units(pid, &mut budget)?;
+        self.boundaries(&mut budget)?;
+        read_original(
+            &self.files[self.unix.ok_or(())?],
+            4 * 1024 * 1024,
+            &mut self.buffer,
+            &mut budget,
+        )?;
+        no_listener(&self.buffer, &LISTENERS.map(str::to_owned))?;
+        self.catalogue(&budget)?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::SweepSet,
+            available_to_unit(self.rows.refresh_sweep(&self.names)),
+            &budget,
+        )?;
+        for index in 0..self.names.len() {
+            let pid = self.names[index];
+            let current = self.row_current(pid, index, &mut budget);
+            self.inventory_diagnostic
+                .cut(InventoryFailure::RowCurrent, current, &budget)?;
+            self.inventory_diagnostic.cut(
+                InventoryFailure::RowComplete,
+                available_to_unit(self.rows.recheck_row(
+                    pid,
+                    || available(budget.check()),
+                    |_, _, _| Ok(()),
+                )),
+                &budget,
+            )?;
+        }
+        self.catalogue(&budget)?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::SweepSet,
+            available_to_unit(
+                self.rows
+                    .complete_inventory(&self.names, || available(budget.check())),
+            ),
+            &budget,
+        )?;
+        phase(b"t4_actor_canonical_refresh_completed\n", &budget)?;
+        budget.check()
+    }
+    fn refresh(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
         if self.refused || !self.completed {
-            self.refused = true;
+            self.revoke();
+            return Err(Unavailable);
+        }
+        let result = available(self.refresh_inner(until));
+        if result.is_err() {
+            self.revoke();
+        }
+        result
+    }
+    pub(crate) fn begin_authentication(
+        &mut self,
+        until: Instant,
+    ) -> std::result::Result<(), Unavailable> {
+        if self
+            .authentication
+            .admit(self.completed && !self.refused)
+            .is_err()
+        {
+            self.revoke();
+            return Err(Unavailable);
+        }
+        self.refresh(until)
+    }
+    pub(crate) fn complete_authentication(
+        &mut self,
+        until: Instant,
+    ) -> std::result::Result<(), Unavailable> {
+        if self.authentication.before_final().is_err() {
+            self.revoke();
+            return Err(Unavailable);
+        }
+        self.refresh(until)?;
+        self.authentication.checked()
+    }
+    pub(crate) fn revoke(&mut self) {
+        self.refused = true;
+        self.authentication = Authentication::Revoked;
+        let _ = self.rows.refuse();
+    }
+    pub(crate) fn finish(&mut self) -> std::result::Result<(), Unavailable> {
+        if self.refused || !self.completed || !self.authentication.may_finish() {
+            self.revoke();
             return Err(Unavailable);
         }
         self.rows.finish()?;
@@ -1451,6 +1592,93 @@ fn time_gate(until: Instant) -> std::result::Result<(), Unavailable> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authentication_requires_complete_observation_and_one_final_refresh() {
+        let mut auth = Authentication::default();
+        assert!(auth.admit(false).is_err());
+        assert!(!auth.may_finish());
+        assert!(auth.admit(true).is_err());
+        let mut auth = Authentication::default();
+        auth.admit(true).unwrap();
+        assert!(!auth.may_finish());
+        assert!(auth.checked().is_err());
+        assert!(!auth.may_finish());
+        let mut auth = Authentication::default();
+        auth.admit(true).unwrap();
+        auth.before_final().unwrap();
+        assert!(!auth.may_finish());
+        auth.checked().unwrap();
+        assert!(auth.may_finish());
+        assert!(auth.admit(true).is_err());
+        assert!(!auth.may_finish());
+    }
+
+    #[test]
+    fn pending_or_refused_authentication_never_finishes_or_reenters_backend() {
+        for phase in [
+            Authentication::Pending,
+            Authentication::Checking,
+            Authentication::Revoked,
+        ] {
+            let mut held = Canonical::reserve().unwrap();
+            held.completed = true; // memory state only; there are no real originals
+            held.authentication = phase;
+            assert!(held.finish().is_err());
+            assert!(held.begin_authentication(Instant::now()).is_err());
+            assert!(held.observe(Instant::now()).is_err());
+            assert!(held.files.is_empty());
+        }
+        let mut held = Canonical::reserve().unwrap();
+        assert!(held.begin_authentication(Instant::now()).is_err());
+        assert!(
+            held.observe(Instant::now() + Duration::from_secs(1))
+                .is_err()
+        );
+        assert!(held.files.is_empty());
+    }
+
+    #[test]
+    fn auth_diagnostic_frame_and_capacity_ledger_is_finite_not_authority() {
+        let initial = 9 + 7 * 7 + 1;
+        let refresh = 2 + 3 * 7;
+        let positive = initial + 2 * refresh + 1;
+        assert_eq!(positive, 106);
+        assert_eq!(positive + 1, 107);
+        let query_bytes: usize = QUERY_PHASES.iter().map(|phase| phase.label().len()).sum();
+        let surrounding = [
+            b"t4_actor_before_canonical_installation\n".as_slice(),
+            b"t4_actor_before_canonical_observer\n",
+            b"t4_actor_before_canonical_manager\n",
+            b"t4_actor_before_canonical_initial_units\n",
+            b"t4_actor_before_canonical_inventory\n",
+            b"t4_actor_before_canonical_final_units\n",
+            b"t4_actor_before_canonical_final_boundaries\n",
+            b"t4_actor_before_canonical_final_sweep\n",
+            b"t4_actor_canonical_inventory_completed\n",
+        ];
+        let refresh_bytes = b"t4_actor_before_canonical_refresh\n".len()
+            + b"t4_actor_canonical_refresh_completed\n".len();
+        let positive_bytes = 13 * query_bytes
+            + surrounding.into_iter().map(<[u8]>::len).sum::<usize>()
+            + 2 * refresh_bytes
+            + b"t4_actor_canonical_stopped_observed\n".len()
+            + b"t4_actor_backup_authenticated\n".len();
+        assert_eq!(positive_bytes, 3735);
+        let longest_failure = INVENTORY_FAILURES
+            .into_iter()
+            .map(|cut| cut.label().len())
+            .max()
+            .unwrap();
+        // Every refusing path is a prefix of this finite positive sequence,
+        // plus at mostone first-refusal attempt. No4096 byte waiver is needed.
+        assert!(positive_bytes + longest_failure <= 4096);
+        assert_eq!(17 + 23 + 2 + 1, 43); // canonical vocabulary, not frames
+        assert_eq!(4096 * 2 + FIXED + 8, NOFILE as usize);
+        const {
+            assert!(FIXED_FILES + 1 + 4 + 2 <= FIXED);
+        }
+    }
     const INVENTORY_FAILURES: [InventoryFailure; 23] = [
         InventoryFailure::CatalogueSeek,
         InventoryFailure::CatalogueNext,

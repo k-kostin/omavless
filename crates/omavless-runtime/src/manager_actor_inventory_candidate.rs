@@ -344,6 +344,23 @@ impl<T> Owner<T> {
         })
     }
 
+    /// A fresh ordered pass borrows the SAME completed originals. No admission,
+    /// row/image replacement, or capacity recycling follows this transition.
+    pub(super) fn refresh_sweep(&mut self, current: &[u32]) -> Result<(), Unavailable> {
+        self.guarded(|owner| {
+            if owner.phase != Phase::Complete
+                || owner.swept != owner.expected.len()
+                || current != owner.expected
+                || owner.scratch.iter().any(Option::is_some)
+            {
+                return Err(Unavailable);
+            }
+            owner.swept = 0;
+            owner.phase = Phase::Sweep;
+            Ok(())
+        })
+    }
+
     pub(super) fn recheck_row(
         &mut self,
         pid: u32,
@@ -440,6 +457,195 @@ mod tests {
                 },
             )
             .unwrap();
+    }
+
+    fn completed_owner(drops: &Rc<Cell<usize>>) -> Owner<Handle> {
+        let mut owner = Owner::reserve(&[1, 2], 120, 8320).unwrap();
+        for pid in [1, 2] {
+            other_row(&mut owner, pid, drops);
+        }
+        owner.begin_sweep(&[1, 2]).unwrap();
+        for pid in [1, 2] {
+            owner.recheck_row(pid, || Ok(()), |_, _, _| Ok(())).unwrap();
+        }
+        owner.complete_inventory(&[1, 2], || Ok(())).unwrap();
+        owner
+    }
+
+    #[test]
+    fn repeated_refresh_reuses_exact_completed_originals_and_charges() {
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = completed_owner(&drops);
+        let charge = owner.charged;
+        for _ in 0..2 {
+            owner.refresh_sweep(&[1, 2]).unwrap();
+            for pid in [1, 2] {
+                assert_eq!(owner.row_originals().unwrap().0.id, pid as usize);
+                owner
+                    .recheck_row(
+                        pid,
+                        || Ok(()),
+                        |original, image, class| {
+                            assert_eq!(original.id, pid as usize);
+                            assert!(image.is_none() && class == Class::OtherUid);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            }
+            owner.complete_inventory(&[1, 2], || Ok(())).unwrap();
+            assert_eq!(owner.charged, charge);
+            assert_eq!(drops.get(), 0);
+        }
+        owner.finish().unwrap();
+        assert_eq!(drops.get(), 2);
+    }
+
+    #[test]
+    fn refresh_same_uid_keeps_image_and_late_scratch_prefix_without_replacement() {
+        for late in [false, true] {
+            let drops = Rc::new(Cell::new(0));
+            let mut owner = Owner::reserve(&[1], 120, 8320).unwrap();
+            owner
+                .directory(1, || Ok(()), || Ok(handle(1, &drops)))
+                .unwrap();
+            owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+            owner
+                .executable(|| Ok(()), |_| Ok(handle(2, &drops)))
+                .unwrap();
+            owner.complete_row(|| Ok(()), |_, _, _| Ok(())).unwrap();
+            owner.begin_sweep(&[1]).unwrap();
+            owner.recheck_row(1, || Ok(()), |_, _, _| Ok(())).unwrap();
+            owner.complete_inventory(&[1], || Ok(())).unwrap();
+            let charge = owner.charged;
+            owner.refresh_sweep(&[1]).unwrap();
+            let gates = Cell::new(0);
+            let result = owner.scratch_acquire(
+                0,
+                || {
+                    let n = gates.get();
+                    gates.set(n + 1);
+                    if late && n == 1 {
+                        Err(Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                },
+                |original| {
+                    assert_eq!(original.id, 1);
+                    Ok(handle(3, &drops))
+                },
+            );
+            assert_eq!(result.is_err(), late);
+            assert_eq!(owner.charged, charge + 1);
+            assert_eq!(drops.get(), 0);
+            if late {
+                assert!(
+                    owner
+                        .scratch_release(0, || panic!("sealed release"))
+                        .is_err()
+                );
+                assert!(
+                    owner
+                        .recheck_row(1, || panic!("sealed gate"), |_, _, _| panic!("sealed row"))
+                        .is_err()
+                );
+                assert!(owner.finish().is_err());
+                assert_eq!(drops.get(), 0);
+            } else {
+                owner
+                    .scratch_perform(
+                        0,
+                        || Ok(()),
+                        |original| {
+                            assert_eq!(original.id, 3);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+                owner.scratch_release(0, || Ok(())).unwrap();
+                owner
+                    .recheck_row(
+                        1,
+                        || Ok(()),
+                        |directory, image, class| {
+                            assert_eq!(directory.id, 1);
+                            assert_eq!(image.unwrap().id, 2);
+                            assert!(class == Class::SameUid);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+                owner.complete_inventory(&[1], || Ok(())).unwrap();
+                assert_eq!(owner.charged, charge);
+                assert_eq!(drops.get(), 1); // only completed scratch
+                owner.finish().unwrap();
+                assert_eq!(drops.get(), 3);
+            }
+        }
+    }
+
+    #[test]
+    fn refresh_wrong_sets_incomplete_reentry_and_late_rows_retain_without_io() {
+        for cut in 0..5 {
+            let drops = Rc::new(Cell::new(0));
+            let mut owner = completed_owner(&drops);
+            if cut == 0 {
+                assert!(owner.refresh_sweep(&[1]).is_err());
+            } else {
+                owner.refresh_sweep(&[1, 2]).unwrap();
+                match cut {
+                    1 => assert!(owner.refresh_sweep(&[1, 2]).is_err()),
+                    2 => assert!(
+                        owner
+                            .complete_inventory(&[1, 2], || panic!("early EOF gate"))
+                            .is_err()
+                    ),
+                    3 => assert!(
+                        owner
+                            .recheck_row(1, || Err(Unavailable), |_, _, _| panic!("gate refused"))
+                            .is_err()
+                    ),
+                    _ => {
+                        let gates = Cell::new(0);
+                        assert!(
+                            owner
+                                .recheck_row(
+                                    1,
+                                    || {
+                                        let n = gates.get();
+                                        gates.set(n + 1);
+                                        if n == 1 { Err(Unavailable) } else { Ok(()) }
+                                    },
+                                    |original, _, _| {
+                                        assert_eq!(original.id, 1);
+                                        Ok(())
+                                    }
+                                )
+                                .is_err()
+                        );
+                    }
+                }
+            }
+            assert_eq!(drops.get(), 0);
+            assert!(
+                owner
+                    .directory(3, || panic!("sealed gate"), || panic!("new directory"))
+                    .is_err()
+            );
+            assert!(
+                owner
+                    .recheck_row(
+                        1,
+                        || panic!("sealed gate"),
+                        |_, _, _| panic!("sealed check")
+                    )
+                    .is_err()
+            );
+            assert!(owner.refresh_sweep(&[1, 2]).is_err());
+            assert!(owner.finish().is_err());
+            assert_eq!(drops.get(), 0);
+        }
     }
 
     #[test]

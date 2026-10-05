@@ -237,6 +237,7 @@ pub enum DeveloperScenario {
     AuthenticateBackup,
     StageAuthenticatedBackup,
     CanonicalStopped,
+    CanonicalAuthenticate,
 }
 
 impl DeveloperScenario {
@@ -244,7 +245,10 @@ impl DeveloperScenario {
         match self {
             Self::CapacityThree => 3,
             Self::CapacityFourth => 4,
-            Self::AuthenticateBackup | Self::StageAuthenticatedBackup | Self::CanonicalStopped => 0,
+            Self::AuthenticateBackup
+            | Self::StageAuthenticatedBackup
+            | Self::CanonicalStopped
+            | Self::CanonicalAuthenticate => 0,
             _ => 1,
         }
     }
@@ -404,7 +408,11 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     emit(b"t4_service_before_startup\n", until)?;
     startup()?;
     epoch()?;
-    let nofile = if scenario == DeveloperScenario::CanonicalStopped {
+    let canonical_mode = matches!(
+        scenario,
+        DeveloperScenario::CanonicalStopped | DeveloperScenario::CanonicalAuthenticate
+    );
+    let nofile = if canonical_mode {
         actor_canonical::NOFILE
     } else {
         ACTOR_NOFILE
@@ -420,7 +428,9 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     // the actor waits. No real user input or archive path is introduced.
     let backup = if matches!(
         scenario,
-        DeveloperScenario::AuthenticateBackup | DeveloperScenario::StageAuthenticatedBackup
+        DeveloperScenario::AuthenticateBackup
+            | DeveloperScenario::StageAuthenticatedBackup
+            | DeveloperScenario::CanonicalAuthenticate
     ) {
         Some(synthetic_backup(until)?)
     } else {
@@ -456,7 +466,7 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     // Fresh exec, no threads/waiters, no SIGCHLD handler or ignored disposition.
     // std spawn's internally unreported partial acquisitions are not attested.
     let child = Command::new(std::env::current_exe().map_err(|_| Unavailable)?)
-        .arg(if scenario == DeveloperScenario::CanonicalStopped {
+        .arg(if canonical_mode {
             "--actor-canonical"
         } else {
             "--actor"
@@ -546,7 +556,7 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_fixture_stage_recorded\n", until)?;
     }
-    if scenario == DeveloperScenario::CanonicalStopped {
+    if canonical_mode {
         exchange(
             stream,
             &mut context,
@@ -556,6 +566,18 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         )?;
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_canonical_stopped_observed\n", until)?;
+    }
+    if scenario == DeveloperScenario::CanonicalAuthenticate {
+        emit(b"t4_service_before_backup_transfer\n", until)?;
+        exchange_backup(
+            stream,
+            &mut context,
+            backup.as_ref().ok_or(Unavailable)?,
+            SYNTHETIC_PASSPHRASE,
+            until,
+        )?;
+        alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
+        emit(b"t4_service_backup_authenticated\n", until)?;
     }
     if scenario == DeveloperScenario::CapacityFourth {
         // Unexpected fourth completion cannot silently turn a refusal scenario
@@ -658,6 +680,7 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
     }
     let mut context = Context::new(challenge.nonce)?;
     let mut canonical = Canonical::reserve()?; // before READY or any proc/query
+    let mut transfer = transfer::Transfer::new()?; // finite private slot BEFORE READY
     io_frame(
         &mut channel,
         Some(Frame {
@@ -683,8 +706,21 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
                     emit_actor(b"t4_actor_canonical_stopped_observed\n", until)?;
                     Kind::StoppedObserved
                 }
+                Kind::AuthenticateBackup => {
+                    transfer.receive_fenced(&mut channel, until, |phase| match phase {
+                        transfer::AuthenticationFence::BeforeInput => {
+                            canonical.begin_authentication(until)
+                        }
+                        transfer::AuthenticationFence::AfterCrypto => {
+                            canonical.complete_authentication(until)
+                        }
+                    })?;
+                    emit_actor(b"t4_actor_backup_authenticated\n", until)?;
+                    Kind::BackupAuthenticated
+                }
                 Kind::Halt => {
                     canonical.finish()?;
+                    transfer.finish();
                     Kind::Closed
                 }
                 _ => return Err(Unavailable),
@@ -713,9 +749,11 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
             Ok(false) => {}
             Err(_) => {
                 context.revoke();
+                canonical.revoke();
                 // Owner and channel remain outside the fallible closure. No
                 // query, read, reply, reap or retry after uncertainty.
                 let _held = canonical;
+                let _private = transfer;
                 let _channel = channel;
                 loop {
                     std::thread::park();
@@ -1313,6 +1351,45 @@ mod tests {
             assert_eq!(sent.sequence, sequence);
         }
         assert_eq!(context.phase, Phase::Closed);
+    }
+
+    #[test]
+    fn same_original_context_observe_private_auth_then_halt_are_kind_and_sequence_bound() {
+        let mut context = live_context();
+        for (kind, completed, sequence) in [
+            (Kind::ObserveStopped, Kind::StoppedObserved, 1),
+            (Kind::AuthenticateBackup, Kind::BackupAuthenticated, 2),
+            (Kind::Halt, Kind::Closed, 3),
+        ] {
+            let mut memory = Memory {
+                input: reply(completed, sequence),
+                output: Vec::new(),
+                position: 0,
+                fail_at: usize::MAX,
+            };
+            let until = Instant::now() + Duration::from_secs(1);
+            if kind == Kind::AuthenticateBackup {
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    b"public synthetic archive",
+                    SYNTHETIC_PASSPHRASE,
+                    until,
+                )
+                .unwrap();
+            } else {
+                exchange(&mut memory, &mut context, kind, RequestShape::Exact, until).unwrap();
+            }
+            let sent = Frame::decode(&memory.output[..FRAME_BYTES]).unwrap();
+            assert_eq!((sent.kind, sent.sequence), (kind, sequence));
+            assert_eq!(sent.nonce, context.nonce);
+        }
+        assert_eq!(context.phase, Phase::Closed);
+        assert_eq!(DeveloperScenario::CanonicalAuthenticate.observations(), 0);
+        assert_eq!(
+            DeveloperScenario::CanonicalAuthenticate.request_shape(),
+            None
+        );
     }
 
     #[test]

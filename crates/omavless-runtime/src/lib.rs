@@ -96,6 +96,8 @@ pub mod long_operation;
 pub mod long_operation_protocol;
 mod managed_pair;
 pub mod managed_selection;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod manager_actor_service;
 pub mod mutation;
 pub mod mutation_binding;
 pub mod mutation_protocol;
@@ -120,8 +122,6 @@ pub mod profile_transaction;
 pub mod provider_refresh;
 pub mod remote_fetch;
 pub mod restore_abort_cli;
-#[cfg(feature = "t4-manager-actor-service")]
-pub mod manager_actor_service;
 mod route_check_protocol;
 mod route_probe;
 mod routing_preset;

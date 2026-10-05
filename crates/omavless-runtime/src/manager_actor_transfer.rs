@@ -119,6 +119,12 @@ enum InputState {
     Consumed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AuthenticationFence {
+    BeforeInput,
+    AfterCrypto,
+}
+
 impl Transfer {
     pub fn new() -> Result<Self, Unavailable> {
         let mut body = Vec::new();
@@ -167,6 +173,29 @@ impl Transfer {
         // Positive authenticated return retained BEFORE its post-call deadline.
         // No plaintext/source byte or reusable authority leaves this module.
         self.keep_opened(opened, until)
+    }
+
+    /// Fixed in-actor sequencing, not a caller-provided authority endpoint.
+    /// Actual canonical caller supplies the same original owner for both cuts.
+    pub fn receive_fenced<T: Read>(
+        &mut self,
+        stream: &mut T,
+        until: Instant,
+        mut originals: impl FnMut(AuthenticationFence) -> Result<(), Unavailable>,
+    ) -> Result<(), Unavailable> {
+        let result = (|| {
+            self.admit(until)?;
+            originals(AuthenticationFence::BeforeInput)?;
+            self.receive(stream, until)?;
+            originals(AuthenticationFence::AfterCrypto)?;
+            tick(until)
+        })();
+        if result.is_err() {
+            // Keep header/body/positive plaintext; no error finish or retry.
+            self.state = InputState::Consumed;
+            self.authenticated = false;
+        }
+        result
     }
 
     fn keep_opened(&mut self, opened: OpenedBackup, until: Instant) -> Result<(), Unavailable> {
@@ -219,6 +248,78 @@ mod tests {
     const PASSPHRASE: &[u8] = b"synthetic transfer passphrase";
     const STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
     const TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
+
+    #[test]
+    fn fixed_fenced_authentication_cuts_preserve_private_prefix_and_no_later_io() {
+        let archive = omavless_domain::private_backup::seal(STORE, TEMPLATE, PASSPHRASE).unwrap();
+        let mut encoded = Vec::new();
+        send(
+            &mut encoded,
+            &archive,
+            PASSPHRASE,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+        for cut in 0..4 {
+            let mut owner = Transfer::new().unwrap();
+            let mut bytes = encoded.clone();
+            if cut == 1 {
+                bytes[0] = 0;
+            }
+            let mut stream = Cursor::new(bytes);
+            let mut calls = Vec::new();
+            let result = owner.receive_fenced(
+                &mut stream,
+                Instant::now() + Duration::from_secs(5),
+                |phase| {
+                    calls.push(phase);
+                    if (cut == 0 && phase == AuthenticationFence::BeforeInput)
+                        || (cut == 2 && phase == AuthenticationFence::AfterCrypto)
+                    {
+                        Err(Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            assert_eq!(result.is_ok(), cut == 3);
+            assert_eq!(calls[0], AuthenticationFence::BeforeInput);
+            assert_eq!(calls.len(), if cut < 2 { 1 } else { 2 });
+            if cut == 0 {
+                assert_eq!(stream.position(), 0);
+            }
+            if cut >= 2 {
+                assert!(owner.opened.is_some());
+                assert_eq!(owner.body[..archive.len()], archive);
+            }
+            let position = stream.position();
+            assert!(
+                owner
+                    .receive_fenced(
+                        &mut stream,
+                        Instant::now() + Duration::from_secs(1),
+                        |_| panic!("fence reentry")
+                    )
+                    .is_err()
+            );
+            assert_eq!(stream.position(), position);
+            assert!(
+                owner
+                    .receive(&mut stream, Instant::now() + Duration::from_secs(1))
+                    .is_err()
+            );
+            assert!(
+                owner
+                    .with_restore_pair(Instant::now() + Duration::from_secs(1), |_, _| panic!(
+                        "no stage permission"
+                    ))
+                    .is_err()
+            );
+            if cut >= 2 {
+                assert!(owner.opened.is_some());
+            }
+        }
+    }
 
     #[test]
     fn fixed_header_whole_bound_and_no_extension_or_cost_parameters() {

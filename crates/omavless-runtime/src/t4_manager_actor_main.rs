@@ -36,6 +36,9 @@ fn main() -> ExitCode {
         [arg] if arg == "--observe-canonical-stopped" => {
             Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalStopped)
         }
+        [arg] if arg == "--authenticate-canonical-backup" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalAuthenticate)
+        }
         _ => None,
     } {
         omavless_runtime::manager_actor_service::supervisor_scenario(scenario)
