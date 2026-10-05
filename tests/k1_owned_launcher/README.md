@@ -3,7 +3,7 @@
 Review-only source, not ready for execution or VM delivery. Nothing here is an
 installed package or a production constructor. No Cargo dependency or source
 under the product crates is changed. The existing #651 local pair, stopped v1,
-fresh v2 proposal and native e648 input remain separate and immutable.
+stopped v2, successful scoped v3 local pair and native e648 input remain separate.
 
 The pure adapter binds six exact e648 source hashes and reuses the actual
 AcquiredCreator private callback and fixed semantic methods. Originals no
@@ -62,3 +62,14 @@ never executes its Rust contents. A draft export-name shadowing bug produced
 a missing-manifest failure2bf4e5; its output was retained, the parameter renamed,
 and a fresh corrected export compiled. This was not a runtime or guest result.
 Do not run the constructor or inventory to infer acceptance from compilation.
+
+The pre-launch follow-up preserves the observer's local nsfs/metadata/link,
+procfs and socket-address predicates while placing original-budget checks
+around each leaf. It no longer calls the nested legacy identity/session helper
+under one outer check. Newly opened proc/current descriptors are retained before
+late classification. These extra retained originals remain process-lifetime
+resources, not cleanup or canonical authority. A first compile exposed an AsFd
+type mismatch for ManuallyDrop (88a327); that failed export remains untouched.
+The corrected safe borrow compiled in a fresh export, known-zero 130f08.
+This is compilation plus source coverage only; injected actual-path deadline,
+error and partial-owner controls remain required before invocation.

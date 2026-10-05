@@ -82,5 +82,15 @@ class Controls(unittest.TestCase):
         self.assertNotIn('.kill(', raw)
         self.assertNotIn('setns(', raw)
 
+    def test_prelaunch_does_not_enter_ungated_nested_helpers(self):
+        raw = (HERE / 'owned_creator.rs').read_text()
+        self.assertNotIn('namespace_identity(', raw)
+        self.assertNotIn('owner.session.check(deadline)', raw)
+        self.assertIn('fn local_identity(file: &File, deadline: Instant)', raw)
+        self.assertIn('let proc_ns = File::open("/proc/thread-self/ns").map(ManuallyDrop::new)', raw)
+        self.assertIn('let current = File::open("/proc/thread-self/ns/net").map(ManuallyDrop::new)', raw)
+        self.assertIn('filesystem.map_err(|_| REFUSE)?.filesystem_type() == PROC_SUPER_MAGIC', raw)
+        self.assertIn('actual.map_err(|_| REFUSE)? == owner.session.local', raw)
+
 if __name__ == '__main__':
     unittest.main()

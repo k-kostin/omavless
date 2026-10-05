@@ -17,7 +17,7 @@ def git(*args):
     return subprocess.run(['git','-C',str(ROOT),*args],check=True,capture_output=True,timeout=30).stdout
 
 def export(parent, export_name='netguard'):
-    if export_name not in ('netguard', 'netguard-leaf'):raise ValueError('fixed_export_name')
+    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2'):raise ValueError('fixed_export_name')
     parent=Path(parent)
     if not parent.is_absolute() or parent.is_symlink() or not parent.is_dir():raise ValueError('private_build_root')
     if parent.stat().st_mode&0o777!=0o700:raise ValueError('private_build_mode')

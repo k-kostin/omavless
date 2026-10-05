@@ -23,6 +23,25 @@ impl CreatorOwner for ActualCreator {
 }
 
 impl ActualCreator {
+    // Before LaunchLife exists, preserve the shared observer's exact local
+    // identity predicates but fence EACH original leaf, not the whole helper.
+    fn local_identity(file: &File, deadline: Instant) -> Result<(u64, u64)> {
+        require(Instant::now() < deadline)?;
+        let filesystem = fstatfs(file);
+        require(Instant::now() < deadline)?;
+        require(filesystem.map_err(|_| REFUSE)?.filesystem_type() == NSFS_MAGIC)?;
+        require(Instant::now() < deadline)?;
+        let metadata = file.metadata();
+        require(Instant::now() < deadline)?;
+        let metadata = metadata.map_err(|_| REFUSE)?;
+        require(Instant::now() < deadline)?;
+        let label = std::fs::read_link(format!("/proc/thread-self/fd/{}", file.as_raw_fd()));
+        require(Instant::now() < deadline)?;
+        let label = label.map_err(|_| REFUSE)?;
+        require(metadata.ino() != 0 && label.to_str() == Some(&format!("net:[{}]", metadata.ino())))?;
+        Ok((metadata.dev(), metadata.ino()))
+    }
+
     /// Fixed real opener; no supplied socket/namespace/epoch or alternate sender.
     /// Every successfully returned original is retained before late classification.
     pub(super) fn open_before(deadline: Instant) -> Result<Self> {
@@ -30,7 +49,7 @@ impl ActualCreator {
         let namespace = File::open("/proc/thread-self/ns/net")
             .map(ManuallyDrop::new).map_err(|_| REFUSE)?;
         require(Instant::now() < deadline)?;
-        let identity = namespace_identity(&namespace);
+        let identity = Self::local_identity(&namespace, deadline);
         require(Instant::now() < deadline)?;
         let identity = identity?;
         let socket = socket(AddressFamily::Netlink, SockType::Raw,
@@ -52,7 +71,26 @@ impl ActualCreator {
         };
         let owner = Self { session: ManuallyDrop::new(session), deadline,
             thread: thread::current().id(), sealed: false, _same_thread: PhantomData };
-        owner.session.check(deadline)?;
+        // The historical session.check nests namespace_file/identity calls.
+        // Keep their predicates, but retain new originals before every late
+        // classification and do not enter another leaf after expiration.
+        require(Self::local_identity(&owner.session.namespace, deadline)? == identity)?;
+        require(Instant::now() < deadline)?;
+        let proc_ns = File::open("/proc/thread-self/ns").map(ManuallyDrop::new);
+        require(Instant::now() < deadline)?;
+        let proc_ns = proc_ns.map_err(|_| REFUSE)?;
+        let filesystem = fstatfs(proc_ns.as_fd());
+        require(Instant::now() < deadline)?;
+        require(filesystem.map_err(|_| REFUSE)?.filesystem_type() == PROC_SUPER_MAGIC)?;
+        require(Instant::now() < deadline)?;
+        let current = File::open("/proc/thread-self/ns/net").map(ManuallyDrop::new);
+        require(Instant::now() < deadline)?;
+        let current = current.map_err(|_| REFUSE)?;
+        require(Self::local_identity(&current, deadline)? == identity)?;
+        require(Instant::now() < deadline)?;
+        let actual = getsockname::<NetlinkAddr>(owner.session.socket.as_raw_fd());
+        require(Instant::now() < deadline)?;
+        require(actual.map_err(|_| REFUSE)? == owner.session.local)?;
         Ok(owner)
     }
 
