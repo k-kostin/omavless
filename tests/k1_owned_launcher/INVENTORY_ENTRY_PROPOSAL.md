@@ -119,7 +119,45 @@ changed. ROOT's fresh full `./tests/run.sh` (`5bc32b` / `c35b1d`, readback
 contracts. The compiled/frozen artifact still belongs to b893, not a newly
 compiled fixture-only or documentation head.
 
-Stage6 transfer/publication, original-parent native invocation and actual
-complete read-only kernel inventory remain **UNRUN**. No table classification,
+At that offline checkpoint, stage6 transfer/publication, original-parent native
+invocation and actual complete read-only kernel inventory remained **UNRUN**.
+No table classification,
 canonical creator, policy effect, installed activation or whole K1 acceptance
 is established by this checkpoint. All stopped scopes remain stopped.
+
+## Stage6 read-only VM checkpoint — 2026-10-05
+
+ROOT subsequently selected the separately reviewed fresh stage6 graph in the
+trusted isolated x86_64 development VM. Source remains exact
+`b893b06a839ead60ebd0defdd07d090c6b4f0660`; the frozen parent remains 1,644,536
+bytes / SHA-256 `7d00964c959b098f432627bde8ebf013cbd26971e39bc07108c4a9327c0430c8`,
+and the child remains 1,475,200 bytes / SHA-256
+`7838d1c3b1b26fa247d0bb16608153f576477c442817f8e1528f6f9c85fe6311`.
+Fixture-only 00a and later documentation do not relabel those compiled bytes.
+
+The independently reviewed HOST transport passed ten inert controls (`b1eaf9`,
+readback `35196a`), then separate transfer (`49863c`) and root-copy
+(`6d9276` / `b73c49`) selections returned known zero. The final two-action HOST
+successor passed ROOT and independent full review plus ten inert controls
+(`c3eeea`, readback `1b72c7`). ROOT selected publication (`872cfe` / `8f3ad2`)
+and, separately, one inventory invocation (`4dfd08` / `4f9813`); each original
+transport returned known zero with its exact closed receipt. Password input
+was supplied only to each actual fixed sudo prompt through its original
+isolated no-echo HOST terminal, never through arguments or stored recipes.
+
+The native receipt was exactly the six ordered phase categories:
+`OPEN_BEGIN`, `OPEN_OK`, `READ_BEGIN`, `TABLE_ABSENT`, `FINISH_BEGIN`, `FINISH_OK`.
+This exercises the original creator/socket/namespace and child launch/READY,
+the shared-deadline inventory lease/owner/lease sequence, and positive original
+FINISH/DONE/EOF/zero completion. `TABLE_ABSENT` is only the fixed-table
+ENOENT/generation-consistency observation window. It neither exercises the
+present-table multipart rule-dump branch nor proves an empty host ruleset,
+canonical ownership, nft subsystem continuity, or protection.
+
+No firewall mutation, installed activation, production constructor, primary-PC
+change or whole-K1 acceptance occurred. All earlier nonzero/unknown scopes
+remain permanently stopped and unadopted. Only aggregate fixed phase and scope
+identities are recorded here; raw private captures and credentials stay outside
+Git. The next exclusive-create/readback witness work needs its own source,
+type/synthetic gates and separately authorized disposable effect environment;
+this read-only VM result grants no mutation authority.
