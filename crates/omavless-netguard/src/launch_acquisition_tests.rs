@@ -161,38 +161,40 @@ fn same_original_owners_survive_callback_and_both_rechecks() {
 fn before_after_error_and_panic_poison_without_second_call_or_cleanup() {
     for at in [1, 2] {
         for panic in [false, true] {
-            let (mut owner, c, drops) = fixture();
-            if panic {
-                c.borrow_mut().panic = Some(at);
-            } else {
-                c.borrow_mut().fail = Some(at);
-            }
-            let effects = Cell::new(0);
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                owner.with_lease(|_| {
-                    effects.set(effects.get() + 1);
-                    Ok(())
-                })
-            }));
-            if panic {
-                assert!(outcome.is_err());
-            } else {
-                assert!(outcome.unwrap().is_err());
-            }
-            assert_eq!(effects.get(), usize::from(at == 2));
-            c.borrow_mut().fail = None;
-            c.borrow_mut().panic = None;
-            assert!(
-                owner
-                    .with_lease(|_| {
-                        effects.set(99);
+            let drops = {
+                let (mut owner, c, drops) = fixture();
+                if panic {
+                    c.borrow_mut().panic = Some(at);
+                } else {
+                    c.borrow_mut().fail = Some(at);
+                }
+                let effects = Cell::new(0);
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    owner.with_lease(|_| {
+                        effects.set(effects.get() + 1);
                         Ok(())
                     })
-                    .is_err()
-            );
-            assert_eq!(c.borrow().calls, at);
-            assert_eq!(effects.get(), usize::from(at == 2));
-            drop(owner);
+                }));
+                if panic {
+                    assert!(outcome.is_err());
+                } else {
+                    assert!(outcome.unwrap().is_err());
+                }
+                assert_eq!(effects.get(), usize::from(at == 2));
+                c.borrow_mut().fail = None;
+                c.borrow_mut().panic = None;
+                assert!(
+                    owner
+                        .with_lease(|_| {
+                            effects.set(99);
+                            Ok(())
+                        })
+                        .is_err()
+                );
+                assert_eq!(c.borrow().calls, at);
+                assert_eq!(effects.get(), usize::from(at == 2));
+                drops
+            };
             assert_eq!(drops.get(), 0);
         }
     }
@@ -201,40 +203,44 @@ fn before_after_error_and_panic_poison_without_second_call_or_cleanup() {
 #[test]
 fn callback_error_or_unwind_poison_before_postcheck_and_retain_owner() {
     for panic in [false, true] {
-        let (mut owner, c, drops) = fixture();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            owner.with_lease::<()>(|_| {
-                assert!(!panic, "synthetic callback panic");
-                Err(EffectError::UnavailableOrUncertain)
-            })
-        }));
-        if panic {
-            assert!(result.is_err());
-        } else {
-            assert!(result.unwrap().is_err());
-        }
-        assert_eq!(c.borrow().calls, 1);
-        assert!(owner.with_lease(|_| Ok(())).is_err());
-        assert_eq!(c.borrow().calls, 1);
-        drop(owner);
+        let drops = {
+            let (mut owner, c, drops) = fixture();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                owner.with_lease::<()>(|_| {
+                    assert!(!panic, "synthetic callback panic");
+                    Err(EffectError::UnavailableOrUncertain)
+                })
+            }));
+            if panic {
+                assert!(result.is_err());
+            } else {
+                assert!(result.unwrap().is_err());
+            }
+            assert_eq!(c.borrow().calls, 1);
+            assert!(owner.with_lease(|_| Ok(())).is_err());
+            assert_eq!(c.borrow().calls, 1);
+            drops
+        };
         assert_eq!(drops.get(), 0);
     }
 }
 
 #[test]
 fn different_actual_thread_identity_refuses_before_verifier_or_callback() {
-    let (mut owner, c, drops) = fixture();
-    owner.retained.originals.owner_thread = std::thread::spawn(|| std::thread::current().id())
-        .join()
-        .unwrap();
-    assert!(
-        owner
-            .with_lease::<()>(|_| panic!("wrong thread callback"))
-            .is_err()
-    );
-    assert_eq!(c.borrow().calls, 0);
-    owner.retained.originals.owner_thread = std::thread::current().id();
-    assert!(owner.with_lease(|_| Ok(())).is_err());
-    drop(owner);
+    let drops = {
+        let (mut owner, c, drops) = fixture();
+        owner.retained.originals.owner_thread = std::thread::spawn(|| std::thread::current().id())
+            .join()
+            .unwrap();
+        assert!(
+            owner
+                .with_lease::<()>(|_| panic!("wrong thread callback"))
+                .is_err()
+        );
+        assert_eq!(c.borrow().calls, 0);
+        owner.retained.originals.owner_thread = std::thread::current().id();
+        assert!(owner.with_lease(|_| Ok(())).is_err());
+        drops
+    };
     assert_eq!(drops.get(), 0);
 }
