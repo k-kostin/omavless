@@ -34,6 +34,16 @@ Produced developer test-binary SHA-256:
 No ignored/native entry ran. This is ordinary developer toolchain/cache evidence,
 not toolchain attestation, canonical authority or installed acceptance.
 
+The additional strict all-target Clippy compile found
+`unnecessary_literal_unwrap` in the inherited private witness's synthetic
+zero-handle control, returning original exit 101. The test now borrows and
+mutates the same optional table metadata; no witness constructor, effect or
+parser changed. Strict all-target Clippy then returned zero, and all six pure
+controls passed on the corrected test binary, SHA-256:
+`ca6bcc6fa998ad1167a0d4096f1b925181260110aac134433a6c064fe2c37e15`.
+The prior binary hash is retained as historical source evidence, not the VM
+selection. Formatting passed after the pure test change.
+
 The smallest VM scenario is the fixed ignored manager entry
 `manager_retained_lifecycle::adapter::exclusive_create::observe_one_create`,
 executed only by ROOT after review and fresh publication. It admits the literal
