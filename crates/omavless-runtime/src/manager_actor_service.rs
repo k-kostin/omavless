@@ -9,6 +9,11 @@
 mod protocol;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
+// SOURCE checkpoint: lower File adapter is not yet selected by a wire operation.
+// No existing operation gains transaction or Restore authority from this module.
+#[allow(dead_code)]
+#[path = "manager_actor_io.rs"]
+mod retained_io;
 
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use nix::fcntl::{OFlag, open};
@@ -616,6 +621,7 @@ fn actor_operation(
             transfer.admit(until)?;
             held.observe(until).map_err(|_| Unavailable)?;
             transfer.receive(channel, until)?;
+            held.recheck_original(until).map_err(|_| Unavailable)?;
             // Positive authenticated payload remains inside this original
             // actor borrow. A fixed acknowledgement is not restore authority.
             tick(until)?;

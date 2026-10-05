@@ -394,20 +394,10 @@ fn inspect_ready(state_directory: &Path, uid: u32) -> Result<[u8; READY_BYTES], 
     }
     let entries = std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd()))
         .map_err(|_| InspectError::UnsafeOrChanged)?;
-    let mut names = entries
-        .map(|entry| {
-            entry
-                .map(|value| value.file_name())
-                .map_err(|_| InspectError::UnsafeOrChanged)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    names.sort();
-    let mut expected = MEMBERS.map(std::ffi::OsString::from).to_vec();
-    expected.push(READY_MEMBER.into());
-    expected.sort();
-    if names != expected {
-        return Err(InspectError::UnsafeOrChanged);
-    }
+    exact_stage_catalogue(
+        entries.map(|entry| entry.map(|value| value.file_name())),
+        || Ok(()),
+    )?;
     let current = File::from(
         openat(
             &parent,
@@ -432,6 +422,43 @@ fn inspect_ready(state_directory: &Path, uid: u32) -> Result<[u8; READY_BYTES], 
         return Err(InspectError::UnsafeOrChanged);
     }
     Ok(signature)
+}
+
+/// The same exact five-member equality, without collecting a foreign directory
+/// before checking its size. A positive catalogue consumes the complete iterator;
+/// an unknown/duplicate/sixth entry refuses before downstream work. Actor callers
+/// must retain the actual iterator and pass their sampled pre/post deadline gate.
+fn exact_stage_catalogue<E>(
+    mut entries: impl Iterator<Item = Result<std::ffi::OsString, E>>,
+    mut gate: impl FnMut() -> Result<(), InspectError>,
+) -> Result<(), InspectError> {
+    let expected = [MEMBERS[0], MEMBERS[1], MEMBERS[2], MEMBERS[3], READY_MEMBER];
+    let mut seen = [false; 5];
+    let mut count = 0;
+    loop {
+        gate()?;
+        let entry = entries.next();
+        gate()?;
+        let Some(entry) = entry else {
+            break;
+        };
+        if count == 5 {
+            return Err(InspectError::UnsafeOrChanged);
+        }
+        count += 1;
+        let name = entry.map_err(|_| InspectError::UnsafeOrChanged)?;
+        let Some(index) = expected.iter().position(|expected| name == *expected) else {
+            return Err(InspectError::UnsafeOrChanged);
+        };
+        if seen[index] {
+            return Err(InspectError::UnsafeOrChanged);
+        }
+        seen[index] = true;
+    }
+    if count != 5 || seen != [true; 5] {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    Ok(())
 }
 
 /// Point-in-time classification only; never a restore/rollback authority.
@@ -795,6 +822,108 @@ mod tests {
     }
 
     const PAIR: [&[u8]; 4] = [b"old store", b"old template", b"new store", b"new template"];
+
+    fn catalogue_names() -> Vec<std::ffi::OsString> {
+        MEMBERS
+            .iter()
+            .copied()
+            .chain([READY_MEMBER])
+            .map(std::ffi::OsString::from)
+            .collect()
+    }
+
+    #[test]
+    fn finite_catalogue_accepts_every_whole_order_not_just_a_matching_prefix() {
+        fn permutations(names: &mut [std::ffi::OsString], offset: usize, visits: &mut usize) {
+            if offset == names.len() {
+                let mut nexts = 0;
+                let mut entries = names
+                    .iter()
+                    .cloned()
+                    .map(Ok::<_, ()>)
+                    .inspect(|_| nexts += 1);
+                assert_eq!(exact_stage_catalogue(&mut entries, || Ok(())), Ok(()));
+                assert_eq!(nexts, 5);
+                *visits += 1;
+                return;
+            }
+            for index in offset..names.len() {
+                names.swap(offset, index);
+                permutations(names, offset + 1, visits);
+                names.swap(offset, index);
+            }
+        }
+        let mut visits = 0;
+        permutations(&mut catalogue_names(), 0, &mut visits);
+        assert_eq!(visits, 120);
+    }
+
+    #[test]
+    fn finite_catalogue_rejects_missing_foreign_duplicate_and_entry_error() {
+        let expected = catalogue_names();
+        for cut in 0..5 {
+            assert!(
+                exact_stage_catalogue(expected[..cut].iter().cloned().map(Ok::<_, ()>), || Ok(()))
+                    .is_err()
+            );
+        }
+        for index in 0..5 {
+            let mut changed = expected.clone();
+            changed[index] = "foreign".into();
+            assert!(
+                exact_stage_catalogue(changed.into_iter().map(Ok::<_, ()>), || Ok(())).is_err()
+            );
+            let mut duplicated = expected.clone();
+            duplicated[index] = expected[(index + 1) % 5].clone();
+            assert!(
+                exact_stage_catalogue(duplicated.into_iter().map(Ok::<_, ()>), || Ok(())).is_err()
+            );
+            let mut failed = expected.iter().cloned().map(Ok).collect::<Vec<_>>();
+            failed[index] = Err(());
+            assert!(exact_stage_catalogue(failed.into_iter(), || Ok(())).is_err());
+        }
+    }
+
+    #[test]
+    fn finite_catalogue_samples_every_next_including_eof_and_stops_at_first_failure() {
+        use std::cell::Cell;
+        // Five actual entries plus the required terminal next, two guards each.
+        for cut in 0_usize..12 {
+            let checks = Cell::new(0);
+            let nexts = Cell::new(0);
+            let mut names = catalogue_names().into_iter();
+            let entries = std::iter::from_fn(|| {
+                nexts.set(nexts.get() + 1);
+                names.next().map(Ok::<_, ()>)
+            });
+            assert!(
+                exact_stage_catalogue(entries, || {
+                    let check = checks.get();
+                    checks.set(check + 1);
+                    if check == cut {
+                        Err(InspectError::UnsafeOrChanged)
+                    } else {
+                        Ok(())
+                    }
+                })
+                .is_err()
+            );
+            assert_eq!(checks.get(), cut + 1);
+            assert_eq!(nexts.get(), cut.div_ceil(2));
+        }
+        let nexts = Cell::new(0);
+        let mut expected = catalogue_names().into_iter();
+        let entries = std::iter::from_fn(|| {
+            nexts.set(nexts.get() + 1);
+            if nexts.get() <= 5 {
+                expected.next().map(Ok::<_, ()>)
+            } else {
+                Some(Ok("foreign".into()))
+            }
+        });
+        assert!(exact_stage_catalogue(entries, || Ok(())).is_err());
+        assert_eq!(nexts.get(), 6); // no unbounded seventh next or downstream work
+    }
 
     #[test]
     fn disposition_records_block_direct_stage_initial_and_callback_prefix() {
