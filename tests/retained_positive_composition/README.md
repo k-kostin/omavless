@@ -172,6 +172,26 @@ Five new inert controls include1,000 repetitions with one original open and
 cache bindings, late first opens/current stats and permanent refusal. This is
 a source resource calculation, not an observed guest exhaustion or live proof.
 
+`graph.py` is the fixed thirteen-input original-FD source reader, not an entry
+point. Its literal fresh-stage path, exact19-member catalog, owner/mode/size/
+single-link/xattr checks, bounded original bytes/hashes, ancestry and repeated
+catalog/metadata/hash readbacks precede any pinned definition loading. Only
+explicit containment imports/constants/functions are AST-selected from the
+independently hash-checked complete source: legacy exercise, stop, supervise,
+quarantine, controller, helper IO and main are NOT loaded. The launcher must
+install retained command/live/directory-FD hooks before invoking any selected
+containment function. Thirteen regular source originals remain held; only a
+complete positive readback permits the five original directory closes before
+chroot, with no retry after a late or throwing close. Sampled20-second budget,
+512KiB/input and2MiB total are explicit, not syscall cancellation. The future
+outer guard independently pins this reader/launcher and validates the six fixed
+catalog-only entries; their names here do not assert their byte authority.
+Ten inert controls stage PUBLIC known sources only, exercise the full fixed
+definition loader without invoking any native/process/namespace function,
+and cover changed/missing/unknown/FIFO/hardlinked inputs, cached-byte mutation,
+whitelist/hash mismatch, initial clock aliases, late opens/positive closes and
+no failure cleanup. No launcher/VM/adoption readiness is inferred.
+
 `streams.py` defines only a fixed two-client synthetic CONNECT/byte-echo witness
 in fresh PID1/root with concrete retained core/Session/Images/Controller objects.
 The listener and proxy addresses are literal private loopback ports; no caller
