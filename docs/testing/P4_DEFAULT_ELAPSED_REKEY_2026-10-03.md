@@ -243,3 +243,7 @@ release and marketplace publication remain unauthorized. Default rejection and
 residue expiry, retry exhaustion, isolated shutdown stress, independent server
 interoperability and normal P4 Rust activation remain separate gates. No
 transport, MTU, IPv6, HTTP or real native startup claim is inferred here.
+
+The separate [default expiry/exhaustion design](P4_DEFAULT_EXPIRY_EXHAUSTION_DESIGN.md)
+proposes actual180/540-second source-engine gates from this exact source base.
+It is unexecuted design, not additional elapsed evidence or P4 acceptance.
