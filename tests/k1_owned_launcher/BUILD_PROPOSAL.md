@@ -97,9 +97,19 @@ READY, original image/acquisition checks, checked handoff and second lease.
 FINISH_OK follows the actual sealed FINISH/DONE/WNOWAIT-zero/EOF/image/zero-reap
 sequence. It is not installed provenance. Missing output or nonzero exit stays
 unknown/refused; no subsequent status query can fill a missing phase. Owners
-are retained before output, and output error prevents further work. The runner
-must supply private regular-file stdout/stderr; blocking or lost output remains
-a sampled-deadline limit, not cancellable I/O or permission to retry.
+are retained before output. Each phase uses one safe rustix write on the original
+borrowed stdout descriptor; only its exact full-length return before the fixed
+outer deadline succeeds. No write_all, line buffering, flush, EINTR retry,
+short-write continuation, raw-FD adoption, duplication or pathname reopen occurs.
+Short/error/late phase results stop without another operation or output.
+The runner must supply private regular-file stdout/stderr. One outer five-second
+phase budget begins before argument admission/OPEN_BEGIN. Prototype retains its
+separate internal five-second acquisition budget, starting within open_fixed;
+the outer wrapper gates its call/return, not each internal leaf. Neither clock
+is reset for FINISH. A late open result is retained before phase refusal, and
+the inner budget cannot authorize continuation after the outer refusal. This
+is sampled continuation gating, not syscall cancellation or a claim that every
+inner leaf uses the earlier outer deadline.
 
 The future parent build/freeze has its own exact static artifact receipt and
 strict compilation gate; child identity cannot stand in for parent identity.
@@ -119,10 +129,14 @@ does not authenticate installed manager/package origin or activate K1.
 ## Still mandatory before invocation
 
 The 19 controls prove shared sequence/adapter cuts, not every nested metadata,
-namespace, procfs or libc-internal acquisition outcome. Separate compile-fail
-controls must compile the actual adapted owner bodies and reject Send, Sync,
-Copy, escaped descriptor/creator borrows, replaced creator, public construction
-and conversion to CanonicalCreator/AuthoritySession. A positive control must
-first prove the same module graph compiles. These controls remain unimplemented
-here and cannot be inferred from token checks or the older unadapted harness.
+namespace, procfs or libc-internal acquisition outcome. `type_controls.py` now
+prepares a separate `netguard-types-v1` export of the actual complete adapted
+module graph. One positive bin checks fixed signatures without executing them;
+15 negative bins check Send/Sync/Copy for all three actual owner types, escaped
+socket borrows, private callbacks/originals, creator replacement, absent supplied
+constructor and no CanonicalCreator conversion. Run each only through explicit
+`cargo check --bin type-CASE`, never a binary or broad `--bins`/test selection.
+The positive must compile first; each negative must have its specified diagnostic
+and no unrelated compile error. These controls are prepared but UNEXECUTED and
+cannot be inferred from token checks or the older unadapted harness.
 Installed origin and no-switch provenance remain distinct unavailable gates.

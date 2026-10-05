@@ -19,7 +19,7 @@ def git(*args):
     return subprocess.run(['git','-C',str(ROOT),*args],check=True,capture_output=True,timeout=30).stdout
 
 def export(parent, export_name='netguard'):
-    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn', 'netguard-checked-handoff', 'netguard-owner-boundaries', 'netguard-owner-boundaries-final', 'netguard-static-child-v1'):raise ValueError('fixed_export_name')
+    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn', 'netguard-checked-handoff', 'netguard-owner-boundaries', 'netguard-owner-boundaries-final', 'netguard-static-child-v1', 'netguard-types-v1'):raise ValueError('fixed_export_name')
     parent=Path(parent)
     if not parent.is_absolute() or parent.is_symlink() or not parent.is_dir():raise ValueError('private_build_root')
     if parent.stat().st_mode&0o777!=0o700:raise ValueError('private_build_mode')
@@ -37,6 +37,12 @@ def export(parent, export_name='netguard'):
     sources['no_policy_gate.rs']=(HERE/'no_policy_gate.rs').read_bytes()
     # Same actual module tree, not a public acquisition constructor or stubs.
     sources['parent_main.rs']=sources['lib.rs']+b'\ninclude!("no_policy_gate.rs");\n'
+    controls={}
+    if export_name=='netguard-types-v1':
+        types_spec=importlib.util.spec_from_file_location('owned_types',HERE/'type_controls.py')
+        types=importlib.util.module_from_spec(types_spec);types_spec.loader.exec_module(types)
+        controls=types.cases()
+        sources.update(types.render(sources['lib.rs']))
     target=parent/export_name;target.mkdir(mode=0o700)
     (target/'src').mkdir(mode=0o700)
     for name,raw in sources.items():
@@ -63,12 +69,14 @@ nix = { path = "../nix-spawn", default-features = false, features = ["fs", "sche
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "=0.10.9"
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "stdio"] }
 [patch.crates-io]
 libc = { path = "../libc" }
 [lints.rust]
 unsafe_code = "forbid"
 '''
+    for name in controls:
+        manifest+=f'\n[[bin]]\nname = "type-{name}"\npath = "src/type_{name}.rs"\n'
     with (target/'Cargo.toml').open('x') as output:output.write(manifest)
     with (target/'Cargo.lock').open('xb') as output:output.write((HERE/'Cargo.lock').read_bytes())
     return target

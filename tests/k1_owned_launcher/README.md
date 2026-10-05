@@ -303,5 +303,11 @@ parent binary uses the exact adapted module tree and only open_fixed plus finish
 it reports fixed original-call phases. Its feature is disabled by default and
 the child pins remain zero. Ten unchanged adapter source controls pass after
 the exporter addition; the new parent/export has NOT been compiled or invoked.
-Lifetime/type controls and full ROOT/independent build/freeze/runner reviews
-remain explicit prerequisites, not implied by source checks.
+The follow-up removes buffered phase output: one safe rustix write on borrowed
+stdout must return the exact full length inside one outer phase budget. Short,
+Interrupted, other errors or lateness stop without another output/operation.
+The earlier buffered-output proposal remains preserved as unapproved history.
+Sixteen actual-module type-control sources (one positive, fifteen negatives)
+are prepared in a separate closed-name export but have not been compiled.
+Full ROOT/independent build/freeze/runner reviews remain explicit prerequisites,
+not implied by source checks.
