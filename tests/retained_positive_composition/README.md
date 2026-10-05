@@ -132,3 +132,20 @@ requires the complete fixed membership/device/inode preflight. This follows
 records Go 1.27.0; neither kernel naming support nor the cause of any historical
 guest NONPASS is inferred. The extra inert parser control covers known labels,
 the byte cap, wrong identity/offset, foreign labels and private path characters.
+
+`positive.py` now defines the fixed fresh positive coordinator without an entry
+point. It composes all five retained roles, original-loaded-image readbacks,
+actual resolver/descriptor observations and kernel-peer-bound close adapter;
+each child must have independent exact raw zero before the next completion
+step. Spawn's same five-second post-return fence precedes all anchor IO; a late
+child stays retained but authorizes no followup. Every private observer frame
+has exact typed nested fields and finite DNS policy components before retry.
+Only frozen c4 applying/active/releasing/cleanup_verified phases (or absent
+journal) are eligible within the matching stage; quarantine, denial, malformed
+data, unknown owner/observation and failed monitor permanently seal on the
+first frame. Eleven inert controls include late-spawn/no-anchor, one-snapshot
+no-sleep/no-requery counterexamples and a fully typed known-pending transition.
+These controls do NOT execute the positive case or establish actual DNS,
+controller, mapping or shutdown acceptance. The fixed two-stream witness,
+pinned launcher, native HOST builder, outer canonical guard and strict public
+receipt remain required; this Draft is NOT VM-ready or integrated acceptance.
