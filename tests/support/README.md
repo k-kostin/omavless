@@ -12,6 +12,15 @@ previously created timestamp-named roots with `create_dir_all`, which could
 silently share state after a collision. Other helpers are intentionally not
 rewritten in this bounded checkpoint.
 
+Netguard's locked-state/listener fixtures now also use the short `k1l` label.
+The former descriptive root plus `run/omavless-netguard/control.sock` exceeded
+Linux's Unix-socket limit in the tested 44-byte HOME-based TMPDIR, making eight
+listener/publication tests fail before their intended operation. The exact
+same parent and all eight tests must pass after this test-only conversion.
+Short fixture names do not remove the OS limit: callers must still choose a
+TMPDIR with enough room for the fixed socket suffix. No /tmp fallback or
+production listener/state-path change is introduced.
+
 Keep fixture files and symlinks beneath the returned directory. Use
 `create_new` when testing a new regular file. The caller owns cleanup after
 joining its threads and waiting for children; this helper does not introduce
@@ -34,3 +43,12 @@ rustc --edition=2024 --test tests/support/temp.rs -o /tmp/omavless-temp-tests
 ```
 
 No production code path, application dependency or installed runtime changes.
+
+Core-controller and probe-executor fixtures also use short labels (`core` and
+`px`). An exact 40-byte HOME TMPDIR exposed the core's former descriptive label
+plus nanosecond timestamp exceeding Linux SUN_LEN; the probe's nested fixed
+`scratch/probe-<pid>-<sequence>/controller.sock` suffix also needs room after
+the shared allocator's sequence grows during a whole-suite run. This changes
+only fixture roots, not the production suffix, cleanup rules or readiness
+deadlines. Existing collision/private-mode tests still apply. Arbitrarily long
+TMPDIRs remain bounded by the operating system's Unix-socket path limit.

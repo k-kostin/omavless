@@ -200,14 +200,17 @@ def validate_build_identity(package, raw):
         require(".g" + identity["sourceCommit"][:12] + "-" in package["pkgver"], "build_identity")
     else:
         version = identity["productVersion"]
-        pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + (r"-rc\.[1-9][0-9]*" if schema == "2" else "")
+        pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + (r"-(?:rc|beta)\.[1-9][0-9]*" if schema == "2" else "")
         require(len(version) <= 32 and re.fullmatch(pattern, version), "package_version")
-        require(package["pkgver"] == version.replace("-rc.", "rc") + "-1", "package_version")
+        require(package["pkgver"] == version.replace("-rc.", "rc").replace("-beta.", "beta") + "-1",
+                "package_version")
     return identity
 
 
-def inspect_archive(path):
+def inspect_archive(path, expected_architecture=None):
     require(path.name.endswith(".pkg.tar.zst"), "archive_type")
+    architecture = os.uname().machine if expected_architecture is None else expected_architecture
+    require(architecture in ("x86_64", "aarch64"), "package_identity")
     uid = path.lstat().st_uid
     require(uid in (0, os.getuid()), "archive_owner")
     mark = fingerprint(path, uid)
@@ -220,7 +223,7 @@ def inspect_archive(path):
         return capture(["/usr/bin/bsdtar", "-xOf", str(path), name],
                        limit=ARCHIVE_LIMIT if digest else 16384, digest=digest)
     package = key_values(member(".PKGINFO"), " = ", {"pkgname", "pkgver", "arch"})
-    require(package["pkgname"] == "omavless" and package["arch"] == os.uname().machine,
+    require(package["pkgname"] == "omavless" and package["arch"] == architecture,
             "package_identity")
     identity = validate_build_identity(package, member("usr/share/doc/omavless/build-identity.txt"))
     require(member("usr/bin/omavless", True) == identity["binarySha256"], "archive_binary_mismatch")

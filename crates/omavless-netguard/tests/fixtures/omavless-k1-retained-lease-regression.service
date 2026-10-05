@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# Developer-only. Never package/install/enable. Outer reviewed guard required.
+[Unit]
+Description=OmaVLESS K1 retained borrowed lease regression
+RefuseManualStart=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+SupplementaryGroups=
+ExecStart=/run/omavless-k1-retained-lease-regression/probe --exact kernel_observer::creator_lifecycle::retained_lease::manager_retained_lease --ignored --nocapture --test-threads=1
+Environment=OMAVLESS_K1_RETAINED_LEASE_WRITER=1
+OpenFile=/proc/1/ns/net:k1-host-netns:read-only
+PrivateUsers=no
+PrivatePIDs=no
+PrivateNetwork=yes
+RestrictNamespaces=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
+Restart=no
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+RuntimeMaxSec=infinity
+KillMode=none
+SendSIGKILL=no
+StandardInput=null
+StandardOutput=append:/run/omavless-k1-retained-lease-regression/native.stdout
+StandardError=append:/run/omavless-k1-retained-lease-regression/native.stderr

@@ -394,7 +394,12 @@ fn active_config_matches(
     else {
         return Ok(false);
     };
-    if !ConfigReadiness::new(mode, profile.name().to_owned()).ready_for_pid(
+    let Some(expected) =
+        ConfigReadiness::from_generated_config(mode, profile.name().to_owned(), &active)
+    else {
+        return Ok(false);
+    };
+    if !expected.ready_for_pid(
         controller_path,
         core_pid,
         Instant::now() + CONTROLLER_TIMEOUT,
@@ -718,19 +723,11 @@ mod tests {
         Arc,
         atomic::{AtomicU8, Ordering},
     };
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     fn root(label: &str) -> (PathBuf, u32) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = env::temp_dir().join(format!(
-            "omavless-production-observe-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        // The observation fixture nests a runtime control socket. Reuse the
+        // short, private allocator so a home-based TMPDIR stays usable.
+        let short_label: String = label.chars().take(12).collect();
+        let root = crate::test_temp::directory(&short_label).unwrap();
         let uid = fs::metadata(&root).unwrap().uid();
         (root, uid)
     }

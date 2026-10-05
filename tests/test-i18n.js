@@ -2,8 +2,8 @@ const assert = require("assert")
 const I18n = require("../plugin/I18n.js")
 assert.strictEqual(I18n.translate("profiles.search", "en"), "Search profiles by name…  (/)")
 assert.strictEqual(I18n.translate("profiles.search", "ru"), "Поиск профилей по имени…  (/)")
-assert.strictEqual(I18n.translate("native.probe.dns_failed", "en"), "DNS failed")
-assert.strictEqual(I18n.translate("native.probe.dns_failed", "ru"), "Ошибка DNS")
+assert.strictEqual(I18n.translate("native.probe.dns_failed", "en"), "Server address unresolved")
+assert.strictEqual(I18n.translate("native.probe.dns_failed", "ru"), "Адрес сервера не разрешён")
 assert.strictEqual(I18n.translate("subscriptions.refresh_servers", "en"), "Update server list")
 assert.strictEqual(I18n.translate("subscriptions.refresh_servers", "ru"), "Обновить список серверов")
 
@@ -179,7 +179,7 @@ for (const [key, value] of Object.entries(I18n.CATALOG)) {
 const protocolErrors = [
   "invalid_request", "unsupported_version", "unknown_method",
   "invalid_argument", "not_found", "conflict", "busy",
-  "capability_unavailable", "permission_denied", "core_rejected", "subscription_unavailable",
+  "capability_unavailable", "dns_pair_required", "permission_denied", "core_rejected", "subscription_unavailable",
   "transition_failed_restored", "manual_recovery_required",
   "daemon_restarting", "internal_error"
 ]

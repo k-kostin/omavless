@@ -10,6 +10,7 @@ use crate::desired::{
     DesiredError, DesiredPaths, DesiredState, MAX_GENERATION, OwnedObservation, ReconcileAction,
     RoutingMode, read_desired, reconcile, write_desired,
 };
+use crate::native_coordinator::connection_admission::ConnectionAdmission;
 pub use crate::support_diagnostics::HostSupportFacts;
 use omavless_control_protocol::StableErrorCode;
 use std::fmt;
@@ -79,6 +80,10 @@ pub trait LifecycleHost {
     fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
         None
     }
+    /// Recent fixed category tokens only; raw owned-core lines never cross IPC.
+    fn core_log_hints(&self) -> Option<crate::core_diagnostics::CoreLogHints> {
+        None
+    }
     /// Bounded, read-only setup/service/file facts; no core execution or probe.
     fn support_facts(&self, _connected: bool) -> Option<HostSupportFacts> {
         None
@@ -102,6 +107,21 @@ pub trait LifecycleHost {
     ) -> Result<crate::traffic::TrafficCounters, HostStepError> {
         Err(HostStepError::Observation)
     }
+    fn active_connection_count(&mut self, _desired: &DesiredState) -> Result<u32, HostStepError> {
+        Err(HostStepError::Observation)
+    }
+    fn active_connection_overview(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::connection_overview::ConnectionOverview, HostStepError> {
+        Err(HostStepError::Observation)
+    }
+    fn active_connection_rows(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::connection_rows::ConnectionRows, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     /// Fresh local observation only: no DNS/routes/internet/VPN-health proof.
     /// Existing hosts remain unsupported until they explicitly implement it.
     fn fresh_observation(
@@ -119,6 +139,12 @@ pub trait LifecycleHost {
     fn validate_startup(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
         Err(HostStepError::Prepare)
     }
+    /// Read-only admission before persisting a new connected intent or
+    /// stopping an already connected owner. In particular, a missing DNS pair
+    /// must never turn a server/mode switch into a failed rollback.
+    fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+        Ok(())
+    }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError>;
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError>;
     fn start_prepared(&mut self) -> Result<(), HostStepError>;
@@ -130,6 +156,7 @@ pub trait LifecycleHost {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleError {
     InvalidRequest,
+    DnsPairRequired,
     State,
     TransitionFailedRestored,
     RecoveryFailed,
@@ -141,6 +168,7 @@ impl LifecycleError {
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
             Self::InvalidRequest => StableErrorCode::InvalidArgument,
+            Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
             Self::State => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
             Self::RecoveryFailed => StableErrorCode::CoreRejected,
@@ -153,6 +181,7 @@ impl fmt::Display for LifecycleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::InvalidRequest => "Connection request is invalid",
+            Self::DnsPairRequired => "Set up the managed DNS pair before connecting",
             Self::State => "Connection state could not be updated",
             Self::TransitionFailedRestored => "Connection transition failed and was restored",
             Self::RecoveryFailed => "Connection recovery failed",
@@ -221,6 +250,18 @@ pub struct LifecycleExecutor<H> {
     paths: DesiredPaths,
     uid: u32,
     actual: ActualState,
+}
+
+#[cfg(test)]
+impl LifecycleExecutor<crate::native_host::NativeLifecycleHost> {
+    /// Only the fixed private no-TUN fixture constructor can use this. Derive
+    /// readiness from its actual retained child/controller, not injected facts.
+    pub(crate) fn adopt_owned_close_fixture(&mut self) -> Result<(), HostStepError> {
+        let desired = self.read().map_err(|_| HostStepError::Observation)?;
+        self.host.verify_close_fixture(&desired)?;
+        self.actual = ActualState::Connected;
+        Ok(())
+    }
 }
 
 impl<H: LifecycleHost> LifecycleExecutor<H> {
@@ -313,16 +354,20 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         &mut self,
         armed: &DesiredState,
         rollback: &DesiredState,
+        admission: &mut ConnectionAdmission<'_, '_>,
     ) -> Result<(), LifecycleError> {
         self.actual = ActualState::Stopping;
-        if self.host.stop_owned().is_err() {
+        if self
+            .connection_host(admission, |host| host.stop_owned())?
+            .is_err()
+        {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
-        self.discard_or_manual()?;
+        self.connection_discard(admission)?;
         // Keep desired connected until owned runtime cleanup is proven. This
         // prevents an ambiguous live core from being reported as disconnected.
-        let empty_observation = self.observe_or_manual(armed)?;
+        let empty_observation = self.connection_observe(armed, admission)?;
         let empty = !empty_observation.service_active
             && !empty_observation.controller_ready
             && empty_observation.core_count == 0
@@ -331,7 +376,10 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
-        if self.write(rollback).is_err() {
+        if admission
+            .write_desired(&self.paths, self.uid, rollback)
+            .is_err()
+        {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
@@ -343,14 +391,18 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         &mut self,
         attempted: &DesiredState,
         rollback: &DesiredState,
+        admission: &mut ConnectionAdmission<'_, '_>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
         self.actual = ActualState::Stopping;
-        if self.host.stop_owned().is_err() {
+        if self
+            .connection_host(admission, |host| host.stop_owned())?
+            .is_err()
+        {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
-        self.discard_or_manual()?;
-        let empty = self.observe_or_manual(attempted)?;
+        self.connection_discard(admission)?;
+        let empty = self.connection_observe(attempted, admission)?;
         if empty.service_active
             || empty.controller_ready
             || empty.core_count != 0
@@ -359,15 +411,26 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
-        if self.host.prepare(rollback).is_err() || self.write(rollback).is_err() {
-            let _ = self.host.discard_prepared();
+        if self
+            .connection_host(admission, |host| host.prepare(rollback))?
+            .is_err()
+            || admission
+                .write_desired(&self.paths, self.uid, rollback)
+                .is_err()
+        {
+            let _ = self.connection_host(admission, |host| host.discard_prepared());
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
         self.actual = ActualState::Reconnecting;
-        let started = self.host.start_prepared().is_ok();
-        let verified = started && self.verify_connected(rollback).is_ok();
-        let committed = verified && self.host.commit_prepared().is_ok();
+        let started = self
+            .connection_host(admission, |host| host.start_prepared())?
+            .is_ok();
+        let verified = started && self.connection_verify(rollback, admission).is_ok();
+        let committed = verified
+            && self
+                .connection_host(admission, |host| host.commit_prepared())?
+                .is_ok();
         if committed {
             self.actual = ActualState::Connected;
             return Err(LifecycleError::TransitionFailedRestored);
@@ -380,7 +443,10 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         &mut self,
         current: &DesiredState,
         target: DesiredState,
+        admission: &mut ConnectionAdmission<'_, '_>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.connection_host(admission, |host| host.connection_preflight())?
+            .map_err(|_| LifecycleError::DnsPairRequired)?;
         let attempted = DesiredState {
             generation: Self::next_generation(current.generation, 1)?,
             ..target
@@ -393,23 +459,34 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         // Persist the requested target before stopping the old owner. A crash
         // can therefore reconcile toward the user's latest intent instead of
         // silently resurrecting an obsolete profile or mode.
-        self.write(&attempted)?;
+        admission.write_desired(&self.paths, self.uid, &attempted)?;
         self.actual = ActualState::Reconnecting;
-        if self.host.stop_owned().is_err() {
+        if self
+            .connection_host(admission, |host| host.stop_owned())?
+            .is_err()
+        {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
-        if self.host.prepare(&attempted).is_err() {
-            return self.restore_previous_connected(&attempted, &rollback);
+        if self
+            .connection_host(admission, |host| host.prepare(&attempted))?
+            .is_err()
+        {
+            return self.restore_previous_connected(&attempted, &rollback, admission);
         }
-        let started = self.host.start_prepared().is_ok();
-        let verified = started && self.verify_connected(&attempted).is_ok();
-        let committed = verified && self.host.commit_prepared().is_ok();
+        let started = self
+            .connection_host(admission, |host| host.start_prepared())?
+            .is_ok();
+        let verified = started && self.connection_verify(&attempted, admission).is_ok();
+        let committed = verified
+            && self
+                .connection_host(admission, |host| host.commit_prepared())?
+                .is_ok();
         if committed {
             self.actual = ActualState::Connected;
             return Ok(self.outcome(&attempted, true));
         }
-        self.restore_previous_connected(&attempted, &rollback)
+        self.restore_previous_connected(&attempted, &rollback, admission)
     }
 
     pub fn connect(
@@ -425,6 +502,65 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         profile_id: &str,
         mode: Option<RoutingMode>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.connect_requested_admitted(profile_id, mode, &mut ConnectionAdmission::ordinary())
+    }
+
+    fn connection_host<T>(
+        &mut self,
+        admission: &mut ConnectionAdmission<'_, '_>,
+        step: impl FnOnce(&mut H) -> Result<T, HostStepError>,
+    ) -> Result<Result<T, HostStepError>, LifecycleError> {
+        if admission.recheck().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let result = step(&mut self.host);
+        if admission.recheck().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        Ok(result)
+    }
+    fn connection_observe(
+        &mut self,
+        desired: &DesiredState,
+        admission: &mut ConnectionAdmission<'_, '_>,
+    ) -> Result<OwnedObservation, LifecycleError> {
+        self.connection_host(admission, |host| host.observe(desired))?
+            .map_err(|_| {
+                self.actual = ActualState::ManualRecoveryRequired;
+                LifecycleError::ManualRecoveryRequired
+            })
+    }
+    fn connection_discard(
+        &mut self,
+        admission: &mut ConnectionAdmission<'_, '_>,
+    ) -> Result<(), LifecycleError> {
+        self.connection_host(admission, |host| host.discard_prepared())?
+            .map_err(|_| {
+                self.actual = ActualState::ManualRecoveryRequired;
+                LifecycleError::ManualRecoveryRequired
+            })
+    }
+    fn connection_verify(
+        &mut self,
+        desired: &DesiredState,
+        admission: &mut ConnectionAdmission<'_, '_>,
+    ) -> Result<(), LifecycleError> {
+        if reconcile(desired, self.connection_observe(desired, admission)?)
+            != ReconcileAction::AdoptConnected
+        {
+            return Err(LifecycleError::RecoveryFailed);
+        }
+        Ok(())
+    }
+    pub(crate) fn connect_requested_admitted(
+        &mut self,
+        profile_id: &str,
+        mode: Option<RoutingMode>,
+        admission: &mut ConnectionAdmission<'_, '_>,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        admission.recheck()?;
         let current = self.read()?;
         let mode = mode.unwrap_or(current.mode);
         let target = DesiredState {
@@ -437,7 +573,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         target
             .validate()
             .map_err(|_| LifecycleError::InvalidRequest)?;
-        let observed = self.observe_or_manual(&current)?;
+        let observed = self.connection_observe(&current, admission)?;
         match reconcile(&current, observed) {
             ReconcileAction::AdoptConnected
                 if current.profile_id == profile_id && current.mode == mode =>
@@ -446,7 +582,9 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
                 return Ok(self.outcome(&current, false));
             }
             ReconcileAction::SettledDisconnected => {}
-            ReconcileAction::AdoptConnected => return self.replace_connected(&current, target),
+            ReconcileAction::AdoptConnected => {
+                return self.replace_connected(&current, target, admission);
+            }
             _ => {
                 self.actual = ActualState::ManualRecoveryRequired;
                 return Err(LifecycleError::ManualRecoveryRequired);
@@ -466,25 +604,35 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             ..current
         };
 
+        self.connection_host(admission, |host| host.connection_preflight())?
+            .map_err(|_| LifecycleError::DnsPairRequired)?;
         self.actual = ActualState::Starting;
-        if self.host.prepare(&armed).is_err() {
-            self.discard_or_manual()?;
+        if self
+            .connection_host(admission, |host| host.prepare(&armed))?
+            .is_err()
+        {
+            self.connection_discard(admission)?;
             self.actual = ActualState::Disconnected;
             return Err(LifecycleError::TransitionFailedRestored);
         }
-        if let Err(error) = self.write(&armed) {
-            self.discard_or_manual()?;
+        if let Err(error) = admission.write_desired(&self.paths, self.uid, &armed) {
+            self.connection_discard(admission)?;
             self.actual = ActualState::Disconnected;
             return Err(error);
         }
-        let started = self.host.start_prepared().is_ok();
-        let verified = started && self.verify_connected(&armed).is_ok();
-        let committed = verified && self.host.commit_prepared().is_ok();
+        let started = self
+            .connection_host(admission, |host| host.start_prepared())?
+            .is_ok();
+        let verified = started && self.connection_verify(&armed, admission).is_ok();
+        let committed = verified
+            && self
+                .connection_host(admission, |host| host.commit_prepared())?
+                .is_ok();
         if committed {
             self.actual = ActualState::Connected;
             return Ok(self.outcome(&armed, true));
         }
-        self.cleanup_failed_connect(&armed, &rollback)?;
+        self.cleanup_failed_connect(&armed, &rollback, admission)?;
         Err(LifecycleError::TransitionFailedRestored)
     }
 
@@ -514,7 +662,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
                     mode,
                     ..current.clone()
                 };
-                self.replace_connected(&current, target)
+                self.replace_connected(&current, target, &mut ConnectionAdmission::ordinary())
             }
             ReconcileAction::RecoverConnected
             | ReconcileAction::StopOwned
@@ -526,14 +674,20 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
     }
 
     pub fn disconnect(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
+        self.disconnect_admitted(&mut ConnectionAdmission::ordinary())
+    }
+    pub(crate) fn disconnect_admitted(
+        &mut self,
+        admission: &mut ConnectionAdmission<'_, '_>,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        admission.recheck()?;
         let current = disconnect_step(self.read(), DisconnectPhase::ReadIntent)?;
         // An unavailable controller or mismatched desired profile must not
         // prevent explicit shutdown of the process handle we already own.
         // This is not adoption/reconciliation: stop_owned may only act on
         // retained, identity-verified children, never inventory-selected PIDs.
         let action = self
-            .host
-            .observe(&current)
+            .connection_host(admission, |host| host.observe(&current))?
             .ok()
             .map(|facts| reconcile(&current, facts));
         if action == Some(ReconcileAction::SettledDisconnected) {
@@ -549,18 +703,35 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         };
         // Explicit disconnect changes durable intent before stopping. A stop
         // failure must not silently restore desired connected state.
-        disconnect_step(self.write(&disconnected), DisconnectPhase::WriteIntent)?;
+        disconnect_step(
+            admission.write_desired(&self.paths, self.uid, &disconnected),
+            DisconnectPhase::WriteIntent,
+        )?;
         self.actual = ActualState::Stopping;
-        if self.host.stop_owned().is_err() {
+        if self
+            .connection_host(admission, |host| host.stop_owned())?
+            .is_err()
+        {
             self.actual = ActualState::ManualRecoveryRequired;
             return disconnect_step(
                 Err(LifecycleError::ManualRecoveryRequired),
                 DisconnectPhase::StopOwned,
             );
         }
-        disconnect_step(self.discard_or_manual(), DisconnectPhase::DiscardPrepared)?;
         disconnect_step(
-            self.verify_empty(&disconnected),
+            self.connection_discard(admission),
+            DisconnectPhase::DiscardPrepared,
+        )?;
+        disconnect_step(
+            self.connection_observe(&disconnected, admission)
+                .and_then(|facts| {
+                    if reconcile(&disconnected, facts) != ReconcileAction::SettledDisconnected {
+                        self.actual = ActualState::ManualRecoveryRequired;
+                        Err(LifecycleError::ManualRecoveryRequired)
+                    } else {
+                        Ok(())
+                    }
+                }),
             DisconnectPhase::VerifyEmpty,
         )?;
         self.actual = ActualState::Disconnected;
@@ -641,6 +812,9 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
+        self.host
+            .connection_preflight()
+            .map_err(|_| LifecycleError::DnsPairRequired)?;
         self.actual = ActualState::Stopping;
         if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
             self.actual = ActualState::ManualRecoveryRequired;
@@ -679,9 +853,23 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
     /// must not loop this method after `RecoveryFailed`; a fresh owner process
     /// may attempt one new bounded recovery after re-observation.
     pub fn reconcile_startup(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
-        let desired = self.read()?;
+        self.reconcile_startup_admitted(&mut crate::startup_admission::StartupAdmission::ordinary())
+    }
+
+    pub(crate) fn reconcile_startup_admitted(
+        &mut self,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        admission
+            .recheck()
+            .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+        let desired = admission.desired(&self.paths, self.uid)?;
         let observed = self.observe_or_manual(&desired)?;
-        match reconcile(&desired, observed) {
+        let action = reconcile(&desired, observed);
+        admission
+            .action(action)
+            .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+        match action {
             ReconcileAction::SettledDisconnected => {
                 self.actual = ActualState::Disconnected;
                 Ok(self.outcome(&desired, false))
@@ -776,6 +964,7 @@ mod tests {
         calls: Vec<&'static str>,
         observation: OwnedObservation,
         fail_prepare: bool,
+        fail_connection_preflight: bool,
         fail_observe_once: bool,
         fail_start: bool,
         remaining_start_failures: usize,
@@ -794,6 +983,7 @@ mod tests {
                 calls: Vec::new(),
                 observation: empty(),
                 fail_prepare: false,
+                fail_connection_preflight: false,
                 fail_observe_once: false,
                 fail_start: false,
                 remaining_start_failures: 0,
@@ -809,6 +999,13 @@ mod tests {
     }
 
     impl LifecycleHost for FakeHost {
+        fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+            if self.fail_connection_preflight {
+                self.calls.push("preflight-denied");
+                return Err(HostStepError::Prepare);
+            }
+            Ok(())
+        }
         fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
             self.calls.push("observe");
             if std::mem::take(&mut self.fail_observe_once) {
@@ -976,6 +1173,77 @@ mod tests {
         let changed = executor.connect("profile-b", RoutingMode::Global).unwrap();
         assert_eq!(changed.generation, 3);
         assert_eq!(desired(&executor).mode, RoutingMode::Global);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pair_refuses_new_connect_without_intent_or_host_effects() {
+        let (root, mut executor) = executor(
+            "pair-connect-denied",
+            FakeHost {
+                fail_connection_preflight: true,
+                ..FakeHost::default()
+            },
+        );
+        let before = desired(&executor);
+        assert_eq!(
+            executor.connect("opaque-id", RoutingMode::Rule),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Disconnected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pair_refuses_switch_and_mode_change_without_stopping_owned_core() {
+        let (root, mut executor) = executor("pair-switch-denied", FakeHost::default());
+        executor.connect("profile-a", RoutingMode::Rule).unwrap();
+        let before = desired(&executor);
+        executor.host_mut().calls.clear();
+        executor.host_mut().fail_connection_preflight = true;
+        assert_eq!(
+            executor.connect("profile-b", RoutingMode::Global),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Connected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.set_mode(RoutingMode::Direct),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Connected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.disconnect().unwrap().actual,
+            ActualState::Disconnected
+        );
+        assert_eq!(
+            executor.host().calls,
+            ["observe", "stop", "discard", "observe"]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pair_refuses_active_profile_quiesce_before_stop() {
+        let (root, mut executor) = executor("pair-rename-denied", FakeHost::default());
+        executor.connect("profile-a", RoutingMode::Rule).unwrap();
+        let before = desired(&executor);
+        executor.host_mut().calls.clear();
+        executor.host_mut().fail_connection_preflight = true;
+        assert_eq!(
+            executor.quiesce_profile_preserving_desired("profile-a"),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Connected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
         fs::remove_dir_all(root).unwrap();
     }
 
