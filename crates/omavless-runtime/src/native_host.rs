@@ -30,7 +30,10 @@ const MAX_PATH_BYTES: usize = 4096;
 
 /// Captured only from the actual parent-owned host. All controller reads and
 /// executable hashing happen after moving this out of the owner mutex.
-pub(crate) struct CloseObservation {
+/// Opaque retained observation for the fixed lifecycle host seam. No public
+/// constructor, serialization, clone or access to its authority is available.
+#[doc(hidden)]
+pub struct CloseObservation {
     session: crate::conditional_close_candidate::Session,
     facts: CloseFacts,
 }
@@ -676,6 +679,12 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn capture_connection_close(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<CloseObservation, HostStepError> {
+        NativeLifecycleHost::capture_connection_close(self, desired)
+    }
     fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
         self.core_diagnostics
             .as_ref()

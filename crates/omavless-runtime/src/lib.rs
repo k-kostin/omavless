@@ -81,6 +81,8 @@ pub mod cutover_activation;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
+#[cfg(feature = "developer-conditional-close")]
+mod developer_connection_close;
 mod diagnostic_read;
 pub mod doctor;
 pub mod fresh_setup;
@@ -384,6 +386,20 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close(
+        &mut self,
+        action: developer_connection_close::Action,
+        instance: &str,
+    ) -> std::result::Result<
+        developer_connection_close::Admission,
+        native_coordinator::NativeOwnerError,
+    >;
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close_retain(
+        &mut self,
+        discovered: native_coordinator::connection_close::CloseDiscovered,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -692,6 +708,24 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close(
+        &mut self,
+        action: developer_connection_close::Action,
+        instance: &str,
+    ) -> std::result::Result<
+        developer_connection_close::Admission,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.admit_developer_close(action, instance)
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close_retain(
+        &mut self,
+        discovered: native_coordinator::connection_close::CloseDiscovered,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError> {
+        self.retain_developer_close(discovered)
+    }
     fn usage_transport(&self) -> SharedSubscriptionTransport {
         self.transport.clone()
     }
@@ -1417,6 +1451,12 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        #[cfg(feature = "developer-conditional-close")]
+        if developer_connection_close::METHODS
+            .contains(&request["method"].as_str().unwrap_or_default())
+        {
+            return self.dispatch_developer_close(request);
+        }
         if request["method"] == "subscriptions.usage" {
             return self.dispatch_subscription_usage(request);
         }
@@ -2186,6 +2226,10 @@ fn dispatch_native(
             }
         },
         "capabilities.get" if empty_params(request) => {
+            #[cfg(feature = "developer-conditional-close")]
+            let development_methods = developer_connection_close::METHODS;
+            #[cfg(not(feature = "developer-conditional-close"))]
+            let development_methods: &[&str] = &[];
             let methods: Vec<_> = READ_ONLY_METHODS
                 .iter()
                 .chain(
@@ -2203,6 +2247,12 @@ fn dispatch_native(
                 .chain(
                     runtime_ownership
                         .then_some(batch_scheduler::METHODS)
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    runtime_ownership
+                        .then_some(development_methods)
                         .into_iter()
                         .flatten(),
                 )
@@ -2974,6 +3024,89 @@ mod tests {
         Arc<AtomicUsize>,
     ) {
         owner_fixture(base, OwnershipPhase::Rust)
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    fn developer_close_socket_is_semantic_and_unsupported_hosts_refuse() {
+        let base = temporary_base("dev-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let instance = server.instance_id.clone();
+        let count_before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        let methods = caps["result"]["methods"].as_array().unwrap();
+        for method in developer_connection_close::METHODS {
+            assert!(methods.iter().any(|value| value == method));
+        }
+        for (method, params, expected) in [
+            (
+                "development.connections.snapshot",
+                json!({"instanceId":instance}),
+                "capability_unavailable",
+            ),
+            (
+                "development.connections.snapshot",
+                json!({"instanceId":"stale-instance"}),
+                "conflict",
+            ),
+            (
+                "development.connections.prepare",
+                json!({"instanceId":instance,"handle":"1".repeat(64)}),
+                "capability_unavailable",
+            ),
+            (
+                "development.connections.confirm",
+                json!({"instanceId":instance,"operationId":"once","expectedRevision":0,"handle":"1".repeat(64),"ticket":"2".repeat(64)}),
+                "capability_unavailable",
+            ),
+            (
+                "development.connections.receipt",
+                json!({"instanceId":instance,"operationId":"missing"}),
+                "not_found",
+            ),
+            (
+                "development.connections.snapshot",
+                json!({"instanceId":instance,"controllerPath":"/not-allowed"}),
+                "invalid_argument",
+            ),
+        ] {
+            let response = call(&paths, method, params).unwrap();
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error"]["code"], expected);
+        }
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status["ok"], true);
+        assert_eq!(status["revision"], 0);
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), count_before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(not(feature = "developer-conditional-close"))]
+    #[test]
+    fn default_build_has_no_developer_close_socket_method_or_capability() {
+        let base = temporary_base("no-dev-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(!caps.to_string().contains("development.connections."));
+        let response = call(&paths, "development.connections.snapshot", json!({})).unwrap();
+        assert_eq!(response["error"]["code"], "unknown_method");
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

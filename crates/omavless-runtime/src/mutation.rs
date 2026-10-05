@@ -433,6 +433,19 @@ impl MutationCoordinator {
         Ok(receipt)
     }
 
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn external_close_receipt(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<Option<ExternalCloseReceipt>>, CoordinatorError> {
+        let id = OperationId::parse(operation_id)?;
+        Ok(self
+            .external_closes
+            .iter()
+            .find(|entry| entry.operation_id.0 == id.0)
+            .map(|entry| entry.receipt))
+    }
+
     /// Check whether bounded work outside the serialized owner may begin.
     ///
     /// This deliberately does not enqueue or reserve a mutation slot. The

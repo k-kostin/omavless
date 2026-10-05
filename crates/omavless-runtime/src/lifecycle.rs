@@ -75,6 +75,15 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    /// Unsupported hosts cannot manufacture an observation or a close permit.
+    /// This seam does not expose any IPC action by itself.
+    #[doc(hidden)]
+    fn capture_connection_close(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::native_host::CloseObservation, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     /// Counts from the most recently spawned owned core only. No health claim,
     /// log strings, network access or mutation; None means no captured child.
     fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
@@ -996,6 +1005,16 @@ mod tests {
                 disconnected_intent_seen_at_stop: false,
             }
         }
+    }
+
+    #[test]
+    fn unsupported_host_cannot_mint_conditional_close_observation() {
+        let mut host = FakeHost::default();
+        assert!(matches!(
+            LifecycleHost::capture_connection_close(&mut host, &DesiredState::default()),
+            Err(HostStepError::Observation)
+        ));
+        assert!(host.calls.is_empty());
     }
 
     impl LifecycleHost for FakeHost {

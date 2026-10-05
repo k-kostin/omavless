@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
-# Development VM only; no default capability or public close IPC.
+# Development VM only; same-UID semantic close IPC is absent in default builds.
 developer-conditional-close = []
 
 [dependencies]

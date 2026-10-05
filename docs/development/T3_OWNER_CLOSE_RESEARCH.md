@@ -1,5 +1,11 @@
 # T3: actual-owner detached-close research
 
+This document retains the baseline research boundary and its historical gates.
+The later opt-in developer pair and development-only socket workspace are
+described in [T3_DEVELOPER_PAIR_PERMIT.md](T3_DEVELOPER_PAIR_PERMIT.md); they do
+not retrospectively change the acceptance claims below or activate the default
+product interface.
+
 This inactive development cut starts from current RC `c4e800425243c1b02165f82153e4bf418fe465e6`.
 Commit `3c639cb` selectively ports #559's detached transport and retained child
 lifetime. The integration does not replace current-RC native-owner, managed-DNS

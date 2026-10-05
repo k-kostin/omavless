@@ -3,7 +3,9 @@
 This successor builds on `68cdd9dfa17f7014c9c1c28d90a7fbf5901b0dca`
 (#590). It reuses the existing actual-owner capture, opaque selection,
 confirmation, shared scheduler, durable per-chunk lease and exact replay path.
-It does not add a second coordinator, public IPC method or enabled UI action.
+It does not add a second coordinator or enabled UI action. The successor below
+adds an explicitly opt-in development IPC workspace; default/product methods
+and permits remain unchanged.
 Default builds still return `MissingAttestation` for passive core bytes/ABI.
 
 ## Distinct authority boundary
@@ -149,3 +151,46 @@ replacement/restoration case, not every possible pair drift or fatal resource
 loss. Released-pair adoption, ARM64 and installed-product acceptance remain
 pending. Default builds still do not grant this developer permit; public-method
 and UI activation are not part of these checkpoints.
+
+## Development semantic socket workspace
+
+With the non-default `developer-conditional-close` feature, the existing
+same-UID runtime socket provides four fixed methods:
+`development.connections.snapshot`, `.prepare`, `.confirm`, and `.receipt`.
+They are absent from default builds. Advertising these methods describes API
+availability, not current pair authority or a supported production feature.
+
+Every request names the actual runtime instance. Snapshot returns only bounded
+private display rows and opaque handles, never controller IDs or close tokens.
+Prepare returns a single-use ticket; confirm also requires an operation ID and
+expected revision. All field sets are exact. Tokens are canonical nonzero
+256-bit lowercase hexadecimal values. There are no caller-selected commands,
+paths, services, privileged transports, or passive-attestation adoption.
+
+The registered owner uses its existing coordinator and original capture.
+Controller discovery and full pair proof run outside the owner mutex and
+migration lease; retention checks the same capture identity, cancellation,
+durable context and original expiry. Unsupported lifecycle hosts cannot mint
+the opaque observation. Confirmation uses the existing detached effect worker.
+Exact replay precedes new authority checks and cannot resend a controller POST.
+Receipt polling distinguishes missing, pending, and terminal results, including
+Unknown, without constructing another effect request.
+
+Focused socket tests prove strict validation, unsupported-host refusal,
+default-build absence, successful selected close and exact receipt replay after
+a lost client response/expired confirmation. A dropped controller response
+remains Unknown; replay sends no second POST and leaves desired VPN state
+unchanged. The socket fixture transfers its original coordinator into the real
+same-UID server using a concrete test-and-feature-only construction seam. This
+synthetic-permit seam does not attest ordinary installed startup or cleanup.
+
+An additional opt-in VM test uses the already owned passive host and exact
+root-provisioned developer pair, with no synthetic effect permit. It exercises
+snapshot, preparation, confirmation, receipt and replay through the real socket,
+then checks one selected tunnel terminates while the other still echoes. Its
+environment switch is `OMAVLESS_CLOSE_DEVELOPER_SOCKET_VM=1`; run it only inside
+the explicitly admitted disposable development namespace. The prior
+direct-coordinator VM receipts above do **not** cover this new socket test.
+Actual VM evidence for this successor and UI integration remain separate gates.
+No release package, TUI/QML action, main/RC merge or production activation is
+supplied by this workspace.

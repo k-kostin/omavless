@@ -1184,7 +1184,8 @@ impl Drop for Session {
 /// Inactive scheduler seam: reserve under the owner's short scheduling section,
 /// then move only the retained transport out. Capacity remains reserved until
 /// all transport/proof cleanup is complete, before result publication. No
-/// public method uses it.
+/// default-product method uses it. The opt-in development socket workspace
+/// reuses the same owner scheduling path rather than creating another one.
 #[derive(Default)]
 pub(crate) struct Scheduler {
     active: Arc<std::sync::atomic::AtomicBool>,

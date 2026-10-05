@@ -750,6 +750,29 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
 }
 
 impl ProductionNativeOwner<NativeLifecycleHost> {
+    /// Synthetic-permit socket integration only. Reuses the already-owned
+    /// coordinator; it does not attest production startup or admit a passive
+    /// core. Absent from every non-test build, including development binaries.
+    #[cfg(all(test, feature = "developer-conditional-close"))]
+    pub(crate) fn from_owned_close_socket_fixture(
+        coordinator: OfflineNativeCoordinator<NativeLifecycleHost>,
+    ) -> Self {
+        assert_eq!(coordinator.actual(), ActualState::Connected);
+        assert_eq!(coordinator.revision(), 0);
+        Self {
+            coordinator,
+            startup: ConnectionTransactionOutcome {
+                changed: false,
+                pruned: 0,
+            },
+            ownership: ProductionOwnership::Committed {
+                rust_generation: 2,
+                origin_preparing_generation: None,
+            },
+            login_ready: false,
+        }
+    }
+
     /// Dev-only fixed-path counterpart of current(). No orphan cleanup, normal
     /// registration, auto-start or mutation permission. Not an installed gate.
     #[cfg(test)]

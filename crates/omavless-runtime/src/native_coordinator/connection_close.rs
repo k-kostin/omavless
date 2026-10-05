@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! Inactive actual-owner close research. No method/permit/package activation.
+//! Actual-owner close research, with a separate opt-in development workspace.
+//! No default-product method/permit/package activation.
 //! Controller work is moved out of this owner; the worker never calls it back.
 
 use super::*;
@@ -9,7 +10,9 @@ use crate::mutation::{
     ExternalCloseAdmission, ExternalCloseOutcome, ExternalCloseReceipt, ExternalCloseToken,
     MutationDigest,
 };
-use crate::native_host::{CloseObservation, NativeLifecycleHost};
+use crate::native_host::CloseObservation;
+#[cfg(test)]
+use crate::native_host::NativeLifecycleHost;
 use omavless_store::read_private_utf8;
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -103,13 +106,29 @@ while True:
 
     struct Fixture {
         root: PathBuf,
-        owner: OfflineNativeCoordinator<NativeLifecycleHost>,
+        owner: FixtureCoordinator,
+    }
+    // Test-only movable slot: transfers the SAME original coordinator into the
+    // socket fixture without constructing a replacement owner or using unsafe.
+    struct FixtureCoordinator(Option<OfflineNativeCoordinator<NativeLifecycleHost>>);
+    impl std::ops::Deref for FixtureCoordinator {
+        type Target = OfflineNativeCoordinator<NativeLifecycleHost>;
+        fn deref(&self) -> &Self::Target {
+            self.0.as_ref().unwrap()
+        }
+    }
+    impl std::ops::DerefMut for FixtureCoordinator {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.0.as_mut().unwrap()
+        }
     }
     impl Drop for Fixture {
         fn drop(&mut self) {
-            self.owner.invalidate_connection_close();
-            let _ = self.owner.host_mut().stop_owned();
-            let _ = fs::remove_dir_all(&self.root);
+            if let Some(owner) = self.owner.0.as_mut() {
+                owner.invalidate_connection_close();
+                let _ = owner.host_mut().stop_owned();
+                let _ = fs::remove_dir_all(&self.root);
+            }
         }
     }
     fn write(path: &Path, bytes: &[u8], mode: u32) {
@@ -117,6 +136,16 @@ while True:
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
     fn fixture(variant: &str) -> Fixture {
+        let (root, owner) = fixture_parts(variant, Some("actual-owner-close-fixture"));
+        Fixture {
+            root,
+            owner: FixtureCoordinator(Some(owner)),
+        }
+    }
+    fn fixture_parts(
+        variant: &str,
+        batch_instance: Option<&str>,
+    ) -> (PathBuf, OfflineNativeCoordinator<NativeLifecycleHost>) {
         let root = crate::test_temp::directory("owner-close").unwrap();
         let runtime = root.join("r");
         let config = root.join("c");
@@ -198,15 +227,197 @@ while True:
             uid,
             2,
         );
-        owner
-            .initialize_batch_operations("actual-owner-close-fixture")
-            .unwrap();
+        if let Some(instance) = batch_instance {
+            owner.initialize_batch_operations(instance).unwrap();
+        }
         owner
             .transaction
             .lifecycle_mut()
             .adopt_owned_close_fixture()
             .unwrap();
-        Fixture { root, owner }
+        (root, owner)
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    struct SocketFixture {
+        root: PathBuf,
+        paths: crate::RuntimePaths,
+        instance: String,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    impl SocketFixture {
+        fn new(variant: &str) -> Self {
+            // Deliberately leave batch admission untouched: registration must
+            // lazily bind the real server instance, not a fixture identifier.
+            let (root, owner) = fixture_parts(variant, None);
+            Self::from_parts(root, owner)
+        }
+
+        fn from_parts(root: PathBuf, owner: OfflineNativeCoordinator<NativeLifecycleHost>) -> Self {
+            let paths = crate::RuntimePaths::below(&root);
+            let mut server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+            server.register_native_owner(
+                crate::production_owner::ProductionNativeOwner::from_owned_close_socket_fixture(
+                    owner,
+                ),
+                crate::subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let instance = server.instance_id.clone();
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+            Self {
+                root,
+                paths,
+                instance,
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn from_fixture(mut fixture: Fixture) -> Self {
+            // This successor consumes the already-owned live host. The old
+            // fixture must not stop it or remove the transferred directory.
+            let owner = fixture.owner.0.take().unwrap();
+            let root = std::mem::take(&mut fixture.root);
+            Self::from_parts(root, owner)
+        }
+
+        fn call(&self, method: &str, params: serde_json::Value) -> serde_json::Value {
+            crate::call(&self.paths, method, params).unwrap()
+        }
+
+        fn confirmation(&self, operation: &str) -> serde_json::Value {
+            let snapshot = self.call(
+                "development.connections.snapshot",
+                json!({"instanceId":self.instance}),
+            );
+            assert_eq!(snapshot["ok"], true);
+            assert_eq!(snapshot["result"]["instanceId"], self.instance);
+            let rows = snapshot["result"]["rows"].as_array().unwrap();
+            assert_eq!(rows.len(), 2);
+            let handle = rows[0]["handle"].as_str().unwrap();
+            let prepared = self.call(
+                "development.connections.prepare",
+                json!({"instanceId":self.instance,"handle":handle}),
+            );
+            assert_eq!(prepared["ok"], true);
+            json!({"instanceId":self.instance,"operationId":operation,
+                "expectedRevision":0,"handle":handle,"ticket":prepared["result"]["ticket"]})
+        }
+
+        fn receipt(&self, operation: &str) -> serde_json::Value {
+            let deadline = Instant::now() + Duration::from_secs(4);
+            loop {
+                let response = self.call(
+                    "development.connections.receipt",
+                    json!({"instanceId":self.instance,"operationId":operation}),
+                );
+                if response["ok"] == true && response["result"]["state"] == "finished" {
+                    return response;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "socket close did not terminalize"
+                );
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+
+        fn desired_bytes(&self) -> Vec<u8> {
+            fs::read(DesiredPaths::below(&self.root.join("s")).file).unwrap()
+        }
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    impl Drop for SocketFixture {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::Release);
+            if let Some(worker) = self.worker.take() {
+                // The original server and concrete owned host are dropped by
+                // this worker, before removing only its synthetic directory.
+                let _ = worker.join();
+            }
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    fn developer_close_socket_lost_client_reply_replays_exactly_once() {
+        use omavless_control_protocol::{
+            FrameKind, encode_request, make_request, write_unary_frame,
+        };
+        use std::os::unix::net::UnixStream;
+        let _fixtures = FIXTURES.lock().unwrap();
+        let fixture = SocketFixture::new("ok");
+        let before = fixture.desired_bytes();
+        let params = fixture.confirmation("lost-client-close");
+        let request = make_request(
+            "lost-client",
+            "development.connections.confirm",
+            params.clone(),
+        )
+        .unwrap();
+        let mut client = UnixStream::connect(&fixture.paths.socket).unwrap();
+        write_unary_frame(
+            &mut client,
+            &encode_request(&request).unwrap(),
+            FrameKind::Request,
+        )
+        .unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        // A complete request was written to the actual same-UID listener; no
+        // response is consumed. Whether the server's write succeeds is unknown
+        // and irrelevant to receipt reconciliation (not an injected effect).
+        drop(client);
+        // Establish this test's lost-*applied*-reply premise using the owned
+        // controller fixture. Starting a poll client before admission could
+        // legitimately cause the original try-lock admission to return Busy.
+        // No request is resent and the marker creates no runtime authority.
+        marker(&fixture.root.join("r/effect-entered"));
+        let receipt = fixture.receipt("lost-client-close");
+        assert_eq!(receipt["result"]["outcome"], "closed");
+        assert_eq!(receipt["result"]["receiptRevision"], 1);
+        assert_eq!(receipt["revision"], 1);
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+        assert_eq!(fixture.desired_bytes(), before);
+        // Fresh authority is no longer valid, but exact replay remains a read
+        // of the retained original result and must not send a second POST.
+        fs::write(fixture.root.join("r/reused"), b"").unwrap();
+        std::thread::sleep(CONFIRMATION_LIFETIME + Duration::from_millis(10));
+        let replay = fixture.call("development.connections.confirm", params);
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"], receipt["result"]);
+        assert_eq!(replay["revision"], 1);
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+        assert_eq!(fixture.desired_bytes(), before);
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    fn developer_close_socket_unknown_controller_reply_is_retained_without_resend() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let fixture = SocketFixture::new("drop");
+        let before = fixture.desired_bytes();
+        let params = fixture.confirmation("unknown-controller-close");
+        let admitted = fixture.call("development.connections.confirm", params.clone());
+        assert_eq!(admitted["ok"], true);
+        let receipt = fixture.receipt("unknown-controller-close");
+        assert_eq!(receipt["result"]["outcome"], "unknown");
+        assert_eq!(receipt["result"]["receiptRevision"], 1);
+        assert_eq!(receipt["revision"], 1);
+        let replay = fixture.call("development.connections.confirm", params);
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"], receipt["result"]);
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+        assert_eq!(fixture.desired_bytes(), before);
+        let status = fixture.call("status.get", json!({}));
+        assert_eq!(status["ok"], true);
+        assert_eq!(status["revision"], 1);
     }
     fn snapshot(fixture: &mut Fixture) -> Vec<CloseDisplayRow> {
         let discovery = fixture.owner.capture_connection_close().unwrap();
@@ -225,6 +436,43 @@ while True:
             );
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+    #[test]
+    fn actual_owner_detached_discovery_completion_cannot_revive_cancelled_session() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let discovered = fixture
+            .owner
+            .capture_connection_close()
+            .unwrap()
+            .observe()
+            .unwrap();
+        let desired = fixture.owner.desired().unwrap();
+        fixture
+            .owner
+            .connection_close
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .cancel();
+        assert!(fixture.owner.retain_connection_close(discovered).is_err());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(fixture.owner.connection_close.discovery.is_none());
+        assert_eq!(fixture.owner.desired().unwrap(), desired);
+        assert_eq!(fixture.owner.revision(), 0);
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+    #[test]
+    fn actual_host_trait_bridge_reuses_owned_observation_without_effect() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let desired = fixture.owner.desired().unwrap();
+        let mut observed =
+            LifecycleHost::capture_connection_close(fixture.owner.host_mut(), &desired).unwrap();
+        observed.observe().unwrap();
+        assert_eq!(fixture.owner.revision(), 0);
+        assert_eq!(fixture.owner.desired().unwrap(), desired);
+        assert!(!fixture.root.join("r/effects").exists());
     }
     fn marker(path: &Path) {
         let deadline = Instant::now() + Duration::from_secs(4);
@@ -1451,7 +1699,7 @@ while True:
         let Some(executable) = std::env::var_os("OMAVLESS_TEST_OWNER_CONDITIONAL_CORE") else {
             return;
         };
-        composed_core_selected_close(PathBuf::from(executable), false, false);
+        composed_core_selected_close(PathBuf::from(executable), false, false, false);
     }
 
     #[cfg(feature = "developer-conditional-close")]
@@ -1467,6 +1715,24 @@ while True:
             PathBuf::from("/var/lib/omavless-close-development-pair/mihomo"),
             true,
             false,
+            false,
+        );
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    #[ignore = "exclusive Dev-VM namespace lease; exact root-provisioned developer pair"]
+    fn actual_owner_developer_pair_socket_selected_close_in_dev_vm() {
+        assert_eq!(
+            std::env::var("OMAVLESS_CLOSE_DEVELOPER_SOCKET_VM").as_deref(),
+            Ok("1")
+        );
+        assert_ne!(nix::unistd::getuid().as_raw(), 0);
+        composed_core_selected_close(
+            PathBuf::from("/var/lib/omavless-close-development-pair/mihomo"),
+            true,
+            false,
+            true,
         );
     }
 
@@ -1493,10 +1759,15 @@ while True:
             fs::read(marker).unwrap(),
             b"root-owned-disposable-pair-rebind-v1\n"
         );
-        composed_core_selected_close(pair.join("mihomo"), true, true);
+        composed_core_selected_close(pair.join("mihomo"), true, true, false);
     }
 
-    fn composed_core_selected_close(executable: PathBuf, developer_pair: bool, rebind: bool) {
+    fn composed_core_selected_close(
+        executable: PathBuf,
+        developer_pair: bool,
+        rebind: bool,
+        socket_workspace: bool,
+    ) {
         use sha2::{Digest, Sha256};
         use std::io::{Read, Write};
         use std::net::{TcpListener, TcpStream};
@@ -1526,7 +1797,15 @@ while True:
                 after.len()
             )
         );
-        let mut fixture = fixture("ok");
+        let mut fixture = if socket_workspace {
+            let (root, owner) = fixture_parts("ok", None);
+            Fixture {
+                root,
+                owner: FixtureCoordinator(Some(owner)),
+            }
+        } else {
+            fixture("ok")
+        };
         fixture.owner.invalidate_connection_close();
         fixture.owner.host_mut().stop_owned().unwrap();
         let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1648,6 +1927,41 @@ while True:
             clients.push(client);
         }
         let desired = fixture.owner.desired().unwrap();
+        if socket_workspace {
+            #[cfg(feature = "developer-conditional-close")]
+            {
+                assert!(developer_pair && !rebind);
+                // Passive owned host has no fixture permit. Its development
+                // authority is instead the separately admitted exact pair.
+                let observation = fixture
+                    .owner
+                    .host_mut()
+                    .capture_connection_close(&desired)
+                    .unwrap();
+                assert!(observation.fixture_permit().is_none());
+                drop(observation);
+                let fixture = SocketFixture::from_fixture(fixture);
+                let before = fixture.desired_bytes();
+                let params = fixture.confirmation("real-socket-selected-close");
+                let admitted = fixture.call("development.connections.confirm", params.clone());
+                assert_eq!(admitted["ok"], true);
+                let result = fixture.receipt("real-socket-selected-close");
+                assert_eq!(result["result"]["outcome"], "closed");
+                assert_eq!(result["result"]["receiptRevision"], 1);
+                assert_eq!(result["revision"], 1);
+                let replay = fixture.call("development.connections.confirm", params);
+                assert_eq!(replay["ok"], true);
+                assert_eq!(replay["result"], result["result"]);
+                assert_eq!(fixture.desired_bytes(), before);
+                assert_one_survivor(&mut clients);
+                drop(clients);
+                drop(fixture); // Original server/host teardown precedes echo join.
+                echo.join().unwrap();
+                return;
+            }
+            #[cfg(not(feature = "developer-conditional-close"))]
+            panic!("development socket requires explicit feature");
+        }
         let rows = snapshot(&mut fixture);
         assert_eq!(rows.len(), 2);
         if developer_pair {
@@ -1804,9 +2118,17 @@ while True:
                 .unwrap(),
             Some(closed)
         );
+        assert_one_survivor(&mut clients);
+        drop(clients);
+        fixture.owner.host_mut().stop_owned().unwrap();
+        echo.join().unwrap();
+    }
+
+    fn assert_one_survivor(clients: &mut [std::net::TcpStream]) {
+        use std::io::{Read, Write};
         let mut alive = 0;
         let mut terminated = 0;
-        for client in &mut clients {
+        for client in clients {
             let _ = client.write_all(b"after");
             let mut bytes = [0; 5];
             match client.read(&mut bytes) {
@@ -1828,9 +2150,6 @@ while True:
             }
         }
         assert_eq!((terminated, alive), (1, 1));
-        drop(clients);
-        fixture.owner.host_mut().stop_owned().unwrap();
-        echo.join().unwrap();
     }
 
     #[test]
@@ -1924,6 +2243,34 @@ impl EffectProof {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct OpaqueToken([u8; 32]);
+#[cfg(feature = "developer-conditional-close")]
+impl OpaqueToken {
+    pub(crate) fn from_wire(value: &str) -> Option<Self> {
+        if value.len() != 64 {
+            return None;
+        }
+        let mut bytes = [0; 32];
+        let digit = |byte| match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            _ => None,
+        };
+        for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+            bytes[index] = (digit(pair[0])? << 4) | digit(pair[1])?;
+        }
+        (bytes != [0; 32]).then_some(Self(bytes))
+    }
+
+    pub(crate) fn to_wire(self) -> String {
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let mut text = String::with_capacity(64);
+        for byte in self.0 {
+            text.push(char::from(DIGITS[usize::from(byte >> 4)]));
+            text.push(char::from(DIGITS[usize::from(byte & 15)]));
+        }
+        text
+    }
+}
 impl fmt::Debug for OpaqueToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("OpaqueCloseToken([private])")
@@ -2040,7 +2387,10 @@ impl CloseDiscovery {
         self.observation
             .observe()
             .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
-        if Instant::now() >= self.expiry {
+        // Full developer-object filesystem proof belongs to detached discovery,
+        // never its owner-held completion. It uses the original counted proof
+        // flight; cancellation and the absolute expiry still win at retention.
+        if Instant::now() >= self.expiry || !self.observation.session_mut().proves_live() {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         Ok(CloseDiscovered {
@@ -2059,7 +2409,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 }
 
-impl OfflineNativeCoordinator<NativeLifecycleHost> {
+impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     fn close_context(&self) -> Result<Context, NativeOwnerError> {
         let ownership = self
             .required_ownership
@@ -2176,7 +2526,10 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
         let _lease = self.batch_lock()?;
         self.close_context_matches(&discovered.context)?;
         if Instant::now() >= discovered.expiry
-            || !discovered.observation.session_mut().proves_live()
+            || !discovered
+                .observation
+                .session_mut()
+                .proves_live_for_scheduling()
         {
             self.invalidate_connection_close();
             return Err(NativeOwnerError::OwnershipUnavailable);
@@ -2386,6 +2739,19 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
         self.coordinator
             .finish_external_close(&active.token, outcome.into())
             .map(Some)
+            .map_err(Into::into)
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn connection_close_receipt(
+        &mut self,
+        operation_id: &str,
+    ) -> Result<Option<Option<ExternalCloseReceipt>>, NativeOwnerError> {
+        // Polling completes only the original worker's reservation. It never
+        // constructs a new controller request, confirmation or effect permit.
+        self.poll_connection_close()?;
+        self.coordinator
+            .external_close_receipt(operation_id)
             .map_err(Into::into)
     }
 }
