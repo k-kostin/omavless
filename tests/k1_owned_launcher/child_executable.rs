@@ -1,4 +1,4 @@
-//! Fixed original ELF admission. Zero pins intentionally refuse BEFORE I/O.
+//! Fixed original ELF admission. Pins bind the separately frozen static child.
 use super::{identity, require, retain_after, EffectError, ERROR};
 use nix::fcntl::{open, openat, OFlag};
 use nix::sys::stat::Mode;
@@ -13,8 +13,8 @@ mod static_elf;
 use static_elf::static_elf;
 
 pub(super) const CHILD: &str = "/run/omavless-k1-owned-launch-v1/child";
-const SHA: [u8; 32] = [0; 32];
-const SIZE: u64 = 0;
+const SHA: [u8; 32] = [0x78,0x38,0xd1,0xc3,0xb1,0xb2,0x6f,0xa2,0x47,0xd0,0xbb,0x16,0x60,0x81,0x53,0xf5,0x76,0x47,0x7c,0x44,0x28,0x17,0xf8,0xe1,0x52,0x8f,0x6f,0x9c,0x85,0xfe,0x63,0x11];
+const SIZE: u64 = 1_475_200;
 type Result<T> = std::result::Result<T, EffectError>;
 
 pub(super) struct Executable {

@@ -45,8 +45,8 @@ This is an early compilable checkpoint, not a finished launch proof. Before
 any invocation it still requires:
 
 1. Review and pin the separately built static child and its complete publication
-   graph. The new admission/protocol below is implemented, but its SHA and size
-   deliberately remain zero and refuse before I/O. No execution readiness follows.
+   graph. The original checkpoints deliberately used zero SHA/size pins; the
+   frozen-child successor below binds exact bytes. No execution readiness follows.
 2. Executed inert fault controls of actual ownership, partial constructors,
    late open/spawn/readback, error/panic, FD closure, replacement/lifetime
    compile failures and permanent refusal. Source controls are not these tests.
@@ -301,7 +301,7 @@ The [concrete static build proposal](BUILD_PROPOSAL.md) now specifies the fresh
 child-only CRT-static build and provenance/freeze review. An external opt-in
 parent binary uses the exact adapted module tree and only open_fixed plus finish;
 it reports fixed original-call phases. Its feature is disabled by default and
-the child pins remain zero. Ten unchanged adapter source controls pass after
+the child pins remained zero at that checkpoint. Ten unchanged adapter source controls pass after
 the exporter addition; the new parent/export has NOT been compiled or invoked.
 The follow-up removes buffered phase output: one safe rustix write on borrowed
 stdout must return the exact full length inside one outer phase budget. Short,
@@ -311,3 +311,22 @@ Sixteen actual-module type-control sources (one positive, fifteen negatives)
 are prepared in a separate closed-name export but have not been compiled.
 Full ROOT/independent build/freeze/runner reviews remain explicit prerequisites,
 not implied by source checks.
+
+## Frozen-child pin successor (not invoked)
+
+ROOT's sole compile-only static child build at source
+`8b88e0c570b6437f9396556fd9be46caa64b9b3c` completed known zero (`b65984`).
+The separate trusted-HOST frozen copy is mode0500/single-link, 1,475,200 bytes,
+SHA256 `7838d1c3b1b26fa247d0bb16608153f576477c442817f8e1528f6f9c85fe6311`.
+ROOT's offline readelf inspection (`a10d46`) found ELF64 x86_64 static PIE,
+no PT_INTERP and no DT_NEEDED. No `ldd`, child main, parent, VM or native launch
+was executed. Original Cargo artifacts, recipes, captures and zero-pin8b remain.
+
+This successor sets only the prototype child SHA/size, retaining all existing
+root-owner, ancestry, xattr, single-link, original-FD and sampled-budget checks.
+It adds closed export names for the pinned parent and type-control compilation.
+The child bytes still originate from8b: changing the parent's admission literals
+does not retrospectively change that child build identity. Exact static_elf
+offline validation, new parent compilation, type controls, independent full
+freeze/source/runner review and ROOT-only fresh VM publication remain pending.
+This is neither production adoption nor installed-origin authority.
