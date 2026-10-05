@@ -52,7 +52,8 @@ class Controls(unittest.TestCase):
                         for index,path in enumerate(names,1)}
         copies.fds={path:100+index for index,path in enumerate(names)}
         artifacts=Artifacts();artifacts.sealed=False;artifacts.recheck=Mock()
-        artifacts.files={name:None for name in ('developer-manifest.json','mihomo','omavless-dns-broker','host-fixture')}
+        artifacts.files={name:(55,SimpleNamespace(st_dev=31,st_ino=90),'b'*64)
+                         for name in ('developer-manifest.json','mihomo','omavless-dns-broker','host-fixture')}
         def native(name,device,inode):
             self.assertEqual((device,inode),(31,90))
             return {'path':'/artifacts/'+name,'device':device,'inode':inode,'size':64,'sha256':'b'*64}
@@ -182,6 +183,17 @@ class Controls(unittest.TestCase):
             raw=mapping([('/usr/lib/libc.so.6',3)]) if role=='core' else mapping([(i.ROLES[role],1 if role=='bus' else 2)])
             with patch.object(value,'text',return_value=raw):
                 with self.assertRaises(i.Refused):value.inventory(child,5.0)
+            value.copies._verify_target.assert_not_called();value.artifacts.mapped_identity.assert_not_called()
+            self.sealed(value)
+
+    def test_whole_batch_bad_late_member_or_identity_precedes_any_target_hash(self):
+        for bad,inode in (('/usr/lib/zz-unadmitted.so',90),('/usr/lib/libc.so.6',999),
+                          ('/artifacts/host-fixture',90)):
+            value,child=self.fixture()
+            raw=mapping([('/artifacts/mihomo',90),('/usr/lib/ld-linux-x86-64.so.2',4),(bad,inode)])
+            with patch.object(value,'text',return_value=raw):
+                with self.assertRaises(i.Refused):value.inventory(child,5.0)
+            value.copies._verify_target.assert_not_called();value.artifacts.mapped_identity.assert_not_called()
             self.sealed(value)
 
     def test_verify_late_or_throw_preserves_all_originals_and_no_followup(self):

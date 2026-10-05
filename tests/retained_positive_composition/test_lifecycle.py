@@ -100,7 +100,7 @@ class Controls(unittest.TestCase):
             self.assertIsNone(child.returncode);self.assertFalse(session.zero_reaped)
 
     def test_exact_final_waitpid_shape_and_status_unknown_do_not_reobserve(self):
-        for result in ((True,0),(17.0,0),(17,False),(17,0.0),(0,0),(17,256),(17,9)):
+        for result in ((True,0),(17.0,0),(17,False),(17,0.0),(0,0),(17,256),(17,9),(17,65536)):
             session=l.Session('outer');child=self.child(session,'namespace')
             with patch.object(l.os,'waitid',return_value=self.seen(child)) as observe, \
                  patch.object(l.os,'waitpid',return_value=result) as reap:
@@ -108,6 +108,18 @@ class Controls(unittest.TestCase):
                 with self.assertRaises(l.Refused):session.settle_zero(child,6)
                 self.assertEqual(observe.call_count,1);self.assertEqual(reap.call_count,1)
             self.assertFalse(session.zero_reaped);self.assertIsNone(child.returncode)
+
+    def test_high_raw_status_zero_alias_seals_before_any_followup_effect(self):
+        self.assertTrue(os.WIFEXITED(65536));self.assertEqual(os.WEXITSTATUS(65536),0)
+        session=l.Session('inner');child=self.child(session,'core')
+        session.anchors['core']={'child':child,'state':'mapped','maps':['synthetic']}
+        with patch.object(l.os,'waitid',return_value=self.seen(child)) as observe, \
+             patch.object(l.os,'waitpid',return_value=(child.pid,65536)) as reap, \
+             patch.object(l.os,'kill') as signal:
+            with self.assertRaises(l.Refused):session.settle_zero(child,6)
+            with self.assertRaises(l.Refused):session.shutdown('core',Mock(),Mock())
+            signal.assert_not_called();self.assertEqual(observe.call_count,1);self.assertEqual(reap.call_count,1)
+        self.assertTrue(session.sealed);self.assertIsNone(child.returncode);self.assertFalse(session.zero_reaped)
 
     def test_expiry_after_waitid_refuses_before_reap_and_clock_recovery(self):
         session=l.Session('outer');child=self.child(session,'namespace');clock=[0.0]

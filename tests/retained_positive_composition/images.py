@@ -183,6 +183,20 @@ class Images:
             first = map_objects(self.text(child, deadline))
             self.available(deadline)
             require(first.get(ROLES[name]) == executable)
+            if name in ('bus','resolved'):
+                require('/usr/lib/libc.so.6' in first and '/usr/lib/ld-linux-x86-64.so.2' in first)
+            # WHOLE batch membership/identity before any mapped-target open/hash.
+            # These are retained admission records, not paths discovered/opened from data.
+            for path, identity in first.items():
+                if path in self.copies.records:
+                    row = self.copies.records[path]
+                    require(identity == (row['device'],row['inode']))
+                elif path == ROLES[name] and name in ('core','broker','host'):
+                    _, original, _ = self.artifacts.files[path.rsplit('/',1)[1]]
+                    require(identity == (original.st_dev,original.st_ino))
+                else:
+                    raise Refused()
+            self.available(deadline)
             result = []
             for path, identity in sorted(first.items()):
                 if path in self.copies.records:
@@ -198,9 +212,6 @@ class Images:
                     self.available(deadline)
                 else:
                     raise Refused()  # No unknown/other role's path opened or echoed.
-            require(ROLES[name] in first)
-            if name in ('bus','resolved'):
-                require('/usr/lib/libc.so.6' in first and '/usr/lib/ld-linux-x86-64.so.2' in first)
             after = map_objects(self.text(child, deadline))
             self.available(deadline)
             require(first == after)

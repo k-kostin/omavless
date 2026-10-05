@@ -165,7 +165,7 @@ class Session:
                 continue
             self.within(deadline)
             pid, status = os.waitpid(child.pid, os.WNOHANG)
-            require(type(pid) is int and type(status) is int and pid == child.pid
+            require(type(pid) is int and type(status) is int and pid == child.pid and status == 0
                     and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0,
                     'exact_zero_reap_unknown')
             child.returncode = 0
