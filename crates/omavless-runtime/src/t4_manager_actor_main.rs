@@ -39,6 +39,9 @@ fn main() -> ExitCode {
         [arg] if arg == "--authenticate-canonical-backup" => {
             Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalAuthenticate)
         }
+        [arg] if arg == "--stage-canonical-synthetic-backup" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalStage)
+        }
         _ => None,
     } {
         omavless_runtime::manager_actor_service::supervisor_scenario(scenario)

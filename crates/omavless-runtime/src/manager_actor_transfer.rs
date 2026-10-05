@@ -250,6 +250,48 @@ mod tests {
     const TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
 
     #[test]
+    fn failed_canonical_stage_keeps_auth_and_normalized_private_returns() {
+        let archive = omavless_domain::private_backup::seal(STORE, TEMPLATE, PASSPHRASE).unwrap();
+        let mut encoded = Vec::new();
+        send(
+            &mut encoded,
+            &archive,
+            PASSPHRASE,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+        let mut owner = Transfer::new().unwrap();
+        let until = Instant::now() + Duration::from_secs(5);
+        owner.admit(until).unwrap();
+        owner.receive(&mut Cursor::new(encoded), until).unwrap();
+        let mut canonical =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical::reserve().unwrap();
+        let mut stage = super::super::stage::Stage::reserve_canonical();
+        assert!(
+            owner
+                .with_restore_pair(until, |store, template| {
+                    stage.record_canonical(
+                        [STORE, TEMPLATE, store, template],
+                        &[1; 32],
+                        &mut canonical,
+                        Instant::now() - Duration::from_secs(1),
+                    )
+                })
+                .is_err()
+        ); // expired BEFORE all lower IO and diagnostics
+        assert!(owner.opened.is_some() && owner.restored_store.is_some());
+        assert_eq!(&owner.body[..archive.len()], archive);
+        assert!(
+            owner
+                .with_restore_pair(until, |_, _| panic!("private pair replay"))
+                .is_err()
+        );
+        assert!(stage.finish().is_err());
+        assert!(canonical.finish().is_err());
+        assert!(owner.opened.is_some() && owner.restored_store.is_some());
+    }
+
+    #[test]
     fn fixed_fenced_authentication_cuts_preserve_private_prefix_and_no_later_io() {
         let archive = omavless_domain::private_backup::seal(STORE, TEMPLATE, PASSPHRASE).unwrap();
         let mut encoded = Vec::new();

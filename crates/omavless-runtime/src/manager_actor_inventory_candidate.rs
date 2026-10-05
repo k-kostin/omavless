@@ -361,6 +361,24 @@ impl<T> Owner<T> {
         })
     }
 
+    pub(super) fn stage_originals(&mut self) -> Result<(), Unavailable> {
+        self.guarded(|owner| {
+            if owner.phase != Phase::Complete
+                || owner.rows.len() != owner.expected.len()
+                || owner.swept != owner.expected.len()
+                || owner.scratch.iter().any(Option::is_some)
+                || owner.rows.iter().any(|row| {
+                    !row.complete
+                        || row.class.is_none()
+                        || (row.class == Some(Class::SameUid)) != row.executable.is_some()
+                })
+            {
+                return Err(Unavailable);
+            }
+            Ok(())
+        })
+    }
+
     pub(super) fn recheck_row(
         &mut self,
         pid: u32,
@@ -499,6 +517,29 @@ mod tests {
         }
         owner.finish().unwrap();
         assert_eq!(drops.get(), 2);
+    }
+
+    #[test]
+    fn canonical_stage_borrows_only_the_complete_original_owner_without_new_charge() {
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = completed_owner(&drops);
+        let charge = owner.charged;
+        owner.stage_originals().unwrap();
+        assert_eq!(owner.charged, charge);
+        assert_eq!(drops.get(), 0);
+        owner.refresh_sweep(&[1, 2]).unwrap();
+        assert!(owner.stage_originals().is_err());
+        assert!(
+            owner
+                .recheck_row(
+                    1,
+                    || panic!("sealed gate"),
+                    |_, _, _| panic!("sealed recheck")
+                )
+                .is_err()
+        );
+        assert!(owner.finish().is_err());
+        assert_eq!(drops.get(), 0);
     }
 
     #[test]

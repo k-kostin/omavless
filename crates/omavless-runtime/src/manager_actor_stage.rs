@@ -6,6 +6,7 @@
 use super::protocol::Kind;
 use super::retained_io::{ChildPlan, FileIo, IO_SLOTS, Slot};
 use super::{Unavailable, emit_actor, tick};
+use crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical;
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use crate::restore_decision_candidate::{DecisionChain, DecisionRecord, TerminalChoice};
 use crate::restore_staging_candidate::{
@@ -34,6 +35,22 @@ const STAGED: [Slot; 5] = [
     Slot::StageNewTemplate,
     Slot::StageReady,
 ];
+const CREATED_DIRECTORIES: [Slot; 4] = [
+    Slot::Transaction,
+    Slot::Config,
+    Slot::State,
+    Slot::StageDirectory,
+];
+pub(super) const ORIGIN_FENCES: usize =
+    2 * CREATED_DIRECTORIES.len() + 2 * (LIVE.len() + MEMBERS.len() + 1 + 2);
+pub(super) const SUCCESS_PHASES: [&[u8]; 6] = [
+    b"t4_actor_before_fixture_stage\n",
+    b"t4_actor_before_fixture_transaction_directory\n",
+    b"t4_actor_fixture_ready_inspected\n",
+    b"t4_actor_fixture_intent_written\n",
+    b"t4_actor_fixture_terminal_written\n",
+    b"t4_actor_fixture_stage_recorded\n",
+];
 const INTENT: &str = "restore-decision.intent";
 const TERMINAL: &str = "restore-decision.terminal";
 const EPOCH_MEMBERS: [&str; 5] = [
@@ -43,6 +60,86 @@ const EPOCH_MEMBERS: [&str; 5] = [
     "reserved",
     "channel",
 ];
+
+enum StageOwner<'a> {
+    Classic(&'a mut Retained),
+    Canonical(&'a mut Canonical),
+}
+impl StageOwner<'_> {
+    fn admit(&mut self, io: &mut FileIo, until: Instant) -> Result<(), Unavailable> {
+        match self {
+            Self::Classic(owner) => io.admit(owner, until),
+            Self::Canonical(owner) => io.admit_canonical(owner, until),
+        }
+    }
+    fn fence(&mut self, until: Instant) -> Result<(), Unavailable> {
+        match self {
+            Self::Classic(owner) => owner.transaction_fence(until).map_err(|_| Unavailable),
+            Self::Canonical(owner) => owner.stage_origin(until),
+        }
+    }
+    fn final_fence(&mut self, until: Instant) -> Result<(), Unavailable> {
+        match self {
+            Self::Classic(owner) => owner.transaction_fence(until).map_err(|_| Unavailable),
+            Self::Canonical(owner) => owner.complete_stage(until),
+        }
+    }
+    fn revoke(&mut self) {
+        if let Self::Canonical(owner) = self {
+            owner.revoke();
+        }
+    }
+    fn canonical(&self) -> bool {
+        matches!(self, Self::Canonical(_))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum StageCut {
+    Admission,
+    Origin,
+    Directory,
+    MemberWrite,
+    MemberVerify,
+    Catalogue,
+    Journal,
+    FinalOwner,
+}
+impl StageCut {
+    fn label(self) -> &'static [u8] {
+        match self {
+            Self::Admission => b"t4_actor_stage_admission_refused\n",
+            Self::Origin => b"t4_actor_stage_origin_refused\n",
+            Self::Directory => b"t4_actor_stage_directory_refused\n",
+            Self::MemberWrite => b"t4_actor_stage_member_write_refused\n",
+            Self::MemberVerify => b"t4_actor_stage_member_verify_refused\n",
+            Self::Catalogue => b"t4_actor_stage_catalogue_refused\n",
+            Self::Journal => b"t4_actor_stage_journal_refused\n",
+            Self::FinalOwner => b"t4_actor_stage_final_owner_refused\n",
+        }
+    }
+}
+#[derive(Default)]
+struct Diagnostic {
+    enabled: bool,
+    attempted: bool,
+    first: Option<StageCut>,
+}
+impl Diagnostic {
+    fn result<T>(
+        &mut self,
+        original: Result<T, Unavailable>,
+        emit: impl FnOnce(&'static [u8]) -> Result<(), Unavailable>,
+    ) -> Result<T, Unavailable> {
+        if self.enabled && original.is_err() && !self.attempted {
+            self.attempted = true; // BEFORE output; preserve original Err on failed emission
+            if let Some(cut) = self.first {
+                let _ = emit(cut.label());
+            }
+        }
+        original
+    }
+}
 
 struct Catalogue<'a> {
     expected: &'a [&'a str],
@@ -105,6 +202,7 @@ pub(super) struct Stage {
     directory_buffer: [MaybeUninit<u8>; 8192],
     consumed: bool,
     completed: bool,
+    diagnostic: Diagnostic,
 }
 
 impl Stage {
@@ -115,11 +213,50 @@ impl Stage {
             directory_buffer: [MaybeUninit::uninit(); 8192],
             consumed: false,
             completed: false,
+            diagnostic: Diagnostic::default(),
         })
     }
 
+    pub fn reserve_canonical() -> Self {
+        Self {
+            io: FileIo::reserve_canonical(),
+            original: std::array::from_fn(|_| None),
+            directory_buffer: [MaybeUninit::uninit(); 8192],
+            consumed: false,
+            completed: false,
+            diagnostic: Diagnostic {
+                enabled: true,
+                attempted: false,
+                first: None,
+            },
+        }
+    }
+    pub fn revoke(&mut self) {
+        self.completed = false;
+        self.consumed = true;
+        self.io.revoke();
+    }
+
+    fn cut<T>(
+        &mut self,
+        category: StageCut,
+        result: Result<T, Unavailable>,
+        until: Instant,
+    ) -> Result<T, Unavailable> {
+        let _ = until; // the original operation's deadline is used at final emission
+        if result.is_err() {
+            self.io.revoke();
+            self.completed = false;
+            if self.diagnostic.first.is_none() {
+                self.diagnostic.first = Some(category);
+            }
+        }
+        result
+    }
+
     pub fn permit_request(&mut self, kind: Kind) -> Result<(), Unavailable> {
-        // The lower reservation is admitted against exactly one 17-FD owner.
+        // Private admission uses one classic17-FD owner OR the complete
+        // canonical original owner. Neither plan admits another acquisition.
         // Once consumed, no request may append another capture or transaction.
         // Only the separately valid normal Halt follows a completed stage.
         if self.consumed && (!self.completed || kind != Kind::Halt) {
@@ -285,11 +422,25 @@ impl Stage {
         slot: Slot,
         name: &'static str,
         create: bool,
-        held: &mut Retained,
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        let result = self.directory_inner(parent, slot, name, create, held, until);
+        self.cut(StageCut::Directory, result, until)
+    }
+
+    fn directory_inner(
+        &mut self,
+        parent: Slot,
+        slot: Slot,
+        name: &'static str,
+        create: bool,
+        held: &mut StageOwner<'_>,
         until: Instant,
     ) -> Result<(), Unavailable> {
         if create {
-            held.transaction_fence(until).map_err(|_| Unavailable)?;
+            let result = held.fence(until);
+            self.cut(StageCut::Origin, result, until)?;
             self.hierarchy(until)?;
             self.io.perform(
                 parent,
@@ -301,7 +452,8 @@ impl Stage {
                 || tick(until),
                 |file| file.sync_all().map_err(|_| Unavailable),
             )?;
-            held.transaction_fence(until).map_err(|_| Unavailable)?;
+            let result = held.fence(until);
+            self.cut(StageCut::Origin, result, until)?;
             self.hierarchy(until)?;
         }
         self.io.child(
@@ -334,13 +486,35 @@ impl Stage {
         slot: Slot,
         name: &'static str,
         bytes: &[u8],
-        held: &mut Retained,
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        let result = self.write_member_inner(parent, slot, name, bytes, held, until);
+        self.cut(
+            if matches!(slot, Slot::Intent | Slot::Terminal) {
+                StageCut::Journal
+            } else {
+                StageCut::MemberWrite
+            },
+            result,
+            until,
+        )
+    }
+
+    fn write_member_inner(
+        &mut self,
+        parent: Slot,
+        slot: Slot,
+        name: &'static str,
+        bytes: &[u8],
+        held: &mut StageOwner<'_>,
         until: Instant,
     ) -> Result<(), Unavailable> {
         if bytes.is_empty() {
             return Err(Unavailable);
         }
-        held.transaction_fence(until).map_err(|_| Unavailable)?;
+        let result = held.fence(until);
+        self.cut(StageCut::Origin, result, until)?;
         self.hierarchy(until)?;
         self.io.child(
             ChildPlan {
@@ -389,10 +563,23 @@ impl Stage {
             |file| file.sync_all().map_err(|_| Unavailable),
         )?;
         self.verify_member(parent, slot, name, bytes, until)?;
-        held.transaction_fence(until).map_err(|_| Unavailable)
+        let result = held.fence(until);
+        self.cut(StageCut::Origin, result, until)
     }
 
     fn verify_member(
+        &mut self,
+        parent: Slot,
+        slot: Slot,
+        name: &'static str,
+        expected: &[u8],
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        let result = self.verify_member_inner(parent, slot, name, expected, until);
+        self.cut(StageCut::MemberVerify, result, until)
+    }
+
+    fn verify_member_inner(
         &mut self,
         parent: Slot,
         slot: Slot,
@@ -451,6 +638,16 @@ impl Stage {
         expected: &[&str],
         until: Instant,
     ) -> Result<(), Unavailable> {
+        let result = self.catalogue_inner(slot, expected, until);
+        self.cut(StageCut::Catalogue, result, until)
+    }
+
+    fn catalogue_inner(
+        &mut self,
+        slot: Slot,
+        expected: &[&str],
+        until: Instant,
+    ) -> Result<(), Unavailable> {
         self.io.perform(
             slot,
             || tick(until),
@@ -490,25 +687,49 @@ impl Stage {
         held: &mut Retained,
         until: Instant,
     ) -> Result<(), Unavailable> {
-        if self.consumed {
-            self.io.revoke();
+        self.record_owned(members, nonce, &mut StageOwner::Classic(held), until)
+    }
+
+    pub fn record_canonical(
+        &mut self,
+        members: [&[u8]; 4],
+        nonce: &[u8; 32],
+        held: &mut Canonical,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        self.record_owned(members, nonce, &mut StageOwner::Canonical(held), until)
+    }
+
+    fn record_owned(
+        &mut self,
+        members: [&[u8]; 4],
+        nonce: &[u8; 32],
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        if self.consumed || held.canonical() != self.diagnostic.enabled {
+            self.revoke();
+            held.revoke();
             return Err(Unavailable);
         }
         self.consumed = true; // before admission, manager checks, or any effect
         let result = self.record_inner(members, nonce, held, until);
         if result.is_err() {
             self.io.revoke();
+            held.revoke();
         } else {
             self.completed = true;
         }
-        result
+        // Both original owners are sealed before this one diagnostic attempt.
+        self.diagnostic
+            .result(result, |label| emit_actor(label, until))
     }
 
     fn record_inner(
         &mut self,
         members: [&[u8]; 4],
         nonce: &[u8; 32],
-        held: &mut Retained,
+        held: &mut StageOwner<'_>,
         until: Instant,
     ) -> Result<(), Unavailable> {
         tick(until)?;
@@ -527,7 +748,8 @@ impl Stage {
             .map_err(|_| Unavailable)?
             .encode();
         tick(until)?;
-        self.io.admit(held, until)?;
+        let result = held.admit(&mut self.io, until);
+        self.cut(StageCut::Admission, result, until)?;
         self.io.root(|| tick(until), |_| Ok(()))?;
         self.capture_shape(Slot::Root, true, None, until)?;
         self.directory(Slot::Root, Slot::Run, "run", false, held, until)?;
@@ -540,7 +762,7 @@ impl Stage {
             until,
         )?;
         self.catalogue(Slot::Epoch, &EPOCH_MEMBERS, until)?;
-        emit_actor(b"t4_actor_before_fixture_transaction_directory\n", until)?;
+        emit_actor(SUCCESS_PHASES[1], until)?;
         self.directory(
             Slot::Epoch,
             Slot::Transaction,
@@ -585,9 +807,9 @@ impl Stage {
             &[MEMBERS[0], MEMBERS[1], MEMBERS[2], MEMBERS[3], READY_MEMBER],
             until,
         )?;
-        emit_actor(b"t4_actor_fixture_ready_inspected\n", until)?;
+        emit_actor(SUCCESS_PHASES[2], until)?;
         self.write_member(Slot::State, Slot::Intent, INTENT, &intent, held, until)?;
-        emit_actor(b"t4_actor_fixture_intent_written\n", until)?;
+        emit_actor(SUCCESS_PHASES[3], until)?;
         self.write_member(
             Slot::State,
             Slot::Terminal,
@@ -596,7 +818,7 @@ impl Stage {
             held,
             until,
         )?;
-        emit_actor(b"t4_actor_fixture_terminal_written\n", until)?;
+        emit_actor(SUCCESS_PHASES[4], until)?;
         // Full positive reinspection. No terminal marker/prefix supplies success.
         for (index, name) in MEMBERS.into_iter().enumerate() {
             self.verify_member(
@@ -653,7 +875,8 @@ impl Stage {
         ] {
             self.binding(parent, slot, name, true, until)?;
         }
-        held.transaction_fence(until).map_err(|_| Unavailable)
+        let result = held.final_fence(until);
+        self.cut(StageCut::FinalOwner, result, until)
     }
 
     pub fn finish(&mut self) -> Result<(), Unavailable> {
@@ -666,8 +889,147 @@ impl Stage {
 }
 
 #[cfg(test)]
+pub(super) fn test_failure_projection(
+    original: Result<(), Unavailable>,
+    frames: &mut Vec<&'static [u8]>,
+) -> Result<(), Unavailable> {
+    let mut diagnostic = Diagnostic {
+        enabled: true,
+        attempted: false,
+        first: Some(StageCut::Admission),
+    };
+    // Called after the outer operation has revoked both owners; no native IO.
+    let result = diagnostic.result(original, |label| {
+        frames.push(label);
+        Err(Unavailable)
+    });
+    assert!(
+        diagnostic
+            .result::<()>(Err(Unavailable), |_| panic!("secondary stage error"))
+            .is_err()
+    );
+    result
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    const CUTS: [StageCut; 8] = [
+        StageCut::Admission,
+        StageCut::Origin,
+        StageCut::Directory,
+        StageCut::MemberWrite,
+        StageCut::MemberVerify,
+        StageCut::Catalogue,
+        StageCut::Journal,
+        StageCut::FinalOwner,
+    ];
+
+    #[test]
+    fn source_shaped_stage_output_and_descriptor_plan_stay_inside_fixed_caps() {
+        let success_bytes =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::auth_success_trace_bytes()
+                + SUCCESS_PHASES
+                    .iter()
+                    .map(|label| label.len())
+                    .sum::<usize>()
+                + crate::restore_abort_cli::stopped_owner::actor_canonical::STAGE_OWNER_PHASES
+                    .iter()
+                    .map(|label| label.len())
+                    .sum::<usize>();
+        assert_eq!(success_bytes, 4001);
+        let longest_stage = CUTS.iter().map(|cut| cut.label().len()).max().unwrap();
+        assert_eq!(longest_stage, 37);
+        assert_eq!(success_bytes + 43 + longest_stage, 4081);
+        assert!(success_bytes + 43 + longest_stage <= 4096);
+        assert_eq!(106 + SUCCESS_PHASES.len() + 2 + 2, 116);
+        assert_eq!(43 + SUCCESS_PHASES.len() + 2 + CUTS.len(), 59);
+        assert_eq!(1 + ORIGIN_FENCES + 1, 28);
+        assert_eq!(CREATED_DIRECTORIES.len(), 4);
+        assert_eq!(LIVE.len() + MEMBERS.len() + 1 + 2, 9);
+        assert_eq!(8192 + 41 + IO_SLOTS + 8, 8277);
+        let labels: std::collections::BTreeSet<_> = CUTS.iter().map(|cut| cut.label()).collect();
+        assert_eq!(labels.len(), CUTS.len());
+    }
+
+    #[test]
+    fn first_stage_failure_preserves_result_after_sealing_even_if_output_fails() {
+        for cut in CUTS {
+            let mut diagnostic = Diagnostic {
+                enabled: true,
+                first: Some(cut),
+                attempted: false,
+            };
+            let mut frames = Vec::new();
+            let result: Result<(), Unavailable> = Err(Unavailable);
+            assert!(
+                diagnostic
+                    .result(result, |label| {
+                        frames.push(label);
+                        Err(Unavailable)
+                    })
+                    .is_err()
+            );
+            assert!(diagnostic.attempted);
+            diagnostic.first = Some(StageCut::FinalOwner); // nested category cannot emit again
+            assert!(
+                diagnostic
+                    .result::<()>(Err(Unavailable), |_| panic!("second error label"))
+                    .is_err()
+            );
+            assert_eq!(frames, vec![cut.label()]);
+        }
+        let mut stage = Stage::reserve_canonical();
+        assert!(
+            stage
+                .cut::<()>(StageCut::Origin, Err(Unavailable), Instant::now())
+                .is_err()
+        );
+        assert!(
+            stage
+                .cut::<()>(StageCut::Directory, Err(Unavailable), Instant::now())
+                .is_err()
+        );
+        assert!(matches!(stage.diagnostic.first, Some(StageCut::Origin)));
+        assert!(stage.finish().is_err());
+    }
+
+    #[test]
+    fn canonical_expiry_and_mode_mismatch_do_not_open_or_enable_later_halt() {
+        let mut stage = Stage::reserve_canonical();
+        let mut owner = Canonical::reserve().unwrap();
+        let expired = Instant::now() - std::time::Duration::from_secs(1);
+        assert!(
+            stage
+                .record_canonical(
+                    [b"old", b"template", b"new", b"template"],
+                    &[1; 32],
+                    &mut owner,
+                    expired
+                )
+                .is_err()
+        );
+        assert!(stage.original.iter().all(Option::is_none));
+        assert!(stage.finish().is_err());
+        assert!(owner.finish().is_err());
+        assert!(owner.observe(expired).is_err());
+        let mut stage = Stage::reserve().unwrap();
+        let mut owner = Canonical::reserve().unwrap();
+        assert!(
+            stage
+                .record_canonical(
+                    [b"old", b"template", b"new", b"template"],
+                    &[1; 32],
+                    &mut owner,
+                    expired
+                )
+                .is_err()
+        );
+        assert!(stage.finish().is_err());
+        assert!(owner.finish().is_err());
+        assert!(stage.original.iter().all(Option::is_none));
+    }
 
     #[test]
     fn consumed_stage_allows_only_halt_and_refusal_seals_before_next_io() {

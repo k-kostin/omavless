@@ -21,8 +21,8 @@ use inventory::{Class, Owner};
 pub(crate) const NOFILE: u64 = 8320;
 const FIXED: usize = 120;
 // This path reports at most34 fixed Files, plus manager pidfd1 + actor base4
-// + active query stdout/pidfd2 =41. Future lower36 remains RESERVED, not
-// implemented canonical Restore permission. Fixed120 leaves43 spare roles;
+// + active query stdout/pidfd2 =41. The synthetic Stage lower36 fits fixed120,
+// never product Restore permission. Fixed120 leaves43 spare roles;
 // std spawn's unreported internal/partial/null/pipe acquisitions are an ordinary
 // backend boundary, NOT a proven all-FD constructor bound or custody claim.
 const FIXED_FILES: usize = 34;
@@ -94,6 +94,82 @@ impl QueryProgress {
 
 fn query_credentials(system: bool) -> Option<(u32, u32)> {
     if system { None } else { Some((UID, UID)) }
+}
+
+#[derive(Clone, Copy)]
+enum Trace {
+    Full,
+    Stage,
+}
+impl Trace {
+    fn phase(self, label: &'static [u8], budget: &Budget) -> Result<()> {
+        match self {
+            Self::Full => phase(label, budget),
+            // The same progress transition and two sampled gates, no output.
+            // Only the private Stage call site chooses this fixed mode.
+            Self::Stage => {
+                budget.check()?;
+                budget.check()
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct StageAdmission {
+    consumed: bool,
+    completed: bool,
+    origin_fences: usize,
+    final_attempted: bool,
+    refused: bool,
+}
+const ORIGIN_FENCES: usize = crate::manager_actor_service::CANONICAL_STAGE_ORIGIN_FENCES;
+pub(crate) const STAGE_OWNER_PHASES: [&[u8]; 2] = [
+    b"t4_actor_stage_owner_admitted\n",
+    b"t4_actor_stage_owner_checked\n",
+];
+impl StageAdmission {
+    fn admit(&mut self, authenticated: bool) -> std::result::Result<(), Unavailable> {
+        if self.refused || self.consumed {
+            self.refused = true;
+            return Err(Unavailable);
+        }
+        self.consumed = true;
+        if !authenticated {
+            self.refused = true;
+            return Err(Unavailable);
+        }
+        Ok(())
+    }
+    fn origin(&mut self) -> std::result::Result<(), Unavailable> {
+        if self.refused
+            || !self.consumed
+            || self.completed
+            || self.final_attempted
+            || self.origin_fences >= ORIGIN_FENCES
+        {
+            self.refused = true;
+            return Err(Unavailable);
+        }
+        self.origin_fences += 1;
+        Ok(())
+    }
+    fn final_check(&mut self) -> std::result::Result<(), Unavailable> {
+        if self.refused
+            || !self.consumed
+            || self.completed
+            || self.final_attempted
+            || self.origin_fences != ORIGIN_FENCES
+        {
+            self.refused = true;
+            return Err(Unavailable);
+        }
+        self.final_attempted = true;
+        Ok(())
+    }
+    fn may_halt(&self) -> bool {
+        !self.refused && (!self.consumed || self.completed)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -427,6 +503,7 @@ pub(crate) struct Canonical {
     completed: bool,
     refused: bool,
     authentication: Authentication,
+    stage: StageAdmission,
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -520,6 +597,7 @@ impl Canonical {
             completed: false,
             refused: false,
             authentication: Authentication::default(),
+            stage: StageAdmission::default(),
         })
     }
     fn keep(&mut self, file: File) -> usize {
@@ -845,12 +923,18 @@ impl Canonical {
         visible_proc_mount(&self.buffer, id)?;
         budget.check()
     }
-    fn query(&mut self, unit: &'static str, system: bool, budget: &mut Budget) -> Result<u32> {
+    fn query(
+        &mut self,
+        unit: &'static str,
+        system: bool,
+        budget: &mut Budget,
+        trace: Trace,
+    ) -> Result<u32> {
         if self.query.is_some() {
             return Err(());
         }
         let mut progress = QueryProgress::default();
-        progress.emit(QueryPhase::Before, |label| phase(label, budget))?;
+        progress.emit(QueryPhase::Before, |label| trace.phase(label, budget))?;
         self.installed_current(budget)?;
         let mut output = Zeroizing::new(Vec::new());
         output.try_reserve_exact(MAX_STATUS + 1).map_err(|_| ())?;
@@ -890,7 +974,7 @@ impl Canonical {
             // setgroups EPERM cannot preserve an inherited nonempty group set.
             command.gid(gid).uid(uid);
         }
-        progress.emit(QueryPhase::BeforeSpawn, |label| phase(label, budget))?;
+        progress.emit(QueryPhase::BeforeSpawn, |label| trace.phase(label, budget))?;
         let child = command.spawn().map_err(|_| ())?;
         self.query = Some(Query {
             child,
@@ -918,7 +1002,7 @@ impl Canonical {
         )
         .map_err(|_| ())?;
         budget.check()?;
-        progress.emit(QueryPhase::Spawned, |label| phase(label, budget))?;
+        progress.emit(QueryPhase::Spawned, |label| trace.phase(label, budget))?;
         loop {
             budget.check()?;
             if !query.eof {
@@ -935,7 +1019,7 @@ impl Canonical {
                 {
                     Ok(0) => {
                         query.eof = true;
-                        progress.emit(QueryPhase::Eof, |label| phase(label, budget))?;
+                        progress.emit(QueryPhase::Eof, |label| trace.phase(label, budget))?;
                     }
                     Ok(size) => {
                         query.output.extend_from_slice(&chunk[..size]);
@@ -956,7 +1040,7 @@ impl Canonical {
             .map_err(|_| ())?;
             budget.check()?;
             if positive_query(query.eof, status, pid)? {
-                progress.emit(QueryPhase::OriginalZero, |label| phase(label, budget))?;
+                progress.emit(QueryPhase::OriginalZero, |label| trace.phase(label, budget))?;
                 // No concurrent reaper; exact original positive WNOWAIT first.
                 if query.child.wait().map_err(|_| ())?.code() != Some(0) {
                     return Err(());
@@ -968,10 +1052,10 @@ impl Canonical {
             std::thread::sleep(Duration::from_millis(1));
         }
         let value = service_record(&self.query.as_ref().ok_or(())?.output, system)?;
-        progress.emit(QueryPhase::Parsed, |label| phase(label, budget))?;
+        progress.emit(QueryPhase::Parsed, |label| trace.phase(label, budget))?;
         self.installed_current(budget)?;
         budget.check()?;
-        progress.emit(QueryPhase::Completed, |label| phase(label, budget))?;
+        progress.emit(QueryPhase::Completed, |label| trace.phase(label, budget))?;
         // Only fully parsed, EOF/original0 query originals release/recycle.
         if !self.query.as_ref().ok_or(())?.positive {
             return Err(());
@@ -979,12 +1063,12 @@ impl Canonical {
         self.query = None;
         Ok(value)
     }
-    fn units(&mut self, original: u32, budget: &mut Budget) -> Result<()> {
-        if self.query("user@1000.service", true, budget)? != original {
+    fn units(&mut self, original: u32, budget: &mut Budget, trace: Trace) -> Result<()> {
+        if self.query("user@1000.service", true, budget, trace)? != original {
             return Err(());
         }
         for unit in ["omavless.service", "omavless-runtime.service"] {
-            self.query(unit, false, budget)?;
+            self.query(unit, false, budget, trace)?;
         }
         Ok(())
     }
@@ -1374,7 +1458,7 @@ impl Canonical {
         self.net = Some(self.dir(Some(directory), "net", &budget)?);
         self.unix =
             Some(self.bytes_file(self.net.ok_or(())?, "unix", 4 * 1024 * 1024, &mut budget)?);
-        let pid = self.query("user@1000.service", true, &mut budget)?;
+        let pid = self.query("user@1000.service", true, &mut budget, Trace::Full)?;
         phase(b"t4_actor_before_canonical_manager\n", &budget)?;
         self.manager = Some(self.snapshot(pid, &mut budget)?);
         let manager = self.manager.as_ref().ok_or(())?;
@@ -1401,7 +1485,7 @@ impl Canonical {
         budget.check()?;
         self.boundaries(&mut budget)?;
         phase(b"t4_actor_before_canonical_initial_units\n", &budget)?;
-        self.units(pid, &mut budget)?; // fully EOF/original0 before catalogue
+        self.units(pid, &mut budget, Trace::Full)?; // fully EOF/original0 before catalogue
         phase(b"t4_actor_before_canonical_inventory\n", &budget)?;
         self.catalogue(&budget)?;
         self.inventory_diagnostic.cut(
@@ -1421,7 +1505,7 @@ impl Canonical {
         )?;
         // Final queries complete BEFORE final originals and final PID set.
         phase(b"t4_actor_before_canonical_final_units\n", &budget)?;
-        self.units(pid, &mut budget)?;
+        self.units(pid, &mut budget, Trace::Full)?;
         phase(b"t4_actor_before_canonical_final_boundaries\n", &budget)?;
         self.boundaries(&mut budget)?;
         read_original(
@@ -1475,14 +1559,14 @@ impl Canonical {
         result
     }
 
-    fn refresh_inner(&mut self, until: Instant) -> Result<()> {
+    fn refresh_inner(&mut self, until: Instant, trace: Trace) -> Result<()> {
         let mut budget = Budget::new();
         budget.until = budget.until.min(until);
-        phase(b"t4_actor_before_canonical_refresh\n", &budget)?;
+        trace.phase(b"t4_actor_before_canonical_refresh\n", &budget)?;
         let pid = self.manager.as_ref().ok_or(())?.pid;
         // Original-zero/EOF queries finish BEFORE freezing the process set;
         // their own temporary children cannot become inventory churn.
-        self.units(pid, &mut budget)?;
+        self.units(pid, &mut budget, trace)?;
         self.boundaries(&mut budget)?;
         read_original(
             &self.files[self.unix.ok_or(())?],
@@ -1521,7 +1605,7 @@ impl Canonical {
             ),
             &budget,
         )?;
-        phase(b"t4_actor_canonical_refresh_completed\n", &budget)?;
+        trace.phase(b"t4_actor_canonical_refresh_completed\n", &budget)?;
         budget.check()
     }
     fn refresh(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
@@ -1529,7 +1613,7 @@ impl Canonical {
             self.revoke();
             return Err(Unavailable);
         }
-        let result = available(self.refresh_inner(until));
+        let result = available(self.refresh_inner(until, Trace::Full));
         if result.is_err() {
             self.revoke();
         }
@@ -1563,10 +1647,92 @@ impl Canonical {
     pub(crate) fn revoke(&mut self) {
         self.refused = true;
         self.authentication = Authentication::Revoked;
+        self.stage.completed = false;
+        self.stage.refused = true;
         let _ = self.rows.refuse();
     }
+    pub(crate) fn begin_stage(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
+        let result = (|| {
+            self.stage.admit(
+                !self.refused && self.completed && self.authentication == Authentication::Complete,
+            )?;
+            if self.refused
+                || !self.completed
+                || self.authentication != Authentication::Complete
+                || self.manager.is_none()
+                || self.manager_pidfd.is_none()
+                || self.visibility.is_none()
+                || self.query.is_some()
+                || self.files.is_empty()
+                || self.files.len() > FIXED_FILES
+            {
+                return Err(Unavailable);
+            }
+            self.rows.stage_originals()?;
+            const {
+                assert!(FIXED_FILES + 1 + 4 + 2 + 36 <= FIXED);
+            }
+            available(self.refresh_inner(until, Trace::Stage))?;
+            let mut budget = Budget::new();
+            budget.until = budget.until.min(until);
+            available(phase(STAGE_OWNER_PHASES[0], &budget))
+        })();
+        if result.is_err() {
+            self.revoke();
+        }
+        result
+    }
+    pub(crate) fn stage_origin(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
+        let result = (|| {
+            if self.refused {
+                return Err(());
+            }
+            available_to_unit(self.stage.origin())?; // BEFORE the original-only reads
+            let mut budget = Budget::new();
+            budget.until = budget.until.min(until);
+            self.boundaries(&mut budget)?;
+            read_original(
+                &self.files[self.unix.ok_or(())?],
+                4 * 1024 * 1024,
+                &mut self.buffer,
+                &mut budget,
+            )?;
+            no_listener(&self.buffer, &LISTENERS.map(str::to_owned))?;
+            budget.check()
+        })();
+        if result.is_err() {
+            self.revoke();
+        }
+        available(result)
+    }
+    pub(crate) fn complete_stage(
+        &mut self,
+        until: Instant,
+    ) -> std::result::Result<(), Unavailable> {
+        let result = (|| {
+            if self.refused {
+                return Err(Unavailable);
+            }
+            self.stage.final_check()?;
+            // Called ONLY by Stage's last fence, after every file/catalogue check.
+            available(self.refresh_inner(until, Trace::Stage))?;
+            let mut budget = Budget::new();
+            budget.until = budget.until.min(until);
+            available(phase(STAGE_OWNER_PHASES[1], &budget))?;
+            self.stage.completed = true;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.revoke();
+        }
+        result
+    }
     pub(crate) fn finish(&mut self) -> std::result::Result<(), Unavailable> {
-        if self.refused || !self.completed || !self.authentication.may_finish() {
+        if self.refused
+            || !self.completed
+            || !self.authentication.may_finish()
+            || !self.stage.may_halt()
+        {
             self.revoke();
             return Err(Unavailable);
         }
@@ -1590,8 +1756,140 @@ fn time_gate(until: Instant) -> std::result::Result<(), Unavailable> {
 }
 
 #[cfg(test)]
+pub(crate) fn auth_success_trace_bytes() -> usize {
+    let query_bytes: usize = QUERY_PHASES.iter().map(|phase| phase.label().len()).sum();
+    let surrounding = [
+        b"t4_actor_before_canonical_installation\n".as_slice(),
+        b"t4_actor_before_canonical_observer\n",
+        b"t4_actor_before_canonical_manager\n",
+        b"t4_actor_before_canonical_initial_units\n",
+        b"t4_actor_before_canonical_inventory\n",
+        b"t4_actor_before_canonical_final_units\n",
+        b"t4_actor_before_canonical_final_boundaries\n",
+        b"t4_actor_before_canonical_final_sweep\n",
+        b"t4_actor_canonical_inventory_completed\n",
+    ];
+    13 * query_bytes
+        + surrounding.into_iter().map(<[u8]>::len).sum::<usize>()
+        + 2 * (b"t4_actor_before_canonical_refresh\n".len()
+            + b"t4_actor_canonical_refresh_completed\n".len())
+        + b"t4_actor_canonical_stopped_observed\n".len()
+        + b"t4_actor_backup_authenticated\n".len()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage_cadence_is_two_whole_plus_exact_original_only_fences() {
+        assert_eq!(ORIGIN_FENCES, 26);
+        let mut stage = StageAdmission::default();
+        stage.admit(true).unwrap(); // private state model, NOT manager proof
+        assert!(!stage.may_halt());
+        for _ in 0..ORIGIN_FENCES {
+            stage.origin().unwrap();
+        }
+        stage.final_check().unwrap();
+        assert!(!stage.may_halt()); // final output/postgate not yet complete
+        stage.completed = true;
+        assert!(stage.may_halt());
+        assert!(stage.origin().is_err());
+        assert!(!stage.may_halt());
+        for prefix in 0..ORIGIN_FENCES {
+            let mut stage = StageAdmission::default();
+            stage.admit(true).unwrap();
+            for _ in 0..prefix {
+                stage.origin().unwrap();
+            }
+            assert!(stage.final_check().is_err());
+            assert!(stage.origin().is_err());
+            assert!(stage.admit(true).is_err());
+            assert!(!stage.may_halt());
+        }
+        let mut stage = StageAdmission::default();
+        assert!(stage.admit(false).is_err());
+        assert!(stage.admit(true).is_err());
+        assert!(stage.final_check().is_err());
+    }
+
+    #[test]
+    fn silent_stage_query_mode_keeps_progress_and_expiry_refusal_without_output() {
+        let budget = Budget::new();
+        let mut progress = QueryProgress::default();
+        for phase in QUERY_PHASES {
+            progress
+                .emit(phase, |label| Trace::Stage.phase(label, &budget))
+                .unwrap();
+        }
+        assert_eq!(progress.next, QUERY_PHASES.len());
+        assert!(
+            progress
+                .emit(QueryPhase::Completed, |_| panic!("duplicate milestone"))
+                .is_err()
+        );
+        let mut budget = Budget::new();
+        budget.until = Instant::now() - Duration::from_secs(1);
+        let mut progress = QueryProgress::default();
+        assert!(
+            progress
+                .emit(QueryPhase::Before, |label| Trace::Stage
+                    .phase(label, &budget))
+                .is_err()
+        );
+        assert!(progress.refused);
+        assert!(
+            progress
+                .emit(QueryPhase::BeforeSpawn, |_| panic!(
+                    "expired silent reentry"
+                ))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn nested_inventory_then_stage_refusal_keeps_both_first_bits_and_original_error() {
+        let mut frames = Vec::new();
+        let mut inventory = InventoryDiagnostic::default();
+        let original = inventory.result::<()>(InventoryFailure::StatParse, Err(()), |label| {
+            frames.push(label);
+            Ok(())
+        });
+        assert!(
+            crate::manager_actor_service::stage_failure_projection(
+                available(original),
+                &mut frames
+            )
+            .is_err()
+        );
+        assert!(
+            inventory
+                .result::<()>(InventoryFailure::SweepSet, Err(()), |_| panic!(
+                    "inventory relog"
+                ))
+                .is_err()
+        );
+        assert_eq!(
+            frames,
+            [
+                InventoryFailure::StatParse.label(),
+                b"t4_actor_stage_admission_refused\n".as_slice()
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_or_unauthed_canonical_stage_refuses_before_any_backend_and_blocks_halt() {
+        let mut canonical = Canonical::reserve().unwrap();
+        assert!(canonical.begin_stage(Instant::now()).is_err());
+        assert!(canonical.files.is_empty() && canonical.query.is_none());
+        assert!(canonical.begin_authentication(Instant::now()).is_err());
+        assert!(canonical.observe(Instant::now()).is_err());
+        assert!(canonical.stage_origin(Instant::now()).is_err());
+        assert!(canonical.complete_stage(Instant::now()).is_err());
+        assert!(canonical.finish().is_err());
+        assert!(canonical.files.is_empty() && canonical.query.is_none());
+    }
 
     #[test]
     fn authentication_requires_complete_observation_and_one_final_refresh() {
@@ -1665,6 +1963,7 @@ mod tests {
             + b"t4_actor_canonical_stopped_observed\n".len()
             + b"t4_actor_backup_authenticated\n".len();
         assert_eq!(positive_bytes, 3735);
+        assert_eq!(positive_bytes, auth_success_trace_bytes());
         let longest_failure = INVENTORY_FAILURES
             .into_iter()
             .map(|cut| cut.label().len())

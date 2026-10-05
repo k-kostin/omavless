@@ -208,6 +208,36 @@ impl FileIo {
         Ok(Self { ledger })
     }
 
+    pub fn reserve_canonical() -> Self {
+        // Fixed120 already reserves the entire36 lower slots. No17-FD witness
+        // or client count is imported into the canonical admission path.
+        const {
+            assert!(41 + IO_SLOTS <= 120);
+        }
+        Self {
+            ledger: Ledger {
+                slots: std::array::from_fn(|_| None),
+                state: State::Reserved,
+            },
+        }
+    }
+
+    pub fn admit_canonical(
+        &mut self,
+        original: &mut crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical,
+        until: std::time::Instant,
+    ) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            self.revoke();
+            original.revoke();
+            return Err(Unavailable);
+        }
+        self.revoke(); // consumed BEFORE checking the actual original owner
+        original.begin_stage(until)?;
+        self.ledger.state = State::Live;
+        Ok(())
+    }
+
     pub fn admit(
         &mut self,
         original: &mut crate::restore_abort_cli::stopped_owner::actor_capture::Retained,

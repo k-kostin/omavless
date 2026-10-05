@@ -13,6 +13,7 @@ mod retained_io;
 mod stage;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
+pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;
 
 use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical};
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
@@ -238,6 +239,7 @@ pub enum DeveloperScenario {
     StageAuthenticatedBackup,
     CanonicalStopped,
     CanonicalAuthenticate,
+    CanonicalStage,
 }
 
 impl DeveloperScenario {
@@ -248,7 +250,8 @@ impl DeveloperScenario {
             Self::AuthenticateBackup
             | Self::StageAuthenticatedBackup
             | Self::CanonicalStopped
-            | Self::CanonicalAuthenticate => 0,
+            | Self::CanonicalAuthenticate
+            | Self::CanonicalStage => 0,
             _ => 1,
         }
     }
@@ -410,7 +413,9 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     epoch()?;
     let canonical_mode = matches!(
         scenario,
-        DeveloperScenario::CanonicalStopped | DeveloperScenario::CanonicalAuthenticate
+        DeveloperScenario::CanonicalStopped
+            | DeveloperScenario::CanonicalAuthenticate
+            | DeveloperScenario::CanonicalStage
     );
     let nofile = if canonical_mode {
         actor_canonical::NOFILE
@@ -431,6 +436,7 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         DeveloperScenario::AuthenticateBackup
             | DeveloperScenario::StageAuthenticatedBackup
             | DeveloperScenario::CanonicalAuthenticate
+            | DeveloperScenario::CanonicalStage
     ) {
         Some(synthetic_backup(until)?)
     } else {
@@ -567,7 +573,10 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_canonical_stopped_observed\n", until)?;
     }
-    if scenario == DeveloperScenario::CanonicalAuthenticate {
+    if matches!(
+        scenario,
+        DeveloperScenario::CanonicalAuthenticate | DeveloperScenario::CanonicalStage
+    ) {
         emit(b"t4_service_before_backup_transfer\n", until)?;
         exchange_backup(
             stream,
@@ -578,6 +587,18 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         )?;
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_backup_authenticated\n", until)?;
+    }
+    if scenario == DeveloperScenario::CanonicalStage {
+        emit(b"t4_service_before_fixture_stage\n", until)?;
+        exchange(
+            stream,
+            &mut context,
+            Kind::StageAuthenticatedBackup,
+            RequestShape::Exact,
+            until,
+        )?;
+        alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
+        emit(b"t4_service_fixture_stage_recorded\n", until)?;
     }
     if scenario == DeveloperScenario::CapacityFourth {
         // Unexpected fourth completion cannot silently turn a refusal scenario
@@ -681,6 +702,7 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
     let mut context = Context::new(challenge.nonce)?;
     let mut canonical = Canonical::reserve()?; // before READY or any proc/query
     let mut transfer = transfer::Transfer::new()?; // finite private slot BEFORE READY
+    let mut stage = stage::Stage::reserve_canonical(); // all36 lower roles BEFORE READY
     io_frame(
         &mut channel,
         Some(Frame {
@@ -700,6 +722,7 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
             if request.sequence != expected.sequence || request.nonce != expected.nonce {
                 return Err(Unavailable);
             }
+            stage.permit_request(kind)?; // BEFORE every acquisition/normalization match
             let reply = match kind {
                 Kind::ObserveStopped => {
                     canonical.observe(until)?;
@@ -718,7 +741,21 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
                     emit_actor(b"t4_actor_backup_authenticated\n", until)?;
                     Kind::BackupAuthenticated
                 }
+                Kind::StageAuthenticatedBackup => {
+                    emit_actor(stage::SUCCESS_PHASES[0], until)?;
+                    transfer.with_restore_pair(until, |new_store, new_template| {
+                        stage.record_canonical(
+                            [SYNTHETIC_STORE, SYNTHETIC_TEMPLATE, new_store, new_template],
+                            &context.nonce,
+                            &mut canonical,
+                            until,
+                        )
+                    })?;
+                    emit_actor(stage::SUCCESS_PHASES[5], until)?;
+                    Kind::StageRecorded
+                }
                 Kind::Halt => {
+                    stage.finish()?;
                     canonical.finish()?;
                     transfer.finish();
                     Kind::Closed
@@ -748,12 +785,12 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
             Ok(true) => return Ok(()),
             Ok(false) => {}
             Err(_) => {
-                context.revoke();
-                canonical.revoke();
+                canonical_refusal(&mut context, &mut canonical, &mut stage);
                 // Owner and channel remain outside the fallible closure. No
                 // query, read, reply, reap or retry after uncertainty.
                 let _held = canonical;
                 let _private = transfer;
+                let _lower = stage;
                 let _channel = channel;
                 loop {
                     std::thread::park();
@@ -761,6 +798,20 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
             }
         }
     }
+}
+
+fn canonical_refusal(context: &mut Context, canonical: &mut Canonical, stage: &mut stage::Stage) {
+    context.revoke();
+    canonical.revoke();
+    stage.revoke();
+}
+
+#[cfg(test)]
+pub(crate) fn stage_failure_projection(
+    original: Result<(), Unavailable>,
+    frames: &mut Vec<&'static [u8]>,
+) -> Result<(), Unavailable> {
+    stage::test_failure_projection(original, frames)
 }
 
 fn canonical_groups(
@@ -868,7 +919,7 @@ fn actor_operation(
             held.observe(until).map_err(|_| Unavailable)?;
             transfer.receive(channel, until)?;
             held.transaction_fence(until).map_err(|_| Unavailable)?;
-            emit_actor(b"t4_actor_before_fixture_stage\n", until)?;
+            emit_actor(stage::SUCCESS_PHASES[0], until)?;
             transfer.with_restore_pair(until, |new_store, new_template| {
                 stage.record(
                     [SYNTHETIC_STORE, SYNTHETIC_TEMPLATE, new_store, new_template],
@@ -877,7 +928,7 @@ fn actor_operation(
                     until,
                 )
             })?;
-            emit_actor(b"t4_actor_fixture_stage_recorded\n", until)?;
+            emit_actor(stage::SUCCESS_PHASES[5], until)?;
             let reply = Kind::StageRecorded;
             io_frame(
                 channel,
@@ -992,6 +1043,115 @@ fn actor_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_stage_reply_or_output_error_revokes_all_original_owners_before_halt() {
+        for cut in 0..FRAME_BYTES {
+            let mut context = live_context();
+            let mut canonical = Canonical::reserve().unwrap(); // no backend originals
+            let mut stage = stage::Stage::reserve_canonical();
+            let mut memory = Memory {
+                input: reply(Kind::StageRecorded, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            let until = Instant::now() + Duration::from_secs(1);
+            assert!(
+                exchange(
+                    &mut memory,
+                    &mut context,
+                    Kind::StageAuthenticatedBackup,
+                    RequestShape::Exact,
+                    until
+                )
+                .is_err()
+            );
+            canonical_refusal(&mut context, &mut canonical, &mut stage);
+            let bytes = memory.output.len();
+            assert!(context.begin(Kind::Halt).is_err());
+            assert!(canonical.finish().is_err());
+            assert!(stage.finish().is_err());
+            assert!(stage.permit_request(Kind::Halt).is_err());
+            assert_eq!(memory.output.len(), bytes);
+            let mut context = live_context();
+            let pending = context.begin(Kind::StageAuthenticatedBackup).unwrap();
+            let mut output = Memory {
+                input: Vec::new(),
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            assert!(
+                io_frame(
+                    &mut output,
+                    Some(Frame {
+                        kind: Kind::StageRecorded,
+                        sequence: pending.sequence,
+                        nonce: pending.nonce
+                    }),
+                    until
+                )
+                .is_err()
+            );
+            canonical_refusal(&mut context, &mut canonical, &mut stage);
+            assert!(context.begin(Kind::Halt).is_err());
+            assert!(canonical.finish().is_err() && stage.finish().is_err());
+        }
+        assert_eq!(DeveloperScenario::CanonicalStage.observations(), 0);
+        assert!(DeveloperScenario::CanonicalStage.request_shape().is_none());
+    }
+
+    #[test]
+    fn canonical_sequence_stages_only_the_already_private_authenticated_pair() {
+        let mut context = live_context();
+        for (kind, completed, sequence) in [
+            (Kind::ObserveStopped, Kind::StoppedObserved, 1),
+            (Kind::AuthenticateBackup, Kind::BackupAuthenticated, 2),
+            (Kind::StageAuthenticatedBackup, Kind::StageRecorded, 3),
+            (Kind::Halt, Kind::Closed, 4),
+        ] {
+            let mut memory = Memory {
+                input: reply(completed, sequence),
+                output: Vec::new(),
+                position: 0,
+                fail_at: usize::MAX,
+            };
+            let until = Instant::now() + Duration::from_secs(1);
+            if kind == Kind::AuthenticateBackup {
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    b"synthetic archive",
+                    SYNTHETIC_PASSPHRASE,
+                    until,
+                )
+                .unwrap();
+            } else {
+                exchange(&mut memory, &mut context, kind, RequestShape::Exact, until).unwrap();
+                assert_eq!(memory.output.len(), FRAME_BYTES); // no second Stage body/FD
+            }
+            let sent = Frame::decode(&memory.output[..FRAME_BYTES]).unwrap();
+            assert_eq!(
+                (sent.kind, sent.sequence, sent.nonce),
+                (kind, sequence, context.nonce)
+            );
+        }
+        assert_eq!(context.phase, Phase::Closed);
+        assert!(context.begin(Kind::StageAuthenticatedBackup).is_err());
+    }
+
+    #[test]
+    fn canonical_stage_stays_out_of_the_normal_runtime_entry() {
+        let normal = include_str!("main.rs");
+        assert!(!normal.contains("--stage-canonical-synthetic-backup"));
+        assert!(!normal.contains("actor_canonical_entry"));
+        let manifest = include_str!("../Cargo.toml");
+        assert!(manifest.contains("required-features = [\"t4-manager-actor-service\"]"));
+        assert!(include_str!("lib.rs").contains(
+            "#[cfg(feature = \"t4-manager-actor-service\")]\npub mod manager_actor_service;"
+        ));
+    }
     #[test]
     fn canonical_groups_clear_then_verify_before_admission() {
         let calls = std::cell::RefCell::new(Vec::new());
