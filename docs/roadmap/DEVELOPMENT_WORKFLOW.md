@@ -8,6 +8,12 @@ migration, standalone Arch/NixOS packaging and later TUI work.
 `AGENTS.md` is the mandatory entry point. Backend/runtime/protocol/TUI work must
 also read `RUST_MIGRATION.md`.
 
+For development iteration and diagnosis, follow the owner-approved
+[execution policy](../development/EXECUTION_POLICY.md). It replaces blanket
+procedural re-review/diagnostic refusal for new work with explicit risk classes;
+it does not change historical evidence or grant permission to retry uncertain
+effects, merge main or publish a release.
+
 ## 1. One long-lived branch
 
 `main` is the only long-lived development source of truth.
@@ -73,27 +79,19 @@ allowed.
 
 ### Agreed documentation-only updates
 
-Owner-approved rule, 2026-09-17: a request to record or clarify agreed project
-decisions in documentation includes authorization to merge that documentation
-into `main` after verification. Do not ask for a second merge confirmation or
-leave the completed update in Draft merely because a temporary branch was used.
-`main` remains the canonical home for the current roadmap and project guidance.
+Owner-approved replacement, 2026-09-22, retained by the October 5 process
+decision: the September 17 standing documentation merge authorization is
+revoked. Preparing, checking and pushing agreed documentation does not authorize
+updating main. Main merges, including documentation-only changes, require an
+explicit owner main-update instruction. Keep the exact decision visible in its
+reviewed PR/issue until authorized integration. Release/tag/assets and
+marketplace actions retain their separate applicable authorization.
 
-Use a narrow branch/PR for the diff, checks and history. Verify documentation
-links/discovery, affected tooling and the final diff; require the normal CI on
-the exact final head and resolve any blocking review feedback. Then mark the PR
-ready, merge it, verify the result on remote `main` and clean up its source
-branch. Do not bypass checks or branch protection. Report a concrete blocker
-when this cannot complete.
-
-This standing authorization covers only documentation within the owner's
-agreed scope, including requested roadmap and guide clarifications. It does
-not cover executable code/configuration, CI, dependency or packaging changes,
-release/marketplace publication, or unapproved changes to product priorities,
-security/acceptance policy or runtime ownership. A Markdown extension alone
-does not establish authorization: unresolved decisions and mixed changes keep
-their applicable review/owner gates. An explicit request for a proposal,
-read-only work or no merge overrides this default.
+Use a narrow `dev/docs/*` PR; verify links/discovery, affected tooling and the
+final diff, and obtain normal exact-head CI. Checked work may be ready without
+being merged. A documentation change cannot silently change a product security
+guarantee; state the approved contract delta and its remaining implementation
+and acceptance gates. Do not bypass branch protection or claim unrun behavior.
 
 ### Branch cleanup lifecycle
 

@@ -8,6 +8,8 @@ not replaced by this short entry point.
 1. Fetch/prune remote metadata; compare main, current branch, open PRs and local
    changes. Preserve other agents' work; one branch has one active writer.
 2. Read the [detailed agent guide](docs/development/AGENT_GUIDE.md) completely.
+   Also read the durable [execution policy](docs/development/EXECUTION_POLICY.md)
+   for failure classification, risk-based review and agent/VM coordination.
 3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
    [current status](docs/roadmap/CURRENT_STATUS.md),
    [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and
@@ -31,8 +33,9 @@ not replaced by this short entry point.
   `rc/<version>`. No permanent develop/rc lane or direct implementation on main.
 - Merge and release/marketplace publication need their own applicable owner
   authorization; a green test or a cleanup task is not that authorization.
-  For agreed documentation-only updates, the owner grants standing merge
-  authorization under the [documentation merge rule](docs/roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
+  Documentation-only updates also require explicit main-update authorization;
+  the former standing permission is revoked under the
+  [documentation merge rule](docs/roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
 - README is a product page, not an agent diary. Follow the
   [documentation and retention policy](docs/development/README.md). Preserve
   useful roadmaps, contracts and evidence; keep disposable session files outside Git.

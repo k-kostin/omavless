@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
+  'docs/development/EXECUTION_POLICY.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md'];
 let links = 0;
 for (const file of files) {
@@ -22,6 +23,7 @@ for (const file of files) {
 const entry = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
 assert(entry.split('\n').length <= 80, 'root AGENTS must remain a concise entry point');
 for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md',
+  'docs/development/EXECUTION_POLICY.md',
   'docs/roadmap/CURRENT_STATUS.md', 'docs/roadmap/DEVELOPMENT_WORKFLOW.md',
   'docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md', 'docs/roadmap/RUST_MIGRATION.md',
   'skills/omavless-ui-review/SKILL.md', 'skills/omavless-localization/SKILL.md']) {

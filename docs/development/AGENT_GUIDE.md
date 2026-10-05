@@ -25,6 +25,13 @@ GitHub is the source of truth. Do not rely on private chat history, an earlier
 agent handoff or a stale checkout as the only record of a decision, test result,
 policy or useful implementation.
 
+Read the durable [execution policy](EXECUTION_POLICY.md) before development or
+diagnostic work. It distinguishes build/test failures from uncertain effects,
+requires risk-proportionate review and defines agent/VM coordination. Its scoped
+T4 service alternative does not retroactively accept legacy receiver research.
+Preserve historical outcomes and old sealed experiments; prepare an explicitly
+reviewed successor when executable behavior or fault guarantees must change.
+
 ## Selected implementation direction
 
 Rust is the selected long-term implementation language for the standalone
@@ -204,10 +211,12 @@ the change.
 - Push the first meaningful checkpoint and open a Draft PR early enough to make
   active scope visible. Do not create empty commits or ceremonial PRs merely to
   reserve a name.
-- Complete agreed documentation-only updates through `main` after their checks,
-  under the owner's [standing documentation merge authorization](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
-  A temporary branch/PR is a review step, not a separate home for the roadmap;
-  do not leave finished agreed documentation in Draft awaiting redundant approval.
+- Prepare agreed documentation-only updates in reviewed `dev/docs/*` PRs;
+  explicit main-update permission is still required. The former standing
+  authorization is revoked by the
+  [documentation merge rule](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
+  Keep current decisions discoverable in issues/PRs until their authorized
+  inclusion in the release snapshot; readiness is not publication permission.
 - Fetch again before rebasing, force-pushing, retargeting or merging. If the
   remote head changed unexpectedly, stop and reconcile its commits before
   writing. Use `--force-with-lease` only against the exact observed remote head;
