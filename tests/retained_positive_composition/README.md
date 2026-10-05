@@ -167,9 +167,26 @@ does not claim syscall cancellation, arbitrary descendant absence or atomic
 reload serialization. Eighteen inert controls use mocked sockets/threads only,
 including exact reply order, late/short/alias/throwing writes, lost originals,
 late acceptance, byte/peer caps and no-positive-close counterexamples.
-The pinned upstream core Unix listener currently chooses0666; the strict0600
-Controller admission is NOT loosened. A separately reviewed fixed-original
-fresh-socket permission bootstrap remains required before actual invocation.
+The pinned upstream core Unix listener chooses0666; the strict0600 Controller
+admission is NOT loosened. `bootstrap.py` is a fresh-fixture-only original-inode
+permission bootstrap before Controller construction. Concrete inner PID1/root
+Session/core/image, actual kernel executable and live anchor, fixed0700
+UID1000 parent, single-link UID1000 original socket with exact0666 and held own
+`/proc/1/fd` directory must pass before ONE chmod to0600 through the original
+O_PATH inode's kernel alias. Original/named/alias identities and actual core
+repeat afterward; ABA replacement, late/throwing chmod or any first uncertainty
+seals permanently with no retry/query/failure close. Normal Controller still
+independently repeats0600 original-object admission and SO_PEERCRED before every
+write. Eight inert controls cover ownership/modes/links, parent-before-open,
+ABA before/after, original kernel alias, typed finite clock, late FD retention
+and late mutation/no-followup. Two explicitly authorized HOST synthetic tests
+use only temporary owned unconnected Unix sockets to demonstrate Linux's
+O_PATH alias chmod and non-redirection after rename/replacement. Those tests
+clean only their own temporary resources and do NOT invoke candidate code,
+namespace, core, VM or this bootstrap. This follows the
+[exact pinned upstream Unix listener](https://raw.githubusercontent.com/MetaCubeX/mihomo/ab405bad5beeeac8b003bb01f60f134f6df54471/hub/route/server.go)
+and [Linux proc FD documentation](https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html).
+No permission/path IPC, production socket repair or artifact change is added.
 
 The leaf's original eight-second deadline starts at constructor entry and is
 never reset by the Case's later five-second positive-finish budget; BOTH fences

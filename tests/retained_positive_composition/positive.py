@@ -97,11 +97,12 @@ def guarded(method):
 
 class Case:
     def __init__(self, owner, ownership, base, copies, copy_module, artifacts, artifact_module,
-                 image_module, controller_module, helper_module, stream_module):
+                 image_module, controller_module, helper_module, stream_module, bootstrap_module):
         self.owner, self.ownership, self.base = owner, ownership, base
         self.copies, self.artifacts = copies, artifacts
         self.image_module, self.controller_module, self.helper_module, self.stream_module = (
             image_module,controller_module,helper_module,stream_module)
+        self.bootstrap_module = bootstrap_module
         self.children, self.initial, self.final, self.logs, self.stops = {}, {}, {}, {}, {}
         self.sealed = True
         try:
@@ -298,7 +299,11 @@ class Case:
                 ['-d','/home/core','-f','/home/core/config.yaml']))
             self.wait_snapshot(helper,'active')
             self.owner.perform(self.base.verify_child,core,1000,self.base.CAP)
-            control = self.controller_module.Controller(self.owner,core,self.ownership)
+            bootstrap = self.call(self.owner.local_deadline(5),self.bootstrap_module.Bootstrap,
+                self.owner,self.ownership,self.images,self.image_module)
+            socket_bootstrap = self.call(self.owner.local_deadline(5),bootstrap.receipt)
+            control = self.call(self.owner.local_deadline(5),self.controller_module.Controller,
+                self.owner,core,self.ownership)
             control.ready();self.owner.native_ready('core');self.mapped('core')
             streams = self.stream_module.Streams(self.owner,self.ownership,self.images,self.image_module,
                                                 control,self.controller_module)
@@ -325,6 +330,7 @@ class Case:
             self.available()
             return {'case':'success','initial':self.initial,'final':self.final,'copies':self.copies.records,
                 'stream_witness':stream_witness,'stream_positive_finish':stream_finish,
+                'fresh_socket_bootstrap':socket_bootstrap,
                 'shutdown':self.stops,'inner_owned_zero':complete,
                 'monitor_final_sha256':hashlib.sha256(json.dumps(final,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
                 'actual_core_broker_and_helper_original_loaded_bound':True,

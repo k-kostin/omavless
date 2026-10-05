@@ -56,7 +56,7 @@ class Controls(unittest.TestCase):
              patch.object(p.os,'getegid',return_value=0):
             value=p.Case(owner,SimpleNamespace(Session=Session),base,copies,SimpleNamespace(Bridge=Bridge),
                          artifacts,SimpleNamespace(Sources=Artifacts),SimpleNamespace(Images=Images),
-                         SimpleNamespace(),SimpleNamespace(),SimpleNamespace())
+                         SimpleNamespace(),SimpleNamespace(),SimpleNamespace(),SimpleNamespace())
         return value,clock
 
     def test_constructor_requires_concrete_inner_isolated_session_before_image(self):
@@ -65,7 +65,7 @@ class Controls(unittest.TestCase):
         with self.assertRaises(p.Refused):
             p.Case(owner,SimpleNamespace(Session=Session),SimpleNamespace(),SimpleNamespace(),
                    SimpleNamespace(Bridge=Bridge),SimpleNamespace(),SimpleNamespace(Sources=Artifacts),
-                   images,SimpleNamespace(),SimpleNamespace(),SimpleNamespace())
+                   images,SimpleNamespace(),SimpleNamespace(),SimpleNamespace(),SimpleNamespace())
         self.assertTrue(owner.sealed);images.Images.assert_not_called()
 
     def test_five_second_late_spawn_retains_owner_child_but_never_anchors(self):
