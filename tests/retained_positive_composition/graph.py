@@ -13,12 +13,12 @@ import stat
 import time
 import types
 
-STAGE = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-1'
+STAGE = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-2'
 PINS = {
-    'lifecycle.py': 'bef702d4d0d215427c69e8505d8844f3c4a9e18cd6f14cff01947315518ce21d',
+    'lifecycle.py': 'a394a612a09250f246ebe2da260a5eb3e4e3efec00efb7f193235ccdf46be22d',
     'native_copy.py': '87c2c7fb9267b6f8aad34f93d184ad2b492158e54926c964cadbab41f3d03b74',
     'artifacts.py': '6ae8a1293afcf7a3385f19a0451af8f96016d358f357796208344d74da7ffd4e',
-    'images.py': 'd1e6fabdfe0487485c6b130490bf11c6519684ef553c98d99b09e95cbc1095f1',
+    'images.py': '3542dff2c68f057c42d41333e62aa2f6a281dcc7ceaa5c96d12512f07152a394',
     'controller.py': 'ffc849e9554e9cdf3f3e9fc2a9b5d60066c72d56ca634275b2c33e2f87673a8a',
     'helper.py': 'f369f888d64aeb3c8d9fd2e57354d8185547aeed21e19c86ef6f91c0bddaebc4',
     'positive.py': '74a2f2d20bc418a10bc0b21eadfb3e6304b77725cd3ed85ae935122679ee8f44',

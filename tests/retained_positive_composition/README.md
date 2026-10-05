@@ -445,7 +445,50 @@ existing skips) and all JS/QML contracts under both Python3.14 and3.12.13, plus
 diff whitespace checks; these remain source-only results.
 The initial developer run's stale phase-budget assertion remains a recorded
 source-test failure, corrected in the new source; it was not a native scope.
-Fresh whole source/capsule reviews and exact-head cloud gates remain pending.
+The frozen19e854 source was staged only by ROOT in the fresh retained-native
+tmpfs review-1 scope. All24 staging actions returned zero. Its sole whole run
+`d9e044/session28947` ended at `9a373e` with exit2: NONPASS and permanent STOP;
+no query, retry, signal/reap, archive or cleanup is authorized. The separately
+reviewed fixed-file observer `269f1c0` and safe projection `c80a6f` reported227
+exact literal frames (83 Bridge,144 Session), last
+`before_core_first_images`, no opaque tail, empty inner record, absent outer
+record and no completion marker. All source/native pins matched. This is a
+narrow file observation, not actual cause, effect, preservation or whole PASS.
+
+### Fresh initial-core source diagnostic proposal
+
+The source-only successor targets unused retained-native-tmpfs review-2. It
+adds one fixed initial-core latch, independent of bus/host; no final, repeated,
+broker or resolved inventory emits these observations. Core now uses the same
+eleven paired inventory substeps and at most eight first-instance anonymous
+categories per parse already used by bus/host. Exactly one presence and one
+identity-equality category precede the unchanged required-member predicate.
+The addition is at most40 attempted frames (22 paired +16 categories +2 Boolean
+observations); rejecting categories cannot all complete. No raw maps, path,
+exception or value is emitted. No diagnostic grants an effect permit.
+
+The conservative complete path is116 existing role/launcher labels +114
+one-shot parser/substep labels +4 host/core Boolean observations =234 attempts.
+The vocabulary has238 labels because presence/equality alternatives are
+disjoint. Session cap235 and independent Bridge cap128 give lexical cap363,
+not authority. All pre/post observations retain the same caller5-second and
+Session65-second caps. Mapping grammar, executable identity, whole-batch
+device/inode equality, retained tmpfs ownership, target hash admission and
+normal known-zero settlement are unchanged. Graph membership remains14 pinned
+sources and20 total entries including fixed extras; all four native source
+pins remain unchanged. Fresh whole source/capsule review and exact-head cloud
+gates precede any ROOT-only future selection; none is implied here.
+
+Source-only controls now extend each positive, rejecting, unknown-class,
+one-shot, independent-latch and late-emission case to core. A real Session
+regression admits exactly the closed core labels under the unchanged local
+5-second cap and refuses a repeat without another write; it uses an inert
+OwnedProcess shell and never calls Popen initialization. Focused controls pass
+44 image,27 lifecycle,17 launcher and13 graph tests. Full Python3.14 and3.12.13
+gates each pass1153 tests (two existing skips), all JS/QML contracts and diff
+whitespace checks. Initial isolated unittest file-name selectors failed at
+module import before controls ran; the corrected discover selections pass.
+These are source/mock results, not a native acceptance or authorization.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

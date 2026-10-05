@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-1/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-2/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_native_copy','after_native_copy',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
@@ -39,7 +39,8 @@ PHASES |= frozenset(side+'_'+role+'_'+step for role in ROLES
 INVENTORY_STEPS = ('executable','first_text','first_parse','required_members',
     'whole_membership','targets','second_text','second_parse','maps_equal',
     'final_executable','final_live')
-INVENTORY_ROLES = ('bus','host')
+INVENTORY_ROLES = ('bus','host','core')
+REQUIRED_ROLES = ('host','core')
 ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
     'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
 REQUIRED_CLASSES = ('present','absent','identity_equal','identity_different')
@@ -47,15 +48,15 @@ PHASES |= frozenset(side+'_'+role+'_initial_inventory_'+step for role in INVENTO
                    for side in ('before','after'))
 PHASES |= frozenset('before_'+role+'_initial_inventory_'+step+'_'+category for role in INVENTORY_ROLES
                    for step in ('first_parse','second_parse') for category in ANONYMOUS_CLASSES)
-PHASES |= frozenset('before_host_initial_inventory_required_members_'+category
-                   for category in REQUIRED_CLASSES)
-# 116 role/launcher labels + two one-shot inventories each with 22 paired
+PHASES |= frozenset('before_'+role+'_initial_inventory_required_members_'+category
+                   for role in REQUIRED_ROLES for category in REQUIRED_CLASSES)
+# 116 role/launcher labels + three one-shot inventories each with 22 paired
 # labels and at most16 first-instance classes across two parses + exactly two
-# host required-member categories =194 attempts (196 distinct vocabulary).
+# required-member categories per host/core =234 attempts (238 vocabulary).
 # Some rejecting
 # classes cannot complete; this conservative complete-path bound includes all.
-# Bridge's independent cap remains128; combined lexical cap323, not authority.
-PHASE_LIMIT = 195
+# Bridge's independent cap remains128; combined lexical cap363, not authority.
+PHASE_LIMIT = 235
 
 
 class Refused(RuntimeError):

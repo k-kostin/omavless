@@ -19,7 +19,8 @@ PUBLIC = re.compile(r'(?:/usr/(?:lib|bin)/[A-Za-z0-9_./+:-]+|/artifacts/(?:mihom
 MAP_LINE = re.compile(r'([0-9a-f]{1,16})-([0-9a-f]{1,16}) ([r-][w-][x-][ps]) ([0-9a-f]{1,16}) ([0-9a-f]{1,8}):([0-9a-f]{1,8}) ([0-9]{1,20})(?:[ \t]+([^\r\n]+)| )?')
 ROLES = {'bus':'/usr/bin/dbus-daemon','resolved':'/usr/lib/systemd/systemd-resolved',
          'core':'/artifacts/mihomo','broker':'/artifacts/omavless-dns-broker','host':'/artifacts/host-fixture'}
-INVENTORY_ROLES = ('bus','host')
+INVENTORY_ROLES = ('bus','host','core')
+REQUIRED_ROLES = ('host','core')
 # Go's Linux runtime places a five-byte " Go: " prefix in a 79-byte
 # NUL-terminated VMA name. Only zero-identity anonymous rows may use this
 # bounded annotation; it is discarded, never an eligible file/object path.
@@ -103,6 +104,7 @@ class Images:
         self.executables = {}
         self.initial_bus_observed = False
         self.initial_host_observed = False
+        self.initial_core_observed = False
         try:
             require(type(owner) is ownership.Session and owner.kind == 'inner'
                     and type(copies) is copy_module.Bridge and type(artifacts) is artifact_module.Sources)
@@ -246,10 +248,13 @@ class Images:
                 if name == 'bus':
                     require(self.initial_bus_observed is False)
                     self.initial_bus_observed = True
-                else:
+                elif name == 'host':
                     require(self.initial_host_observed is False)
                     self.initial_host_observed = True
-                # Separate fixed role latches; neither diagnostic can replay.
+                else:
+                    require(name == 'core' and self.initial_core_observed is False)
+                    self.initial_core_observed = True
+                # Separate fixed role latches; no role diagnostic can replay.
             def mark(side, step):
                 if observed:
                     self.available(deadline)
@@ -274,7 +279,7 @@ class Images:
             mark('after','first_parse')
             self.available(deadline)
             mark('before','required_members')
-            if observed and name == 'host':
+            if observed and name in REQUIRED_ROLES:
                 self.available(deadline)
                 # Exactly two fixed Boolean observations, on this one attempt.
                 # Neither category authorizes a later effect or explains absence.
@@ -283,7 +288,7 @@ class Images:
                 for label in (presence, equality):
                     self.available(deadline)
                     require(label in REQUIRED_CLASSES)
-                    self.owner.phase('before_host_initial_inventory_required_members_'+label, deadline)
+                    self.owner.phase('before_'+name+'_initial_inventory_required_members_'+label, deadline)
                     self.available(deadline)
             require(first.get(ROLES[name]) == executable)
             if name in ('bus','resolved'):

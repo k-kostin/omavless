@@ -358,7 +358,7 @@ class Controls(unittest.TestCase):
                            '[anon: glibc: loader malloc]'):
             with self.assertRaises(i.Refused):i.map_objects(original+'5000-6000 rw-p 0 00:00 0 '+annotation+'\n')
 
-    def test_initial_bus_and_host_exact_substeps_and_accepted_classes_once_per_parse(self):
+    def test_initial_bus_host_and_core_exact_substeps_and_accepted_classes_once_per_parse(self):
         for role in i.INVENTORY_ROLES:
             value,child=self.fixture(role)
             rows=['','[heap]','[anon: Go: heap]','[heap]','[anon: Go: heap]']
@@ -373,13 +373,13 @@ class Controls(unittest.TestCase):
                 if step in ('first_parse','second_parse'):
                     expected.extend(f'before_{role}_initial_inventory_'+step+'_'+category
                                     for category in ('unnamed','plain_bracket','go'))
-                if role=='host' and step=='required_members':
-                    expected.extend('before_host_initial_inventory_required_members_'+category
+                if role in i.REQUIRED_ROLES and step=='required_members':
+                    expected.extend(f'before_{role}_initial_inventory_required_members_'+category
                                     for category in ('present','identity_equal'))
                 expected.append(f'after_{role}_initial_inventory_'+step)
             self.assertEqual(value.owner.phase.call_args_list,
                              [unittest.mock.call(label,5.0) for label in expected])
-            self.assertEqual(len(expected),28+2*int(role=='host'))
+            self.assertEqual(len(expected),28+2*int(role in i.REQUIRED_ROLES))
             self.assertEqual({row['path'] for row in result},set(i.map_objects(self.maps(value,role))))
             self.assertTrue(getattr(value,'initial_'+role+'_observed'));self.assertFalse(value.sealed)
 
@@ -417,15 +417,15 @@ class Controls(unittest.TestCase):
                              (f'before_{role}_initial_inventory_first_parse',5.0))
             value.copies._verify_target.assert_not_called();self.sealed(value)
 
-    def test_only_single_initial_bus_or_host_inventory_can_emit_diagnostics(self):
-        for role,context in (('core','initial_core'),('resolved','initial_resolved'),
+    def test_only_single_initial_bus_host_or_core_inventory_can_emit_diagnostics(self):
+        for role,context in (('core',None),('core','final_core'),('resolved','initial_resolved'),
                              ('broker','initial_broker'),('bus',None),('bus','final_bus'),
                              ('host',None),('host','final_host')):
             value,child=self.fixture(role)
             with patch.object(value,'text',return_value=self.maps(value,role)):
                 value.inventory(child,5.0,context)
             value.owner.phase.assert_not_called()
-            self.assertFalse(value.initial_bus_observed or value.initial_host_observed)
+            self.assertFalse(value.initial_bus_observed or value.initial_host_observed or value.initial_core_observed)
         for role in i.INVENTORY_ROLES:
             value,child=self.fixture(role)
             with patch.object(value,'text',return_value=self.maps(value,role)) as read:
@@ -435,9 +435,10 @@ class Controls(unittest.TestCase):
             self.assertEqual(read.call_count,2);self.assertEqual(value.owner.phase.call_count,count)
             self.sealed(value)
 
-    def test_bus_and_host_latches_are_independent_in_same_retained_images(self):
-        value,bus=self.fixture('bus');host=Child()
-        value.owner.children.append(host);value.owner.anchors['host']={'child':host,'proc_fd':72}
+    def test_bus_host_and_core_latches_are_independent_in_same_retained_images(self):
+        value,bus=self.fixture('bus');host=Child();core=Child()
+        value.owner.children.extend((host,core))
+        value.owner.anchors.update(host={'child':host,'proc_fd':72},core={'child':core,'proc_fd':73})
         with patch.object(value,'text',return_value=self.maps(value,'bus')):
             value.inventory(bus,5.0,'initial_bus')
         self.assertTrue(value.initial_bus_observed);self.assertFalse(value.initial_host_observed)
@@ -445,16 +446,20 @@ class Controls(unittest.TestCase):
         with patch.object(value,'text',return_value=self.maps(value,'host')):
             value.inventory(host,5.0,'initial_host')
         self.assertTrue(value.initial_bus_observed and value.initial_host_observed)
-        self.assertEqual(value.owner.phase.call_count,46);self.assertFalse(value.sealed)
+        self.assertFalse(value.initial_core_observed)
+        with patch.object(value,'text',return_value=self.maps(value,'core')):
+            value.inventory(core,5.0,'initial_core')
+        self.assertTrue(value.initial_core_observed)
+        self.assertEqual(value.owner.phase.call_count,70);self.assertFalse(value.sealed)
 
     def test_wrong_role_or_unknown_context_refuses_before_diagnostics_and_maps(self):
         for role,context in (('host','initial_bus'),('bus','initial_host'),
-                             ('core','initial_host'),('host','initial_private')):
+                             ('core','initial_host'),('host','initial_core'),('bus','initial_core'),('host','initial_private')):
             value,child=self.fixture(role)
             with patch.object(value,'text') as read:
                 with self.assertRaises(i.Refused):value.inventory(child,5.0,context)
             read.assert_not_called();value.owner.phase.assert_not_called()
-            self.assertFalse(value.initial_bus_observed or value.initial_host_observed)
+            self.assertFalse(value.initial_bus_observed or value.initial_host_observed or value.initial_core_observed)
             self.sealed(value)
 
     def test_each_substep_or_class_label_failure_has_no_next_label_or_target(self):
@@ -465,8 +470,8 @@ class Controls(unittest.TestCase):
                 labels.append(f'before_{role}_initial_inventory_'+step)
                 if step in ('first_parse','second_parse'):
                     labels.append(f'before_{role}_initial_inventory_'+step+'_plain_bracket')
-                if role=='host' and step=='required_members':
-                    labels.extend('before_host_initial_inventory_required_members_'+category
+                if role in i.REQUIRED_ROLES and step=='required_members':
+                    labels.extend(f'before_{role}_initial_inventory_required_members_'+category
                                   for category in ('present','identity_equal'))
                 labels.append(f'after_{role}_initial_inventory_'+step)
             for index,label in enumerate(labels):
@@ -504,9 +509,11 @@ class Controls(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('budget_owner',SOURCE.with_name('lifecycle.py'))
         owner=importlib.util.module_from_spec(spec);spec.loader.exec_module(owner)
         self.assertEqual(i.INVENTORY_ROLES,owner.INVENTORY_ROLES)
-        self.assertEqual(i.INVENTORY_ROLES,('bus','host'))
+        self.assertEqual(i.INVENTORY_ROLES,('bus','host','core'))
         self.assertEqual(i.INVENTORY_STEPS,owner.INVENTORY_STEPS)
         self.assertEqual(i.ANONYMOUS_CLASSES,owner.ANONYMOUS_CLASSES)
+        self.assertEqual(i.REQUIRED_ROLES,owner.REQUIRED_ROLES)
+        self.assertEqual(i.REQUIRED_ROLES,('host','core'))
         self.assertEqual(i.REQUIRED_CLASSES,owner.REQUIRED_CLASSES)
         self.assertEqual(i.REQUIRED_CLASSES,('present','absent','identity_equal','identity_different'))
         self.assertEqual((len(i.INVENTORY_STEPS),len(i.ANONYMOUS_CLASSES)),(11,8))
@@ -514,8 +521,9 @@ class Controls(unittest.TestCase):
                 for side in ('before','after')}
         labels|={'before_'+role+'_initial_inventory_'+step+'_'+category for role in i.INVENTORY_ROLES
                  for step in ('first_parse','second_parse') for category in i.ANONYMOUS_CLASSES}
-        labels|={'before_host_initial_inventory_required_members_'+category for category in i.REQUIRED_CLASSES}
-        self.assertEqual(len(labels),80);self.assertLessEqual(labels,owner.PHASES)
+        labels|={'before_'+role+'_initial_inventory_required_members_'+category
+                 for role in i.REQUIRED_ROLES for category in i.REQUIRED_CLASSES}
+        self.assertEqual(len(labels),122);self.assertLessEqual(labels,owner.PHASES)
         self.assertTrue(all(len(('T3_RETAINED_PHASE_V1 '+label+'\n').encode('ascii'))<=128 for label in labels))
         tree=ast.parse(SOURCE.read_text())
         inventory=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='inventory')
@@ -523,39 +531,65 @@ class Controls(unittest.TestCase):
                if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='mark']
         self.assertEqual(set(marks),{(side,step) for step in i.INVENTORY_STEPS for side in ('before','after')})
         self.assertEqual(len(marks),22)
-        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2,owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(194,195,323))
+        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2*len(i.REQUIRED_ROLES),owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(234,235,363))
 
-    def test_host_required_member_categories_preserve_exact_predicate_and_no_target_on_refusal(self):
-        for variant,classes in (('equal',('present','identity_equal')),
-                                ('missing',('absent','identity_different')),
-                                ('different',('present','identity_different'))):
-            value,child=self.fixture('host')
-            first=i.map_objects(self.maps(value,'host'))
-            if variant=='missing':del first[i.ROLES['host']]
-            elif variant=='different':first[i.ROLES['host']]=(31,91)
-            with patch.object(value,'text',return_value='synthetic'),patch.object(i,'map_objects',return_value=first):
-                if variant=='equal':value.inventory(child,5.0,'initial_host')
-                else:
-                    with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_host')
-            observed=[call.args[0] for call in value.owner.phase.call_args_list
-                      if call.args[0].startswith('before_host_initial_inventory_required_members_')]
-            self.assertEqual(observed,['before_host_initial_inventory_required_members_'+c for c in classes])
-            if variant!='equal':
-                value.copies._verify_target.assert_not_called();value.artifacts.mapped_identity.assert_not_called()
-                self.sealed(value)
+    def test_native_required_member_categories_preserve_exact_predicate_and_no_target_on_refusal(self):
+        for role in i.REQUIRED_ROLES:
+            for variant,classes in (('equal',('present','identity_equal')),
+                                    ('missing',('absent','identity_different')),
+                                    ('different',('present','identity_different'))):
+                value,child=self.fixture(role)
+                first=i.map_objects(self.maps(value,role))
+                if variant=='missing':del first[i.ROLES[role]]
+                elif variant=='different':first[i.ROLES[role]]=(31,91)
+                with patch.object(value,'text',return_value='synthetic'),patch.object(i,'map_objects',return_value=first):
+                    if variant=='equal':value.inventory(child,5.0,'initial_'+role)
+                    else:
+                        with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_'+role)
+                observed=[call.args[0] for call in value.owner.phase.call_args_list
+                          if call.args[0].startswith('before_'+role+'_initial_inventory_required_members_')]
+                self.assertEqual(observed,['before_'+role+'_initial_inventory_required_members_'+c for c in classes])
+                if variant!='equal':
+                    value.copies._verify_target.assert_not_called();value.artifacts.mapped_identity.assert_not_called()
+                    self.sealed(value)
 
-    def test_each_host_required_category_late_return_stops_before_next_category_or_target(self):
-        for category in ('present','identity_equal'):
-            value,child=self.fixture('host');now=[0.0]
-            label='before_host_initial_inventory_required_members_'+category
-            def phase(current,deadline):
-                if current==label:now[0]=5.0
-            value.owner.phase.side_effect=phase
-            with patch.object(i.time,'monotonic',side_effect=lambda:now[0]), \
-                 patch.object(value,'text',return_value=self.maps(value,'host')):
-                with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_host')
-            self.assertEqual(value.owner.phase.call_args.args,(label,5.0))
-            value.artifacts.mapped_identity.assert_not_called();self.sealed(value)
+    def test_initial_core_labels_use_real_session_closed_phase_and_shared_deadline(self):
+        spec=importlib.util.spec_from_file_location('core_real_owner',SOURCE.with_name('lifecycle.py'))
+        owner_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(owner_module)
+        old,_=self.fixture('core')
+        owner=owner_module.Session('inner');owner.deadline=65.0;owner.live=Mock()
+        # Allocate a typed inert shell only: Popen.__init__ is never called.
+        child=object.__new__(owner_module.OwnedProcess)
+        owner.children=[child];owner.anchors={'core':{'child':child,'proc_fd':71}}
+        value=i.Images(owner,owner_module,old.copies,SimpleNamespace(Bridge=Bridge),
+                       old.artifacts,SimpleNamespace(Sources=Artifacts,TABLE=old.artifacts.files))
+        value.executable=Mock(return_value=(31,90));self.values.append(value)
+        with patch.object(value,'text',return_value=self.maps(value,'core')), \
+             patch.object(owner_module.os,'write',side_effect=lambda fd,raw:len(raw)) as emitted:
+            value.inventory(child,owner.local_deadline(5),'initial_core')
+            self.assertEqual(owner.phase_count,24)
+            self.assertEqual(emitted.call_count,24)
+            self.assertTrue(all(call.args[0]==2 and call.args[1].decode('ascii').split()[1]
+                                in owner_module.PHASES for call in emitted.call_args_list))
+            self.assertEqual(emitted.call_args.args[1],
+                             b'T3_RETAINED_PHASE_V1 after_core_initial_inventory_final_live\n')
+            with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_core')
+            self.assertEqual(emitted.call_count,24)
+        self.sealed(value)
+
+    def test_each_native_required_category_late_return_stops_before_next_category_or_target(self):
+        for role in i.REQUIRED_ROLES:
+            for category in ('present','identity_equal'):
+                value,child=self.fixture(role);now=[0.0]
+                label='before_'+role+'_initial_inventory_required_members_'+category
+                def phase(current,deadline):
+                    if current==label:now[0]=5.0
+                value.owner.phase.side_effect=phase
+                with patch.object(i.time,'monotonic',side_effect=lambda:now[0]), \
+                     patch.object(value,'text',return_value=self.maps(value,role)):
+                    with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_'+role)
+                self.assertEqual(value.owner.phase.call_args.args,(label,5.0))
+                value.artifacts.mapped_identity.assert_not_called();self.sealed(value)
 
     def test_actual_kernel_exe_original_fd_identity_before_any_maps_hash(self):
         for role in i.ROLES:

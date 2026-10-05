@@ -63,7 +63,7 @@ class Controls(unittest.TestCase):
     def test_unknown_phase_wrong_scope_or_bad_counter_seals_before_output(self):
         for kind,label,count in (('outer','before_copy_prepare',0),('inner','private/value',0),
                 ('inner',True,0),('inner','before_copy_prepare',True),
-                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',195)):
+                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',235)):
             session=l.Session(kind);session.phase_count=count
             with patch.object(l.os,'write') as write:
                 with self.assertRaises(l.Refused):session.phase(label)
