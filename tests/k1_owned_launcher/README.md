@@ -1,6 +1,7 @@
 # Isolated actual-creator/owned-child implementation checkpoint
 
-Review-only source, not ready for execution or VM delivery. Nothing here is an
+Review-only source; the exact scoped stage5 witness below is now complete.
+It is not general execution or VM delivery authorization. Nothing here is an
 installed package or a production constructor. No Cargo dependency or source
 under the product crates is changed. The existing #651 local pair, stopped v1,
 stopped v2, successful scoped v3 local pair and native e648 input remain separate.
@@ -363,3 +364,30 @@ path. This adapter-only source permits root0555/0755 while keeping `/run` and
 publication exact0755, with all original ownership/xattr/hash checks retained.
 No normal product policy changes. New parent compilation, freeze, publication
 and one open/finish invocation remain separate unselected review gates.
+
+## Exact stage5 no-policy witness
+
+The preceding proposal status is historical. ROOT completed the separately
+reviewed fresh stage5 graph with known zero: 17 inert controller controls
+(`cdcb970`), transfer (`4445a50`), root copy (`41174c0`), publication (`d8087e0`)
+and one static-parent no-policy invocation (`c24da20`). Native source is exactly
+`8e902d664c8922bb7c897f6d7c4c135a8fd22e42`. The separately frozen parent is
+1,542,368 bytes, SHA-256
+`e102070994735275bbe1ebb6494a6db8c88f0b39262e3460602ac2d77590540d`;
+the unchanged child is 1,475,200 bytes, SHA-256
+`7838d1c3b1b26fa247d0bb16608153f576477c442817f8e1528f6f9c85fe6311`.
+Full parent and independent graph review preceded selection.
+
+This proves only the fixed original launch, READY, retained creator/socket/
+namespace relationship, checked handoff, FINISH/DONE/EOF and original owned
+zero completion path in the trusted isolated x86_64 development VM. The stage5
+transport admits an exact root-owned/root-group 0750 `/root` ancestor without
+group write, while private staging remains 0700. That transport-only rule
+does not change the Rust executable ancestry predicate.
+
+No inventory, firewall mutation, installed activation, canonical creator,
+package/system-manager origin, production authority or whole-K1 acceptance is
+established. Primary installed packages are unchanged. All prior nonzero and
+unknown scopes remain permanently stopped; their originals were not retried,
+queried or adopted. Raw private captures and credentials remain outside Git.
+The public exact-source record is [the #654 checkpoint](https://github.com/k-kostin/omavless/pull/654#issuecomment-5991001545).
