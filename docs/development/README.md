@@ -23,6 +23,8 @@ documentation-only main updates require explicit owner authorization.
 - [Architecture/roadmap index](../roadmap/README.md): feature contracts and status.
 - [Development workflow](../roadmap/DEVELOPMENT_WORKFLOW.md): canonical branch,
   review and acceptance process. Its existing path is retained for continuity.
+- [Execution policy](EXECUTION_POLICY.md): failure classification, bounded
+  diagnostics, review depth, T4 service fault boundary and agent/VM allocation.
 - [Acceptance policy](../roadmap/ACCEPTANCE_ENVIRONMENTS.md) and
   [testing index](../testing/README.md): exact-source evidence, failures and limits.
 - [UI review](../../skills/omavless-ui-review/SKILL.md) and
