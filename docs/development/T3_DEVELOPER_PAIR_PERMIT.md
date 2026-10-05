@@ -68,7 +68,40 @@ must replay, and desired connection state must remain unchanged. Root object
 provisioning and mutations belong to separately reviewed VM administration,
 not to the test or normal runtime.
 
-No VM execution, replacement/restoration matrix or product acceptance is
-claimed at this initial source checkpoint. Release pair adoption, ARM64,
-public-method/UI activation and independently applicable acceptance remain
-separate requirements.
+## Exact-head developer VM checkpoint, 2026-10-05
+
+Tested implementation: `839f35c9e1747569b0212da6950384dfb87fe3fd`.
+Feature-enabled library gate: 1109 passed, zero failed, 34 ignored; focused
+candidate gate: 30 passed, zero failed, two ignored. Feature all-target Clippy
+with warnings denied, default library check, formatter and three static boundary
+controls passed. Ignored tests were not counted as ordinary integration evidence.
+
+Separately compiled release test image: 21,364,272 bytes, SHA-256
+`a1a47f9ff995d34ad2b7918c36a7bf31f804feabe490437e0c213209949093cb`.
+The reviewed fixed administrator provision returned original zero and created
+only the pinned root developer objects above; it did not launch a service/core.
+
+The initial unisolated test returned 101 at the unchanged fixture-adoption
+observation guard. A separately scoped read-only inventory found five global
+Mihomo processes and no TUN. This is not a successful developer-pair test or
+permission to stop/adopt any old scope. The actual pair test had not been reached.
+
+A fresh isolated x86_64 Omarchy dev-VM scenario then used genuine new PID,
+mount and network namespaces, loopback only, and dropped to UID/GID 1000 before
+running the exact ignored test. Original whole run returned zero. Its separately
+selected two-file observer returned zero with the complete exact one-test
+success grammar and empty stderr. Stdout was 225 bytes, SHA-256
+`1a1b330c58cc0ce5792fb0effaf9f24a3ad17596c10b4709fe9bebebcf56f57e`;
+stderr was empty. The actual test asserted selected closure, one surviving echo
+tunnel, unchanged desired state, exact receipt replay and absence of a fixture
+permit. Neither the physical PC nor old VM process scopes were changed.
+
+The test becomes namespace init: its exit lets the kernel tear down remaining
+children in that fresh disposable namespace. This is containment, not
+unknown-child custody or product recovery acceptance. Ordinary filesystem and
+the existing sysfs mount persist; no TUN was configured. Reviewed transport and
+finite receipts remain local development evidence, not package provenance.
+
+The replacement/restoration matrix, released-pair adoption, ARM64 and installed
+product acceptance remain pending. Default builds still do not grant this
+developer permit; public-method/UI activation is not part of this checkpoint.
