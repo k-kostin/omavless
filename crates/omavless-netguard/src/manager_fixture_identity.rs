@@ -107,7 +107,8 @@ impl Fixture {
 
 #[test]
 fn fixed_identities_match_disjoint_original_units() {
-    for fixture in [Fixture::PrivateLifecycle, Fixture::RetainedLease] {
+    let fixtures = [Fixture::PrivateLifecycle, Fixture::RetainedLease, Fixture::ExclusiveCreate];
+    for fixture in fixtures {
         use sha2::{Digest, Sha256};
         assert_eq!(
             format!("{:x}", Sha256::digest(fixture.unit_bytes())),
@@ -129,12 +130,12 @@ fn fixed_identities_match_disjoint_original_units() {
             format!("/run/systemd/system/{}", fixture.unit())
         );
     }
-    assert_ne!(
-        Fixture::PrivateLifecycle.stage(),
-        Fixture::RetainedLease.stage()
-    );
-    assert_ne!(
-        Fixture::PrivateLifecycle.unit_bytes(),
-        Fixture::RetainedLease.unit_bytes()
-    );
+    for (index, left) in fixtures.iter().enumerate() {
+        for right in &fixtures[index + 1..] {
+            assert_ne!(left.stage(), right.stage());
+            assert_ne!(left.unit(), right.unit());
+            assert_ne!(left.unit_bytes(), right.unit_bytes());
+            assert_ne!(left.fragment(), right.fragment());
+        }
+    }
 }
