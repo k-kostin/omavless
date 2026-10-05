@@ -254,3 +254,31 @@ unchanged Images SHA
 `c7a821f478a7102f1c128fb450c4e172f9cdfc30db1d69b4c69d6a08d5f333bb`.
 These gates are source-only. A fresh reviewed recipe is required before any
 successor VM selection; all predecessor stopped scopes remain ineligible.
+
+## Review7 stopped scope and broker stop contract
+
+Review7 selected `4c19cd58f2a485aaf79a355d57a4162f5ed8fd18` with the
+composition512 scanner. All24 separately selected source/native preparations
+returned original zero. Whole `2b5dc8/session42131 -> 40f7aa` returned original
+EXIT2; this scope is STOP, with no live query, signal, reap, retry, archive or
+cleanup. The separately reviewed fixed-file observer `d67bab` returned zero.
+Its bounded projection `0f0ca8` matched294 literal frames (83 Bridge/211
+Session), last `before_broker_shutdown_settle`, no opaque tail, inner result
+empty, outer absent and completion marker false. Child stderr is13953 bytes,
+SHA `e897ef761d22148a7b10e002b65c0d4c273ed7e51ddda24cabbc6290d960f4af`.
+These are file facts, not the actual wait status, cause, current custody,
+kernel absence or whole acceptance.
+
+Inspection of the exact pinned public broker source
+`c4e800425243c1b02165f82153e4bf418fe465e6` found a supported incompatibility:
+`server::serve` has an infinite accept loop and no graceful signal branch;
+`main` returns zero only when `serve` returns Ok. This fixture sends one
+SIGTERM after verified core completion and requires an actual normal-zero
+broker exit. Unhandled SIGTERM is not normal-zero. That source finding does
+not prove this stopped run's actual wait status or cause.
+
+A successor needs a separately reviewed orderly-stop contract and fresh
+native/source pins. It must not reinterpret signal death as zero, weaken the
+exact-zero settlement, use a wrapper to forge success, clean unknown DNS
+state on termination, or retry this scope. A stop request may not itself
+establish settled release or authorize removal of retained lease evidence.
