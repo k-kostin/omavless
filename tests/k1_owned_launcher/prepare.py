@@ -19,7 +19,7 @@ def git(*args):
     return subprocess.run(['git','-C',str(ROOT),*args],check=True,capture_output=True,timeout=30).stdout
 
 def export(parent, export_name='netguard'):
-    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn', 'netguard-checked-handoff', 'netguard-owner-boundaries', 'netguard-owner-boundaries-final'):raise ValueError('fixed_export_name')
+    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn', 'netguard-checked-handoff', 'netguard-owner-boundaries', 'netguard-owner-boundaries-final', 'netguard-static-child-v1'):raise ValueError('fixed_export_name')
     parent=Path(parent)
     if not parent.is_absolute() or parent.is_symlink() or not parent.is_dir():raise ValueError('private_build_root')
     if parent.stat().st_mode&0o777!=0o700:raise ValueError('private_build_mode')
@@ -34,6 +34,9 @@ def export(parent, export_name='netguard'):
     sources={n[len(prefix):]:git('show',adapter.BASE+':'+n) for n in names}
     sources.update(adapter.adapt({name:sources[name] for name in adapter.PINS}))
     for name in ('owned_creator.rs','owned_launcher.rs','child_protocol.rs','child_executable.rs','fixed_child.rs','retained_return.rs','static_elf.rs','owned_child.rs','handoff.rs','spawn_sequence.rs','completion.rs'):sources[name]=(HERE/name).read_bytes()
+    sources['no_policy_gate.rs']=(HERE/'no_policy_gate.rs').read_bytes()
+    # Same actual module tree, not a public acquisition constructor or stubs.
+    sources['parent_main.rs']=sources['lib.rs']+b'\ninclude!("no_policy_gate.rs");\n'
     target=parent/export_name;target.mkdir(mode=0o700)
     (target/'src').mkdir(mode=0o700)
     for name,raw in sources.items():
@@ -49,6 +52,12 @@ publish = false
 [[bin]]
 name = "k1-fixed-child"
 path = "src/fixed_child.rs"
+[[bin]]
+name = "k1-owned-no-policy"
+path = "src/parent_main.rs"
+required-features = ["owned-launch-no-policy"]
+[features]
+owned-launch-no-policy = []
 [dependencies]
 nix = { path = "../nix-spawn", default-features = false, features = ["fs", "sched", "socket", "uio", "user", "ioctl", "process"] }
 serde = { version = "1.0", features = ["derive"] }

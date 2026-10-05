@@ -296,3 +296,12 @@ owner relationship under a trusted test launch. It cannot prove installed
 package/unit/system-manager origin, authorize policy, construct CanonicalCreator
 or expose production availability. The installed-origin verifier remains a
 distinct unmet boundary even if the local child gate later passes.
+
+The [concrete static build proposal](BUILD_PROPOSAL.md) now specifies the fresh
+child-only CRT-static build and provenance/freeze review. An external opt-in
+parent binary uses the exact adapted module tree and only open_fixed plus finish;
+it reports fixed original-call phases. Its feature is disabled by default and
+the child pins remain zero. Ten unchanged adapter source controls pass after
+the exporter addition; the new parent/export has NOT been compiled or invoked.
+Lifetime/type controls and full ROOT/independent build/freeze/runner reviews
+remain explicit prerequisites, not implied by source checks.
