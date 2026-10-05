@@ -3,8 +3,14 @@
 Status: opt-in development implementation, not accepted as a working product
 feature. The historical `0dd01010` VM install and original Start returned zero,
 but the first status exchange did not complete and the service remained parked
-without control/recovery sockets. No Arm was selected. This trace successor is
-source-only until its own exact artifact/unit/recipe review. This is the integrated successor to the preserved
+without control/recovery sockets. No Arm was selected. This manager-descriptor
+ingress successor is source-only until its own exact artifact/unit/recipe review.
+At `c2007781`, ROOT's
+fresh disposable boot, installation, 47 pre-start predicates and first original
+Start returned zero. The current-invocation trace refused at ORIGINAL_NAMESPACES
+before creator assembly or READY; no client/Arm was selected. The new fixed
+manager-descriptor ingress below addresses that launch incompatibility without
+capability expansion; it has not been exercised in the VM. This is the integrated successor to the preserved
 [#661 isolated create/readback checkpoint](K1_ISOLATED_CREATE_READBACK_PROPOSAL.md).
 That checkpoint remains exact `858b528722480f165891ef62ae805c9dcbd22a9a`; its
 private-namespace native success does not attest this new service or launch.
@@ -28,8 +34,10 @@ application code is introduced. The workspace unsafe prohibition remains.
 The complete upstream nix/libc trees, licenses, original commit/tree/archive
 identities and exact modifications are retained in
 [private fork provenance](../../vendor/NETGUARD_PROVENANCE.md). The only
-additional unsafe call sites are the previously reviewed fixed read-only nix
-patch. The paired path libc supplies its exact native `NS_GET_ID` constant.
+additional unsafe call sites are the fixed read-only nix patch and the distinct
+bounded inherited-descriptor ingress described in the provenance. The latter
+has a separate full review obligation before activation. The paired path libc
+supplies its exact native `NS_GET_ID` constant.
 Registry nix 0.30.1 and libc 0.2.189 remain unchanged; Cargo.lock adds only path
 nix 0.31.3 and path libc 0.2.190 plus dependency disambiguation. No global
 registry override or cross-copy libc structure exchange occurs. This is private
@@ -38,8 +46,11 @@ fork adoption, **not** upstream acceptance or a released safe API.
 `cargo fmt` checks current workspace members. `--all` additionally formats
 local dependencies, including upstream libc's different formatter policy, so
 the Rust gate no longer rewrites/checks immutable external trees with the
-application formatter. The full vendor diff remains exactly the two supplied
+application formatter. The full vendor diff remains exactly the three supplied
 patches plus nix's paired-libc manifest pin; no formatter delta is admitted.
+The registry nix `dir` feature is enabled only by `netguard-service-core` to
+inventory fixed inherited slots with its safe owned directory iterator. No new
+crate version, registry patch or default product activation is introduced.
 
 ## Trusted installed launch and original resources
 
@@ -84,6 +95,59 @@ unsigned zero is admitted by the activating/active runtime origin. See the
 primary [property mapping](https://github.com/systemd/systemd/blob/v261/src/core/dbus-execute.c),
 [timeout accessor](https://github.com/systemd/systemd/blob/v261/src/core/service.h)
 and [start initialization](https://github.com/systemd/systemd/blob/v261/src/core/service.c).
+
+### Fixed manager-delivered namespace set under minimal capabilities
+
+The actual `c2007781` trace placed refusal inside its original-namespace block,
+not a property/RPC timeout. It did not expose an errno. Primary Linux v6.18
+[`proc_ns_get_link`](https://github.com/torvalds/linux/blob/v6.18/fs/proc/namespaces.c)
+uses PTRACE_MODE_READ_FSCREDS, and
+[`cap_ptrace_access_check`](https://github.com/torvalds/linux/blob/v6.18/security/commoncap.c)
+requires the target's permitted capabilities to be a subset of the caller's
+effective capabilities in the same user namespace, or CAP_SYS_PTRACE. Therefore
+CAP_NET_ADMIN-only root cannot generally reopen PID1's namespace links when
+PID1 retains broader capabilities. This is a structural incompatibility, not
+an assertion that the trace proved a particular syscall error.
+
+The successor keeps CAP_NET_ADMIN alone. The trusted fixed unit adds exactly
+three read-only OpenFile entries for `/proc/1/ns/user`, `mnt` and `pid`, with
+literal names `k1-manager-userns`, `k1-manager-mntns`, `k1-manager-pidns`.
+FD0 remains the original manager-opened network namespace. Primary v261
+[`exec-invoke.c`](https://github.com/systemd/systemd/blob/v261/src/core/exec-invoke.c)
+collects these files before capability reduction and packs inherited descriptors
+from 3; read-only flags prohibit writable/graceful/truncate/append variants.
+Typed `OpenFile` a(sst) must match the exact ordered three entries/flag1, and
+`ExtraFileDescriptorNames` must be empty. The unchanged retained exact unit,
+installed launch and no-drop-in gates remain prerequisites; LISTEN metadata,
+descriptor labels/slots or matching IDs cannot authenticate an arbitrary root.
+
+Before bus creation, threads or other FD allocations, the private constructor
+requires current LISTEN_PID, count3, the exact ordered names and exactly original
+slots0–5. Its own directory inventory FD must be above slot5 and is excluded
+by its retained descriptor, so a missing source cannot be filled by inspection.
+The safe private ingress marks source slots0,3,4,5 CLOEXEC and duplicates each
+above slot5 without adopting/closing/replacing any source. All inherited source
+slots remain process-local, unexported and never closed/reused by application
+code for its lifetime; owned same-OFD aliases form the retained resource graph.
+Unknown/missing/extra slots, names/counts, types/IDs, flags or duplicate errors
+refuse. Source CLOEXEC can remain set after partial setup failure; this ordinary
+bootstrap metadata change is not a policy effect, cleanup or ownership grant.
+
+The held user/mount/PID aliases are checked against newly opened current-thread
+namespace descriptors by exact kind and full nonzero kernel ID at initial and
+every original-owner recheck. The original FD0-derived network alias, current
+thread namespace, held socket cookie and actual FD0 retain their original
+typed equality checks. **All** later `/proc/1/ns/*` reopens are eliminated;
+no PID1 path check is replaced by a manager-property equality assertion, and
+no broad CAP_SYS_PTRACE grant is added. Preassembly temporary duplicate owners
+can still close on ordinary refusal; after AcquiredCreator assembly the entire
+manager-anchor/creator graph stays retained by the existing ManuallyDrop model.
+
+Source controls exercise fixed metadata, inventory and namespace-equality
+predicates plus one-attempt scalar fcntl error/ownership seams. They do not
+execute the new ingress on inherited namespace descriptors or attest actual
+installed manager opening, transfer, slot ordering or minimal-capability
+admission. Those VM rows remain mandatory and separately selected by ROOT.
 
 `HostEpoch` records the actual boot UUID, zero-extended kernel namespace ID and
 namespace device/inode only as held-original consistency projections. They
@@ -132,7 +196,7 @@ the entire currently held stack/resource graph, no unwind/exit/retry/progress.
 The single syscall has no hard time bound. Complete trace delivery is never
 kernel authority or proof of a completed manager action.
 
-The phases cover entry/anchor, bus owner, original files, effective unit,
+The phases cover entry/anchor, inherited-anchor ingress, bus owner, original files, effective unit,
 actual original namespaces, creator open/assembly, locked-state open, control
 publication and READY; RPC decode/unavailability/deadline and property
 missing/type/decode/mismatch have fixed categories. READY follows assembled

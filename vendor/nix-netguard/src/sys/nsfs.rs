@@ -1,8 +1,51 @@
-//! Fixed, read-only Linux namespace descriptor queries.
+//! Fixed Linux namespace queries plus private inherited-descriptor ingress.
 //!
 //! Descriptor identity is not proof of a canonical host or trusted launch.
 use crate::{errno::Errno, Result};
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
+
+/// Duplicate an inherited descriptor into a newly owned CLOEXEC descriptor.
+/// The source is also marked CLOEXEC, but is NEVER adopted, closed or replaced.
+/// `minimum` must exceed `source` so the new descriptor cannot use its slot.
+///
+/// This is a private bootstrap ingress, not authentication or a namespace
+/// query. A concurrently closed/replaced source may change the object that
+/// the kernel duplicates; callers must separately enforce original slot
+/// custody and validate the returned object. No unsafe borrowed/owned wrapper
+/// is constructed from the caller-supplied source number. Failed operations
+/// are not retried and do not roll back an already set source CLOEXEC flag.
+pub fn duplicate_inherited_cloexec(source: RawFd, minimum: RawFd) -> Result<OwnedFd> {
+    duplicate_inherited_with(source, minimum, |fd, command, value| {
+        // SAFETY: fixed scalar fcntl commands, no userspace pointer argument.
+        // Any invalid source/minimum is handled by the kernel as an error.
+        Errno::result(unsafe { libc::fcntl(fd, command, value) })
+    })
+}
+
+fn duplicate_inherited_with(
+    source: RawFd,
+    minimum: RawFd,
+    mut call: impl FnMut(RawFd, libc::c_int, libc::c_int) -> Result<libc::c_int>,
+) -> Result<OwnedFd> {
+    if source < 0 || minimum <= source {
+        return Err(Errno::EINVAL);
+    }
+    let flags = call(source, libc::F_GETFD, 0)?;
+    if flags < 0 || flags & !libc::FD_CLOEXEC != 0 {
+        return Err(Errno::EINVAL);
+    }
+    if call(source, libc::F_SETFD, flags | libc::FD_CLOEXEC)? != 0 {
+        return Err(Errno::EINVAL);
+    }
+    let duplicated = call(source, libc::F_DUPFD_CLOEXEC, minimum)?;
+    if duplicated < minimum {
+        return Err(Errno::EINVAL);
+    }
+    // SAFETY: only the fresh successful F_DUPFD_CLOEXEC result is adopted.
+    // The kernel allocates an unused descriptor owned by this call, distinct
+    // from source. The source number is never wrapped in OwnedFd/BorrowedFd.
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicated) })
+}
 
 /// Kernel namespace kinds understood by this API.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,6 +131,66 @@ fn namespace_id_with(
 mod tests {
     use super::*;
     use std::{fs::File, os::fd::AsFd};
+
+    #[test]
+    fn inherited_ingress_invalid_arguments_call_nothing() {
+        for (source, minimum) in [(-1, 6), (3, 3), (4, 3)] {
+            assert_eq!(
+                duplicate_inherited_with(source, minimum, |_, _, _| panic!("no call")).unwrap_err(),
+                Errno::EINVAL
+            );
+        }
+    }
+
+    #[test]
+    fn inherited_ingress_errors_are_one_attempt_and_never_own_source() {
+        for error in [Errno::EBADF, Errno::EINTR, Errno::EPERM] {
+            for cut in 0..3 {
+                let mut calls = 0;
+                let result = duplicate_inherited_with(3, 6, |fd, command, value| {
+                    assert_eq!(fd, 3);
+                    assert_eq!((command, value), [(libc::F_GETFD, 0),
+                        (libc::F_SETFD, libc::FD_CLOEXEC), (libc::F_DUPFD_CLOEXEC, 6)][calls]);
+                    let here = calls; calls += 1;
+                    if here == cut { Err(error) } else { Ok(0) }
+                });
+                assert_eq!(result.unwrap_err(), error);
+                assert_eq!(calls, cut + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn inherited_ingress_only_new_successful_descriptor_becomes_owned() {
+        use std::os::fd::IntoRawFd;
+        // Ordinary file ownership supplies the mock kernel return; no fcntl,
+        // namespace ioctl, socket or inherited descriptor is exercised.
+        let file = File::open("/dev/null").unwrap();
+        let expected = file.as_raw_fd();
+        let raw = file.into_raw_fd();
+        let mut calls = 0;
+        let duplicated = duplicate_inherited_with(0, 1, |fd, command, value| {
+            assert_eq!(fd, 0);
+            assert_eq!((command, value), [(libc::F_GETFD, 0),
+                (libc::F_SETFD, libc::FD_CLOEXEC), (libc::F_DUPFD_CLOEXEC, 1)][calls]);
+            calls += 1;
+            Ok(if calls == 3 { raw } else { 0 })
+        }).unwrap();
+        assert_eq!(duplicated.as_raw_fd(), expected);
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn inherited_ingress_invalid_flags_status_and_dup_result_refuse() {
+        for values in [vec![-1], vec![2], vec![0, 1], vec![0, 0, 5]] {
+            let mut calls = 0;
+            let result = duplicate_inherited_with(3, 6, |_, _, _| {
+                let result = values[calls]; calls += 1; Ok(result)
+            });
+            assert_eq!(result.unwrap_err(), Errno::EINVAL);
+            assert_eq!(calls, values.len());
+        }
+    }
 
     #[test]
     fn namespace_api_type_results_preserve_errors_and_reject_unknown() {

@@ -11,6 +11,8 @@ pub mod emergency_wire;
 mod enrollment;
 mod enrollment_provision_candidate;
 pub mod full_vpn_wire;
+#[cfg(feature = "netguard-service-core")]
+mod inherited_namespace_anchors;
 #[cfg(target_os = "linux")]
 pub mod kernel_observer;
 #[allow(dead_code)] // Inactive acquisition prerequisite; no real constructor.

@@ -24,15 +24,32 @@ Exact modifications beyond the upstream trees:
   e6229d02e60e20a089a0340f6028f02a436308f5ff031a223c685e7ef31c5c15.
 - `docs/development/patches/libc-ns-get-id-02.patch`, SHA-256
   da653498d5daa88c459f5a4e7649e9c64e93a9d2b683d3979c5f9ea94cbdd7ab.
+- `docs/development/patches/nix-inherited-fd-v1.patch`, SHA-256
+  9309eae91fdfdbab5670db4f84c3ab9b9cae8d21394b4335858350094e05e293;
+  applied after the read-only namespace patch, adds only the private inherited
+  descriptor duplication API and its pure error/ownership controls.
 - The nix manifest pins its libc dependency to `=0.2.190`, path
   `../libc-netguard`, retaining `extra_traits`. No global crates.io patch is used.
 
-The added APIs accept borrowed descriptors, create no descriptors, perform one
+The original query APIs accept borrowed descriptors, create no descriptors, perform one
 read-only syscall, and return typed namespace kind, nonzero namespace ID or an
 exact eight-byte network namespace cookie. No switching, retry, adoption or
 kernel ownership is implemented by those APIs. Unsupported kernels refuse.
 Only descriptor borrows, scalar values and typed errors cross the fork boundary;
 application code must not mix libc structure types between the dependency copies.
+
+The distinct `duplicate_inherited_cloexec` ingress accepts a raw descriptor
+NUMBER, not ownership, and a minimum above that number. It performs one fixed
+F_GETFD, one F_SETFD adding CLOEXEC to the original slot, then one
+F_DUPFD_CLOEXEC. Only the fresh successful kernel duplicate becomes an OwnedFd;
+the source is never wrapped, adopted, closed or replaced. A failure is returned
+without retry or flag rollback; setting original CLOEXEC may precede a later
+failure. Duplicate means same open-file description, not procfs object reopen.
+Invalid/missing/replaced sources cannot authenticate origin; the application
+must separately ensure startup slot custody and typed namespace identity.
+Scalar-only fcntl arguments introduce no caller-supplied pointer or mixed libc
+structure. This new external unsafe boundary needs its own full primary and
+independent review; earlier query-only approval does not cover it.
 
 The complete final tree/manifests/lock and service delta require primary and
 independent boundary review before any VM installation or activation. Previous

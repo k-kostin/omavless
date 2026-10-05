@@ -9,6 +9,7 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 pub(crate) enum Phase {
     Enter,
     Anchor,
+    InheritedAnchors,
     BusOwner,
     Rpc,
     OriginFiles,
@@ -28,6 +29,7 @@ impl Phase {
         match self {
             Self::Enter => b"ENTER",
             Self::Anchor => b"ANCHOR",
+            Self::InheritedAnchors => b"INHERITED_ANCHORS",
             Self::BusOwner => b"BUS_OWNER",
             Self::Rpc => b"RPC",
             Self::OriginFiles => b"ORIGIN_FILES",
@@ -126,6 +128,8 @@ pub(crate) const PROPERTY_KEYS: &[&str] = &[
     "TemporaryFileSystem",
     "ProtectProc",
     "ProcSubset",
+    "OpenFile",
+    "ExtraFileDescriptorNames",
 ];
 
 fn frame(phase: Phase, event: Event, property: Option<&str>) -> ([u8; 96], usize) {
@@ -213,6 +217,7 @@ mod tests {
         for phase in [
             Phase::Enter,
             Phase::Anchor,
+            Phase::InheritedAnchors,
             Phase::BusOwner,
             Phase::Rpc,
             Phase::OriginFiles,

@@ -3,6 +3,7 @@
 //! Authority assumes root's admitted package/install and system manager launch;
 //! matching bytes, environment or namespace IDs alone DO NOT authenticate it.
 use super::*;
+use crate::inherited_namespace_anchors::{ManagerNamespaceAnchors, admitted_open_files};
 use crate::kernel_observer::service_creator::LiveCreator;
 use crate::package_group_candidate::PackageGroup;
 use crate::startup_trace::{self as trace, Event, Phase};
@@ -176,6 +177,7 @@ struct InstalledOrigin {
     executable_identity: (u64, u64, u64, i64, i64),
     namespace_id: u64,
     package_group: PackageGroup,
+    manager_namespaces: ManagerNamespaceAnchors,
 }
 impl InstalledOrigin {
     fn call<T: serde::Serialize + Type, R: DeserializeOwned + Type>(
@@ -314,6 +316,11 @@ impl InstalledOrigin {
         // namespace fences below; no matching getter authenticates delivery.
         service.text("StandardOutput", "null")?;
         service.text("StandardError", "journal")?;
+        service.predicate(
+            "OpenFile",
+            admitted_open_files(&service.get::<Vec<(String, String, u64)>>("OpenFile")?),
+        )?;
+        service.empty("ExtraFileDescriptorNames")?;
         service.text("KillMode", "control-group")?;
         service.text("RuntimeDirectoryPreserve", "no")?;
         service.predicate(
@@ -385,16 +392,7 @@ impl InstalledOrigin {
         // Fixed bytes also forbid mounts/binds, extra execs and namespace
         // overrides; effective unit + actual namespace fences are mandatory.
         trace::emit(Phase::OriginalNamespaces, Event::Begin, None);
-        for name in ["user", "mnt", "pid"] {
-            let manager = File::open(format!("/proc/1/ns/{name}")).map_err(|_| REFUSE)?;
-            let current = File::open(format!("/proc/thread-self/ns/{name}")).map_err(|_| REFUSE)?;
-            require(
-                namespace_type(manager.as_fd()).map_err(|_| REFUSE)?
-                    == namespace_type(current.as_fd()).map_err(|_| REFUSE)?
-                    && namespace_id(manager.as_fd()).map_err(|_| REFUSE)?
-                        == namespace_id(current.as_fd()).map_err(|_| REFUSE)?,
-            )?;
-        }
+        self.manager_namespaces.recheck()?;
         trace::emit(Phase::OriginalNamespaces, Event::Pass, None);
         Ok(())
     }
@@ -422,13 +420,10 @@ impl OriginalVerifier for InstalledOrigin {
             )?;
         }
         let current = File::open("/proc/thread-self/ns/net").map_err(|_| REFUSE)?;
-        let manager = File::open("/proc/1/ns/net").map_err(|_| REFUSE)?;
-        for file in [current, manager] {
-            require(
-                namespace_type(file.as_fd()).map_err(|_| REFUSE)? == NamespaceType::Network
-                    && namespace_id(file.as_fd()).map_err(|_| REFUSE)? == self.namespace_id,
-            )?;
-        }
+        require(
+            namespace_type(current.as_fd()).map_err(|_| REFUSE)? == NamespaceType::Network
+                && namespace_id(current.as_fd()).map_err(|_| REFUSE)? == self.namespace_id,
+        )?;
         require(
             getsockopt(&originals.creator_socket, NetnsCookie).map_err(|_| REFUSE)?
                 == self.namespace_id,
@@ -470,12 +465,10 @@ fn admitted_groups(groups: &[u32], package_gid: u32) -> bool {
 pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
     trace::emit(Phase::Anchor, Event::Begin, None);
     require(geteuid().as_raw() == 0 && getppid().as_raw() == 1)?;
-    let anchor = File::from(
-        std::io::stdin()
-            .as_fd()
-            .try_clone_to_owned()
-            .map_err(|_| REFUSE)?,
-    );
+    // Import fixed inherited slots BEFORE any bus/threads or other FD opens.
+    // No reopening PID1 namespace paths under reduced runtime capabilities.
+    let (anchor, manager_namespaces) =
+        trace::step(Phase::InheritedAnchors, ManagerNamespaceAnchors::acquire)?;
     require(namespace_type(anchor.as_fd()).map_err(|_| REFUSE)? == NamespaceType::Network)?;
     let ns_id = namespace_id(anchor.as_fd()).map_err(|_| REFUSE)?;
     let meta = anchor.metadata().map_err(|_| REFUSE)?;
@@ -546,6 +539,7 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
         executable,
         namespace_id: ns_id,
         package_group,
+        manager_namespaces,
     };
     trace::emit(Phase::OriginFiles, Event::Pass, None);
     trace::step(Phase::EffectiveUnit, || verifier.recheck_installed())?;
