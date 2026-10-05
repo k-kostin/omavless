@@ -197,23 +197,32 @@ or production availability. The pinned patch is exactly the tested head,
 not later external documentation or a future PIDFD successor. No ordinary
 Rust source, dependency, trust predicate or CLI path changes in this checkpoint.
 
-## Separate source-only PIDFD proposal
+## Separate PIDFD successor and narrow actual result
 
 External `dedb209c3b5b5df4b62703bc3766dcaea1f4e152` is preserved as a
 separate textual research patch in the same fixture. It adds exact successful
 SCM_PIDFD ownership and typed negative-errno records, plus a default-ignored
 own no-child receive control with exact native-size SO_PASSPIDFD option helpers
 in both backends. Eighteen synthetic tests pass on each backend; both actual
-kernel entry points remain ignored. This is source/compile/inert evidence only.
-The new control has not been selected and cannot borrow `faa069b`'s result.
+kernel entry points remained ignored in those inert runs. The earlier
+source-only checkpoint cannot borrow `faa069b`'s result.
 
-Its future three own unnamed pairs propose PIDFD-only, combined credentials/
+Its three own unnamed pairs check PIDFD-only, combined credentials/
 one original pipe RIGHT/PIDFD, and control truncation. Whole owner graphs are
 retained before post-call gates. CLOEXEC and one zero-time poll borrow only the
 returned original; no PIDFD read, PID reconstruction, namespace acquisition,
 signal/reap, child, old scope or VM action is added. Poll is empirical behavior,
 not descriptor-class, process-liveness, root authentication or manager proof.
-FULL ROOT and independent immutable source review and a new sealed recipe
-must precede any ROOT-only selection. All broader ownership/authority gaps and
+After FULL ROOT and independent immutable source/recipe review, ROOT alone
+selected that exact clean `dedb209` linux_raw ignored entry once. Authoritative
+selection `77b12e` ended KNOWN_ZERO: one passed, zero failed, zero ignored,
+54 filtered out. The [research receipt](../../tests/research/rustix-owned-ancillary/README.md)
+pins the fresh recipe, private capture sizes/hashes and unchanged textual patch.
+No retry, second backend, child, VM, configuration or product execution occurred.
+Only own-pair PIDFD-only, combined credentials/one original pipe RIGHT/PIDFD
+and credential-capacity CTRUNC/no-PIDFD behavior were checked. Libc actual
+receive remains untested; neither poll nor this result proves class/process/
+manager authority or broader retained-original ownership.
+All broader ownership/authority gaps and
 the original stopped child NONPASS remain unchanged; no normal runtime,
 dependency, CLI, accepted candidate or publication path changes.

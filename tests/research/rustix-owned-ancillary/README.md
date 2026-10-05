@@ -76,7 +76,7 @@ retention, root/ancestor authentication, closed protocol, canonical namespace,
 product availability, security-scan approval, merge or adoption is claimed.
 Any next API/kernel control requires its own exact-head review and authority.
 
-## Separate source-only PIDFD successor
+## Separate PIDFD successor and sole actual HOST result
 
 `source-only-dedb209.patch` preserves nine external source/harness files from
 the same import base to `dedb209c3b5b5df4b62703bc3766dcaea1f4e152`.
@@ -93,8 +93,9 @@ FD. This follows the separately pinned Linux v6.17 producer at
 Six added synthetic controls passed with the original twelve on both backends;
 they use exclusive `/dev/null` fixtures, not actual PIDFD/class authority.
 
-The new x86_64 Linux no-child control is default ignored and **uninvoked**.
-Three newly owned nonblocking unnamed pairs propose PIDFD-only, credential +
+The new x86_64 Linux no-child control remains default ignored. Its source-only
+checkpoint was subsequently selected once by ROOT as documented below.
+Three newly owned nonblocking unnamed pairs check PIDFD-only, credential +
 one original pipe RIGHT + PIDFD, and credential-sized control truncation.
 Both cfg(test) private backend helpers query the original socket with exact
 returned native-int size/value for SO_PASSPIDFD76. The control borrows the
@@ -107,9 +108,37 @@ deadline. No success/failure cleanup or retry is added.
 Final compiled/inert gates on the exact successor passed eighteen tests,
 zero failed, two actual kernel controls ignored on each backend (35/37 other
 tests filtered). These runs do not select either ignored body and cannot
-inherit the prior `faa069b` actual result. FULL ROOT and independent exact
-source review plus a fresh sealed recipe remain prerequisites for ROOT alone
-to select once. All unknown-FD/corrupt-tail/OOM/panic/backend-partial retention
+inherit the prior `faa069b` actual result. After FULL ROOT and independent exact
+source/recipe review, ROOT selected only the new linux_raw ignored entry once:
+`net::send_recv::msg::owned_ancillary_experiment::pidfd_kernel_control::fresh_no_child_pidfd_receive_once`.
+Author did not invoke it. The exact clean external head was `dedb209` above;
+authoritative selection `77b12e` ended KNOWN_ZERO. Safe post-zero capture checks
+confirmed one passed, zero failed, zero ignored, 54 filtered out. No retry,
+second backend, child, VM, network configuration or product binary executed.
+
+Fresh fixed recipe SHA256:
+`9bc828f658eea6be82bf335ef782af5be9e864a847802533d2de8938f36881d2`;
+review SHA256:
+`0eda5b911aa7b3f47080d2b0682ba83c22b4792864435697d264bf3f810b626b`.
+Original private captures remain under
+`/home/kk/.cache/ovtmp-root/t4-pidfd-kernel-first.vntjfV7H/`, both0600
+single-link uid/gid1000. Only fixed stdout summary and capture metadata/hashes
+were read for this report; raw stderr remains private and unread.
+
+| Capture | Bytes | SHA256 |
+| --- | ---: | --- |
+| first.stdout | 230 | c4f30f3d887430f00ed623f84b00d124d6358fafa383711a263b0349f69e6bca |
+| first.stderr | 576003 | 5806df863605ea02beaf1d1e82fd6ae6b3b230823490a13ee9d7c63e40758b0b |
+
+This establishes only the three own-pair outcomes encoded in that exact test:
+PIDFD-only, combined credential/one pipe RIGHT/PIDFD, and actual CTRUNC without
+PIDFD at credential-sized capacity, with original-option queries, CLOEXEC,
+zero-time poll and whole-frame retention. The sampled deadline is not hard
+syscall cancellation. Poll is not descriptor-class, PID/liveness, authentication
+or manager proof. Libc actual receive remains untested. The patch keeps its
+historical `source-only-dedb209.patch` name and exact bytes; its earlier
+source-only checkpoint and the original `faa069b` result are not rewritten.
+All unknown-FD/corrupt-tail/OOM/panic/backend-partial retention
 and root/manager/product authority gaps remain unchanged.
 
 The export/docs checkpoint passed the full source suite (639 tests, two
