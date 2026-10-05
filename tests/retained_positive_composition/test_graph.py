@@ -24,7 +24,11 @@ SOURCES.update({'bridge.py':HERE.parent/'six_library_live_mapping/bridge.py',
 
 class Controls(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory();self.stage=Path(self.temp.name)
+        # /tmp is correctly rejected by the production original-ancestor
+        # contract. Keep inert fixtures in safe owned HOME ancestry even when
+        # CI has no TMPDIR; never translate away its writable-ancestor check.
+        cache=Path.home()/'.cache';cache.mkdir(mode=0o700,exist_ok=True)
+        self.temp=tempfile.TemporaryDirectory(prefix='t3graph.',dir=cache);self.stage=Path(self.temp.name)
         self.stage.chmod(0o700)
         for name,path in SOURCES.items():
             target=self.stage/name;target.write_bytes(path.read_bytes());target.chmod(0o600)
@@ -40,8 +44,10 @@ class Controls(unittest.TestCase):
         host_uid,host_gid=os.getuid(),os.getgid();real_fstat=os.fstat;real_stat=os.stat
         root=real_stat('/');root_identity=(root.st_dev,root.st_ino)
         def metadata(value):
-            fields={key:getattr(value,key) for key in ('st_dev','st_ino','st_mode','st_uid',
-                'st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')}
+            # os is shared with unittest/linecache. Preserve its COMPLETE stat
+            # projection, including float timestamps used by Python3.12 error
+            # reporting; only fixture ownership is translated.
+            fields={key:getattr(value,key) for key in dir(value) if key.startswith('st_')}
             if (fields['st_dev'],fields['st_ino'])!=root_identity:
                 if fields['st_uid']==host_uid:fields['st_uid']=1000
                 if fields['st_gid']==host_gid:fields['st_gid']=1000
@@ -106,6 +112,13 @@ class Controls(unittest.TestCase):
             with self.assertRaises(g.Refused):value.load()
             compile_source.assert_not_called()
         self.sealed(value)
+
+    def test_stat_mock_retains_reporting_fields_and_safe_fixture_ancestry(self):
+        value=os.stat(self.stage)
+        for name in ('st_mtime','st_mtime_ns','st_ctime','st_atime','st_size'):
+            self.assertTrue(hasattr(value,name),name)
+        self.assertEqual(self.stage.parent,Path.home()/'.cache')
+        self.assertEqual(stat.S_IMODE(value.st_mode),0o700)
 
     def test_mutated_saved_bytes_refuse_before_definition_loading(self):
         value=self.fixture();value.raw['images.py']=b'raise RuntimeError("private")'
