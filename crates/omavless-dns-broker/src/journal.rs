@@ -6,7 +6,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     os::fd::OwnedFd,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 const DIRECTORY: &str = "/run/omavless-dns/private";
@@ -55,6 +55,7 @@ struct Record {
 /// Contains no provider/profile/config values. Debug deliberately hides identity.
 pub struct Journal {
     directory: OwnedFd,
+    directory_path: PathBuf,
     boot: String,
     owner: u32,
     record: Option<Record>,
@@ -104,6 +105,7 @@ impl Journal {
         }
         let mut journal = Self {
             directory,
+            directory_path: path.to_owned(),
             boot,
             owner,
             record: None,
@@ -123,6 +125,43 @@ impl Journal {
 
     pub fn requires_recovery(&self) -> bool {
         self.poisoned || self.phase() == Some(Phase::Quarantined)
+    }
+
+    /// Read-only idle proof on this original locked directory. Cached phase or
+    /// a newly opened Journal is insufficient. No removal, replay, lock reset
+    /// or uncertain-state promotion is performed. The original exclusive flock
+    /// remains held by the private, unexported directory FD for its lifetime.
+    pub(crate) fn verify_idle_empty(&self) -> Result<(), Error> {
+        if self.requires_recovery() || self.record.is_some() {
+            return Err(Error::RecoveryRequired);
+        }
+        self.verify_directory_binding()?;
+        for name in [RECORD, STAGING] {
+            match fs::statat(&self.directory, name, fs::AtFlags::SYMLINK_NOFOLLOW) {
+                Err(rustix::io::Errno::NOENT) => (),
+                _ => return Err(Error::RecoveryRequired),
+            }
+        }
+        self.verify_directory_binding()
+    }
+
+    fn verify_directory_binding(&self) -> Result<(), Error> {
+        let held = fs::fstat(&self.directory).map_err(|_| Error::Refused)?;
+        let named = fs::statat(fs::CWD, &self.directory_path, fs::AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(|_| Error::Refused)?;
+        for metadata in [&held, &named] {
+            if fs::FileType::from_raw_mode(metadata.st_mode) != fs::FileType::Directory
+                || metadata.st_uid != self.owner
+                || metadata.st_mode & 0o7777 != 0o700
+                || metadata.st_nlink == 0
+            {
+                return Err(Error::Refused);
+            }
+        }
+        if (held.st_dev, held.st_ino) != (named.st_dev, named.st_ino) {
+            return Err(Error::Refused);
+        }
+        Ok(())
     }
 
     /// Internal linkage only; never expose in ordinary public diagnostics.

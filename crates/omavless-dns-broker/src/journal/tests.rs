@@ -76,6 +76,56 @@ fn simultaneous_journal_owner_is_refused() {
 }
 
 #[test]
+fn idle_stop_requires_fresh_absence_and_keeps_original_lock() {
+    let root = fixture();
+    let journal = open(&root).unwrap();
+    assert_eq!(journal.verify_idle_empty(), Ok(()));
+    assert_eq!(open(&root).unwrap_err(), Error::Refused);
+    for name in [RECORD, STAGING] {
+        let path = root.path().join(name);
+        std::fs::write(&path, b"synthetic").unwrap();
+        assert_eq!(journal.verify_idle_empty(), Err(Error::RecoveryRequired));
+        assert!(path.exists(), "read-only proof must not remove evidence");
+        // Ordinary test fixture teardown, not broker recovery.
+        std::fs::remove_file(path).unwrap();
+    }
+    assert_eq!(journal.verify_idle_empty(), Ok(()));
+    assert_eq!(open(&root).unwrap_err(), Error::Refused);
+}
+
+#[test]
+fn idle_stop_refuses_cached_pending_and_poisoned_state() {
+    let root = fixture();
+    let mut journal = open(&root).unwrap();
+    journal.begin(42).unwrap();
+    assert_eq!(journal.verify_idle_empty(), Err(Error::RecoveryRequired));
+    journal.quarantine().unwrap();
+    assert_eq!(journal.verify_idle_empty(), Err(Error::RecoveryRequired));
+    assert!(root.path().join(RECORD).exists());
+    let root = fixture();
+    let mut journal = open(&root).unwrap();
+    journal.poisoned = true;
+    assert_eq!(journal.verify_idle_empty(), Err(Error::RecoveryRequired));
+}
+
+#[test]
+fn idle_stop_refuses_replaced_directory_and_permissions() {
+    let root = fixture();
+    let old = root.path().join("original");
+    std::fs::create_dir(&old).unwrap();
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let journal = Journal::open_at(&old, BOOT.into(), rustix::process::geteuid().as_raw()).unwrap();
+    assert_eq!(journal.verify_idle_empty(), Ok(()));
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o750)).unwrap();
+    assert_eq!(journal.verify_idle_empty(), Err(Error::Refused));
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::rename(&old, root.path().join("retained")).unwrap();
+    std::fs::create_dir(&old).unwrap();
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(journal.verify_idle_empty(), Err(Error::Refused));
+}
+
+#[test]
 fn every_persisted_phase_requires_reconciliation_after_process_restart() {
     for phase in [
         Phase::Applying,

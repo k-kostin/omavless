@@ -394,7 +394,18 @@ impl Listener {
     }
 
     pub fn accept(&self) -> Result<Session, Error> {
-        wait(&self.fd, PollFlags::IN, Instant::now() + TIMEOUT)?;
+        self.accept_until(Instant::now() + TIMEOUT)
+    }
+
+    /// Trusted caller's absolute idle budget, clipped to the existing maximum.
+    /// A timeout is not a session, release, cancellation or cleanup result.
+    /// Packet, credential and descriptor admission remain unchanged.
+    pub fn accept_until(&self, until: Instant) -> Result<Session, Error> {
+        let now = Instant::now();
+        if until <= now {
+            return Err(Error::Timeout);
+        }
+        wait(&self.fd, PollFlags::IN, until.min(now + TIMEOUT))?;
         let fd = net::accept_with(&self.fd, SocketFlags::CLOEXEC | SocketFlags::NONBLOCK)
             .map_err(|_| Error::Unavailable)?;
         Ok(Session {
