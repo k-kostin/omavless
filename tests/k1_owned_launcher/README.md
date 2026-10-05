@@ -391,3 +391,22 @@ established. Primary installed packages are unchanged. All prior nonzero and
 unknown scopes remain permanently stopped; their originals were not retried,
 queried or adopted. Raw private captures and credentials remain outside Git.
 The public exact-source record is [the #654 checkpoint](https://github.com/k-kostin/omavless/pull/654#issuecomment-5991001545).
+
+The separately scoped [inventory lease successor](INVENTORY_LEASE_PROPOSAL.md)
+keeps the existing original-session inventory lease through acquisition
+post-verification. Its changed source and unexecuted controls are not covered
+by the stage5 native result. It introduces no policy-effect or canonical owner.
+
+The next [fixed inventory entry](INVENTORY_ENTRY_PROPOSAL.md) is separately scoped:
+one original five-second open/read-only-inventory/positive-finish sequence,
+closed phase classes, retained original lease and a fresh publication pathname.
+Its exact b893 parent now has reviewed compile, two pure-sequence tests,
+data-only ELF validation and offline single-link freeze evidence, recorded in
+that proposal. Fixture-only 00a passes the full source suite (702 Python tests,
+two existing skips, all JS/QML). ROOT subsequently completed fresh stage6
+publication and one native read-only invocation with the exact ordered
+`OPEN_BEGIN / OPEN_OK / READ_BEGIN / TABLE_ABSENT / FINISH_BEGIN / FINISH_OK`
+receipt and original transport zero. The proposal records exact artifact and
+gate identities. Absence is an untrusted fixed-table observation, not an owned
+policy, full present-table dump, protection or permission to mutate. No
+installed or primary-PC behavior changed; whole K1 remains unavailable.

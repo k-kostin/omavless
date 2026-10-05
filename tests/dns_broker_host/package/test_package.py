@@ -28,6 +28,7 @@ RELEASE_SPEC = importlib.util.spec_from_file_location(
 release_stage = importlib.util.module_from_spec(RELEASE_SPEC)
 RELEASE_SPEC.loader.exec_module(release_stage)
 EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFileDescriptorStore=0\n"
+TEMP_PREFIX = "dp-"
 
 
 class PackageTests(unittest.TestCase):
@@ -41,7 +42,8 @@ class PackageTests(unittest.TestCase):
         self.assertIn("command -v zstd >/dev/null", script)
 
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="omavless-package-test-")
+        # Keep room for the unchanged real Unix-socket suffix under HOME TMPDIR.
+        self.temporary = tempfile.TemporaryDirectory(prefix=TEMP_PREFIX)
         self.root = Path(self.temporary.name)
         self.addCleanup(self.temporary.cleanup)
         self.binary = self.root / "reviewed-elf"
@@ -88,6 +90,19 @@ class PackageTests(unittest.TestCase):
                        for name, content in files.items()},
         }
         (self.pair / "source-receipt.json").write_text(json.dumps(receipt))
+
+    def test_short_fixture_keeps_room_for_fixed_unix_socket_suffix(self):
+        # A 55-byte parent reproduces the reported long-TMPDIR counterexample.
+        # This arithmetic does not create a second directory or bind a socket.
+        parent = "/" + "x" * 54
+        suffix = "/run/omavless-dns/control.sock"
+        old = parent + "/omavless-package-test-abcdefgh" + suffix
+        compact = parent + "/" + TEMP_PREFIX + "abcdefgh" + suffix
+        self.assertGreater(len(os.fsencode(old)), 107)
+        self.assertLessEqual(len(os.fsencode(compact)), 107)
+        self.assertTrue(self.root.name.startswith(TEMP_PREFIX))
+        self.assertEqual(self.root.parent, Path(tempfile.gettempdir()))
+        self.assertEqual(self.root.stat().st_mode & 0o777, 0o700)
 
     def render(self, output=None, **changes):
         args = {"pair": self.pair, "architecture": "aarch64", "revision": "a" * 40,

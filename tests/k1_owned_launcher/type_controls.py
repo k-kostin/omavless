@@ -9,6 +9,7 @@ PRELUDE = b'''
 use launch_acquisition::{AcquiredCreator, CreatorOwner};
 use launch_acquisition::owned_launcher::Prototype;
 use kernel_observer::owned_creator::ActualCreator;
+use kernel_observer::owned_creator::ActualInventory;
 '''
 
 
@@ -47,9 +48,25 @@ fn rejected() { canonical::<ActualCreator>(); }
         'private_originals': ('E0616', '''
 fn rejected(owner: &Prototype) { let _ = &owner.life; }
 '''),
+        'inventory_escape': ('E0515', '''
+fn rejected(mut owner: ActualCreator) -> ActualInventory<'static> {
+    owner.borrow_inventory().unwrap()
+}
+'''),
+        'inventory_overlap': ('E0499', '''
+fn rejected(owner: &mut ActualCreator) {
+    let mut lease = owner.borrow_inventory().unwrap();
+    owner.seal();
+    let _ = lease.recheck();
+}
+'''),
+        'inventory_private_session': ('E0616', '''
+fn rejected(lease: &mut ActualInventory<'_>) { let _ = &mut lease.lease; }
+'''),
     }
     for label, owner in (('prototype', 'Prototype'), ('creator', 'ActualCreator'),
-                         ('acquired', 'AcquiredCreator<ActualCreator>')):
+                         ('acquired', 'AcquiredCreator<ActualCreator>'),
+                         ('inventory', "ActualInventory<'static>")):
         for bound in ('Send', 'Sync', 'Copy'):
             result[f'{label}_{bound.lower()}'] = (
                 'E0277', f'fn require<T: {bound}>() {{}}\n'

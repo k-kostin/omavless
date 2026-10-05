@@ -48,6 +48,25 @@ class Controls(unittest.TestCase):
         self.assertNotIn('impl CanonicalCreator', bridge)
         self.assertNotIn('impl EffectPort', bridge)
 
+    def test_actual_inventory_reuses_existing_lease_through_owner_verification(self):
+        adapted = self.adapted['kernel_inventory.rs'].decode()
+        self.assertIn('pub(super) fn borrow_policy_inventory_before', adapted)
+        original = self.sources['kernel_inventory.rs'].decode()
+        start = '        let result = self.inspect_policy_inventory_before(deadline);'
+        end = '    #[cfg(test)]\n    pub(super) fn inspect_policy_inventory_once'
+        self.assertIn(original[original.index(start):original.index(end)], adapted)
+        creator = (HERE / 'owned_creator.rs').read_text()
+        self.assertIn('self.session.borrow_policy_inventory_before(self.deadline)?', creator)
+        self.assertIn("lease: LocalInventoryLease<'a>", creator)
+        self.assertIn('if !self.completed { self.lease.session.poisoned = true; }', creator)
+        self.assertNotIn('let (inventory, _, _) = result?', creator)
+        launcher = (HERE / 'owned_launcher.rs').read_text()
+        body = launcher[launcher.index('    pub(crate) fn inventory(&mut self)'):]
+        self.assertLess(body.index('self.acquired.sealed = true'), body.index('creator.borrow_inventory()'))
+        self.assertLess(body.index('inventory_sequence::Attempt'), body.index('inventory.complete()'))
+        self.assertLess(body.index('inventory.complete()'), body.index('self.acquired.sealed = false'))
+        self.assertIn('creator_socket: self.inventory.socket()', launcher)
+
     def test_all_four_actual_readback_leaf_pairs_and_no_sender_added(self):
         for name in ('kernel_observer.rs', 'kernel_inventory.rs',
                      'kernel_chain_observer.rs', 'kernel_rule_wire.rs'):
@@ -58,6 +77,38 @@ class Controls(unittest.TestCase):
             self.assertEqual(raw.count('recvmsg::<NetlinkAddr>('),
                              self.sources[name].decode().count('recvmsg::<NetlinkAddr>('))
         self.assertIn('launch.session_check(', self.adapted['kernel_observer.rs'].decode())
+
+    def test_fixed_inventory_entry_shares_deadline_and_retains_before_late_check(self):
+        raw = (HERE / 'inventory_gate.rs').read_text()
+        self.assertEqual(raw.count('Duration::from_secs(5)'), 1)
+        self.assertIn('Prototype::open_fixed_before(self.deadline)', raw)
+        self.assertLess(raw.index('*self.owner = Some(owner)'), raw.index('self.budget()', raw.index('*self.owner = Some(owner)')))
+        self.assertIn('owner: ManuallyDrop<Option<Prototype>>', raw)
+        self.assertIn('--fixed-owned-readonly-inventory', raw)
+        self.assertIn('rustix::io::write(rustix::stdio::stdout(), bytes)', raw)
+        self.assertNotIn('write_all', raw)
+        self.assertNotIn('unsafe', raw)
+        launcher = (HERE / 'owned_launcher.rs').read_text()
+        bounded = launcher[launcher.index('pub(crate) fn open_fixed_before'):launcher.index('pub(crate) fn inventory')]
+        self.assertIn('deadline.duration_since(now)<=Duration::from_secs(5)', bounded)
+        self.assertNotIn('checked_add', bounded)
+        self.assertIn('open_actual(deadline)', bounded)
+        sequence = (HERE / 'inventory_gate_sequence.rs').read_text()
+        run = sequence[sequence.index('pub(super) fn run'):sequence.index('#[cfg(test)]')]
+        self.assertLess(run.index('self.sealed = true'), run.index('backend.open()'))
+        self.assertLess(run.index('backend.inventory()?'), run.index('backend.finish()?'))
+        self.assertEqual(run.count('backend.inventory()?'), 1)
+        self.assertEqual(run.count('backend.finish()?'), 1)
+        for name in ('TableAbsent', 'ExactUntrusted', 'OtherUntrusted'):
+            self.assertIn('LocalPolicyInventory::' + name, raw)
+
+    def test_inventory_entry_is_opt_in_external_export_only(self):
+        raw = (HERE / 'prepare.py').read_text()
+        self.assertIn("'netguard-inventory-entry-v1'", raw)
+        self.assertIn('name = "k1-owned-readonly-inventory"', raw)
+        self.assertIn('required-features = ["owned-launch-readonly-inventory"]', raw)
+        self.assertIn('include!("inventory_gate.rs")', raw)
+        self.assertNotIn('inventory()', (HERE / 'no_policy_gate.rs').read_text())
 
     def test_fixed_semantic_acquisition_tail_is_byte_identical(self):
         old = self.sources['launch_acquisition.rs'].decode()
@@ -104,9 +155,9 @@ class Controls(unittest.TestCase):
         actual = bytes(int(part.strip(), 16) for part in sha.group(1).split(','))
         self.assertEqual(actual.hex(), '7838d1c3b1b26fa247d0bb16608153f576477c442817f8e1528f6f9c85fe6311')
         self.assertIn('const SIZE: u64 = 1_475_200;', image)
-        self.assertIn('const CHILD: &str = "/run/omavless-k1-owned-launch-v3/child";', image)
+        self.assertIn('const CHILD: &str = "/run/omavless-k1-owned-inventory-v1/child";', image)
         self.assertNotIn('omavless-k1-owned-launch-v1', image)
-        self.assertEqual(image.count('"/run/omavless-k1-owned-launch-v3"'), 2)
+        self.assertEqual(image.count('"/run/omavless-k1-owned-inventory-v1"'), 2)
         self.assertIn('index < 3 && (mode & 0o7777 == 0o755 || (index == 0 && mode & 0o7777 == 0o555))', image)
         self.assertIn('info.is_dir() && info.uid()==0 && info.gid()==0 && directory_mode(index, info.mode())', image)
         # Preserve the zero-pin and bounded-size refusal BEFORE original I/O.
