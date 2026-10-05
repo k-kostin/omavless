@@ -246,12 +246,61 @@ one-shot initial-bus observation, existing five-second inventory deadline,
 152 Session-attempt bound/cap153 and independent Bridge-cap128 remain unchanged.
 This is a source correction, not proof of any stopped invocation's cause or
 contents. Fresh immutable capsule and independent exact-head review are still
-required; no generation5 native or VM invocation has occurred.
+required. The subsequent ROOT-only generation5 outcome is retained below;
+these source controls do not relabel it.
 
 Source-only gates: Python3.14 and3.12.13 each pass all1129 Python controls
 (two existing skips), all JS/QML contracts,39 focused inert image controls and
 `git diff --check`. No native execution, actual cause or whole-flow PASS follows
 from these developer-only controls.
+
+### Generation-5 observed NONPASS and separate inert successor
+
+ROOT's one whole invocation4d1f4b/session96220 ended c2740c status2. This scope
+is permanently STOP: no query, signal, reap, retry, archive or cleanup. The
+separately reviewed file-only observer e05972 ended0; filtered projection849abc
+binds5652 receipt bytes to SHA-256
+`430e459d84b9bf76793e5f29d17cb20ff917d27e79fc4da65c2ed0ba71d29052`.
+It contains169 exact literal frames (83 Bridge,86 Session), no opaque tail,
+last `before_host_first_images`, empty inner record, absent outer record and no
+marker. The source/native pins match the fixed capsule. This is a reached
+boundary, not a cause, current-preservation proof, completed-effect proof or
+whole-flow PASS. No stopped maps or private failure payload were queried.
+
+ROOT's earlier source-transfer inert selection27bb08 remains NONPASS (17
+controls, one setup error), cause unproved. A separate fresh isolated synthetic
+ancestry-adapter successor v2 was fully reviewed and selected once by ROOT:
+ff51c7 ended0,19 controls PASS. It models only shared ancestor volatile metadata,
+retains static identity and complete real fixture metadata, and adds a
+deterministic ancestor-mutation refusal. It does not change the production
+receiver, retry27bb08 or explain that original error.
+
+### Generation-6 proposed host initial-inventory diagnostics
+
+Fresh fixed stage `t3-retained-positive-composition-review-6` adds only the same
+closed inventory vocabulary to the single `initial_host` attempt, alongside
+the retained single `initial_bus` attempt. Independent fixed role latches
+prevent either attempt replay; wrong-role/unknown contexts refuse before maps
+or labels. Each role has11 paired pre/post steps and at most eight first-instance
+anonymous classes in each of two parses:38 labels per role. Generic combinations
+are restricted to the literal roles `bus` and `host`, not caller data. No raw
+row, path, exception payload or cardinality escapes. Classification still
+precedes the unchanged anonymous predicate, so a glibc class is not acceptance.
+
+The full conservative source path is114 baseline/role labels plus38 bus and38
+host labels =190 Session attempts, cap191; Bridge remains independently128,
+combined lexical cap319. Rejecting categories cannot finish the path but remain
+included conservatively. Existing caller-local five-second inventory deadlines
+and pre/post available checks remain shared, not reset or extended. Leaf/map
+predicates and all four native objects are unchanged. This source-only proposal
+does not prove that the host mapping parser caused generation5 NONPASS, relax
+glibc grammar, or authorize any native/VM invocation. Fresh immutable capsules
+and complete ROOT/independent reviews are prerequisites to any fresh scope.
+
+Generation6 source-only gates: Python3.14 and3.12.13 each pass all1131 Python
+controls (two existing skips), all JS/QML contracts,41 focused inert image
+controls and `git diff --check`. No native objects were rebuilt or executed;
+no actual scope was staged, observed, queried or selected by the author.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

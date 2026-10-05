@@ -19,6 +19,7 @@ PUBLIC = re.compile(r'(?:/usr/(?:lib|bin)/[A-Za-z0-9_./+:-]+|/artifacts/(?:mihom
 MAP_LINE = re.compile(r'([0-9a-f]{1,16})-([0-9a-f]{1,16}) ([r-][w-][x-][ps]) ([0-9a-f]{1,16}) ([0-9a-f]{1,8}):([0-9a-f]{1,8}) ([0-9]{1,20})(?:[ \t]+([^\r\n]+)| )?')
 ROLES = {'bus':'/usr/bin/dbus-daemon','resolved':'/usr/lib/systemd/systemd-resolved',
          'core':'/artifacts/mihomo','broker':'/artifacts/omavless-dns-broker','host':'/artifacts/host-fixture'}
+INVENTORY_ROLES = ('bus','host')
 # Go's Linux runtime places a five-byte " Go: " prefix in a 79-byte
 # NUL-terminated VMA name. Only zero-identity anonymous rows may use this
 # bounded annotation; it is discarded, never an eligible file/object path.
@@ -100,6 +101,7 @@ class Images:
         self.held = []
         self.executables = {}
         self.initial_bus_observed = False
+        self.initial_host_observed = False
         try:
             require(type(owner) is ownership.Session and owner.kind == 'inner'
                     and type(copies) is copy_module.Bridge and type(artifacts) is artifact_module.Sources)
@@ -238,21 +240,26 @@ class Images:
             require(len(names) == 1 and names[0] in ROLES)
             name = names[0]
             require(context is None or context in ('initial_' + name, 'final_' + name))
-            observed = context == 'initial_bus'
+            observed = name in INVENTORY_ROLES and context == 'initial_' + name
             if observed:
-                require(self.initial_bus_observed is False)
-                self.initial_bus_observed = True  # No diagnostic replay.
+                if name == 'bus':
+                    require(self.initial_bus_observed is False)
+                    self.initial_bus_observed = True
+                else:
+                    require(self.initial_host_observed is False)
+                    self.initial_host_observed = True
+                # Separate fixed role latches; neither diagnostic can replay.
             def mark(side, step):
                 if observed:
                     self.available(deadline)
                     require(side in ('before','after') and step in INVENTORY_STEPS)
-                    self.owner.phase(side+'_bus_initial_inventory_'+step, deadline)
+                    self.owner.phase(side+'_'+name+'_initial_inventory_'+step, deadline)
                     self.available(deadline)
             def parsed(raw, step):
                 def category(label):
                     self.available(deadline)
                     require(label in ANONYMOUS_CLASSES and step in ('first_parse','second_parse'))
-                    self.owner.phase('before_bus_initial_inventory_'+step+'_'+label, deadline)
+                    self.owner.phase('before_'+name+'_initial_inventory_'+step+'_'+label, deadline)
                     self.available(deadline)
                 return map_objects(raw, category if observed else None)
             mark('before','executable')

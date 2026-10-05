@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-5/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-6/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
     'after_artifact_crosscheck','before_case_constructor','after_case_constructor',
@@ -38,17 +38,19 @@ PHASES |= frozenset(side+'_'+role+'_'+step for role in ROLES
 INVENTORY_STEPS = ('executable','first_text','first_parse','required_members',
     'whole_membership','targets','second_text','second_parse','maps_equal',
     'final_executable','final_live')
+INVENTORY_ROLES = ('bus','host')
 ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
     'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
-PHASES |= frozenset(side+'_bus_initial_inventory_'+step for step in INVENTORY_STEPS
+PHASES |= frozenset(side+'_'+role+'_initial_inventory_'+step for role in INVENTORY_ROLES for step in INVENTORY_STEPS
                    for side in ('before','after'))
-PHASES |= frozenset('before_bus_initial_inventory_'+step+'_'+category
+PHASES |= frozenset('before_'+role+'_initial_inventory_'+step+'_'+category for role in INVENTORY_ROLES
                    for step in ('first_parse','second_parse') for category in ANONYMOUS_CLASSES)
-# 114 role/launcher labels + 22 paired initial_bus inventory labels + at most
-# 16 first-instance classes across two parses = 152 attempts. Some rejecting
+# 114 role/launcher labels + two one-shot inventories each with 22 paired
+# labels and at most16 first-instance classes across two parses =190 attempts.
+# Some rejecting
 # classes cannot complete; this conservative complete-path bound includes all.
-# Bridge's independent cap remains128; combined lexical cap281, not authority.
-PHASE_LIMIT = 153
+# Bridge's independent cap remains128; combined lexical cap319, not authority.
+PHASE_LIMIT = 191
 
 
 class Refused(RuntimeError):
