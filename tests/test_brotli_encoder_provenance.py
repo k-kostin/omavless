@@ -8,9 +8,11 @@ import struct
 import subprocess
 import tempfile
 import time
+import types
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from tests.frontier_fixture_helpers import fixed_vm_process_os
 
 from tests.brotli_encoder_provenance import probe, validator, supervisor, transport
 from tests.static_elf_provenance import probe_four_mib as helpers
@@ -234,14 +236,16 @@ class EncoderTests(unittest.TestCase):
             owned = Mock()
             if code == 'unknown': owned.settle.side_effect = RuntimeError('unknown')
             with patch.object(supervisor,'__file__',str(supervisor.STAGE/'supervisor.py')), \
+                 patch.object(supervisor,'os',fixed_vm_process_os(supervisor.os)), \
                  patch.object(supervisor.sys,'argv',['supervisor.py','--run-fixed-encoder']), \
                  patch.object(supervisor.os,'open',return_value=9), patch.object(supervisor.os,'close'), \
                  patch.object(supervisor.os,'fstat',return_value=s), patch.object(supervisor.os,'listxattr',return_value=[]), \
                  patch.object(supervisor.os,'pread',return_value=b'pass'), \
                  patch.object(supervisor,'PINS',{n:hashlib.sha256(b'pass').hexdigest() for n in ('containment.py','owned.py')}), \
-                 patch.object(supervisor.types,'ModuleType',side_effect=[base,owned]), \
+                 patch.object(supervisor,'types',SimpleNamespace(ModuleType=Mock(side_effect=[base,owned]))), \
                  patch.object(supervisor.Path,'open'), \
-                 self.assertRaises(RuntimeError):
+                self.assertRaises(RuntimeError):
+                self.assertIsInstance(types.ModuleType, type)
                 # lstat file must match source, ancestors must be directories.
                 with patch.object(supervisor.Path,'lstat',autospec=True,
                                   side_effect=lambda p:s if p.name in ('containment.py','owned.py') else directory):

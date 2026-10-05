@@ -601,7 +601,7 @@ class TransportTests(old_transport.TransportTests):
     def setUp(self):
         original = tempfile.TemporaryDirectory
         def private_temp(*args,**kwargs):
-            kwargs['dir'] = os.environ['TMPDIR']
+            kwargs['dir'] = os.environ.get('TMPDIR') or tempfile.gettempdir()
             return original(*args,**kwargs)
         temporary = patch.object(old_transport.tempfile,'TemporaryDirectory',side_effect=private_temp)
         temporary.start(); self.addCleanup(temporary.stop)
