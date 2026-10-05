@@ -7,6 +7,12 @@ backend, storage operation, packet or VM action is selected. The auth checkpoint
 and its previous canonical NONPASS scopes remain immutable. This implementation
 does not borrow actual canonical acceptance or fabricate product authority.
 
+The new `dev/t4-canonical-exited-stage` composition starts from frozen
+`da6ec0443b67c2f070de2c1af3e270905fdf93d9` and selectively carries reviewed
+errno `c5fa3ece` plus whole-group witness `2443e94f`. The original da6/669/672
+heads remain immutable. Separate2443 canonical inventory acceptance below is
+not composition/auth/Stage acceptance. No composition actor has been executed.
+
 Owning contracts: [canonical auth](T4_CANONICAL_PRIVATE_AUTH.md),
 [canonical inventory](T4_STOPPED_INVENTORY_ACTOR.md),
 [actor service](T4_MANAGER_ACTOR_SERVICE.md),
@@ -107,10 +113,13 @@ owner-admitted/owner-checked milestones bracket those complete refreshes.
 | Six existing Stage literals |6|207|
 | Two Stage owner literals |2|59|
 | Positive total |114|4001|
-| Conservative inventory +Stage first-refusal addition |2|43+37|
-| Complete finite bound |116|4081 <=4096|
+| Conservative inventory +Stage first-refusal addition |2|45+37|
+| Complete finite bound |116|4083 <=4096|
 
-Vocabulary is59 literals (auth43 +Stage6 +owner2 +refusal8), not116 choices.
+Composition vocabulary is68 literals (auth52 +Stage6 +owner2 +refusal8), not116
+choices: six original errno and three group-failure literals add9 to the frozen
+da6 vocabulary59. The source-derived longest inventory label grows43->45 bytes;
+4001+45+37=4083 still fits4096 with unchanged114/116 frame limits.
 Stage refusal suffixes: admission, origin, directory, member_write,
 member_verify, catalogue, journal, final_owner; prefix `t4_actor_stage_`,
 suffix `_refused`/LF. Supervisor positive has11 frames. No raw PID/count,
@@ -144,6 +153,71 @@ separate HOME-only `t4-canonical-stage-source-build.6uUosgPr`, its700 temporary
 directory and at most four Cargo jobs. No canonical query/proc/credential or
 storage backend, old capture/scope or guest operation was selected. These gates
 do not supply actual origin, Stage completion, custody or product acceptance.
+
+The preceding counts/build belong to frozen da6 only. Composition focused48
+canonical/inventory controls (`2ea9e7`/`a930ae`),48 service/protocol/transfer/
+Stage controls (`91ea48`/`299222`), seven capture controls (`a0a07f`), strict
+all-target feature Clippy (`934f74`/`c9e405`), default library check
+(`3b8b50`/`b0f1ed`), workspace fmt/whitespace passed. Initial inert service gate
+(`3b0f16`/`275f12`) remains NONPASS: its source-derived maximum exposed the
+43->45-byte errno label increase. Corrected controls use4083, not a raised cap.
+Exact composition actor build/artifact, affected critical review and actual
+scenario remain separate gates; no actor was executed by the writer.
+
+## Same-original exited-witness composition
+
+Live SameUID rows still hold their required Image(File); only a strictly proven
+whole-group-exited row uses the distinct ExitedGroupPidfd(File) secondary.
+There is one retained original directory and at most one secondary per row,
+not image+pidfd, no missing-row skip and no fallback after an image-open Err.
+Strict original Z/status/Tgid/Threads1/start>0/UID/NSpid/current-inode continuity,
+original fdinfo and NONTHREAD/IN-only/noHUP proof are copied from exact2443.
+Unknown/reaped/changing/leader-only cases refuse; no wait, signal or cleanup.
+
+The actual auth/Stage graph from da6 remains the caller. All existing full
+refreshes use the changed row_current path, rechecking the same original exited
+witnesses as well as live images. Owner::stage_originals now validates the typed
+secondary against each completed row's class before admitting Stage; there is
+no fabricated classic17-FD capture or copied authority. Both full Stage passes,
+exact26 origin-only fences, silent query transitions/gates, original private
+Transfer/plaintext and last full-refresh-before-completion ordering are retained.
+The existing retained visibility File/initializer is not duplicated or replaced.
+
+Fixed8320 and lower36 remain unchanged: at most8192 row/secondary descriptors,
+canonical conservative41, lower36 and canonical scratch8 =8277<=8320. FDinfo
+Scratch1 plus row-text Scratch0 remain inside the same8 and outside lower36.
+Completed scratch may release positively; later refusal preserves its uncertain
+live prefix, not an already completed handle. New outer group labels follow
+explicit row revocation; inherited nested text diagnostics retain their original
+single-thread flow. No fault, time/byte, default/classic or product-authority
+guarantee is broadened by this composition.
+
+New memory controls cover unchanged charge/originals across all four auth/Stage
+refreshes with exited-group secondary witnesses, typed complete-owner Stage
+admission/refusal, source-derived52/68 vocabulary and4083 within4096 budget.
+These supplement carried errno/group/Stage fault controls, not actual operations.
+
+### Separate canonical inventory actual checkpoint (not Stage)
+
+ROOT selected exact2443 actor64258104 bytes/SHA256
+`a230ec2d88b5edcd633604864250fa69abc14c23a541020631b7c6e604d592f9`
+after independent packet review/23 inert controls and the separately reviewed
+own-child producer `064a22` original0. Upload `1ea0f2`, prepare `26bc8b`/`e0306a`
+and whole `545983`/`840dc6` returned original0. Separate pre-scoped two-file
+observer `be3fc6`/`bbabfa` returned original0:
+
+| Capture | Bytes / frames | Last literal | SHA256 |
+| --- | --- | --- | --- |
+| Actor |2093 /59|canonical_stopped_observed|05d6259fd0d490ab5ce676c6ff1e942a20380800dba6d3da55f8bcdee31657e1|
+| Supervisor |181 /7|service_completed|89b18380c943cd655215e268fd0b556cdafbf801308a444b154a4202b24f5afc|
+
+This closes that scoped genuine canonical inventory/normal Halt/original-child0
+scenario only, not auth/Stage/product Restore or zero shared/persistent kernel
+resources. No prior zombie cause is inferred; earlier scopes remain NONPASS.
+The exact public checkpoint is [Draft672](https://github.com/k-kostin/omavless/pull/672#issuecomment-6004291367).
+Composition requires its own critical review, exact build/pins and fresh
+positive-completed/disposable/runtime/packet admission before ROOT alone may
+select a new whole actor scenario. It never reuses an old epoch or actor.
 
 The only tree is the existing fixed synthetic `authenticated-transaction`
 inside the one administrator epoch. Its old pair is public fixture data, its

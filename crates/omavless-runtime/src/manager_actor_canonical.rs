@@ -16,7 +16,7 @@ use std::process::{Child, ChildStdout};
 
 #[path = "manager_actor_inventory_candidate.rs"]
 mod inventory;
-use inventory::{Class, Owner};
+use inventory::{Class, Owner, Secondary};
 
 pub(crate) const NOFILE: u64 = 8320;
 const FIXED: usize = 120;
@@ -94,6 +94,250 @@ impl QueryProgress {
 
 fn query_credentials(system: bool) -> Option<(u32, u32)> {
     if system { None } else { Some((UID, UID)) }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImageOpenErrno {
+    NoEntry,
+    Access,
+    Permission,
+    ProcessLimit,
+    SystemLimit,
+    Other,
+}
+impl ImageOpenErrno {
+    fn original(error: nix::errno::Errno) -> Self {
+        use nix::errno::Errno;
+        match error {
+            Errno::ENOENT => Self::NoEntry,
+            Errno::EACCES => Self::Access,
+            Errno::EPERM => Self::Permission,
+            Errno::EMFILE => Self::ProcessLimit,
+            Errno::ENFILE => Self::SystemLimit,
+            _ => Self::Other,
+        }
+    }
+    fn label(self) -> &'static [u8] {
+        match self {
+            Self::NoEntry => b"t4_actor_inventory_image_open_enoent_refused\n",
+            Self::Access => b"t4_actor_inventory_image_open_eacces_refused\n",
+            Self::Permission => b"t4_actor_inventory_image_open_eperm_refused\n",
+            Self::ProcessLimit => b"t4_actor_inventory_image_open_emfile_refused\n",
+            Self::SystemLimit => b"t4_actor_inventory_image_open_enfile_refused\n",
+            Self::Other => b"t4_actor_inventory_image_open_other_refused\n",
+        }
+    }
+}
+
+fn canonical_image_file(directory: &File) -> nix::Result<File> {
+    // Same single original magic-link open as magic_file; no probe or retry.
+    // Keep its typed error here instead of the shared helper's unit erasure.
+    openat(
+        directory,
+        "exe",
+        OFlag::O_PATH | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    )
+    .map(File::from)
+}
+
+fn record_image_open<T>(
+    original: nix::Result<T>,
+    reported: &mut Option<ImageOpenErrno>,
+) -> std::result::Result<T, Unavailable> {
+    original.map_err(|error| {
+        // Only this original error is classified. No output/budget/IO inside
+        // the acquisition callback; Owner revokes before the outer cut emits.
+        *reported = Some(ImageOpenErrno::original(error));
+        Unavailable
+    })
+}
+
+fn image_open_failure(reported: Option<ImageOpenErrno>) -> InventoryFailure {
+    reported.map_or(
+        InventoryFailure::ImageOpen,
+        InventoryFailure::ImageOpenErrno,
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RowStat {
+    start: u64,
+    zombie: bool,
+}
+fn row_stat(bytes: &[u8], pid: u32) -> Result<RowStat> {
+    let start = start_time(bytes, pid)?; // unchanged shared strict parser
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    let (_, fields) = text.rsplit_once(") ").ok_or(())?;
+    Ok(RowStat {
+        start,
+        zombie: fields.split_ascii_whitespace().next() == Some("Z"),
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ZombieStatus {
+    tgid: u32,
+    threads: u32,
+}
+fn zombie_status(bytes: &[u8], pid: u32) -> Option<ZombieStatus> {
+    let mut state = None;
+    let mut tgid = None;
+    let mut threads = None;
+    for line in bytes.split(|b| *b == b'\n') {
+        if let Some(value) = line.strip_prefix(b"State:") {
+            if state.replace(value.trim_ascii() == b"Z (zombie)").is_some() {
+                return None;
+            }
+        } else if let Some(value) = line.strip_prefix(b"Tgid:") {
+            if tgid.is_some() {
+                return None;
+            }
+            tgid = Some(decimal(value.trim_ascii()).ok()?);
+        } else if let Some(value) = line.strip_prefix(b"Threads:") {
+            if threads.is_some() {
+                return None;
+            }
+            threads = Some(decimal(value.trim_ascii()).ok()?);
+        }
+    }
+    if state != Some(true) || tgid != Some(pid) || threads != Some(1) {
+        return None;
+    }
+    Some(ZombieStatus {
+        tgid: pid,
+        threads: 1,
+    })
+}
+
+fn group_candidate(
+    stat: RowStat,
+    status: Option<ZombieStatus>,
+    identity: &Status,
+    pid: u32,
+) -> Result<bool> {
+    if pid == 0 || stat.start == 0 {
+        return Err(());
+    }
+    if !stat.zombie {
+        return Ok(false);
+    }
+    if !status.is_some_and(|value| value.tgid == pid && value.threads == 1)
+        || identity.namespace_pids != [pid]
+    {
+        return Err(());
+    }
+    Ok(true) // candidate ONLY; original group pidfd proof must still complete
+}
+
+fn group_row_matches(
+    saved: &Status,
+    start: u64,
+    zombie: Option<ZombieStatus>,
+    current: &Status,
+    stat: RowStat,
+    current_zombie: Option<ZombieStatus>,
+    pid: u32,
+) -> bool {
+    pid > 0
+        && start > 0
+        && current == saved
+        && stat.start == start
+        && stat.zombie
+        && zombie.is_some_and(|value| value.tgid == pid && value.threads == 1)
+        && current_zombie == zombie
+        && current.namespace_pids == [pid]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GroupProofStep {
+    BeforeRow,
+    AcquireInfo,
+    InfoBefore,
+    PollBefore,
+    AfterRow,
+    InfoAfter,
+    PollAfter,
+    ReleaseInfo,
+}
+const GROUP_PROOF_STEPS: [GroupProofStep; 8] = [
+    GroupProofStep::BeforeRow,
+    GroupProofStep::AcquireInfo,
+    GroupProofStep::InfoBefore,
+    GroupProofStep::PollBefore,
+    GroupProofStep::AfterRow,
+    GroupProofStep::InfoAfter,
+    GroupProofStep::PollAfter,
+    GroupProofStep::ReleaseInfo,
+];
+fn group_sequence(mut operation: impl FnMut(GroupProofStep) -> Result<()>) -> Result<()> {
+    for step in GROUP_PROOF_STEPS {
+        operation(step)?;
+    }
+    Ok(())
+}
+
+fn group_flags() -> PidfdFlags {
+    PidfdFlags::NONBLOCK
+}
+
+fn group_pidfd(pid: u32) -> Result<File> {
+    let pid = RustPid::from_raw(i32::try_from(pid).map_err(|_| ())?).ok_or(())?;
+    // Exactly NONBLOCK; never THREAD, inherited/imported FD, wait or signal.
+    pidfd_open(pid, group_flags())
+        .map(File::from)
+        .map_err(|_| ())
+}
+fn group_poll_result(count: usize, events: rustix::event::PollFlags) -> Result<()> {
+    if count == 1 && events == rustix::event::PollFlags::IN {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+fn group_exited(file: &File, budget: &Budget) -> Result<()> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    budget.check()?;
+    let mut fds = [PollFd::new(file, PollFlags::IN)];
+    let count = poll(
+        &mut fds,
+        Some(&Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        }),
+    )
+    .map_err(|_| ())?;
+    budget.check()?;
+    group_poll_result(count, fds[0].revents())
+}
+fn group_fdinfo(bytes: &[u8], pid: u32) -> Result<()> {
+    if pid == 0 || !bytes.ends_with(b"\n") || !bytes.is_ascii() || bytes.contains(&0) {
+        return Err(());
+    }
+    let mut own = None;
+    let mut namespace = None;
+    for line in bytes.split(|b| *b == b'\n') {
+        if let Some(value) = line.strip_prefix(b"Pid:") {
+            if own.is_some() {
+                return Err(());
+            }
+            own = Some(decimal(value.trim_ascii())?);
+        } else if let Some(value) = line.strip_prefix(b"NSpid:") {
+            if namespace.is_some() {
+                return Err(());
+            }
+            let values: Vec<_> = value
+                .split(u8::is_ascii_whitespace)
+                .filter(|v| !v.is_empty())
+                .map(decimal)
+                .collect::<Result<_>>()?;
+            namespace = Some(values);
+        }
+    }
+    if own != Some(pid) || !namespace.as_deref().is_some_and(|values| values == [pid]) {
+        return Err(());
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -187,6 +431,10 @@ enum InventoryFailure {
     StatParse,
     Classify,
     ImageOpen,
+    ImageOpenErrno(ImageOpenErrno),
+    GroupOpen,
+    GroupProof,
+    GroupCurrent,
     ImageShape,
     CommandRead,
     CommandParse,
@@ -214,6 +462,10 @@ impl InventoryFailure {
             Self::StatParse => b"t4_actor_inventory_stat_parse_refused\n",
             Self::Classify => b"t4_actor_inventory_classify_refused\n",
             Self::ImageOpen => b"t4_actor_inventory_image_open_refused\n",
+            Self::ImageOpenErrno(error) => error.label(),
+            Self::GroupOpen => b"t4_actor_inventory_group_open_refused\n",
+            Self::GroupProof => b"t4_actor_inventory_group_proof_refused\n",
+            Self::GroupCurrent => b"t4_actor_inventory_group_current_refused\n",
             Self::ImageShape => b"t4_actor_inventory_image_shape_refused\n",
             Self::CommandRead => b"t4_actor_inventory_command_read_refused\n",
             Self::CommandParse => b"t4_actor_inventory_command_parse_refused\n",
@@ -451,6 +703,8 @@ struct Facts {
     start: u64,
     identity: Status,
     image_metadata: Option<Metadata>,
+    zombie: Option<ZombieStatus>,
+    group_metadata: Option<Metadata>,
     command: Zeroizing<Vec<u8>>,
     comm: Zeroizing<Vec<u8>>,
     image_name: Zeroizing<Vec<u8>>,
@@ -1238,11 +1492,11 @@ impl Canonical {
             )),
             budget,
         )?;
-        let identity = self.row_text(TextRole::Status, MAX_STATUS, budget, |bytes| {
-            status(bytes, pid)
+        let (identity, zombie) = self.row_text(TextRole::Status, MAX_STATUS, budget, |bytes| {
+            Ok((status(bytes, pid)?, zombie_status(bytes, pid)))
         })?;
-        let start = self.row_text(TextRole::Stat, MAX_STATUS, budget, |bytes| {
-            start_time(bytes, pid)
+        let stat = self.row_text(TextRole::Stat, MAX_STATUS, budget, |bytes| {
+            row_stat(bytes, pid)
         })?;
         let metadata = self
             .rows
@@ -1255,15 +1509,26 @@ impl Canonical {
             self.inventory_diagnostic
                 .cut(InventoryFailure::RowDirectory, metadata, budget)?;
         let class = if identity.uids.contains(&UID) {
-            Class::SameUid
+            let candidate = group_candidate(stat, zombie, &identity, pid);
+            if self.group_cut(InventoryFailure::Classify, candidate, budget)? {
+                Class::SameUidExitedGroup
+            } else {
+                Class::SameUid
+            }
         } else {
             Class::OtherUid
         };
         self.facts.push(Facts {
             metadata,
-            start,
+            start: stat.start,
             identity,
             image_metadata: None,
+            zombie: if class == Class::SameUidExitedGroup {
+                zombie
+            } else {
+                None
+            },
+            group_metadata: None,
             command: Zeroizing::new(Vec::new()),
             comm: Zeroizing::new(Vec::new()),
             image_name: Zeroizing::new(Vec::new()),
@@ -1276,13 +1541,40 @@ impl Canonical {
             ),
             budget,
         )?;
+        if class == Class::SameUidExitedGroup {
+            let index = self.facts.len() - 1;
+            // Candidate facts are re-read from the retained proc object before
+            // selecting a pidfd by number. No prior failed image-open fallback.
+            let current = self.exited_row_facts(pid, index, budget);
+            self.group_cut(InventoryFailure::GroupCurrent, current, budget)?;
+            let opened = available_to_unit(self.rows.exited_group(
+                || available(budget.check()),
+                |_| available(group_pidfd(pid)),
+            ));
+            self.group_cut(InventoryFailure::GroupOpen, opened, budget)?;
+            let captured = (|| {
+                budget.check()?;
+                let file = match self.rows.row_secondary().map_err(|_| ())? {
+                    Some(Secondary::ExitedGroupPidfd(file)) => file,
+                    _ => return Err(()),
+                };
+                let metadata = file.metadata().map_err(|_| ())?;
+                self.facts[index].group_metadata = Some(metadata); // before postgate
+                budget.check()
+            })();
+            self.group_cut(InventoryFailure::GroupProof, captured, budget)?;
+        }
         if class == Class::SameUid {
+            let mut original_error = None;
+            let acquired = self.rows.executable(
+                || available(budget.check()),
+                |directory| record_image_open(canonical_image_file(directory), &mut original_error),
+            );
+            // Owner already revoked on any error; a positive File is installed
+            // before its unchanged postgate. Gate/charge refusal stays generic.
             self.inventory_diagnostic.cut(
-                InventoryFailure::ImageOpen,
-                available_to_unit(self.rows.executable(
-                    || available(budget.check()),
-                    |directory| available(magic_file(directory, "exe")),
-                )),
+                image_open_failure(original_error),
+                available_to_unit(acquired),
                 budget,
             )?;
             let image_metadata = self
@@ -1357,6 +1649,10 @@ impl Canonical {
         )
     }
     fn row_current(&mut self, pid: u32, index: usize, budget: &mut Budget) -> Result<()> {
+        if self.facts.get(index).ok_or(())?.zombie.is_some() {
+            let result = self.exited_group_current(pid, index, budget);
+            return self.group_cut(InventoryFailure::GroupProof, result, budget);
+        }
         let identity = self.row_text(TextRole::Status, MAX_STATUS, budget, |bytes| {
             status(bytes, pid)
         })?;
@@ -1401,6 +1697,174 @@ impl Canonical {
             if command != facts.command || comm != facts.comm {
                 return Err(());
             }
+        }
+        budget.check()
+    }
+
+    fn group_cut<T>(
+        &mut self,
+        cut: InventoryFailure,
+        original: Result<T>,
+        budget: &Budget,
+    ) -> Result<T> {
+        if original.is_err() {
+            let _ = self.rows.refuse(); // before outer first-only error label
+        }
+        self.inventory_diagnostic.cut(cut, original, budget)
+    }
+
+    fn exited_row_facts(&mut self, pid: u32, index: usize, budget: &mut Budget) -> Result<()> {
+        budget.check()?;
+        // These originals were already admitted before inventory. Refuse the
+        // lazy visibility branch rather than acquire a new fixed role here.
+        if self.visibility.is_none() || self.fdinfo.is_none() {
+            return Err(());
+        }
+        self.boundaries(budget)?;
+        let (identity, zombie) = self.row_text(TextRole::Status, MAX_STATUS, budget, |bytes| {
+            Ok((status(bytes, pid)?, zombie_status(bytes, pid)))
+        })?;
+        let stat = self.row_text(TextRole::Stat, MAX_STATUS, budget, |bytes| {
+            row_stat(bytes, pid)
+        })?;
+        let facts = self.facts.get(index).ok_or(())?;
+        if !group_row_matches(
+            &facts.identity,
+            facts.start,
+            facts.zombie,
+            &identity,
+            stat,
+            zombie,
+            pid,
+        ) {
+            return Err(());
+        }
+        binding(
+            &self.files[self.root.ok_or(())?],
+            &pid.to_string(),
+            self.rows.row_originals().map_err(|_| ())?.0,
+            &facts.metadata,
+            false,
+            false,
+            budget,
+        )
+    }
+
+    fn exited_group_current(&mut self, pid: u32, index: usize, budget: &mut Budget) -> Result<()> {
+        let number = match self.rows.row_secondary().map_err(|_| ())? {
+            Some(Secondary::ExitedGroupPidfd(file)) => file.as_raw_fd().to_string(),
+            _ => return Err(()),
+        };
+        let until = budget.until;
+        let mut metadata = None;
+        // Scratch1 remains held while Scratch0 serves original row rechecks.
+        // It is inside the existing8; never a third persistent row descriptor.
+        group_sequence(|step| match step {
+            GroupProofStep::BeforeRow | GroupProofStep::AfterRow => {
+                self.exited_row_facts(pid, index, budget)
+            }
+            GroupProofStep::AcquireInfo => {
+                let parent = &self.files[self.fdinfo.ok_or(())?];
+                available_to_unit(self.rows.scratch_acquire(
+                    1,
+                    || time_gate(until),
+                    |_| {
+                        available(
+                            openat(
+                                parent,
+                                number.as_str(),
+                                OFlag::O_RDONLY
+                                    | OFlag::O_NONBLOCK
+                                    | OFlag::O_NOFOLLOW
+                                    | OFlag::O_CLOEXEC,
+                                Mode::empty(),
+                            )
+                            .map(File::from)
+                            .map_err(|_| ()),
+                        )
+                    },
+                ))?;
+                budget.check()?;
+                metadata = Some(
+                    self.rows
+                        .scratch_original(1)
+                        .map_err(|_| ())?
+                        .metadata()
+                        .map_err(|_| ())?,
+                );
+                budget.check()
+            }
+            GroupProofStep::InfoBefore | GroupProofStep::InfoAfter => {
+                self.exited_fdinfo(pid, &number, metadata.as_ref().ok_or(())?, budget)
+            }
+            GroupProofStep::PollBefore | GroupProofStep::PollAfter => {
+                self.exited_pidfd_poll(index, budget)
+            }
+            GroupProofStep::ReleaseInfo => {
+                available_to_unit(self.rows.scratch_release(1, || time_gate(until)))
+            }
+        })
+    }
+
+    fn exited_fdinfo(
+        &mut self,
+        pid: u32,
+        name: &str,
+        metadata: &Metadata,
+        budget: &mut Budget,
+    ) -> Result<()> {
+        let parent = &self.files[self.fdinfo.ok_or(())?];
+        binding(
+            parent,
+            name,
+            self.rows.scratch_original(1).map_err(|_| ())?,
+            metadata,
+            false,
+            false,
+            budget,
+        )?;
+        let buffer = &mut self.buffer;
+        let until = budget.until;
+        available_to_unit(self.rows.scratch_perform(
+            1,
+            || time_gate(until),
+            |file| {
+                available(read_original(file, MAX_STATUS, buffer, budget))?;
+                available(group_fdinfo(buffer, pid))
+            },
+        ))?;
+        binding(
+            parent,
+            name,
+            self.rows.scratch_original(1).map_err(|_| ())?,
+            metadata,
+            false,
+            false,
+            budget,
+        )
+    }
+
+    fn exited_pidfd_poll(&self, index: usize, budget: &Budget) -> Result<()> {
+        let file = match self.rows.row_secondary().map_err(|_| ())? {
+            Some(Secondary::ExitedGroupPidfd(file)) => file,
+            _ => return Err(()),
+        };
+        let initial = self
+            .facts
+            .get(index)
+            .ok_or(())?
+            .group_metadata
+            .as_ref()
+            .ok_or(())?;
+        budget.check()?;
+        if !identity(initial, &file.metadata().map_err(|_| ())?) {
+            return Err(());
+        }
+        budget.check()?;
+        group_exited(file, budget)?;
+        budget.check()?;
+        if !identity(initial, &file.metadata().map_err(|_| ())?) {
+            return Err(());
         }
         budget.check()
     }
@@ -1778,8 +2242,175 @@ pub(crate) fn auth_success_trace_bytes() -> usize {
 }
 
 #[cfg(test)]
+pub(crate) fn inventory_trace_limits() -> (usize, usize) {
+    let failures = tests::INVENTORY_FAILURES;
+    (
+        failures.len(),
+        failures
+            .into_iter()
+            .map(|cut| cut.label().len())
+            .max()
+            .unwrap(),
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    fn synthetic_zombie_status() -> &'static [u8] {
+        b"State:\tZ (zombie)\nTgid:\t2\nPid:\t2\nUid:\t1000\t1000\t1000\t1000\nNSpid:\t2\nThreads:\t1\n"
+    }
+    #[test]
+    fn exited_candidate_is_strict_and_never_an_enoent_fallback() {
+        let raw = synthetic_zombie_status();
+        let identity = status(raw, 2).unwrap();
+        let zombie = zombie_status(raw, 2);
+        let stat = RowStat {
+            start: 1,
+            zombie: true,
+        };
+        assert_eq!(group_candidate(stat, zombie, &identity, 2), Ok(true));
+        assert_eq!(
+            group_candidate(
+                RowStat {
+                    zombie: false,
+                    ..stat
+                },
+                None,
+                &identity,
+                2
+            ),
+            Ok(false)
+        );
+        let text = std::str::from_utf8(raw).unwrap();
+        for bytes in [
+            text.replace("Threads:\t1", "Threads:\t2").into_bytes(),
+            text.replace("Tgid:\t2", "Tgid:\t3").into_bytes(),
+            text.replace("Z (zombie)", "S (sleeping)").into_bytes(),
+            [raw, b"State:\tZ (zombie)\n"].concat(),
+        ] {
+            assert!(group_candidate(stat, zombie_status(&bytes, 2), &identity, 2).is_err());
+        }
+        assert!(group_candidate(RowStat { start: 0, ..stat }, zombie, &identity, 2).is_err());
+        let wrong_ns = Status {
+            uids: [1000; 4],
+            namespace_pids: vec![2, 1],
+        };
+        assert!(group_candidate(stat, zombie, &wrong_ns, 2).is_err());
+        assert_eq!(group_flags(), PidfdFlags::NONBLOCK); // no caller flags/THREAD surface
+    }
+    #[test]
+    fn group_fdinfo_rejects_reap_namespace_pid_alias_duplicate_and_partial() {
+        assert_eq!(
+            group_fdinfo(b"pos:\t0\nflags:\t02004002\nPid:\t2\nNSpid:\t2\n", 2),
+            Ok(())
+        );
+        for raw in [
+            b"Pid:\t-1\nNSpid:\t-1\n".as_slice(),
+            b"Pid:\t3\nNSpid:\t3\n",
+            b"Pid:\t2\nNSpid:\t2 1\n",
+            b"Pid:\t2\nPid:\t2\nNSpid:\t2\n",
+            b"Pid:\t2\nNSpid:\t2\nNSpid:\t2\n",
+            b"Pid:\t2\n",
+            b"Pid:\t2\nNSpid:\t2",
+            b"Pid:\t2\nNSpid:\t2\0\n",
+        ] {
+            assert!(group_fdinfo(raw, 2).is_err());
+        }
+    }
+    #[test]
+    fn group_poll_refuses_live_sibling_reaped_and_every_uncertain_mask() {
+        use rustix::event::PollFlags;
+        assert_eq!(group_poll_result(1, PollFlags::IN), Ok(()));
+        for (count, flags) in [
+            (0, PollFlags::empty()),
+            (1, PollFlags::empty()),
+            (2, PollFlags::IN),
+            (1, PollFlags::IN | PollFlags::HUP),
+            (1, PollFlags::IN | PollFlags::ERR),
+            (1, PollFlags::NVAL),
+            (0, PollFlags::IN),
+            (1, PollFlags::RDNORM),
+        ] {
+            assert!(group_poll_result(count, flags).is_err());
+        }
+        // A Z leader's live sibling is represented by nonready, never acceptance.
+        assert!(group_poll_result(0, PollFlags::empty()).is_err());
+    }
+    #[test]
+    fn exited_original_facts_refuse_reuse_exec_uid_namespace_or_state_churn() {
+        let saved = status(synthetic_zombie_status(), 2).unwrap();
+        let zombie = zombie_status(synthetic_zombie_status(), 2);
+        let stat = RowStat {
+            start: 1,
+            zombie: true,
+        };
+        assert!(group_row_matches(
+            &saved, 1, zombie, &saved, stat, zombie, 2
+        ));
+        let uid = Status {
+            uids: [1001; 4],
+            namespace_pids: vec![2],
+        };
+        let ns = Status {
+            uids: [1000; 4],
+            namespace_pids: vec![3],
+        };
+        assert!(!group_row_matches(&saved, 1, zombie, &uid, stat, zombie, 2));
+        assert!(!group_row_matches(&saved, 1, zombie, &ns, stat, zombie, 2));
+        assert!(!group_row_matches(
+            &saved,
+            1,
+            zombie,
+            &saved,
+            RowStat { start: 2, ..stat },
+            zombie,
+            2
+        ));
+        assert!(!group_row_matches(
+            &saved,
+            1,
+            zombie,
+            &saved,
+            RowStat {
+                zombie: false,
+                ..stat
+            },
+            zombie,
+            2
+        ));
+        assert!(!group_row_matches(&saved, 1, zombie, &saved, stat, None, 2));
+        // Same coarse start and PID cannot substitute for original-inode binding:
+        // actual exited_row_facts additionally calls binding on its retained File.
+    }
+    #[test]
+    fn every_group_proof_cut_prevents_release_and_all_following_operations() {
+        for cut in 0..GROUP_PROOF_STEPS.len() {
+            let mut calls = Vec::new();
+            assert!(
+                group_sequence(|step| {
+                    calls.push(step);
+                    if calls.len() == cut + 1 {
+                        Err(())
+                    } else {
+                        Ok(())
+                    }
+                })
+                .is_err()
+            );
+            assert_eq!(calls, GROUP_PROOF_STEPS[..=cut]);
+            if cut < GROUP_PROOF_STEPS.len() - 1 {
+                assert!(!calls.contains(&GroupProofStep::ReleaseInfo));
+            }
+        }
+        let mut calls = Vec::new();
+        group_sequence(|step| {
+            calls.push(step);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls, GROUP_PROOF_STEPS);
+    }
 
     #[test]
     fn stage_cadence_is_two_whole_plus_exact_original_only_fences() {
@@ -1972,13 +2603,13 @@ mod tests {
         // Every refusing path is a prefix of this finite positive sequence,
         // plus at mostone first-refusal attempt. No4096 byte waiver is needed.
         assert!(positive_bytes + longest_failure <= 4096);
-        assert_eq!(17 + 23 + 2 + 1, 43); // canonical vocabulary, not frames
+        assert_eq!(17 + INVENTORY_FAILURES.len() + 2 + 1, 52); // vocabulary, not frames
         assert_eq!(4096 * 2 + FIXED + 8, NOFILE as usize);
         const {
             assert!(FIXED_FILES + 1 + 4 + 2 <= FIXED);
         }
     }
-    const INVENTORY_FAILURES: [InventoryFailure; 23] = [
+    pub(super) const INVENTORY_FAILURES: [InventoryFailure; 32] = [
         InventoryFailure::CatalogueSeek,
         InventoryFailure::CatalogueNext,
         InventoryFailure::CatalogueName,
@@ -1992,6 +2623,15 @@ mod tests {
         InventoryFailure::StatParse,
         InventoryFailure::Classify,
         InventoryFailure::ImageOpen,
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::NoEntry),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::Access),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::Permission),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::ProcessLimit),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::SystemLimit),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::Other),
+        InventoryFailure::GroupOpen,
+        InventoryFailure::GroupProof,
+        InventoryFailure::GroupCurrent,
         InventoryFailure::ImageShape,
         InventoryFailure::CommandRead,
         InventoryFailure::CommandParse,
@@ -2003,6 +2643,198 @@ mod tests {
         InventoryFailure::RowComplete,
         InventoryFailure::SweepSet,
     ];
+    #[test]
+    fn image_open_errno_classifies_only_the_original_finite_result() {
+        use nix::errno::Errno;
+        for (error, expected, label) in [
+            (
+                Errno::ENOENT,
+                ImageOpenErrno::NoEntry,
+                b"t4_actor_inventory_image_open_enoent_refused\n".as_slice(),
+            ),
+            (
+                Errno::EACCES,
+                ImageOpenErrno::Access,
+                b"t4_actor_inventory_image_open_eacces_refused\n",
+            ),
+            (
+                Errno::EPERM,
+                ImageOpenErrno::Permission,
+                b"t4_actor_inventory_image_open_eperm_refused\n",
+            ),
+            (
+                Errno::EMFILE,
+                ImageOpenErrno::ProcessLimit,
+                b"t4_actor_inventory_image_open_emfile_refused\n",
+            ),
+            (
+                Errno::ENFILE,
+                ImageOpenErrno::SystemLimit,
+                b"t4_actor_inventory_image_open_enfile_refused\n",
+            ),
+            (
+                Errno::EINTR,
+                ImageOpenErrno::Other,
+                b"t4_actor_inventory_image_open_other_refused\n",
+            ),
+            (
+                Errno::EIO,
+                ImageOpenErrno::Other,
+                b"t4_actor_inventory_image_open_other_refused\n",
+            ),
+            (
+                Errno::ELOOP,
+                ImageOpenErrno::Other,
+                b"t4_actor_inventory_image_open_other_refused\n",
+            ),
+        ] {
+            let mut reported = None;
+            assert!(record_image_open::<usize>(Err(error), &mut reported).is_err());
+            assert_eq!(reported, Some(expected));
+            assert_eq!(image_open_failure(reported).label(), label);
+        }
+        let mut reported = None;
+        assert_eq!(record_image_open(Ok(42), &mut reported), Ok(42));
+        assert_eq!(reported, None);
+        assert_eq!(
+            image_open_failure(None).label(),
+            InventoryFailure::ImageOpen.label()
+        );
+    }
+    #[test]
+    fn image_open_errno_owner_revokes_before_one_diagnostic_with_no_followup() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Handle(Rc<Cell<usize>>);
+        impl Drop for Handle {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner
+            .directory(2, || Ok(()), || Ok(Handle(drops.clone())))
+            .unwrap();
+        owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+        let mut reported = None;
+        let mut opens = 0;
+        let original = owner.executable(
+            || Ok(()),
+            |_| {
+                opens += 1;
+                record_image_open(Err(nix::errno::Errno::ENOENT), &mut reported)
+            },
+        );
+        assert_eq!(opens, 1);
+        let mut diagnostic = InventoryDiagnostic::default();
+        let mut emits = 0;
+        assert!(
+            diagnostic
+                .result(
+                    image_open_failure(reported),
+                    available_to_unit(original),
+                    |_| {
+                        emits += 1;
+                        assert!(
+                            owner
+                                .directory(2, || panic!("revoked gate"), || panic!("revoked open"))
+                                .is_err()
+                        );
+                        assert!(
+                            owner
+                                .executable(
+                                    || panic!("revoked image gate"),
+                                    |_| panic!("retry image")
+                                )
+                                .is_err()
+                        );
+                        assert!(owner.finish().is_err());
+                        assert_eq!(drops.get(), 0);
+                        Err(())
+                    }
+                )
+                .is_err()
+        );
+        assert_eq!(emits, 1);
+        assert!(
+            diagnostic
+                .result::<()>(image_open_failure(reported), Err(()), |_| panic!(
+                    "secondary label"
+                ))
+                .is_err()
+        );
+        assert_eq!(drops.get(), 0); // Live memory owner only; no fatal custody.
+    }
+    #[test]
+    fn image_open_positive_then_late_keeps_original_and_has_no_errno_label() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Handle(Rc<Cell<usize>>);
+        impl Drop for Handle {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner
+            .directory(2, || Ok(()), || Ok(Handle(drops.clone())))
+            .unwrap();
+        owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+        let mut reported = None;
+        let mut gates = 0;
+        let mut opens = 0;
+        let original = owner.executable(
+            || {
+                gates += 1;
+                if gates == 1 { Ok(()) } else { Err(Unavailable) }
+            },
+            |_| {
+                opens += 1;
+                record_image_open(Ok(Handle(drops.clone())), &mut reported)
+            },
+        );
+        assert!(original.is_err());
+        assert_eq!((gates, opens), (2, 1));
+        assert_eq!(reported, None);
+        assert_eq!(
+            image_open_failure(reported).label(),
+            InventoryFailure::ImageOpen.label()
+        );
+        assert_eq!(drops.get(), 0);
+        assert!(
+            owner
+                .executable(|| panic!("post-late gate"), |_| panic!("retry"))
+                .is_err()
+        );
+        assert!(owner.finish().is_err());
+        assert_eq!(drops.get(), 0);
+    }
+    #[test]
+    fn image_open_before_callback_refusal_stays_generic_and_never_opens() {
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner.directory(2, || Ok(()), || Ok(42)).unwrap();
+        owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+        let mut reported = None;
+        let original = owner.executable(
+            || Err(Unavailable),
+            |_| {
+                reported = Some(ImageOpenErrno::NoEntry);
+                panic!("callback after pre-gate refusal")
+            },
+        );
+        assert!(original.is_err());
+        assert_eq!(reported, None);
+        assert_eq!(
+            image_open_failure(reported).label(),
+            InventoryFailure::ImageOpen.label()
+        );
+        assert!(owner.finish().is_err());
+    }
     #[test]
     fn inventory_failure_is_one_attempt_preserving_the_original_result() {
         for cut in INVENTORY_FAILURES {
@@ -2042,8 +2874,8 @@ mod tests {
             assert!(label.ends_with(b"\n"));
             assert!(!labels[..index].contains(label));
         }
-        assert_eq!(labels.len(), 23);
-        assert_eq!(17 + labels.len(), 40);
+        assert_eq!(labels.len(), 32);
+        assert_eq!(17 + labels.len(), 49);
         assert_eq!(9 + 7 * QUERY_PHASES.len() + 1 + 1, 60);
         let longest = labels
             .iter()

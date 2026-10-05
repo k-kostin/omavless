@@ -939,12 +939,19 @@ mod tests {
                     .map(|label| label.len())
                     .sum::<usize>();
         assert_eq!(success_bytes, 4001);
+        let (inventory_categories, longest_inventory) =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::inventory_trace_limits();
+        assert_eq!(inventory_categories, 32);
+        assert_eq!(longest_inventory, 45);
         let longest_stage = CUTS.iter().map(|cut| cut.label().len()).max().unwrap();
         assert_eq!(longest_stage, 37);
-        assert_eq!(success_bytes + 43 + longest_stage, 4081);
-        assert!(success_bytes + 43 + longest_stage <= 4096);
+        assert_eq!(success_bytes + longest_inventory + longest_stage, 4083);
+        assert!(success_bytes + longest_inventory + longest_stage <= 4096);
         assert_eq!(106 + SUCCESS_PHASES.len() + 2 + 2, 116);
-        assert_eq!(43 + SUCCESS_PHASES.len() + 2 + CUTS.len(), 59);
+        assert_eq!(
+            17 + inventory_categories + 3 + SUCCESS_PHASES.len() + 2 + CUTS.len(),
+            68
+        );
         assert_eq!(1 + ORIGIN_FENCES + 1, 28);
         assert_eq!(CREATED_DIRECTORIES.len(), 4);
         assert_eq!(LIVE.len() + MEMBERS.len() + 1 + 2, 9);
