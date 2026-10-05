@@ -202,6 +202,32 @@ of these Files; it adds no descriptor. Directory/metadata buffers are reserved
 before READY; crypto/parser/allocator/stdio/getdents backend internals retain
 their ordinary/fatal-loss caveats, not a process-global heap/FD attestation.
 
+After the stage consumes its original reservation, the real actor request
+dispatcher permits only a separately valid normal Halt following completion.
+Any further observation, authentication or staging request refuses before its
+acquisition branch and permanently revokes both context and lower ledger;
+later Halt cannot release that uncertain prefix. Standalone manager capacity
+cannot be added on top of the stage's lower Files. The fixed supervisor's normal
+Halt is not relied on to enforce this aggregate admission constraint.
+
+Independent review of `5f71cf03` found this missing post-stage guard: the wire
+actor could otherwise grow to51 manager originals plus16 lower and4 base FDs,
+exceeding64. That SOURCE checkpoint was not selected for a resource scenario.
+The narrow successor adds the pre-acquisition mode guard and a memory control
+for every non-Halt kind, permanent reentry/Halt denial and no lower IO after
+refusal. It does not change capture capacity, RLIMIT, image predicates or
+completed-operation meaning.
+
+The admission successor's 36 actor controls passed (`251257`), seven original
+capture controls passed (`7b5018`), feature all-target Clippy passed (`a0ff60`)
+and normal no-feature library check passed (`0c034b`). Compile-only build
+`13d886` returned zero; its unexecuted public artifact is62,369,792 bytes,
+SHA-256 `468ea4e7406e266cc8428621aef473bf704851bb20e0f25044f8ca7a040f438c`.
+These results supersede the prior artifact for any future packet binding, not
+the historical source receipts below. No service/native body or VM selection
+occurred. The new guard is pure memory evidence plus reviewed dispatcher source,
+not an actual post-stage fault result.
+
 An outer stage Result error seals both its one-shot operation and the lower
 ledger, including validation errors outside an individual I/O call. The actor's
 error path owns Stage in the same quarantine as manager Files, private transfer

@@ -680,6 +680,10 @@ fn actor_operation(
         context.revoke();
         return Err(Unavailable);
     }
+    if stage.permit_request(kind).is_err() {
+        context.revoke();
+        return Err(Unavailable);
+    }
     match kind {
         Kind::StageAuthenticatedBackup => {
             transfer.admit(until)?;

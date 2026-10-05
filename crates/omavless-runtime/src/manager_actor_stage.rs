@@ -3,6 +3,7 @@
 //! All lower reported Files remain in the original actor's pre-reserved ledger.
 //! No existing unsafe top-level stager/journal helper, error cleanup or retry.
 
+use super::protocol::Kind;
 use super::retained_io::{ChildPlan, FileIo, IO_SLOTS, Slot};
 use super::{Unavailable, emit_actor, tick};
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
@@ -115,6 +116,18 @@ impl Stage {
             consumed: false,
             completed: false,
         })
+    }
+
+    pub fn permit_request(&mut self, kind: Kind) -> Result<(), Unavailable> {
+        // The lower reservation is admitted against exactly one 17-FD owner.
+        // Once consumed, no request may append another capture or transaction.
+        // Only the separately valid normal Halt follows a completed stage.
+        if self.consumed && (!self.completed || kind != Kind::Halt) {
+            self.completed = false;
+            self.io.revoke();
+            return Err(Unavailable);
+        }
+        Ok(())
     }
 
     fn capture_shape(
@@ -655,6 +668,53 @@ impl Stage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consumed_stage_allows_only_halt_and_refusal_seals_before_next_io() {
+        for kind in [
+            Kind::ObserveManager,
+            Kind::AuthenticateBackup,
+            Kind::StageAuthenticatedBackup,
+            Kind::Challenge,
+            Kind::Ready,
+            Kind::Completed,
+            Kind::Closed,
+            Kind::Rejected,
+            Kind::BackupAuthenticated,
+            Kind::StageRecorded,
+        ] {
+            let mut stage = Stage::reserve().unwrap();
+            // Memory-only completed-mode fixture, no Files or real stage run.
+            stage.consumed = true;
+            stage.completed = true;
+            stage.permit_request(Kind::Halt).unwrap();
+            assert!(stage.permit_request(kind).is_err());
+            assert!(stage.original.iter().all(Option::is_none));
+            assert!(stage.permit_request(Kind::Halt).is_err());
+            assert!(stage.finish().is_err());
+            assert!(
+                stage
+                    .io
+                    .root(
+                        || panic!("refused request reached deadline/IO"),
+                        |_| panic!("refused request reached shape")
+                    )
+                    .is_err()
+            );
+        }
+        let mut stage = Stage::reserve().unwrap();
+        for kind in [
+            Kind::ObserveManager,
+            Kind::AuthenticateBackup,
+            Kind::StageAuthenticatedBackup,
+            Kind::Halt,
+        ] {
+            stage.permit_request(kind).unwrap();
+        }
+        stage.consumed = true;
+        assert!(stage.permit_request(Kind::Halt).is_err());
+        assert!(stage.finish().is_err());
+    }
 
     #[test]
     fn real_catalogue_classifier_requires_all_dots_and_exact_names() {
