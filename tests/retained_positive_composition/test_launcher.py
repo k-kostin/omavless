@@ -104,15 +104,33 @@ class Controls(unittest.TestCase):
     def test_module_loader_passes_same_absolute_cap_and_installs_only_retained_hooks(self):
         entry=l.Entry();entry.deadline=65.0;base=SimpleNamespace();owner=SimpleNamespace(deadline=100.0,
             available=Mock(),command=Mock(),live=Mock(),no_directory_fds=Mock())
+        factory=Mock(return_value=owner)
         class Graph:
             def __init__(self,deadline):self.deadline=deadline;self.raw={}
-            def load(self):return {'lifecycle.py':SimpleNamespace(Session=lambda kind:owner),'containment.py':base}
-        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=Graph),v]) as pinned:
+            def load(self):return {'lifecycle.py':SimpleNamespace(Session=factory),'containment.py':base}
+        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=Graph,STAGE=l.STAGE),v]) as pinned:
             graph,*_=l.modules(entry,'outer')
+        factory.assert_called_once_with('outer',bootstrap_scratch=l.STAGE+'/scratch')
         self.assertEqual(graph.deadline,entry.deadline);self.assertEqual(owner.deadline,entry.deadline)
         self.assertIs(base.command,owner.command);self.assertIs(base.child_status,owner.live)
         self.assertIs(base.no_directory_fds,owner.no_directory_fds)
         self.assertEqual([call.args[1] for call in pinned.call_args_list],['graph.py','validate_receipt.py'])
+
+    def test_graph_stage_mismatch_refuses_before_source_load_or_owner_acquisition(self):
+        entry=l.Entry();graph=Mock()
+        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=graph,STAGE=l.STAGE+'-wrong'),v]):
+            with self.assertRaises(l.Refused):l.modules(entry,'inner')
+        graph.assert_not_called();self.assertTrue(entry.sealed)
+
+    def test_inner_module_owner_receives_exact_same_pinned_stage_scratch(self):
+        entry=l.Entry();owner=SimpleNamespace(deadline=90.0,available=Mock(),command=Mock(),
+            live=Mock(),no_directory_fds=Mock());factory=Mock(return_value=owner)
+        class Graph:
+            def __init__(self,deadline):self.deadline=deadline
+            def load(self):return {'lifecycle.py':SimpleNamespace(Session=factory),'containment.py':SimpleNamespace()}
+        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=Graph,STAGE=l.STAGE),v]):
+            l.modules(entry,'inner')
+        factory.assert_called_once_with('inner',bootstrap_scratch=l.STAGE+'/scratch')
 
     def test_initial_clock_unknown_precedes_every_open_spawn_and_output(self):
         for bad in (True,1,float('inf'),float('nan')):

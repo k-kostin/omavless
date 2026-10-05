@@ -24,7 +24,7 @@ import types
 STAGE='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='a35209c06db2ff616116dbe50c5f68ad5e97c6823dbbab4d15e895e8179a27b1'
+GRAPH='b33ca25a4f3e19d6113df72b72077a23a0524c2528ce30cb55c13c24d1e7dea8'
 VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']
@@ -122,11 +122,12 @@ def pinned_module(entry,name):
 @guarded
 def modules(entry,kind):
     reader=pinned_module(entry,'graph.py');validator=pinned_module(entry,'validate_receipt.py')
+    require(reader.STAGE == STAGE)
     graph=reader.Graph.__new__(reader.Graph);HELD.append(graph)
     entry.call(graph.__init__,entry.deadline)
     loaded=entry.call(graph.load)
     ownership=loaded['lifecycle.py']
-    entry.available();owner=ownership.Session(kind);HELD.append(owner);entry.available()
+    entry.available();owner=ownership.Session(kind,bootstrap_scratch=STAGE+'/scratch');HELD.append(owner);entry.available()
     owner.deadline=min(owner.deadline,entry.deadline);owner.available()
     base=loaded['containment.py']
     # These exact retained hooks precede ANY selected containment invocation.

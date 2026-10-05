@@ -9,6 +9,45 @@ The current tracked launcher still names stopped review3 and is NOT eligible
 for execution. Both FULL reviews, a separately reviewed unused stage/source
 graph and ROOT's separate selection are prerequisites for any new experiment.
 
+## Explicit bootstrap scratch binding
+
+The approved [execution policy](../../docs/development/EXECUTION_POLICY.md)
+applies to new experiments; it does not reopen stopped predecessors. Fresh
+review4 used the frozen `446f5e6cfae0af11230c7483101a9d365d7e7793` fixture
+source and unchanged native pins. Its 24 individual source/native transfers
+returned original zero; its whole invocation returned original exit 2. That
+scope remains stopped. A separately FULL-reviewed fixed-file observer returned
+original zero and reported empty child stderr, empty inner result, no outer
+record or launcher completion marker. No live process/namespace query or
+failure cleanup was selected, and no whole acceptance is inferred.
+
+Independent source inspection then found an unrelated composition defect:
+the stage-derived launcher supplies its scratch directory through `TMPDIR`,
+while the lifecycle module still required a hard-coded review3 scratch path.
+Containment's pre-chroot mount utilities run before positive isolation, so a
+fresh launcher and that unchanged Session cannot satisfy the old equality
+check. This is a source-supported incompatibility, not proof of the stopped
+run's actual cause.
+
+Session now requires an explicit internal `bootstrap_scratch` construction
+argument from the pinned launcher. The lifecycle module contains no old-stage
+default. The argument is a bounded, absolute, normalized path; it is not
+selected from argv, a private receipt or the environment. The launcher also
+requires its admitted source graph to name the same stage before loading it.
+The environment remains an equality check before any temporary file or utility
+spawn. Post-isolation `/tmp` selection still requires the existing positive
+directory-FD check; no path bypass, cleanup or product authority is added.
+
+Seven new pure controls cover exact constructor forwarding for both scopes,
+graph-stage mismatch, environment mismatch before any file/process acquisition,
+missing/malformed bindings and unchanged post-isolation scratch behavior. The
+fresh full source gate passed 1169 Python controls (two existing opt-in skips),
+the JavaScript matrices and QML contracts. The earlier regression gate failed
+on the missing constructor API; two intermediate source tests exposed stale
+mock signatures and were fixed before the passing gate. These results are
+source-only. Any successor VM recipe must use a fresh stage, refreshed affected
+pins and its own reviewed entry; no stopped recipe is retried or adopted.
+
 ## Source-supported incompatibility, not actual cause
 
 ROOT supplied the review3 whole outcome `2e6ade/session38126 -> 9f6e68 EXIT2`;

@@ -15,7 +15,6 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_native_copy','after_native_copy',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
@@ -126,7 +125,7 @@ def ns_identity(fd):
 
 
 class Session:
-    def __init__(self, kind):
+    def __init__(self, kind, *, bootstrap_scratch):
         self.sealed = True
         self.kind = kind
         self.children = []
@@ -137,6 +136,14 @@ class Session:
         self.phase_count = 0
         self.isolated = False
         require(kind in ('inner', 'outer'), 'fixed_owner_kind')
+        # Internal pinned-launcher binding, never selected from argv, a receipt
+        # or TMPDIR. Each new fixture must name its own admitted scratch root.
+        require(type(bootstrap_scratch) is str and len(bootstrap_scratch) <= 4096
+                and bootstrap_scratch.startswith('/')
+                and '\x00' not in bootstrap_scratch
+                and all(part not in ('', '.', '..') for part in bootstrap_scratch.split('/')[1:]),
+                'fixed_bootstrap_scratch_binding')
+        self.bootstrap_scratch = bootstrap_scratch
         start = clock()
         require(type(start) is float and math.isfinite(start), 'initial_clock')
         self.deadline = start + 90.0
@@ -246,7 +253,7 @@ class Session:
     def command(self, argv, **kwargs):
         require(type(argv) is list and argv and argv[0] in ('/usr/bin/mount', '/usr/bin/ip')
                 and not kwargs, 'fixed_bootstrap_utility')
-        scratch = '/tmp' if self.isolated else STAGE_SCRATCH
+        scratch = '/tmp' if self.isolated else self.bootstrap_scratch
         require(self.isolated or os.environ.get('TMPDIR') == scratch, 'fixed_bootstrap_scratch')
         with tempfile.TemporaryFile(dir=scratch) as output, tempfile.TemporaryFile(dir=scratch) as error:
             child = self.spawn(argv, role='utility', stdin=subprocess.DEVNULL, stdout=output, stderr=error,
