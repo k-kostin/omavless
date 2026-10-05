@@ -1,4 +1,4 @@
-# K1 private exclusive-create/readback extraction — uncompiled
+# K1 private exclusive-create/readback extraction
 
 This successor to #656's read-only checkpoint is restricted to `cfg(test)`.
 It adds no production EffectPort, adapter mutation method, process, descriptor
@@ -37,13 +37,29 @@ namespace/no-switch proof, nft subsystem continuity or an installed provider.
 Matching handles, owner ports and `ExactUntrusted` classes alone cannot invoke
 the constructor or readback path.
 
-Three new pure controls are prepared for complete-vs-prefix/wrong-batch ACKs,
+Three new pure controls cover complete-vs-prefix/wrong-batch ACKs,
 generation refusal/poison and classification without readback metadata. These
 exercise existing wire parsing on synthetic bytes only; they do not exercise
-the effect/readback adapter or claim non-Copy compiler evidence. No tests,
-compiler, native fixture, VM or firewall operation has been selected for this
-new source. Compile/type and materially affected cfg(test) regressions require
-a separately reviewed ROOT recipe and fresh targets.
+the effect/readback adapter or provide dedicated negative lifetime/non-Copy
+compiler controls.
+
+## Exact developer checkpoint
+
+At source `83f42593e28a6f16814a18c84fd16969d101cccc`, a separately reviewed,
+fresh-target, offline/locked `omavless-netguard` library test compilation and
+the three exact pure filters completed with original terminal zero. ROOT's
+selection `8191c5` completed as `4ce52f`; the admitted test binary SHA-256 was
+`9acfc87d5fd1209a0465c4ff22390f20b008896c8d3b1bcda94740831c380b30`.
+Eight separate mocked recipe controls also passed (`91caa4`, checked by
+`129112`). The compiler recipe explicitly trusts ordinary developer compiler,
+linker, standard library and offline cache; this is not full toolchain
+attestation or production artifact provenance.
+
+Only those three pure controls ran. No ignored/native creator, actual
+effect/readback adapter, VM or firewall operation was selected for this
+extraction. Compilation establishes that the reached test graph type-checks;
+it does not replace negative borrow/type controls or demonstrate kernel
+readback, durable ownership, canonical authority or whole K1 acceptance.
 
 ## Remaining actual-owner integration seam
 
