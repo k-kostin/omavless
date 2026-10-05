@@ -2,8 +2,10 @@
 
 This inactive developer successor starts at the exact `e559cb64` canonical
 Auth → synthetic Stage → Halt implementation (documentation base `5b9a0f24`).
-The earlier scenario and its passed evidence are unchanged. This new scenario
-has no actual execution evidence yet.
+The earlier scenario and its passed evidence are unchanged. ROOT subsequently
+completed the narrow developer Commit scenario at exact tested source
+`21c7ff72462669951361cece393c9ebd54b6aca4`. Any later documentation-only head
+records that result; it is not a newly executed runtime or product acceptance.
 
 ## Ownership and effects
 
@@ -83,4 +85,39 @@ refusal, ledger cuts before/inside/after a rename, OLD/replacement retention,
 mutation-specific metadata rules, 34-fence under/over-counts, exact request/reply
 identity and reply-prefix cuts. These controls do not perform filesystem
 replacement, actor invocation or VM work. Compile-only validation is separate
-from an actual fixed-pair commit, which remains pending review and selection.
+from the subsequent ROOT-operated scenario below.
+
+## Exact developer Commit checkpoint
+
+PRIMARY and independent affected-critical source review cleared tested `21c7ff72`.
+The separately frozen packet received PRIMARY and independent full review and
+23 inert controls passed before selection. The exact actor compiled from that
+source was 64,546,440 bytes, SHA256
+`332df477652496ca9b82f2bcfe6fb078f023a93dae17642cb9830888f1e1c4dd`.
+
+ROOT used a fresh disposable developer boot and the pre-admitted disconnected
+baseline, then selected upload `6c716c`, prepare `9b1625` → `ed399a`, whole Commit
+`d64eb2` → `773993` → `5cad22`, and the separately pre-scoped two-file observer
+`2546df` → `ff2a60`. Each original operation completed with exit zero. Whole zero
+includes normal Halt and the original actor child's successful completion.
+The observer projected only the declared fixed captures:
+
+- Actor: 4,001 bytes, 114 closed-grammar frames, last
+  `t4_actor_fixture_pair_committed`; SHA256
+  `08686f7360efe304b3e91d03b5965a0a096faad7db7aa040605de14d11de763c`.
+- Supervisor: 313 bytes, 11 frames, last `t4_service_completed`; SHA256
+  `ad2f7e13edc8696f3f72ffe28288c809cad8a6bcf861309d8ee3383ba824cf47`.
+
+The source gates were 56 service/protocol/ledger/transfer, 49 canonical/inventory,
+12 focused Stage and seven capture controls, strict feature Clippy, default
+library check and formatting. ROOT also selected the broad runtime library
+suite at this checkpoint: 1,319 passed, zero failed, 46 ignored, 502.52 seconds
+(`c27d028`). Ignored cases are not acceptance evidence.
+
+This proves the reviewed fixed synthetic canonical Auth → owned pair Commit →
+record/live-pair readback → Halt scenario. It does not prove genuine ProductOwner,
+singleton/lease/generation or installed origin binding, replacement of the
+user's real pair, interruption recovery/rollback, normal startup admission or
+product Restore availability. No private pair/profile was selected or changed.
+All earlier uncertain scopes remain separate; a disposable boot is not product
+rollback. The next read-only inspector remains a distinct source successor.
