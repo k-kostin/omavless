@@ -396,3 +396,8 @@ The separately scoped [inventory lease successor](INVENTORY_LEASE_PROPOSAL.md)
 keeps the existing original-session inventory lease through acquisition
 post-verification. Its changed source and unexecuted controls are not covered
 by the stage5 native result. It introduces no policy-effect or canonical owner.
+
+The next [fixed inventory entry](INVENTORY_ENTRY_PROPOSAL.md) is source-only:
+one original five-second open/read-only-inventory/positive-finish sequence,
+closed phase classes, retained original lease and a fresh publication pathname.
+Its parent, export and pure controls have not been compiled or executed.

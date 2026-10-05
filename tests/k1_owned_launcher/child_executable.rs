@@ -12,7 +12,7 @@ use std::time::Instant;
 mod static_elf;
 use static_elf::static_elf;
 
-pub(super) const CHILD: &str = "/run/omavless-k1-owned-launch-v3/child";
+pub(super) const CHILD: &str = "/run/omavless-k1-owned-inventory-v1/child";
 const SHA: [u8; 32] = [0x78,0x38,0xd1,0xc3,0xb1,0xb2,0x6f,0xa2,0x47,0xd0,0xbb,0x16,0x60,0x81,0x53,0xf5,0x76,0x47,0x7c,0x44,0x28,0x17,0xf8,0xe1,0x52,0x8f,0x6f,0x9c,0x85,0xfe,0x63,0x11];
 const SIZE: u64 = 1_475_200;
 type Result<T> = std::result::Result<T, EffectError>;
@@ -42,7 +42,7 @@ impl Executable {
         let root = retain_after(open("/", OFlag::O_RDONLY|OFlag::O_DIRECTORY|OFlag::O_NOFOLLOW|OFlag::O_CLOEXEC, Mode::empty())
             .map(File::from),||gate(end).is_ok()).map_err(|_|ERROR)?;
         let mut root = ManuallyDrop::new(Some(ManuallyDrop::into_inner(root)));
-        for (index, name) in ["/", "run", "omavless-k1-owned-launch-v3"].iter().enumerate() {
+        for (index, name) in ["/", "run", "omavless-k1-owned-inventory-v1"].iter().enumerate() {
             let directory = if index == 0 {
                 ManuallyDrop::new(root.take().ok_or(ERROR)?)
             } else {
@@ -74,7 +74,7 @@ impl Executable {
         for (index,(directory,expected)) in self.directories.iter().enumerate() {
             gate(end)?;let metadata=directory.metadata();gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
-            let path=["/","/run","/run/omavless-k1-owned-launch-v3"][index];
+            let path=["/","/run","/run/omavless-k1-owned-inventory-v1"][index];
             gate(end)?;let metadata=std::fs::symlink_metadata(path);gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
             no_attributes(directory,end)?;
@@ -100,7 +100,7 @@ impl Executable {
         for (index,(directory,expected)) in self.directories.iter().enumerate() {
             gate(end)?;let metadata=directory.metadata();gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
-            let path=["/","/run","/run/omavless-k1-owned-launch-v3"][index];
+            let path=["/","/run","/run/omavless-k1-owned-inventory-v1"][index];
             gate(end)?;let metadata=std::fs::symlink_metadata(path);gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
         }

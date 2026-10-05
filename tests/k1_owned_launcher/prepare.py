@@ -19,7 +19,7 @@ def git(*args):
     return subprocess.run(['git','-C',str(ROOT),*args],check=True,capture_output=True,timeout=30).stdout
 
 def export(parent, export_name='netguard'):
-    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn', 'netguard-checked-handoff', 'netguard-owner-boundaries', 'netguard-owner-boundaries-final', 'netguard-static-child-v1', 'netguard-types-v1', 'netguard-types-v2', 'netguard-parent-v1', 'netguard-parent-v3', 'netguard-types-v3', 'netguard-inventory-v1', 'netguard-inventory-types-v1'):raise ValueError('fixed_export_name')
+    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn', 'netguard-checked-handoff', 'netguard-owner-boundaries', 'netguard-owner-boundaries-final', 'netguard-static-child-v1', 'netguard-types-v1', 'netguard-types-v2', 'netguard-parent-v1', 'netguard-parent-v3', 'netguard-types-v3', 'netguard-inventory-v1', 'netguard-inventory-types-v1', 'netguard-inventory-entry-v1'):raise ValueError('fixed_export_name')
     parent=Path(parent)
     if not parent.is_absolute() or parent.is_symlink() or not parent.is_dir():raise ValueError('private_build_root')
     if parent.stat().st_mode&0o777!=0o700:raise ValueError('private_build_mode')
@@ -35,8 +35,11 @@ def export(parent, export_name='netguard'):
     sources.update(adapter.adapt({name:sources[name] for name in adapter.PINS}))
     for name in ('owned_creator.rs','owned_launcher.rs','child_protocol.rs','child_executable.rs','fixed_child.rs','retained_return.rs','static_elf.rs','owned_child.rs','handoff.rs','spawn_sequence.rs','completion.rs','inventory_sequence.rs'):sources[name]=(HERE/name).read_bytes()
     sources['no_policy_gate.rs']=(HERE/'no_policy_gate.rs').read_bytes()
+    sources['inventory_gate.rs']=(HERE/'inventory_gate.rs').read_bytes()
+    sources['inventory_gate_sequence.rs']=(HERE/'inventory_gate_sequence.rs').read_bytes()
     # Same actual module tree, not a public acquisition constructor or stubs.
     sources['parent_main.rs']=sources['lib.rs']+b'\ninclude!("no_policy_gate.rs");\n'
+    sources['inventory_main.rs']=sources['lib.rs']+b'\ninclude!("inventory_gate.rs");\n'
     controls={}
     if export_name in ('netguard-types-v1', 'netguard-types-v2', 'netguard-types-v3', 'netguard-inventory-types-v1'):
         types_spec=importlib.util.spec_from_file_location('owned_types',HERE/'type_controls.py')
@@ -62,8 +65,13 @@ path = "src/fixed_child.rs"
 name = "k1-owned-no-policy"
 path = "src/parent_main.rs"
 required-features = ["owned-launch-no-policy"]
+[[bin]]
+name = "k1-owned-readonly-inventory"
+path = "src/inventory_main.rs"
+required-features = ["owned-launch-readonly-inventory"]
 [features]
 owned-launch-no-policy = []
+owned-launch-readonly-inventory = []
 [dependencies]
 nix = { path = "../nix-spawn", default-features = false, features = ["fs", "sched", "socket", "uio", "user", "ioctl", "process"] }
 serde = { version = "1.0", features = ["derive"] }

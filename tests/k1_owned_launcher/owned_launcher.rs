@@ -188,6 +188,13 @@ impl Prototype {
     /// proof of installed launcher origin. Real invocation needs ROOT review.
     pub(crate) fn open_fixed() -> Result<Self, EffectError> {
         let deadline=Instant::now().checked_add(Duration::from_secs(5)).ok_or(ERROR)?;
+        Self::open_fixed_before(deadline)
+    }
+    /// External fixed entry may share its EARLIER deadline, never renew it.
+    /// No caller-selected path, namespace, descriptor or operation is admitted.
+    pub(crate) fn open_fixed_before(deadline: Instant) -> Result<Self, EffectError> {
+        let now=Instant::now();
+        require(deadline>now && deadline.duration_since(now)<=Duration::from_secs(5))?;
         let gate=||require(Instant::now()<deadline);
         gate()?;require(nix::unistd::getresuid().map_err(|_|ERROR)?.effective.is_root())?;gate()?;
         // Unpinned child artifacts refuse before any namespace/socket/child.
