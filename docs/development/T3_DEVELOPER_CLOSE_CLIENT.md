@@ -119,6 +119,9 @@ confirmation privately in the actual terminal, test resize/cancel/client close,
 and exercise a dropped reply using receipt reads only. No second privileged
 dispatcher or new pair permit is needed. Its affected test/launch patch must be
 reviewed before execution; ROOT keeps the only VM lease.
+The [integration-gate SOURCE successor](T3_DEVELOPER_CLIENT_INTEGRATION.md)
+implements that explicitly ignored scenario and a separate closed-synthetic
+real-terminal demo; neither is acceptance until independently selected.
 
 The owner-approved [execution policy](EXECUTION_POLICY.md) governs NEW work;
 the historical #666 receipt and all stopped experiments keep their original

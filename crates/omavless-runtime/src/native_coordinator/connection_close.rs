@@ -52,6 +52,10 @@ mod tests {
     use std::sync::Mutex;
 
     static FIXTURES: Mutex<()> = Mutex::new(());
+    #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
+    include!("connection_close_client_integration.rs");
+    #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
+    include!("connection_close_client_terminal.rs");
     const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
     // Fixed owned subprocess/private Unix controller. No public listener,
     // provider, TUN, DNS, service, shell effect or injected owner facts.
@@ -1768,6 +1772,22 @@ while True:
         rebind: bool,
         socket_workspace: bool,
     ) {
+        composed_core_selected_close_with_client(
+            executable,
+            developer_pair,
+            rebind,
+            socket_workspace,
+            false,
+        );
+    }
+
+    fn composed_core_selected_close_with_client(
+        executable: PathBuf,
+        developer_pair: bool,
+        rebind: bool,
+        socket_workspace: bool,
+        client_workspace: bool,
+    ) {
         use sha2::{Digest, Sha256};
         use std::io::{Read, Write};
         use std::net::{TcpListener, TcpStream};
@@ -1810,28 +1830,46 @@ while True:
         fixture.owner.host_mut().stop_owned().unwrap();
         let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
         let mixed = reservation.local_addr().unwrap().port();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let target = listener.local_addr().unwrap().port();
+        let mut listeners = vec![TcpListener::bind("127.0.0.1:0").unwrap()];
+        let target = listeners[0].local_addr().unwrap().port();
+        if client_workspace {
+            assert!(developer_pair && socket_workspace && !rebind);
+            listeners.push(TcpListener::bind("127.0.0.1:0").unwrap());
+        }
+        let targets = [
+            target,
+            listeners.last().unwrap().local_addr().unwrap().port(),
+        ];
         assert_ne!(mixed, target);
         drop(reservation);
-        listener.set_nonblocking(true).unwrap();
+        for listener in &listeners {
+            listener.set_nonblocking(true).unwrap();
+        }
         let echo = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(15);
             let mut peers = Vec::new();
             while peers.len() < 2 && Instant::now() < deadline {
-                let Ok((mut peer, _)) = listener.accept() else {
-                    std::thread::sleep(Duration::from_millis(2));
-                    continue;
-                };
-                peers.push(std::thread::spawn(move || {
-                    peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-                    let mut bytes = [0; 256];
-                    while let Ok(count) = peer.read(&mut bytes) {
-                        if count == 0 || peer.write_all(&bytes[..count]).is_err() {
-                            break;
+                for listener in &listeners {
+                    let Ok((mut peer, _)) = listener.accept() else {
+                        continue;
+                    };
+                    assert!(peers.len() < 2);
+                    peers.push(std::thread::spawn(move || {
+                        peer.set_read_timeout(Some(Duration::from_secs(if client_workspace {
+                            20
+                        } else {
+                            5
+                        })))
+                        .unwrap();
+                        let mut bytes = [0; 256];
+                        while let Ok(count) = peer.read(&mut bytes) {
+                            if count == 0 || peer.write_all(&bytes[..count]).is_err() {
+                                break;
+                            }
                         }
-                    }
-                }));
+                    }));
+                }
+                std::thread::sleep(Duration::from_millis(2));
             }
             assert_eq!(peers.len(), 2);
             for peer in peers {
@@ -1899,11 +1937,16 @@ while True:
             .adopt_owned_close_fixture()
             .unwrap();
         let mut clients = Vec::new();
-        for _ in 0..2 {
+        for target in targets {
             let mut client = TcpStream::connect(("127.0.0.1", mixed)).unwrap();
             client
                 .set_read_timeout(Some(Duration::from_secs(1)))
                 .unwrap();
+            if client_workspace {
+                client
+                    .set_write_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+            }
             client
                 .write_all(
                     format!(
@@ -1942,6 +1985,19 @@ while True:
                 drop(observation);
                 let fixture = SocketFixture::from_fixture(fixture);
                 let before = fixture.desired_bytes();
+                if client_workspace {
+                    #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
+                    {
+                        exercise_actual_tui_workspace(&fixture, &mut clients, targets);
+                        assert!(fixture.desired_bytes() == before);
+                        drop(clients);
+                        drop(fixture);
+                        echo.join().unwrap();
+                        return;
+                    }
+                    #[cfg(not(all(feature = "developer-conditional-close", feature = "tui")))]
+                    panic!("development client requires both explicit features");
+                }
                 let params = fixture.confirmation("real-socket-selected-close");
                 let admitted = fixture.call("development.connections.confirm", params.clone());
                 assert_eq!(admitted["ok"], true);
