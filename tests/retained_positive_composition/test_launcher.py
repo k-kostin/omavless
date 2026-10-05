@@ -344,7 +344,9 @@ class Controls(unittest.TestCase):
         self.assertEqual(owner.INVENTORY_ROLES,('bus','host','core'))
         self.assertEqual(owner.REQUIRED_ROLES,('host','core'))
         self.assertEqual(len(inventory_labels),136)
-        self.assertEqual(set(outer_labels+case_labels)|inventory_labels,owner.PHASES)
+        shutdown_labels={label for label in owner.PHASES if '_shutdown_' in label}
+        self.assertEqual(len(shutdown_labels),58)
+        self.assertEqual(set(outer_labels+case_labels)|inventory_labels|shutdown_labels,owner.PHASES)
         self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),252)
         # Four alternatives per host/core, but exactly one presence and one
         # equality category occur on each sole initial attempt.
@@ -352,8 +354,16 @@ class Controls(unittest.TestCase):
         # One rejecting-predicate core label replaces an incomplete parse path,
         # never adds a label to the complete40-frame core inventory.
         self.assertEqual((2*2+1+8+1,2*7+1+8+2+8+1,22+16+2),(14,34,40))
-        self.assertEqual(owner.PHASE_LIMIT,235)
-        self.assertEqual(128+owner.PHASE_LIMIT,363)
+        shutdown_calls=[node for node in ast.walk(owner_methods['shutdown'])
+            if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='phase']
+        self.assertEqual(len(shutdown_calls),15)
+        self.assertEqual(owner.SHUTDOWN_ROLES,('core','broker','resolved','bus'))
+        self.assertEqual(owner.SHUTDOWN_STEPS,('initial_live','verify','inventory','final_live','signal','settle'))
+        self.assertEqual(owner.SHUTDOWN_BUDGETS,('local_fence','session_fence'))
+        self.assertEqual(4*(2*len(owner.SHUTDOWN_STEPS)+1)+2,54)
+        self.assertEqual(234+54,288)
+        self.assertEqual(owner.PHASE_LIMIT,289)
+        self.assertEqual(128+owner.PHASE_LIMIT,417)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
         phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
         phases+=['before_bind']*50+['before_verify_copies']

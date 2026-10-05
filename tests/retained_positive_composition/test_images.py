@@ -537,7 +537,7 @@ class Controls(unittest.TestCase):
                if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='mark']
         self.assertEqual(set(marks),{(side,step) for step in i.INVENTORY_STEPS for side in ('before','after')})
         self.assertEqual(len(marks),22)
-        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2*len(i.REQUIRED_ROLES),owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(234,235,363))
+        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2*len(i.REQUIRED_ROLES),owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(234,289,417))
 
     def rejecting_maps(self):
         good=mapping([('/artifacts/mihomo',90)])

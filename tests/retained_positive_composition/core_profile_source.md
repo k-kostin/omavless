@@ -9,6 +9,46 @@ The current tracked launcher still names stopped review3 and is NOT eligible
 for execution. Both FULL reviews, a separately reviewed unused stage/source
 graph and ROOT's separate selection are prerequisites for any new experiment.
 
+## Shutdown verification and diagnostics — October 5 successor
+
+Fresh review5 used `e5cca64364226ffe8ae1553bbeb71b24598d1cc8`. All 24
+separately selected source/native stages returned original zero. Whole
+`3a7a7b/session2562 -> 971ce4` returned original exit 2 and remains stopped.
+Its separately FULL-reviewed fixed-file observer `623249` returned zero. The
+finite projection `453df1` reported 266 literal frames (83 Bridge/183 Session),
+last `before_core_shutdown`, no opaque tail, empty inner result, absent outer
+result and no launcher marker. Child stderr length/hash:
+12509/`42d51bd4ae97f43f984b58c348999e7ea841b0ae0719a65e9f05ea8921366251`.
+No live query, signal, reap, cleanup or whole-PASS inference followed.
+
+Independent source review identified a shutdown workload/budget hotspot, not
+that stopped run's cause. The fixed native table is 115,843,333 bytes. One
+artifact recheck hashes three complete copies; core shutdown does two such
+rechecks plus packaged images/maps, at least 695,059,998 native bytes, formerly
+all inside five seconds. Existing internal fifteen-second budgets were clipped
+by this outer cap. The successor uses an already admitted fifteen-second
+read-only verification/maps stage, followed by a fresh five-second original
+live/namespace/single-signal guard. The six-second exact-zero settlement and
+enclosing absolute Session fence are unchanged. No hash, map row, original
+owner check or refusal predicate is skipped, and no earlier result is cached.
+
+All four shutdown roles have one-shot before/after stages for initial live
+check, full verification, complete inventory, final live guard, single signal
+and settlement. One closed category identifies the local versus enclosing
+Session fence; resolved alone adds its two credential stages. No timestamp,
+PID, exception, map or private payload is printed. First output failure seals
+before continuation, including after the signal; no retry/second signal or
+failure cleanup is added. This adds 54 complete-path attempts and 58 vocabulary
+labels: conservative Session complete288/cap289, Bridge cap128, lexical cap417.
+The old stopped scopes retain their old diagnostic grammars and outcomes.
+
+Source regressions cover slow-but-in-budget verification, a fresh short signal
+guard, absolute clipping, every new core diagnostic refusal cut and resolved's
+two credential cuts. The fresh full source gate passed 1172 controls with two
+existing opt-in skips plus JS/QML; the additional resolved control's affected
+gate is recorded at the final checkpoint. The new reviewed VM recipe/results
+must still be recorded before acceptance.
+
 ## Explicit bootstrap scratch binding
 
 The approved [execution policy](../../docs/development/EXECUTION_POLICY.md)

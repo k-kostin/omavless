@@ -110,7 +110,7 @@ class Controls(unittest.TestCase):
     def test_unknown_phase_wrong_scope_or_bad_counter_seals_before_output(self):
         for kind,label,count in (('outer','before_copy_prepare',0),('inner','private/value',0),
                 ('inner',True,0),('inner','before_copy_prepare',True),
-                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',235)):
+                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',289)):
             session=l.Session(kind,bootstrap_scratch=SCRATCH);session.phase_count=count
             with patch.object(l.os,'write') as write:
                 with self.assertRaises(l.Refused):session.phase(label)
@@ -322,6 +322,7 @@ class Controls(unittest.TestCase):
             session=l.Session('inner',bootstrap_scratch=SCRATCH);child=self.child(session,'core')
             session.anchors['core']={'child':child,'state':'mapped','maps':['synthetic']}
             session.live=Mock();images=Mock()
+            session.phase=Mock()  # Diagnostic output is exercised separately.
             with patch.object(l.time,'monotonic',side_effect=[0.0,0.0,bad]), \
                  patch.object(l.os,'kill') as signal,patch.object(l.os,'waitid') as observe:
                 with self.assertRaises(l.Refused):session.shutdown('core',images,Mock())
@@ -334,12 +335,102 @@ class Controls(unittest.TestCase):
         session=l.Session('inner',bootstrap_scratch=SCRATCH);child=self.child(session,'core');clock=[0.0]
         session.anchors['core']={'child':child,'state':'mapped','maps':['synthetic']}
         session.live=Mock();images=Mock()
-        images.verify.side_effect=lambda deadline:clock.__setitem__(0,5.0)
+        session.phase=Mock()
+        images.verify.side_effect=lambda deadline:clock.__setitem__(0,15.0)
         with patch.object(l.time,'monotonic',side_effect=lambda:clock[0]), \
              patch.object(l.os,'kill') as signal,patch.object(l.os,'waitid') as observe:
             with self.assertRaises(l.Refused):session.shutdown('core',images,Mock())
             images.inventory.assert_not_called();signal.assert_not_called();observe.assert_not_called()
         self.assertTrue(session.sealed)
+
+    def shutdown_fixture(self):
+        session=l.Session('inner',bootstrap_scratch=SCRATCH)
+        child=self.child(session,'core')
+        session.anchors['core']={'child':child,'state':'mapped','maps':['synthetic'],
+            'starttime':1,'namespaces':{'pid':(1,2),'net':(3,4)}}
+        session.live=Mock();session.settle_zero=Mock()
+        images=Mock();images.inventory.return_value=['synthetic']
+        return session,child,images
+
+    def test_shutdown_hash_work_has_fifteen_seconds_then_fresh_short_signal_guard(self):
+        session,child,images=self.shutdown_fixture();now=[0.0]
+        def verified(deadline):
+            self.assertEqual(deadline,15.0);now[0]=7.0
+        def inventoried(value,deadline):
+            self.assertIs(value,child);self.assertEqual(deadline,15.0)
+            now[0]=9.0;return ['synthetic']
+        images.verify.side_effect=verified;images.inventory.side_effect=inventoried
+        session.phase=Mock()
+        with patch.object(l.time,'monotonic',side_effect=lambda:now[0]), \
+             patch.object(l.os,'kill') as signal:
+            result=session.shutdown('core',images,Mock())
+        signal.assert_called_once_with(child.pid,l.signal.SIGTERM)
+        session.settle_zero.assert_called_once_with(child,6)
+        self.assertEqual(result['exit_code'],0);self.assertEqual(session.deadline,90.0)
+        labels=[call.args[0] for call in session.phase.call_args_list]
+        self.assertEqual(len(labels),13)
+        self.assertIn('before_core_shutdown_preflight_local_fence',labels)
+        self.assertLess(labels.index('after_core_shutdown_inventory'),labels.index('before_core_shutdown_signal'))
+        self.assertEqual(next(call.args[1] for call in session.phase.call_args_list
+            if call.args[0]=='before_core_shutdown_signal'),14.0)
+
+    def test_shutdown_preflight_absolute_clipping_never_renews_session(self):
+        session,child,images=self.shutdown_fixture();session.deadline=10.0
+        session.phase=Mock()
+        def expire(deadline):
+            self.assertEqual(deadline,10.0);session.deadline=0.0
+        images.verify.side_effect=expire
+        with patch.object(l.os,'kill') as signal:
+            with self.assertRaises(l.Refused):session.shutdown('core',images,Mock())
+        signal.assert_not_called();images.inventory.assert_not_called()
+        session.settle_zero.assert_not_called();self.assertTrue(session.sealed)
+        self.assertIn('before_core_shutdown_preflight_session_fence',
+            [call.args[0] for call in session.phase.call_args_list])
+
+    def test_shutdown_each_new_diagnostic_refusal_blocks_remaining_effects(self):
+        labels=['before_core_shutdown_initial_live','after_core_shutdown_initial_live',
+            'before_core_shutdown_preflight_local_fence','before_core_shutdown_verify',
+            'after_core_shutdown_verify','before_core_shutdown_inventory',
+            'after_core_shutdown_inventory','before_core_shutdown_final_live',
+            'after_core_shutdown_final_live','before_core_shutdown_signal',
+            'after_core_shutdown_signal','before_core_shutdown_settle','after_core_shutdown_settle']
+        for index,cut in enumerate(labels):
+            session,child,images=self.shutdown_fixture();seen=[]
+            def observe(label,*args):
+                seen.append(label)
+                if label==cut:raise OSError('private synthetic diagnostic failure')
+            session.phase=Mock(side_effect=observe)
+            with patch.object(l.os,'kill') as signal:
+                with self.assertRaises(OSError):session.shutdown('core',images,Mock())
+                with self.assertRaises(l.Refused):session.shutdown('core',images,Mock())
+            self.assertEqual(seen,labels[:index+1]);self.assertTrue(session.sealed)
+            self.assertEqual(signal.call_count,int(index>labels.index('before_core_shutdown_signal')))
+            self.assertEqual(session.settle_zero.call_count,int(index>labels.index('before_core_shutdown_settle')))
+
+    def test_resolved_credential_phase_cuts_keep_original_authorization_order(self):
+        for cut in (None,'before_resolved_shutdown_credentials','after_resolved_shutdown_credentials'):
+            session,child,images=self.shutdown_fixture()
+            row=session.anchors.pop('core');session.anchors['resolved']=row
+            for role in ('core','broker','host'):session.anchors[role]={'state':'zero-reaped'}
+            session.roles[id(child)]='resolved';base=Mock();base.RESOLVER_CAPS=123
+            labels=[]
+            def observe(label,*args):
+                labels.append(label)
+                if label==cut:raise OSError('private synthetic diagnostic failure')
+            session.phase=Mock(side_effect=observe)
+            with patch.object(l.os,'kill') as signal:
+                if cut:
+                    with self.assertRaises(OSError):session.shutdown('resolved',images,base)
+                    with self.assertRaises(l.Refused):session.shutdown('resolved',images,base)
+                    signal.assert_not_called();session.settle_zero.assert_not_called()
+                else:
+                    session.shutdown('resolved',images,base)
+                    signal.assert_called_once_with(child.pid,l.signal.SIGTERM)
+                    session.settle_zero.assert_called_once_with(child,6)
+                    self.assertEqual(len(labels),15)
+            self.assertEqual(base.verify_child.call_count,int(cut!='before_resolved_shutdown_credentials'))
+            if base.verify_child.call_count:base.verify_child.assert_called_once_with(child,974,123)
+            self.assertEqual(session.sealed,bool(cut))
 
     def test_late_zero_reap_does_not_authorize_complete_or_any_followup_query(self):
         session=l.Session('outer',bootstrap_scratch=SCRATCH);child=self.child(session,'namespace');clock=[0.0]

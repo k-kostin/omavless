@@ -60,8 +60,20 @@ PHASES |= frozenset('before_core_initial_inventory_'+step+'_reject_'+category
 # both below complete core40. This is not an extra complete-path label.
 # Some rejecting
 # classes cannot complete; this conservative complete-path bound includes all.
-# Bridge's independent cap remains128; combined lexical cap363, not authority.
-PHASE_LIMIT = 235
+# One-shot shutdown adds 13 labels per role, and two credential labels only
+# for resolved: 54 additional complete-path attempts. The two budget labels
+# are alternatives, not two attempts. These are diagnostics, not authority.
+SHUTDOWN_ROLES = ('core', 'broker', 'resolved', 'bus')
+SHUTDOWN_STEPS = ('initial_live', 'verify', 'inventory', 'final_live', 'signal', 'settle')
+SHUTDOWN_BUDGETS = ('local_fence', 'session_fence')
+PHASES |= frozenset(side+'_'+role+'_shutdown_'+step
+                   for role in SHUTDOWN_ROLES for step in SHUTDOWN_STEPS
+                   for side in ('before', 'after'))
+PHASES |= frozenset('before_'+role+'_shutdown_preflight_'+kind
+                   for role in SHUTDOWN_ROLES for kind in SHUTDOWN_BUDGETS)
+PHASES |= frozenset(side+'_resolved_shutdown_credentials' for side in ('before', 'after'))
+# Bridge's independent cap remains128; combined lexical cap417, not authority.
+PHASE_LIMIT = 289
 
 
 class Refused(RuntimeError):
@@ -391,24 +403,46 @@ class Session:
         require(all(self.anchors[item]['state'] == 'zero-reaped' for item in required),
                 'positive_shutdown_order')
         child = row['child']
+        self.phase('before_'+name+'_shutdown_initial_live')
         self.live(child)
-        deadline = self.local_deadline(5)
+        self.phase('after_'+name+'_shutdown_initial_live')
+        # Full original/destination hashes and current complete maps can read
+        # >660 MiB for core. Use the already admitted read-only verification
+        # budget, never extending the enclosing absolute Session fence.
+        deadline = self.local_deadline(15)
+        budget = 'session_fence' if deadline == self.deadline else 'local_fence'
+        self.phase('before_'+name+'_shutdown_preflight_'+budget, deadline)
+        self.phase('before_'+name+'_shutdown_verify', deadline)
         copies.verify(deadline)
         self.within(deadline)
+        self.phase('after_'+name+'_shutdown_verify', deadline)
+        self.phase('before_'+name+'_shutdown_inventory', deadline)
         require(copies.inventory(child, deadline) == row['maps'], 'shutdown_maps')
         self.within(deadline)
+        self.phase('after_'+name+'_shutdown_inventory', deadline)
+        # Hash/map completion is not stale permission to signal. A separate
+        # short guard rechecks original live ownership immediately beforehand.
+        deadline = self.local_deadline(5)
         if name == 'resolved':
+            self.phase('before_resolved_shutdown_credentials', deadline)
             base.verify_child(child, 974, base.RESOLVER_CAPS)
             self.within(deadline)
+            self.phase('after_resolved_shutdown_credentials', deadline)
+        self.phase('before_'+name+'_shutdown_final_live', deadline)
         self.live(child)
         self.within(deadline)
+        self.phase('after_'+name+'_shutdown_final_live', deadline)
+        self.phase('before_'+name+'_shutdown_signal', deadline)
         row['state'] = 'shutdown-authorized'
         # Only this positive path authorizes a single signal to the unreaped PID.
         # ESRCH or any error is uncertainty, never permission for another query.
         os.kill(child.pid, signal.SIGTERM)
         self.within(deadline)
         row['state'] = 'term-sent'
+        self.phase('after_'+name+'_shutdown_signal', deadline)
+        self.phase('before_'+name+'_shutdown_settle')
         self.settle_zero(child, 6)
+        self.phase('after_'+name+'_shutdown_settle')
         # No proc or namespace read after exit. Retained FDs close only at normal
         # interpreter exit, after the complete successful inventory receipt.
         row['state'] = 'zero-reaped'
