@@ -9,6 +9,7 @@ python3 -m unittest -v \
   "$here/retained_positive_composition/test_images.py" \
   "$here/retained_positive_composition/test_helper.py" \
   "$here/retained_positive_composition/test_positive.py" \
+  "$here/retained_positive_composition/test_streams.py" \
   "$here/test_six_library_mapping_boundaries_bridge.py" \
   "$here/test_six_library_mapping_boundaries_transport.py" \
   "$here/test_six_library_mapping_boundaries_fixture.py" \

@@ -146,6 +146,27 @@ data, unknown owner/observation and failed monitor permanently seal on the
 first frame. Eleven inert controls include late-spawn/no-anchor, one-snapshot
 no-sleep/no-requery counterexamples and a fully typed known-pending transition.
 These controls do NOT execute the positive case or establish actual DNS,
-controller, mapping or shutdown acceptance. The fixed two-stream witness,
-pinned launcher, native HOST builder, outer canonical guard and strict public
+controller, mapping or shutdown acceptance. The pinned launcher, native HOST
+builder, outer canonical guard and strict public
 receipt remain required; this Draft is NOT VM-ready or integrated acceptance.
+
+`streams.py` defines only a fixed two-client synthetic CONNECT/byte-echo witness
+in fresh PID1/root with concrete retained core/Session/Images/Controller objects.
+The listener and proxy addresses are literal private loopback ports; no caller
+destination, ID or token is accepted. Every single full send rechecks the
+original owned socket, actual core executable and live Session. Wrong token
+must return409 before BOTH byte streams are proved usable; exact close must
+return204 before selected EOF/reset and other-byte survival; replay must
+return404 and the survivor's same opaque core/session ID/token is required.
+Only that known witness followed by the caller's actual DNS readback permits
+positive client closes, bounded normal echo-thread return and server closes.
+All first uncertainty instead retains every returned socket/thread and seals
+without failure close/join, resends, private output or cleanup. The entire leaf
+has one eight-second sampled deadline within the retained global budget; it
+does not claim syscall cancellation, arbitrary descendant absence or atomic
+reload serialization. Eighteen inert controls use mocked sockets/threads only,
+including exact reply order, late/short/alias/throwing writes, lost originals,
+late acceptance, byte/peer caps and no-positive-close counterexamples.
+The pinned upstream core Unix listener currently chooses0666; the strict0600
+Controller admission is NOT loosened. A separately reviewed fixed-original
+fresh-socket permission bootstrap remains required before actual invocation.

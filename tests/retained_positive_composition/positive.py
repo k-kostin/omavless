@@ -1,7 +1,7 @@
 """Fresh isolated positive-case coordinator, developer-only, no entry point.
 
 Only the future pinned launcher supplies these concrete modules/objects. The
-stream witness and HOST builder/outer guard remain required before invocation.
+HOST builder/outer guard remain required before invocation.
 No legacy exercise, failure cleanup or nonzero/quarantine acceptance is reached.
 """
 import hashlib
@@ -238,17 +238,18 @@ class Case:
             self.owner.within(deadline)
             for row in self.owner.anchors.values():
                 if row['state'] != 'zero-reaped':self.owner.live(row['child']);self.owner.within(deadline)
-            value = self.observer(helper.snapshot(deadline))
+            value = self.call(deadline,self.observer,self.call(deadline,helper.snapshot,deadline))
             eligible = {'broker_ready':{None},'active':{None,'applying','active'},
                         'released':{None,'active','releasing','cleanup_verified'}}
             require(value['phase'] in eligible[kind])
-            if kind=='broker_ready' and value['notifications'][:1] == ['READY=1']:return value
+            if kind=='broker_ready' and value['notifications'][:1] == ['READY=1']:
+                self.owner.within(deadline);return value
             settled = [(item['method'],item['outcome']) for item in value['effects']]
             if kind=='active' and value['phase']=='active' and settled == [(method,'settled_success') for method in METHODS[:3]]:
-                self.base.active(value);self.owner.within(deadline);return value
+                self.call(deadline,self.base.active,value);return value
             if kind=='released' and value['phase'] is None and value['tun_exists'] is False \
                     and settled == [(method,'settled_success') for method in METHODS]:
-                self.base.clean(value,'success');self.owner.within(deadline);return value
+                self.call(deadline,self.base.clean,value,'success');return value
             self.call(deadline,time.sleep,0.1)  # Known pending observation only, never unknown retry.
 
     def run(self):
@@ -293,10 +294,12 @@ class Case:
             control.ready();self.owner.native_ready('core');self.mapped('core')
             streams = self.stream_module.Streams(self.owner,self.ownership,self.images,self.image_module,
                                                 control,self.controller_module)
-            streams.witness()
-            self.base.active(self.observer(helper.snapshot(self.owner.local_deadline(5))))
+            stream_witness = self.call(self.owner.local_deadline(8),streams.witness)
+            deadline = self.owner.local_deadline(5)
+            self.call(deadline,self.base.active,self.call(deadline,self.observer,
+                self.call(deadline,helper.snapshot,deadline)))
             control.ready();self.available()
-            streams.finish_positive()
+            stream_finish = self.call(self.owner.local_deadline(5),streams.finish_positive)
             for role in ('core','broker','host'):self.final_map(role)
             self.stops['core'] = self.owner.shutdown('core',self.images,self.base)
             self.wait_snapshot(helper,'released')
@@ -314,6 +317,7 @@ class Case:
             complete = self.owner.complete()
             self.available()
             return {'case':'success','initial':self.initial,'final':self.final,'copies':self.copies.records,
+                'stream_witness':stream_witness,'stream_positive_finish':stream_finish,
                 'shutdown':self.stops,'inner_owned_zero':complete,
                 'monitor_final_sha256':hashlib.sha256(json.dumps(final,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
                 'actual_core_broker_and_helper_original_loaded_bound':True,
