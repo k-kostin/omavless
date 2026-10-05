@@ -5,9 +5,44 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from tests.frontier_fixture_helpers import FIELDS, fixed_vm_os, fixed_vm_process_os
 
 from tests.live_fd_tmpfs_review2 import transport
 FROZEN_PINS = dict(transport.PINS)
+
+
+class FacadeTests(unittest.TestCase):
+    def test_modeled_owner_keeps_real_fd_identity_modes_bytes_and_shared_os(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "fixed"
+            target.write_bytes(b"synthetic")
+            target.chmod(0o600)
+            proxy = fixed_vm_os(root)
+            directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                fd = proxy.open("fixed", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+                try:
+                    real = os.fstat(fd)
+                    modeled = proxy.fstat(fd)
+                    self.assertEqual(tuple(getattr(real, name) for name in FIELDS),
+                                     tuple(getattr(modeled, name) for name in FIELDS))
+                    self.assertEqual((modeled.st_uid, modeled.st_gid), (1000, 1000))
+                    self.assertEqual((real.st_uid, real.st_gid), (os.getuid(), os.getgid()))
+                    self.assertEqual(proxy.read(fd, 64), b"synthetic")
+                    self.assertIsNot(proxy, os)
+                finally:
+                    os.close(fd)
+            finally:
+                os.close(directory)
+
+    def test_supervisor_facade_models_account_without_replacing_shared_calls(self):
+        uid, euid = os.getuid, os.geteuid
+        proxy = fixed_vm_process_os(os)
+        self.assertEqual((proxy.getuid(), proxy.geteuid()), (1000, 1000))
+        self.assertIs(os.getuid, uid)
+        self.assertIs(os.geteuid, euid)
+        self.assertIs(proxy.open, os.open)
 
 
 class TransportTests(unittest.TestCase):
@@ -35,11 +70,7 @@ class TransportTests(unittest.TestCase):
         for parent in (self.root / "home", self.root / "home/kdk_vm"):
             parent.chmod(0o700)
         self.target = self.parent / transport.PARTS[-1]
-        original_open, original_stat = os.open, os.stat
-        for mock in (patch.object(transport.os, "open", side_effect=lambda name, *a, **kw:
-                                 original_open(self.root if name == "/" else name, *a, **kw)),
-                     patch.object(transport.os, "stat", side_effect=lambda name, *a, **kw:
-                                  original_stat(self.root if name == "/" else name, *a, **kw)),
+        for mock in (patch.object(transport, "os", fixed_vm_os(self.root)),
                      patch.object(transport, "PINS", {"probe.py": hashlib.sha256(b"synthetic").hexdigest(),
                                                        "copy-manifest.json": hashlib.sha256(b"data").hexdigest()})):
             mock.start()
@@ -95,6 +126,18 @@ class TransportTests(unittest.TestCase):
     def test_unknown_metadata_stops_before_create(self):
         with patch.object(transport.os, "fstat", side_effect=OSError("synthetic")), self.assertRaises(OSError):
             transport.stage("create", None, b"")
+        self.assertFalse(self.target.exists())
+
+    def test_wrong_modeled_vm_owner_still_refuses_without_host_module_patch(self):
+        self.assertIsNot(transport.os, os)
+        original = transport.os.fstat
+        def wrong(fd):
+            value = original(fd)
+            value.st_uid = 1001
+            return value
+        with patch.object(transport.os, "fstat", side_effect=wrong):
+            with self.assertRaises(RuntimeError):
+                transport.stage("create", None, b"")
         self.assertFalse(self.target.exists())
 
 

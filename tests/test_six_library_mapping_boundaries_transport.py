@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from tests.frontier_fixture_helpers import fixed_vm_os
 
 from tests.six_library_live_mapping import transport
 FROZEN_PINS = dict(transport.PINS)
@@ -33,11 +34,7 @@ class TransportTests(unittest.TestCase):
         for parent in (self.root / "home", self.root / "home/kdk_vm"):
             parent.chmod(0o700)
         self.target = self.parent / transport.PARTS[-1]
-        original_open, original_stat = os.open, os.stat
-        for mock in (patch.object(transport.os, "open", side_effect=lambda name, *a, **kw:
-                                 original_open(self.root if name == "/" else name, *a, **kw)),
-                     patch.object(transport.os, "stat", side_effect=lambda name, *a, **kw:
-                                  original_stat(self.root if name == "/" else name, *a, **kw)),
+        for mock in (patch.object(transport, "os", fixed_vm_os(self.root)),
                      patch.object(transport, "PINS", {"probe.py": hashlib.sha256(b"synthetic").hexdigest(),
                                                        "copy-manifest.json": hashlib.sha256(b"data").hexdigest()})):
             mock.start()
