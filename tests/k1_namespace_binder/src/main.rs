@@ -1,42 +1,16 @@
 //! Fixed noninstalled local-binding probe. No canonical authority or datagrams.
 #![forbid(unsafe_code)]
 
-use k1_real_namespace_binder_review::{LocalBinding, Refused};
-use std::fs::File;
+use k1_real_namespace_binder_review::{FixedAttempt, Refused};
 use std::io::{self, Write};
-use std::mem::ManuallyDrop;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
 
 const ARG: &str = "--fixed-k1-local-binder-not-production";
 const NEGATIVE_ARG: &str = "--fixed-k1-local-binder-expect-mismatch-not-production";
 const MATCH: &[u8] = b"K1_BINDER_LOCAL_MATCH_NOT_PRODUCTION\n";
 const MISMATCH: &[u8] = b"K1_BINDER_LOCAL_MISMATCH_NOT_PRODUCTION\n";
 
-fn budget(deadline: Instant) -> Result<(), ()> {
-    if Instant::now() < deadline {
-        Ok(())
-    } else {
-        Err(())
-    }
-}
-
-fn actual(deadline: Instant) -> Result<(), Refused> {
-    budget(deadline).map_err(|_| Refused::Expired)?;
-    // First file opener. This reopens the inherited namespace object, not the
-    // same open file description; descriptor number alone proves no origin.
-    let anchor = File::open("/proc/self/fd/3").map(ManuallyDrop::new);
-    budget(deadline).map_err(|_| Refused::Expired)?;
-    let anchor = anchor.map_err(|_| Refused::Unavailable)?;
-    let mut owner = LocalBinding::bind_untrusted_anchor(ManuallyDrop::into_inner(anchor))?;
-    budget(deadline).map_err(|_| Refused::Expired)?;
-    owner.verify_local()?;
-    budget(deadline).map_err(|_| Refused::Expired)?;
-    // Library originals remain retained through process exit, including errors.
-    Ok(())
-}
-
-// Private fixed sequencing seam; main supplies only actual and Instant checks.
+// Private sequencing seam; main supplies one fixed attempt and its elapsed gate.
 // No retry or error output after any write/flush attempt.
 fn entry(
     allowed: bool,
@@ -88,7 +62,7 @@ fn configuration(
 }
 
 fn main() -> ExitCode {
-    let Some(deadline) = Instant::now().checked_add(Duration::from_secs(2)) else {
+    let Ok(attempt) = FixedAttempt::start() else {
         return ExitCode::from(2);
     };
     let mut args = std::env::args_os();
@@ -107,8 +81,8 @@ fn main() -> ExitCode {
     let result = entry(
         config.is_some(),
         config.unwrap_or(false),
-        &mut || budget(deadline),
-        || actual(deadline),
+        &mut || attempt.check_elapsed().map_err(|_| ()),
+        || attempt.verify_inherited_local(),
         &mut io::stdout().lock(),
     );
     ExitCode::from(result.unwrap_or(2))

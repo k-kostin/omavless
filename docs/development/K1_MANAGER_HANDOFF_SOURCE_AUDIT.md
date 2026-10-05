@@ -27,6 +27,23 @@ Thus the retained network-namespace descriptor and actual retained creator
 socket can be compared by these APIs. Unsupported kernels still refuse; this
 source comparison is not evidence that a particular guest implements the API.
 
+At this same pin, `nsfs_ioctl_valid` accepts both read-only namespace operations;
+`may_use_nsfs_ioctl` restricts only the mount-neighbor operations, not NS_GET_ID
+or NS_GET_NSTYPE. Their own switch branches impose no capability check, and
+`nsfs_init_inode` sets world-readable mode. The generic ioctl syscall still
+invokes [`security_file_ioctl`](https://github.com/torvalds/linux/blob/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/fs/ioctl.c)
+before filesystem dispatch. Thus empty capabilities are not intrinsically a
+reason for these two operations to fail; LSM/seccomp policy or unsupported APIs
+can still refuse, and are not negative-fixture success.
+
+The fixed inherited-object reopen uses the process's own FD path:
+[`proc_fd_permission` and `proc_fd_link`](https://github.com/torvalds/linux/blob/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/fs/proc/fd.c)
+allow same-thread-group directory access after setuid and resolve the retained
+file's actual path. This is not an attempt to inspect another nondumpable
+process. Path traversal and security hooks still apply. The nobody/empty-caps
+positive result remains an expectation to test, not a guest fact established
+by this audit.
+
 ## Actual opening and transfer path
 
 The inspected systemd release is v261, peeled commit

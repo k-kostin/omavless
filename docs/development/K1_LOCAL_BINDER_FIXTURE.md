@@ -2,7 +2,16 @@
 
 The external review-only package now includes a fixed opt-in executable and
 two noninstalled unit templates in `tests/k1_namespace_binder/fixture`.
-The previously reviewed library and fault matrix are unchanged. This is not
+The historical b0a35e7 build remains retained. Its library had its own two-second
+budget starting after the outer inherited opener, so the outer budget could
+expire while the library continued within its newer budget. It is not accepted
+as a strict shared-deadline fixture. The corrected `FixedAttempt` starts before
+configuration and supplies one private, non-resettable deadline to the fixed
+opener, all constructor/recheck leaves and output gates. No caller can supply a
+deadline, path or provider. An executed synthetic counterexample spends 1.9s in
+the opener and 0.11s in the next leaf: it retains that returned FD and refuses
+before any subsequent namespace-type query. Attempt reuse is permanently refused
+after success, failure or panic. This is not
 yet a frozen binary, delivery graph, actual invocation or VM acceptance.
 
 The positive invocation requires local namespace/socket agreement; the
@@ -32,8 +41,9 @@ run is not silently killed into a supposed acceptance result. A future bounded
 parent controller must retain an unknown original unit/process and stop its
 scope without retry, query-based adoption or cleanup.
 
-Fresh synthetic gates passed nine library tests, five binary configuration/sequencing/output
-tests and three compile-fail doctests. These tests do not execute `main`, the
+The original synthetic gates passed nine library tests, five binary configuration/sequencing/output
+tests and three compile-fail doctests. Corrected shared-deadline gates are separate.
+These tests do not execute `main`, the
 actual binder, namespace ioctls or netlink construction. Exact final source,
 MSRV/full-source gates, build provenance, immutable
 freeze and delivery/negative-witness review remain prerequisites. ROOT alone

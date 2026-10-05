@@ -39,8 +39,8 @@ class BinderArtifact(unittest.TestCase):
                           "setns(", "unshare(", "sendto(", "sendmsg(",
                           "CanonicalCreator", "NamespaceObservation::Canonical", "pub fn into_"):
             self.assertNotIn(forbidden, source)
-        self.assertEqual(source.count("compile_fail,E0277"), 2)
-        self.assertEqual(source.count("compile_fail,E0616"), 1)
+        self.assertEqual(source.count("compile_fail,E0277"), 3)
+        self.assertEqual(source.count("compile_fail,E0616"), 2)
 
     def test_normal_entry_uses_only_private_real_backend_and_fault_matrix_is_present(self):
         source = (ARTIFACT / "src/lib.rs").read_text()
@@ -57,14 +57,19 @@ class BinderArtifact(unittest.TestCase):
 
     def test_fixed_noninstalled_entry_and_two_unit_templates(self):
         source = (ARTIFACT / "src/main.rs").read_text()
-        for token in ('#![forbid(unsafe_code)]', 'File::open("/proc/self/fd/3").map(ManuallyDrop::new)',
-                      "owner.verify_local()?", "Err(Refused::Mismatch) if expect_mismatch",
+        for token in ('#![forbid(unsafe_code)]', 'FixedAttempt::start()',
+                      "attempt.verify_inherited_local()", "Err(Refused::Mismatch) if expect_mismatch",
                       "config.is_some()", "output.write(raw)", "output.flush()",
                       "exact_handoff_configuration_is_not_origin_authentication"):
             self.assertIn(token, source)
         for token in ("unsafe {", "from_raw_fd", "setns(", "sendto(", "sendmsg(",
                       "Command::", "write_all(", "eprintln!", "println!"):
             self.assertNotIn(token, source)
+        library = (ARTIFACT / "src/lib.rs").read_text()
+        self.assertIn('File::open("/proc/self/fd/3")', library)
+        self.assertIn("self.deadline", library.split("fn run_with", 1)[1].split("impl LocalBinding", 1)[0])
+        self.assertNotIn("Instant", source)
+        self.assertNotIn("pub fn bind_with_deadline", library)
         positive = (ARTIFACT / "fixture/local-match.service").read_text()
         negative = (ARTIFACT / "fixture/local-mismatch.service").read_text()
         for unit in (positive, negative):

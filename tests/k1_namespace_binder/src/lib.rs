@@ -6,6 +6,7 @@ use nix::sys::socket::{
     bind, getsockopt, socket, sockopt::NetnsCookie, AddressFamily, NetlinkAddr, SockFlag,
     SockProtocol, SockType,
 };
+use std::cell::Cell;
 use std::fs::File;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -138,6 +139,82 @@ pub struct LocalBinding {
     _same_thread: PhantomData<Rc<()>>,
 }
 
+/// One fixed two-second local probe attempt, including handoff and output gates.
+/// Not authority; no caller-selected deadline, clock, path or query provider.
+/// ```compile_fail,E0616
+/// use k1_real_namespace_binder_review::FixedAttempt;
+/// let mut attempt = FixedAttempt::start().unwrap();
+/// attempt.deadline = std::time::Instant::now();
+/// ```
+/// ```compile_fail,E0277
+/// use k1_real_namespace_binder_review::FixedAttempt;
+/// fn send<T: Send>() {}
+/// send::<FixedAttempt>();
+/// ```
+pub struct FixedAttempt {
+    deadline: Instant,
+    thread: ThreadId,
+    attempted: Cell<bool>,
+    _same_thread: PhantomData<Rc<()>>,
+}
+
+impl FixedAttempt {
+    pub fn start() -> Result<Self, Refused> {
+        Ok(Self {
+            deadline: Instant::now()
+                .checked_add(Duration::from_secs(2))
+                .ok_or(Refused::Expired)?,
+            thread: thread::current().id(),
+            attempted: Cell::new(false),
+            _same_thread: PhantomData,
+        })
+    }
+
+    /// Only checks the original elapsed/thread boundary; never restarts binding.
+    pub fn check_elapsed(&self) -> Result<(), Refused> {
+        self.elapsed_with(&mut Real)
+    }
+
+    fn elapsed_with(&self, queries: &mut impl Queries) -> Result<(), Refused> {
+        if thread::current().id() != self.thread {
+            return Err(Refused::Mismatch);
+        }
+        if queries.now() >= self.deadline {
+            return Err(Refused::Expired);
+        }
+        Ok(())
+    }
+
+    /// Reopen only the fixed inherited namespace object, bind and recheck locally.
+    /// No second attempt after success, failure or unwind; originals are retained.
+    pub fn verify_inherited_local(&self) -> Result<(), Refused> {
+        self.run_with(&mut Real, |_| {
+            File::open("/proc/self/fd/3").map_err(|_| Refused::Unavailable)
+        })
+    }
+
+    fn run_with<Q: Queries>(
+        &self,
+        queries: &mut Q,
+        open: impl FnOnce(&mut Q) -> Result<File, Refused>,
+    ) -> Result<(), Refused> {
+        if self.attempted.replace(true) {
+            return Err(Refused::Sealed);
+        }
+        self.elapsed_with(queries)?;
+        let anchor = open(queries).map(ManuallyDrop::new);
+        self.elapsed_with(queries)?;
+        let anchor = anchor?;
+        let mut owner = LocalBinding::bind_with_deadline(
+            ManuallyDrop::into_inner(anchor),
+            queries,
+            self.deadline,
+        )?;
+        owner.verify_queries(queries)?;
+        self.elapsed_with(queries)
+    }
+}
+
 impl LocalBinding {
     /// Create one fixed nonblocking NETLINK_NETFILTER socket on this thread.
     /// Calls no setns, sends no datagram and changes no firewall state.
@@ -147,6 +224,19 @@ impl LocalBinding {
     }
 
     fn bind_with(anchor: File, queries: &mut impl Queries) -> Result<Self, Refused> {
+        let anchor = ManuallyDrop::new(anchor);
+        let deadline = queries
+            .now()
+            .checked_add(Duration::from_secs(2))
+            .ok_or(Refused::Expired)?;
+        Self::bind_with_deadline(ManuallyDrop::into_inner(anchor), queries, deadline)
+    }
+
+    fn bind_with_deadline(
+        anchor: File,
+        queries: &mut impl Queries,
+        deadline: Instant,
+    ) -> Result<Self, Refused> {
         let originals = ManuallyDrop::new(Originals {
             anchor,
             thread_namespace: None,
@@ -154,10 +244,6 @@ impl LocalBinding {
             owner_thread: thread::current().id(),
             initial: None,
         });
-        let deadline = queries
-            .now()
-            .checked_add(Duration::from_secs(2))
-            .ok_or(Refused::Expired)?;
         let mut owner = Self {
             originals,
             deadline,

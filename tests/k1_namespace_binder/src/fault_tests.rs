@@ -17,6 +17,7 @@ struct Fake {
     created: Option<i32>,
     cookies: Vec<i32>,
     next_cookie: u64,
+    step_elapsed: Duration,
 }
 impl Fake {
     fn new() -> Self {
@@ -28,10 +29,12 @@ impl Fake {
             created: None,
             cookies: Vec::new(),
             next_cookie: 7,
+            step_elapsed: Duration::ZERO,
         }
     }
     fn step(&mut self) -> Result<(), Refused> {
         self.calls += 1;
+        self.now = self.now.checked_add(self.step_elapsed).unwrap();
         if let Some((at, kind)) = self.cut {
             if at == self.calls {
                 match kind {
@@ -85,6 +88,92 @@ impl Queries for Fake {
 fn retained(fd: i32) {
     // Intentionally inspect only this process's synthetic ordinary descriptors.
     assert!(std::fs::metadata(format!("/proc/self/fd/{fd}")).is_ok());
+}
+
+#[test]
+fn original_attempt_budget_spent_at_handoff_is_not_reset_by_constructor() {
+    let mut fake = Fake::new();
+    let attempt = FixedAttempt {
+        deadline: fake.now + Duration::from_secs(2),
+        thread: thread::current().id(),
+        attempted: Cell::new(false),
+        _same_thread: PhantomData,
+    };
+    let anchor = File::open("/dev/null").unwrap();
+    let fd = anchor.as_raw_fd();
+    let result = attempt.run_with(&mut fake, |q| {
+        q.now += Duration::from_millis(1900);
+        q.step_elapsed = Duration::from_millis(110);
+        Ok(anchor)
+    });
+    assert_eq!(result, Err(Refused::Expired));
+    assert_eq!(fake.calls, 1); // Late current opener; NO subsequent namespace-type ioctl.
+    retained(fd);
+    retained(fake.opened[0]);
+    assert_eq!(
+        attempt.run_with(&mut fake, |_| panic!("must not reopen")),
+        Err(Refused::Sealed)
+    );
+    assert_eq!(fake.calls, 1);
+}
+
+#[test]
+fn fixed_attempt_late_open_error_and_panic_never_reopen() {
+    for cut in [Cut::Late, Cut::Error, Cut::Panic] {
+        let mut fake = Fake::new();
+        let attempt = FixedAttempt {
+            deadline: fake.now + Duration::from_secs(2),
+            thread: thread::current().id(),
+            attempted: Cell::new(false),
+            _same_thread: PhantomData,
+        };
+        let mut fd = None;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            attempt.run_with(&mut fake, |q| match cut {
+                Cut::Error => Err(Refused::Unavailable),
+                Cut::Panic => panic!("synthetic opener panic"),
+                Cut::Late => {
+                    let file = q.file();
+                    fd = Some(file.as_raw_fd());
+                    q.now += Duration::from_secs(3);
+                    Ok(file)
+                }
+            })
+        }));
+        match cut {
+            Cut::Panic => assert!(result.is_err()),
+            Cut::Late => assert_eq!(result.unwrap(), Err(Refused::Expired)),
+            Cut::Error => assert_eq!(result.unwrap(), Err(Refused::Unavailable)),
+        }
+        assert_eq!(fake.calls, 0);
+        if let Some(fd) = fd {
+            retained(fd);
+        }
+        assert_eq!(
+            attempt.run_with(&mut fake, |_| panic!("must not reopen")),
+            Err(Refused::Sealed)
+        );
+    }
+}
+
+#[test]
+fn fixed_attempt_success_uses_same_creator_and_cannot_be_repeated() {
+    let mut fake = Fake::new();
+    let attempt = FixedAttempt {
+        deadline: fake.now + Duration::from_secs(2),
+        thread: thread::current().id(),
+        attempted: Cell::new(false),
+        _same_thread: PhantomData,
+    };
+    assert_eq!(attempt.run_with(&mut fake, |q| Ok(q.file())), Ok(()));
+    assert_eq!(fake.calls, 23);
+    assert_eq!(fake.cookies, vec![fake.created.unwrap(); 2]);
+    retained(fake.created.unwrap());
+    assert_eq!(
+        attempt.run_with(&mut fake, |_| panic!("must not reopen")),
+        Err(Refused::Sealed)
+    );
+    assert_eq!(fake.calls, 23);
 }
 
 #[test]
