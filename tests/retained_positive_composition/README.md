@@ -85,8 +85,9 @@ Fifteen inert controls include actual synthetic directory-FD maps reads, mocked
 kernel-exe identity, all five roles, changed rereads, early membership refusal,
 late/throwing reads and strict public parser bounds. They do not execute a
 candidate, prove actual live mappings or remove the inherited copied-adapter
-sampled elapsed-time limitations. The actual positive launcher, fresh scoped
-quiescence and canonical wrapper are NOT yet implemented here.
+sampled elapsed-time limitations. The positive launcher and fresh scoped
+zero-ledger source are described below; the canonical wrapper/HOST builder and
+actual complete invocation still remain required.
 
 The fixed manager-helper adapter now binds only the concrete retained host
 role's original unbuffered Popen pipes, kernel FIFO originals and live child.
@@ -194,6 +195,51 @@ and cover changed/missing/unknown/FIFO/hardlinked inputs, cached-byte mutation,
 whitelist/hash mismatch, initial/enclosing clock aliases, a late enclosing-
 budget read, late opens/positive closes and
 no failure cleanup. No launcher/VM/adoption readiness is inferred.
+
+`launcher.py` now supplies the actual fixed source composition, still NOT
+VM-ready without the separately reviewed immutable HOST native builder,
+source transfer, outer canonical guard and independent complete-graph review.
+It follows only the literal fresh stage and one positive case. The outer
+initial90-second absolute budget covers source loading, native original-FD
+admission and the retained Session; the namespace's65-second absolute cap is
+computed BEFORE spawn, clips both parent owners, and is transferred in a fixed
+own-spawn frame. PID1 validates/clips that same finite cap before ANY source
+open; no fresh child90-second grant or settlement reset extends it. No time
+namespace is unshared. A separate five-second spawn post-return fence retains
+even a late child but permits no observation/readback. This is sampled expiry,
+not syscall cancellation or cross-process revocation of already granted work.
+
+The pinned reader's selected containment functions receive exactly the fresh
+owner's command/live/directory-FD hooks. ALL four fixed native originals pass
+bounded original-FD metadata/hash/catalog checks before bind or execution;
+later read-only /artifacts originals must agree with those same retained
+objects. The child closes only known positive source/native directory originals
+before chroot, retains regular sources, prepares25 copied packaged objects and
+runs the concrete positive Case with actual core/broker/resolved/helper roles.
+The parent may read the private result ONLY after independent exact raw-zero
+namespace settlement and complete outer ledger. A pure strict validator checks
+the full finite copy/mapping/stream/bootstrap/reset/shutdown record; its flags
+are recorded semantics, never independent process or namespace authority.
+The private600 result and one unbuffered recorded-only marker require typed
+full writes and post-deadline gates; no flush/retry/second failure output.
+Every PID1 uncertainty parks with all retained objects, no followup IO/query/
+signal/re-exec/failure cleanup. The final canonical-baseline/whole wrapper
+decision remains outside this launcher; all adoption/compatibility flags stay
+false. It makes no global shared argv/UID absence or arbitrary-descendant claim.
+
+The fixed successful PID1 descriptor count adds13 public source originals,
+two reader/validator originals and four native originals to the previous143:
+162 retained plus bounded temporary HTTP/hash/proc/utility reads, conservatively
+under180. Its own fixed512 limit is independent of the unchanged128 child limit
+and pre-role FD-inventory cap (fewer than90 before role startup). The namespace
+spawn explicitly closes other inherited FDs; source/copy originals remain
+read-only in PID1. Sixteen executed mocked launcher controls cover complete
+parent/inner composition and no-followup counterexamples, source originals,
+synthetic native admission, typed terminal writes, initial/transferred budgets,
+late spawn/zero/case and unknown PID1 parking. Nine pure synthetic receipt
+controls cover exact schema, all25 copies and loaded identities, native-role
+aliases, all5 shutdown/zero rows, six-library witness and negative flags.
+Neither suite launches a candidate or establishes actual fixture acceptance.
 
 `streams.py` defines only a fixed two-client synthetic CONNECT/byte-echo witness
 in fresh PID1/root with concrete retained core/Session/Images/Controller objects.

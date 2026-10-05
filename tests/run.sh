@@ -3,6 +3,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/retained_positive_composition/test_launcher.py" \
+  "$here/retained_positive_composition/test_validate_receipt.py" \
   "$here/retained_positive_composition/test_graph.py" \
   "$here/retained_positive_composition/test_controller.py" \
   "$here/retained_positive_composition/test_lifecycle.py" \
