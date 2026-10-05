@@ -1,0 +1,2 @@
+# Unified diff context lines intentionally preserve upstream indentation.
+mihomo-dns-test-sockets.patch -whitespace
