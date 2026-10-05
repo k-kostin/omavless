@@ -75,3 +75,55 @@ retain the whole returned frame before semantic/late refusal. No all-partial-FD
 retention, root/ancestor authentication, closed protocol, canonical namespace,
 product availability, security-scan approval, merge or adoption is claimed.
 Any next API/kernel control requires its own exact-head review and authority.
+
+## Separate source-only PIDFD successor
+
+`source-only-dedb209.patch` preserves nine external source/harness files from
+the same import base to `dedb209c3b5b5df4b62703bc3766dcaea1f4e152`.
+It is 64205 bytes, SHA256
+`9a34e4bfafdc0192a61cae33c3001e03e6ff216ae056801d25bc905d02dd3c7a`.
+The tested `faa069b` patch and its result remain unchanged. No runner applies
+either patch; normal dependencies, CLI and production sources are unchanged.
+
+The additive frame now separately owns exact successful SCM_PIDFD originals;
+exact negative Linux errno becomes a typed record owning no descriptor.
+Malformed lengths/extreme negatives remain visible without adopting a guessed
+FD. This follows the separately pinned Linux v6.17 producer at
+`e5f0a698b34ed76002dc5cff3804a61c80233a7a`, not current HOST kernel identity.
+Six added synthetic controls passed with the original twelve on both backends;
+they use exclusive `/dev/null` fixtures, not actual PIDFD/class authority.
+
+The new x86_64 Linux no-child control is default ignored and **uninvoked**.
+Three newly owned nonblocking unnamed pairs propose PIDFD-only, credential +
+one original pipe RIGHT + PIDFD, and credential-sized control truncation.
+Both cfg(test) private backend helpers query the original socket with exact
+returned native-int size/value for SO_PASSPIDFD76. The control borrows the
+returned original only for CLOEXEC and one zero-time poll; no PIDFD read,
+pidfd_open/getfd, proc/path/namespace acquisition, process identity claim,
+signal/reap, child or VM action. Whole frames/pairs/pipe enter pre-reserved
+ManuallyDrop retention before post-call gates under one sampled eight-second
+deadline. No success/failure cleanup or retry is added.
+
+Final compiled/inert gates on the exact successor passed eighteen tests,
+zero failed, two actual kernel controls ignored on each backend (35/37 other
+tests filtered). These runs do not select either ignored body and cannot
+inherit the prior `faa069b` actual result. FULL ROOT and independent exact
+source review plus a fresh sealed recipe remain prerequisites for ROOT alone
+to select once. All unknown-FD/corrupt-tail/OOM/panic/backend-partial retention
+and root/manager/product authority gaps remain unchanged.
+
+The export/docs checkpoint passed the full source suite (639 tests, two
+declared skips, JS/QML/navigation) and reverse-apply/whitespace checks.
+Ordinary product Rust source and dependency inputs did not change; no new
+product Rust or host result is inferred from this textual research fixture.
+
+The reverse-apply check validates this exported patch against all nine exact
+result files without mutation or execution. Five unchanged outputs retain
+their earlier hashes; changed/new outputs are:
+
+| Resulting file | SHA256 |
+| --- | --- |
+| rustix-1.1.5/src/net/send_recv/owned_ancillary_experiment.rs | 7b06063f7c63f84e009ea00e1c74be7782abe98af7415ff48ed6a82baf11847b |
+| rustix-1.1.5/src/net/send_recv/owned_ancillary_pidfd_kernel_control.rs | 6157cdfa60efac0e45e4c2c627ae8179fd45e0201b59e2605b883e2e976f5ece |
+| rustix-1.1.5/src/backend/linux_raw/net/sockopt.rs | d7f05676ef512eb60998580a6ff9aafb233a8c80fe19a6db9c4da06ac102679e |
+| rustix-1.1.5/src/backend/libc/net/sockopt.rs | 1d63f272119490ff83ff170d04a2ac78f27e56a959257276e40cf537794f6bba |

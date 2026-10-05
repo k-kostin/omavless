@@ -196,3 +196,24 @@ SCM_PIDFD, unknown descriptor ABI, corrupt-tail/OOM/backend-partial retention
 or production availability. The pinned patch is exactly the tested head,
 not later external documentation or a future PIDFD successor. No ordinary
 Rust source, dependency, trust predicate or CLI path changes in this checkpoint.
+
+## Separate source-only PIDFD proposal
+
+External `dedb209c3b5b5df4b62703bc3766dcaea1f4e152` is preserved as a
+separate textual research patch in the same fixture. It adds exact successful
+SCM_PIDFD ownership and typed negative-errno records, plus a default-ignored
+own no-child receive control with exact native-size SO_PASSPIDFD option helpers
+in both backends. Eighteen synthetic tests pass on each backend; both actual
+kernel entry points remain ignored. This is source/compile/inert evidence only.
+The new control has not been selected and cannot borrow `faa069b`'s result.
+
+Its future three own unnamed pairs propose PIDFD-only, combined credentials/
+one original pipe RIGHT/PIDFD, and control truncation. Whole owner graphs are
+retained before post-call gates. CLOEXEC and one zero-time poll borrow only the
+returned original; no PIDFD read, PID reconstruction, namespace acquisition,
+signal/reap, child, old scope or VM action is added. Poll is empirical behavior,
+not descriptor-class, process-liveness, root authentication or manager proof.
+FULL ROOT and independent immutable source review and a new sealed recipe
+must precede any ROOT-only selection. All broader ownership/authority gaps and
+the original stopped child NONPASS remain unchanged; no normal runtime,
+dependency, CLI, accepted candidate or publication path changes.
