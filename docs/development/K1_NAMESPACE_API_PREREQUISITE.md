@@ -1,5 +1,11 @@
 # K1 namespace and socket API prerequisite
 
+Current successor: [developer service core](K1_SERVICE_CORE.md) privately
+adopts the complete immutable reviewed nix/libc fork behind an opt-in feature.
+This is owner-authorized private adoption, not upstream API release/submission.
+The historical missing-dependency research below remains exact to its sources;
+actual installed launch/kernel/isolation acceptance is still required.
+
 A later [review-only upstream patch artifact](K1_NAMESPACE_PATCH_REVIEW.md)
 implements the proposed fixed read-only boundary against an exact nix source.
 It is not adopted or submitted; the safe dependency and launch gates below

@@ -35,6 +35,59 @@ pub(crate) struct SessionOwner<K: EffectPort> {
 }
 
 impl<K: EffectPort> SessionOwner<K> {
+    #[cfg(feature = "netguard-service-core")]
+    pub(crate) fn recover_one(&mut self, stream: UnixStream) -> SessionProgress {
+        use crate::protocol::Response;
+        use crate::transport_candidate::{receive_root_recover, send_root_response};
+        if self.authority_lost
+            || !self.state.enrollment_current()
+            || self.listener.validate().is_err()
+            || self
+                .kernel
+                .exchange_boundary(ExchangeBoundary::BeforeReceive)
+                .is_err()
+        {
+            self.authority_lost = true;
+            return SessionProgress::AuthorityLost;
+        }
+        if let Err(error) = receive_root_recover(&stream) {
+            return SessionProgress::Refused(ExchangeError::Receive(error));
+        }
+        if self
+            .kernel
+            .exchange_boundary(ExchangeBoundary::AfterReceive)
+            .is_err()
+        {
+            self.authority_lost = true;
+            return SessionProgress::AuthorityLost;
+        }
+        let response = self
+            .state
+            .recover_current(self.namespace, &mut self.kernel)
+            .unwrap_or_else(|code| Response::Error { code });
+        if !self.state.enrollment_current()
+            || self.listener.validate().is_err()
+            || self
+                .kernel
+                .exchange_boundary(ExchangeBoundary::BeforeReply)
+                .is_err()
+        {
+            self.authority_lost = true;
+            return SessionProgress::AuthorityLost;
+        }
+        if let Err(error) = send_root_response(&stream, response) {
+            return SessionProgress::Refused(ExchangeError::ReplyDeliveryUnknown(error));
+        }
+        if self
+            .kernel
+            .exchange_boundary(ExchangeBoundary::AfterReply)
+            .is_err()
+        {
+            self.authority_lost = true;
+            return SessionProgress::AuthorityLost;
+        }
+        SessionProgress::Served
+    }
     pub(crate) fn from_admitted(
         listener: AdmittedListener,
         state: LockedState,

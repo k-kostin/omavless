@@ -175,6 +175,26 @@ fn publish_under(
     before_access: impl FnOnce() -> bool,
     before_publish: impl FnOnce() -> bool,
 ) -> Result<AdmittedListener> {
+    publish_under_mode(
+        parent,
+        path,
+        owner,
+        group,
+        before_access,
+        before_publish,
+        false,
+    )
+}
+
+fn publish_under_mode(
+    parent: File,
+    path: &Path,
+    owner: (u32, u32),
+    group: u32,
+    before_access: impl FnOnce() -> bool,
+    before_publish: impl FnOnce() -> bool,
+    manager_created: bool,
+) -> Result<AdmittedListener> {
     parent_is_safe(&parent, owner)?;
     if path.file_name().and_then(|name| name.to_str()) != Some(LEAF)
         || path
@@ -197,10 +217,12 @@ fn publish_under(
     );
     same_entry(&parent, &named_parent)?;
 
-    match mkdirat(&parent, DIR, Mode::from_bits_truncate(0o700)) {
-        Ok(()) => (),
-        Err(Errno::EEXIST) => return Err(PublishError::UnsafeOrExisting),
-        Err(_) => return Err(PublishError::Ambiguous),
+    if !manager_created {
+        match mkdirat(&parent, DIR, Mode::from_bits_truncate(0o700)) {
+            Ok(()) => (),
+            Err(Errno::EEXIST) => return Err(PublishError::UnsafeOrExisting),
+            Err(_) => return Err(PublishError::Ambiguous),
+        }
     }
     // From here an uncertain failure retains private artifacts for explicit
     // recovery. Unlinking could erase a replacement created by another owner.
@@ -208,6 +230,16 @@ fn publish_under(
         openat(&parent, DIR, DIRECTORY, Mode::empty()).map_err(|_| PublishError::Ambiguous)?,
     );
     private_directory(&directory, owner)?;
+    if manager_created {
+        // Exact trusted installed invocation is checked by the service before
+        // calling. This merely refuses any existing entry; it is NOT evidence
+        // of manager freshness by itself, nor authorization to unlink it.
+        let entries = std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd()))
+            .map_err(|_| PublishError::UnsafeOrExisting)?;
+        if entries.into_iter().next().is_some() {
+            return Err(PublishError::UnsafeOrExisting);
+        }
+    }
     let listener = bind_private(path)?;
     let entry = socket_entry(&directory, owner.0)?;
     still_named(&parent, &directory, &entry, owner.0)?;
@@ -267,4 +299,30 @@ fn publish_under(
         let _ = fchmod(&directory, Mode::from_bits_truncate(0o700));
         PublishError::Ambiguous
     })
+}
+
+#[cfg(feature = "netguard-service-core")]
+pub(crate) fn publish_fixed_managed() -> Result<AdmittedListener> {
+    let group = PackageGroup::open_fixed().map_err(|_| PublishError::UnsafeOrExisting)?;
+    group
+        .validate()
+        .map_err(|_| PublishError::UnsafeOrExisting)?;
+    let root = File::from(
+        open("/", DIRECTORY, Mode::empty()).map_err(|_| PublishError::UnsafeOrExisting)?,
+    );
+    parent_is_safe(&root, (0, 0))?;
+    let run = File::from(
+        openat(&root, "run", DIRECTORY, Mode::empty())
+            .map_err(|_| PublishError::UnsafeOrExisting)?,
+    );
+    parent_is_safe(&run, (0, 0))?;
+    publish_under_mode(
+        run,
+        Path::new(FIXED_PATH),
+        (0, 0),
+        group.gid(),
+        || group.validate().is_ok(),
+        || group.validate().is_ok(),
+        true,
+    )
 }

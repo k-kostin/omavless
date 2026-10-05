@@ -1,5 +1,12 @@
 # K1 crash/orphan disposition proposal
 
+The [developer service core](K1_SERVICE_CORE.md) implements the conservative
+no-adopt disposition: cold Live/Pending/Armed state returns bounded errors and
+does not mutate policy/records. Its root emergency command is confined to the
+still-live original creator and cannot recover a cold orphan. The historical
+design below remains the owning provenance argument; product orphan
+adjudication/healthy recovery and actual crash packet evidence remain open.
+
 Status: inactive design and synthetic counterexample tests, not accepted recovery
 policy or a root adapter. Follows [receipt storage](K1_RECEIPT_STORE.md). No
 production behavior, root command, service, nft operation, VM configuration or

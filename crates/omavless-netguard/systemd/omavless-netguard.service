@@ -1,0 +1,33 @@
+[Unit]
+Description=OmaVLESS developer NetGuard live-owner service
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=exec
+ExecStart=/usr/lib/omavless/omavless-netguard serve
+StandardInput=file:/proc/1/ns/net
+StandardOutput=null
+StandardError=null
+User=root
+Group=root
+NoNewPrivileges=yes
+RestrictNamespaces=yes
+PrivateNetwork=no
+PrivateUsers=no
+PrivateMounts=no
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+RuntimeDirectory=omavless-netguard
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
+KillMode=control-group
+Delegate=no
+FileDescriptorStoreMax=0
+WatchdogSec=0
+Restart=on-failure
+RestartSec=2s
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

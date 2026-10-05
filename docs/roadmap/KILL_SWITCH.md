@@ -36,6 +36,12 @@ The subsequent [shared-lock transaction candidate](../development/K1_LOCKED_STAT
 combines durable marker/receipt writes with synthetic kernel effects and strict
 pending-phase refusal. It provides no production ownership or recovery adapter.
 
+The October 5 [developer service core](../development/K1_SERVICE_CORE.md)
+now adds an opt-in fixed installed-launch/private safe-library path and normal
+retained live-creator effects. Its cold restart seals orphan state; root
+emergency recovery is live-owner-only. This is not installed/VM-accepted or
+enabled by the shipped runtime, and does not close this product/physical matrix.
+
 ## 1. Decision summary
 
 K1 is an opt-in, **Full VPN only** kill switch enforced by a separately

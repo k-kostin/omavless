@@ -1,6 +1,6 @@
-//! Inactive shared-lock transaction composition, exercised with synthetic ports.
-//! No production caller or provenance provider exists. Receipts cannot turn an
-//! untrusted orphan into an owned table. There is deliberately no recovery API.
+//! Shared-lock transaction composition. Default builds have synthetic callers;
+//! the opt-in service supplies its private retained live owner. Receipts cannot
+//! authorize orphan adoption; administrative recovery is live-owner-only.
 use crate::effect_port::{EffectIdentity, EffectPort, EffectSnapshot, ExchangeBoundary};
 use crate::enrollment::EnrollmentBinding;
 
@@ -67,6 +67,43 @@ pub struct LockedState {
 }
 
 impl LockedState {
+    /// Restart never imports Live/Pending ownership. Preserve all records and
+    /// answer bounded errors, without querying a policy-shaped orphan. A
+    /// retired fence may proceed to normal read-only absence/epoch checks.
+    #[cfg(feature = "netguard-service-core")]
+    pub(crate) fn seal_cold_state(&mut self) {
+        let marker = self.receipts.root().and_then(|root| root.checked_marker());
+        let receipt = self.receipts.read();
+        if !cold_state_may_inspect(marker.ok(), receipt) {
+            self.poisoned = true;
+        }
+    }
+    /// Administrator emergency operation, NOT enrolled-user impersonation.
+    /// The generation is read under this original owner's existing lock. Only
+    /// independently live-created ownership passes admit; cold/Pending/orphan
+    /// state cannot use this entry to clear policy or durable fences.
+    #[cfg(feature = "netguard-service-core")]
+    pub(crate) fn recover_current<K: EffectPort>(
+        &mut self,
+        namespace: NamespaceObservation,
+        kernel: &mut K,
+    ) -> Result<Response, ErrorCode> {
+        if self.poisoned || !self.enrollment_current() {
+            return Err(REFUSED);
+        }
+        let NamespaceObservation::Canonical(epoch) = namespace else {
+            return Err(REFUSED);
+        };
+        let state = self.snapshot(kernel)?;
+        self.admit(epoch, state)?;
+        let Marker::Armed(generation) = state.marker else {
+            return Err(REFUSED);
+        };
+        if !matches!(state.kernel.table, Table::OwnedVerified(Policy::FullVpn)) {
+            return Err(REFUSED);
+        }
+        self.request(Request::Disarm { generation }, namespace, kernel)
+    }
     /// Fixed administrator enrollment is read from a root-owned file; no UID
     /// from an IPC request or caller is accepted by this entry point.
     pub fn open_fixed() -> Result<Self, StateError> {
@@ -433,6 +470,15 @@ impl LockedState {
     }
 }
 
+#[cfg(feature = "netguard-service-core")]
+fn cold_state_may_inspect(marker: Option<Marker>, receipt: ReceiptRead) -> bool {
+    matches!(
+        (marker, receipt),
+        (Some(Marker::Missing), ReceiptRead::Missing)
+    ) || matches!((marker, receipt),
+            (Some(Marker::Closed(_)), ReceiptRead::Durable(record)) if record.state() == ReceiptState::Retired)
+}
+
 fn identity_in_epoch(identity: EffectIdentity, epoch: HostEpoch) -> bool {
     identity.boot == epoch.boot
         && identity.netns_inode == epoch.namespace_inode
@@ -441,6 +487,46 @@ fn identity_in_epoch(identity: EffectIdentity, epoch: HostEpoch) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "netguard-service-core")]
+    #[test]
+    fn cold_restart_classifier() {
+        assert!(cold_state_may_inspect(
+            Some(Marker::Missing),
+            ReceiptRead::Missing
+        ));
+        let retired = Receipt::transaction_record(1001, EPOCH, 9, ReceiptState::Retired).unwrap();
+        assert!(cold_state_may_inspect(
+            Some(Marker::Closed(7)),
+            ReceiptRead::Durable(retired)
+        ));
+        for phase in [
+            ReceiptState::PendingCreate,
+            ReceiptState::Live { handle: 5 },
+            ReceiptState::PendingReplace { old_handle: 5 },
+            ReceiptState::PendingDelete { old_handle: 5 },
+        ] {
+            let receipt =
+                ReceiptRead::Durable(Receipt::transaction_record(1001, EPOCH, 9, phase).unwrap());
+            for marker in [
+                None,
+                Some(Marker::Missing),
+                Some(Marker::Armed(7)),
+                Some(Marker::Closed(7)),
+                Some(Marker::Invalid),
+            ] {
+                assert!(!cold_state_may_inspect(marker, receipt));
+            }
+        }
+        for receipt in [
+            ReceiptRead::Missing,
+            ReceiptRead::UnsafeOrUncertain,
+            ReceiptRead::Durable(retired),
+        ] {
+            for marker in [None, Some(Marker::Armed(7)), Some(Marker::Invalid)] {
+                assert!(!cold_state_may_inspect(marker, receipt));
+            }
+        }
+    }
     mod kernel_crash {
         include!("locked_state_kernel_crash.rs");
     }

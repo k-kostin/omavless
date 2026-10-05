@@ -1,7 +1,7 @@
-//! Inactive K1 candidates: no production caller, installation or firewall mutation.
-//! The root-state adapter is not installed or called by production runtime.
-//! No production runtime depends on this crate. A future host adapter must
-//! authenticate peers, serialize transactions and verify every acknowledged effect.
+//! K1 foundation with an opt-in developer service core. Default builds remain
+//! inactive and shipped product runtime does not enable/install the service.
+//! The service feature adds fixed private retained-owner effects, not accepted
+//! product/host protection or cold-orphan recovery.
 
 #[allow(dead_code)] // Inactive composition; no canonical provider or product caller.
 mod authority_composition;
@@ -26,6 +26,8 @@ mod manager_config_dump_proposal;
 mod manager_config_reference_fixture;
 #[cfg(all(test, target_os = "linux"))]
 mod manager_version_reference_fixture;
+#[cfg(feature = "netguard-service-core")]
+pub mod service_core;
 
 #[cfg(all(test, target_os = "linux"))]
 mod manager_configured_dump;

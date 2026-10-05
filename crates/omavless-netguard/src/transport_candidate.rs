@@ -11,6 +11,54 @@ use std::time::{Duration, Instant};
 
 const EXCHANGE_BUDGET: Duration = Duration::from_secs(2);
 
+#[cfg(feature = "netguard-service-core")]
+pub(crate) const RECOVER_FRAME: &[u8] = b"K1_ROOT_RECOVER_V1\n";
+
+#[cfg(feature = "netguard-service-core")]
+pub(crate) fn receive_root_recover(stream: &UnixStream) -> Result<(), TransportError> {
+    root_peer(stream)?;
+    let deadline = Instant::now() + EXCHANGE_BUDGET;
+    let mut prefix = [0; 4];
+    read_exact_before(stream, &mut prefix, deadline)?;
+    if u32::from_be_bytes(prefix) as usize != RECOVER_FRAME.len() {
+        return Err(TransportError::InvalidFrame);
+    }
+    let mut frame = vec![0; RECOVER_FRAME.len()];
+    read_exact_before(stream, &mut frame, deadline)?;
+    if frame != RECOVER_FRAME {
+        return Err(TransportError::InvalidFrame);
+    }
+    root_peer(stream)
+}
+
+#[cfg(feature = "netguard-service-core")]
+fn root_peer(stream: &UnixStream) -> Result<(), TransportError> {
+    if getsockopt(stream, PeerCredentials)
+        .map_err(|_| TransportError::Unavailable)?
+        .uid()
+        != 0
+    {
+        return Err(TransportError::Unauthorized);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "netguard-service-core")]
+pub(crate) fn send_root_response(
+    stream: &UnixStream,
+    response: Response,
+) -> Result<(), TransportError> {
+    root_peer(stream)?;
+    let bytes = encode_response(response).map_err(|_| TransportError::InvalidFrame)?;
+    let frame = [
+        (bytes.len() as u32).to_be_bytes().as_slice(),
+        bytes.as_slice(),
+    ]
+    .concat();
+    write_all_before(stream, &frame, Instant::now() + EXCHANGE_BUDGET)?;
+    root_peer(stream)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TransportError {
     Unauthorized,

@@ -17,6 +17,7 @@ members = [
   "crates/omavless-tui",
 ]
 resolver = "3"
+exclude = ["vendor/nix-netguard", "vendor/libc-netguard"]
 
 [workspace.package]
 version = "0.9.7-rc.1"

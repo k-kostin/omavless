@@ -1,5 +1,13 @@
 # Inactive K1 original-launch acquisition boundary
 
+Current successor: [developer live-owner service core](K1_SERVICE_CORE.md)
+adds an opt-in private fixed installed-launch constructor/verifier and private
+safe-library adoption under owner authorization. Default builds retain the
+inactive boundary below. This page preserves the historical prerequisite
+stage; its statements about no normal feature-enabled constructor/dependency
+are superseded only by that explicitly selected successor. No installed/VM
+canonical-launch acceptance or product availability is implied.
+
 This successor to [external safe API validation](K1_NAMESPACE_API_VALIDATION.md)
 changes the existing [authority composition](K1_AUTHORITY_COMPOSITION.md), not
 the product availability boundary. K1 remains unavailable. No installed unit,

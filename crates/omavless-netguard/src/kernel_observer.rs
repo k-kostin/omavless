@@ -1,9 +1,13 @@
-//! Inactive, read-only fixed-table metadata observation in the calling namespace.
-//! No ownership, policy verification, canonical-host identity or effect authority.
+//! Default-build read-only fixed-table observation in the calling namespace.
+//! Read projections never attest ownership/canonical origin. The opt-in private
+//! service_creator child adds effects only through original launch acquisition.
 #[path = "kernel_atomic_batch.rs"]
 mod atomic_batch;
 #[path = "kernel_chain_observer.rs"]
 mod chain;
+#[cfg(feature = "netguard-service-core")]
+#[path = "kernel_service_creator.rs"]
+pub(crate) mod service_creator;
 pub use chain::LocalChainInventory;
 #[path = "kernel_rule_observer.rs"]
 mod rule;
