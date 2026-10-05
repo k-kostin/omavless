@@ -366,3 +366,102 @@ The unchanged seven legacy capture memory controls passed (`70d753`), and the
 normal no-feature library check passed (`90ddaf`). Git fetch/prune succeeded;
 this candidate branch still has no remote counterpart. No push, new packet,
 guest upload, reset, installed tool query or native actor invocation is selected.
+
+### Second canonical actual: query progress, inventory NONPASS
+
+Exact tested SOURCE `3c4942061ad8e9b32c433a3af729343d131c6418`, artifact
+63789896 bytes/SHA256
+`be7b3f34ef93ffba5ccc2ff6ede2d5f5d7d871d99ffe35cd4133850097b1ab3c`,
+and sealed `5s10HgSg` packet were separately PRIMARY/independent FULL-cleared.
+ROOT verified fresh boot `875aff36-2a4e-4309-b80b-f0d4d1081ee1` via SSH
+original0 `954baa`, after explicit isolated reset `a6a881`/fresh LUKS `36468a`.
+The previous unknown b42/c200 volatile epoch was disposed under explicit
+disposable VM administration, not product recovery/custody/cleanup PASS.
+No writer inspected either stopped actor scope.
+
+Final22 packet memory controls `df29d0` returned original0. ROOT upload `9fae4f`
+returned original0 with35-byte fixed marker and empty stderr; prepare
+`2e8b5a`/`aabe26` returned original0. Whole run `7f5ba0`/`229d78` returned
+original2: **NONPASS**. Separate scoped file observer `7d684a`/`e26d3d`
+returned original0, projecting only its pre-scoped two captures:
+
+| Exact capture | Bytes / literal frames | Last phase | SHA256 |
+| --- | --- | --- | --- |
+| Actor | 1164 / 33 | `t4_actor_before_canonical_inventory` | `29ec6672cbc5af6bb2a4ff50dea1d4641bd63413637af0edf1e2afb444603b39` |
+| Supervisor | 122 / 5 | `t4_service_ready` | `8dd70e5ec01210a4c9bad017c2670784fbe66b0611f579b12f79a632779f56fb` |
+
+The source-compatible complete prefix includes the initial four query
+completions, including both corrected user queries, before inventory. This is
+progress in this exact scope, not proof of the earlier scope's errno/cause or
+whole PASS. The inventory interval includes initial catalogue traversal,
+charged-owner admission, all row checks and intermediate catalogue/sweep
+admission:33 frames alone cannot select one refusal. Original3c SOURCE/artifact/
+packet stay immutable tested NONPASS objects. Its actor epoch is parked, with
+no retry/query/signal/reap/cleanup or author capture/tree inspection permitted.
+
+### Inventory first-refusal SOURCE successor
+
+The smallest added diagnostic is actor-private `InventoryDiagnostic`, with one
+attempt bit and a closed23-case `InventoryFailure` enum. Each hook consumes only
+the already returned original Result or already evaluated predicate. There is
+no new open, metadata/proc/directory/process query, private value serialization,
+raw errno/message, PID/count or per-row output. Original success is unchanged;
+original failure propagates unchanged to the existing live parked-owner path.
+The attempt bit sets BEFORE the one label output. Output failure/expiry cannot
+change that original failure or trigger a retry, fallback or secondary label.
+Nested outer hooks preserve the first inner read/parse category, not relabel it.
+
+All labels have fixed `t4_actor_inventory_` prefix and `_refused` suffix/LF:
+catalogue_seek, catalogue_next, catalogue_name, catalogue_limit, catalogue_set,
+owner_admit, row_directory, status_read, status_parse, stat_read, stat_parse,
+classify, image_open, image_shape, command_read, command_parse, comm_read,
+comm_parse, link_read, daemon, row_current, row_complete, sweep_set. Read cuts
+also include the unchanged original scratch admission/metadata/current-binding/
+positive release prerequisites; image_shape includes original metadata/type.
+These categories identify an existing refused suboperation, not a specific
+errno or independently established process fate. Uninstrumented invariant or
+expired budget refusals need not yield a category; no failed-time probe follows.
+
+Success remains at most59 actor frames. One failure-label attempt gives a
+conservative maximum60;17 existing +23 refusal labels give40 distinct actor
+literals. Longest literal times60 fits the existing4096-byte capture bound.
+Supervisor seven frames is unchanged. Each attempted failure label uses the
+SAME original2-second/16MiB budget clipped to operation5 seconds. An expired
+budget cannot be extended to make diagnostics succeed. No parser, equality,
+visibility, catalogue limit,8320/classic64 FD envelope, original child outcome,
+group/user credential admission or StoppedOwner/Restore contract changes.
+
+Typed text roles merely replace the four existing fixed string names status,
+stat, cmdline and comm; caps, flags and predicates remain byte-for-byte choices.
+Scratch and row Files still install before every fallible postcheck. A parse
+failure retains the positive directory/scratch prefix; owner revocation blocks
+any later acquisition, scratch release or Halt/finish. Diagnostic memory state
+does not claim to replace those actual owner guards or prove fatal/unwind custody.
+
+The separate start-time-zero compatibility question remains unresolved for
+product policy. Linuxv6.17 [proc stat producer](https://raw.githubusercontent.com/torvalds/linux/v6.17/fs/proc/array.c)
+converts task start_boottime to clock ticks, after the
+[fork producer](https://raw.githubusercontent.com/torvalds/linux/v6.17/kernel/fork.c)
+records the boot-time nanoseconds. A synthetic well-shaped zero-tick stat sample
+matches the [integer clock conversion](https://raw.githubusercontent.com/torvalds/linux/v6.17/kernel/time/time.c)
+when a supplied start time is less than one clock tick; no positive lower bound
+is added by that conversion. The sample
+is still rejected by the unchanged shared positive-start parser. This does NOT
+establish a zero-start task in either failed scope or authorize parser relaxation.
+
+Six new memory controls cover23 unique fixed categories/original-result
+preservation, one attempted label even if output fails, expired/no-output refusal,
+whole60/40/4096 bounds, three different refusals behind the same33-frame prefix,
+retained positive row/scratch prefix with no downstream IO/finish, fixed text
+roles and the still-negative zero-start sample. They do not use actual proc,
+credential/child/backend/actor/VM resources. A new artifact/packet requires
+fresh exact-head build/gates,40-literal/60 cap admission and separate FULL ROOT
+and independent review before a reconciled NEW epoch may be selected.
+
+Successor focused SOURCE gates returned original0:23 canonical/row memory
+controls `57c76e`/`64eb48`,39 unchanged service/transfer/stage controls
+`0d1b64`/`96d47b`, seven legacy capture controls and normal no-feature library
+check `5e3026`, all-target feature Clippy with warnings denied
+`749023`/`2e96a2`, and diff whitespace check. Initial focused no-run compilation
+`76f4f2`/`755335` also returned0. No actor binary, installed tool, credential
+syscall, actual proc backend or guest action was run by the writer.

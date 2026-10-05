@@ -96,6 +96,119 @@ fn query_credentials(system: bool) -> Option<(u32, u32)> {
     if system { None } else { Some((UID, UID)) }
 }
 
+#[derive(Clone, Copy)]
+enum InventoryFailure {
+    CatalogueSeek,
+    CatalogueNext,
+    CatalogueName,
+    CatalogueLimit,
+    CatalogueSet,
+    OwnerAdmit,
+    RowDirectory,
+    StatusRead,
+    StatusParse,
+    StatRead,
+    StatParse,
+    Classify,
+    ImageOpen,
+    ImageShape,
+    CommandRead,
+    CommandParse,
+    CommRead,
+    CommParse,
+    LinkRead,
+    Daemon,
+    RowCurrent,
+    RowComplete,
+    SweepSet,
+}
+impl InventoryFailure {
+    fn label(self) -> &'static [u8] {
+        match self {
+            Self::CatalogueSeek => b"t4_actor_inventory_catalogue_seek_refused\n",
+            Self::CatalogueNext => b"t4_actor_inventory_catalogue_next_refused\n",
+            Self::CatalogueName => b"t4_actor_inventory_catalogue_name_refused\n",
+            Self::CatalogueLimit => b"t4_actor_inventory_catalogue_limit_refused\n",
+            Self::CatalogueSet => b"t4_actor_inventory_catalogue_set_refused\n",
+            Self::OwnerAdmit => b"t4_actor_inventory_owner_admit_refused\n",
+            Self::RowDirectory => b"t4_actor_inventory_row_directory_refused\n",
+            Self::StatusRead => b"t4_actor_inventory_status_read_refused\n",
+            Self::StatusParse => b"t4_actor_inventory_status_parse_refused\n",
+            Self::StatRead => b"t4_actor_inventory_stat_read_refused\n",
+            Self::StatParse => b"t4_actor_inventory_stat_parse_refused\n",
+            Self::Classify => b"t4_actor_inventory_classify_refused\n",
+            Self::ImageOpen => b"t4_actor_inventory_image_open_refused\n",
+            Self::ImageShape => b"t4_actor_inventory_image_shape_refused\n",
+            Self::CommandRead => b"t4_actor_inventory_command_read_refused\n",
+            Self::CommandParse => b"t4_actor_inventory_command_parse_refused\n",
+            Self::CommRead => b"t4_actor_inventory_comm_read_refused\n",
+            Self::CommParse => b"t4_actor_inventory_comm_parse_refused\n",
+            Self::LinkRead => b"t4_actor_inventory_link_read_refused\n",
+            Self::Daemon => b"t4_actor_inventory_daemon_refused\n",
+            Self::RowCurrent => b"t4_actor_inventory_row_current_refused\n",
+            Self::RowComplete => b"t4_actor_inventory_row_complete_refused\n",
+            Self::SweepSet => b"t4_actor_inventory_sweep_set_refused\n",
+        }
+    }
+}
+#[derive(Default)]
+struct InventoryDiagnostic {
+    attempted: bool,
+}
+impl InventoryDiagnostic {
+    fn result<T>(
+        &mut self,
+        cut: InventoryFailure,
+        original: Result<T>,
+        emit: impl FnOnce(&'static [u8]) -> Result<()>,
+    ) -> Result<T> {
+        if original.is_err() && !self.attempted {
+            self.attempted = true; // BEFORE output; never retry/secondary log
+            let _ = emit(cut.label());
+        }
+        // The operation ALREADY refused. Diagnostic failure cannot turn its
+        // original Err into success, a retry or an alternative effect.
+        original
+    }
+    fn cut<T>(&mut self, cut: InventoryFailure, original: Result<T>, budget: &Budget) -> Result<T> {
+        self.result(cut, original, |label| phase(label, budget))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TextRole {
+    Status,
+    Stat,
+    Command,
+    Comm,
+}
+impl TextRole {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Stat => "stat",
+            Self::Command => "cmdline",
+            Self::Comm => "comm",
+        }
+    }
+    fn read_failure(self) -> InventoryFailure {
+        match self {
+            Self::Status => InventoryFailure::StatusRead,
+            Self::Stat => InventoryFailure::StatRead,
+            Self::Command => InventoryFailure::CommandRead,
+            Self::Comm => InventoryFailure::CommRead,
+        }
+    }
+    fn parse_failure(self) -> InventoryFailure {
+        match self {
+            Self::Status => InventoryFailure::StatusParse,
+            Self::Stat => InventoryFailure::StatParse,
+            Self::Command => InventoryFailure::CommandParse,
+            Self::Comm => InventoryFailure::CommParse,
+        }
+    }
+}
+
 fn phase(label: &'static [u8], budget: &Budget) -> Result<()> {
     use std::io::Write;
     budget.check()?;
@@ -302,6 +415,7 @@ pub(crate) struct Canonical {
     net: Option<usize>,
     unix: Option<usize>,
     query: Option<Query>,
+    inventory_diagnostic: InventoryDiagnostic,
     rows: Owner<File>,
     facts: Vec<Facts>,
     names: Vec<u32>,
@@ -353,6 +467,7 @@ impl Canonical {
             net: None,
             unix: None,
             query: None,
+            inventory_diagnostic: InventoryDiagnostic::default(),
             rows: Owner::reserve_before_ready(FIXED, NOFILE as usize)?,
             facts,
             names,
@@ -827,9 +942,16 @@ impl Canonical {
         self.names.clear();
         let root = &self.files[self.root.ok_or(())?];
         budget.check()?;
-        if seek(root, SeekFrom::Start(0)).map_err(|_| ())? != 0 {
-            return Err(());
-        }
+        let position = self.inventory_diagnostic.cut(
+            InventoryFailure::CatalogueSeek,
+            seek(root, SeekFrom::Start(0)).map_err(|_| ()),
+            budget,
+        )?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::CatalogueSeek,
+            if position == 0 { Ok(()) } else { Err(()) },
+            budget,
+        )?;
         budget.check()?;
         let mut entries = RawDir::new(root, &mut self.directory_buffer);
         for _ in 0..DIRECTORY_ENTRIES {
@@ -839,100 +961,165 @@ impl Canonical {
             let Some(entry) = next else {
                 self.names.sort_unstable();
                 if self.names.is_empty() || self.names.windows(2).any(|p| p[0] == p[1]) {
-                    return Err(());
+                    return self.inventory_diagnostic.cut(
+                        InventoryFailure::CatalogueSet,
+                        Err(()),
+                        budget,
+                    );
                 }
                 return budget.check();
             };
-            let entry = entry.map_err(|_| ())?;
+            let entry = self.inventory_diagnostic.cut(
+                InventoryFailure::CatalogueNext,
+                entry.map_err(|_| ()),
+                budget,
+            )?;
             let name = entry.file_name().to_bytes();
             if name.iter().all(u8::is_ascii_digit) {
-                let pid = decimal(name)?;
-                if pid == 0 || name != pid.to_string().as_bytes() || self.names.len() >= MAX_PIDS {
-                    return Err(());
-                }
+                let pid = self.inventory_diagnostic.cut(
+                    InventoryFailure::CatalogueName,
+                    decimal(name),
+                    budget,
+                )?;
+                self.inventory_diagnostic.cut(
+                    InventoryFailure::CatalogueName,
+                    if pid == 0 || name != pid.to_string().as_bytes() {
+                        Err(())
+                    } else {
+                        Ok(())
+                    },
+                    budget,
+                )?;
+                self.inventory_diagnostic.cut(
+                    InventoryFailure::CatalogueLimit,
+                    if self.names.len() >= MAX_PIDS {
+                        Err(())
+                    } else {
+                        Ok(())
+                    },
+                    budget,
+                )?;
                 self.names.push(pid);
             }
         }
-        Err(()) // no unbounded next, materialization or silently truncated pass
+        // No unbounded next, materialization or silently truncated pass.
+        self.inventory_diagnostic
+            .cut(InventoryFailure::CatalogueLimit, Err(()), budget)
     }
     fn row_text<R>(
         &mut self,
-        name: &'static str,
+        role: TextRole,
         cap: usize,
         budget: &mut Budget,
         parse: impl FnOnce(&[u8]) -> Result<R>,
     ) -> Result<R> {
         let until = budget.until;
-        available_to_unit(self.rows.scratch_acquire(
-            0,
-            || available(budget.check()),
-            |directory| {
-                available(
-                    openat(
-                        directory,
-                        name,
-                        OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
-                        Mode::empty(),
+        let name = role.name();
+        let initial = (|| {
+            available_to_unit(self.rows.scratch_acquire(
+                0,
+                || available(budget.check()),
+                |directory| {
+                    available(
+                        openat(
+                            directory,
+                            name,
+                            OFlag::O_RDONLY
+                                | OFlag::O_NONBLOCK
+                                | OFlag::O_NOFOLLOW
+                                | OFlag::O_CLOEXEC,
+                            Mode::empty(),
+                        )
+                        .map(File::from)
+                        .map_err(|_| ()),
                     )
-                    .map(File::from)
-                    .map_err(|_| ()),
-                )
-            },
-        ))?;
+                },
+            ))?;
+            let metadata = self
+                .rows
+                .scratch_original(0)
+                .map_err(|_| ())?
+                .metadata()
+                .map_err(|_| ())?;
+            binding(
+                self.rows.row_originals().map_err(|_| ())?.0,
+                name,
+                self.rows.scratch_original(0).map_err(|_| ())?,
+                &metadata,
+                false,
+                false,
+                budget,
+            )?;
+            Ok(metadata)
+        })();
         let metadata = self
-            .rows
-            .scratch_original(0)
-            .map_err(|_| ())?
-            .metadata()
-            .map_err(|_| ())?;
-        binding(
-            self.rows.row_originals().map_err(|_| ())?.0,
-            name,
-            self.rows.scratch_original(0).map_err(|_| ())?,
-            &metadata,
-            false,
-            false,
-            budget,
-        )?;
+            .inventory_diagnostic
+            .cut(role.read_failure(), initial, budget)?;
         let mut result = None;
         let buffer = &mut self.buffer;
-        available_to_unit(self.rows.scratch_perform(
+        let diagnostic = &mut self.inventory_diagnostic;
+        let performed = available_to_unit(self.rows.scratch_perform(
             0,
             || time_gate(until),
             |file| {
-                available(read_original(file, cap, buffer, budget))?;
-                result = Some(available(parse(buffer))?);
+                available(diagnostic.cut(
+                    role.read_failure(),
+                    read_original(file, cap, buffer, budget),
+                    budget,
+                ))?;
+                result = Some(available(diagnostic.cut(
+                    role.parse_failure(),
+                    parse(buffer),
+                    budget,
+                ))?);
                 Ok(())
             },
-        ))?;
-        binding(
-            self.rows.row_originals().map_err(|_| ())?.0,
-            name,
-            self.rows.scratch_original(0).map_err(|_| ())?,
-            &metadata,
-            false,
-            false,
-            budget,
-        )?;
-        available_to_unit(self.rows.scratch_release(0, || time_gate(until)))?;
-        result.ok_or(())
+        ));
+        self.inventory_diagnostic
+            .cut(role.read_failure(), performed, budget)?;
+        let completed = (|| {
+            binding(
+                self.rows.row_originals().map_err(|_| ())?.0,
+                name,
+                self.rows.scratch_original(0).map_err(|_| ())?,
+                &metadata,
+                false,
+                false,
+                budget,
+            )?;
+            available_to_unit(self.rows.scratch_release(0, || time_gate(until)))?;
+            result.ok_or(())
+        })();
+        self.inventory_diagnostic
+            .cut(role.read_failure(), completed, budget)
     }
     fn acquire_row(&mut self, pid: u32, budget: &mut Budget) -> Result<()> {
         let root = &self.files[self.root.ok_or(())?];
-        available_to_unit(self.rows.directory(
-            pid,
-            || available(budget.check()),
-            || available(directory(root, &pid.to_string())),
-        ))?;
-        let identity = self.row_text("status", MAX_STATUS, budget, |bytes| status(bytes, pid))?;
-        let start = self.row_text("stat", MAX_STATUS, budget, |bytes| start_time(bytes, pid))?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::RowDirectory,
+            available_to_unit(self.rows.directory(
+                pid,
+                || available(budget.check()),
+                || available(directory(root, &pid.to_string())),
+            )),
+            budget,
+        )?;
+        let identity = self.row_text(TextRole::Status, MAX_STATUS, budget, |bytes| {
+            status(bytes, pid)
+        })?;
+        let start = self.row_text(TextRole::Stat, MAX_STATUS, budget, |bytes| {
+            start_time(bytes, pid)
+        })?;
         let metadata = self
             .rows
             .row_originals()
             .map_err(|_| ())?
             .0
             .metadata()
-            .map_err(|_| ())?;
+            .map_err(|_| ());
+        let metadata =
+            self.inventory_diagnostic
+                .cut(InventoryFailure::RowDirectory, metadata, budget)?;
         let class = if identity.uids.contains(&UID) {
             Class::SameUid
         } else {
@@ -947,24 +1134,36 @@ impl Canonical {
             comm: Zeroizing::new(Vec::new()),
             image_name: Zeroizing::new(Vec::new()),
         });
-        available_to_unit(
-            self.rows
-                .classify(|| available(budget.check()), |_| Ok(class)),
+        self.inventory_diagnostic.cut(
+            InventoryFailure::Classify,
+            available_to_unit(
+                self.rows
+                    .classify(|| available(budget.check()), |_| Ok(class)),
+            ),
+            budget,
         )?;
         if class == Class::SameUid {
-            available_to_unit(self.rows.executable(
-                || available(budget.check()),
-                |directory| available(magic_file(directory, "exe")),
-            ))?;
-            self.facts.last_mut().ok_or(())?.image_metadata = Some(
-                self.rows
-                    .row_originals()
-                    .map_err(|_| ())?
-                    .1
-                    .ok_or(())?
-                    .metadata()
-                    .map_err(|_| ())?,
-            );
+            self.inventory_diagnostic.cut(
+                InventoryFailure::ImageOpen,
+                available_to_unit(self.rows.executable(
+                    || available(budget.check()),
+                    |directory| available(magic_file(directory, "exe")),
+                )),
+                budget,
+            )?;
+            let image_metadata = self
+                .rows
+                .row_originals()
+                .map_err(|_| ())?
+                .1
+                .ok_or(())?
+                .metadata()
+                .map_err(|_| ());
+            self.facts.last_mut().ok_or(())?.image_metadata = Some(self.inventory_diagnostic.cut(
+                InventoryFailure::ImageShape,
+                image_metadata,
+                budget,
+            )?);
             if !self
                 .facts
                 .last()
@@ -974,40 +1173,62 @@ impl Canonical {
                 .ok_or(())?
                 .is_file()
             {
-                return Err(());
+                return self.inventory_diagnostic.cut(
+                    InventoryFailure::ImageShape,
+                    Err(()),
+                    budget,
+                );
             }
-            let command = self.row_text("cmdline", MAX_COMMAND, budget, |bytes| {
+            let command = self.row_text(TextRole::Command, MAX_COMMAND, budget, |bytes| {
                 arguments(bytes)?;
                 Ok(Zeroizing::new(bytes.to_vec()))
             })?;
             self.facts.last_mut().ok_or(())?.command = command;
-            let comm = self.row_text("comm", 4096, budget, |bytes| {
+            let comm = self.row_text(TextRole::Comm, 4096, budget, |bytes| {
                 if bytes.is_empty() || !bytes.ends_with(b"\n") {
                     return Err(());
                 }
                 Ok(Zeroizing::new(bytes.to_vec()))
             })?;
             self.facts.last_mut().ok_or(())?.comm = comm;
-            link_original(
+            let linked = link_original(
                 self.rows.row_originals().map_err(|_| ())?.0,
                 &mut self.link,
                 budget,
-            )?;
+            );
+            self.inventory_diagnostic
+                .cut(InventoryFailure::LinkRead, linked, budget)?;
             let facts = self.facts.last_mut().ok_or(())?;
             facts.image_name = Zeroizing::new(self.link.to_vec());
-            if daemon_candidate(&facts.command, &facts.image_name, &facts.comm)? {
-                return Err(());
-            }
+            let candidate = daemon_candidate(&facts.command, &facts.image_name, &facts.comm);
+            let candidate =
+                self.inventory_diagnostic
+                    .cut(InventoryFailure::Daemon, candidate, budget)?;
+            self.inventory_diagnostic.cut(
+                InventoryFailure::Daemon,
+                if candidate { Err(()) } else { Ok(()) },
+                budget,
+            )?;
         }
-        self.row_current(pid, self.facts.len() - 1, budget)?;
-        available_to_unit(
-            self.rows
-                .complete_row(|| available(budget.check()), |_, _, _| Ok(())),
+        let current = self.row_current(pid, self.facts.len() - 1, budget);
+        self.inventory_diagnostic
+            .cut(InventoryFailure::RowCurrent, current, budget)?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::RowComplete,
+            available_to_unit(
+                self.rows
+                    .complete_row(|| available(budget.check()), |_, _, _| Ok(())),
+            ),
+            budget,
         )
     }
     fn row_current(&mut self, pid: u32, index: usize, budget: &mut Budget) -> Result<()> {
-        let identity = self.row_text("status", MAX_STATUS, budget, |bytes| status(bytes, pid))?;
-        let start = self.row_text("stat", MAX_STATUS, budget, |bytes| start_time(bytes, pid))?;
+        let identity = self.row_text(TextRole::Status, MAX_STATUS, budget, |bytes| {
+            status(bytes, pid)
+        })?;
+        let start = self.row_text(TextRole::Stat, MAX_STATUS, budget, |bytes| {
+            start_time(bytes, pid)
+        })?;
         let facts = self.facts.get(index).ok_or(())?;
         if identity != facts.identity || start != facts.start {
             return Err(());
@@ -1036,10 +1257,10 @@ impl Canonical {
             if self.link != facts.image_name {
                 return Err(());
             }
-            let command = self.row_text("cmdline", MAX_COMMAND, budget, |bytes| {
+            let command = self.row_text(TextRole::Command, MAX_COMMAND, budget, |bytes| {
                 Ok(Zeroizing::new(bytes.to_vec()))
             })?;
-            let comm = self.row_text("comm", 4096, budget, |bytes| {
+            let comm = self.row_text(TextRole::Comm, 4096, budget, |bytes| {
                 Ok(Zeroizing::new(bytes.to_vec()))
             })?;
             let facts = self.facts.get(index).ok_or(())?;
@@ -1133,13 +1354,21 @@ impl Canonical {
         self.units(pid, &mut budget)?; // fully EOF/original0 before catalogue
         phase(b"t4_actor_before_canonical_inventory\n", &budget)?;
         self.catalogue(&budget)?;
-        available_to_unit(self.rows.admit_catalogue(&self.names))?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::OwnerAdmit,
+            available_to_unit(self.rows.admit_catalogue(&self.names)),
+            &budget,
+        )?;
         let count = self.names.len();
         for index in 0..count {
             self.acquire_row(self.names[index], &mut budget)?;
         }
         self.catalogue(&budget)?;
-        available_to_unit(self.rows.begin_sweep(&self.names))?;
+        self.inventory_diagnostic.cut(
+            InventoryFailure::SweepSet,
+            available_to_unit(self.rows.begin_sweep(&self.names)),
+            &budget,
+        )?;
         // Final queries complete BEFORE final originals and final PID set.
         phase(b"t4_actor_before_canonical_final_units\n", &budget)?;
         self.units(pid, &mut budget)?;
@@ -1155,17 +1384,27 @@ impl Canonical {
         phase(b"t4_actor_before_canonical_final_sweep\n", &budget)?;
         for index in 0..count {
             let pid = self.names[index];
-            self.row_current(pid, index, &mut budget)?;
-            available_to_unit(self.rows.recheck_row(
-                pid,
-                || available(budget.check()),
-                |_, _, _| Ok(()),
-            ))?;
+            let current = self.row_current(pid, index, &mut budget);
+            self.inventory_diagnostic
+                .cut(InventoryFailure::RowCurrent, current, &budget)?;
+            self.inventory_diagnostic.cut(
+                InventoryFailure::RowComplete,
+                available_to_unit(self.rows.recheck_row(
+                    pid,
+                    || available(budget.check()),
+                    |_, _, _| Ok(()),
+                )),
+                &budget,
+            )?;
         }
         self.catalogue(&budget)?;
-        available_to_unit(
-            self.rows
-                .complete_inventory(&self.names, || available(budget.check())),
+        self.inventory_diagnostic.cut(
+            InventoryFailure::SweepSet,
+            available_to_unit(
+                self.rows
+                    .complete_inventory(&self.names, || available(budget.check())),
+            ),
+            &budget,
         )?;
         phase(b"t4_actor_canonical_inventory_completed\n", &budget)?;
         budget.check()
@@ -1212,6 +1451,202 @@ fn time_gate(until: Instant) -> std::result::Result<(), Unavailable> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const INVENTORY_FAILURES: [InventoryFailure; 23] = [
+        InventoryFailure::CatalogueSeek,
+        InventoryFailure::CatalogueNext,
+        InventoryFailure::CatalogueName,
+        InventoryFailure::CatalogueLimit,
+        InventoryFailure::CatalogueSet,
+        InventoryFailure::OwnerAdmit,
+        InventoryFailure::RowDirectory,
+        InventoryFailure::StatusRead,
+        InventoryFailure::StatusParse,
+        InventoryFailure::StatRead,
+        InventoryFailure::StatParse,
+        InventoryFailure::Classify,
+        InventoryFailure::ImageOpen,
+        InventoryFailure::ImageShape,
+        InventoryFailure::CommandRead,
+        InventoryFailure::CommandParse,
+        InventoryFailure::CommRead,
+        InventoryFailure::CommParse,
+        InventoryFailure::LinkRead,
+        InventoryFailure::Daemon,
+        InventoryFailure::RowCurrent,
+        InventoryFailure::RowComplete,
+        InventoryFailure::SweepSet,
+    ];
+    #[test]
+    fn inventory_failure_is_one_attempt_preserving_the_original_result() {
+        for cut in INVENTORY_FAILURES {
+            let mut diagnostic = InventoryDiagnostic::default();
+            assert_eq!(
+                diagnostic.result(cut, Ok(42), |_| panic!("success has no diagnostic")),
+                Ok(42)
+            );
+            assert!(!diagnostic.attempted);
+            let mut labels = Vec::new();
+            let original: Result<usize> = Err(());
+            assert_eq!(
+                diagnostic.result(cut, original, |label| {
+                    labels.push(label);
+                    Err(())
+                }),
+                original
+            );
+            assert_eq!(labels, [cut.label()]);
+            assert!(diagnostic.attempted);
+            for later in INVENTORY_FAILURES {
+                assert_eq!(
+                    diagnostic.result::<()>(later, Err(()), |_| panic!("secondary diagnostic")),
+                    Err(())
+                );
+            }
+        }
+    }
+    #[test]
+    fn inventory_failure_vocabulary_and_whole_bound_are_finite() {
+        let labels: Vec<_> = INVENTORY_FAILURES
+            .into_iter()
+            .map(InventoryFailure::label)
+            .collect();
+        for (index, label) in labels.iter().enumerate() {
+            assert!(label.starts_with(b"t4_actor_inventory_"));
+            assert!(label.ends_with(b"\n"));
+            assert!(!labels[..index].contains(label));
+        }
+        assert_eq!(labels.len(), 23);
+        assert_eq!(17 + labels.len(), 40);
+        assert_eq!(9 + 7 * QUERY_PHASES.len() + 1 + 1, 60);
+        let longest = labels
+            .iter()
+            .map(|label| label.len())
+            .chain(QUERY_PHASES.into_iter().map(|step| step.label().len()))
+            .chain([b"t4_actor_before_canonical_final_boundaries\n".len()])
+            .max()
+            .unwrap();
+        assert!(longest * 60 <= 4096);
+    }
+    #[test]
+    fn same_inventory_prefix_has_distinct_possible_refusals_not_a_cause() {
+        let mut prefix = vec![
+            b"t4_actor_before_canonical_installation\n".as_slice(),
+            b"t4_actor_before_canonical_observer\n",
+        ];
+        prefix.extend(QUERY_PHASES.into_iter().map(QueryPhase::label));
+        prefix.extend([
+            b"t4_actor_before_canonical_manager\n".as_slice(),
+            b"t4_actor_before_canonical_initial_units\n",
+        ]);
+        for _ in 0..3 {
+            prefix.extend(QUERY_PHASES.into_iter().map(QueryPhase::label));
+        }
+        prefix.push(b"t4_actor_before_canonical_inventory\n");
+        assert_eq!(prefix.len(), 33);
+        for cut in [
+            InventoryFailure::CatalogueNext,
+            InventoryFailure::StatParse,
+            InventoryFailure::Daemon,
+        ] {
+            let mut frames = prefix.clone();
+            let mut diagnostic = InventoryDiagnostic::default();
+            assert!(
+                diagnostic
+                    .result::<()>(cut, Err(()), |label| {
+                        frames.push(label);
+                        Ok(())
+                    })
+                    .is_err()
+            );
+            assert_eq!(&frames[..33], prefix.as_slice());
+            assert_eq!(frames.len(), 34);
+            assert_eq!(frames[33], cut.label());
+        }
+    }
+    #[test]
+    fn expired_inventory_diagnostic_preserves_error_without_output_or_retry() {
+        let mut diagnostic = InventoryDiagnostic::default();
+        let mut budget = Budget::new();
+        budget.until = Instant::now() - Duration::from_secs(1);
+        let mut writes = 0;
+        assert!(
+            diagnostic
+                .result::<()>(InventoryFailure::StatRead, Err(()), |_| {
+                    budget.check()?;
+                    writes += 1;
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert_eq!(writes, 0);
+        assert!(
+            diagnostic
+                .result::<()>(InventoryFailure::RowCurrent, Err(()), |_| panic!("retry"))
+                .is_err()
+        );
+    }
+    #[test]
+    fn parse_refusal_retains_row_and_scratch_and_forbids_downstream_io() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Handle(Rc<Cell<usize>>);
+        impl Drop for Handle {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner
+            .directory(2, || Ok(()), || Ok(Handle(drops.clone())))
+            .unwrap();
+        owner
+            .scratch_acquire(0, || Ok(()), |_| Ok(Handle(drops.clone())))
+            .unwrap();
+        let mut diagnostic = InventoryDiagnostic::default();
+        let refused = owner.scratch_perform(
+            0,
+            || Ok(()),
+            |_| {
+                available(
+                    diagnostic.result::<()>(InventoryFailure::StatusParse, Err(()), |_| Ok(())),
+                )
+            },
+        );
+        assert!(refused.is_err());
+        assert_eq!(drops.get(), 0);
+        assert!(
+            owner
+                .directory(
+                    2,
+                    || panic!("gate after refusal"),
+                    || panic!("open after refusal")
+                )
+                .is_err()
+        );
+        assert!(
+            owner
+                .scratch_release(0, || panic!("release after refusal"))
+                .is_err()
+        );
+        assert!(owner.finish().is_err());
+        assert_eq!(drops.get(), 0); // Owner still alive; no unwind/fatal claim.
+    }
+    #[test]
+    fn zero_start_producer_counterexample_is_still_rejected_not_relaxed() {
+        let mut fields = ["0"; 50];
+        fields[0] = "S";
+        let bytes = format!("2 (synthetic) {}\n", fields.join(" "));
+        assert!(start_time(bytes.as_bytes(), 2).is_err());
+        fields[19] = "1";
+        let bytes = format!("2 (synthetic) {}\n", fields.join(" "));
+        assert_eq!(start_time(bytes.as_bytes(), 2), Ok(1));
+        assert_eq!(TextRole::Status.name(), "status");
+        assert_eq!(TextRole::Stat.name(), "stat");
+        assert_eq!(TextRole::Command.name(), "cmdline");
+        assert_eq!(TextRole::Comm.name(), "comm");
+    }
     #[test]
     fn only_fixed_user_queries_change_child_credentials() {
         let scopes = [true, true, false, false, true, false, false];
