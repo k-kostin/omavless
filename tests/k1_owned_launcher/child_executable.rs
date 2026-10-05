@@ -12,7 +12,7 @@ use std::time::Instant;
 mod static_elf;
 use static_elf::static_elf;
 
-pub(super) const CHILD: &str = "/run/omavless-k1-owned-launch-v1/child";
+pub(super) const CHILD: &str = "/run/omavless-k1-owned-launch-v3/child";
 const SHA: [u8; 32] = [0x78,0x38,0xd1,0xc3,0xb1,0xb2,0x6f,0xa2,0x47,0xd0,0xbb,0x16,0x60,0x81,0x53,0xf5,0x76,0x47,0x7c,0x44,0x28,0x17,0xf8,0xe1,0x52,0x8f,0x6f,0x9c,0x85,0xfe,0x63,0x11];
 const SIZE: u64 = 1_475_200;
 type Result<T> = std::result::Result<T, EffectError>;
@@ -23,6 +23,9 @@ pub(super) struct Executable {
     directories: ManuallyDrop<Vec<(File, [u64; 11])>>,
 }
 fn gate(end: Instant) -> Result<()> { require(Instant::now() < end) }
+fn directory_mode(index: usize, mode: u32) -> bool {
+    index < 3 && (mode & 0o7777 == 0o755 || (index == 0 && mode & 0o7777 == 0o555))
+}
 fn no_attributes(file: &File, end: Instant) -> Result<()> {
     gate(end)?;
     // A fixed initialized byte buffer; nonempty/ERANGE/unsupported all refuse.
@@ -39,7 +42,7 @@ impl Executable {
         let root = retain_after(open("/", OFlag::O_RDONLY|OFlag::O_DIRECTORY|OFlag::O_NOFOLLOW|OFlag::O_CLOEXEC, Mode::empty())
             .map(File::from),||gate(end).is_ok()).map_err(|_|ERROR)?;
         let mut root = ManuallyDrop::new(Some(ManuallyDrop::into_inner(root)));
-        for (index, name) in ["/", "run", "omavless-k1-owned-launch-v1"].iter().enumerate() {
+        for (index, name) in ["/", "run", "omavless-k1-owned-launch-v3"].iter().enumerate() {
             let directory = if index == 0 {
                 ManuallyDrop::new(root.take().ok_or(ERROR)?)
             } else {
@@ -51,7 +54,7 @@ impl Executable {
             };
             let held = &*directory;
             gate(end)?; let info = held.metadata(); gate(end)?; let info = info.map_err(|_| ERROR)?;
-            require(info.is_dir() && info.uid()==0 && info.gid()==0 && info.mode()&0o7777==0o755)?;
+            require(info.is_dir() && info.uid()==0 && info.gid()==0 && directory_mode(index, info.mode()))?;
             no_attributes(held,end)?;
             directories.push((ManuallyDrop::into_inner(directory),identity(&info)));
         }
@@ -71,7 +74,7 @@ impl Executable {
         for (index,(directory,expected)) in self.directories.iter().enumerate() {
             gate(end)?;let metadata=directory.metadata();gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
-            let path=["/","/run","/run/omavless-k1-owned-launch-v1"][index];
+            let path=["/","/run","/run/omavless-k1-owned-launch-v3"][index];
             gate(end)?;let metadata=std::fs::symlink_metadata(path);gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
             no_attributes(directory,end)?;
@@ -97,10 +100,24 @@ impl Executable {
         for (index,(directory,expected)) in self.directories.iter().enumerate() {
             gate(end)?;let metadata=directory.metadata();gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
-            let path=["/","/run","/run/omavless-k1-owned-launch-v1"][index];
+            let path=["/","/run","/run/omavless-k1-owned-launch-v3"][index];
             gate(end)?;let metadata=std::fs::symlink_metadata(path);gate(end)?;
             require(identity(&metadata.map_err(|_|ERROR)?)==*expected)?;
         }
         gate(end)
+    }
+}
+
+#[cfg(test)]
+mod mode_controls {
+    use super::directory_mode;
+    #[test]
+    fn root_readonly_is_closed_and_other_ancestors_stay_exact() {
+        for index in 0..4 {
+            for mode in [0o555, 0o755, 0o711, 0o700, 0o775, 0o777, 0o1555, 0o4755] {
+                assert_eq!(directory_mode(index, mode),
+                    index < 3 && (mode == 0o755 || (index == 0 && mode == 0o555)));
+            }
+        }
     }
 }

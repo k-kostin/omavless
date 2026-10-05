@@ -350,3 +350,16 @@ contract or retag the4f compiled parent as built from this test/docs successor.
 The corrected source suite completed known zero (`7112fd`/`991296`):698 tests,
 two existing skips, all JS/QML contracts. HOME was inherited unchanged and
 TMPDIR used the existing private0700 scratch; no Cargo/native selection occurred.
+
+## Fresh v3 inert transfer and parent source successor
+
+ROOT's separately reviewed v3 transport completed known zero9fa845 after its
+source/inert/offline-pack gates and full independent review. It created only
+two inert400 guest copies. Old v1/v2 failures remain stopped and unexplained;
+the transferred old parent is still bound to v1 and cannot be used for v3.
+The [v3 parent proposal](V3_PARENT_PROPOSAL.md) records exact transport hashes,
+the independently observed root0555 constraint and the new fixed publication
+path. This adapter-only source permits root0555/0755 while keeping `/run` and
+publication exact0755, with all original ownership/xattr/hash checks retained.
+No normal product policy changes. New parent compilation, freeze, publication
+and one open/finish invocation remain separate unselected review gates.

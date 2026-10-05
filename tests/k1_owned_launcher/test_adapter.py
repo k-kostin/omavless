@@ -104,6 +104,11 @@ class Controls(unittest.TestCase):
         actual = bytes(int(part.strip(), 16) for part in sha.group(1).split(','))
         self.assertEqual(actual.hex(), '7838d1c3b1b26fa247d0bb16608153f576477c442817f8e1528f6f9c85fe6311')
         self.assertIn('const SIZE: u64 = 1_475_200;', image)
+        self.assertIn('const CHILD: &str = "/run/omavless-k1-owned-launch-v3/child";', image)
+        self.assertNotIn('omavless-k1-owned-launch-v1', image)
+        self.assertEqual(image.count('"/run/omavless-k1-owned-launch-v3"'), 2)
+        self.assertIn('index < 3 && (mode & 0o7777 == 0o755 || (index == 0 && mode & 0o7777 == 0o555))', image)
+        self.assertIn('info.is_dir() && info.uid()==0 && info.gid()==0 && directory_mode(index, info.mode())', image)
         # Preserve the zero-pin and bounded-size refusal BEFORE original I/O.
         self.assertIn('require(SHA != [0; 32] && (64..=16*1024*1024).contains(&SIZE))?;', image)
         self.assertLess(image.index('require(SHA !='), image.index('let root = retain_after(open('))
