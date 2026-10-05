@@ -1,0 +1,58 @@
+#!/usr/bin/env sh
+
+# Builds and runs tests for a particular target passed as an argument to this
+# script.
+
+set -eux
+
+target="$1"
+
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+# Add target-specific rustflags set in dockerfiles
+export RUSTFLAGS="${EXTRA_RUSTFLAGS:-} ${RUSTFLAGS:-}"
+
+echo "RUSTFLAGS: '$RUSTFLAGS'"
+
+# Print system and libc version for logging if available
+uname -a
+dpkg -l | grep libc- || true
+
+cmd="cargo test --target $target ${LIBC_CI_ZBUILD_STD+"-Zbuild-std"}"
+test_flags="--skip check_style"
+
+# Run tests in the `libc` crate
+case "$target" in
+    # Only run `libc-test`
+    # FIXME(android): unit tests fail to start on Android
+    *android*) cmd="$cmd --manifest-path libc-test/Cargo.toml" ;;
+    *s390x*) cmd="$cmd --manifest-path libc-test/Cargo.toml" ;;
+    # ctest's own tests don't work on Apple devices, since these don't have
+    # host tooling such as `rustc` or a C compiler.
+    *ios*|*tvos*|*watchos*|*visionos*) cmd="$cmd --workspace --exclude ctest" ;;
+    # For all other platforms, test everything in the workspace
+    *) cmd="$cmd --workspace" ;;
+esac
+
+if [ "${LIBC_CI_ZBUILD_STD:-}" ]; then
+    # ctest test infrastructure has no support for -Zbuild-std
+    cmd="$cmd --exclude ctest --exclude ctest-test"
+fi
+
+env="$(rustc --print cfg --target "$target" | sed -n 's/target_env="\(.*\)"/\1/p')"
+bits="$(rustc --print cfg --target "$target" | sed -n 's/target_pointer_width="\(.*\)"/\1/p')"
+
+# shellcheck disable=SC2086
+$cmd --no-default-features -- $test_flags
+# shellcheck disable=SC2086
+$cmd -- $test_flags
+# shellcheck disable=SC2086
+$cmd --features extra_traits -- $test_flags
+
+cargo doc --target "$target" --workspace --no-deps
+
+# On relevant platforms, also test with our optional settings
+
+if [ "$env" = "gnu" ] && [ "$bits" = "32" ]; then
+    # shellcheck disable=SC2086
+    RUSTFLAGS="$RUSTFLAGS --cfg=libc_unstable_time64" $cmd -- $test_flags
+fi

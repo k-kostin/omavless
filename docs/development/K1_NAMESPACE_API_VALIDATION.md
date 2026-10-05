@@ -1,5 +1,11 @@
 # K1 external namespace API validation — review only
 
+Historical external validation follows. The later owner-authorized
+[service core](K1_SERVICE_CORE.md) introduces narrowly scoped private immutable
+fork adoption; the earlier unchanged-main-Cargo restriction describes this
+external-validation stage, not that later explicit authorization. No upstream
+publication, installed-kernel or canonical-launch acceptance transfers.
+
 This follow-up implements and tests the external syscall-library candidate;
 it does **not** adopt a dependency or enable OmaVLESS K1. The original
 [namespace patch](K1_NAMESPACE_PATCH_REVIEW.md), #546 evidence and accepted

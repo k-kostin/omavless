@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
+import tomllib
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -81,7 +82,7 @@ class Metadata(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             json.loads('{"schema":1,"schema":1}', object_pairs_hook=guard.pairs)
 
-    def test_old_artifacts_unchanged_and_test_only_dependency(self):
+    def test_old_artifacts_unchanged_and_explicit_dependency_boundary(self):
         import hashlib
         self.assertEqual(hashlib.sha256((SUPPORT / 'manager_private_guard.py').read_bytes()).hexdigest(),
                          '472643e1b497bdc7cdb36ca9c3c380811d03143fdaaf5385018f3f082dbe063d')
@@ -91,7 +92,11 @@ class Metadata(unittest.TestCase):
         self.assertNotIn('[Install]', unit)
         cargo = (ROOT / 'crates/omavless-netguard/Cargo.toml').read_text()
         self.assertIn('[dev-dependencies]\nzbus = "=5.19.0"', cargo)
-        self.assertNotIn('zbus', cargo.split('[dev-dependencies]')[0])
+        manifest = tomllib.loads(cargo)
+        self.assertEqual(manifest['dependencies']['zbus'], {'version': '=5.19.0', 'optional': True})
+        self.assertEqual(manifest['features'], {'netguard-service-core': ['dep:nix-netguard', 'dep:zbus', 'nix/dir']})
+        self.assertEqual(manifest['bin'], [{'name': 'omavless-netguard', 'path': 'src/main.rs',
+                                           'required-features': ['netguard-service-core']}])
 
 
 class ActualObserverFlow(unittest.TestCase):

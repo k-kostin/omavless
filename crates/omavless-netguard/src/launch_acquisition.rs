@@ -1,5 +1,6 @@
-//! Inactive acquisition boundary. There is NO normal constructor or verifier.
-//! Exact configuration bytes are evidence, never trusted launch provenance.
+//! Default-build inactive acquisition; historical obligations below describe
+//! that default. The opt-in service_origin private factory is the successor.
+//! Exact configuration bytes remain evidence, never trusted launch provenance.
 
 use crate::authority_composition::{Boundary, CanonicalCreator};
 use crate::effect_port::{EffectError, EffectIdentity, EffectSnapshot};
@@ -15,6 +16,12 @@ use std::thread::{self, ThreadId};
 // A proposed fixed contract, NOT an installed unit or an accepted package.
 pub(crate) const UNIT: &[u8] = include_bytes!("launch_acquisition.unit-contract");
 const EXECUTABLE: &str = "/usr/lib/omavless/omavless-netguard";
+
+#[cfg(feature = "netguard-service-core")]
+#[path = "launch_service_origin.rs"]
+mod service_origin;
+#[cfg(feature = "netguard-service-core")]
+pub(crate) use service_origin::acquire_fixed_service;
 
 /// A caller can validate a supplied configuration, but cannot turn it into
 /// canonical authority. No PID, UID, INVOCATION_ID or namespace ID is accepted.

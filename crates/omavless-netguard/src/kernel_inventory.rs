@@ -4,7 +4,7 @@ use super::*;
 use crate::policy::Policy;
 use std::collections::BTreeSet;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "netguard-service-core"))]
 #[path = "kernel_create_witness.rs"]
 pub(super) mod create_witness;
 
@@ -345,7 +345,7 @@ impl LocalReadSession {
             deadline,
         })
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "netguard-service-core"))]
     pub(super) fn inspect_policy_inventory_once(
         &mut self,
     ) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {
@@ -353,7 +353,7 @@ impl LocalReadSession {
         Ok((lease.inventory, lease.generation, lease.table))
     }
 
-    fn inspect_policy_inventory_before(
+    pub(super) fn inspect_policy_inventory_before(
         &mut self,
         deadline: Instant,
     ) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {

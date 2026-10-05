@@ -19,6 +19,48 @@ a = module('adapt')
 p = module('prepare')
 
 def pinned_original(name, raw):
+    # The new opt-in service does NOT replace the historical exporter. Reverse
+    # only exact pinned successor declarations/visibility, then reverify BASE.
+    successors = {
+        'authority_composition.rs': 'c43a5dc3b9b49283f1a396e0ad8fe1fa89285ec99bd517b8f991451e616b2c91',
+        'launch_acquisition.rs': '794cbcaef7ade340cc2e78f1dc966e4e300aa430beb853ab5d646a08e07ce9ea',
+        'kernel_observer.rs': 'ffb0e395607c8e21c25e1e2f5a89f929689bd5ba0fe5252ca852479ee6a8b4f7',
+        'kernel_inventory.rs': '6665ffc491c0e4efd5e03bc3b07e236289c3f354d205ab93d890678da1cbbc10',
+    }
+    if name in successors and hashlib.sha256(raw).hexdigest() == successors[name]:
+        if name == 'authority_composition.rs':
+            raw = raw.replace((b'//! Default-build inactive lifetime composition. The opt-in service provider\n'
+                b'//! is private; historical missing-provider obligations below describe default\n'
+                b'//! builds. Receipts/integers/fixtures/legacy ports cannot acquire that provider.\n'),
+                (b'//! Inactive lifetime composition, not a canonical namespace authenticator.\n'
+                b'//! No non-test provider exists. Receipts, matching integers, fixture witnesses\n'
+                b'//! and the legacy EffectPort cannot be converted into a provider here.\n'))
+            start = raw.index(b'    #[cfg(feature = "netguard-service-core")]\n    pub(crate) fn recover_one(')
+            end = raw.index(b'    pub(crate) fn from_admitted(', start)
+            raw = raw[:start] + raw[end:]
+        elif name == 'launch_acquisition.rs':
+            raw = raw.replace((b'//! Default-build inactive acquisition; historical obligations below describe\n'
+                b'//! that default. The opt-in service_origin private factory is the successor.\n'
+                b'//! Exact configuration bytes remain evidence, never trusted launch provenance.\n'),
+                (b'//! Inactive acquisition boundary. There is NO normal constructor or verifier.\n'
+                b'//! Exact configuration bytes are evidence, never trusted launch provenance.\n'))
+            raw = raw.replace((b'#[cfg(feature = "netguard-service-core")]\n'
+                b'#[path = "launch_service_origin.rs"]\nmod service_origin;\n'
+                b'#[cfg(feature = "netguard-service-core")]\n'
+                b'pub(crate) use service_origin::acquire_fixed_service;\n\n'), b'')
+        elif name == 'kernel_observer.rs':
+            raw = raw.replace((b'//! Default-build read-only fixed-table observation in the calling namespace.\n'
+                b'//! Read projections never attest ownership/canonical origin. The opt-in private\n'
+                b'//! service_creator child adds effects only through original launch acquisition.\n'),
+                (b'//! Inactive, read-only fixed-table metadata observation in the calling namespace.\n'
+                b'//! No ownership, policy verification, canonical-host identity or effect authority.\n'))
+            raw = raw.replace((b'#[cfg(feature = "netguard-service-core")]\n'
+                b'#[path = "kernel_service_creator.rs"]\n'
+                b'pub(crate) mod service_creator;\n'), b'')
+        else:
+            raw = raw.replace(b'#[cfg(any(test, feature = "netguard-service-core"))]', b'#[cfg(test)]')
+            raw = raw.replace(b'    pub(super) fn inspect_policy_inventory_before(',
+                              b'    fn inspect_policy_inventory_before(')
     # The external exporter still selects immutable BASE. Only this exact
     # later cfg(test) declaration is projected out for shallow-CI source
     # controls; both the complete successor and resulting original are pinned.
@@ -54,6 +96,12 @@ class Controls(unittest.TestCase):
                         raw.replace(b'create_witness;', b'other_witness;', 1)):
             with self.assertRaises(ValueError):
                 pinned_original(name, changed)
+        for name in ('launch_acquisition.rs', 'kernel_observer.rs', 'authority_composition.rs'):
+            raw = (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+            self.assertEqual(pinned_original(name, raw), self.sources[name])
+            for changed in (raw + b' ', raw.replace(b'netguard-service-core', b'unreviewed-feature', 1)):
+                with self.assertRaises(ValueError):
+                    pinned_original(name, changed)
 
     def test_exact_catalog_and_each_pin_refuse(self):
         for name in a.PINS:

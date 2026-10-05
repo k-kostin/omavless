@@ -1,6 +1,6 @@
-//! Inactive lifetime composition, not a canonical namespace authenticator.
-//! No non-test provider exists. Receipts, matching integers, fixture witnesses
-//! and the legacy EffectPort cannot be converted into a provider here.
+//! Default-build inactive lifetime composition. The opt-in service provider
+//! is private; historical missing-provider obligations below describe default
+//! builds. Receipts/integers/fixtures/legacy ports cannot acquire that provider.
 
 use crate::effect_port::{
     EffectError, EffectIdentity, EffectPort, EffectSnapshot, ExchangeBoundary,
@@ -148,6 +148,21 @@ pub(crate) struct AuthoritySession<C: CanonicalCreator> {
 }
 
 impl<C: CanonicalCreator> AuthoritySession<C> {
+    #[cfg(feature = "netguard-service-core")]
+    pub(crate) fn recover_one(
+        &mut self,
+        stream: std::os::unix::net::UnixStream,
+    ) -> SessionProgress {
+        if self.sealed {
+            return SessionProgress::AuthorityLost;
+        }
+        self.sealed = true;
+        let progress = self.owner.recover_one(stream);
+        if progress == SessionProgress::Served {
+            self.sealed = false;
+        }
+        progress
+    }
     pub(crate) fn from_admitted(
         listener: AdmittedListener,
         state: LockedState,

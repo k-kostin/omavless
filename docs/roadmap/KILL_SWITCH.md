@@ -36,6 +36,15 @@ The subsequent [shared-lock transaction candidate](../development/K1_LOCKED_STAT
 combines durable marker/receipt writes with synthetic kernel effects and strict
 pending-phase refusal. It provides no production ownership or recovery adapter.
 
+The October 6 [developer service core](../development/K1_SERVICE_CORE.md)
+records scoped installed developer-VM evidence at exact application `d3b24a36`
+for the fixed manager/private safe-library launch, live-owner transactions,
+separate root live Recover, selected process death and automatic cold restart
+with bounded recovery-required refusal. The narrow public SSH path sample is
+not all-packet/physical proof; one update's original exit remains unobserved.
+The service is opt-in, not enabled by the shipped runtime, and does not close
+whole K1, product coordination, armed boot or this physical acceptance matrix.
+
 ## 1. Decision summary
 
 K1 is an opt-in, **Full VPN only** kill switch enforced by a separately

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! Private fixture-only causality extraction; no canonical owner or effect API.
-//! The caller is the trusted existing fixture transport, not supplied metadata.
+//! Private original-session causality extraction, not canonical launch authority.
+//! Callers are the fixed fixture or opt-in service sender, never supplied metadata.
 use super::*;
 use crate::kernel_observer::atomic_batch::{
     AtomicBatch, AtomicReplies, UntrustedStatus, full_batch,
@@ -58,8 +58,8 @@ impl<'a> PreparedCreate<'a> {
     }
 
     /// The sole caller's durable Pending check must precede this operation.
-    /// A callback here is only the already reviewed cfg(test) original sender;
-    /// this internal injection seam does not authenticate arbitrary executors.
+    /// A callback is only a fixed private original sender; the opt-in service
+    /// requires separate launch acquisition. This seam authenticates no executor.
     pub(in crate::kernel_observer) fn execute(
         mut self,
         send: impl FnOnce(&mut LocalReadSession, AtomicBatch, Instant) -> Result<AtomicReplies>,
@@ -97,7 +97,7 @@ impl<'a> PreparedCreate<'a> {
     }
 }
 
-/// Local fixture causality only, not Table::OwnedVerified or canonical authority.
+/// Original-session causality only, not canonical authority by itself.
 /// The same owner remains exclusively borrowed through final revalidation.
 pub(in crate::kernel_observer) struct CreatedLease<'a> {
     lease: LocalInventoryLease<'a>,
