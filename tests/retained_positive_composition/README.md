@@ -60,13 +60,23 @@ No recorded milestone establishes the failing predicate, current live identity,
 canonical preservation, compatibility or adoption.
 
 A separate fixed-file-only observer has been sealed and passed ROOT's 37 inert
-observer and 7 transport controls. Its independent review and actual ROOT-only
-file observation remain pending. The observer authenticates the fixed source/
+observer and 7 transport controls. After separate complete review, ROOT's sole
+file observation exited normally (exit 0), followed by a filtered HOST read.
+Its 5,643-byte capture SHA-256 is
+`08bda7dd42b868c13d6e6db3fd9c70090ebe4b669b868c3932940b0b98ad09dd`.
+All 17 source and four native pins matched; 16 capture files ended at the
+launcher phase. The inner record was empty and the outer record absent.
+The 3,260-byte child-stderr hash is
+`c6a4b35a92d58e2bfaebe60c907384beb969b5cc94335be5f686f5b333a0609a`;
+its entire lexical stream matched 95 fixed frames (83 Bridge +12 Session),
+ending at Session `before_bus_spawn`, with no opaque tail. Those literals
+include copy/artifact/initial-image boundaries but do not prove their completed
+effects, ordering or the failing predicate. The observer authenticates the fixed source/
 native graph, hashes finite captures and projects only a public literal phase
 prefix, stopping at the first unknown/partial/over-cap frame. It never traverses
 the retained inventory root or queries processes. These source controls are
-not an observer execution PASS or a whole-wrapper PASS. Any eventual file
-result remains recorded-only with all whole/current/production/compatibility/
+not a whole-wrapper PASS. The actual file result remains recorded-only with all
+whole/current/production/compatibility/
 adoption flags false; the permanent NONPASS terminal is unchanged.
 
 This first source checkpoint implements a fixed Unix conditional controller
