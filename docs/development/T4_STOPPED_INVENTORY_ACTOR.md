@@ -534,3 +534,105 @@ library-only compile/memory controls, not actor binary or installed-proc evidenc
 No actor build or VM action is selected by this implementation. Fresh artifact/packet/
 vocabulary and separate review/boot/runtime admission precede any future ROOT
 actual choice; old367 remains immutable NONPASS, not a retry target.
+
+### Whole-group exited-row SOURCE compatibility candidate
+
+Separate `dev/t4-exited-group-witness` starts from exact
+`c5fa3ece3d18844d37ed5f1239a999ab6bf45e07`;669/367/auth/Stage remain frozen.
+ROOT's c5fa upload `d0340a` and prepare `09ffc9` returned original0, but whole
+run `1809e2` returned original2: **NONPASS**. Its pre-scoped observer `865b4a`
+returned original0: actor1209 bytes/34 frames, last
+`t4_actor_inventory_image_open_enoent_refused`. That original errno category is
+not proof of a zombie or the actual cause. No failed-scope queries/retries/reap/
+signal/cleanup were performed by this writer.
+
+An exited leader can leave live sibling threads. Therefore neither Z, Threads1,
+ENOENT, missing/reaped proc data nor a copied PID/start tuple supplies admission.
+The new canonical-only class `SameUidExitedGroup` is finalized only after strict
+retained-origin whole-group proof. Shared `Status`, `start_time`, `Process` and
+ordinary CLI/image predicates remain unchanged; no failed image-open fallback.
+
+Canonical-private parsing consumes the already read original stat/status bytes:
+unchanged strict stat PID/shape/start>0, stateZ, unique StateZ/Tgid==Pid/Threads1,
+all four original UIDs and one exact NSpid. Only a strict candidate selects the
+group path BEFORE any image acquisition. Other live SameUID rows retain their
+unchanged required original image and daemon checks; OtherUID directories stay
+retained. Unknown/mismatched candidate fields refuse, not an alternate path.
+
+Each row has its original directory plus at most ONE typed secondary witness:
+Image(File) OR ExitedGroupPidfd(File). The group acquisition is precharged and
+uses safe pidfd_open with exactly NONBLOCK, never THREAD or imported flags/FDs.
+Its positive OwnedFd-to-File return is installed before the postgate/metadata.
+The same original proc-root/observer namespaces and current row named/held inode,
+PID/start/state/UID/NSpid are checked before and after selection. No scalar alone
+is adopted as identity or authority.
+
+The original pidfd's unique exact Pid/NSpid is read through the already retained
+observer fdinfo directory into charged Scratch1; its original File/name/procfs
+identity is checked. Scratch1 stays held while Scratch0 reads the original row.
+Two zero-time polls request only IN and require exactly one IN result, without
+HUP/ERR/NVAL/other bits. Notready/live-sibling, reap/HUP, ESRCH, interrupted/failed
+IO or any drift refuses. There is no pidfd read, wait/reap, signal, getfd, retry,
+replacement or error cleanup. Only completely positive proof releases Scratch1.
+
+Every existing row sweep calls this same proof again, including fresh original
+status/stat, current named inode, original fdinfo mapping and pidfd readiness;
+intermediate/final catalogues still include the row and must match. A later auth/
+Stage integration must carry the same row_current path into all its refreshes,
+not borrow this candidate's source evidence across an unreviewed merge.
+New outer group labels follow explicit row-owner revocation and preserve its
+uncertain reported directory/secondary/scratch prefix. This does not re-retain
+completed scratch already positively released before a later row/catalogue
+refusal. Inherited nested row_text diagnostics remain inside their unchanged
+single-thread guarded flow, before that guard's Err return; they keep the first
+attempt, not a universal pre-revocation-output claim. No downstream acquisition,
+release or finish follows the original refusal.
+
+The existing8320 envelope is unchanged:4096 directories +4096 secondary
+witnesses +fixed120 +scratch8. No image+pidfd pair or third persistent row FD.
+Two concurrent scratch roles remain inside8; conservative current reported
+bound8192+41+2=8235. The canonical fixed proc-visibility File now uses the already
+reviewed auth/Stage retention pattern: initialize before READY, retain the first
+positive original and re-read/current-bind it on every later pass. This replaces
+the baseline's two visibility opens without adding a role; repeated per-row
+checks cannot grow the fixed owner. All proof/post-deadline checks and the final
+release gate precede completed Scratch1 Drop; no fallible continuation remains
+inside that completed fdinfo proof after release. Later row/recheck/catalogue
+gates can still refuse, retaining only their uncertain live prefix. Three new
+static group_open/proof/current_refused literals
+make49 total. Success59/conservative failure60/supervisor7/capture4096 and all
+sampled2s/16MiB/5s/15s budgets remain unchanged; packet vocabulary changes are
+separate and have not been selected.
+
+Primary [Linuxv6.17 pidfd producer](https://raw.githubusercontent.com/torvalds/linux/v6.17/fs/pidfs.c)
+and [upstream7.2.5 counterpart](https://raw.githubusercontent.com/gregkh/linux/v7.2.5/fs/pidfs.c)
+suppress a prematurely exited leader while sibling threads remain, and add HUP
+when its task is gone. The latter's FDinfo uses the original pid reference.
+[Proc inode creation](https://raw.githubusercontent.com/gregkh/linux/v7.2.5/fs/proc/base.c)
+keeps that task's structpid; [fresh original reads](https://raw.githubusercontent.com/gregkh/linux/v7.2.5/fs/proc/internal.h)
+use that reference, not a new lookup by number. Thus a reaped original cannot be
+replaced by reused PID/same coarse start: fresh original reads and named-inode
+binding must still pass. These conditional producer facts are not attestation
+of the guest7.2.5-3-omarchy build. A separately reviewed isolated original-child
+positive group-exit/negative leader-live-sibling fixture is required before
+actual canonical acceptance.
+
+The only new claim is nonexecution by the positively identified whole group.
+It is not zero kernel references, absent shared objects/listeners, persistent
+firewall/TUN/core effects, exclusive product owner or Restore authority.
+Manager/listener/full other-row checks, fatal/unwind/unreported-backend limits
+and default/classic contracts are unchanged. Primary and independent critical
+source review cleared canonical5386c258/inventory9ecd55d0. Focused35 canonical/
+inventory controls passed (`ba7153`/`14b9fa`),39 service controls
+(`77548b`/`84afa8`) and seven capture controls (`1d8420`) passed. Feature
+all-target Clippy with warnings denied (`1f89d1`/`2c96af`), default library check
+(`c7ff4a`/`5a2aca`), whole-workspace fmt and whitespace checks passed. Initial
+ordinary source compile `7472ae`/`bba07a` remains negative (missing visibility
+field); the reviewed retained-visibility successor closed it. These are memory/
+compile checks, not actual exited-row proof. Exact actor build, producer,
+artifact/packet/boot/runtime and actual canonical gates remain separate.
+
+Inherited source-only formatting failure in c5fa's module order is corrected
+mechanically here by moving the feature-gated manager_actor_service declaration
+before mutation. Old669 CI remains negative; this does not explain zombie
+behavior or retroactively make that old head green.
