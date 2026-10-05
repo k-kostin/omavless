@@ -160,29 +160,42 @@ class Case:
     def spawn(self, role, argv, *, pipes=False):
         require(role in ('bus','resolved','broker','host','core') and type(pipes) is bool)
         deadline = self.owner.local_deadline(5)
+        self.owner.phase('before_'+role+'_log_open',deadline)
         log = self.opened(deadline,'/tmp/'+role+'.log',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC)
         self.logs[role] = log
+        self.owner.phase('after_'+role+'_log_open',deadline)
+        self.owner.phase('before_'+role+'_owned_constructor',deadline)
         child = self.call(deadline,self.owner.spawn,argv,role=role,env=self.base.ENV,
             stdin=subprocess.PIPE if pipes else subprocess.DEVNULL,
             stdout=subprocess.PIPE if role=='host' else log,stderr=log,bufsize=0,
             preexec_fn=self.base.limits)
         self.children[role] = child
+        self.owner.phase('after_'+role+'_owned_constructor',deadline)
         # A late spawn is already retained by Session.spawn, but must never
         # authorize anchor/proc IO. Only a known-in-budget spawn starts this
         # separate fixed anchor stage.
-        self.call(self.owner.local_deadline(5),self.owner.anchor,role,child)
+        deadline = self.owner.local_deadline(5)
+        self.owner.phase('before_'+role+'_anchor',deadline)
+        self.call(deadline,self.owner.anchor,role,child)
+        self.owner.phase('after_'+role+'_anchor',deadline)
         return child
 
     @guarded
     def mapped(self, role):
         child = self.children[role]
         deadline = self.owner.local_deadline(5)
+        self.owner.phase('before_'+role+'_first_images',deadline)
         first = self.images.inventory(child,deadline,'initial_'+role)
         self.owner.within(deadline)
+        self.owner.phase('after_'+role+'_first_images',deadline)
+        self.owner.phase('before_'+role+'_second_images',deadline)
         again = self.images.inventory(child,deadline,'final_'+role)
         self.owner.within(deadline)
+        self.owner.phase('after_'+role+'_second_images',deadline)
+        self.owner.phase('before_'+role+'_mapped',deadline)
         self.owner.mapped(role,first,again)
         self.initial[role] = first
+        self.owner.phase('after_'+role+'_mapped',deadline)
 
     @guarded
     def final_map(self, role):

@@ -255,6 +255,12 @@ class Controls(unittest.TestCase):
 
     def test_fixed_source_complete_phase_budget_and_public_old_frame_hash(self):
         owner=module('lifecycle')
+        positive=ast.parse((HERE/'positive.py').read_text())
+        case=next(n for n in positive.body if isinstance(n,ast.ClassDef) and n.name=='Case')
+        role_methods={n.name:n for n in case.body if isinstance(n,ast.FunctionDef)}
+        lifecycle=ast.parse((HERE/'lifecycle.py').read_text())
+        session=next(n for n in lifecycle.body if isinstance(n,ast.ClassDef) and n.name=='Session')
+        owner_methods={n.name:n for n in session.body if isinstance(n,ast.FunctionDef)}
         def calls(nodes,env=None):
             env={} if env is None else env;found=[]
             def label(node):
@@ -273,6 +279,12 @@ class Controls(unittest.TestCase):
                         if len(call.args)==2:
                             self.assertIsInstance(call.args[1],ast.Name);self.assertEqual(call.args[1].id,'deadline')
                         found.append(label(call.args[0]))
+                    elif isinstance(call.func,ast.Attribute):
+                        receiver=ast.unparse(call.func.value)
+                        if receiver=='self' and call.func.attr in ('spawn','mapped'):
+                            found+=calls(role_methods[call.func.attr].body,{'role':label(call.args[0])})
+                        elif receiver=='self.owner' and call.func.attr in ('ready','native_ready'):
+                            found+=calls(owner_methods[call.func.attr].body,{'name':label(call.args[0])})
                 elif isinstance(node,ast.For) and has_phase(node):
                     if isinstance(node.target,ast.Tuple):
                         self.assertEqual([n.id for n in node.target.elts],['role','argv'])
@@ -285,19 +297,28 @@ class Controls(unittest.TestCase):
                 elif isinstance(node,ast.Try):
                     self.assertFalse(any(has_phase(n) for n in node.handlers+node.finalbody+node.orelse))
                     found+=calls(node.body,env)
+                elif isinstance(node,ast.Assign) and isinstance(node.value,ast.Call):
+                    call=node.value
+                    if isinstance(call.func,ast.Attribute) and ast.unparse(call.func.value)=='self' \
+                            and call.func.attr=='spawn':
+                        found+=calls(role_methods['spawn'].body,{'role':label(call.args[0])})
+                elif isinstance(node,ast.While) and has_phase(node):
+                    # Readiness repeats observations, but its one post-success
+                    # label occurs only on the path that immediately returns.
+                    self.assertFalse(node.orelse)
+                    found+=calls(node.body,env)
                 elif isinstance(node,ast.If) and has_phase(node):
                     self.fail('conditional phase requires explicit branch budget review')
             return found
         launcher=ast.parse((HERE/'launcher.py').read_text())
         child=next(n for n in launcher.body if isinstance(n,ast.FunctionDef) and n.name=='child')
-        positive=ast.parse((HERE/'positive.py').read_text())
-        case=next(n for n in positive.body if isinstance(n,ast.ClassDef) and n.name=='Case')
         run=next(n for n in case.body if isinstance(n,ast.FunctionDef) and n.name=='run')
         outer_labels=calls(child.body);case_labels=calls(run.body)
-        self.assertEqual((len(outer_labels),len(case_labels)),(13,31))
+        self.assertEqual((len(outer_labels),len(case_labels)),(13,101))
         self.assertEqual(set(outer_labels+case_labels),owner.PHASES)
         self.assertLessEqual(len(outer_labels+case_labels),owner.PHASE_LIMIT)
-        self.assertLessEqual(83+owner.PHASE_LIMIT,128)
+        self.assertEqual(owner.PHASE_LIMIT,115)
+        self.assertEqual(128+owner.PHASE_LIMIT,243)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
         phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
         phases+=['before_bind']*50+['before_verify_copies']

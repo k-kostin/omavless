@@ -1,7 +1,8 @@
 # Retained positive composition: source-only successor
 
 Developer witness in progress, not a normal Rust runtime, controller permit,
-installed package or production Python fallback. Generation 2's sole whole guard
+installed package or production Python fallback. Generation 3 is a new source-only
+proposal and has not been invoked. Generation 2's sole whole guard
 terminated NONPASS (exit 2); its scope is permanently stopped. Generation 1's
 sole whole guard terminated NONPASS (exit 2); its
 separately reviewed file-only observer did not change that terminal.
@@ -78,6 +79,53 @@ the retained inventory root or queries processes. These source controls are
 not a whole-wrapper PASS. The actual file result remains recorded-only with all
 whole/current/production/compatibility/
 adoption flags false; the permanent NONPASS terminal is unchanged.
+
+## Fresh generation 3: fixed role substep observations
+
+The source successor uses only the new literal stage ending in
+`t3-retained-positive-composition-review-3`. Generation 1 and 2 originals,
+stopped scopes and sealed observers remain unchanged. The generation-2 last
+literal `before_bus_spawn` brackets a broad source interval: role log open,
+owned constructor, anchor, readiness, first and second loaded-image inventories,
+then mapped-state admission. It does not identify which step refused.
+
+All five roles now have finite before/after labels for those seven substeps.
+Log open and child construction share the existing five-second spawn cap;
+anchor labels share its existing separate five-second cap; both image reads and
+mapped admission share the existing five-second mapping cap. Bus/resolved
+readiness labels share the existing eight-second readiness cap; native-ready
+labels stay inside the same absolute Session cap as that existing admission.
+No label starts a fresh grant or records an exception, syscall value, path,
+child identity or private payload. The first short/late/throwing label or unknown
+operation still seals before another label, query, effect or failure cleanup.
+An after-label records a reached source boundary, not independent completed
+effect, current identity, preservation, ordering or causation authority.
+
+The complete positive source path has 13 launcher +101 Case/role labels =114
+Session attempts (44 original +5 roles ×7 steps ×2 sides). Its independent
+cap is115; Bridge retains its separate128 cap. Any separately reviewed future
+file observer needs a combined lexical cap243, never the old83-prepare-prefix
+shortcut. The complete-path inert AST counter expands the role loops, Case
+spawn/mapping methods and owner readiness methods. Mocked per-role failures
+at log open, constructor, anchor, first/second images, mapped admission and
+readiness prove no later label; late socket/image returns prove the same local
+cap applies before the next stage. These do not execute a child or fixture.
+
+The retained ownership discipline governs returned `OwnedProcess` objects.
+CPython `Popen` constructor failure can perform internal error-pipe reads,
+partial-pipe cleanup or failure wait before returning/raising. The synthetic
+Session tests do not control or prove those internals, and no actual constructor
+failure outcome is supported as ownership/cleanup evidence. No constructor
+workaround or runtime fix follows from the generation-2 literal observation.
+Fresh source/native delivery, outer guard, independent complete-graph review
+and sealed exact-head gates remain required before any ROOT-only generation-3
+proposal can be invoked. Native inputs remain frozen and unchanged.
+
+Local source-only gates for this successor: `./tests/run.sh` passes with
+Python3.12.13 and3.14, each1112 tests/two existing skips plus all JS/QML
+contracts. The four additional inert controls cover role substeps and readiness;
+they are not native/guest execution or a whole-wrapper receipt. New exact-head
+cloud gates and a complete immutable source/native graph remain pending.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

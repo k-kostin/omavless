@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-2/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-3/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
     'after_artifact_crosscheck','before_case_constructor','after_case_constructor',
@@ -30,9 +30,15 @@ PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'after_dns_release','before_broker_shutdown','after_broker_shutdown',
     'before_host_finish','after_host_zero','before_daemon_shutdown',
     'after_resolved_zero','after_bus_zero','before_complete','after_complete'))
-# The reached Bridge.prepare emits exactly 83 existing frames; this separate
-# capped stream can add at most 45. Combined complete flow stays <=128.
-PHASE_LIMIT = 45
+ROLES = ('bus','resolved','broker','host','core')
+ROLE_STEPS = ('log_open','owned_constructor','anchor','readiness',
+              'first_images','second_images','mapped')
+PHASES |= frozenset(side+'_'+role+'_'+step for role in ROLES
+                   for step in ROLE_STEPS for side in ('before','after'))
+# 44 original labels plus 5 roles * 7 substeps * 2 sides = 114 attempts on
+# the complete positive path. Bridge's independent cap remains 128; this
+# Session cap is 115, not a claim about ordering or completed effects.
+PHASE_LIMIT = 115
 
 
 class Refused(RuntimeError):
@@ -303,6 +309,7 @@ class Session:
         require(row['state'] == 'spawned', 'ready_phase')
         socket = '/run/dbus/system_bus_socket' if name == 'bus' else '/run/systemd/resolve/io.systemd.Resolve'
         deadline = self.local_deadline(8)
+        self.phase('before_'+name+'_readiness',deadline)
         while True:
             self.within(deadline)
             for item in self.anchors.values():
@@ -318,15 +325,19 @@ class Session:
             self.within(deadline)
             require(stat.S_ISSOCK(info.st_mode), 'readiness_socket')
             row['state'] = 'ready'
+            self.phase('after_'+name+'_readiness',deadline)
             return
 
     @guarded
     def native_ready(self, name):
         require(name in ('core','broker','host'), 'fixed_native_role')
+        deadline = self.deadline
+        self.phase('before_'+name+'_readiness',deadline)
         row = self.anchors[name]
         require(row['state'] == 'spawned', 'native_ready_phase')
         self.live(row['child'])
         row['state'] = 'ready'
+        self.phase('after_'+name+'_readiness',deadline)
 
     @guarded
     def mapped(self, name, initial, final):

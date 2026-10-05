@@ -49,7 +49,7 @@ class Controls(unittest.TestCase):
         def within(deadline):
             if clock[0]>=deadline:raise RuntimeError('private deadline')
         owner.within=Mock(side_effect=within);owner.local_deadline=Mock(side_effect=lambda seconds:clock[0]+seconds)
-        owner.anchor=Mock();owner.live=Mock()
+        owner.anchor=Mock();owner.live=Mock();owner.phase=Mock()
         copies=Bridge();copies.state='ready';artifacts=Artifacts();artifacts.sealed=False
         base=SimpleNamespace(ENV={},limits=Mock(),active=Mock(),clean=Mock())
         with patch.object(p.os,'getpid',return_value=1),patch.object(p.os,'geteuid',return_value=0), \
@@ -92,6 +92,47 @@ class Controls(unittest.TestCase):
         position=events.index('spawn');self.assertEqual(events[position+1],'within')
         self.assertGreater(events.index('anchor'),position+1)
         self.assertEqual(value.owner.local_deadline.call_count,2)
+
+    def test_role_subphases_constructor_and_anchor_uncertainty_have_no_later_label(self):
+        for role in ('bus','resolved','core','broker','host'):
+            for failure in ('open','constructor','anchor'):
+                value,clock=self.fixture();child=object()
+                value.owner.spawn=Mock(return_value=child)
+                if failure=='constructor':value.owner.spawn.side_effect=RuntimeError('private')
+                if failure=='anchor':value.owner.anchor.side_effect=RuntimeError('private')
+                with patch.object(p.os,'open',side_effect=RuntimeError('private') if failure=='open' else None,
+                                  return_value=71):
+                    with self.assertRaises(p.Refused):value.spawn(role,['fixed'])
+                    before=list(value.owner.phase.call_args_list)
+                    with self.assertRaises(p.Refused):value.spawn(role,['fixed'])
+                labels=[call.args[0] for call in before]
+                self.assertEqual(labels[-1],'before_'+role+'_'+{'open':'log_open',
+                    'constructor':'owned_constructor','anchor':'anchor'}[failure])
+                self.assertEqual(before,value.owner.phase.call_args_list)
+                if failure=='open':value.owner.spawn.assert_not_called()
+                if failure!='anchor':value.owner.anchor.assert_not_called()
+
+    def test_mapping_subphases_share_original_cap_and_stop_at_first_unknown(self):
+        for role in ('bus','resolved','core','broker','host'):
+            for failure in ('first','second','mapped','late_second'):
+                value,clock=self.fixture();value.children[role]=object()
+                def inventory(*args):
+                    stage=args[-1]
+                    if failure==('first' if stage.startswith('initial_') else 'second'):
+                        raise RuntimeError('private')
+                    if failure=='late_second' and stage.startswith('final_'):clock[0]=5.0
+                    return ['public']
+                value.images.inventory=Mock(side_effect=inventory)
+                value.owner.mapped=Mock(side_effect=RuntimeError('private') if failure=='mapped' else None)
+                with self.assertRaises(p.Refused):value.mapped(role)
+                labels=value.owner.phase.call_args_list
+                self.assertTrue(all(call.args[1]==5.0 for call in labels))
+                self.assertEqual(labels[-1].args[0],'before_'+role+'_'+
+                    {'first':'first_images','second':'second_images','late_second':'second_images','mapped':'mapped'}[failure])
+                clock[0]=0.0
+                with self.assertRaises(p.Refused):value.mapped(role)
+                self.assertEqual(value.owner.phase.call_args_list,labels)
+                self.assertEqual(value.owner.local_deadline.call_count,1)
 
     def test_late_open_retains_new_fd_no_followup_after_clock_recovers(self):
         value,clock=self.fixture()

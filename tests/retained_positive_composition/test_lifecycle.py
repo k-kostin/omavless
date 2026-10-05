@@ -2,6 +2,7 @@
 import importlib.util
 import ast
 import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -44,7 +45,7 @@ class Controls(unittest.TestCase):
     def test_unknown_phase_wrong_scope_or_bad_counter_seals_before_output(self):
         for kind,label,count in (('outer','before_copy_prepare',0),('inner','private/value',0),
                 ('inner',True,0),('inner','before_copy_prepare',True),
-                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',45)):
+                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',115)):
             session=l.Session(kind);session.phase_count=count
             with patch.object(l.os,'write') as write:
                 with self.assertRaises(l.Refused):session.phase(label)
@@ -99,6 +100,37 @@ class Controls(unittest.TestCase):
         self.assertFalse(result['global_shared_argv_or_uid_absence_claimed'])
         self.assertFalse(result['production_effect_authority'])
         self.assertNotIn('pid',result)
+
+    def test_readiness_role_labels_preserve_shared_cap_and_no_post_after_unknown(self):
+        for name in l.ROLES:
+            for failure in (False,True):
+                session=l.Session('inner');child=object()
+                session.anchors[name]={'child':child,'state':'spawned'}
+                session.live=Mock(side_effect=RuntimeError('private') if failure else None)
+                with patch.object(l.os,'write',side_effect=lambda fd,raw:len(raw)) as output, \
+                     patch.object(l.os,'stat',return_value=SimpleNamespace(st_mode=stat.S_IFSOCK)):
+                    method=session.ready if name in ('bus','resolved') else session.native_ready
+                    if failure:
+                        with self.assertRaises(RuntimeError):method(name)
+                        with self.assertRaises(l.Refused):method(name)
+                    else:method(name)
+                labels=[call.args[1] for call in output.call_args_list]
+                self.assertEqual(labels,[('T3_RETAINED_PHASE_V1 before_'+name+'_readiness\n').encode()]
+                    +([] if failure else [('T3_RETAINED_PHASE_V1 after_'+name+'_readiness\n').encode()]))
+                self.assertEqual(session.sealed,failure)
+
+    def test_late_ready_socket_read_has_no_post_label_or_followup(self):
+        session=l.Session('inner');session.anchors['bus']={'child':object(),'state':'spawned'}
+        session.live=Mock()
+        def late(*args,**kwargs):
+            session.deadline=0.0
+            return SimpleNamespace(st_mode=stat.S_IFSOCK)
+        with patch.object(l.os,'stat',side_effect=late) as observation, \
+             patch.object(l.os,'write',side_effect=lambda fd,raw:len(raw)) as output:
+            with self.assertRaises(l.Refused):session.ready('bus')
+            with self.assertRaises(l.Refused):session.ready('bus')
+            observation.assert_called_once();output.assert_called_once()
+        self.assertEqual(session.anchors['bus']['state'],'spawned')
 
     def test_all_five_roles_and_utilities_require_independent_exact_raw_zero(self):
         session=l.Session('inner')
