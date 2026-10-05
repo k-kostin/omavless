@@ -31,6 +31,7 @@ url = "2.5"
 zeroize = "1.8"
 
 [dev-dependencies]
+nix = { version = "0.30", features = ["mount"] }
 tempfile = "=3.27.0"
 
 [lints]

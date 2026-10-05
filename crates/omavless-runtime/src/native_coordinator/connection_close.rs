@@ -1451,7 +1451,7 @@ while True:
         let Some(executable) = std::env::var_os("OMAVLESS_TEST_OWNER_CONDITIONAL_CORE") else {
             return;
         };
-        composed_core_selected_close(PathBuf::from(executable), false);
+        composed_core_selected_close(PathBuf::from(executable), false, false);
     }
 
     #[cfg(feature = "developer-conditional-close")]
@@ -1466,10 +1466,37 @@ while True:
         composed_core_selected_close(
             PathBuf::from("/var/lib/omavless-close-development-pair/mihomo"),
             true,
+            false,
         );
     }
 
-    fn composed_core_selected_close(executable: PathBuf, developer_pair: bool) {
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    #[ignore = "root disposable PID/mount/network namespace; separately admitted private pair copy"]
+    fn actual_owner_developer_pair_rebind_restoration_in_dev_vm() {
+        assert_eq!(
+            std::env::var("OMAVLESS_CLOSE_DEVELOPER_PAIR_DRIFT_VM").as_deref(),
+            Ok("1")
+        );
+        assert_eq!(nix::unistd::getuid().as_raw(), 0);
+        assert_eq!(nix::unistd::getpid().as_raw(), 1);
+        let pair = Path::new("/var/lib/omavless-close-development-pair");
+        let marker = pair.join("disposable-rebind-scope");
+        let metadata = fs::symlink_metadata(&marker).unwrap();
+        assert!(metadata.is_file() && !metadata.file_type().is_symlink());
+        assert_eq!(
+            (metadata.uid(), metadata.gid(), metadata.nlink()),
+            (0, 0, 1)
+        );
+        assert_eq!(metadata.mode() & 0o7777, 0o600);
+        assert_eq!(
+            fs::read(marker).unwrap(),
+            b"root-owned-disposable-pair-rebind-v1\n"
+        );
+        composed_core_selected_close(pair.join("mihomo"), true, true);
+    }
+
+    fn composed_core_selected_close(executable: PathBuf, developer_pair: bool, rebind: bool) {
         use sha2::{Digest, Sha256};
         use std::io::{Read, Write};
         use std::net::{TcpListener, TcpStream};
@@ -1642,6 +1669,110 @@ while True:
             .owner
             .prepare_connection_close(rows[0].handle)
             .unwrap();
+        if rebind {
+            // Test-only root administration in the explicitly admitted fresh
+            // mount namespace. The broker is NOT running; no production API
+            // accepts paths, mounts or authority from this fixture.
+            use nix::mount::{MsFlags, mount, umount};
+            let pair = executable.parent().unwrap();
+            let broker = pair.join("omavless-dns-broker");
+            let replacement = pair.join("broker-replacement");
+            let identity = |path: &Path| {
+                let m = fs::symlink_metadata(path).unwrap();
+                (
+                    m.dev(),
+                    m.ino(),
+                    m.mode(),
+                    m.uid(),
+                    m.gid(),
+                    m.nlink(),
+                    m.len(),
+                    m.ctime(),
+                    m.ctime_nsec(),
+                    m.mtime(),
+                    m.mtime_nsec(),
+                )
+            };
+            let original = identity(&broker);
+            let replacement_identity = identity(&replacement);
+            assert_eq!(
+                (
+                    replacement_identity.3,
+                    replacement_identity.4,
+                    replacement_identity.5
+                ),
+                (0, 0, 1)
+            );
+            assert_eq!(replacement_identity.2 & 0o7777, 0o755);
+            assert_ne!(
+                (original.0, original.1),
+                (replacement_identity.0, replacement_identity.1)
+            );
+            assert_eq!(
+                format!("{:x}", Sha256::digest(fs::read(&replacement).unwrap())),
+                "ea958302d745b901294df6164c624a431a7493b67457a255306ec8216545eb9d"
+            );
+            let session = fixture
+                .owner
+                .connection_close
+                .snapshot
+                .as_mut()
+                .unwrap()
+                .observation
+                .session_mut();
+            assert!(session.proves_live());
+            mount(
+                Some(replacement.as_path()),
+                broker.as_path(),
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>,
+            )
+            .unwrap();
+            assert_eq!(identity(&broker), replacement_identity);
+            assert!(!session.proves_live());
+            umount(broker.as_path()).unwrap();
+            // Restore the actual ORIGINAL object, including ctime/mtime: a
+            // filename/copy approximation could not prove sticky revocation.
+            assert_eq!(identity(&broker), original);
+            assert!(!session.proves_live());
+            assert!(matches!(
+                fixture.owner.confirm_connection_close(
+                    "real-rebind-refusal",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket
+                ),
+                Err(NativeOwnerError::OwnershipUnavailable)
+            ));
+            let refused = ExternalCloseReceipt {
+                outcome: ExternalCloseOutcome::RefusedBeforeWrite,
+                revision: 0,
+            };
+            assert_eq!(
+                fixture
+                    .owner
+                    .confirm_connection_close(
+                        "real-rebind-refusal",
+                        0,
+                        rows[0].handle,
+                        confirmation.ticket
+                    )
+                    .unwrap(),
+                Some(refused)
+            );
+            assert_eq!(fixture.owner.desired().unwrap(), desired);
+            for client in &mut clients {
+                client.write_all(b"after").unwrap();
+                let mut bytes = [0; 5];
+                client.read_exact(&mut bytes).unwrap();
+                assert_eq!(&bytes, b"after");
+            }
+            drop(clients);
+            fixture.owner.host_mut().stop_owned().unwrap();
+            echo.join().unwrap();
+            return;
+        }
         fixture
             .owner
             .confirm_connection_close(
