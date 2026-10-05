@@ -1,0 +1,14 @@
+diff --git a/export_tree.py b/export_tree.py
+--- a/export_tree.py
++++ b/export_tree.py
+@@ -205,6 +205,10 @@ def check_tree(store,root,table,sealed):
+     need(seen==set(table));return actual
+ 
+ def root_members(store,root,wanted):
++    # Owned-directory reset also refreshes per-open enumeration state on Btrfs.
++    # It is an explicit checked operation, not a passive cursor observation.
++    offset=store.call(os.lseek,root,0,os.SEEK_SET)
++    need(type(offset)is int and offset==0)
+     iterator=store.call(os.scandir,root);HELD.append(iterator)
+     seen=set();sentinel=object()
+     while True:

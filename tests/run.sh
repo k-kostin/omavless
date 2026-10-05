@@ -3,6 +3,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_p4_go_export_membership.py" \
+  "$here/test_p4_default_residue_runner.py" \
   "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \
   "$here/test_native_launcher_no_python.py" \
@@ -24,6 +26,7 @@ python3 -m unittest -v \
   "$here/test_p4_timer_overlay.py" \
   "$here/test_p4_default_elapsed_overlay.py" \
   "$here/test_p4_default_rekey_overlay.py" \
+  "$here/test_p4_default_residue_source.py" \
   "$here/test_p4_awg_cookie_transport.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_staged_native_unit_acceptance.py" \
