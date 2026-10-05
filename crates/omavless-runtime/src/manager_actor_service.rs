@@ -13,6 +13,9 @@ mod retained_io;
 mod stage;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
+#[cfg(test)]
+#[path = "manager_actor_inventory_candidate.rs"]
+mod inventory_candidate;
 
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use nix::fcntl::{OFlag, open};
