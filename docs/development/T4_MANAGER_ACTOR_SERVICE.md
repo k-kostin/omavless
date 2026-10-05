@@ -1,0 +1,188 @@
+# T4 retained-manager actor service implementation
+
+Status: active Rust implementation direction, not activated or accepted.
+Starting source is Draft #658 `f7a4acc472db7dac3ccc844034581c8ad2e55c06`.
+The owner-approved execution policy at PR #662
+`b8c967f2039bdad8a385429a212b977318adc9dc` selects the new availability-oriented
+service boundary. The previous descriptor-free model and all stopped actual
+experiments retain their original contracts and outcomes.
+
+This feature continues #658 rather than adding a sequence of prerequisite PRs.
+Normal daemon, CLI recovery, backup/restore and package activation are unchanged.
+The legacy caller-local ancillary Bundle contract is neither implemented nor
+weakened by this service. Its partial-error custody limitations remain recorded
+in [the parent experiment](T4_RETAINED_MANAGER_PARENT_PROTOTYPE.md).
+
+## Completion matrix
+
+| Scope | Required behavior | Deterministic gate | Real integration gate |
+| --- | --- | --- | --- |
+| Developer actor acquisition | One original child, positive original pidfd acquisition, authenticated post-exec connection, READY before manager acquisition | Pure transition/parser/order cuts; compile exact service feature | ROOT-only disposable VM, exact newly reviewed head; not run |
+| Fixed manager operation | Capture and fresh recheck of fixed PID1 process/image/PID+user namespaces, proof consumed within original actor borrow; only completed reply | Source identity/comparison tests and every operation refusal cut | Actual retained manager originals in the same VM actor; not run |
+| Fault boundary | Unknown operation consumes capability; live reported originals retained; actor/channel loss permanently revokes context and late replies | Wrong nonce/sequence/peer/late/EOF and permanent-reentry controls | New reviewed disconnect and actor-loss cases; not run |
+| Aggregate bounds | Capacity reserved before launch/open; no uncertain-owner eviction or new-context bypass | Slot/FD/allocation limits, refusal before effect | Saturation with one actual quarantined actor; not run |
+| Product recovery | Canonical manager origin, full inventory, stopped-owner admission, backup/restore/reconciliation | Separate integration contract | Not supplied by the first scenario; remains unavailable |
+
+The opt-in service implementation is present. Initial ordinary source gates
+passed 12 new pure Rust controls (10 protocol/channel-policy controls and two
+retained-prefix capacity/reentry controls), feature/binary `cargo check`,
+compile-only `cargo build`, and the initial feature Clippy gate. A final exact
+source checkpoint is being prepared; the compile artifact has never run.
+The separately bound VM packet's eight memory/AST controls also passed.
+Selected actual implementation head and VM results remain pending. Old model
+tests, prior own-pair results and successful source builds cannot supply the real
+service gate. No physical-host networking, service installation, package action,
+old stopped-resource query, main merge or release is authorized here.
+
+## Smallest executable scenario
+
+An opt-in Rust Cargo feature and separate developer binary implement both the
+supervisor and its fixed actor entry. Ordinary builds contain no service command
+or automatic actor launch. No Python runtime or generic command/FD/PID/path IPC
+is added. The exact executable and VM fixture paths are bound by the separately
+reviewed ROOT recipe, not chosen by a client request.
+
+The first run is an explicit trusted-administrator developer scenario. ROOT
+launches one fixed binary in a fresh private disposable VM fixture. This origin
+is not product PID1/system-bus/install/invocation authentication. The target of
+the first operation is the fixed visible PID1, with no namespace switching or
+claim that a result establishes full `StoppedOwner` admission.
+
+1. Reserve the one aggregate actor slot and its descriptor allowance durably
+   before listener/child acquisition. The fixed admission sentinel is exclusive
+   and remains on any uncertainty. A new supervisor or context cannot overwrite,
+   rename around or ignore it. A fresh directory name is not a reset capability.
+2. Create one private Unix listener, retain its original, then spawn only the
+   fixed actor executable. Capture the original positive `Child` return before
+   using its PID. Keep that child unreaped; obtain an original owned pidfd from
+   a positive `pidfd_open` return. No guessed scalar, PID lookup, reconstructed
+   child, fallback process or second acquisition can stand in for either owner.
+   This is a fresh standalone Linux exec, not an entry callable in an arbitrary
+   daemon process. It has one thread, no ignored/caught SIGCHLD disposition,
+   no concurrent waiter/reaper and no subsequent signal-handler installation.
+   Linux's exec signal reset clears SA_NOCLDWAIT; the fixed supervisor is the
+   sole reaper. See the pinned
+   [signal reset producer](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c).
+3. The actor connects after exec. Accept once and compare kernel SO_PEERCRED to
+   that original child PID and expected UID/GID; check the original pidfd for
+   loss. Challenge/READY binds the same original channel and fresh nonce.
+   No manager descriptor is acquired before the complete READY barrier. An
+   inherited socketpair's creation-time SO_PEERCRED is not used as post-exec
+   credentials. No ancillary receive is used anywhere in this initial protocol.
+4. Send one closed `ObserveManager` request with exact context nonce/sequence.
+   The actor owns all originals and performs capture, current-image and namespace
+   comparison and a final proof-consuming validation within one exclusive
+   operation borrow. No `File`, numeric FD, copied live proof or token leaves
+   the actor. Only an exact fixed `ManagerIdentityChecked` completed response can
+   be reported; it is an observation, not reusable authority for another action.
+5. Verify the completed response against the same original channel/context and
+   original actor availability. A late, malformed, lost or incomplete result
+   consumes the outstanding capability permanently. No resend follows. A next
+   admitted operation must independently capture/recheck inside that same actor.
+
+The initial wire format is fixed-size and versioned, with a closed operation
+enum, nonce and monotonically bounded sequence. No producer-defined authority
+field, arbitrary string, operation deadline or raw private error is accepted.
+The service uses ordinary `read`/`write`, not recvmsg: an unexpected SCM_RIGHTS
+message cannot install descriptors in the supervisor. Protocol shape failures
+return only fixed categories. Partial I/O and deadline failure cannot become a
+completed response or reset the context.
+
+## Live custody and resource accounting
+
+Reserve one actor, one in-flight operation and at most 64 actor descriptors
+plus a 64-FD supervisor ceiling. The fixed epoch reservation is
+`/run/omavless-t4-actor-development/reserved`, outside every caller-selected
+input/staging directory. It is not deleted even on normal completion in this
+first developer scenario; a second invocation refuses the same epoch.
+These bounds cover admissions through this fixed trusted-admin service, not a
+hostile administrator who can replace binaries or launch arbitrary processes.
+Set the actor's RLIMIT_NOFILE before READY/acquisition and verify the applied
+limit. In addition, explicitly reserve application-held descriptor slots and
+bounded buffers before each operation; the kernel limit is not a substitute
+for admission accounting or a heap limit. Every successfully returned owned
+descriptor is inserted into the retained owner before a post-call validation,
+metadata read, comparison or deadline gate. Refusal retains the full recorded
+prefix in that live actor, including transient current-image originals.
+
+The existing `Process::capture` cannot simply be called and advertised as this
+property: its local partial acquisitions drop on an error. The implementation
+will add a separate retained-owner acquisition path using the same strict
+process/status/start/image/namespace predicates. Shared pure comparators and
+parsers are reused; ordinary constructors and acceptance are unchanged.
+Acquisition primitives with internal unreported resources remain explicit
+library/backend boundaries, never guessed ownership.
+
+The retained application vector is reserved for 51 originals. One observation
+uses exactly 17 slots: one proc root and two snapshots of eight descriptors
+(directory, stat, status, cmdline, comm, executable, PID namespace, user
+namespace). Up to three completed observations retain their full prefixes;
+a fourth refuses before opening anything. The fixed first supervisor sends
+only one observation then a separate Halt. Normal Halt releases the recorded
+originals before its fixed reply; ordinary `File` close behavior is a backend
+boundary, not per-FD kernel absence proof. The supervisor's final result also
+requires the original child's terminal zero, after the positive Halt response.
+
+On a nonfatal uncertain operation, revoke dependent work and leave the live
+actor quarantined with resources it actually owns. No descriptor eviction,
+automatic close, retry, adoption, signal, reap or compensating manager operation
+follows uncertainty. Capacity is not released to admit a fresh context.
+On actor/channel loss or fatal death, permanently revoke the original context
+and all pending capabilities, reject late replies and report unavailable. No
+descriptor survival after fatal death is claimed. Persistent effects, if added
+later, need explicit reconciliation before any fresh service admission.
+
+The first operation is observational and performs no manager/systemd/network
+mutation. Any normal completed teardown recipe must be independently reviewed;
+the admission sentinel is not removed automatically on a failure or merely from
+absence of a process. An uncertain old scope is never reopened by this design.
+The practical first VM resource reset, if required, is an owner-authorized
+disposable-fixture recovery boundary, not product rollback acceptance.
+
+## Review and evidence plan
+
+ROOT and Astra independently review the new launch/origin/channel, descriptor
+acquisition, retention, aggregate admission and all affected failure paths
+before any actual child/native selection. Pure code/parser/model controls and
+compile-only gates may run earlier under HOME with bounded planned public-source
+diagnostics; a routine compiler error is not privileged acceptance or an unknown
+manager effect. No actual service body is selected by ordinary test discovery.
+
+The executable packet has independent `prepare`, `run` and `observe` actions,
+never automatic chaining. It binds one exact compile-only artifact SHA/size,
+copies public bytes into the exclusive fixed root epoch, rechecks the destination,
+and only its separately selected `run` redirects two fresh 0600 captures then
+execs the one fixed binary/argument. No caller program, target PID or input path
+is accepted. ROOT must separately admit upload/SSH/source bindings; packet
+presence and its pure gate do not authorize a VM action.
+
+Diagnostics were designed before the first service run: seven fixed supervisor
+stdout labels and 14 actor stderr labels. The first operation emits at most
+23 actor frames (root, first marker, nine first-snapshot stages, second marker,
+nine second-snapshot stages, final comparison and completed observation).
+The pre-scoped observer reads only the two exact capture files, each bounded
+to 4096 bytes with original metadata/identity stability checks. It publishes
+only presence/size/SHA, closed grammar/count/last literal, never raw payloads.
+These phases are before-effect boundaries, not ordering, cause, preserved FD,
+absent-resource or whole-PASS proofs. Actor stdout is null; its fixed stderr
+is inherited solely into the supervisor's private capture. Unexpected stderr
+remains private and gives only a grammar refusal projection.
+
+After compile/preflight, ROOT selects the smallest positive VM scenario first,
+then separately reviewed fault cases and the bounded integration matrix. Useful
+phase/error diagnostics are part of that recipe from its first run, not a new
+observer per token. Report exact heads and actual reached operations. Preserve
+nonPASS receipts, do not infer original causes from later observations and
+reassess with the independent reviewer after two unsuccessful diagnostic cycles.
+
+Product activation still requires canonical launcher/broker/manager invocation
+origin, whole other-row inventory with no skipped processes, authenticated
+application integration and installed exact-head acceptance. Fixed root UID or
+PID1 alone proves none of these. The legacy restored-owner and K1 fail-closed
+guarantees remain separate and unchanged.
+
+Relevant safe-library source APIs are the pinned
+[rustix 1.1.5 pidfd interface](https://docs.rs/rustix/1.1.5/src/rustix/process/pidfd.rs.html)
+and [nix 0.30.1 resource interface](https://docs.rs/nix/0.30.1/nix/sys/resource/index.html).
+Their positive owned returns do not discharge upstream partial acquisition,
+libc/loader or fatal-process safety. No signal API is part of this service.

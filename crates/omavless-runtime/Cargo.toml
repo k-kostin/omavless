@@ -10,6 +10,7 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
+t4-manager-actor-service = ["dep:rustix", "nix/resource"]
 
 [dependencies]
 base64 = "0.22"
@@ -27,6 +28,7 @@ signal-hook = "0.3"
 ureq = { version = "3.4", default-features = false, features = ["platform-verifier", "rustls"] }
 url = "2.5"
 zeroize = "1.8"
+rustix = { version = "=1.1.5", optional = true, features = ["event", "fs", "process"] }
 
 [dev-dependencies]
 rustix = { version = "=1.1.5", features = ["event", "fs", "net", "process"] }
@@ -38,3 +40,8 @@ workspace = true
 [[bin]]
 name = "omavless"
 path = "src/main.rs"
+
+[[bin]]
+name = "omavless-t4-manager-actor-development"
+path = "src/t4_manager_actor_main.rs"
+required-features = ["t4-manager-actor-service"]

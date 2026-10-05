@@ -18,7 +18,7 @@ use std::path::{Component, Path};
 use zeroize::Zeroizing;
 
 #[path = "restore_abort_stopped_owner.rs"]
-mod stopped_owner;
+pub(crate) mod stopped_owner;
 
 const MAX_INPUT: usize = 32 * 1024;
 

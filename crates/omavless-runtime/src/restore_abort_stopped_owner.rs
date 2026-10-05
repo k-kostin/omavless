@@ -53,6 +53,10 @@ mod cached_owner_tests;
 #[path = "restore_abort_retained_parent_prototype.rs"]
 mod retained_parent_prototype;
 
+#[cfg(feature = "t4-manager-actor-service")]
+#[path = "manager_actor_capture.rs"]
+pub(crate) mod actor_capture;
+
 // Ordinary builds evaluate only the original expression. The alternate arm
 // is private to an inactive test prototype, not a runtime permission fallback.
 macro_rules! retained_original {

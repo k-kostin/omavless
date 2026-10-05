@@ -1,5 +1,12 @@
 # T4 private backup and restore proposal
 
+The owner-approved [execution policy](../development/EXECUTION_POLICY.md)
+selects a separate availability-oriented retained-manager actor SERVICE
+direction. Its [opt-in Rust implementation](../development/T4_MANAGER_ACTOR_SERVICE.md)
+continues Draft #658; the first real scenario is a fixed PID1 observation,
+not backup/restore admission. This does not accept or relax the historical
+caller-local Bundle contract or change this product's activation gates.
+
 Status: security/product design with an inactive Rust envelope primitive, **not
 approved for activation**. There is no backup command, IPC method, picker,
 scheduler, file publisher or first-Restore authority; the development-only

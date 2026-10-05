@@ -1,5 +1,10 @@
 # Descriptor-free synthetic actor research
 
+Historical model checkpoint only. The separate opt-in
+[Rust manager actor service](../../../docs/development/T4_MANAGER_ACTOR_SERVICE.md)
+now adds executable code under its own approved availability fault boundary.
+This unchanged model and its receipts do not supply the service's real gate.
+
 This fixture is not a receiver, process implementation or production API.
 The Rust model has no descriptor, PID, syscall or IPC operation. Completion
 facts are fabricated public booleans; model Drop only changes a label and does

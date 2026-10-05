@@ -1,5 +1,12 @@
 # Actor-service feasibility, not a T4 custody substitute
 
+Current direction, 2026-10-05: the owner-approved execution policy in PR #662
+selects a separate availability-oriented SERVICE fault boundary. The
+[active implementation and first real scenario](T4_MANAGER_ACTOR_SERVICE.md)
+continue #658. The observations below remain historical feasibility research;
+the original caller-local Bundle requirement is not relaxed, accepted or
+implemented by that service alternative. No service/VM gate has run yet.
+
 We can preserve a useful architectural direction without changing the accepted
 T4 contract. I inspected the retained local-reply boundary, the descriptor-free
 model and the pinned Linux acquisition/exit paths. The model's six positive
