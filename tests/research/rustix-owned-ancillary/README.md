@@ -308,3 +308,8 @@ reports four context-marker-only lines in the literal patch; they are retained
 to preserve the exact diff, not source trailing whitespace. Only documentation
 and the inert textual research fixture changed;
 the source gate does not execute this patch or produce new kernel evidence.
+
+The separate [prepared LOCAL reply export](../prepared-local-reply/README.md)
+uses exact 0a shim bytes behind an isolated private driver. Its relocated
+template is uncompiled; the ordinary product never applies these patches or
+adds the external shim as a dependency.

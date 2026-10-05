@@ -281,3 +281,28 @@ class or close backend-installed-but-unreported error ownership, unknown-FD,
 malformed-tail or broader OOM/panic/process-death gaps. No product dependency,
 API or ordinary CLI changes, actual libc receive, adoption or publication are
 implied. The sampled deadline remains distinct from hard cancellation.
+
+## Prepared LOCAL reply: separate private composition evidence
+
+The [inert source export and exact evidence](../../tests/research/prepared-local-reply/README.md)
+preserve private `68f618c6c601d3fb9145cb90e585af1779f64eb9` with the separate
+prepared-rustix shim `0a0c958`. The textual two-file Rust patch, exact private
+resolver lock and non-executable relocated driver template are not applied by
+normal tooling. Ordinary runtime source/manifests/lock/API remain unchanged;
+the relocated template is uncompiled and cannot inherit private evidence.
+
+The slice-typed heterogeneous-array regression fixes an intrinsic pure-test
+type mismatch; it is not a proven cause of the earlier stopped compile.
+ROOT's fresh exact private compile ended zero, then separately reviewed eight
+pure entries and one ignored current-process own-pair composition ended zero.
+The latter retains the whole prepared frame before checking exact credentials/
+three RIGHTS, nonce/name, borrowed-original executable/namespace equality and
+unchanged capacities. It does not authenticate a root parent or supply a normal
+manager transport. Original received descriptors never become authority.
+
+Internal acquisition/unwind, backend installed-but-unreported FD errors,
+unknown future classes, malformed tails, broader OOM/panic and root/child
+authentication remain gaps; sampled deadlines are not hard cancellation.
+Stopped scopes and older evidence stay intact. Exact public 9ac CI remains
+nongreen at a separate DNS-broker singleton metadata assertion; private slice
+results are not whole public Rust acceptance, T4 closure or release authority.
