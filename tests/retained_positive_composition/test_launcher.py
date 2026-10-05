@@ -159,7 +159,7 @@ class Controls(unittest.TestCase):
                 with patch.object(l.os,'open',return_value=fd) as opened, \
                      patch.object(l.os,'stat',return_value=real_stat):
                     reader=l.pinned_module(entry,'graph.py')
-                self.assertEqual(reader.PINS['images.py'],'ada2f0d1b062b7bc42723f34c684f2bffbd0f556e70ca080687d0248599e9147')
+                self.assertEqual(reader.PINS['images.py'],'ff92bb9590476db99b8407cd4327cb5ef4386316aa3b9bb1f0ee4af3f8313d0b')
                 opened.assert_called_once_with(l.STAGE+'/graph.py',l.FLAGS)
                 self.assertIn(fd,l.HELD)
             finally:os.close(fd)

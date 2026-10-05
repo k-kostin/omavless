@@ -212,7 +212,7 @@ preservation, authority, compatibility, adoption and whole PASS remain false.
 
 Separately, a pinned primary-producer counterexample identifies a source bug:
 Linuxv6.17 `show_vma_header_prefix` emits a trailing separator after inode, and
-`show_map_vma` appends LF with no path for an unnamed anonymous VMA. The current
+`show_map_vma` appends LF with no path for an unnamed anonymous VMA. Generation4's
 optional nonempty path group refuses that legal one-space suffix although the
 anonymous predicate already permits an unnamed zero-identity/zero-offset row.
 See [the Linuxv6.17 producer](https://github.com/torvalds/linux/blob/v6.17/fs/proc/task_mmu.c).
@@ -227,6 +227,31 @@ Counterexample checkpoint source-only gates: both Python3.14/3.12.13 full
 `./tests/run.sh` PASS1122 tests/two existing skips plus all JS/QML contracts;
 32 inert image controls and `git diff --check` PASS. Production source bytes
 still match generation4; only owning documentation and inert tests changed.
+
+### Generation-5 source-only producer-fidelity correction
+
+The successor changes only the parser's absent-path suffix and row splitting:
+one ASCII separator after inode is accepted as an absent path, and LF is the
+only row separator, with exactly one optional terminal LF. Named path bytes are
+never stripped or normalized. The frozen old regex still demonstrates the
+producer counterexample; a separate old `splitlines()` regression demonstrates
+its unwanted CR/VT/FF/NEL/Unicode line-separator normalization. Negatives refuse
+multiple blanks, tabs on an unnamed row, CR/VT and other line aliases, repeated
+empty rows, altered named paths, and nonzero anonymous device/inode/offset.
+The Go/glibc annotation grammar and public-path/identity policy are unchanged.
+
+The fixed stage is fresh `t3-retained-positive-composition-review-5`; lifecycle,
+images, graph and launcher pins change accordingly. Diagnostic vocabularies,
+one-shot initial-bus observation, existing five-second inventory deadline,
+152 Session-attempt bound/cap153 and independent Bridge-cap128 remain unchanged.
+This is a source correction, not proof of any stopped invocation's cause or
+contents. Fresh immutable capsule and independent exact-head review are still
+required; no generation5 native or VM invocation has occurred.
+
+Source-only gates: Python3.14 and3.12.13 each pass all1129 Python controls
+(two existing skips), all JS/QML contracts,39 focused inert image controls and
+`git diff --check`. No native execution, actual cause or whole-flow PASS follows
+from these developer-only controls.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

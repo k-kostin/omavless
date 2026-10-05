@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-4/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-5/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
     'after_artifact_crosscheck','before_case_constructor','after_case_constructor',

@@ -13,7 +13,10 @@ import time
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 EXE_FLAGS = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
 PUBLIC = re.compile(r'(?:/usr/(?:lib|bin)/[A-Za-z0-9_./+:-]+|/artifacts/(?:mihomo|omavless-dns-broker|host-fixture))\Z')
-MAP_LINE = re.compile(r'([0-9a-f]{1,16})-([0-9a-f]{1,16}) ([r-][w-][x-][ps]) ([0-9a-f]{1,16}) ([0-9a-f]{1,8}):([0-9a-f]{1,8}) ([0-9]{1,20})(?:[ \t]+([^\r\n]+))?')
+# Linux show_vma_header_prefix emits ONE trailing ASCII separator even for an
+# unnamed VMA. The absent-path alternative permits precisely that separator;
+# never strip row/path bytes or accept arbitrary trailing whitespace.
+MAP_LINE = re.compile(r'([0-9a-f]{1,16})-([0-9a-f]{1,16}) ([r-][w-][x-][ps]) ([0-9a-f]{1,16}) ([0-9a-f]{1,8}):([0-9a-f]{1,8}) ([0-9]{1,20})(?:[ \t]+([^\r\n]+)| )?')
 ROLES = {'bus':'/usr/bin/dbus-daemon','resolved':'/usr/lib/systemd/systemd-resolved',
          'core':'/artifacts/mihomo','broker':'/artifacts/omavless-dns-broker','host':'/artifacts/host-fixture'}
 # Go's Linux runtime places a five-byte " Go: " prefix in a 79-byte
@@ -54,7 +57,13 @@ def map_objects(text, before_anonymous=None):
     objects = {}
     previous_end = 0
     seen = set()
-    for line in text.splitlines():
+    # The proc producer uses LF, not Python's broader line-separator grammar.
+    # Preserve CR/VT and every path byte for the predicates below; discard only
+    # one optional terminal LF, never embedded or repeated empty rows.
+    lines = text.split('\n')
+    if lines[-1] == '':
+        lines.pop()
+    for line in lines:
         match = MAP_LINE.fullmatch(line)
         require(match is not None, "mapping_shape")
         start, end, _, offset, major, minor, inode, path = match.groups()

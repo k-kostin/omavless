@@ -2,6 +2,7 @@
 import ast
 import importlib.util
 import os
+import re
 import stat
 from pathlib import Path
 import tempfile
@@ -12,6 +13,7 @@ from unittest.mock import Mock, patch
 SOURCE=Path(__file__).with_name('images.py')
 spec=importlib.util.spec_from_file_location('retained_images',SOURCE)
 i=importlib.util.module_from_spec(spec);spec.loader.exec_module(i)
+OLD_MAP_LINE=re.compile(r'([0-9a-f]{1,16})-([0-9a-f]{1,16}) ([r-][w-][x-][ps]) ([0-9a-f]{1,16}) ([0-9a-f]{1,8}):([0-9a-f]{1,8}) ([0-9]{1,20})(?:[ \t]+([^\r\n]+))?')
 
 
 class Session:
@@ -257,20 +259,21 @@ class Controls(unittest.TestCase):
                 with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_bus')
                 again.assert_not_called()
 
-    def test_kernel_unnamed_producer_separator_counterexample_is_currently_refused(self):
+    def test_kernel_unnamed_producer_separator_counterexample_frozen_parser_refuses(self):
         # Linux v6.17 show_vma_header_prefix always writes a separator after
         # inode; show_map_vma appends LF without a path for an unnamed VMA.
         # No stopped process/maps are inspected.
         row='5000-6000 rw-p 00000000 00:00 0 '
-        self.assertIsNone(i.MAP_LINE.fullmatch(row))
+        self.assertIsNone(OLD_MAP_LINE.fullmatch(row))
         original=mapping([('/usr/lib/libc.so.6',1)])
         self.assertEqual(i.map_objects(original+row.rstrip(' ')+'\n'),i.map_objects(original))
-        with self.assertRaises(i.Refused):i.map_objects(original+row+'\n')
+        with patch.object(i,'MAP_LINE',OLD_MAP_LINE):
+            with self.assertRaises(i.Refused):i.map_objects(original+row+'\n')
 
     def test_kernel_unnamed_counterexample_can_end_at_plain_bracket_boundary(self):
         value,child=self.fixture('bus')
         raw=self.maps(value,'bus')+'5000-6000 rw-p 0 00:00 0 [heap]\n6000-7000 rw-p 0 00:00 0 \n'
-        with patch.object(value,'text',return_value=raw) as read:
+        with patch.object(value,'text',return_value=raw) as read,patch.object(i,'MAP_LINE',OLD_MAP_LINE):
             with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_bus')
         self.assertEqual(value.owner.phase.call_args.args,
                          ('before_bus_initial_inventory_first_parse_plain_bracket',5.0))
@@ -278,6 +281,81 @@ class Controls(unittest.TestCase):
         value.copies._verify_target.assert_not_called();self.sealed(value)
         # Matching a public last literal is not evidence that this row existed
         # or caused any actual stopped invocation.
+
+    def test_exact_kernel_single_ascii_separator_discards_only_unnamed_zero_row(self):
+        original=mapping([('/usr/lib/libc.so.6',1)])
+        row='5000-6000 rw-p 00000000 00:00 0 '
+        self.assertIsNone(i.MAP_LINE.fullmatch(row).group(8))
+        self.assertEqual(i.map_objects(original+row+'\n'),i.map_objects(original))
+        seen=[]
+        self.assertEqual(i.map_objects(original+row+'\n',seen.append),i.map_objects(original))
+        self.assertEqual(seen,['unnamed'])
+
+    def test_corrected_kernel_single_separator_inventory_complete_positive(self):
+        value,child=self.fixture('bus')
+        raw=self.maps(value,'bus')+'5000-6000 rw-p 0 00:00 0 [heap]\n6000-7000 rw-p 0 00:00 0 \n'
+        with patch.object(value,'text',return_value=raw) as read:
+            result=value.inventory(child,5.0,'initial_bus')
+        self.assertEqual(read.call_count,2);self.assertFalse(value.sealed)
+        self.assertEqual({row['path'] for row in result},set(i.map_objects(self.maps(value,'bus'))))
+        labels=[call.args[0] for call in value.owner.phase.call_args_list]
+        for step in ('first_parse','second_parse'):
+            self.assertEqual(labels.count('before_bus_initial_inventory_'+step+'_unnamed'),1)
+        self.assertEqual(labels[-1],'after_bus_initial_inventory_final_live')
+
+    def test_unnamed_correction_refuses_multiple_blank_tab_or_line_aliases(self):
+        base='5000-6000 rw-p 0 00:00 0'
+        original=mapping([('/usr/lib/libc.so.6',1)])
+        for suffix in ('  ','\t',' \t','\t ','\t\t',' \r',' \n','\n',' \x0b'):
+            if '\n' in suffix or '\r' in suffix:
+                self.assertIsNone(i.MAP_LINE.fullmatch(base+suffix))
+            with self.assertRaises(i.Refused):i.map_objects(original+base+suffix+'\n')
+
+    def test_lf_exact_rows_reject_old_splitlines_alias_normalization(self):
+        row='5000-6000 r-xp 0 00:1f 1 /usr/lib/libc.so.6'
+        expected={'/usr/lib/libc.so.6':(31,1)}
+        for raw in (row,row+'\n'):
+            self.assertEqual(i.map_objects(raw),expected)
+        for ending in ('\r\n','\r','\v','\f','\x85','\u2028','\u2029'):
+            raw=row+ending
+            # Freeze the old normalization as a counterexample, not a
+            # production parser import or an observed process/maps claim.
+            self.assertEqual(raw.splitlines(),[row])
+            self.assertEqual(i.map_objects('\n'.join(raw.splitlines())),expected)
+            with self.assertRaises(i.Refused):i.map_objects(raw)
+        for raw in (row+'\n\n','\n'+row+'\n',row+'\n\n'+row+'\n'):
+            with self.assertRaises(i.Refused):i.map_objects(raw)
+
+    def test_unnamed_single_separator_still_requires_zero_device_inode_and_offset(self):
+        for device,inode,offset in (('00:01',0,0),('00:00',1,0),('00:00',0,1)):
+            value,child=self.fixture('bus')
+            raw=self.maps(value,'bus')+f'5000-6000 rw-p {offset} {device} {inode} \n'
+            with patch.object(value,'text',return_value=raw) as read:
+                with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_bus')
+            self.assertEqual(read.call_count,1)
+            value.copies._verify_target.assert_not_called();self.sealed(value)
+            self.assertEqual(value.owner.phase.call_args.args,
+                             ('before_bus_initial_inventory_first_parse_invalid_zero_identity',5.0))
+
+    def test_named_single_separator_path_and_padding_remain_exact_without_stripping(self):
+        path='/usr/lib/libc.so.6'
+        for separator in (' ','   ','\t',' \t '):
+            raw='5000-6000 r-xp 0 00:1f 1'+separator+path
+            self.assertEqual(i.MAP_LINE.fullmatch(raw).group(8),path)
+            self.assertEqual(i.map_objects(raw+'\n'),{path:(31,1)})
+        for changed in (path+' ',path+'\t',path+' (deleted)',path+'\nprivate',
+                        '/usr/lib/../libc.so.6','/usr/lib/unknown.so '):
+            raw='5000-6000 r-xp 0 00:1f 1 '+changed+'\n'
+            with self.assertRaises(i.Refused):i.map_objects(raw)
+
+    def test_go_and_glibc_annotation_predicates_are_not_relaxed_by_separator_fix(self):
+        original=mapping([('/usr/lib/libc.so.6',1)])
+        accepted='5000-6000 rw-p 0 00:00 0 [anon: Go: heap]\n'
+        self.assertEqual(i.map_objects(original+accepted),i.map_objects(original))
+        for annotation in ('[anon: Go: heap] ','[anon: Go: /private]',
+                           '[anon: glibc: malloc]','[anon: glibc: malloc arena]',
+                           '[anon: glibc: loader malloc]'):
+            with self.assertRaises(i.Refused):i.map_objects(original+'5000-6000 rw-p 0 00:00 0 '+annotation+'\n')
 
     def test_initial_bus_exact_substeps_and_accepted_classes_once_per_parse(self):
         value,child=self.fixture('bus')
