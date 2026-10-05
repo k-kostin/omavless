@@ -218,6 +218,44 @@ class Controls(unittest.TestCase):
                 with self.assertRaises(c.Refused):value.ready()
             self.assertTrue(value.sealed and value.owner.sealed)
 
+    def test_actual_stream_port_selection_keeps_opaque_core_bound_targets(self):
+        value,_,_=controller();rows=[self.row(),self.row(SECOND,'43')]
+        for row,port in zip(rows,('45001',45002)):row['metadata']={'sourcePort':port}
+        with patch.object(value,'ready'),patch.object(value,'exchange',return_value=(200,self.snapshot(rows))):
+            first,second=value.discover_for_ports((45002,45001))
+        self.assertEqual((first._id,second._id),(SECOND,FIRST))
+        self.assertIs(first._core,value.core);self.assertIs(first._session,value._identity)
+        self.assertNotIn(FIRST,repr(first));self.assertNotIn('43',repr(first))
+        self.assertTrue(value.same_private_target(first,c.Target(SECOND,'43',value._identity,value.core)))
+        self.assertFalse(value.same_private_target(first,c.Target(SECOND,'44',value._identity,value.core)))
+
+    def test_port_metadata_shape_duplicate_unknown_or_noncanonical_refuses(self):
+        for bad in (True,45001.0,'045001','0','65536',None,'../private'):
+            with self.assertRaises(c.Refused):c.source_port(bad)
+        for variant in ('missing','duplicate','unexpected','extra','changed'):
+            value,_,_=controller();rows=[self.row(),self.row(SECOND,'43')]
+            for row,port in zip(rows,('45001','45002')):row['metadata']={'sourcePort':port}
+            if variant=='missing':rows[0].pop('metadata')
+            if variant=='duplicate':rows[1]['metadata']['sourcePort']=45001
+            if variant=='unexpected':rows[0]['metadata']['sourcePort']=45003
+            if variant=='extra':rows.append(dict(self.row('33333333-3333-4333-8333-333333333333','44'),metadata={'sourcePort':'45004'}))
+            if variant=='changed':rows[0]['metadata']['sourcePort']=False
+            with patch.object(value,'ready'),patch.object(value,'exchange',return_value=(200,self.snapshot(rows))):
+                with self.assertRaises(c.Refused):value.discover_for_ports((45001,45002))
+            self.assertTrue(value.sealed and value.owner.sealed)
+
+    def test_bad_caller_ports_never_read_and_cross_core_comparison_seals(self):
+        for ports in ([45001],(True,),(45001,45001),(),(45001,45002,45003),(65536,)):
+            value,_,_=controller()
+            with patch.object(value,'ready') as ready,patch.object(value,'exchange') as read:
+                with self.assertRaises(c.Refused):value.discover_for_ports(ports)
+                ready.assert_not_called();read.assert_not_called()
+            self.assertTrue(value.sealed and value.owner.sealed)
+        value,_,_=controller();selected=c.Target(FIRST,'42',value._identity,value.core)
+        observed=c.Target(FIRST,'42',value._identity,SimpleNamespace(pid=value.core.pid))
+        with self.assertRaises(c.Refused):value.same_private_target(selected,observed)
+        self.assertTrue(value.sealed and value.owner.sealed)
+
     def test_no_generic_delete_shell_process_cleanup_or_source_fallback(self):
         tree=ast.parse(SOURCE.read_text())
         forbidden={'exec','eval','kill','waitpid','waitid','system','spawn','unlink','rmdir','mkdir'}

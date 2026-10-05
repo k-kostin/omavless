@@ -17,6 +17,14 @@ caller URI, DELETE, close-all, desired-state change or generic privileged IPC.
 Targets retain an opaque non-reusable controller identity and exact core object;
 same numeric PID in a different session refuses. Private IDs/tokens are redacted.
 
+The future two-stream witness privately correlates one bounded snapshot with
+the actual two synthetic loopback stream source ports. Ports must be distinct
+canonical 1..65535 values, the complete snapshot must contain exactly those
+rows, and IDs/tokens retain their existing strict unique grammar. Source ports
+only select that snapshot; they never authorize a close. Opaque targets stay
+bound to the same concrete core/controller/session, including the surviving
+target's ID/token comparison. No metadata is exported as owner identity.
+
 The developer wrong-token witness derives a different canonical token from the
 same private selection, not a caller-supplied ID/header. Exact empty 204/404/409
 receipts distinguish closed/missing/changed. Partial writes or lost/malformed
@@ -73,6 +81,23 @@ late/throwing reads and strict public parser bounds. They do not execute a
 candidate, prove actual live mappings or remove the inherited copied-adapter
 sampled elapsed-time limitations. The actual positive launcher, fresh scoped
 quiescence and canonical wrapper are NOT yet implemented here.
+
+The fixed manager-helper adapter now binds only the concrete retained host
+role's original unbuffered Popen pipes, kernel FIFO originals and live child.
+After its one literal fixture-ready read, each snapshot or finish write must
+recheck the actual fixed host executable through the original proc FD. Only the
+two literal commands are eligible, at most32 attempts and16KiB per single-line
+reply; one exact integer full write, no flush or retry. Finish requires core and
+broker independently exact-normal-zero in the retained raw ledger before the
+write. Only a successfully validated frozen-monitor reply permits one positive
+stdin EOF and later owned-zero settlement. Late/short/throwing writes, malformed
+or unsolicited lines, wrong pipes/images, expired budgets and incomplete zero
+ledgers permanently seal the owner with no failure close or followup query.
+The helper returns private namespace observations to the future launcher's
+strict effect/preservation validator; it does not print raw replies or logs.
+Ten inert controls use synthetic local pipes and mocked child/image evidence,
+not an actual helper or process. Every IO shares the caller's local deadline
+within the retained Session budget, with sampled pre/post bounds only.
 Controller construction now requires the concrete Session/OwnedProcess classes
 from the launcher's pinned ownership module plus exact inner/core role; mock
 anchors alone cannot pass construction. The existing real-resolved legacy

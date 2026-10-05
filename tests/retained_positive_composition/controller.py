@@ -83,6 +83,28 @@ def targets(raw):
     return result
 
 
+def source_port(value):
+    # Private synthetic stream correlation, never conditional-close authority.
+    require(type(value) is int or type(value) is str
+            and re.fullmatch(r'[1-9][0-9]{0,4}', value))
+    number = int(value)
+    require(0 < number <= 65535)
+    return number
+
+
+def targets_by_port(raw):
+    identities = targets(raw)  # Preserve the exact private ID/token grammar.
+    value = decode(raw, MAX_SNAPSHOT)
+    rows = value['connections'] or []
+    result = {}
+    for row, identity in zip(rows, identities):
+        require(type(row.get('metadata')) is dict)
+        port = source_port(row['metadata'].get('sourcePort'))
+        require(port not in result)
+        result[port] = identity
+    return result
+
+
 def parse_http(raw):
     require(type(raw) is bytes and 0 < len(raw) <= MAX_SNAPSHOT)
     end = raw.find(b'\r\n\r\n')
@@ -263,6 +285,35 @@ class Controller:
             code, body = self.exchange('snapshot')
             require(code == 200)
             return [Target(identifier, token, self._identity, self.core) for identifier, token in targets(body)]
+        except BaseException:
+            self.sealed = self.owner.sealed = True
+            raise Refused() from None
+
+    def discover_for_ports(self, ports):
+        """Select one bounded snapshot's private targets for our actual streams."""
+        try:
+            require(type(ports) is tuple and len(ports) in (1, 2)
+                    and all(type(port) is int and 0 < port <= 65535 for port in ports)
+                    and len(set(ports)) == len(ports))
+            self.ready()
+            code, body = self.exchange('snapshot')
+            require(code == 200)
+            selected = targets_by_port(body)
+            require(set(selected) == set(ports))
+            return [Target(*selected[port], self._identity, self.core) for port in ports]
+        except BaseException:
+            self.sealed = self.owner.sealed = True
+            raise Refused() from None
+
+    def same_private_target(self, selected, observed):
+        try:
+            require(not self.sealed)
+            self.owner.available()
+            require(all(type(target) is Target and target._session is self._identity
+                        and target._core is self.core and type(target._id) is str and ID.fullmatch(target._id)
+                        and type(target._token) is str and TOKEN.fullmatch(target._token)
+                        and int(target._token) < 2**64 for target in (selected, observed)))
+            return (selected._id, selected._token) == (observed._id, observed._token)
         except BaseException:
             self.sealed = self.owner.sealed = True
             raise Refused() from None
