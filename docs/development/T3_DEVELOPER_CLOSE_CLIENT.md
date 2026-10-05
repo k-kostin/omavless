@@ -96,6 +96,19 @@ These are not the full combined CI or an installed UI/VM gate. During iteration
 a misplaced rendering edit failed compilation, followed by an outdated screen
 assertion failure; both ordinary SOURCE negatives were corrected and affected
 checks repeated. No actual operation ran in either failure.
+The first Draft CI Test job also failed its single old static assumption that
+the developer feature had no dependency propagation. The client intentionally
+adds only exact weak propagation to the optional TUI; the successor guard tests
+that exact spelling, non-default placement and dual-feature explicit CLI gate.
+The failed 506-test CI result (one failure, seven skips) remains a failure;
+new exact-head combined CI is separate. Runtime authority was not relaxed.
+The local combined `tests/run.sh` successor ran 507 tests and failed four
+inherited HOST fixture checks: three synthetic V0 positives were correctly
+refused because HOME has a `.git` ancestor, and one DNS-package Unix-socket mock
+exceeded its pathname bound under the long HOME TMPDIR. Two tests were skipped.
+Those failures remain recorded; no outside-Git/socket predicate or unrelated
+fixture was changed. The narrowly updated feature boundary's four controls
+pass locally. Cloud CI's admissible fixture environment remains a separate gate.
 
 The next meaningful gate is a separately admitted disposable-namespace scenario
 using #666's same original coordinator/developer pair and two echo tunnels:

@@ -38,7 +38,8 @@ class NormalSchedulingBoundary(unittest.TestCase):
 
     def test_developer_pair_is_a_distinct_nondefault_private_constructor(self):
         manifest = tomllib.loads((SRC.parent / "Cargo.toml").read_text())
-        self.assertEqual(manifest["features"]["developer-conditional-close"], [])
+        self.assertEqual(manifest["features"]["developer-conditional-close"],
+                         ["omavless-tui?/developer-conditional-close"])
         self.assertNotIn("developer-conditional-close", manifest["features"]["default"])
         text = (SRC / "conditional_close_candidate.rs").read_text()
         self.assertRegex(text, r'#\[cfg\(feature = "developer-conditional-close"\)\]\s*pub\(crate\) fn developer_pair_permit')
@@ -51,6 +52,21 @@ class NormalSchedulingBoundary(unittest.TestCase):
         admission = close.split("    fn confirm_connection_close_reserved(", 1)[1].split("    fn schedule_permitted_connection_close", 1)[0]
         self.assertIn(".proves_live_for_scheduling()", admission)
         self.assertNotIn(".proves_live()", admission)
+
+    def test_developer_client_is_weakly_propagated_and_explicitly_dual_gated(self):
+        manifest = tomllib.loads((SRC.parent / "Cargo.toml").read_text())
+        feature = manifest["features"]["developer-conditional-close"]
+        # Exact weak propagation must not pull the optional TUI into a headless
+        # build or place developer methods into a default build.
+        self.assertEqual(feature, ["omavless-tui?/developer-conditional-close"])
+        self.assertNotIn("developer-conditional-close", manifest["features"]["default"])
+        tui = SRC.parent.parent / "omavless-tui"
+        self.assertEqual(tomllib.loads((tui / "Cargo.toml").read_text())
+                         ["features"]["developer-conditional-close"], [])
+        main = (SRC / "main.rs").read_text()
+        self.assertRegex(main, r'#\[cfg\(all\(feature = "tui", feature = "developer-conditional-close"\)\)\]\s*if arguments == \["tui", "--developer-conditional-close"\]')
+        self.assertRegex((tui / "src/lib.rs").read_text(),
+                         r'#\[cfg\(feature = "developer-conditional-close"\)\]\s*pub mod developer_close;')
 
 
 if __name__ == "__main__":
