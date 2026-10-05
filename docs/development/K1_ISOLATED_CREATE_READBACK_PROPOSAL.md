@@ -125,7 +125,10 @@ values. The successor narrows that source-only extraction to the array value
 delimiters. Its separately authorized six-check run completed with explicit
 exit tracking and status zero (`332001`); the corrected test SHA-256 is
 `31992fed9b37273ee51d8a8a77e052b44e83bc2c2fd4f2e0f8c01ce6fed087fe`.
-The Rust source remains exactly the uncompiled `c7fe444c` source. Documentation
+At that gate the Rust source was exactly the uncompiled `c7fe444c` source.
+The subsequent source-only identity-control update (`d6fee996`) covers all
+three fixed units and their pairwise stage/unit/fragment separation; it remains
+UNRUN. Documentation
 navigation passed (93 local links), and the whitespace check passed. No Rust, formatter or
 native fixture was selected. The controls cover finite frames, failed-write
 continuation, fixed unit and existing Pending/witness wiring; they do not prove original acquisition or
