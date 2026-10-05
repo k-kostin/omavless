@@ -1,17 +1,18 @@
 # T4 same-original canonical synthetic Stage
 
-Status: developer-only SOURCE successor from exact
-`44acc6743389141ed9d7e408f68584dfc04297e9`, in separate
-`dev/t4-canonical-synthetic-stage`. No actor, canonical query/proc/credential
-backend, storage operation, packet or VM action is selected. The auth checkpoint
-and its previous canonical NONPASS scopes remain immutable. This implementation
-does not borrow actual canonical acceptance or fabricate product authority.
+Status: scoped developer whole accepted at exact tested
+`e559cb64befa1190aaf370bfb6e3b53cddcdbe8b`, in
+`dev/t4-canonical-exited-stage` / Draft675. This documentation-only successor
+records that ROOT-selected actual result; its own HEAD is not the tested actor
+head. Default product Restore/Commit/recovery/activation remain unavailable.
+Earlier source and actual NONPASS objects stay immutable.
 
 The new `dev/t4-canonical-exited-stage` composition starts from frozen
 `da6ec0443b67c2f070de2c1af3e270905fdf93d9` and selectively carries reviewed
 errno `c5fa3ece` plus whole-group witness `2443e94f`. The original da6/669/672
 heads remain immutable. Separate2443 canonical inventory acceptance below is
-not composition/auth/Stage acceptance. No composition actor has been executed.
+not borrowed as composition/auth/Stage acceptance; the separate e559 whole
+checkpoint below supplies the scoped composition evidence.
 
 Owning contracts: [canonical auth](T4_CANONICAL_PRIVATE_AUTH.md),
 [canonical inventory](T4_STOPPED_INVENTORY_ACTOR.md),
@@ -162,7 +163,7 @@ all-target feature Clippy (`934f74`/`c9e405`), default library check
 (`3b0f16`/`275f12`) remains NONPASS: its source-derived maximum exposed the
 43->45-byte errno label increase. Corrected controls use4083, not a raised cap.
 Exact composition actor build/artifact, affected critical review and actual
-scenario remain separate gates; no actor was executed by the writer.
+scenario are recorded below as distinct gates; no actor was executed by the writer.
 
 ## Same-original exited-witness composition
 
@@ -218,6 +219,44 @@ The exact public checkpoint is [Draft672](https://github.com/k-kostin/omavless/p
 Composition requires its own critical review, exact build/pins and fresh
 positive-completed/disposable/runtime/packet admission before ROOT alone may
 select a new whole actor scenario. It never reuses an old epoch or actor.
+
+### Exact e559 canonical/auth/synthetic Stage whole checkpoint
+
+ROOT selected the fixed `--stage-canonical-synthetic-backup` scenario only after
+primary and independent affected-critical code review, independent packet
+review, exact artifact/pins, and separately admitted fresh baseline. The prior
+ordinary runtime was confirmed desired/actual Disconnected with native ownership,
+then stopped; separate observations confirmed runtime/legacy inactive/dead/
+MainPID0, legacy absent and no TUN. Disposable administration was not product
+rollback, prior-scope cleanup or recovery acceptance.
+
+Tested source is exact `e559cb64befa1190aaf370bfb6e3b53cddcdbe8b`; actor64360992
+bytes/SHA256
+`3f3462be71b27ea9086df09f0472b729543b1495c453cef0fabbc018429a1462`.
+Compile-only `4d0ae0`/`adb2ef` returned original0, with no execution by the writer.
+ROOT upload `34fdf3` returned original0; prepare `82f303`/`924507` returned
+original0; whole `b41439`/`0e23da` returned original0. Separate pre-scoped two-file
+observer `c7cc1e`/`917e43` returned original0:
+
+| Capture | Bytes / literal frames | Last literal | SHA256 |
+| --- | --- | --- | --- |
+| Actor |4001 /114|t4_actor_fixture_stage_recorded|8a80447b2d77f4971070027905ca4655aa821fb3bb55680f8b515a879c1d7d24|
+| Supervisor |313 /11|t4_service_completed|6da8e35d28853f2472d2069f554eee79a5202e40e7495e32e6e084004980e75d|
+
+The complete closed-literal projection is observational, not itself authority.
+Acceptance additionally uses the original whole0, actual same-original canonical
+query/inventory checks, fenced private authentication, fully rechecked synthetic
+Stage/journal record, normal Halt and original child0. This covers the fixed
+trusted-administrator developer scenario only. ROOT reports no private pair or
+profiles changed. The exact public result is
+[Draft675 checkpoint](https://github.com/k-kostin/omavless/pull/675#issuecomment-6004572614).
+
+No product live-pair replacement/Restore/Commit, migration/singleton/core/TUN
+authority, firewall behavior, crash recovery, hostile-manager guarantee, fatal/
+unwind/unreported-backend custody, persistent-tree retirement or release follows.
+Useful synthetic files remain persistent. A later operation needs its own owner,
+scope and admission; neither these phase strings nor this new document HEAD
+reactivates a prior actor or transfers its authority.
 
 The only tree is the existing fixed synthetic `authenticated-transaction`
 inside the one administrator epoch. Its old pair is public fixture data, its
