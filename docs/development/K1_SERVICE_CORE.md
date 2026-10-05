@@ -74,7 +74,20 @@ cannot reconstruct a creator. The actual creator socket and safe duplicate
 aliases are retained together, CLOEXEC and unexported. There is no second
 matching socket, namespace transition/helper, descriptor swap, reopen repair
 or retry. The acquisition latch covers pre/effect/post checks on the owning
-thread. Every refusal/unwind retains the graph through ManuallyDrop.
+thread. After AcquiredCreator assembly, refusals/unwind retain its graph through
+ManuallyDrop; AuthoritySession likewise assembles its retained owner before
+setup checks. Earlier ordinary temporary read-only/new-unowned-socket FDs and
+pre-publication IPC FDs can close on setup failure: no policy effect exists at
+those stages, and their closure attests no kernel ownership/recovery. This is
+not a blanket promise to retain every pre-assembly temporary descriptor.
+
+The service keeps primary Group=root for root:root durable files and admits
+only literal SupplementaryGroups=omavless-netguard for owner chgrp of IPC.
+Typed manager-name-list and actual kernel supplementary-group checks bind it
+to the pinned unique package-group entry (optionally primary root membership,
+no unrelated/duplicate groups). CAP_CHOWN is not added. PrivateUsers remains
+the legacy boolean property and must be false; no version-wide support for
+the separate PrivateUsersEx string property is assumed.
 
 ## Live effects and conservative restart
 

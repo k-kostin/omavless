@@ -4,9 +4,10 @@
 //! matching bytes, environment or namespace IDs alone DO NOT authenticate it.
 use super::*;
 use crate::kernel_observer::service_creator::LiveCreator;
+use crate::package_group_candidate::PackageGroup;
 use nix::fcntl::{OFlag, open};
 use nix::sys::stat::Mode;
-use nix::unistd::{geteuid, getppid};
+use nix::unistd::{geteuid, getgroups, getppid};
 use nix_netguard::sys::nsfs::{NamespaceType, namespace_id, namespace_type};
 use nix_netguard::sys::socket::{getsockopt, sockopt::NetnsCookie};
 use serde::de::DeserializeOwned;
@@ -138,6 +139,7 @@ struct InstalledOrigin {
     fragment_identity: (u64, u64, u64, i64, i64),
     executable_identity: (u64, u64, u64, i64, i64),
     namespace_id: u64,
+    package_group: PackageGroup,
 }
 impl InstalledOrigin {
     fn call<T: serde::Serialize + Type, R: DeserializeOwned + Type>(
@@ -166,6 +168,13 @@ impl InstalledOrigin {
     }
     fn recheck_installed(&self) -> Result<()> {
         require(geteuid().as_raw() == 0 && getppid().as_raw() == 1)?;
+        self.package_group.validate().map_err(|_| REFUSE)?;
+        let groups: Vec<_> = getgroups()
+            .map_err(|_| REFUSE)?
+            .into_iter()
+            .map(|group| group.as_raw())
+            .collect();
+        require(admitted_groups(&groups, self.package_group.gid()))?;
         require(
             identity(&self.fragment)? == self.fragment_identity
                 && identity(&root_file(FRAGMENT)?)? == self.fragment_identity,
@@ -235,6 +244,7 @@ impl InstalledOrigin {
         service.text("Type", "exec")?;
         service.text("User", "root")?;
         service.text("Group", "root")?;
+        require(service.get::<Vec<String>>("SupplementaryGroups")? == ["omavless-netguard"])?;
         let commands = service.get::<Vec<ExecCommand>>("ExecStart")?;
         require(
             commands.len() == 1
@@ -271,8 +281,9 @@ impl InstalledOrigin {
         require(service.get::<u64>("AmbientCapabilities")? == 0)?;
         service.boolean("PrivateNetwork", false)?;
         service.boolean("PrivateMounts", false)?;
-        // Newer systemd uses enum-string PrivateUsers, not boolean.
-        service.text("PrivateUsers", "no")?;
+        // The legacy name is STILL boolean. PrivateUsersEx is a separate
+        // newer enum-string property, not assumed supported on every version.
+        service.boolean("PrivateUsers", false)?;
         service.boolean("Delegate", false)?;
         require(
             service.get::<u32>("FileDescriptorStoreMax")? == 0
@@ -368,6 +379,17 @@ fn uuid(bytes: &[u8]) -> Result<[u8; 16]> {
     Ok(out)
 }
 
+fn admitted_groups(groups: &[u32], package_gid: u32) -> bool {
+    package_gid != 0
+        && groups.contains(&package_gid)
+        && groups.len() <= 2
+        && groups.iter().all(|gid| *gid == 0 || *gid == package_gid)
+        && groups
+            .iter()
+            .enumerate()
+            .all(|(index, gid)| !groups[..index].contains(gid))
+}
+
 pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
     require(geteuid().as_raw() == 0 && getppid().as_raw() == 1)?;
     let anchor = File::from(
@@ -430,6 +452,7 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
     require(invocation.len() == 16 && invocation.iter().any(|b| *b != 0))?;
     let fragment = root_file(FRAGMENT)?;
     let executable = root_file(EXECUTABLE)?;
+    let package_group = PackageGroup::open_fixed().map_err(|_| REFUSE)?;
     let verifier = InstalledOrigin {
         bus,
         manager_owner: owner,
@@ -440,6 +463,7 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
         fragment,
         executable,
         namespace_id: ns_id,
+        package_group,
     };
     verifier.recheck_installed()?;
     let creator = LiveCreator::open(epoch).map_err(|_| REFUSE)?;
@@ -466,6 +490,40 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_fixed_package_supplementary_membership_is_admitted() {
+        assert!(admitted_groups(&[71], 71));
+        assert!(admitted_groups(&[0, 71], 71));
+        assert!(admitted_groups(&[71, 0], 71));
+        for groups in [
+            &[][..],
+            &[0],
+            &[70],
+            &[0, 70],
+            &[71, 72],
+            &[71, 71],
+            &[0, 0, 71],
+        ] {
+            assert!(!admitted_groups(groups, 71));
+        }
+        assert!(!admitted_groups(&[0], 0));
+    }
+
+    #[test]
+    fn private_users_legacy_property_is_boolean_false_not_enum_text() {
+        let mut values = HashMap::new();
+        values.insert("PrivateUsers".into(), OwnedValue::from(false));
+        assert!(Properties(values).boolean("PrivateUsers", false).is_ok());
+        let mut values = HashMap::new();
+        values.insert("PrivateUsers".into(), OwnedValue::from(true));
+        assert!(Properties(values).boolean("PrivateUsers", false).is_err());
+        let mut values = HashMap::new();
+        values.insert(
+            "PrivateUsers".into(),
+            OwnedValue::try_from(zbus::zvariant::Value::new("no")).unwrap(),
+        );
+        assert!(Properties(values).boolean("PrivateUsers", false).is_err());
+    }
     #[test]
     fn effective_properties_require_exact_types_even_for_empty_arrays() {
         let mut values = HashMap::new();

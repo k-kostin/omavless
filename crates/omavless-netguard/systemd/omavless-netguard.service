@@ -11,6 +11,7 @@ StandardOutput=null
 StandardError=null
 User=root
 Group=root
+SupplementaryGroups=omavless-netguard
 NoNewPrivileges=yes
 RestrictNamespaces=yes
 PrivateNetwork=no
