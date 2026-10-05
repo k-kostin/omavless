@@ -23,6 +23,7 @@ impl CreatorOwner for ActualCreator {
 }
 
 impl ActualCreator {
+    pub(crate) fn seal(&mut self) { self.sealed=true; self.session.poisoned=true; }
     // Before LaunchLife exists, preserve the shared observer's exact local
     // identity predicates but fence EACH original leaf, not the whole helper.
     fn local_identity(file: &File, deadline: Instant) -> Result<(u64, u64)> {

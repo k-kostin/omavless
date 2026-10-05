@@ -17,7 +17,7 @@ def git(*args):
     return subprocess.run(['git','-C',str(ROOT),*args],check=True,capture_output=True,timeout=30).stdout
 
 def export(parent, export_name='netguard'):
-    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2'):raise ValueError('fixed_export_name')
+    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed'):raise ValueError('fixed_export_name')
     parent=Path(parent)
     if not parent.is_absolute() or parent.is_symlink() or not parent.is_dir():raise ValueError('private_build_root')
     if parent.stat().st_mode&0o777!=0o700:raise ValueError('private_build_mode')
@@ -26,7 +26,7 @@ def export(parent, export_name='netguard'):
     if not 1<len(names)<=512 or any(not n.startswith(prefix) or '..' in Path(n).parts for n in names):raise ValueError('source_catalog')
     sources={n[len(prefix):]:git('show',adapter.BASE+':'+n) for n in names}
     sources.update(adapter.adapt({name:sources[name] for name in adapter.PINS}))
-    for name in ('owned_creator.rs','owned_launcher.rs'):sources[name]=(HERE/name).read_bytes()
+    for name in ('owned_creator.rs','owned_launcher.rs','child_protocol.rs','child_executable.rs','fixed_child.rs','retained_return.rs','static_elf.rs'):sources[name]=(HERE/name).read_bytes()
     target=parent/export_name;target.mkdir(mode=0o700)
     (target/'src').mkdir(mode=0o700)
     for name,raw in sources.items():
@@ -39,10 +39,15 @@ edition = "2024"
 rust-version = "1.98"
 publish = false
 [workspace]
+[[bin]]
+name = "k1-fixed-child"
+path = "src/fixed_child.rs"
 [dependencies]
 nix = { path = "../nix", default-features = false, features = ["fs", "sched", "socket", "uio", "user", "ioctl", "process"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "=0.10.9"
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
 [patch.crates-io]
 libc = { path = "../libc" }
 [lints.rust]

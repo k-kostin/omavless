@@ -1,7 +1,6 @@
 """Source-only controls. No exported Rust function, ELF, socket or child runs."""
 import importlib.util
 from pathlib import Path
-import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -19,9 +18,11 @@ p = module('prepare')
 class Controls(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.sources = {name: subprocess.run(
-            ['git', '-C', str(ROOT), 'show', a.BASE + ':crates/omavless-netguard/src/' + name],
-            check=True, capture_output=True, timeout=30).stdout for name in a.PINS}
+        # CI's shallow checkout need not contain BASE. The six unchanged public
+        # originals are admitted by EXACT existing SHA-256 pins, never fallback
+        # acceptance or skip. Developer export still requires its immutable BASE.
+        cls.sources = {name: (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+                       for name in a.PINS}
         cls.adapted = a.adapt(cls.sources)
 
     def test_exact_catalog_and_each_pin_refuse(self):
@@ -78,7 +79,7 @@ class Controls(unittest.TestCase):
                       's.ctime()', 's.ctime_nsec()'):
             self.assertIn(field, raw)
         self.assertIn('WaitPidFlag::WNOWAIT', raw)
-        self.assertNotIn('waitpid(', raw)
+        self.assertEqual(raw.count('nix::sys::wait::waitpid('), 1)
         self.assertNotIn('.kill(', raw)
         self.assertNotIn('setns(', raw)
 
@@ -91,6 +92,23 @@ class Controls(unittest.TestCase):
         self.assertIn('let current = File::open("/proc/thread-self/ns/net").map(ManuallyDrop::new)', raw)
         self.assertIn('filesystem.map_err(|_| REFUSE)?.filesystem_type() == PROC_SUPER_MAGIC', raw)
         self.assertIn('actual.map_err(|_| REFUSE)? == owner.session.local', raw)
+
+    def test_zero_pin_and_original_exec_then_ready_before_live_verifier(self):
+        image = (HERE / 'child_executable.rs').read_text()
+        self.assertIn('const SHA: [u8; 32] = [0; 32]', image)
+        self.assertLess(image.index('require(SHA !='), image.index('let root = retain_after(open('))
+        self.assertIn('file.as_raw_fd() >= 3', image)
+        self.assertIn('format!("/proc/self/fd/{}",self.file.as_raw_fd())', image)
+        source = (HERE / 'owned_launcher.rs').read_text()
+        self.assertLess(source.index('Executable::admit(deadline)'), source.index('File::open("/proc/thread-self/ns/net")', source.index('pub(crate) fn open_fixed')))
+        self.assertLess(source.index('protocol::READY'), source.index('creator.attach_launch'))
+        self.assertIn('Command::new(executable.exec_path()).arg0(CHILD)', source)
+        self.assertLess(source.index('self.acquired.sealed=true'), source.index('self.life.finish()'))
+        finish=source[source.index('    fn finish(&self)'):source.index('\nstruct Verify')]
+        self.assertLess(finish.index('protocol::DONE'),finish.index('WaitPidFlag::WNOWAIT'))
+        self.assertLess(finish.index('WaitPidFlag::WNOWAIT'),finish.index('protocol::eof'))
+        self.assertLess(finish.index('protocol::eof'),finish.index('nix::sys::wait::waitpid'))
+        self.assertIn('WaitStatus::Exited(actual,0) if actual==pid', finish)
 
 if __name__ == '__main__':
     unittest.main()
