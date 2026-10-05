@@ -173,7 +173,7 @@ could also treat ECHILD as zero. Neither condition occurred in the recorded
 engine cases. Their actual original runner/supervisor bytes remain frozen and
 all phase results above remain attributed to them, not to this follow-up.
 
-The current runner hash is
+The first supervisor-only follow-up runner hash is
 `f0115ef30587c82c4e6c34d1fd3b1260e54342f500d9b8d007d74889723f734a`.
 It pins a new [rekey-only supervisor](../../tests/fixtures/p4_awg_peer/run_default_rekey_supervisor.py),
 SHA-256 `1235ba47be848f356beb86af259d2e305bd3e86cc5766f745b0140c2f0cb0c47`;
@@ -202,6 +202,36 @@ executed, zero failures**, plus JS/native/QML/navigation and formatting/syntax
 gates PASS. All local build/execution processes settled before any cache
 cleanup; frozen binaries and original failed/successful evidence remain outside
 the owned build cache. These source-only checks do not add an engine execution.
+
+### Complete channel graph retention follow-up, 2026-10-05
+
+Further source review found that the supervisor's `finally` block closed its
+selector and original stdout/stderr even after a wait/reap uncertainty latched
+`UNSETTLED`. Two inert regressions reproduced this on the previous source
+(four subcase failures, `ef5809`). Neither bug was observed in the retained Go
+engine runs, and those historical successes are not transferred to this fix.
+
+The returned child plus selector now have a process-lifetime retained graph;
+the graph is published before selector setup and the selector retained before
+subsequent channel operations. A quarantined original causes no selector or
+channel close. A close error on the ordinary settled path also seals the scope,
+retains the remaining graph and stops before another close or launch. This
+does not prove retention of partial resources inside a constructor that raises
+before returning, nor hard syscall/allocator cancellation. It does not add a
+privileged operation, change engine bytes or revive a stopped invocation.
+
+The successor supervisor SHA256 is
+`00fa64cacdf72d65fcdd772208eca1bc4ca40ca954ef94444ff11eec65b729ec`;
+runner SHA256 is
+`29617c9d5287289206ea824711846f74f31ad8e5c82d13b6f60b93365a72e4fa`.
+The runner admits only this new exact supervisor; previous frozen runners and
+inputs remain unchanged. Fourteen focused source/receipt/mocked-ownership
+controls passed (`acb29b`), including each first wait/reap failure and each
+selector/stdout/stderr close failure. The ordinary source suite (346 reported,
+two existing skips) plus JS/QML gate passed (`8da729`). No Go build, elapsed
+case, native networking or VM
+operation was performed for this follow-up; independent review remains needed
+before any new slow engine execution.
 
 ## Remaining gates
 

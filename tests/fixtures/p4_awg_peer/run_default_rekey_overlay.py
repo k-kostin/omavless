@@ -15,7 +15,7 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 SUPERVISOR = HERE / "run_default_rekey_supervisor.py"
 SUPERVISOR_BYTES = SUPERVISOR.read_bytes()
-SUPERVISOR_SHA = "1235ba47be848f356beb86af259d2e305bd3e86cc5766f745b0140c2f0cb0c47"
+SUPERVISOR_SHA = "00fa64cacdf72d65fcdd772208eca1bc4ca40ca954ef94444ff11eec65b729ec"
 if hashlib.sha256(SUPERVISOR_BYTES).hexdigest() != SUPERVISOR_SHA:
     raise ValueError("sealed_supervisor_changed")
 spec = importlib.util.spec_from_file_location("p4_rekey_owned_commands", SUPERVISOR)

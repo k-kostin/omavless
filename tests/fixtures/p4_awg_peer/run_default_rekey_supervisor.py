@@ -20,6 +20,9 @@ spec = importlib.util.spec_from_file_location("p4_rekey_export", HERE / "run_coo
 helpers = importlib.util.module_from_spec(spec)
 exec(compile(HELPER_BYTES, str(HERE / "run_cookie_overlay.py"), "exec"), helpers.__dict__)
 UNSETTLED = []
+# Retain the complete returned child/channel/selector graph before any later
+# classification, not only a PID anchor. Unknown scopes never close it.
+HELD_GRAPHS = []
 
 
 class Unsettled(RuntimeError):
@@ -64,6 +67,8 @@ def command(args, cwd, env, timeout):
     p = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          start_new_session=True, bufsize=0)
+    graph = {"child": p, "selector": None}
+    HELD_GRAPHS.append(graph)
     selector = None
     output = {"out": bytearray(), "err": bytearray()}
     deadline = time.monotonic() + timeout
@@ -72,6 +77,7 @@ def command(args, cwd, env, timeout):
     try:
         # Setup is part of owned-child cancellation too.
         selector = selectors.DefaultSelector()
+        graph["selector"] = selector
         for stream, label in ((p.stdout, "out"), (p.stderr, "err")):
             os.set_blocking(stream.fileno(), False)
             selector.register(stream, selectors.EVENT_READ, label)
@@ -132,10 +138,18 @@ def command(args, cwd, env, timeout):
             raise Unsettled("owned_group_preserved") from exc
         raise
     finally:
-        if selector is not None:
-            selector.close()
-        p.stdout.close()
-        p.stderr.close()
+        # The first ambiguous wait/reap/cancellation keeps ALL originals,
+        # including selector and channels, until this owner process exits.
+        # No close is a post-uncertainty compensation or a retry.
+        if not any(anchor is p for anchor in UNSETTLED):
+            try:
+                if selector is not None:
+                    selector.close()
+                p.stdout.close()
+                p.stderr.close()
+            except BaseException as exc:
+                UNSETTLED.append(p)
+                raise Unsettled("owned_channel_close_unknown_preserve") from exc
 
 
 def private_directory(path, home):
