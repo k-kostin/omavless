@@ -15,6 +15,8 @@ pub(super) enum Kind {
     Halt,
     Closed,
     Rejected,
+    AuthenticateBackup,
+    BackupAuthenticated,
 }
 
 impl Kind {
@@ -27,6 +29,8 @@ impl Kind {
             Self::Halt => 5,
             Self::Closed => 6,
             Self::Rejected => 7,
+            Self::AuthenticateBackup => 8,
+            Self::BackupAuthenticated => 9,
         }
     }
     fn from_byte(value: u8) -> Result<Self, Unavailable> {
@@ -38,6 +42,16 @@ impl Kind {
             5 => Ok(Self::Halt),
             6 => Ok(Self::Closed),
             7 => Ok(Self::Rejected),
+            8 => Ok(Self::AuthenticateBackup),
+            9 => Ok(Self::BackupAuthenticated),
+            _ => Err(Unavailable),
+        }
+    }
+    pub fn completion(self) -> Result<Self, Unavailable> {
+        match self {
+            Self::ObserveManager => Ok(Self::Completed),
+            Self::Halt => Ok(Self::Closed),
+            Self::AuthenticateBackup => Ok(Self::BackupAuthenticated),
             _ => Err(Unavailable),
         }
     }
@@ -110,10 +124,7 @@ impl Context {
         Ok(())
     }
     pub fn begin(&mut self, kind: Kind) -> Result<Frame, Unavailable> {
-        if self.phase != Phase::Live
-            || self.pending.is_some()
-            || !matches!(kind, Kind::ObserveManager | Kind::Halt)
-        {
+        if self.phase != Phase::Live || self.pending.is_some() || kind.completion().is_err() {
             self.revoke();
             return Err(Unavailable);
         }
@@ -133,7 +144,9 @@ impl Context {
     pub fn completed(&mut self, frame: Frame, kind: Kind) -> Result<(), Unavailable> {
         if !matches!(
             (self.pending, kind),
-            (Some(Kind::ObserveManager), Kind::Completed) | (Some(Kind::Halt), Kind::Closed)
+            (Some(Kind::ObserveManager), Kind::Completed)
+                | (Some(Kind::Halt), Kind::Closed)
+                | (Some(Kind::AuthenticateBackup), Kind::BackupAuthenticated)
         ) {
             self.revoke();
             return Err(Unavailable);
@@ -184,6 +197,8 @@ mod tests {
             Kind::Halt,
             Kind::Closed,
             Kind::Rejected,
+            Kind::AuthenticateBackup,
+            Kind::BackupAuthenticated,
         ] {
             let raw = frame(kind, 2).encode().unwrap();
             let decoded = Frame::decode(&raw).unwrap();
@@ -269,6 +284,10 @@ mod tests {
         for (request, wrong) in [
             (Kind::ObserveManager, Kind::Closed),
             (Kind::Halt, Kind::Completed),
+            (Kind::AuthenticateBackup, Kind::Completed),
+            (Kind::AuthenticateBackup, Kind::Closed),
+            (Kind::ObserveManager, Kind::BackupAuthenticated),
+            (Kind::Halt, Kind::BackupAuthenticated),
         ] {
             let mut context = Context::new([1; 32]).unwrap();
             context.ready(frame(Kind::Ready, 0)).unwrap();
@@ -277,5 +296,30 @@ mod tests {
             assert_eq!(context.phase, Phase::Revoked);
             assert!(context.begin(request).is_err());
         }
+    }
+
+    #[test]
+    fn authenticated_backup_reply_is_completed_observation_not_restore_authority() {
+        let mut context = Context::new([1; 32]).unwrap();
+        context.ready(frame(Kind::Ready, 0)).unwrap();
+        context.begin(Kind::AuthenticateBackup).unwrap();
+        context
+            .completed(
+                frame(Kind::BackupAuthenticated, 1),
+                Kind::BackupAuthenticated,
+            )
+            .unwrap();
+        assert_eq!(context.phase, Phase::Live);
+        // Duplicated/lost old reply cannot issue another pending capability.
+        assert!(
+            context
+                .completed(
+                    frame(Kind::BackupAuthenticated, 1),
+                    Kind::BackupAuthenticated
+                )
+                .is_err()
+        );
+        assert_eq!(context.phase, Phase::Revoked);
+        assert!(context.begin(Kind::Halt).is_err());
     }
 }

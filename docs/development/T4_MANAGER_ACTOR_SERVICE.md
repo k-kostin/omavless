@@ -171,8 +171,19 @@ completed fresh observations within the original actor, all51 retained slots,
 normal Halt and original child zero. The finite file projection alone still
 does not prove order, current custody, cause or terminal completion. The
 implementation author issued no VM or capture query. This second positive
-epoch remains reserved until separately reviewed positive-only administration;
-the first epoch's retirement does not authorize removal of these new members.
+epoch was subsequently retired by the separately reviewed positive-only
+administration below; the first retirement did not authorize these new members.
+
+ROOT FULL-reviewed the four-file capacity retirement delta and affected prior
+body; the independent review cleared those exact bindings. Its 11 pure controls
+returned original zero (`c3a224`). ROOT separately selected `2f4cf8`, terminal
+`2f148c`, original zero, with exactly seven closed outputs ending
+`T4_CAPACITY_POSITIVE_EPOCH_RETIRED`. Only the five admitted known-positive
+members and exact empty epoch were removed. Raw positive captures have no
+promised recovery; their bounded receipts remain durable, and the public user
+upload remains unchanged. No unknown old scope was queried or mutated. This
+frees this known-positive developer fixture only, not an uncertain future epoch
+or a product transaction rollback/reconciliation boundary.
 
 The fourth-request scenario remains unselected at this checkpoint. Its reviewed
 source refuses capacity before a fourth open, but a future generic nonzero plus
@@ -181,6 +192,88 @@ or whether a deadline/channel cut happened first. Any such actual result must
 retain this distinction rather than relabel a nonzero as whole PASS or actual
 capacity cause. Live recorded-resource custody remains conditional on actor
 availability, never fatal-process descriptor survival.
+
+### Source successor: capacity diagnostic and private authentication
+
+The new source adds `t4_actor_capacity_refused` only at the original
+`held + 17 > 51`/overflow admission predicate, before any fourth acquisition.
+The owner seals before the fixed write/flush and shares the stricter caller
+deadline with the existing two-second local capture budget. Failed emission or
+late output remains refusal; there is no second diagnostic, fallback, next
+acquisition or Halt. Its memory controls exercise the exact admission helper,
+output refusal, pre/post deadline failure and sealed reentry without real FDs.
+The fourth-request bound is 70 actor frames (three complete 23-frame captures
+and one fixed refusal), not a claim that a generic nonzero/69-frame result
+identifies capacity. The complete actor vocabulary gains that one label.
+
+`--authenticate-backup` adds one fixed public synthetic in-memory scenario,
+not a product backup/restore command. Before reservation/launch, the supervisor
+seals the public empty store and bundled template with the existing v1 backend
+and a public synthetic passphrase. This shares the unchanged 15-second whole
+budget; no actor read deadline is spent waiting for supervisor encryption.
+No archive path, real credentials, profile data, caller-selected target or
+passphrase argv/environment is introduced. After original channel READY, the
+supervisor sends the typed `AuthenticateBackup` request and bounded private
+bytes, never a descriptor or reusable proof. Only `BackupAuthenticated` can
+complete that original operation; it cannot complete ObserveManager or Halt.
+
+The actor reserves one 16-byte header and an initialized
+`MAX_BACKUP_BYTES + 1024`-byte input slot **before READY**. Versioned transfer
+header `OVT4TR01` permits only an archive length in `1..=MAX_BACKUP_BYTES`, a
+passphrase length in `12..=1024` and two zero reserved bytes. No input chooses
+KDF cost, operation/path, extension or allocation beyond that slot. Admission
+is permanently consumed before the fixed manager capture; a second request or
+expired admission cannot acquire a new manager prefix or receive new input.
+The actor captures/rechecks the same fixed PID1 originals, then reads directly
+into its owned header/body with sampled pre/post checks through every bounded
+continuation. Every reported prefix stays in that owner on Result failure.
+The existing v1 backend authenticates the entire bounded envelope and validates
+both members. Its positive `OpenedBackup` return is retained before the
+post-call tick; a late return cannot drop it or complete the operation.
+
+The authenticated bytes remain private inside the original actor borrow. No
+plaintext, profile count, parser error, FD or authority token is returned. The
+fixed acknowledgment records authentication only; it is not StoppedOwner,
+disconnected Restore admission, a journal decision or completed publication.
+On any channel/capture/input/authentication/output/deadline uncertainty, that
+context is revoked and the live actor parks with its actual manager originals,
+input prefix and any positive plaintext return. No further operation or Halt
+is admitted. A separately valid normal Halt clears the retained data and FDs
+before Closed; fatal loss and ordinary backend internal temporaries remain
+outside this live-custody claim.
+
+Allocation accounting is one actor, one in-flight operation, one input slot,
+51 manager originals and the unchanged 64-FD ceilings. The header/body allocate
+before private input. Existing backend plaintext is at most its finite payload
+limit; Argon2 fixes 64 MiB/three iterations/one lane, not input-defined costs.
+Crypto, JSON/template validation, CSPRNG and allocator internal temporaries and
+their error/drop behavior are ordinary backend assumptions, **not** individually
+retained acquisitions or an all-heap/process-memory ceiling. Blocking crypto
+and I/O cannot be preempted by sampled deadline checks. No memory quota or
+fatal zeroization guarantee is claimed. The original incoming body and every
+reported positive plaintext return have the explicit custody sequence above.
+
+The authentication scenario adds two supervisor literals
+`t4_service_before_backup_transfer` and `t4_service_backup_authenticated`, and
+one actor literal `t4_actor_backup_authenticated`. It emits at most eight
+supervisor frames and 24 actor frames, with no private payload output. Whole
+combined vocabularies are 11 supervisor and 16 actor labels, not frame counts.
+Every fresh packet must bind these exact source/artifact hashes and diagnostic
+bounds before independent review and ROOT selection. No authentication or
+fourth-refusal actual run has been selected for this successor.
+
+Pure controls cover the exact finite header, every input prefix, permanent
+slot refusal/expiry, genuine v1 authentication of public synthetic members,
+reported positive retention across a late post-call tick, normal zeroization,
+every request-write/reply-read prefix, wrong completed kinds and context
+reentry. They do not prove real actor custody or product transaction authority.
+
+The source-only successor gates passed 24 protocol/coordinator/private-transfer
+Rust tests and four retained-capacity/reentry tests, the normal no-feature
+library check and service-feature all-target Clippy with warnings denied.
+Compilation remains a developer gate, not a selected child/native scenario or
+new actual backup/restore acceptance. New packet bindings and independent
+source review remain required before ROOT's next execution selection.
 
 After these availability/resource rows, the service must compose the existing
 T4 private transfer, staged transaction, journal classifier and crash-prefix

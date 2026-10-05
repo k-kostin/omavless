@@ -25,6 +25,9 @@ fn main() -> ExitCode {
         [arg] if arg == "--disconnect-after-first" => {
             Some(omavless_runtime::manager_actor_service::DeveloperScenario::DisconnectAfterFirst)
         }
+        [arg] if arg == "--authenticate-backup" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::AuthenticateBackup)
+        }
         _ => None,
     } {
         omavless_runtime::manager_actor_service::supervisor_scenario(scenario)

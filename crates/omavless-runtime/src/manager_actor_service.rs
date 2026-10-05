@@ -7,6 +7,8 @@
 
 #[path = "manager_actor_protocol.rs"]
 mod protocol;
+#[path = "manager_actor_transfer.rs"]
+mod transfer;
 
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use nix::fcntl::{OFlag, open};
@@ -130,14 +132,7 @@ fn exchange<T: Read + Write>(
         };
         io_frame_width(stream, Some(request), width, until)?;
         let reply = io_frame(stream, None, until)?.ok_or(Unavailable)?;
-        context.completed(
-            reply,
-            if kind == Kind::Halt {
-                Kind::Closed
-            } else {
-                Kind::Completed
-            },
-        )?;
+        context.completed(reply, kind.completion()?)?;
         if shape != RequestShape::Exact {
             // Even an unexpected authenticated reply to a deliberately wrong
             // request is not an admitted completed operation or test success.
@@ -151,6 +146,45 @@ fn exchange<T: Read + Write>(
     result
 }
 
+fn exchange_backup<T: Read + Write>(
+    stream: &mut T,
+    context: &mut Context,
+    archive: &[u8],
+    passphrase: &[u8],
+    until: Instant,
+) -> Result<(), Unavailable> {
+    let request = context.begin(Kind::AuthenticateBackup)?;
+    let result = (|| {
+        io_frame(stream, Some(request), until)?;
+        transfer::send(stream, archive, passphrase, until)?;
+        let reply = io_frame(stream, None, until)?.ok_or(Unavailable)?;
+        context.completed(reply, Kind::BackupAuthenticated)
+    })();
+    if result.is_err() {
+        context.revoke();
+    }
+    result
+}
+
+// This scenario transfers only public synthetic data in memory. It registers
+// no backup/restore product operation, user input, passphrase argv or env key.
+const SYNTHETIC_PASSPHRASE: &[u8] = b"synthetic transfer passphrase";
+
+fn synthetic_backup(until: Instant) -> Result<zeroize::Zeroizing<Vec<u8>>, Unavailable> {
+    const STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+    tick(until)?;
+    let archive = zeroize::Zeroizing::new(
+        omavless_domain::private_backup::seal(
+            STORE,
+            include_bytes!("../../../templates/default.yaml"),
+            SYNTHETIC_PASSPHRASE,
+        )
+        .map_err(|_| Unavailable)?,
+    );
+    tick(until)?;
+    Ok(archive)
+}
+
 /// Closed trusted-admin developer scenarios, never request-selected targets,
 /// paths, commands, reset tokens or normal product operation authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +195,7 @@ pub enum DeveloperScenario {
     WrongNonceAfterFirst,
     PartialAfterFirst,
     DisconnectAfterFirst,
+    AuthenticateBackup,
 }
 
 impl DeveloperScenario {
@@ -168,6 +203,7 @@ impl DeveloperScenario {
         match self {
             Self::CapacityThree => 3,
             Self::CapacityFourth => 4,
+            Self::AuthenticateBackup => 0,
             _ => 1,
         }
     }
@@ -332,6 +368,14 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     {
         return Err(Unavailable);
     }
+    // Fixed synthetic crypto is prepared BEFORE reservation/launch. It shares
+    // the whole budget but cannot consume the actor's READY/read deadline while
+    // the actor waits. No real user input or archive path is introduced.
+    let backup = if scenario == DeveloperScenario::AuthenticateBackup {
+        Some(synthetic_backup(until)?)
+    } else {
+        None
+    };
     emit(b"t4_service_before_reservation\n", until)?;
     let mut sentinel = OpenOptions::new()
         .write(true)
@@ -423,6 +467,18 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_manager_identity_checked\n", until)?;
     }
+    if scenario == DeveloperScenario::AuthenticateBackup {
+        emit(b"t4_service_before_backup_transfer\n", until)?;
+        exchange_backup(
+            stream,
+            &mut context,
+            backup.as_ref().ok_or(Unavailable)?,
+            SYNTHETIC_PASSPHRASE,
+            until,
+        )?;
+        alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
+        emit(b"t4_service_backup_authenticated\n", until)?;
+    }
     if scenario == DeveloperScenario::CapacityFourth {
         // Unexpected fourth completion cannot silently turn a refusal scenario
         // into normal Halt/success, even if a future capacity regression exists.
@@ -487,7 +543,7 @@ struct Supervisor {
     _entropy: File,
 }
 
-fn quarantine(_held: Retained, _channel: UnixStream) -> ! {
+fn quarantine(_held: Retained, _transfer: transfer::Transfer, _channel: UnixStream) -> ! {
     // Never query/read/reply/evict after uncertainty. While alive, the owner
     // retains its recorded originals. Fatal process loss has no custody claim.
     loop {
@@ -516,6 +572,7 @@ pub fn actor_entry() -> Result<(), Unavailable> {
     }
     let mut context = Context::new(challenge.nonce)?;
     let mut held = Retained::new().map_err(|_| Unavailable)?;
+    let mut transfer = transfer::Transfer::new()?;
     io_frame(
         &mut channel,
         Some(Frame {
@@ -528,13 +585,13 @@ pub fn actor_entry() -> Result<(), Unavailable> {
     context.phase = Phase::Live;
     loop {
         let until = Instant::now() + Duration::from_secs(5);
-        let result = actor_operation(&mut channel, &mut context, &mut held, until);
+        let result = actor_operation(&mut channel, &mut context, &mut held, &mut transfer, until);
         match result {
             Ok(true) => return Ok(()),
             Ok(false) => {}
             Err(_) => {
                 context.revoke();
-                quarantine(held, channel);
+                quarantine(held, transfer, channel);
             }
         }
     }
@@ -544,6 +601,7 @@ fn actor_operation(
     channel: &mut UnixStream,
     context: &mut Context,
     held: &mut Retained,
+    transfer: &mut transfer::Transfer,
     until: Instant,
 ) -> Result<bool, Unavailable> {
     let request = receive(channel, until)?;
@@ -554,8 +612,42 @@ fn actor_operation(
         return Err(Unavailable);
     }
     match kind {
+        Kind::AuthenticateBackup => {
+            transfer.admit(until)?;
+            held.observe(until).map_err(|_| Unavailable)?;
+            transfer.receive(channel, until)?;
+            // Positive authenticated payload remains inside this original
+            // actor borrow. A fixed acknowledgement is not restore authority.
+            tick(until)?;
+            {
+                let mut output = std::io::stderr().lock();
+                output
+                    .write_all(b"t4_actor_backup_authenticated\n")
+                    .map_err(|_| Unavailable)?;
+                output.flush().map_err(|_| Unavailable)?;
+            }
+            tick(until)?;
+            io_frame(
+                channel,
+                Some(Frame {
+                    kind: Kind::BackupAuthenticated,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                }),
+                until,
+            )?;
+            context.completed(
+                Frame {
+                    kind: Kind::BackupAuthenticated,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                },
+                Kind::BackupAuthenticated,
+            )?;
+            Ok(false)
+        }
         Kind::ObserveManager => {
-            held.observe().map_err(|_| Unavailable)?;
+            held.observe(until).map_err(|_| Unavailable)?;
             tick(until)?;
             io_frame(
                 channel,
@@ -582,6 +674,7 @@ fn actor_operation(
             // Release recorded originals before replying. Ordinary File close
             // backend/fatal loss is not a per-FD kernel absence attestation.
             held.finish().map_err(|_| Unavailable)?;
+            transfer.finish();
             io_frame(
                 channel,
                 Some(Frame {
@@ -973,6 +1066,7 @@ mod tests {
         assert_eq!(DeveloperScenario::Single.observations(), 1);
         assert_eq!(DeveloperScenario::CapacityThree.observations(), 3);
         assert_eq!(DeveloperScenario::CapacityFourth.observations(), 4);
+        assert_eq!(DeveloperScenario::AuthenticateBackup.observations(), 0);
         assert_eq!(
             DeveloperScenario::WrongNonceAfterFirst.request_shape(),
             Some(RequestShape::WrongNonce)
@@ -986,5 +1080,108 @@ mod tests {
             None
         );
         assert_eq!(DeveloperScenario::DisconnectAfterFirst.observations(), 1);
+    }
+
+    #[test]
+    fn private_transfer_exchange_every_write_or_reply_prefix_consumes_context() {
+        let archive = b"bad";
+        let passphrase = b"synthetic transfer passphrase";
+        let total = FRAME_BYTES + 16 + archive.len() + passphrase.len();
+        for cut in 0..total {
+            let mut memory = Memory {
+                input: reply(Kind::BackupAuthenticated, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            let mut context = live_context();
+            assert!(
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    archive,
+                    passphrase,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(context.phase, Phase::Revoked);
+            let effects = (memory.output.len(), memory.position);
+            assert!(
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    archive,
+                    passphrase,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!((memory.output.len(), memory.position), effects);
+        }
+        for cut in 0..FRAME_BYTES {
+            let mut memory = Memory {
+                input: reply(Kind::BackupAuthenticated, 1)[..cut].to_vec(),
+                output: Vec::new(),
+                position: 0,
+                fail_at: usize::MAX,
+            };
+            let mut context = live_context();
+            assert!(
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    archive,
+                    passphrase,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(context.phase, Phase::Revoked);
+            assert_no_reentry(&mut memory, &mut context);
+        }
+    }
+
+    #[test]
+    fn private_transfer_reply_is_kind_bound_and_expiry_has_no_first_write() {
+        for wrong in [Kind::Completed, Kind::Closed, Kind::Rejected] {
+            let mut memory = Memory {
+                input: reply(wrong, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: usize::MAX,
+            };
+            let mut context = live_context();
+            assert!(
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    b"bad",
+                    b"synthetic transfer passphrase",
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(context.phase, Phase::Revoked);
+        }
+        let mut memory = Memory {
+            input: Vec::new(),
+            output: Vec::new(),
+            position: 0,
+            fail_at: usize::MAX,
+        };
+        let mut context = live_context();
+        assert!(
+            exchange_backup(
+                &mut memory,
+                &mut context,
+                b"bad",
+                b"synthetic transfer passphrase",
+                Instant::now() - Duration::from_secs(1)
+            )
+            .is_err()
+        );
+        assert!(memory.output.is_empty());
+        assert_eq!(context.phase, Phase::Revoked);
     }
 }

@@ -15,6 +15,26 @@ fn phase(label: &'static [u8], budget: &Budget) -> Result<()> {
     budget.check()
 }
 
+fn capacity_admission(
+    held: usize,
+    refused: &mut bool,
+    until: Instant,
+    emit: impl FnOnce(&Budget) -> Result<()>,
+) -> Result<()> {
+    if *refused {
+        return Err(());
+    }
+    if held.checked_add(CAPTURE_FDS).is_none_or(|n| n > HELD_FDS) {
+        // The unchanged capacity predicate, with no acquisition or count output.
+        *refused = true;
+        let mut budget = Budget::new();
+        budget.until = budget.until.min(until);
+        emit(&budget)?;
+        return Err(());
+    }
+    Ok(())
+}
+
 pub(crate) struct Retained {
     files: Vec<File>,
     refused: bool,
@@ -185,8 +205,9 @@ impl Retained {
         Ok(())
     }
 
-    fn observe_inner(&mut self) -> Result<()> {
+    fn observe_inner(&mut self, until: Instant) -> Result<()> {
         let mut budget = Budget::new();
+        budget.until = budget.until.min(until);
         phase(b"t4_actor_before_proc_root\n", &budget)?;
         let root = self.keep(File::from(
             open(
@@ -234,18 +255,11 @@ impl Retained {
 
     /// Single exclusive original owner borrow includes acquisition, recheck,
     /// comparison and proof consumption. Result has no live authority payload.
-    pub(crate) fn observe(&mut self) -> Result<()> {
-        if self.refused
-            || self
-                .files
-                .len()
-                .checked_add(CAPTURE_FDS)
-                .is_none_or(|n| n > HELD_FDS)
-        {
-            self.refused = true;
-            return Err(());
-        }
-        let result = self.observe_inner();
+    pub(crate) fn observe(&mut self, until: Instant) -> Result<()> {
+        capacity_admission(self.files.len(), &mut self.refused, until, |budget| {
+            phase(b"t4_actor_capacity_refused\n", budget)
+        })?;
+        let result = self.observe_inner(until);
         if result.is_err() {
             self.refused = true;
         }
@@ -282,8 +296,66 @@ mod tests {
     fn refused_owner_has_no_reentry_even_with_unused_capacity() {
         let mut owner = Retained::new().unwrap();
         owner.refused = true;
-        assert!(owner.observe().is_err()); // returns before first open.
-        assert!(owner.observe().is_err());
+        let until = Instant::now() + Duration::from_secs(1);
+        assert!(owner.observe(until).is_err()); // returns before first open.
+        assert!(owner.observe(until).is_err());
         assert!(owner.files.is_empty());
+    }
+
+    #[test]
+    fn exact_capacity_refusal_emits_once_and_output_failure_cannot_reenter() {
+        use std::cell::Cell;
+        for output_ok in [true, false] {
+            let mut refused = false;
+            let calls = Cell::new(0);
+            let until = Instant::now() + Duration::from_secs(1);
+            let output = |budget: &Budget| {
+                calls.set(calls.get() + 1);
+                budget.check()?;
+                if output_ok { Ok(()) } else { Err(()) }
+            };
+            assert!(capacity_admission(HELD_FDS, &mut refused, until, output).is_err());
+            assert!(refused);
+            assert_eq!(calls.get(), 1);
+            // Even a different presented count cannot bypass the original latch.
+            assert!(capacity_admission(0, &mut refused, until, output).is_err());
+            assert_eq!(calls.get(), 1);
+        }
+    }
+
+    #[test]
+    fn capacity_pre_post_deadline_failure_is_not_completion_or_second_diagnostic() {
+        for late in [false, true] {
+            let mut refused = false;
+            let until = if late {
+                Instant::now() + Duration::from_secs(1)
+            } else {
+                Instant::now() - Duration::from_secs(1)
+            };
+            let mut wrote = false;
+            assert!(
+                capacity_admission(HELD_FDS, &mut refused, until, |budget| {
+                    budget.check()?;
+                    wrote = true;
+                    let expired = Budget {
+                        until: Instant::now() - Duration::from_secs(1),
+                        ..Budget::new()
+                    };
+                    expired.check()
+                })
+                .is_err()
+            );
+            assert_eq!(wrote, late);
+            assert!(refused);
+            assert!(
+                capacity_admission(
+                    0,
+                    &mut refused,
+                    Instant::now() + Duration::from_secs(1),
+                    |_| panic!("reentry diagnostic")
+                )
+                .is_err()
+            );
+        }
     }
 }
