@@ -5,6 +5,7 @@
 use super::*;
 use crate::kernel_observer::service_creator::LiveCreator;
 use crate::package_group_candidate::PackageGroup;
+use crate::startup_trace::{self as trace, Event, Phase};
 use nix::fcntl::{OFlag, open};
 use nix::sys::stat::Mode;
 use nix::unistd::{geteuid, getgroups, getppid};
@@ -74,8 +75,24 @@ fn read_unit(file: &File) -> Result<()> {
 fn decode<T: DeserializeOwned + Type>(message: &zbus::Message) -> Result<T> {
     // zbus receives under its own upstream allocation limit; this is the
     // tighter decoding bound, not a claim of pre-allocation packet rejection.
-    require(message.data().len() <= 128 * 1024 && message.data().fds().is_empty())?;
-    message.body().deserialize().map_err(|_| REFUSE)
+    if message.data().len() > 128 * 1024 || !message.data().fds().is_empty() {
+        trace::emit(Phase::Rpc, Event::Decode, None);
+        return Err(REFUSE);
+    }
+    message.body().deserialize().map_err(|_| {
+        trace::emit(Phase::Rpc, Event::Decode, None);
+        REFUSE
+    })
+}
+fn rpc_refusal(error: zbus::Error) -> EffectError {
+    let event = match &error {
+        zbus::Error::InputOutput(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+            Event::Deadline
+        }
+        _ => Event::Unavailable,
+    };
+    trace::emit(Phase::Rpc, event, None);
+    REFUSE
 }
 
 // Reject duplicate keys before extracting the few fixed effective settings.
@@ -114,18 +131,37 @@ impl Properties {
         T: TryFrom<OwnedValue>,
         T: Type,
     {
-        let value = self.0.get(key).ok_or(REFUSE)?;
-        require(value.value_signature() == T::SIGNATURE)?;
-        T::try_from(value.try_clone().map_err(|_| REFUSE)?).map_err(|_| REFUSE)
+        let value = self.0.get(key).ok_or_else(|| {
+            trace::emit(Phase::EffectiveUnit, Event::Missing, Some(key));
+            REFUSE
+        })?;
+        if value.value_signature() != T::SIGNATURE {
+            trace::emit(Phase::EffectiveUnit, Event::Type, Some(key));
+            return Err(REFUSE);
+        }
+        T::try_from(value.try_clone().map_err(|_| {
+            trace::emit(Phase::EffectiveUnit, Event::Unavailable, Some(key));
+            REFUSE
+        })?)
+        .map_err(|_| {
+            trace::emit(Phase::EffectiveUnit, Event::Decode, Some(key));
+            REFUSE
+        })
+    }
+    fn predicate(&self, key: &str, matches: bool) -> Result<()> {
+        if !matches {
+            trace::emit(Phase::EffectiveUnit, Event::Mismatch, Some(key));
+        }
+        require(matches)
     }
     fn text(&self, key: &str, expected: &str) -> Result<()> {
-        require(self.get::<String>(key)? == expected)
+        self.predicate(key, self.get::<String>(key)? == expected)
     }
     fn empty(&self, key: &str) -> Result<()> {
-        require(self.get::<Vec<String>>(key)?.is_empty())
+        self.predicate(key, self.get::<Vec<String>>(key)?.is_empty())
     }
     fn boolean(&self, key: &str, expected: bool) -> Result<()> {
-        require(self.get::<bool>(key)? == expected)
+        self.predicate(key, self.get::<bool>(key)? == expected)
     }
 }
 
@@ -154,7 +190,7 @@ impl InstalledOrigin {
             &self
                 .bus
                 .call_method(Some(destination), path, Some(interface), method, args)
-                .map_err(|_| REFUSE)?,
+                .map_err(rpc_refusal)?,
         )
     }
     fn properties(&self, interface: &str) -> Result<Properties> {
@@ -235,18 +271,25 @@ impl InstalledOrigin {
         unit.empty("DropInPaths")?;
         // Type=exec enters the application before activation completes; this
         // is the SAME invocation during activating or active, never dead.
-        require(matches!(
-            unit.get::<String>("ActiveState")?.as_str(),
-            "activating" | "active"
-        ))?;
-        require(unit.get::<Vec<u8>>("InvocationID")? == self.invocation)?;
+        unit.predicate(
+            "ActiveState",
+            admitted_active_state(&unit.get::<String>("ActiveState")?),
+        )?;
+        unit.predicate(
+            "InvocationID",
+            unit.get::<Vec<u8>>("InvocationID")? == self.invocation,
+        )?;
         let service = self.properties("org.freedesktop.systemd1.Service")?;
         service.text("Type", "exec")?;
         service.text("User", "root")?;
         service.text("Group", "root")?;
-        require(service.get::<Vec<String>>("SupplementaryGroups")? == ["omavless-netguard"])?;
+        service.predicate(
+            "SupplementaryGroups",
+            service.get::<Vec<String>>("SupplementaryGroups")? == ["omavless-netguard"],
+        )?;
         let commands = service.get::<Vec<ExecCommand>>("ExecStart")?;
-        require(
+        service.predicate(
+            "ExecStart",
             commands.len() == 1
                 && commands[0].0 == EXECUTABLE
                 && commands[0].1 == [EXECUTABLE, "serve"]
@@ -259,13 +302,10 @@ impl InstalledOrigin {
             "ExecStop",
             "ExecStopPost",
         ] {
-            require(service.get::<Vec<ExecCommand>>(key)?.is_empty())?;
+            service.predicate(key, service.get::<Vec<ExecCommand>>(key)?.is_empty())?;
         }
         service.text("ControlGroup", "/system.slice/omavless-netguard.service")?;
-        require(
-            service.get::<u32>("MainPID")? == std::process::id()
-                && service.get::<u32>("ExecMainPID")? == std::process::id(),
-        )?;
+        current_main_pids(&service, std::process::id())?;
         service.text("StandardInput", "file")?;
         // systemd v261 exposes StandardInputFile only as a transient SETTER,
         // not a readable property. FileDescriptorName describes named-FD
@@ -273,26 +313,42 @@ impl InstalledOrigin {
         // launch, retained exact installed unit/no drop-ins, and original FD0
         // namespace fences below; no matching getter authenticates delivery.
         service.text("StandardOutput", "null")?;
-        service.text("StandardError", "null")?;
+        service.text("StandardError", "journal")?;
         service.text("KillMode", "control-group")?;
         service.text("RuntimeDirectoryPreserve", "no")?;
-        require(service.get::<Vec<String>>("RuntimeDirectory")? == ["omavless-netguard"])?;
-        require(service.get::<u32>("RuntimeDirectoryMode")? == 0o700)?;
+        service.predicate(
+            "RuntimeDirectory",
+            service.get::<Vec<String>>("RuntimeDirectory")? == ["omavless-netguard"],
+        )?;
+        service.predicate(
+            "RuntimeDirectoryMode",
+            service.get::<u32>("RuntimeDirectoryMode")? == 0o700,
+        )?;
         service.boolean("NoNewPrivileges", true)?;
         // RestrictNamespaces=yes is reported as the allowed-kind bitmask 0.
-        require(service.get::<u64>("RestrictNamespaces")? == 0)?;
-        require(service.get::<u64>("CapabilityBoundingSet")? == 1 << 12)?;
-        require(service.get::<u64>("AmbientCapabilities")? == 0)?;
+        service.predicate(
+            "RestrictNamespaces",
+            service.get::<u64>("RestrictNamespaces")? == 0,
+        )?;
+        service.predicate(
+            "CapabilityBoundingSet",
+            service.get::<u64>("CapabilityBoundingSet")? == 1 << 12,
+        )?;
+        service.predicate(
+            "AmbientCapabilities",
+            service.get::<u64>("AmbientCapabilities")? == 0,
+        )?;
         service.boolean("PrivateNetwork", false)?;
         service.boolean("PrivateMounts", false)?;
         // The legacy name is STILL boolean. PrivateUsersEx is a separate
         // newer enum-string property, not assumed supported on every version.
         service.boolean("PrivateUsers", false)?;
         service.boolean("Delegate", false)?;
-        require(
-            service.get::<u32>("FileDescriptorStoreMax")? == 0
-                && active_watchdog_disabled(&service)?,
+        service.predicate(
+            "FileDescriptorStoreMax",
+            service.get::<u32>("FileDescriptorStoreMax")? == 0,
         )?;
+        service.predicate("WatchdogUSec", active_watchdog_disabled(&service)?)?;
         for key in [
             "RootDirectory",
             "RootImage",
@@ -311,13 +367,15 @@ impl InstalledOrigin {
             service.empty(key)?;
         }
         for key in ["BindPaths", "BindReadOnlyPaths"] {
-            require(
+            service.predicate(
+                key,
                 service
                     .get::<Vec<(String, String, bool, u64)>>(key)?
                     .is_empty(),
             )?;
         }
-        require(
+        service.predicate(
+            "TemporaryFileSystem",
             service
                 .get::<Vec<(String, String)>>("TemporaryFileSystem")?
                 .is_empty(),
@@ -326,6 +384,7 @@ impl InstalledOrigin {
         service.text("ProcSubset", "all")?;
         // Fixed bytes also forbid mounts/binds, extra execs and namespace
         // overrides; effective unit + actual namespace fences are mandatory.
+        trace::emit(Phase::OriginalNamespaces, Event::Begin, None);
         for name in ["user", "mnt", "pid"] {
             let manager = File::open(format!("/proc/1/ns/{name}")).map_err(|_| REFUSE)?;
             let current = File::open(format!("/proc/thread-self/ns/{name}")).map_err(|_| REFUSE)?;
@@ -336,8 +395,16 @@ impl InstalledOrigin {
                         == namespace_id(current.as_fd()).map_err(|_| REFUSE)?,
             )?;
         }
+        trace::emit(Phase::OriginalNamespaces, Event::Pass, None);
         Ok(())
     }
+}
+fn admitted_active_state(state: &str) -> bool {
+    matches!(state, "activating" | "active")
+}
+fn current_main_pids(service: &Properties, pid: u32) -> Result<()> {
+    service.predicate("MainPID", service.get::<u32>("MainPID")? == pid)?;
+    service.predicate("ExecMainPID", service.get::<u32>("ExecMainPID")? == pid)
 }
 fn active_watchdog_disabled(service: &Properties) -> Result<bool> {
     // v261 initializes the never-started original timeout to USEC_INFINITY,
@@ -347,7 +414,7 @@ fn active_watchdog_disabled(service: &Properties) -> Result<bool> {
 }
 impl OriginalVerifier for InstalledOrigin {
     fn recheck(&mut self, originals: LaunchBorrow<'_>) -> Result<()> {
-        self.recheck_installed()?;
+        trace::step(Phase::EffectiveUnit, || self.recheck_installed())?;
         for fd in [originals.anchor, originals.thread_namespace] {
             require(
                 namespace_type(fd).map_err(|_| REFUSE)? == NamespaceType::Network
@@ -401,6 +468,7 @@ fn admitted_groups(groups: &[u32], package_gid: u32) -> bool {
 }
 
 pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
+    trace::emit(Phase::Anchor, Event::Begin, None);
     require(geteuid().as_raw() == 0 && getppid().as_raw() == 1)?;
     let anchor = File::from(
         std::io::stdin()
@@ -421,11 +489,13 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
         namespace_device: meta.dev(),
         namespace_inode: meta.ino(),
     };
+    trace::emit(Phase::Anchor, Event::Pass, None);
+    trace::emit(Phase::BusOwner, Event::Begin, None);
     let bus = Builder::system()
-        .map_err(|_| REFUSE)?
+        .map_err(rpc_refusal)?
         .method_timeout(Duration::from_secs(3))
         .build()
-        .map_err(|_| REFUSE)?;
+        .map_err(rpc_refusal)?;
     let reply = bus
         .call_method(
             Some("org.freedesktop.DBus"),
@@ -434,7 +504,7 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
             "GetNameOwner",
             &(MANAGER,),
         )
-        .map_err(|_| REFUSE)?;
+        .map_err(rpc_refusal)?;
     let owner: String = decode(&reply)?;
     zbus::names::UniqueName::try_from(owner.as_str()).map_err(|_| REFUSE)?;
     let path: OwnedObjectPath = decode(
@@ -445,7 +515,7 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
             "GetUnitByPID",
             &(std::process::id(),),
         )
-        .map_err(|_| REFUSE)?,
+        .map_err(rpc_refusal)?,
     )?;
     let invocation: OwnedValue = decode(
         &bus.call_method(
@@ -455,11 +525,13 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
             "Get",
             &("org.freedesktop.systemd1.Unit", "InvocationID"),
         )
-        .map_err(|_| REFUSE)?,
+        .map_err(rpc_refusal)?,
     )?;
     require(invocation.value_signature() == Vec::<u8>::SIGNATURE)?;
     let invocation = Vec::<u8>::try_from(invocation).map_err(|_| REFUSE)?;
     require(invocation.len() == 16 && invocation.iter().any(|b| *b != 0))?;
+    trace::emit(Phase::BusOwner, Event::Pass, None);
+    trace::emit(Phase::OriginFiles, Event::Begin, None);
     let fragment = root_file(FRAGMENT)?;
     let executable = root_file(EXECUTABLE)?;
     let package_group = PackageGroup::open_fixed().map_err(|_| REFUSE)?;
@@ -475,8 +547,11 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
         namespace_id: ns_id,
         package_group,
     };
-    verifier.recheck_installed()?;
-    let creator = LiveCreator::open(epoch).map_err(|_| REFUSE)?;
+    trace::emit(Phase::OriginFiles, Event::Pass, None);
+    trace::step(Phase::EffectiveUnit, || verifier.recheck_installed())?;
+    let creator = trace::step(Phase::CreatorOpen, || {
+        LiveCreator::open(epoch).map_err(|_| REFUSE)
+    })?;
     let (thread_namespace, creator_socket) = creator.original_aliases().map_err(|_| REFUSE)?;
     let mut acquired = AcquiredCreator {
         retained: ManuallyDrop::new(Retained {
@@ -492,6 +567,7 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
         sealed: false,
         _same_thread: PhantomData,
     };
+    trace::emit(Phase::CreatorAssembled, Event::Pass, None);
     // Once assembled, even admission refusal/unwind retains every original.
     acquired.retained_epoch(Boundary::Admission)?;
     Ok(acquired)
@@ -500,6 +576,54 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn activating_and_active_never_admit_watchdog_infinity_or_bad_typed_value() {
+        for state in ["activating", "active"] {
+            assert!(admitted_active_state(state));
+            for (value, expected) in [(0, true), (1, false), (u64::MAX, false)] {
+                let mut values = HashMap::new();
+                values.insert("WatchdogUSec".into(), OwnedValue::from(value));
+                assert_eq!(
+                    active_watchdog_disabled(&Properties(values)).unwrap(),
+                    expected
+                );
+            }
+        }
+        for state in ["", "inactive", "failed", "deactivating", "reloading"] {
+            assert!(!admitted_active_state(state));
+        }
+    }
+    #[test]
+    fn initial_zero_other_and_wrong_typed_main_pids_are_not_grants() {
+        for (main, exec, expected) in [
+            (41, 41, true),
+            (0, 0, false),
+            (41, 0, false),
+            (0, 41, false),
+            (41, 42, false),
+        ] {
+            let mut values = HashMap::new();
+            values.insert("MainPID".into(), OwnedValue::from(main as u32));
+            values.insert("ExecMainPID".into(), OwnedValue::from(exec as u32));
+            assert_eq!(current_main_pids(&Properties(values), 41).is_ok(), expected);
+        }
+        let mut values = HashMap::new();
+        values.insert("MainPID".into(), OwnedValue::from(41_u64));
+        values.insert("ExecMainPID".into(), OwnedValue::from(41_u32));
+        assert!(current_main_pids(&Properties(values), 41).is_err());
+        assert!(current_main_pids(&Properties(HashMap::new()), 41).is_err());
+    }
+    #[test]
+    fn developer_stderr_unit_and_typed_gate_agree() {
+        let unit = std::str::from_utf8(SERVICE_UNIT).unwrap();
+        assert_eq!(unit.matches("StandardError=journal\n").count(), 1);
+        let mut values = HashMap::new();
+        values.insert(
+            "StandardError".into(),
+            OwnedValue::try_from(zbus::zvariant::Value::new("journal")).unwrap(),
+        );
+        assert!(Properties(values).text("StandardError", "journal").is_ok());
+    }
     #[test]
     fn active_watchdog_requires_exact_unsigned_zero_not_prestart_infinity() {
         for (value, expected) in [(0, true), (1, false), (3_000_000, false), (u64::MAX, false)] {

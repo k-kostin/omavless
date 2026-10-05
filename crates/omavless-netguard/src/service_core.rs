@@ -9,6 +9,7 @@ use crate::locked_state::LockedState;
 use crate::package_group_candidate::PackageGroup;
 use crate::protocol::{MAX_FRAME_BYTES, Response, decode_response};
 use crate::session_owner_candidate::SessionProgress;
+use crate::startup_trace::{self as trace, Event, Phase};
 use crate::transport_candidate::RECOVER_FRAME;
 use nix::fcntl::{OFlag, open, openat};
 use nix::sys::socket::{
@@ -173,14 +174,22 @@ fn park() -> ! {
 
 fn serve() -> Result<()> {
     let creator = acquire_fixed_service().map_err(|_| ())?;
-    let mut state = ManuallyDrop::new(LockedState::open_fixed().map_err(|_| ())?);
+    let mut state = ManuallyDrop::new(trace::step(Phase::StateOpen, || {
+        LockedState::open_fixed().map_err(|_| ())
+    })?);
     state.seal_cold_state();
-    let listener = publish_fixed_managed().map_err(|_| ())?;
-    let recovery = ManuallyDrop::new(RecoveryListener::publish()?);
-    let mut session = ManuallyDrop::new(
+    let listener = trace::step(Phase::ControlPublished, || {
+        publish_fixed_managed().map_err(|_| ())
+    })?;
+    let recovery = ManuallyDrop::new(trace::step(
+        Phase::RecoveryPublished,
+        RecoveryListener::publish,
+    )?);
+    let mut session = ManuallyDrop::new(trace::step(Phase::AuthorityAssembled, || {
         AuthoritySession::from_admitted(listener, ManuallyDrop::into_inner(state), creator)
-            .map_err(|_| ())?,
-    );
+            .map_err(|_| ())
+    })?);
+    trace::finish();
     loop {
         if let Some(stream) = recovery.accept_one()? {
             if session.recover_one(stream) != SessionProgress::Served {
@@ -248,7 +257,9 @@ pub fn entry() -> i32 {
     if args[1] != "serve" {
         return 2;
     }
+    trace::start();
     let _ = std::panic::catch_unwind(serve);
+    trace::emit(Phase::Enter, Event::Refused, None);
     park()
 }
 

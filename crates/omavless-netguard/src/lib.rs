@@ -28,6 +28,8 @@ mod manager_config_reference_fixture;
 mod manager_version_reference_fixture;
 #[cfg(feature = "netguard-service-core")]
 pub mod service_core;
+#[cfg(feature = "netguard-service-core")]
+mod startup_trace;
 
 #[cfg(all(test, target_os = "linux"))]
 mod manager_configured_dump;

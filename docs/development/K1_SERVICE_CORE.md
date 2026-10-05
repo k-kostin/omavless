@@ -1,7 +1,10 @@
 # K1 developer live-owner service core
 
-Status: opt-in development implementation, not installed/activated or accepted
-as a working product feature. This is the integrated successor to the preserved
+Status: opt-in development implementation, not accepted as a working product
+feature. The historical `0dd01010` VM install and original Start returned zero,
+but the first status exchange did not complete and the service remained parked
+without control/recovery sockets. No Arm was selected. This trace successor is
+source-only until its own exact artifact/unit/recipe review. This is the integrated successor to the preserved
 [#661 isolated create/readback checkpoint](K1_ISOLATED_CREATE_READBACK_PROPOSAL.md).
 That checkpoint remains exact `858b528722480f165891ef62ae805c9dcbd22a9a`; its
 private-namespace native success does not attest this new service or launch.
@@ -102,6 +105,52 @@ to the pinned unique package-group entry (optionally primary root membership,
 no unrelated/duplicate groups). CAP_CHOWN is not added. PrivateUsers remains
 the legacy boolean property and must be false; no version-wide support for
 the separate PrivateUsersEx string property is assumed.
+
+## Fixed developer startup trace successor
+
+The owner selected a disposable-VM fresh-boot boundary for the next experiment,
+not a service rollback or cleanup justified by the old descriptor snapshot.
+Current manager/namespace/enrollment/state observations at `0dd01010` matched
+the closed predicates; its six observed descriptors contained no creator
+aliases or state handles. Those later facts do **not** establish historical
+acquisition, syscall success, no-effect history, or safe orphan retirement.
+All original failed/unknown receipts remain preserved outside Git. A VM reset
+explicitly ends volatile unknown custody; it cannot claim product recovery.
+No writer performs that reset, service stop, installation, start or policy action.
+
+The successor keeps every origin/kernel/ownership/cold-state predicate. Only
+the fixed developer unit's stderr changes from null to journal, with the exact
+typed property expectation updated to match its retained literal unit bytes.
+`startup_trace.rs` emits only `K1_DEV_STARTUP_V1` frames: finite phase/event
+labels and optional compile-time numeric property IDs (the ordered literal
+`PROPERTY_KEYS` catalogue, unknown internal key ID99). No caller/manager
+name, value, error, PID, namespace number, profile, payload or Debug/Display
+formatting is emitted. The panic hook exports only the fixed PANIC refusal,
+not panic payload/location/backtrace. There is one original stderr-descriptor
+write attempt per frame; missing/short/failed writes park **in place**, with
+the entire currently held stack/resource graph, no unwind/exit/retry/progress.
+The single syscall has no hard time bound. Complete trace delivery is never
+kernel authority or proof of a completed manager action.
+
+The phases cover entry/anchor, bus owner, original files, effective unit,
+actual original namespaces, creator open/assembly, locked-state open, control
+publication and READY; RPC decode/unavailability/deadline and property
+missing/type/decode/mismatch have fixed categories. READY follows assembled
+AuthoritySession plus root recovery listener, before accepting clients. After
+READY, startup frames are disabled; no new per-request tracing or privileged
+diagnostic IPC is introduced. A separately selected journal observer must bind
+the exact unit and **current original InvocationID**, parse only this allowlist,
+and never publish raw messages or treat an incomplete trace as a grant.
+
+The proposed activating-watchdog race was rejected by primary v261 source:
+service_start assigns configured watchdog_original_usec before entering the
+condition/start-pre/start/spawn path, not after activation. MainPID and
+ExecMainPID are set by service_set_main_pidref before the manager returns to
+its event loop; the Type=exec EOF event later completes activation. Existing
+activating/active and exact unsigned-zero watchdog predicates remain unchanged;
+zero/other/wrong-typed MainPID/ExecMainPID still refuse. This instrumented cycle
+exposes the actor's actual failed boundary rather than assuming later external
+observations explain its historical refusal.
 
 ## Live effects and conservative restart
 
