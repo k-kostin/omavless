@@ -1546,6 +1546,8 @@ mod tests {
             Kind::StageRecorded,
             Kind::ObserveStopped,
             Kind::StoppedObserved,
+            Kind::CommitAuthenticatedBackup,
+            Kind::PairCommitted,
         ] {
             let mut stage = Stage::reserve().unwrap();
             // Memory-only completed-mode fixture, no Files or real stage run.
