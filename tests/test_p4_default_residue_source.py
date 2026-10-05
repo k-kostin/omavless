@@ -147,8 +147,79 @@ class ReceiptControls(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 subject.verify_events(self.encoded(events), 'reject')
 
+    def test_closed_eight_events_every_missing_duplicate_or_order_refuses(self):
+        for case in subject.SELECTORS:
+            events = self.events(case)
+            for position in range(8):
+                for changed in (events[:position] + events[position+1:],
+                                events[:position] + [events[position]] + events[position:]):
+                    with self.subTest(case=case, position=position), self.assertRaises(ValueError):
+                        subject.verify_events(self.encoded(changed), case)
+                for other in range(position+1, 8):
+                    changed = events.copy()
+                    changed[position], changed[other] = changed[other], changed[position]
+                    with self.subTest(case=case, swapped=(position,other)), self.assertRaises(ValueError):
+                        subject.verify_events(self.encoded(changed), case)
+
+    def test_elapsed_required_case_and_package_and_banners_consistent(self):
+        for case in subject.SELECTORS:
+            for position in (5, 7):
+                for bad in (None, True, '540.1', 0, -1, 570.001, float('inf'), float('nan')):
+                    events = self.events(case)
+                    events[position]['Elapsed'] = bad
+                    with self.subTest(case=case, position=position, bad=bad), self.assertRaises(ValueError):
+                        subject.verify_events(self.encoded(events), case)
+                events = self.events(case)
+                del events[position]['Elapsed']
+                with self.assertRaises(ValueError):subject.verify_events(self.encoded(events), case)
+            for bad in ('0', '180', '540.08', '570.01'):
+                events = self.events(case)
+                events[4]['Output'] = events[4]['Output'].replace('540.10', bad)
+                with self.assertRaises(ValueError):subject.verify_events(self.encoded(events), case)
+            events = self.events(case)
+            events[7]['Elapsed'] = 540.08
+            with self.assertRaises(ValueError):subject.verify_events(self.encoded(events), case)
+
+    def test_closed_event_fields_reject_wrong_position_or_missing_required(self):
+        for case in subject.SELECTORS:
+            for position, event in enumerate(self.events(case)):
+                for field in tuple(event):
+                    events = self.events(case)
+                    del events[position][field]
+                    with self.subTest(case=case, position=position, field=field), self.assertRaises(ValueError):
+                        subject.verify_events(self.encoded(events), case)
+                events = self.events(case)
+                events[position]['Output' if 'Output' not in event else 'Elapsed'] = 'unexpected'
+                with self.assertRaises(ValueError):subject.verify_events(self.encoded(events), case)
+
+    def test_output_rows_are_lf_exact_not_splitlines_aliases(self):
+        for case in subject.SELECTORS:
+            raw = self.encoded(self.events(case))
+            for separator in (b'\r', b'\v', b'\f', b'\xc2\x85', b'\xe2\x80\xa8'):
+                with self.assertRaises(ValueError):subject.verify_events(raw.replace(b'\n', separator)+b'\n', case)
+            with self.assertRaises(ValueError):subject.verify_events(raw.replace(b'\n', b'\r\n'), case)
+
 
 class SourceControls(unittest.TestCase):
+    def test_exact_worker_predicate_not_allzero_or_wrong_family_equality(self):
+        source = (FIXTURE / 'upstream-tests/default_residue_support_test.go').read_text()
+        self.assertIn('expected := [8]uint32{f.workers, f.workers, f.workers, 1, 1, 1, 1, 1}', source)
+        self.assertIn('return f.log.starts == expected && f.log.stops == expected', source)
+        # Inert predicate model only: no Go logger, workers or device are run.
+        for workers in range(1,33):
+            expected = (workers,workers,workers,1,1,1,1,1)
+            matches = lambda starts, stops: starts == expected and stops == expected
+            self.assertTrue(matches(expected,expected))
+            self.assertFalse(matches((0,)*8,(0,)*8))
+            for family in range(8):
+                for wrong in (0,expected[family]+1):
+                    changed = list(expected)
+                    changed[family] = wrong
+                    changed = tuple(changed)
+                    self.assertFalse(matches(changed,changed))
+                    self.assertFalse(matches(expected,changed))
+                    self.assertFalse(matches(changed,expected))
+
     def test_pinned_modular_support_and_supervisor_unchanged(self):
         for name, digest in (('upstream-tests/default_elapsed_rekey_test.go', '6722869be1b098603966eb0df564579789146a15c1340bc121e4ac96c5d2cb6f'),
                              ('run_default_rekey_supervisor.py', '00fa64cacdf72d65fcdd772208eca1bc4ca40ca954ef94444ff11eec65b729ec'),
@@ -173,7 +244,10 @@ class SourceControls(unittest.TestCase):
         self.assertIn('len(b.held) >= 2', support)
         self.assertIn('f.closed = true', support)
         self.assertIn('case <-f.d.Wait():', support)
-        self.assertIn('f.log.starts == f.log.stops', support)
+        self.assertIn('workers: uint32(runtime.NumCPU())', support)
+        self.assertIn('expected := [8]uint32{f.workers, f.workers, f.workers, 1, 1, 1, 1, 1}', support)
+        self.assertIn('f.log.starts == expected && f.log.stops == expected', support)
+        self.assertNotIn('f.log.starts == f.log.stops', support)
         self.assertIn('len(f.client.log.events("retry")) != 19', cases)
         self.assertIn('f.cp.timers.handshakeAttempts.Load() != 19', cases)
         self.assertIn('f.ck.created, 539*time.Second', cases)

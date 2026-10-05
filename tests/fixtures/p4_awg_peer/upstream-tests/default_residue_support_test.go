@@ -273,6 +273,7 @@ type p4ResidueDevice struct {
 	sk      NoisePrivateKey
 	closeMu sync.Mutex
 	closed  bool
+	workers uint32
 }
 
 func p4ResidueNewDevice(t *testing.T, key []byte) *p4ResidueDevice {
@@ -281,7 +282,7 @@ func p4ResidueNewDevice(t *testing.T, key []byte) *p4ResidueDevice {
 	if runtime.NumCPU() < 1 || runtime.NumCPU() > 32 {
 		t.Fatal("finite engine worker capacity refused")
 	}
-	f := &p4ResidueDevice{b: &p4ResidueBind{p4RekeyBind: p4RekeyBind{incoming: make(chan []byte, 128)}}, tun: p4RekeyNewTun(), log: &p4ResidueLog{}}
+	f := &p4ResidueDevice{b: &p4ResidueBind{p4RekeyBind: p4RekeyBind{incoming: make(chan []byte, 128)}}, tun: p4RekeyNewTun(), log: &p4ResidueLog{}, workers: uint32(runtime.NumCPU())}
 	logger := NewLogger(LogLevelSilent, "")
 	logger.Verbosef = f.log.observe
 	f.d = NewDevice(f.tun, f.b, logger)
@@ -325,7 +326,8 @@ func (f *p4ResidueDevice) close(t *testing.T, end time.Time) {
 	p4RekeyWait(t, end, func() bool {
 		f.log.Lock()
 		defer f.log.Unlock()
-		return f.log.starts == f.log.stops
+		expected := [8]uint32{f.workers, f.workers, f.workers, 1, 1, 1, 1, 1}
+		return f.log.starts == expected && f.log.stops == expected
 	}, "fixed worker stop boundaries incomplete")
 	// Logger boundaries alone are not joins. Actual Close joins receive,
 	// sequential and its registered stopping group, synchronizes timers and

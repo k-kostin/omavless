@@ -85,13 +85,18 @@ def elapsed(value):
 def verify_events(raw, case):
     require(type(raw) is bytes and len(raw) <= OUTPUT_LIMIT and raw.endswith(b'\n'))
     require(type(case) is str and case in SELECTORS)
-    lines = raw.splitlines()
-    require(1 <= len(lines) <= EVENT_LIMIT and all(0 < len(line) <= LINE_LIMIT for line in lines))
+    lines = raw.split(b'\n')[:-1]
+    require(1 <= len(lines) <= EVENT_LIMIT and all(0 < len(line) <= LINE_LIMIT
+            and all(byte >= 32 for byte in line) for line in lines))
     selected = SELECTORS[case]
-    run = case_pass = package_pass = starts = 0
+    # Closed eight-event grammar: no optional/missing/duplicated banners or
+    # counters whose zero state can accidentally satisfy a final predicate.
+    require(len(lines) == 8)
+    actions = ('start', 'run', 'output', 'output', 'output', 'pass', 'output', 'pass')
     observed = None
     case_elapsed = None
-    for line in lines:
+    banner_elapsed = None
+    for position, line in enumerate(lines):
         try:
             event = json.loads(line.decode('utf-8', 'strict'), object_pairs_hook=pairs, parse_constant=constant)
         except (ValueError, UnicodeError, RecursionError):
@@ -100,40 +105,35 @@ def verify_events(raw, case):
         require(set(event) <= {'Time', 'Action', 'Package', 'Test', 'Elapsed', 'Output'})
         if 'Time' in event:
             require(type(event['Time']) is str and len(event['Time']) <= 64)
-        action = event.get('Action')
-        require(type(action) is str and action in ('start', 'run', 'output', 'pass'))
-        if action == 'start':
-            require(starts == run == case_pass == package_pass == 0 and set(event) <= {'Time', 'Action', 'Package'})
-            starts += 1
-        elif action == 'run':
-            require(event.get('Test') == selected and run == case_pass == package_pass == 0)
-            require(set(event) <= {'Time', 'Action', 'Package', 'Test'})
-            run += 1
-        elif action == 'output':
-            require('Elapsed' not in event and type(event.get('Output')) is str and len(event['Output']) <= 4096)
-            output = event['Output']
-            if 'Test' in event:
-                require(event['Test'] == selected and run == 1 and case_pass == package_pass == 0)
-                if 'p4_residue_receipt' in output:
-                    require(observed is None)
-                    observed = receipt(output, case)
-                else:
-                    require(output == '=== RUN   ' + selected + '\n' or re.fullmatch(
-                        r'--- PASS: ' + selected + r' \([0-9]{1,3}(?:\.[0-9]{1,3})?s\)\n', output))
-            else:
-                require(case_pass == 1 and package_pass == 0 and output == 'PASS\n')
-        elif 'Test' in event:
-            require(event['Test'] == selected and run == 1 and case_pass == package_pass == 0 and observed is not None)
-            require('Output' not in event)
+        require(event.get('Action') == actions[position])
+        fields = {'Action', 'Package'}
+        if position in (1, 2, 3, 4, 5):
+            fields.add('Test')
+            require(event.get('Test') == selected)
+        if position in (2, 3, 4, 6):
+            fields.add('Output')
+            require(type(event.get('Output')) is str and len(event['Output']) <= 4096)
+        if position in (5, 7):
+            fields.add('Elapsed')
+        require(set(event) - {'Time'} == fields)
+        if position == 2:
+            require(event['Output'] == '=== RUN   ' + selected + '\n')
+        elif position == 3:
+            observed = receipt(event['Output'], case)
+        elif position == 4:
+            match = re.fullmatch(r'--- PASS: ' + selected +
+                                 r' \(([0-9]{1,3}(?:\.[0-9]{1,3})?)s\)\n', event['Output'])
+            require(match is not None)
+            banner_elapsed = elapsed(float(match[1]))
+            require(banner_elapsed + .01 >= observed['body_ns'] / NS)
+        elif position == 5:
             case_elapsed = elapsed(event.get('Elapsed'))
             # Go JSON elapsed is rounded; <=10ms tolerance only for rounding.
             # The source receipt itself is sampled AFTER both actual teardowns.
             require(case_elapsed + .01 >= observed['body_ns'] / NS)
-            case_pass += 1
-        else:
-            require(case_pass == 1 and package_pass == 0 and 'Output' not in event)
-            if 'Elapsed' in event:
-                require(elapsed(event['Elapsed']) + .01 >= case_elapsed)
-            package_pass += 1
-    require(run == case_pass == package_pass == 1 and observed is not None)
+            require(abs(banner_elapsed - case_elapsed) <= .01)
+        elif position == 6:
+            require(event['Output'] == 'PASS\n')
+        elif position == 7:
+            require(elapsed(event['Elapsed']) + .01 >= case_elapsed)
     return observed

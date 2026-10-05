@@ -178,7 +178,10 @@ workers, three refcounted queue closers and one limiter collector. With at most
 ten concurrent timer callbacks and two one-shot Close workers, the source bound
 is `2 ×(3N+9)+12 <=222`, excluding Go runtime/background/finalizer goroutines.
 All eight worker families retain bounded fixed-format start/stop counts, without
-logging arguments. The fixture keeps at most two4096-byte protected originals,
+logging arguments. After Close, BOTH arrays must equal the exact per-device
+vector `[N,N,N,1,1,1,1,1]`; equal all-zero or wrong-family arrays refuse. This is
+still logger-boundary evidence, not an independently exposed physical join.
+The fixture keeps at most two4096-byte protected originals,
 128 wire events,128 delivery events and128 callback events per event family;
 two inbound channels each128 packets, TUN input/output8 and Read-entry16.
 The inherited engine queues remain1024 inbound/outbound/handshake, per-peer
@@ -233,8 +236,14 @@ not an independently executed receipt or generic secure-erasure claim. Receipt
 body time is sampled after both closures; Go JSON elapsed permits only10ms
 rounding tolerance and cannot exceed570 seconds.
 
-The receipt grammar accepts exactly one selected case/run/PASS, one finite
-causal receipt and one package PASS. Duplicate/unknown/missing fields, wrong
+The receipt grammar is exactly eight ordered events: package start, selected
+run, RUN banner, finite causal receipt, case PASS banner, case pass with required
+Elapsed, package PASS banner, package pass with required Elapsed. Both elapsed
+values are finite/bounded and the case/banner duration must agree within10ms
+rounding. Every missing, duplicate or reordered event refuses. The source-only
+successor corrects the independently found6570 counter-only grammar gap;
+the frozen checkpoint and its original synthetic receipts remain unchanged.
+Duplicate/unknown/missing fields, wrong
 selector, skips/failures, raw diagnostic lines, nonfinite/aliased numeric values,
 early/default-overridden/renewed-timer/callback-only claims all refuse. At most64
 events,64KiB per JSON line and2MiB complete output are accepted. No raw packet,
@@ -243,8 +252,14 @@ contract evidence only. The new immutable opt-in build/execution recipe has
 not yet been implemented or selected, and neither selector has been compiled
 or run. ROOT FULL source/closure/graph/recipe review remains required before Go.
 
-Local source-only gates:12 inert receipt/source controls PASS; both Python3.14
+Initial6570 source-only gates:12 inert receipt/source controls PASS; both Python3.14
 and3.12.13 `./tests/run.sh` PASS358 tests/two existing skips plus all JS/QML
 contracts;67-link documentation discovery and `git diff --check` PASS.
 `gofmt` checked source syntax/format only. No Go compiler, test ELF, actual
 engine selector, ordinary/race execution, native networking or VM action ran.
+
+Successor source-only gates:17 inert receipt/source controls PASS, including
+every missing/duplicate/event-pair swap, required case/package elapsed,
+banner consistency and all-zero/wrong-family worker predicates. Both Python3.14
+and3.12.13 full363 controls (two existing skips) and all JS/QML contracts PASS;
+`git diff --check` PASS. No compiler, engine/native selector or VM action ran.
