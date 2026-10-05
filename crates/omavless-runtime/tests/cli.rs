@@ -1173,7 +1173,11 @@ fn daemon_and_semantic_cli_use_one_private_runtime() {
     let guard = ChildGuard(child);
     let socket = base.join("omavless/control.sock");
     for _ in 0..100 {
-        if socket.exists() {
+        // bind creates the pathname before RuntimeServer applies its private
+        // mode. Wait for that startup step, not merely the transient pathname.
+        if fs::metadata(&socket)
+            .is_ok_and(|metadata| metadata.permissions().mode() & 0o777 == 0o600)
+        {
             break;
         }
         thread::sleep(Duration::from_millis(10));

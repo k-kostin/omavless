@@ -37,6 +37,37 @@ cleanup; EOF itself is never cleanup evidence. If the broker is killed mid-write
 the initial recovery contract requires explicit administrator recovery/reboot.
 This availability tradeoff is not a kill switch or leak-prevention claim.
 
+## Orderly idle stop (development candidate)
+
+SIGTERM latches a sticky stop request using the already locked signal-hook
+dependency. The handler performs no DNS, journal, channel or FD-store cleanup.
+Only between complete serialized sessions, or after accepting a channel before
+its lease admission begins, can the broker stop admitting work and attempt a
+normal zero exit. Idle acceptance is polled with a one-second absolute budget;
+the channel's existing ten-second accept API and packet admission stay unchanged.
+
+Zero requires a separate read-only proof under one five-second deadline:
+original service/bus identities and socket ACL; the original locked journal
+directory's safe metadata and named identity, fresh no-follow absence of both
+record and staging names, no cached pending/poisoned state; the original
+manager's fixed retention policy, zero count and complete empty dump; then fresh
+identity/journal/ACL checks and the final deadline. No fresh Journal, flock
+reacquisition, RevertLink, descriptor removal or repair is used. Ordinary
+Listener destruction may unlink its own matching socket node after this
+positive idle proof; that is IPC teardown, not DNS cleanup evidence.
+
+Once lease admission starts, apply, active wait, release and quarantine behavior
+remain unchanged. A stop request does not cancel an active session or turn it
+into release. A peer that never releases can remain active until the manager's
+existing stop policy kills the service; signal death is not zero and retained
+manager state still requires the existing recovery procedure. There is no
+universal six-second exit guarantee with slow/unavailable bus replies.
+
+This candidate addresses the missing orderly-stop source path in the exact
+`c4e800425243c1b02165f82153e4bf418fe465e6` broker. It does not identify a stopped
+T3 fixture's actual wait status or cause. Exact native pins, independent review
+and a fresh isolated composition are still required; no stopped scope is retried.
+
 The only file access offered to the enrolled user is a fixed socket ACL. Its
 parent and enrollment remain root-owned. Ordinary applications of the enrolled
 UID share this narrow authority; executable identity is not claimed. The broker

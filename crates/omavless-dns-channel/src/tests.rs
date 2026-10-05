@@ -23,6 +23,38 @@ fn pair() -> (Client, Session) {
     (client, session)
 }
 
+#[test]
+fn short_idle_accept_timeout_is_not_a_session_or_cleanup() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("idle.sock");
+    let listener = Listener::bind(&path, rustix::process::geteuid().as_raw()).unwrap();
+    assert!(matches!(
+        listener.accept_until(Instant::now()),
+        Err(Error::Timeout)
+    ));
+    assert!(matches!(
+        listener.accept_until(Instant::now() + Duration::from_millis(10)),
+        Err(Error::Timeout)
+    ));
+    assert!(
+        path.exists(),
+        "idle timeout cannot unlink the original socket"
+    );
+    let peer = net::socket_with(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+        None,
+    )
+    .unwrap();
+    net::connect(&peer, &SocketAddrUnix::new(&path).unwrap()).unwrap();
+    let session = listener
+        .accept_until(Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    assert!(session.proof().is_none());
+    assert!(path.exists());
+}
+
 fn raw_send(endpoint: &Endpoint, bytes: &[u8], descriptors: &[BorrowedFd<'_>]) {
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_aligned_space!(ScmRights(20))];
     let mut control = SendAncillaryBuffer::new(&mut space);
