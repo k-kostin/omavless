@@ -21,7 +21,7 @@ fn request_roundtrips_cover_only_fixed_operations() {
     }
     assert_eq!(
         encode_request(Request::Status {}).unwrap(),
-        br#"{"version":1,"payload":{"operation":"status"}}"#
+        br#"{"version":2,"payload":{"operation":"status"}}"#
     );
 }
 
@@ -48,7 +48,7 @@ fn malformed_duplicate_unknown_and_privileged_inputs_fail_closed() {
         r#"null"#,
     ] {
         assert_eq!(
-            decode_request(format!(r#"{{"version":1,"payload":{payload}}}"#).as_bytes()),
+            decode_request(format!(r#"{{"version":2,"payload":{payload}}}"#).as_bytes()),
             Err(WireError::Invalid)
         );
     }
@@ -65,23 +65,23 @@ fn malformed_duplicate_unknown_and_privileged_inputs_fail_closed() {
         "unit",
         "environment",
     ] {
-        let input = format!(r#"{{"version":1,"payload":{{"operation":"status","{field}":null}}}}"#);
+        let input = format!(r#"{{"version":2,"payload":{{"operation":"status","{field}":null}}}}"#);
         assert_eq!(decode_request(input.as_bytes()), Err(WireError::Invalid));
     }
     for input in [
-        r#"{"version":1,"version":1,"payload":{"operation":"status"}}"#,
-        r#"{"version":1,"payload":{"operation":"status"},"payload":{"operation":"status"}}"#,
-        r#"{"version":1,"payload":{"operation":"status"},"extra":{}}"#,
-        r#"{"version":1,"payload":{"operation":"status"}} {}"#,
+        r#"{"version":2,"version":2,"payload":{"operation":"status"}}"#,
+        r#"{"version":2,"payload":{"operation":"status"},"payload":{"operation":"status"}}"#,
+        r#"{"version":2,"payload":{"operation":"status"},"extra":{}}"#,
+        r#"{"version":2,"payload":{"operation":"status"}} {}"#,
         r#"[1,{"operation":"status"}]"#,
-        r#"{"version":1.0,"payload":{"operation":"status"}}"#,
-        r#"{"version":1,"payload":{"operation":"status"},"\u0076ersion":1}"#,
+        r#"{"version":2.0,"payload":{"operation":"status"}}"#,
+        r#"{"version":2,"payload":{"operation":"status"},"\u0076ersion":1}"#,
     ] {
         assert_eq!(decode_request(input.as_bytes()), Err(WireError::Invalid));
     }
     assert_eq!(decode_request(b"\xff"), Err(WireError::Invalid));
     assert_eq!(
-        decode_request(br#"{"version":2,"payload":{"operation":"status"}}"#),
+        decode_request(br#"{"version":3,"payload":{"operation":"status"}}"#),
         Err(WireError::UnsupportedVersion)
     );
 }
@@ -94,7 +94,7 @@ fn frame_bound_includes_whitespace_and_depth_is_bounded() {
     request.push(b' ');
     assert_eq!(decode_request(&request), Err(WireError::TooLarge));
     let deep = format!(
-        r#"{{"version":1,"payload":{{"operation":"status","x":{}{}}}}}"#,
+        r#"{{"version":2,"payload":{{"operation":"status","x":{}{}}}}}"#,
         "[".repeat(1000),
         "]".repeat(1000)
     );
@@ -134,7 +134,9 @@ fn response_validation_rejects_forged_health_and_nested_duplicates() {
         },
         Response::Status {
             policy_version: POLICY_VERSION,
-            protection: Protection::Disarmed {},
+            protection: Protection::Disarmed {
+                closed_generation: None,
+            },
             health: Health::Verified,
         },
         Response::Status {
@@ -158,7 +160,7 @@ fn response_validation_rejects_forged_health_and_nested_duplicates() {
         r#"{"state":"disarmed","endpoint":"private"}"#,
     ] {
         let input = format!(
-            r#"{{"version":1,"payload":{{"result":"status","policy_version":1,"protection":{protection},"health":"verified"}}}}"#
+            r#"{{"version":2,"payload":{{"result":"status","policy_version":1,"protection":{protection},"health":"verified"}}}}"#
         );
         assert_eq!(decode_response(input.as_bytes()), Err(WireError::Invalid));
     }

@@ -414,7 +414,9 @@ mod tests {
                 coordinator.request(Request::Disarm { generation: 7 }),
                 Ok(Response::Status {
                     policy_version: POLICY_VERSION,
-                    protection: Protection::Disarmed {},
+                    protection: Protection::Disarmed {
+                        closed_generation: Some(7)
+                    },
                     health: Health::Verified,
                 })
             );

@@ -1314,6 +1314,7 @@ dependencies = [
  "omavless-control-protocol",
  "omavless-domain",
  "omavless-mihomo",
+ "omavless-netguard",
  "omavless-profile",
  "omavless-store",
  "omavless-tui",

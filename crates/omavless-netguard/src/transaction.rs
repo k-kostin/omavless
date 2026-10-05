@@ -105,9 +105,18 @@ fn status(protection: Protection, health: Health) -> Response {
 
 pub fn observe(observation: Observation) -> Response {
     match (observation.marker, observation.table) {
-        (Marker::Missing | Marker::Closed(_), Table::Absent) => {
-            status(Protection::Disarmed {}, Health::Verified)
-        }
+        (Marker::Missing, Table::Absent) => status(
+            Protection::Disarmed {
+                closed_generation: None,
+            },
+            Health::Verified,
+        ),
+        (Marker::Closed(n), Table::Absent) => status(
+            Protection::Disarmed {
+                closed_generation: Some(n),
+            },
+            Health::Verified,
+        ),
         (Marker::Armed(generation), Table::OwnedVerified(Policy::FullVpn)) => {
             status(Protection::Armed { generation }, Health::Verified)
         }
@@ -175,7 +184,15 @@ pub fn plan(request: Request, observation: Observation) -> Result<Transaction, E
 fn disarm(generation: u64, table: Table) -> Transaction {
     let mut steps = vec![Effect::PersistClosedDurably(generation)];
     steps.extend(remove_owned_table(table));
-    Transaction::new(steps, status(Protection::Disarmed {}, Health::Verified))
+    Transaction::new(
+        steps,
+        status(
+            Protection::Disarmed {
+                closed_generation: Some(generation),
+            },
+            Health::Verified,
+        ),
+    )
 }
 
 /// Root/internal startup only; deliberately absent from the wire request enum.
@@ -183,9 +200,23 @@ fn disarm(generation: u64, table: Table) -> Transaction {
 pub fn reconcile(observation: Observation) -> Result<Transaction, ErrorCode> {
     require_observed_ownership(observation.table)?;
     Ok(match observation.marker {
-        Marker::Missing | Marker::Closed(_) => Transaction::new(
+        Marker::Missing => Transaction::new(
             remove_owned_table(observation.table),
-            status(Protection::Disarmed {}, Health::Verified),
+            status(
+                Protection::Disarmed {
+                    closed_generation: None,
+                },
+                Health::Verified,
+            ),
+        ),
+        Marker::Closed(n) => Transaction::new(
+            remove_owned_table(observation.table),
+            status(
+                Protection::Disarmed {
+                    closed_generation: Some(n),
+                },
+                Health::Verified,
+            ),
         ),
         Marker::Armed(generation) => Transaction::new(
             vec![

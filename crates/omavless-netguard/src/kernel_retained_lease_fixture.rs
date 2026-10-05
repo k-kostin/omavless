@@ -50,7 +50,7 @@ fn state(parent: &Path) -> Result<LockedState> {
 fn status(response: Response, armed: bool) -> Result<()> {
     require(
         matches!(response, Response::Status { protection, health: Health::Verified, .. }
-        if protection == if armed { Protection::Armed { generation: 7 } } else { Protection::Disarmed {} }),
+        if protection == if armed { Protection::Armed { generation: 7 } } else { Protection::Disarmed { closed_generation: Some(7) } }),
     )
 }
 

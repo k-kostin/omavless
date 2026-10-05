@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::fmt;
 
 pub const MAX_FRAME_BYTES: usize = 8192;
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 pub const POLICY_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -46,8 +46,14 @@ pub enum ErrorCode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Protection {
-    Disarmed {},
-    Armed { generation: u64 },
+    /// Same verified producer's durable fence. Explicit null is fresh Missing;
+    /// Some(N) retires N and every older generation. Not caller authority.
+    Disarmed {
+        closed_generation: Option<u64>,
+    },
+    Armed {
+        generation: u64,
+    },
     Emergency {},
 }
 

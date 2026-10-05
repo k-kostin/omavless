@@ -79,7 +79,7 @@ fn one_enrolled_exchange_commits_under_one_lock_and_closes_after_one_reply() {
     assert!(matches!(
         receive(&mut client),
         Response::Status {
-            protection: Protection::Disarmed {},
+            protection: Protection::Disarmed { closed_generation: Some(7) },
             health: Health::Verified,
             ..
         }

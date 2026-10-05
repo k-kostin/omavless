@@ -234,7 +234,9 @@ fn recover_console() -> Result<()> {
     require(matches!(
         response,
         Response::Status {
-            protection: crate::protocol::Protection::Disarmed {},
+            protection: crate::protocol::Protection::Disarmed {
+                closed_generation: Some(_)
+            },
             health: crate::protocol::Health::Verified,
             ..
         }

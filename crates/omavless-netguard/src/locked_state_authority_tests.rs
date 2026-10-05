@@ -94,7 +94,7 @@ mod authority_composition_controls {
         assert_eq!(record(owner.test_state()).state(), ReceiptState::Live { handle: 5 });
         let mut stop = client(&path, DISARM);
         assert_eq!(owner.poll_one(), SessionProgress::Served);
-        assert!(matches!(receive(&mut stop), Response::Status { protection: Protection::Disarmed {}, .. }));
+        assert!(matches!(receive(&mut stop), Response::Status { protection: Protection::Disarmed { closed_generation: Some(7) }, .. }));
         assert_eq!(record(owner.test_state()).state(), ReceiptState::Retired);
         assert_eq!(control.borrow().effects, 2);
         assert_eq!(control.borrow().checks.iter().filter(|&&b| b == Boundary::Admission).count(), 1);

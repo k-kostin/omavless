@@ -261,7 +261,7 @@ fn session_owner_serializes_clients_under_one_lock_without_replay() {
     assert!(matches!(
         receive(&mut disarm),
         Response::Status {
-            protection: Protection::Disarmed {},
+            protection: Protection::Disarmed { closed_generation: Some(7) },
             health: Health::Verified,
             ..
         }

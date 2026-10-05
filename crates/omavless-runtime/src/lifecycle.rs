@@ -15,6 +15,10 @@ pub use crate::support_diagnostics::HostSupportFacts;
 use omavless_control_protocol::StableErrorCode;
 use std::fmt;
 
+#[cfg(feature = "netguard-runtime-candidate")]
+#[allow(dead_code)]
+mod protected_candidate;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActualState {
     Disconnected,
@@ -75,6 +79,12 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    /// Unregistered K1 candidate only. Normal hosts cannot fabricate fixed
+    /// mark/TUN/socket-path coverage; native support remains unavailable.
+    #[cfg(feature = "netguard-runtime-candidate")]
+    fn protected_preflight(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
     /// Counts from the most recently spawned owned core only. No health claim,
     /// log strings, network access or mutation; None means no captured child.
     fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
