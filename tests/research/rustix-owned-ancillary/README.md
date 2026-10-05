@@ -156,3 +156,78 @@ their earlier hashes; changed/new outputs are:
 | rustix-1.1.5/src/net/send_recv/owned_ancillary_pidfd_kernel_control.rs | 6157cdfa60efac0e45e4c2c627ae8179fd45e0201b59e2605b883e2e976f5ece |
 | rustix-1.1.5/src/backend/linux_raw/net/sockopt.rs | d7f05676ef512eb60998580a6ff9aafb233a8c80fe19a6db9c4da06ac102679e |
 | rustix-1.1.5/src/backend/libc/net/sockopt.rs | 1d63f272119490ff83ff170d04a2ac78f27e56a959257276e40cf537794f6bba |
+
+## Separate preallocated successor: inert result only
+
+`source-only-1971b70.patch` exports ten source/harness files from the same
+import base to exact external `1971b705d65b721f3319de48bbd76f75de0ca72a`.
+It is 79266 bytes, SHA256
+`e7adea88207b54f077c1211f3c7c287f1994d4c299d177f438c87e235fce783f`.
+This separate external branch preserves both earlier patches, source heads,
+recipes and actual receipts. No runner applies this textual fixture.
+The same retained upstream licenses apply; product Cargo/source/API are unchanged.
+
+The new `PreparedReceiver::prepare(B)` reserves its aligned control scratch,
+ordered records, RIGHTS, PIDFD and preserved-control vectors fallibly before
+receive, bounded by B<=65536. Preparation failure has no receive or acquired FD.
+The context consumes itself around one borrowed original socket, rejects PEEK
+and other unsupported flags before receive, and checks all prepared capacities.
+On successful bounded native receive, known owners and the ordered whole prefix
+are decoded without heap growth into those capacities. Semantic refusal does
+not discard later well-bounded known owners. A malformed structural boundary
+stops parsing without tail guessing. Ordinary frame Drop still closes known
+owners: callers must retain the WHOLE frame before late or semantic refusal.
+
+After FULL ROOT and independent source/immutable-recipe review, ROOT alone
+selected the exact clean head's seven `preallocated::tests` controls offline,
+locked and single-threaded. Selection `4837ca` ended KNOWN_ZERO; safe post-zero
+checks `aa3650`/`5f1ee3`/`f731af` confirmed seven passed, zero failed, zero ignored,
+45 filtered out. Author did not invoke Cargo or any actual receive. The receive
+method compiled but was not called; neither ignored kernel control was selected.
+No child, VM, product binary, privilege or network configuration was exercised.
+
+The controls cover zero/max bounds, unchanged pointers/capacities, five
+deterministic pre-receive reservation cuts, the closed flag grammar, semantic
+unknown/malformed items followed by known owners, short-boundary known-prefix
+retention, and maximal bounded header/RIGHT counts. Synthetic PIDFD slots own
+exclusive `/dev/null` originals only; this is not descriptor-class evidence.
+Reservation cuts are not actual OOM injection or universal panic/OOM proof.
+
+Fixed inert recipe SHA256:
+`3dff5329228c3533cde2b6df75441703433319a001f3e32c7956c1ea10a883b3`;
+review SHA256:
+`6bb4179d9934b401fc0427587924d93f505ec8ad278096a70371f2b59aabf886`.
+HOME was inherited `/home/kk`, never assigned/exported; the fixed private
+target/TMPDIR and normal Cargo/Rustup homes were retained. Original captures
+remain under `/home/kk/.cache/ovtmp-root/t4-preallocated-inert-first.4lO08ES2/`,
+both0600 single-link uid/gid1000. Raw stderr was hashed only, not read/exported.
+
+| Capture | Bytes | SHA256 |
+| --- | ---: | --- |
+| first.stdout | 1168 | de2011a71a8234b6d8fc8c020dbc8297339758e0cd89065e944c08d42f1fa07f |
+| first.stderr | 456320 | 66f5e9071d67a6ce713d0fa6b06cfe5b3a41b929c70a5a23b9a5cb57c705c9a4 |
+
+The reverse-apply check validates all ten exact result files without mutation
+or execution. Eight outputs retain dedb hashes; the changed/new outputs are:
+
+| Resulting file | SHA256 |
+| --- | --- |
+| rustix-1.1.5/src/net/send_recv/owned_ancillary_experiment.rs | 7c480c7e60ed560d7d76aa143dd54bbb3449a7bffa1fd72051191a886716818f |
+| rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs | 46c003c8f48c829f01f96c9e9942ec426979938dc776b065311b26640597aeaf |
+
+This narrows successful bounded copy/decode allocation exposure only. Backend
+errors after installing but before reporting descriptors remain unsupported;
+caller buffers do not recover unreported FDs. Unknown future descriptor-bearing
+kinds, malformed tails, process death/panic and broader OOM remain gaps. The
+pinned v6.17 AF_UNIX RIGHTS/PIDFD producer model is conditional, not current or
+future kernel/endpoint attestation. No actual receive was tested at this head;
+it cannot borrow either prior own-pair kernel receipt. Root/manager identity,
+closed protocol, product availability, adoption, merge and publication remain
+unproven and unauthorized. Any kernel control needs separate exact-head review.
+
+The documentation/export checkpoint passed the full source suite: 639 tests,
+two declared skips, JS/QML/navigation, whitespace and reverse-apply checks.
+An earlier inert source-suite attempt under an overly long private TMPDIR
+failed one synthetic AF_UNIX bind; that NONPASS is retained and JS/QML were
+not reached. A fresh shorter private TMPDIR gate passed. No product Rust build
+or new actual receive evidence is inferred from the documentation checkpoint.

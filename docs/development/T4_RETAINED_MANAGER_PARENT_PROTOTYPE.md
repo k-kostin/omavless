@@ -226,3 +226,31 @@ manager authority or broader retained-original ownership.
 All broader ownership/authority gaps and
 the original stopped child NONPASS remain unchanged; no normal runtime,
 dependency, CLI, accepted candidate or publication path changes.
+
+## Separate preallocated successor: bounded inert evidence
+
+External `1971b705d65b721f3319de48bbd76f75de0ca72a` has a separate
+[textual research export and exact receipt](../../tests/research/rustix-owned-ancillary/README.md).
+It fallibly reserves all bounded control/record/known-owner storage before
+receive, then consumes the prepared context around one borrowed original socket.
+Successful bounded copy/decode does not grow heap vectors; semantic refusal
+retains all later well-bounded known owners and structural failure keeps only
+the known prefix without guessing a tail. Whole-frame caller retention remains
+mandatory. The unprepared entry still allocates as before.
+
+After FULL ROOT and independent source/recipe review, ROOT alone selected seven
+inert Rust controls at that exact clean head: `4837ca` KNOWN_ZERO, seven passed,
+zero failed, zero ignored, 45 filtered out. They check capacities/pointers,
+deterministic preparation cuts, flags and synthetic boundaries/ownership;
+synthetic PIDFD slots use `/dev/null` originals, not class/identity proof.
+The actual receive method compiled but was NOT called; no kernel control,
+child, VM, native product or privileged action ran. Older dedb source/recipes,
+actual receipts and stopped scopes remain unchanged.
+
+The narrow successful-decode allocation guarantee does not recover descriptors
+installed but unreported on backend error, future unknown descriptor kinds or
+malformed structural tails. It is not universal OOM/panic/process-death safety,
+hard cancellation, current-kernel attestation, manager authentication or normal
+owner adoption. No product Cargo/API/dependency or CLI path changes. Any actual
+receive control requires its own fixed source/recipe review and authorization;
+this inert result cannot inherit either older own-pair kernel result.
