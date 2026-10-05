@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn refuses_invalid_sizes_truncation_and_untrusted_fields() {
-        let forged = br#"{"version":1,"payload":{"operation":"status","uid":7}}"#;
+        let forged = br#"{"version":2,"payload":{"operation":"status","uid":7}}"#;
         for frame in [
             (0_u32.to_be_bytes().to_vec(), Vec::new()),
             (

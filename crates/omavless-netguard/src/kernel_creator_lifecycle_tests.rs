@@ -324,7 +324,9 @@ fn disarmed(response: Response) {
     assert!(matches!(
         response,
         Response::Status {
-            protection: Protection::Disarmed {},
+            protection: Protection::Disarmed {
+                closed_generation: Some(7)
+            },
             health: Health::Verified,
             ..
         }

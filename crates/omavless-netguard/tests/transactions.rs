@@ -65,7 +65,7 @@ fn arm_acknowledgement_follows_verified_kernel_and_durable_marker() {
     assert_eq!(host, armed());
     assert_eq!(response, observe(host));
     let transaction = plan(Request::Disarm { generation: 7 }, host).unwrap();
-    assert_eq!(finish(transaction, &mut host), observe(empty()));
+    assert_eq!(finish(transaction, &mut host), observe(closed(7)));
     assert_eq!(host, closed(7));
 }
 
@@ -219,7 +219,7 @@ fn retries_reverify_arm_and_only_confirm_fully_disarmed_state() {
     finish(transaction, &mut host);
     assert_eq!(host, armed());
     let transaction = plan(Request::Disarm { generation: 7 }, closed(7)).unwrap();
-    assert_eq!(transaction.response().unwrap(), observe(empty()));
+    assert_eq!(transaction.response().unwrap(), observe(closed(7)));
     assert!(
         plan(
             Request::Disarm { generation: 7 },
