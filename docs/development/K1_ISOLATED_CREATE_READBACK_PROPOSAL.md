@@ -44,6 +44,17 @@ controls passed on the corrected test binary, SHA-256:
 The prior binary hash is retained as historical source evidence, not the VM
 selection. Formatting passed after the pure test change.
 
+The new remote Test job at `c8b68b8c` still failed before Rust execution: the
+external launcher's source-only shallow-CI control read the current inventory
+module against its older immutable exporter pin. The sole module delta is the
+four-line `cfg(test)` witness declaration. The control now admits the exact
+successor hash, projects out only that fixed declaration and verifies the
+resulting original hash before the unchanged adapter runs. Arbitrary changed
+source, alternate declarations and every other pin still refuse. All 14
+launcher source controls pass, including a new projection-refusal regression.
+The developer exporter still selects immutable `e6488ed5`; no product source,
+exported runtime or executable-selection pin was changed by this CI correction.
+
 The smallest VM scenario is the fixed ignored manager entry
 `manager_retained_lifecycle::adapter::exclusive_create::observe_one_create`,
 executed only by ROOT after review and fresh publication. It admits the literal

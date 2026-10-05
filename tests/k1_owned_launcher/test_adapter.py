@@ -18,15 +18,42 @@ def module(name):
 a = module('adapt')
 p = module('prepare')
 
+def pinned_original(name, raw):
+    # The external exporter still selects immutable BASE. Only this exact
+    # later cfg(test) declaration is projected out for shallow-CI source
+    # controls; both the complete successor and resulting original are pinned.
+    if name == 'kernel_inventory.rs' and hashlib.sha256(raw).hexdigest() == \
+            '9c5cb451724693f2b48a79dadea028975eb9fd27765c5e56cfa50c8e6211aede':
+        declaration = (b'#[cfg(test)]\n#[path = "kernel_create_witness.rs"]\n'
+                       b'pub(super) mod create_witness;\n\n')
+        if raw.count(declaration) != 1:
+            raise ValueError('fixed_test_declaration')
+        raw = raw.replace(declaration, b'')
+    if hashlib.sha256(raw).hexdigest() != a.PINS[name]:
+        raise ValueError('fixed_original_pin')
+    return raw
+
 class Controls(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # CI's shallow checkout need not contain BASE. The six unchanged public
-        # originals are admitted by EXACT existing SHA-256 pins, never fallback
-        # acceptance or skip. Developer export still requires its immutable BASE.
-        cls.sources = {name: (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+        # CI's shallow checkout need not contain BASE. All six public originals
+        # are admitted by exact pins; the fixed cfg(test)-only addition is
+        # explicitly removed after complete-source admission, never skipped.
+        # Developer export still requires its immutable BASE.
+        cls.sources = {name: pinned_original(name,
+                       (ROOT / 'crates/omavless-netguard/src' / name).read_bytes())
                        for name in a.PINS}
         cls.adapted = a.adapt(cls.sources)
+
+    def test_successor_projection_refuses_any_other_source_change(self):
+        name = 'kernel_inventory.rs'
+        raw = (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+        self.assertEqual(pinned_original(name, raw), self.sources[name])
+        self.assertEqual(pinned_original(name, self.sources[name]), self.sources[name])
+        for changed in (raw + b' ', raw.replace(b'#[cfg(test)]', b'#[cfg(any())]', 1),
+                        raw.replace(b'create_witness;', b'other_witness;', 1)):
+            with self.assertRaises(ValueError):
+                pinned_original(name, changed)
 
     def test_exact_catalog_and_each_pin_refuse(self):
         for name in a.PINS:
