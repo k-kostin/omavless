@@ -68,6 +68,20 @@ thread namespace, current thread and canonical manager view. The exact
 installed systemd's opening behavior still needs source/VM evidence before
 selection; literal unit text alone is not that evidence.
 
+The v261 API has no readable StandardInputFile property: that name is a
+transient setter, while StandardInputFileDescriptorName describes named-FD
+input, not a file path. The origin therefore requires readable StandardInput
+to remain `file`, the retained exact installed unit/no drop-ins, and original
+FD0 namespace fences under the independently admitted manager launch. It
+does not substitute an unrelated getter or claim pathname self-authentication.
+The pre-start WatchdogUSec diagnostic and runtime gate are intentionally
+different: v261 initializes the never-started original timeout to infinity,
+then copies literal WatchdogSec=0 before starting the invocation. Only exact
+unsigned zero is admitted by the activating/active runtime origin. See the
+primary [property mapping](https://github.com/systemd/systemd/blob/v261/src/core/dbus-execute.c),
+[timeout accessor](https://github.com/systemd/systemd/blob/v261/src/core/service.h)
+and [start initialization](https://github.com/systemd/systemd/blob/v261/src/core/service.c).
+
 `HostEpoch` records the actual boot UUID, zero-extended kernel namespace ID and
 namespace device/inode only as held-original consistency projections. They
 cannot reconstruct a creator. The actual creator socket and safe duplicate

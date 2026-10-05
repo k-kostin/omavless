@@ -267,7 +267,11 @@ impl InstalledOrigin {
                 && service.get::<u32>("ExecMainPID")? == std::process::id(),
         )?;
         service.text("StandardInput", "file")?;
-        service.text("StandardInputFile", "/proc/1/ns/net")?;
+        // systemd v261 exposes StandardInputFile only as a transient SETTER,
+        // not a readable property. FileDescriptorName describes named-FD
+        // input, not this path. Path custody comes from the admitted manager
+        // launch, retained exact installed unit/no drop-ins, and original FD0
+        // namespace fences below; no matching getter authenticates delivery.
         service.text("StandardOutput", "null")?;
         service.text("StandardError", "null")?;
         service.text("KillMode", "control-group")?;
@@ -287,7 +291,7 @@ impl InstalledOrigin {
         service.boolean("Delegate", false)?;
         require(
             service.get::<u32>("FileDescriptorStoreMax")? == 0
-                && service.get::<u64>("WatchdogUSec")? == 0,
+                && active_watchdog_disabled(&service)?,
         )?;
         for key in [
             "RootDirectory",
@@ -334,6 +338,12 @@ impl InstalledOrigin {
         }
         Ok(())
     }
+}
+fn active_watchdog_disabled(service: &Properties) -> Result<bool> {
+    // v261 initializes the never-started original timeout to USEC_INFINITY,
+    // then copies configured WatchdogSec into it before this invocation.
+    // This gate admits activating/active ONLY, so infinity is not accepted.
+    Ok(service.get::<u64>("WatchdogUSec")? == 0)
 }
 impl OriginalVerifier for InstalledOrigin {
     fn recheck(&mut self, originals: LaunchBorrow<'_>) -> Result<()> {
@@ -490,6 +500,32 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn active_watchdog_requires_exact_unsigned_zero_not_prestart_infinity() {
+        for (value, expected) in [(0, true), (1, false), (3_000_000, false), (u64::MAX, false)] {
+            let mut values = HashMap::new();
+            values.insert("WatchdogUSec".into(), OwnedValue::from(value));
+            assert_eq!(
+                active_watchdog_disabled(&Properties(values)).unwrap(),
+                expected
+            );
+        }
+        let mut values = HashMap::new();
+        values.insert("WatchdogUSec".into(), OwnedValue::from(0_u32));
+        assert!(active_watchdog_disabled(&Properties(values)).is_err());
+        assert!(active_watchdog_disabled(&Properties(HashMap::new())).is_err());
+    }
+    #[test]
+    fn filepath_delivery_requires_literal_unit_without_unsupported_getter() {
+        let unit = std::str::from_utf8(SERVICE_UNIT).unwrap();
+        assert_eq!(
+            unit.matches("StandardInput=file:/proc/1/ns/net\n").count(),
+            1
+        );
+        let source = include_str!("launch_service_origin.rs");
+        assert!(!source.contains("service.text(\"StandardInputFile\","));
+        assert!(!source.contains("service.text(\"StandardInputFileDescriptorName\","));
+    }
     #[test]
     fn only_fixed_package_supplementary_membership_is_admitted() {
         assert!(admitted_groups(&[71], 71));
