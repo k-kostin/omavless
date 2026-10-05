@@ -203,3 +203,96 @@ return-owner and ELF tests known-zero `f77747`; full source 698 tests/two skips
 and JS/QML known-zero `7bc81c`. The final source and nine-test gates inherited
 the ordinary HOME unchanged and used only the separate fixed HOME-cache target
 and scratch paths. No child main, actual spawn, namespace or nft operation ran.
+
+## Checked close and executed owner-boundary controls
+
+The 06b6138 handoff used File Drop, which cannot report close failure. Pinned
+[Rust OwnedFd Drop](https://github.com/rust-lang/rust/blob/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/os/fd/owned.rs#L179)
+explicitly ignores the libc return. This successor uses the existing safe
+`nix::unistd::close(File)` from exact e35c008: it consumes the ORIGINAL File
+through IntoRawFd, calls close once and returns its result. No application raw
+descriptor is supplied, adopted or reconstructed, and no new unsafe code or
+library patch is required for close. The unchanged reached `src/unistd.rs`
+is part of the same external pinned nix source graph.
+
+[Linux v6.17 close](https://github.com/torvalds/linux/blob/v6.17/fs/open.c#L1483)
+removes the descriptor-table entry before flush and does not restart close on
+EINTR. Therefore any error is terminal rather than grounds to retry the numeric
+descriptor. The private Handoff owns both original ends, latches Attempted
+before checking READY or time, and marks Complete only after both consuming
+closes return exact success within their original pre/post budget. Failure,
+late return or unwind leaves untouched ends retained and permanently denies
+another handoff. Already-consumed ends cannot be recovered or described as
+still open. The actual child, parent I/O ends and other originals stay retained.
+
+The constructor now executes a shared private fixed sequence with the actual
+safe-library adapter: two pipe pairs, attribute/action initialization, exactly
+three fixed dup2 actions, original image recheck and one spawn. Its synthetic
+backend replaces only those private operations for tests, never a public
+acquisition provider. Every successfully returned owner is held before the
+next gate; fault controls cut every nine-operation return and all 18 pre/post
+gates, including error and panic. Exact dup2 order, invalid stdio alias and
+invalid returned PID refuse without dropping previously returned owners. This
+does not prove ownership inside an unreturned failed libc operation.
+
+The actual READY parser now has its own permanent attempt/completion latch;
+failed or late READY cannot enable handoff. The actual finish adapter shares
+the tested fixed FINISH, DONE, original WNOWAIT-zero, EOF, image and sole exact
+zero-reap sequence. Six-operation and 12-gate fault controls include late zero
+before EOF/reap and late actual-reap return: the latter cannot undo a completed
+reap but cannot report success. An observed live child may only continue under
+the same remaining budget; unknown/nonzero observations never reap. These are
+executed tests of the exact private sequence bodies, not string assertions or
+a kernel/child execution claim. Nested ELF/proc metadata failures, libc internal
+partial errors, installed origin and lifetime compile-fail coverage remain
+separate review obligations.
+
+The first checked-handoff test export failed compilation on an ambiguous test
+integer (`acac4c`); its source/export is preserved. The corrected combined
+boundary export passed 19 inert tests (`e2bf70`) and normal library/binary strict
+Clippy (`c8c4d2`). No child main, close syscall, pipe/spawn/wait syscall, namespace,
+netlink or VM was selected by these new synthetic controls; the inherited
+returned-owner tests still open their own harmless /dev/null Files.
+
+The first full-source attempt passed Python 698/two skips but ended NONPASS
+(`2a5131`) when a JS scratch creation reached an incorrectly specified missing
+private TMPDIR. The retained capture identifies that environment error; no test
+or product condition was relaxed. The final gate uses the existing 0700 scratch
+directory and repeats the source suite. Historical prior compile/test captures
+are not promoted to evidence of this final source.
+
+Final exact executable-source gates: 19 inert Rust controls known-zero
+`d4601d`, strict external library/binary Clippy known-zero `d9266b`, full source
+698/two skips plus JS/QML known-zero `3c5007`. These inherited HOME unchanged and
+used the verified 0700 private scratch directory. The external export predates
+the source commit: matching source bytes are not a frozen artifact or a claim
+that an executable was built at the later commit.
+
+## Next opt-in actual no-policy gate (proposal, not invocation authority)
+
+Keep this zero-pinned checkpoint immutable. First prepare a fresh export/build
+identity for the fixed child alone, with static ELF admission (no PT_INTERP),
+exact toolchain/patch/lock/source pins, normal strict Clippy and inert gates.
+Do not overwrite any prior export/target/frozen original. ROOT alone may freeze
+the verified original child into a new 0500/single-link HOST artifact after full
+source/freeze review. Its held-original SHA/size/receipt then authorize a NEW
+explicit source checkpoint replacing the two zero admission literals; old zero
+source and failed attempts remain preserved. This is a reviewable provenance
+change, not a runtime bypass or a mutable public pin override.
+
+A separate fixed opt-in parent gate must enter only private open_fixed plus
+finish, never inventory/effects or a product entry point. It must use the exact
+adapted acquisition body and actual creator-owned socket, not a matching second
+socket or a model. A fresh ROOT-reviewed VM publication scope admits the frozen
+child through original-FD hash/metadata/ancestor checks and a root-owned 0555
+guest copy; the HOST frozen original stays unchanged. One ROOT-only invocation
+would test READY, original child image and creator/namespace binding, checked
+handoff, FINISH/DONE/EOF and exact owned zero reap. First unknown/nonzero stops
+the scope without retry, query-adoption or cleanup. Fixed public phase evidence
+must be captured from the original call, not obtained through failure queries.
+
+That prospective gate proves only a locally constructed, retained no-policy
+owner relationship under a trusted test launch. It cannot prove installed
+package/unit/system-manager origin, authorize policy, construct CanonicalCreator
+or expose production availability. The installed-origin verifier remains a
+distinct unmet boundary even if the local child gate later passes.

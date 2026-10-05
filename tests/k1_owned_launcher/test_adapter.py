@@ -106,11 +106,12 @@ class Controls(unittest.TestCase):
         self.assertLess(source.index('child.ready(deadline)'), source.index('creator.attach_launch'))
         self.assertNotIn('Command::', source)
         self.assertLess(source.index('self.acquired.sealed=true'), source.index('self.life.finish()'))
-        finish=source[source.index('    fn finish(&self)'):source.index('\nstruct Verify')]
-        self.assertLess(finish.index('protocol::DONE'),finish.index('WaitPidFlag::WNOWAIT'))
-        self.assertLess(finish.index('WaitPidFlag::WNOWAIT'),finish.index('protocol::eof'))
-        self.assertLess(finish.index('protocol::eof'),finish.index('nix::sys::wait::waitpid'))
+        finish=source[source.index('struct FinishBackend'):source.index('\nstruct Verify')]
         self.assertIn('WaitStatus::Exited(actual,0) if actual==pid', finish)
+        sequence=(HERE/'completion.rs').read_text()
+        self.assertLess(sequence.index('backend.done_frame()'),sequence.index('backend.observe()'))
+        self.assertLess(sequence.index('backend.observe()'),sequence.index('backend.eof()'))
+        self.assertLess(sequence.index('backend.eof()'),sequence.index('backend.reap_exact_zero()'))
 
     def test_external_posix_patch_exact_scope_and_error_ownership(self):
         metadata=json.loads((HERE/'spawn-upstream.json').read_text())
@@ -128,9 +129,11 @@ class Controls(unittest.TestCase):
 
     def test_owned_spawn_has_two_original_pairs_and_only_three_fixed_duplications(self):
         source=(HERE/'owned_child.rs').read_text()
-        self.assertEqual(source.count('retain_after(pipe2('),2)
-        self.assertEqual(source.count('retain_after(posix_spawn('),1)
-        self.assertIn('[(child_read.as_raw_fd(),0),(child_write.as_raw_fd(),1),(child_write.as_raw_fd(),2)]',source)
+        self.assertEqual(source.count('pipe2('),1)
+        self.assertEqual(source.count('posix_spawn('),1)
+        sequence=(HERE/'spawn_sequence.rs').read_text()
+        self.assertEqual(sequence.count('acquired(backend.pipe(), backend)'),2)
+        self.assertIn('(B::descriptor(&child_write), 1), (B::descriptor(&child_write), 2)',sequence)
         self.assertIn('let environment:[&CStr;0]=[]',source)
         self.assertIn('_same_thread: PhantomData<Rc<()>>',source)
         self.assertNotIn('Command::',source)

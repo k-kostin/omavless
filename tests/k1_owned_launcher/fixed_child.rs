@@ -9,6 +9,15 @@ mod retained_return;
 #[cfg(test)]
 #[path = "static_elf.rs"]
 mod static_elf;
+#[cfg(test)]
+#[path = "handoff.rs"]
+mod handoff;
+#[cfg(test)]
+#[path = "spawn_sequence.rs"]
+mod spawn_sequence;
+#[cfg(test)]
+#[path = "completion.rs"]
+mod completion;
 use std::os::fd::AsFd;
 use std::time::{Duration,Instant};
 

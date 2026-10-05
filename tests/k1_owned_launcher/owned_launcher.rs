@@ -21,6 +21,8 @@ use child_executable::Executable;
 #[path = "owned_child.rs"]
 mod owned_child;
 use owned_child::OwnedChild;
+#[path = "completion.rs"]
+mod completion;
 
 const ERROR: EffectError = EffectError::UnavailableOrUncertain;
 
@@ -45,6 +47,7 @@ pub(crate) struct LaunchLife {
     deadline: Instant,
     checks: Cell<u16>,
     sealed: Cell<bool>,
+    completion: completion::Attempt,
 }
 
 impl LaunchLife {
@@ -109,25 +112,36 @@ impl LaunchLife {
     // have been permanently sealed. It cannot re-enable readback or effects.
     fn finish(&self) -> Result<(),EffectError> {
         require(!self.sealed.replace(true))?;
-        protocol::write_frame(&mut *self.child.input.borrow_mut(),protocol::FINISH,&mut ||self.pipe_gate()).map_err(|_|ERROR)?;
-        protocol::read_frame(&mut *self.child.output.borrow_mut(),protocol::DONE,&mut ||self.pipe_gate()).map_err(|_|ERROR)?;
-        let pid=self.child.pid();
-        loop {
-            self.budget()?;
-            let status=waitid(Id::Pid(pid),WaitPidFlag::WEXITED|WaitPidFlag::WNOHANG|WaitPidFlag::WNOWAIT);
-            self.budget()?;
-            match status.map_err(|_|ERROR)? {
-                WaitStatus::StillAlive => std::hint::spin_loop(),
-                WaitStatus::Exited(actual,0) if actual==pid => break,
-                _ => return Err(ERROR),
-            }
-        }
-        protocol::eof(&mut *self.child.output.borrow_mut(),&mut ||self.pipe_gate()).map_err(|_|ERROR)?;
-        self.executable.recheck(self.deadline)?;
-        self.budget()?;
-        let status=nix::sys::wait::waitpid(pid,Some(WaitPidFlag::WNOHANG));
-        self.budget()?;
-        require(status.map_err(|_|ERROR)?==WaitStatus::Exited(pid,0))
+        self.completion.run(&mut FinishBackend(self)).map_err(|_|ERROR)
+    }
+}
+
+struct FinishBackend<'a>(&'a LaunchLife);
+impl completion::Backend for FinishBackend<'_> {
+    fn gate(&mut self)->Result<(),completion::Refused> {self.0.budget().map_err(|_|completion::Refused)}
+    fn finish_frame(&mut self)->Result<(),completion::Refused> {
+        protocol::write_frame(&mut *self.0.child.input.borrow_mut(),protocol::FINISH,&mut ||self.0.pipe_gate()).map_err(|_|completion::Refused)
+    }
+    fn done_frame(&mut self)->Result<(),completion::Refused> {
+        protocol::read_frame(&mut *self.0.child.output.borrow_mut(),protocol::DONE,&mut ||self.0.pipe_gate()).map_err(|_|completion::Refused)
+    }
+    fn observe(&mut self)->Result<completion::Observed,completion::Refused> {
+        let pid=self.0.child.pid();
+        let status=waitid(Id::Pid(pid),WaitPidFlag::WEXITED|WaitPidFlag::WNOHANG|WaitPidFlag::WNOWAIT).map_err(|_|completion::Refused)?;
+        Ok(match status {
+            WaitStatus::StillAlive=>completion::Observed::Alive,
+            WaitStatus::Exited(actual,0) if actual==pid=>completion::Observed::ExactZero,
+            _=>completion::Observed::Other,
+        })
+    }
+    fn eof(&mut self)->Result<(),completion::Refused> {
+        protocol::eof(&mut *self.0.child.output.borrow_mut(),&mut ||self.0.pipe_gate()).map_err(|_|completion::Refused)
+    }
+    fn image(&mut self)->Result<(),completion::Refused> {self.0.executable.recheck(self.0.deadline).map_err(|_|completion::Refused)}
+    fn reap_exact_zero(&mut self)->Result<(),completion::Refused> {
+        let pid=self.0.child.pid();
+        let status=nix::sys::wait::waitpid(pid,Some(WaitPidFlag::WNOHANG)).map_err(|_|completion::Refused)?;
+        if status==WaitStatus::Exited(pid,0) {Ok(())}else{Err(completion::Refused)}
     }
 }
 
@@ -178,7 +192,7 @@ impl Prototype {
         let thread_namespace=Rc::new(ManuallyDrop::into_inner(thread_namespace));
         let life=ManuallyDrop::new(Rc::new(LaunchLife {child,executable,
             anchor:anchor.clone(),thread_namespace:thread_namespace.clone(),initial_id,
-            thread:thread::current().id(),deadline,checks:Cell::new(0),sealed:Cell::new(false)}));
+            thread:thread::current().id(),deadline,checks:Cell::new(0),sealed:Cell::new(false),completion:completion::Attempt::new()}));
         creator.attach_launch(Rc::clone(&life)).map_err(|_|ERROR)?;gate()?;
         let mut acquired=AcquiredCreator {retained:ManuallyDrop::new(Retained {
             originals:Originals {anchor,thread_namespace,owner_thread:thread::current().id(),

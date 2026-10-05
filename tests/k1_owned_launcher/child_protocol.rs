@@ -1,5 +1,6 @@
 //! Fixed private pipe protocol. No namespace, creator, path or authority data.
 use std::io::{self, Read, Write};
+use std::cell::Cell;
 
 pub(super) const READY: &[u8] = b"K1_CHILD_READY\n";
 pub(super) const FINISH: &[u8] = b"K1_CHILD_FINISH\n";
@@ -8,6 +9,16 @@ pub(super) const DONE: &[u8] = b"K1_CHILD_DONE\n";
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Refused;
 pub(super) type Result<T> = std::result::Result<T, Refused>;
+
+pub(super) struct ReadyState {attempted:Cell<bool>,complete:Cell<bool>}
+impl ReadyState {
+    pub(super) fn new()->Self {Self{attempted:Cell::new(false),complete:Cell::new(false)}}
+    pub(super) fn receive(&self,reader:&mut impl Read,gate:&mut impl FnMut()->Result<()>)->Result<()> {
+        if self.attempted.replace(true) {return Err(Refused);}
+        read_frame(reader,READY,gate)?;self.complete.set(true);Ok(())
+    }
+    pub(super) fn complete(&self)->bool {self.complete.get()}
+}
 
 // These functions are private to the fixed executable/parent. A caller cannot
 // inject a clock or I/O provider through any acquisition or executable API.
@@ -126,5 +137,26 @@ mod tests {
         let mut gate=||{calls+=1;if calls==4 {Err(Refused)}else{Ok(())}};
         let mut p=pipe(vec![]);assert!(write_frame(&mut p,FINISH,&mut gate).is_err());
         assert_eq!(p.flushes,1);assert_eq!(p.writes,FINISH);
+    }
+    #[test]
+    fn ready_all_gate_errors_panics_and_received_refusals_permanently_latch() {
+        use std::panic::{catch_unwind,AssertUnwindSafe};
+        for cut in 0..3 {for panic in [false,true] {
+            let state=ReadyState::new();let mut p=pipe(vec![Ok(READY.to_vec())]);let mut gates=0;
+            let result=catch_unwind(AssertUnwindSafe(||state.receive(&mut p,&mut ||{
+                let at=gates;gates+=1;if at==cut {if panic {panic!("inert READY gate");}return Err(Refused);}Ok(())
+            })));
+            if panic {assert!(result.is_err());}else{assert_eq!(result.unwrap(),Err(Refused));}
+            assert!(!state.complete());let remaining=p.reads.len();
+            assert_eq!(state.receive(&mut p,&mut ||panic!("retry")),Err(Refused));assert_eq!(p.reads.len(),remaining);
+        }}
+        for result in [Ok(vec![]),Ok([READY,b"x"].concat()),Err(io::ErrorKind::Interrupted.into()),Err(io::ErrorKind::Other.into())] {
+            let state=ReadyState::new();let mut p=pipe(vec![result]);
+            assert_eq!(state.receive(&mut p,&mut ||Ok(())),Err(Refused));assert!(!state.complete());
+            assert_eq!(state.receive(&mut p,&mut ||panic!("retry")),Err(Refused));
+        }
+        let state=ReadyState::new();let mut p=pipe(vec![Ok(READY.to_vec())]);
+        assert_eq!(state.receive(&mut p,&mut ||Ok(())),Ok(()));assert!(state.complete());
+        assert_eq!(state.receive(&mut p,&mut ||panic!("repeat")),Err(Refused));
     }
 }
