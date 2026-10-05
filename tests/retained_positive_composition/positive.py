@@ -252,6 +252,14 @@ class Case:
                 self.call(deadline,self.base.clean,value,'success');return value
             self.call(deadline,time.sleep,0.1)  # Known pending observation only, never unknown retry.
 
+    @guarded
+    def final_snapshot(self, helper):
+        deadline = self.owner.local_deadline(5)
+        raw = self.call(deadline,helper.snapshot,deadline,final=True)
+        value = self.call(deadline,self.observer,raw,final=True)
+        self.call(deadline,self.base.clean,value,'success')
+        return value
+
     def run(self):
         try:
             self.available()
@@ -304,8 +312,7 @@ class Case:
             self.stops['core'] = self.owner.shutdown('core',self.images,self.base)
             self.wait_snapshot(helper,'released')
             self.stops['broker'] = self.owner.shutdown('broker',self.images,self.base)
-            final = self.observer(helper.snapshot(self.owner.local_deadline(5),final=True),final=True)
-            self.base.clean(final,'success');self.available()
+            final = self.final_snapshot(helper)
             helper.positive_eof(self.owner.local_deadline(5))
             self.stops['host'] = self.owner.host_finished_zero()
             for role in ('resolved','bus'):

@@ -170,3 +170,10 @@ late acceptance, byte/peer caps and no-positive-close counterexamples.
 The pinned upstream core Unix listener currently chooses0666; the strict0600
 Controller admission is NOT loosened. A separately reviewed fixed-original
 fresh-socket permission bootstrap remains required before actual invocation.
+
+The leaf's original eight-second deadline starts at constructor entry and is
+never reset by the Case's later five-second positive-finish budget; BOTH fences
+must still hold after the actual active DNS readback. Final helper finish,
+fully typed frozen-frame validation and clean acceptance likewise share ONE
+five-second deadline. A late snapshot cannot start observer validation, and a
+late observer cannot start clean acceptance (one additional inert control).

@@ -178,5 +178,30 @@ class Controls(unittest.TestCase):
                 self.assertNotIn(name,{'kill','waitpid','waitid','poll','wait','unlink','rmdir','exec','eval','system'})
         self.assertNotIn("'quarantined'",SOURCE.read_text())
 
+    def test_final_snapshot_one_shared_deadline_late_result_prevents_next_stage(self):
+        for variant in ('known','snapshot','observer','clean'):
+            value,clock=self.fixture();actual=frame('final')
+            def snap(*args,**kwargs):
+                if variant=='snapshot':clock[0]=5.0
+                return actual
+            helper=SimpleNamespace(snapshot=Mock(side_effect=snap))
+            original=value.observer
+            def observed(*args,**kwargs):
+                result=original(*args,**kwargs)
+                if variant=='observer':clock[0]=5.0
+                return result
+            value.observer=Mock(side_effect=observed)
+            value.base.clean.side_effect=lambda *args:clock.__setitem__(0,5.0) if variant=='clean' else None
+            if variant=='known':self.assertIs(value.final_snapshot(helper),actual)
+            else:
+                with self.assertRaises(p.Refused):value.final_snapshot(helper)
+                clock[0]=0.0
+                with self.assertRaises(p.Refused):value.final_snapshot(helper)
+            helper.snapshot.assert_called_once_with(5.0,final=True)
+            if variant=='snapshot':value.observer.assert_not_called()
+            if variant in ('snapshot','observer'):value.base.clean.assert_not_called()
+            else:value.base.clean.assert_called_once_with(actual,'success')
+            self.assertEqual(value.owner.local_deadline.call_count,1)
+
 
 if __name__=='__main__':unittest.main()
