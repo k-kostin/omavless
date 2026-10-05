@@ -15,6 +15,7 @@ Item {
   property string locale: "en"
   property var facts: ({state:"checking", coreInstalled:null})
   readonly property string state: facts.state
+  readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool needsAttention: SetupState.needsAttention(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   property bool panelOpen: false
@@ -32,8 +33,7 @@ Item {
   function acknowledgeTerminalClosed() { terminalOpened = false; check() }
   function guide() { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md") }
   function install(action) {
-    var allowed = action === SetupState.missingAction(facts) && action !== ""
-      || action === "install" && facts.state === "needs_activation" && facts.coreInstalled === true
+    var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
     launchAction = action
     launching = true

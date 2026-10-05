@@ -129,8 +129,30 @@ class LocalArchPackageTests(unittest.TestCase):
         archive, = self.build.glob('omavless-0.8.0rc1-1-*.pkg.tar.zst')
         metadata = subprocess.check_output(['bsdtar', '-xOf', str(archive), '.PKGINFO'], text=True)
         self.assertIn('pkgver = 0.8.0rc1-1\n', metadata)
+        self.assertIn('depend = omavless-dns=0.8.0rc1-1\n', metadata)
+        self.assertNotIn('depend = mihomo\n', metadata)
         if shutil.which('vercmp'):
             self.assertLess(int(subprocess.check_output(['vercmp', '0.8.0rc1', '0.8.0'])), 0)
+
+    def test_offline_beta_makepkg_version_dependency_and_ordering(self):
+        if os.geteuid() == 0 or not all(shutil.which(t) for t in ('makepkg', 'fakeroot', 'bsdtar', 'readelf', 'zstd')):
+            self.skipTest('non-root Arch packaging tools required')
+        (self.repo / 'Cargo.toml').write_text('[workspace.package]\nversion = "0.9.5-beta.1"\n')
+        subprocess.run(['git', '-C', str(self.repo), 'add', '.'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(self.repo), '-c', 'user.name=Synthetic',
+                        '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'beta'],
+                       check=True, capture_output=True)
+        self.sha = subprocess.check_output(['git', '-C', str(self.repo), 'rev-parse', 'HEAD'], text=True).strip()
+        result = self.invoke(candidate=True)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        archive, = self.build.glob('omavless-0.9.5beta1-1-*.pkg.tar.zst')
+        metadata = subprocess.check_output(['bsdtar', '-xOf', str(archive), '.PKGINFO'], text=True)
+        self.assertIn('pkgver = 0.9.5beta1-1\n', metadata)
+        self.assertIn('depend = omavless-dns=0.9.5beta1-1\n', metadata)
+        self.assertNotIn('depend = mihomo\n', metadata)
+        if shutil.which('vercmp'):
+            for later in ('0.9.5beta2', '0.9.5rc1', '0.9.5'):
+                self.assertLess(int(subprocess.check_output(['vercmp', '0.9.5beta1', later])), 0)
 
     def test_offline_real_makepkg_payload_identity_and_no_activation_hooks(self):
         if os.geteuid() == 0:

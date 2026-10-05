@@ -1,0 +1,284 @@
+diff --git a/src/spawn.rs b/src/spawn.rs
+index 34c8666..7958b90 100644
+--- a/src/spawn.rs
++++ b/src/spawn.rs
+@@ -10,6 +10,26 @@ use crate::sys::signal::SigSet;
+ use crate::sys::stat::Mode;
+ use crate::{errno::Errno, unistd::Pid, NixPath, Result};
+ 
++// POSIX spawn routines return the error number itself, not -1 with errno.
++fn posix_result(code: libc::c_int) -> Result<()> {
++    if code == 0 { Ok(()) } else { Err(Errno::from_raw(code)) }
++}
++
++// SAFETY: The producer fully initializes storage whenever code is zero.
++// Nonzero outcomes must never read storage or construct its owner.
++unsafe fn initialized<T>(storage: mem::MaybeUninit<T>, code: libc::c_int) -> Result<T> {
++    posix_result(code)?;
++    Ok(unsafe { storage.assume_init() })
++}
++
++// SAFETY: operation restores a valid T before returning Ok. An error or unwind
++// can leave an already-destroyed/partly-initialized object; do not run Drop again.
++unsafe fn reinitialize<T>(value: T, operation: impl FnOnce(&mut T) -> Result<()>) -> Result<T> {
++    let mut retained = mem::ManuallyDrop::new(value);
++    operation(&mut retained)?;
++    Ok(mem::ManuallyDrop::into_inner(retained))
++}
++
+ /// A spawn attributes object. See [posix_spawnattr_t](https://pubs.opengroup.org/onlinepubs/9699919799/functions/posix_spawnattr_init.html).
+ #[repr(transparent)]
+ #[derive(Debug)]
+@@ -25,9 +45,7 @@ impl PosixSpawnAttr {
+         let mut attr = mem::MaybeUninit::uninit();
+         let res = unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) };
+ 
+-        Errno::result(res)?;
+-
+-        let attr = unsafe { attr.assume_init() };
++        let attr = unsafe { initialized(attr, res)? };
+         Ok(PosixSpawnAttr { attr })
+     }
+ 
+@@ -37,22 +55,15 @@ impl PosixSpawnAttr {
+     /// followed by
+     /// [posix_spawnattr_init](https://pubs.opengroup.org/onlinepubs/9699919799/functions/posix_spawnattr_init.html).
+     #[doc(alias("posix_spawnattr_destroy"))]
+-    pub fn reinit(mut self) -> Result<PosixSpawnAttr> {
+-        let res = unsafe {
+-            libc::posix_spawnattr_destroy(
+-                &mut self.attr as *mut libc::posix_spawnattr_t,
+-            )
+-        };
+-        Errno::result(res)?;
+-
+-        let res = unsafe {
+-            libc::posix_spawnattr_init(
+-                &mut self.attr as *mut libc::posix_spawnattr_t,
+-            )
+-        };
+-        Errno::result(res)?;
+-
+-        Ok(self)
++    pub fn reinit(self) -> Result<PosixSpawnAttr> {
++        // SAFETY: both libc calls use this original object's field. Only a
++        // successful initializer restores the invariant required by Drop.
++        unsafe {
++            reinitialize(self, |owner| {
++                posix_result(libc::posix_spawnattr_destroy(&mut owner.attr))?;
++                posix_result(libc::posix_spawnattr_init(&mut owner.attr))
++            })
++        }
+     }
+ 
+     /// Set spawn flags. See
+@@ -65,7 +76,7 @@ impl PosixSpawnAttr {
+                 flags.bits() as libc::c_short,
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -81,7 +92,7 @@ impl PosixSpawnAttr {
+                 &mut flags,
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(PosixSpawnFlags::from_bits_truncate(flags.into()))
+     }
+@@ -96,7 +107,7 @@ impl PosixSpawnAttr {
+                 pgroup.as_raw(),
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -113,7 +124,7 @@ impl PosixSpawnAttr {
+                 &mut pid,
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(Pid::from_raw(pid))
+     }
+@@ -130,7 +141,7 @@ impl PosixSpawnAttr {
+                 sigdefault.as_ref(),
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -147,10 +158,8 @@ impl PosixSpawnAttr {
+                 sigset.as_mut_ptr(),
+             )
+         };
+-        Errno::result(res)?;
+-
+         let sigdefault =
+-            unsafe { SigSet::from_sigset_t_unchecked(sigset.assume_init()) };
++            unsafe { SigSet::from_sigset_t_unchecked(initialized(sigset, res)?) };
+         Ok(sigdefault)
+     }
+ 
+@@ -164,7 +173,7 @@ impl PosixSpawnAttr {
+                 sigdefault.as_ref(),
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -181,10 +190,8 @@ impl PosixSpawnAttr {
+                 sigset.as_mut_ptr(),
+             )
+         };
+-        Errno::result(res)?;
+-
+         let sigdefault =
+-            unsafe { SigSet::from_sigset_t_unchecked(sigset.assume_init()) };
++            unsafe { SigSet::from_sigset_t_unchecked(initialized(sigset, res)?) };
+         Ok(sigdefault)
+     }
+     }
+@@ -242,11 +249,8 @@ impl PosixSpawnFileActions {
+         let res = unsafe {
+             libc::posix_spawn_file_actions_init(actions.as_mut_ptr())
+         };
+-        Errno::result(res)?;
+-        Ok(unsafe {
+-            PosixSpawnFileActions {
+-                fa: actions.assume_init(),
+-            }
++        Ok(PosixSpawnFileActions {
++            fa: unsafe { initialized(actions, res)? },
+         })
+     }
+ 
+@@ -256,22 +260,15 @@ impl PosixSpawnFileActions {
+     /// followed by
+     /// [posix_spawn_file_actions_init](https://pubs.opengroup.org/onlinepubs/9699919799/functions/posix_spawn_file_actions_init.html).
+     #[doc(alias("posix_spawn_file_actions_destroy"))]
+-    pub fn reinit(mut self) -> Result<PosixSpawnFileActions> {
+-        let res = unsafe {
+-            libc::posix_spawn_file_actions_destroy(
+-                &mut self.fa as *mut libc::posix_spawn_file_actions_t,
+-            )
+-        };
+-        Errno::result(res)?;
+-
+-        let res = unsafe {
+-            libc::posix_spawn_file_actions_init(
+-                &mut self.fa as *mut libc::posix_spawn_file_actions_t,
+-            )
+-        };
+-        Errno::result(res)?;
+-
+-        Ok(self)
++    pub fn reinit(self) -> Result<PosixSpawnFileActions> {
++        // SAFETY: both libc calls use this original object's field. Only a
++        // successful initializer restores the invariant required by Drop.
++        unsafe {
++            reinitialize(self, |owner| {
++                posix_result(libc::posix_spawn_file_actions_destroy(&mut owner.fa))?;
++                posix_result(libc::posix_spawn_file_actions_init(&mut owner.fa))
++            })
++        }
+     }
+ 
+     /// Add a [dup2](https://pubs.opengroup.org/onlinepubs/9699919799/functions/dup2.html) action. See
+@@ -285,7 +282,7 @@ impl PosixSpawnFileActions {
+                 newfd,
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -311,7 +308,7 @@ impl PosixSpawnFileActions {
+                 mode.bits(),
+             )
+         })?;
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -327,7 +324,7 @@ impl PosixSpawnFileActions {
+                 fd,
+             )
+         };
+-        Errno::result(res)?;
++        posix_result(res)?;
+ 
+         Ok(())
+     }
+@@ -429,3 +426,58 @@ pub fn posix_spawnp<SA: AsRef<CStr>, SE: AsRef<CStr>>(
+ 
+     Ok(Pid::from_raw(pid))
+ }
++
++#[cfg(test)]
++mod posix_return_tests {
++    use super::*;
++    use std::{cell::Cell, rc::Rc};
++    struct Owner(Rc<Cell<usize>>);
++    impl Drop for Owner { fn drop(&mut self) { self.0.set(self.0.get()+1); } }
++    #[test]
++    fn direct_error_numbers_not_errno_sentinels() {
++        assert!(posix_result(0).is_ok());
++        for code in [1, 2, 12, 22, 4095, -1, i32::MAX] {
++            assert_eq!(posix_result(code), Err(Errno::from_raw(code)));
++        }
++        // The old helper accepts a POSIX ENOMEM as success, independently of
++        // ambient errno. This control never calls an initializer or spawn.
++        assert!(Errno::result(libc::ENOMEM).is_ok());
++        assert_eq!(posix_result(libc::ENOMEM), Err(Errno::ENOMEM));
++    }
++    #[test]
++    fn failed_initializer_never_reads_uninitialized_output() {
++        for code in [libc::ENOMEM, libc::EINVAL, -1, i32::MAX] {
++            let storage=mem::MaybeUninit::<Owner>::uninit();
++            // SAFETY: nonzero code promises nothing about initialized storage.
++            assert!(unsafe { initialized(storage,code) }.is_err());
++        }
++    }
++    #[test]
++    fn successful_initializer_moves_one_original_owner() {
++        let count=Rc::new(Cell::new(0));
++        let storage=mem::MaybeUninit::new(Owner(count.clone()));
++        let owner=unsafe { initialized(storage,0) }.unwrap();
++        assert_eq!(count.get(),0);drop(owner);assert_eq!(count.get(),1);
++    }
++    #[test]
++    fn destroy_or_reinit_error_does_not_destroy_again() {
++        for failure in [0,1] {
++            let drops=Rc::new(Cell::new(0));let calls=Cell::new(0);
++            let result=unsafe { reinitialize(Owner(drops.clone()), |_| {
++                calls.set(calls.get()+1);posix_result(if failure==0 {libc::EINVAL}else{0})?;
++                calls.set(calls.get()+1);posix_result(libc::ENOMEM)
++            }) };
++            assert!(result.is_err());assert_eq!(calls.get(),failure+1);assert_eq!(drops.get(),0);
++        }
++    }
++    #[test]
++    fn reinit_unwind_retains_and_success_restores_normal_drop() {
++        let drops=Rc::new(Cell::new(0));
++        let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||unsafe {
++            reinitialize(Owner(drops.clone()), |_| {panic!("inert producer cut")})
++        }));
++        assert!(result.is_err());assert_eq!(drops.get(),0);
++        let owner=unsafe {reinitialize(Owner(drops.clone()), |_|Ok(()))}.unwrap();
++        assert_eq!(drops.get(),0);drop(owner);assert_eq!(drops.get(),1);
++    }
++}

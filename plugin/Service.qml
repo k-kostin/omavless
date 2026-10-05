@@ -8,6 +8,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "NativeSnapshot.js" as NativeSnapshot
+import "NativePresentation.js" as NativePresentation
 
 // Headless state for the OmaVLESS widget. backend.sh keeps private links in a
 // 0600 store and runs a dedicated Mihomo user service.
@@ -95,6 +96,104 @@ Item {
   property var nativePending: null
   property string nativeActionCode: ""
   property bool nativeOutcomeUnknown: false
+  // A successful mode command invalidates the previous observation before a
+  // fresh status/observation pair arrives. Keep that known, bounded transition
+  // separate from an actual unverified or failed runtime state.
+  property var nativeModeTransition: null
+  readonly property bool nativeModeSwitching: nativeModeTransition !== null
+  // A command acknowledgement is not connection proof. Hold only its
+  // presentation until a newer coherent observation arrives or the hold ends.
+  property var nativeConnectionTransition: null
+  // A definitive, no-effect DNS-pair refusal still invalidates the old local
+  // observation while the post-action snapshot is read. Show a bounded neutral
+  // verification state, never a false fatal shield or optimistic Connected.
+  property var nativeRefusalVerification: null
+  property var nativeMetadataTransition: null
+  property string nativeMetadataErrorAction: ""
+  property string nativeMetadataErrorCode: ""
+  property string nativeSubscriptionStatusId: ""
+  readonly property bool nativeConnectionSwitching: nativeConnectionTransition !== null
+  readonly property bool nativeMetadataBusy: (nativePending !== null && ["connect", "disconnect", "mode"].indexOf(nativePending.action) < 0)
+    || nativeMetadataTransition !== null
+  Timer {
+    id: nativeConnectionTransitionTimeout
+    interval: 12000
+    repeat: false
+    onTriggered: if (!root.nativePending && !root.nativeActionRunning) root.nativeConnectionTransition = null
+  }
+  Timer {
+    id: nativeRefusalVerificationTimeout
+    interval: 8000
+    repeat: false
+    onTriggered: root.nativeRefusalVerification = null
+  }
+  Timer {
+    id: nativeMetadataTransitionTimeout
+    interval: 8000
+    repeat: false
+    onTriggered: root.nativeMetadataTransition = null
+  }
+  function finishNativeActionTransitionObservation() {
+    if (nativeRefusalVerification && !nativePending && !nativeActionRunning) {
+      var refusal = nativeRefusalVerification
+      if (nativeSnapshotFailed || (nativeSnapshot && nativeSnapshot.instanceId !== refusal.instanceId)) {
+        nativeRefusalVerificationTimeout.stop()
+        nativeRefusalVerification = null
+      } else if (nativeSnapshot && nativeSnapshot.revision >= refusal.revision
+          && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)
+          && nativeObservation.availability === "observed") {
+        nativeRefusalVerificationTimeout.stop()
+        nativeRefusalVerification = null
+      }
+    }
+    if (nativeConnectionTransition && !nativePending && !nativeActionRunning) {
+      var transition = nativeConnectionTransition
+      if (!nativeSnapshot || nativeSnapshot.instanceId !== transition.instanceId || nativeSnapshotFailed) {
+        nativeConnectionTransitionTimeout.stop()
+        nativeConnectionTransition = null
+      } else if (nativeSnapshot.revision > transition.revision
+          && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) {
+        var view = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
+        if ((["disconnect", "profile-delete"].indexOf(transition.action) >= 0 && view.state === "disconnected")
+            || (["connect", "profile-rename", "profile-replace"].indexOf(transition.action) >= 0
+              && view.connected && view.activeId === transition.profileId)
+            || ["failed", "manualRecoveryRequired", "unavailable"].indexOf(view.state) >= 0) {
+          nativeConnectionTransitionTimeout.stop()
+          nativeConnectionTransition = null
+        }
+      }
+    }
+    if (nativeMetadataTransition && !nativePending && !nativeActionRunning
+        && nativeSnapshot && !nativeSnapshotFailed
+        && nativeSnapshot.instanceId === nativeMetadataTransition.instanceId
+        && nativeSnapshot.revision > nativeMetadataTransition.revision
+        && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) {
+      nativeMetadataTransitionTimeout.stop()
+      nativeMetadataTransition = null
+    }
+  }
+  Timer {
+    id: nativeModeTransitionTimeout
+    interval: 12000
+    repeat: false
+    onTriggered: if (!root.nativePending && !root.nativeActionRunning) root.nativeModeTransition = null
+  }
+  function finishNativeModeTransitionObservation() {
+    var transition = nativeModeTransition
+    if (!transition || nativePending || nativeActionRunning) return
+    if (!nativeSnapshot || nativeSnapshot.instanceId !== transition.instanceId) {
+      nativeModeTransitionTimeout.stop()
+      nativeModeTransition = null
+      return
+    }
+    if (nativeSnapshotFailed || nativeSnapshot.revision <= transition.revision
+        || !NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) return
+    var view = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
+    if (view.modeConfirmed || ["failed", "manualRecoveryRequired", "unavailable"].indexOf(view.state) >= 0) {
+      nativeModeTransitionTimeout.stop()
+      nativeModeTransition = null
+    }
+  }
   readonly property bool nativeActionRunning: nativeActionProcess.running
   readonly property bool nativeFactsCurrent: nativeOwner && !nativeSnapshotFailed
     && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)
@@ -288,7 +387,7 @@ Item {
   }
 
   function nativeBatchPublicError(code) {
-    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_rejected", "subscription_unavailable", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
+    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_rejected", "subscription_unavailable", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
       ? "error." + code : "error.capability_unavailable"
   }
 
@@ -434,6 +533,12 @@ Item {
   property var nativeSubscriptionDraft: null
   property var nativeSubscriptionReadProcess: null
   property string nativeSubscriptionCode: ""
+  Timer {
+    id: nativeSubscriptionSuccessTimeout
+    interval: 5000
+    repeat: false
+    onTriggered: if (root.nativeSubscriptionCode === "saved") root.nativeSubscriptionCode = ""
+  }
   readonly property bool nativeSubscriptionLoading: nativeSubscriptionReadProcess !== null
   signal nativeSubscriptionReady(string name, string url, string kind, bool editing)
   signal nativeSubscriptionSaved()
@@ -503,9 +608,11 @@ Item {
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
     var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
-      operationId:operation, action:action, command:args, input:input}
+      operationId:operation, action:action, targetId:id, command:args, input:input}
     nativeActionCode = ""
     nativeSubscriptionCode = ""
+    nativeSubscriptionSuccessTimeout.stop()
+    nativeSubscriptionStatusId = id
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
     nativeActionProcess.stdinEnabled = true
@@ -522,6 +629,7 @@ Item {
     else if (result.ok) {
       nativeSubscriptionDraft = null
       nativeSubscriptionCode = "saved"
+      nativeSubscriptionSuccessTimeout.restart()
       nativeSubscriptionSaved()
     } else {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false
@@ -640,6 +748,7 @@ Item {
     var args = ["bash", backendPath, "native-profile-replace", context.instanceId, String(context.revision), operation]
     nativePending = {instanceId:context.instanceId, revision:context.revision, operationId:operation,
       action:"profile-replace", command:args, input:context.profileId + "\n" + context.name + "\n" + output}
+    beginNativeProfileLifecycleTransition("profile-replace", context.profileId)
     nativeOutcomeUnknown = false
     nativeActionCode = ""
     nativeActionProcess.command = args
@@ -674,6 +783,8 @@ Item {
     if (!(action === "disconnect" ? nativeCanStop : nativeCanAct)) return false
     if ((action === "connect" || action === "mode") && ["rule", "global", "direct"].indexOf(mode) < 0) return false
     if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
+    nativeRefusalVerificationTimeout.stop()
+    nativeRefusalVerification = null
     // A new accepted connection command must not inherit a completed
     // subscription banner. Keep an open editor's feedback and unresolved
     // operations intact; admission above still fences all mutations.
@@ -684,6 +795,15 @@ Item {
     else if (action === "mode") args.push(mode)
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
       operationId:operation, action:action, command:args}
+    if (action === "connect" || action === "disconnect") {
+      var prior = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
+      nativeConnectionTransition = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+        action:action, profileId:profileId,
+        switchingProfile:action === "connect" && prior.connected && prior.activeId !== profileId}
+      nativeConnectionTransitionTimeout.stop()
+    }
+    if (action === "mode") nativeModeTransition = {instanceId:nativeSnapshot.instanceId,
+      revision:nativeSnapshot.revision, targetMode:mode, operationId:operation}
     nativeActionCode = ""
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
@@ -698,6 +818,16 @@ Item {
     nativeActionProcess.stdinEnabled = typeof nativePending.input === "string"
     nativeActionProcess.running = true
     return true
+  }
+
+  function beginNativeProfileLifecycleTransition(action, profileId) {
+    // Rename/replace of the active profile quiesces and recovers the core;
+    // deleting it disconnects. Inactive edits and favorites are store-only.
+    if (["profile-rename", "profile-replace", "profile-delete"].indexOf(action) < 0
+        || !nativeSnapshot.desired.connected || nativeSnapshot.desired.profileId !== profileId) return
+    nativeConnectionTransition = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      action:action, profileId:profileId, switchingProfile:false}
+    nativeConnectionTransitionTimeout.stop()
   }
 
   function requestNativeProfileAction(action, profileId, value) {
@@ -717,6 +847,7 @@ Item {
     // Private input survives only while an exact retry is possible; never argv.
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
       operationId:operation, action:action, command:args, input:input}
+    beginNativeProfileLifecycleTransition(action, profileId)
     nativeActionCode = ""
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
@@ -944,6 +1075,7 @@ Item {
   property int statusFailureCount: 0
   property bool panelVisible: false
   onPanelVisibleChanged: {
+    if (panelVisible) refreshNativeAppAvailability()
     if (!panelVisible) {
       clearNativeTest()
       _nativeDesktopGeneration++
@@ -1357,7 +1489,12 @@ Item {
   function finishNativePing(context, code, output) {
     if (!nativePingCurrent(context)) return
     var result = code === 0 ? NativeSnapshot.parsePing(output, context) : null
-    if (!result || !result.available) { nativePingStatus = "unavailable"; return }
+    if (!result || !result.available) {
+      // Unavailable is not packet loss; do not revive an older successful
+      // window while the next request is pending.
+      nativePingSamples = []; _nativePingReceivedAt = 0
+      nativePingStatus = "unavailable"; return
+    }
     var next = nativePingSamples.slice()
     next.push(result.value)
     while (next.length > 10) next.shift()
@@ -2977,6 +3114,75 @@ Item {
   }
 
   property string nativeSupportStatus: ""
+  // The packaged client advertises its own feature without touching the daemon.
+  // Old runtime packages must not gain a non-working Open app action merely
+  // because this frontend was updated. Closing this client never stops VPN.
+  property bool nativeAppAvailable: false
+  property bool nativeAppChecking: false
+  property bool nativeAppOpening: false
+  property bool nativeAppLaunchFailed: false
+
+  function refreshNativeAppAvailability() {
+    if (!panelVisible || nativeAppChecking) return false
+    nativeAppAvailable = false
+    nativeAppChecking = true
+    nativeAppCheck.timedOut = false
+    nativeAppCheck.running = true
+    return true
+  }
+
+  function finishNativeAppAvailability(code, output) {
+    nativeAppChecking = false
+    nativeAppAvailable = code === 0 && typeof output === "string"
+      && output.length <= 64 && output.trim() === "omavless.tui.v1"
+    return nativeAppAvailable
+  }
+
+  function openNativeApp() {
+    if (!panelVisible || !nativeAppAvailable || nativeAppChecking || nativeAppOpening) return false
+    nativeAppOpening = true
+    nativeAppLaunchFailed = false
+    nativeAppLauncher.timedOut = false
+    nativeAppLauncher.running = true
+    return true
+  }
+
+  Process {
+    id: nativeAppCheck
+    command: ["omavless", "tui", "--available"]
+    property bool timedOut: false
+    stdout: StdioCollector { id: nativeAppCheckOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    property Timer timeout: Timer { interval: 3000; running: root.nativeAppChecking; onTriggered: { nativeAppCheck.timedOut = true; nativeAppCheck.running = false; root.finishNativeAppAvailability(-1, "") } }
+    onExited: function(code) { root.finishNativeAppAvailability(timedOut ? -1 : code, nativeAppCheckOutput.text) }
+  }
+
+  Process {
+    id: nativeAppLauncher
+    property bool timedOut: false
+    // The adapter detaches its terminal before returning. Do not let that
+    // terminal inherit Process pipes, which close when the adapter exits.
+    // This command is entirely literal: never interpolate private/user data.
+    command: ["bash", "-c", "exec omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui </dev/null >/dev/null 2>&1"]
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    property Timer timeout: Timer {
+      interval: 20000
+      running: root.nativeAppOpening && !nativeAppLaunchCooldown.running
+      onTriggered: {
+        nativeAppLauncher.timedOut = true
+        nativeAppLauncher.running = false
+        root.nativeAppLaunchFailed = true
+        nativeAppLaunchCooldown.restart()
+      }
+    }
+    onExited: function(code) {
+      root.nativeAppLaunchFailed = timedOut || code !== 0
+      nativeAppLaunchCooldown.restart()
+    }
+  }
+  Timer { id: nativeAppLaunchCooldown; interval: 1500; onTriggered: root.nativeAppOpening = false }
+
   property var nativeDesktopCapabilities: null
   property bool nativeDesktopLoading: false
   property int _nativeDesktopGeneration: 0
@@ -3158,6 +3364,10 @@ Item {
     else if (nativeRoutingToolsVisible && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
   }
   onNativePendingChanged: {
+    if (nativePending) {
+      nativeMetadataErrorAction = ""
+      nativeMetadataErrorCode = ""
+    }
     if (_nativeDetailsContext !== null && !nativeProfileDetailsCurrent(_nativeDetailsContext)) clearNativeProfileDetails()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
   }
@@ -3776,6 +3986,8 @@ Item {
     stdout: StdioCollector { id: nativeObservationStdout; waitForEnd: true }
     onExited: function(exitCode) {
       root.nativeObservation = exitCode === 0 ? NativeSnapshot.parseObservation(nativeObservationStdout.text) : null
+      root.finishNativeModeTransitionObservation()
+      root.finishNativeActionTransitionObservation()
     }
   }
 
@@ -3804,8 +4016,17 @@ Item {
     stdout: StdioCollector { id: nativeActionStdout; waitForEnd: true }
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {
+      var pendingAction = root.nativePending
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
+      var modeAction = root.nativePending && root.nativePending.action === "mode"
+      var connectionAction = root.nativePending && (["connect", "disconnect"].indexOf(root.nativePending.action) >= 0
+        || (root.nativeConnectionTransition && root.nativeConnectionTransition.action === root.nativePending.action
+          && root.nativePending.action.indexOf("profile-") === 0))
+      var metadataAction = root.nativePending && !modeAction && !connectionAction
       var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
+      var contextualMetadataAction = subscriptionAction || (metadataAction && (
+        root.nativePending.action.indexOf("profile-") === 0
+        || ["startup-configure", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(root.nativePending.action) >= 0))
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeRoutingAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
@@ -3820,7 +4041,33 @@ Item {
         root.nativePending = null
         // Subscription failures have their own contextual banner. Recovery
         // still belongs to the global state and must never be hidden.
-        root.nativeActionCode = result.ok || (subscriptionAction && result.code !== "manual_recovery_required") ? "" : result.code
+        root.nativeActionCode = result.ok || (contextualMetadataAction && result.code !== "manual_recovery_required") ? "" : result.code
+      }
+      if (contextualMetadataAction && result && !result.ok && exitCode !== 73
+          && result.code !== "daemon_restarting" && result.code !== "manual_recovery_required") {
+        root.nativeMetadataErrorAction = pendingAction.action
+        root.nativeMetadataErrorCode = result.code
+      }
+      if (modeAction) {
+        if (result && result.ok) nativeModeTransitionTimeout.restart()
+        else {
+          nativeModeTransitionTimeout.stop()
+          root.nativeModeTransition = null
+        }
+      }
+      if (connectionAction) {
+        if (result && result.ok) nativeConnectionTransitionTimeout.restart()
+        else { nativeConnectionTransitionTimeout.stop(); root.nativeConnectionTransition = null }
+      }
+      if (result && !result.ok && result.code === "dns_pair_required" && (modeAction || connectionAction)) {
+        root.nativeRefusalVerification = {instanceId:pendingAction.instanceId, revision:pendingAction.revision}
+        nativeRefusalVerificationTimeout.restart()
+      }
+      if (metadataAction && result && exitCode !== 73 && result.code !== "daemon_restarting") {
+        root.nativeMetadataTransition = {instanceId:pendingAction.instanceId,
+          revision:pendingAction.revision, action:pendingAction.action,
+          targetId:pendingAction.targetId || "", failed:!result.ok}
+        nativeMetadataTransitionTimeout.restart()
       }
       root.nativeObservation = null
       root.refreshAfterChange()
@@ -3901,6 +4148,14 @@ Item {
         root.statusFailureCount = 0
       } else {
         if (root.nativeOwner) root.nativeSnapshotFailed = true
+        if (root.nativeModeTransition && !root.nativeActionRunning) {
+          nativeModeTransitionTimeout.stop()
+          root.nativeModeTransition = null
+        }
+        if (root.nativeConnectionTransition && !root.nativeActionRunning) {
+          nativeConnectionTransitionTimeout.stop()
+          root.nativeConnectionTransition = null
+        }
         root.lastError = root.nativeOwner ? "Native metadata is unavailable"
           : root.elide(statusStderr.text || "Failed to read OmaVLESS status")
         root._pollError = true

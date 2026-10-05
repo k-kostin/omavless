@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# Capture-only developer fixture. Never start, install, enable or package.
+[Unit]
+Description=OmaVLESS K1 effective configuration reference capture only
+RefuseManualStart=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+SupplementaryGroups=
+ExecStart=/usr/bin/false
+PrivateUsers=no
+PrivatePIDs=no
+PrivateNetwork=yes
+RestrictNamespaces=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
+Restart=no
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+RuntimeMaxSec=infinity
+WatchdogSec=0
+KillMode=none
+SendSIGKILL=no
+StandardInput=null
+StandardOutput=append:/run/omavless-k1-retained-activation-reference/native.stdout
+StandardError=append:/run/omavless-k1-retained-activation-reference/native.stderr

@@ -255,6 +255,23 @@ mod tests {
                 assert_eq!(result["providers"]["total"], usize::from(inline_provider));
             }
         }
+        // Exercise the real core response shape without a TUN or external
+        // destination. The private controller payload must reduce to an empty
+        // categorical overview before it could cross owner IPC.
+        let connections = read(
+            &socket,
+            uid,
+            ReadOnlyEndpoint::Connections,
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        let overview = crate::connection_overview::aggregate(&connections)
+            .expect("installed core returned an unsupported connection shape");
+        assert_eq!(overview.total, 0);
+        assert_eq!(
+            overview,
+            crate::connection_overview::ConnectionOverview::default()
+        );
         // Check only this owned child's socket inodes against listening TCP
         // sockets; no process args or another user's network data is printed.
         let descriptors = fs::read_dir(format!("/proc/{}/fd", owned.pid().unwrap())).unwrap();

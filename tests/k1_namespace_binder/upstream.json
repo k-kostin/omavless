@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "purpose": "external-review-only-not-product-adoption",
+  "nix": {
+    "url": "https://github.com/nix-rust/nix.git",
+    "commit": "e35c00891f52468979f92b795de2dc1f3dd58a87",
+    "patch": "docs/development/patches/nix-readonly-namespace-v2.patch",
+    "sha256": "e6229d02e60e20a089a0340f6028f02a436308f5ff031a223c685e7ef31c5c15"
+  },
+  "libc": {
+    "url": "https://github.com/rust-lang/libc.git",
+    "commit": "7b0ab5528dc7f361f3a0b4c06c2cad9971617f75",
+    "patch": "docs/development/patches/libc-ns-get-id-02.patch",
+    "sha256": "da653498d5daa88c459f5a4e7649e9c64e93a9d2b683d3979c5f9ea94cbdd7ab"
+  },
+  "systemd_audit": {
+    "url": "https://github.com/systemd/systemd.git",
+    "v261": "de9dbc37ad4aa637e200ac02a0545095997055df",
+    "observed_head": "d404b58f3a6ee2af7267684f68e348686f8ac161",
+    "status": "source-audit-in-progress-not-launch-authority"
+  }
+}

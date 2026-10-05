@@ -1,0 +1,16 @@
+[package]
+name = "k1-real-namespace-binder-review"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.69"
+publish = false
+
+# Replay in an external workspace with these reviewed sibling checkouts.
+# Never add this package or these patches to the OmaVLESS workspace.
+[workspace]
+
+[dependencies]
+nix = { path = "../nix", default-features = false, features = ["ioctl", "socket"] }
+
+[patch.crates-io]
+libc = { path = "../libc" }

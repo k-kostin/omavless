@@ -9,7 +9,10 @@ use omavless_runtime::semantic_cli::{
     parse_semantic_read,
 };
 use omavless_runtime::store_preflight::current_store_preflight;
-use omavless_runtime::{RuntimePaths, RuntimeServer, call};
+use omavless_runtime::{
+    RuntimeError, RuntimePaths, RuntimeServer, call, call_semantic_lifecycle,
+    is_semantic_lifecycle_method,
+};
 use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::flag;
@@ -35,12 +38,22 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
 }
 
 enum CliError {
+    #[cfg(feature = "tui")]
+    Terminal(&'static str),
     Message(String),
     DesktopCancelled,
     ActionOutcomeUnknown,
+    SemanticOutcomeUnknown,
     ActionNotAdmitted,
     LoginSkip,
     LoginFailure(String),
+}
+
+fn semantic_lifecycle_error(error: RuntimeError) -> CliError {
+    match error {
+        RuntimeError::Protocol | RuntimeError::Io => CliError::SemanticOutcomeUnknown,
+        _ => CliError::Message(error.to_string()),
+    }
 }
 
 impl From<String> for CliError {
@@ -57,6 +70,32 @@ impl From<&str> for CliError {
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    #[cfg(feature = "tui")]
+    if arguments == ["tui", "--available"] {
+        println!("omavless.tui.v1");
+        return Ok(());
+    }
+    #[cfg(feature = "tui")]
+    if arguments == ["tui"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::run_full(
+            move |request| {
+                call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::call_plugin_action(&action_paths, request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                call(&job_paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+        )
+        .map_err(CliError::Terminal);
+    }
     if arguments
         .first()
         .is_some_and(|arg| arg == "login-condition" || arg == "login-prepare")
@@ -77,6 +116,8 @@ fn run() -> Result<(), CliError> {
             .map_err(|error| CliError::LoginFailure(error.to_string()));
     }
     if arguments == ["-h"] || arguments == ["--help"] {
+        #[cfg(feature = "tui")]
+        println!("  tui                             terminal controls; close leaves VPN unchanged");
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
@@ -87,10 +128,14 @@ fn run() -> Result<(), CliError> {
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
         println!("  runtime observation              fresh local facts; not VPN connectivity");
+        println!("  doctor                           bounded local facts; network not tested");
         println!("  runtime traffic                  owned TUN counters, or unavailable");
         println!("  plugin target                    read committed launcher target only");
         println!(
             "  cutover activate                 explicit disconnected native ownership transition"
+        );
+        println!(
+            "  dns-pair status|prepare-template|select\n                                  inspect or opt in to the reviewed pair while stopped"
         );
         println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
         println!("  plugin disconnect INSTANCE REVISION OPERATION");
@@ -128,6 +173,9 @@ fn run() -> Result<(), CliError> {
             "  plugin profile-replace INSTANCE REVISION OPERATION  stdin: ID newline NAME newline INPUT"
         );
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
+        println!(
+            "  diagnostics setup                safe TUN setup log hints; no automatic repair"
+        );
         println!("  runtime test                      explicit current-route HTTPS/IP observation");
         println!("  diagnostics export               shareable bounded native support report");
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
@@ -154,6 +202,23 @@ fn run() -> Result<(), CliError> {
         println!(
             "                                  explicit private client-only helpers; input through stdin"
         );
+        return Ok(());
+    }
+    if arguments.first().is_some_and(|arg| arg == "dns-pair") {
+        let outcome = match arguments.as_slice() {
+            [_, command] if command == "status" => {
+                omavless_runtime::managed_selection::status_current()
+            }
+            [_, command] if command == "select" => {
+                omavless_runtime::managed_selection::select_current()
+            }
+            [_, command] if command == "prepare-template" => {
+                omavless_runtime::managed_selection::prepare_template_current()
+            }
+            _ => return Err("Invalid DNS pair command".into()),
+        }
+        .map_err(|error| error.to_string())?;
+        println!("{outcome}");
         return Ok(());
     }
     if arguments.first().is_some_and(|arg| arg == "plugin")
@@ -409,6 +474,13 @@ fn run() -> Result<(), CliError> {
             .and_then(|server| server.serve_until(&stop))
             .map_err(|error| CliError::Message(error.to_string()));
     }
+    if arguments == ["doctor"] {
+        let response =
+            call(&paths, "runtime.observation", json!({})).map_err(|error| error.to_string())?;
+        let report = omavless_runtime::doctor::project(&response)?;
+        println!("{report}");
+        return Ok(());
+    }
     let (method, params) = if arguments == ["hello"] {
         ("system.hello", json!({"versions": [1]}))
     } else if arguments == ["status"] {
@@ -489,6 +561,8 @@ fn run() -> Result<(), CliError> {
     let response = if method == "plugin.action" {
         omavless_runtime::call_plugin_action(&paths, params)
             .map_err(|_| CliError::ActionOutcomeUnknown)?
+    } else if is_semantic_lifecycle_method(method) {
+        call_semantic_lifecycle(&paths, method, params).map_err(semantic_lifecycle_error)?
     } else {
         call(&paths, method, params).map_err(|error| error.to_string())?
     };
@@ -506,6 +580,12 @@ fn run() -> Result<(), CliError> {
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
+        #[cfg(feature = "tui")]
+        Err(CliError::Terminal(message)) => {
+            // The terminal may have been physically closed, including stderr.
+            let _ = writeln!(io::stderr(), "{message}");
+            ExitCode::from(2)
+        }
         Err(CliError::DesktopCancelled) => ExitCode::from(3),
         Err(CliError::LoginSkip) => ExitCode::from(1),
         Err(CliError::LoginFailure(message)) => {
@@ -520,6 +600,10 @@ fn main() -> ExitCode {
             );
             ExitCode::from(73)
         }
+        Err(CliError::SemanticOutcomeUnknown) => {
+            eprintln!("OmaVLESS action outcome is unknown; inspect status before another action");
+            ExitCode::from(73)
+        }
         Err(CliError::ActionNotAdmitted) => {
             eprintln!("OmaVLESS action was not submitted; review the input before retrying");
             ExitCode::from(74)
@@ -528,5 +612,30 @@ fn main() -> ExitCode {
             eprintln!("{message}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantic_lifecycle_transport_error_requires_status_reconciliation() {
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::Protocol),
+            CliError::SemanticOutcomeUnknown
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::Io),
+            CliError::SemanticOutcomeUnknown
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::SocketUnavailable),
+            CliError::Message(_)
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::PermissionDenied),
+            CliError::Message(_)
+        ));
     }
 }

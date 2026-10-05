@@ -116,6 +116,19 @@ class PackagePolicyTests(unittest.TestCase):
         self.assertRefused("build_identity", lambda: gate.validate_build_identity(
             dict(package, pkgver="0.0.0.r1.gbbbbbbbbbbbb-1"), self.identity("1")))
 
+    def test_beta_identity_is_candidate_only_and_version_exact(self):
+        package = dict(arch="aarch64", pkgver="0.9.5beta1-1")
+        identity = self.identity("2", "0.9.5-beta.1")
+        self.assertEqual(gate.validate_build_identity(package, identity)["productVersion"],
+                         "0.9.5-beta.1")
+        for version in ("0.9.5-1", "0.9.5rc1-1", "0.9.5beta2-1", "0.9.5beta1-2"):
+            self.assertRefused("package_version", lambda: gate.validate_build_identity(
+                dict(package, pkgver=version), identity))
+        for schema, product in (("3", "0.9.5-beta.1"), ("2", "0.9.5-beta.0"),
+                                ("2", "0.9.5-beta.01"), ("2", "0.9.5-alpha.1")):
+            self.assertRefused("package_version", lambda: gate.validate_build_identity(
+                package, self.identity(schema, product)))
+
     def test_candidate_identity_rejects_extra_duplicate_unsafe_and_stable_versions(self):
         package = dict(arch="aarch64", pkgver="0.8.0rc1-1")
         for raw in (self.identity() + b"arbitrary=value\n",
