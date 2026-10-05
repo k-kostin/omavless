@@ -1,12 +1,13 @@
 # T4 charged stopped-inventory actor candidate
 
-Status: inert SOURCE building block from documentation successor `f76f6d54`
-of the exact tested developer stage `d2f58377`. The private module is included
-only by cfg(test) beneath the opt-in actor service. No production caller,
-manager query, proc acquisition, child launch, actor limit change, wire method
-or StoppedOwner constructor is added. Original developer RLIMIT64 and the
-legacy Bundle/StoppedOwner contracts are unchanged. This candidate cannot
-turn fixed PID1 or copied classification facts into canonical manager proof.
+Status: unselected functional SOURCE successor of the separately reviewed
+inert checkpoint `3560681f`, based on documentation successor `f76f6d54` of
+the exact tested developer stage `d2f58377`. New explicit opt-in developer
+flags implement actual fixed canonical-manager/stopped-inventory observation;
+no manager query, proc acquisition, child/native body or VM action has been
+selected. Compilation and memory controls are not actual acceptance. The
+classic PID1/authentication/stage modes retain RLIMIT64, and the legacy
+Bundle/StoppedOwner contracts are unchanged. No legacy StoppedOwner is forged.
 
 Owning contracts: [private backup/restore](../roadmap/PRIVATE_BACKUP_RESTORE.md),
 [actor service](T4_MANAGER_ACTOR_SERVICE.md), [explicit stopped-owner recovery](T4_FIRST_ABORT_CLI.md)
@@ -50,7 +51,7 @@ would require honest early capacity refusal on a small complete inventory,
 not a normal-VM compatibility assertion. Exotic hidden kernel-reference stores
 and extra custodian processes are not justified here.
 
-## Implemented inert owner and regression boundaries
+## Reviewed inert owner and regression boundaries
 
 The generic private owner reserves bounded row/name storage before any mock
 acquisition. Names must be a nonempty sorted unique list of at most4096 positive
@@ -59,6 +60,8 @@ root, never a client-supplied subset. Each row acquires in exact catalogue order
 omission, repetition, changed sets and an incomplete final sweep seal forever.
 Every row must have a class; SameUid must additionally have its original image.
 Neither a negative class nor a memory callback is genuine proc/manager evidence.
+This section records the inert356 checkpoint; the functional caller below is
+a separately reviewed boundary, not evidence borrowed from these controls.
 
 Charging happens before the backend/open. Every reported positive directory,
 image or scratch resource is installed before post-deadline or subsequent
@@ -66,6 +69,9 @@ checks. An acquisition, gate, classifier, row recheck or final-pass error seals
 the original owner with its reported prefix. No later callback/open, finish or
 capacity recycling occurs. The tests use memory Drop counters, not actual FDs.
 Fatal owner loss and unreported backend partial resources remain excluded.
+The guarded owner latches Result errors only; it does not catch panic/unwind.
+The functional actor keeps this owner outside its fallible operation closure,
+but has no unwind or fatal-descriptor-survival claim.
 
 The same original directory is borrowed for SameUid image acquisition and all
 strict row checks, not reconstructed from metadata. A bounded scratch slot
@@ -80,8 +86,8 @@ charged before every open and completely empty at each row completion; the
 final completion checks it again. Backend implementations must route every
 newly returned File through this owner and reserve private output buffers before
 fallible postchecks. An immutable callback argument is not a sandbox or permission
-to hide multiple opens/effects in one outer gate. No production callbacks exist
-in this checkpoint.
+to hide multiple opens/effects in one outer gate. No production callbacks existed
+in356; the new actual backend must be reviewed separately in full.
 
 Controls cover4096 negative rows with none skipped,4096 same-UID rows plus all
 eight scratch at the exact8320 bound, before-open capacity refusal, each
@@ -132,3 +138,134 @@ capture controls passed (`ad4fdd`), all-target feature Clippy with warnings
 denied passed (`c53e8c`), and normal no-feature library check passed (`aab611`).
 No proc/query/actor/native body or VM action was selected. These are not actual
 row ownership, canonical manager, product-FD-limit or StoppedOwner acceptance.
+
+## Functional canonical developer source (unselected)
+
+`--observe-canonical-stopped` selects a distinct supervisor scenario and
+`--actor-canonical` selects its private actor entry. Both inherit the same
+exclusive fixed epoch reservation, original child/pidfd/private-channel
+authentication, challenge/READY and permanent context revocation. Only this
+explicit scenario sets its reviewed candidate hard/soft ceiling to8320 before
+launch; the classic supervisor and actor keep64. The canonical actor reserves
+all4096 row/metadata/name entries, fixed-owner storage and bounded read/directory
+buffers before READY. It accepts only one ObserveStopped request followed by a
+separately valid normal Halt. Other requests, repeated observation, missing
+completion, late/wrong replies and Result errors park the original owner without
+queries, signals, reap, eviction, retry or reset. Fixed completion12→13 has no
+FD, PID, path, proof token or serialized authority payload.
+
+Target UID1000 and the normal `/run/user/1000/omavless/control.sock` are fixed
+trusted-administrator VM scope, not client input. Root actor identity is checked
+against its fixed private entry arguments; it is not the legacy recovery CLI
+self exception. Other same-UID rows still receive complete daemon-candidate
+checks, including deleted image names, renamed executables and cross-network
+namespace processes. Alternate runtime paths, product launcher/broker/session
+origin, Off/idle/singleton/TUN/core authority and genuine Restore permission
+remain unavailable. The default runtime path and canonical fallback coincide;
+this mode does not guess an alternate HOME socket or claim arbitrary-path
+listener absence.
+
+The installed root/usr/bin/lib/systemd path and systemctl/systemd images are
+retained before checks and rechecked by current named/held identity. Root-owned
+safe executable admission uses the existing strict predicates, not an arbitrary
+path or imported FD. Execution uses the original systemctl FD with fixed args,
+closed environment and fixed bus addresses. Ordinary installed dynamic
+loader/libraries and std process/pipe/close internals remain trusted backend
+assumptions, not strong toolchain/all-FD/fatal custody attestations.
+
+Every returned Child is installed in the outer canonical owner immediately;
+its reported stdout is transferred before the post-spawn gate, and its original
+pidfd is retained before post-open checks. Exclusive actor reaping and the
+unchanged single-thread/SIGCHLD prerequisites exclude another waiter. Only
+actual EOF and exact original WNOWAIT exit0 permit waiting/reaping that original
+child. Nonzero/signaled/wrong-child/unknown/read/parser/deadline failures retain
+the reported prefix and permanently forbid another query or compensation.
+After original zero, strict response parse, tool recheck and final gate, the
+known-positive query handles may release. Stdio null/partial constructor
+resources unreported by std remain ordinary backend behavior, not owned-error
+evidence. Query output and process command bytes never enter diagnostics.
+
+There are seven finite fixed queries: initial `user@1000.service`, then two
+rounds of that unit plus `omavless.service` and `omavless-runtime.service`.
+The actual active/running/nonzero/ControlPID0 manager result determines the
+captured process; all four UIDs, sole namespace PID, start, command/comm,
+installed systemd image, original PID/user namespaces and original live pidfd
+are checked. Both runtime units must genuinely be inactive/dead/zero. All query
+children finish before the first frozen PID catalogue; final queries finish
+before the final row sweep and final catalogue. This ordering prevents this
+observer's own systemctl children from creating artificial inventory churn.
+Queries remain original observations, never a substitute for manager origin.
+
+The backend reuses the charged owner from356: one original directory per PID,
+and one original executable for each same-UID row. Every row is classified and
+its original status/start/image/command/comm/current name is checked. Other-UID
+directories remain held through the final whole pass. Text reads use one
+positively reusable retained scratch slot; pre/post current-name checks, bounded
+read-at from offset0, strict parse and final gate all precede release. Any
+failure retains scratch and the row prefix. Exact before/intermediate/final
+numeric catalogues come from the same original unrestricted proc root, with
+at most16384 charged next operations including EOF per traversal and at most4096
+numeric rows; malformed numeric names, overflow, duplicate, changed or missing
+rows refuse. No std read_dir duplicate proc FD or growing directory buffer is
+used. Proc visibility, original observer namespaces, live manager and fixed
+listener checks remain required. The complete observation is bounded by the
+existing2-second/16MiB budget clipped to the authenticated5-second operation;
+supervisor whole15 seconds is unchanged. These are sampled guards, not syscall
+preemption, atomic global snapshots or a hostile-manager guarantee.
+
+| Reported canonical actor roles | Maximum |
+| --- | ---: |
+| Installed path/image Files (root + six children) | 7 |
+| Original proc root | 1 |
+| Observer directory/stat/status/command/comm/image/two namespaces | 8 |
+| Observer four namespace originals | 4 |
+| fdinfo/mountinfo/net/unix Files | 4 |
+| Actual manager directory/text/image/two namespaces | 8 |
+| Two original proc-visibility text handles | 2 |
+| Continuously held manager pidfd | 1 |
+| Actor stdio + original channel | 4 |
+| Active original query stdout + pidfd | 2 |
+| Reported fixed actor maximum | 41 |
+| Future lower ledger reservation (not acquired here) | 36 |
+| Unallocated fixed-envelope margin | 43 |
+| Reserved fixed total | 120 |
+
+The actual fixed File owner refuses BEFORE a35th File open. Only one query is
+active; its stdout/pidfd never borrow row/scratch slots. The conservative current
+reported upper bound is8192 row/image +41 fixed +one active row scratch =8234,
+below8320. Queries and row scratch do not overlap: the tighter query-side bound
+is8233, and the row-side bound is8232. The conservative generic owner reserves
+120 fixed +all8 scratch even though only one scratch is used by this backend.
+Std's hidden spawn/stdio internals are not counted as reported originals; no
+proven89/128 all-internal-role claim is made. No heap/kernel-reference quota or
+implicit future lower integration is implied by unused margin.
+
+Diagnostics are closed public literals from the start: nine fixed surrounding
+phases, two query phases repeated exactly seven times on the complete path,
+and one actor completion, at most24 actor frames. The supervisor has seven
+frames. No row count, raw proc bytes, unit result, dynamic path, errno or exception
+text is emitted. Phase emission failure is the same original refusal; no
+secondary failure-time log/query runs. A last frame does not establish cause,
+completion, ordering, current ownership or Restore authority. A separately
+reviewed fresh packet will pre-scope only its exact two capture files and this
+bounded vocabulary before ROOT may select it. The old stage tested head and
+its packet remain unchanged.
+
+Before any new canonical selection, ROOT reported an explicitly authorized
+disposable-VM reboot/reset with new boot prefix `02c0a195`, preserving persistent
+disk/profiles and deliberately discarding the known-positive T4 synthetic run
+tree. This is VM administration, not the old retirement recipe, uncertain
+product reset or Restore/crash-recovery acceptance. No author inspected that
+scope or the new VM state. A new fixed packet still requires separate review
+and ROOT selection; this note is not permission to reuse an old invocation.
+
+Functional SOURCE gates:13 canonical/row memory controls passed (`9d9922`),
+37 actor/protocol/transfer/stage memory controls passed (`54183a`), seven unchanged
+capture controls passed (same `9d9922` command's separate gate), all-target feature
+Clippy with warnings denied passed (`c09d9c`), and normal no-feature library check
+passed (`57f66b`). Initial compile `ee7c10` failed on a private test-constant scope
+and forbidden unsafe readlink; it remains NONPASS. The successor uses safe
+bounded rustix1.1.5 `readlinkat_raw` and the exact private scope, with later
+compilation/pure gates zero. No installed systemctl/manager/proc or actor body
+was run by the author. Actual canonical observation, whole-inventory stability,
+reported FD custody and product authority remain untested.

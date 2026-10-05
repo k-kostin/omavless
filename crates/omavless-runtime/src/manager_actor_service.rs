@@ -13,10 +13,8 @@ mod retained_io;
 mod stage;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
-#[cfg(test)]
-#[path = "manager_actor_inventory_candidate.rs"]
-mod inventory_candidate;
 
+use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical};
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use nix::fcntl::{OFlag, open};
 use nix::sys::resource::{Resource, getrlimit, setrlimit};
@@ -39,7 +37,7 @@ use std::time::{Duration, Instant};
 const EPOCH: &str = "/run/omavless-t4-actor-development";
 const SENTINEL: &str = "/run/omavless-t4-actor-development/reserved";
 const CHANNEL: &str = "/run/omavless-t4-actor-development/channel";
-const ACTOR_NOFILE: u64 = 64;
+pub(crate) const ACTOR_NOFILE: u64 = 64;
 const WHOLE_SECONDS: u64 = 15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -238,6 +236,7 @@ pub enum DeveloperScenario {
     DisconnectAfterFirst,
     AuthenticateBackup,
     StageAuthenticatedBackup,
+    CanonicalStopped,
 }
 
 impl DeveloperScenario {
@@ -245,7 +244,7 @@ impl DeveloperScenario {
         match self {
             Self::CapacityThree => 3,
             Self::CapacityFourth => 4,
-            Self::AuthenticateBackup | Self::StageAuthenticatedBackup => 0,
+            Self::AuthenticateBackup | Self::StageAuthenticatedBackup | Self::CanonicalStopped => 0,
             _ => 1,
         }
     }
@@ -405,9 +404,15 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     emit(b"t4_service_before_startup\n", until)?;
     startup()?;
     epoch()?;
-    setrlimit(Resource::RLIMIT_NOFILE, ACTOR_NOFILE, ACTOR_NOFILE).map_err(|_| Unavailable)?;
-    if getrlimit(Resource::RLIMIT_NOFILE).map_err(|_| Unavailable)? != (ACTOR_NOFILE, ACTOR_NOFILE)
-    {
+    let nofile = if scenario == DeveloperScenario::CanonicalStopped {
+        actor_canonical::NOFILE
+    } else {
+        ACTOR_NOFILE
+    };
+    // The fixed explicit canonical mode must inherit its separately reviewed
+    // ceiling; the classic actor's64 hard ceiling is never raised implicitly.
+    setrlimit(Resource::RLIMIT_NOFILE, nofile, nofile).map_err(|_| Unavailable)?;
+    if getrlimit(Resource::RLIMIT_NOFILE).map_err(|_| Unavailable)? != (nofile, nofile) {
         return Err(Unavailable);
     }
     // Fixed synthetic crypto is prepared BEFORE reservation/launch. It shares
@@ -451,7 +456,11 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     // Fresh exec, no threads/waiters, no SIGCHLD handler or ignored disposition.
     // std spawn's internally unreported partial acquisitions are not attested.
     let child = Command::new(std::env::current_exe().map_err(|_| Unavailable)?)
-        .arg("--actor")
+        .arg(if scenario == DeveloperScenario::CanonicalStopped {
+            "--actor-canonical"
+        } else {
+            "--actor"
+        })
         .env_clear()
         .env("LC_ALL", "C")
         .stdin(Stdio::null())
@@ -537,6 +546,17 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_fixture_stage_recorded\n", until)?;
     }
+    if scenario == DeveloperScenario::CanonicalStopped {
+        exchange(
+            stream,
+            &mut context,
+            Kind::ObserveStopped,
+            RequestShape::Exact,
+            until,
+        )?;
+        alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
+        emit(b"t4_service_canonical_stopped_observed\n", until)?;
+    }
     if scenario == DeveloperScenario::CapacityFourth {
         // Unexpected fourth completion cannot silently turn a refusal scenario
         // into normal Halt/success, even if a future capacity regression exists.
@@ -599,6 +619,102 @@ struct Supervisor {
     _listener: UnixListener,
     _sentinel: File,
     _entropy: File,
+}
+
+/// Separate fixed-admin developer mode. Never selected by the classic actor
+/// wire and never changes that mode's64-FD envelope or PID1 predicates.
+pub fn actor_canonical_entry() -> Result<(), Unavailable> {
+    startup()?;
+    epoch()?;
+    setrlimit(
+        Resource::RLIMIT_NOFILE,
+        actor_canonical::NOFILE,
+        actor_canonical::NOFILE,
+    )
+    .map_err(|_| Unavailable)?;
+    if getrlimit(Resource::RLIMIT_NOFILE).map_err(|_| Unavailable)?
+        != (actor_canonical::NOFILE, actor_canonical::NOFILE)
+    {
+        return Err(Unavailable);
+    }
+    let mut channel = UnixStream::connect(CHANNEL).map_err(|_| Unavailable)?;
+    peer(
+        &channel,
+        u32::try_from(getppid().as_raw()).map_err(|_| Unavailable)?,
+    )?;
+    channel.set_nonblocking(true).map_err(|_| Unavailable)?;
+    let until = Instant::now() + Duration::from_secs(5);
+    let challenge = receive(&mut channel, until)?;
+    if challenge.kind != Kind::Challenge || challenge.sequence != 0 {
+        return Err(Unavailable);
+    }
+    let mut context = Context::new(challenge.nonce)?;
+    let mut canonical = Canonical::reserve()?; // before READY or any proc/query
+    io_frame(
+        &mut channel,
+        Some(Frame {
+            kind: Kind::Ready,
+            sequence: 0,
+            nonce: context.nonce,
+        }),
+        until,
+    )?;
+    context.phase = Phase::Live;
+    loop {
+        let until = Instant::now() + Duration::from_secs(5);
+        let result = (|| {
+            let request = receive(&mut channel, until)?;
+            let kind = request.kind;
+            let expected = context.begin(kind)?;
+            if request.sequence != expected.sequence || request.nonce != expected.nonce {
+                return Err(Unavailable);
+            }
+            let reply = match kind {
+                Kind::ObserveStopped => {
+                    canonical.observe(until)?;
+                    emit_actor(b"t4_actor_canonical_stopped_observed\n", until)?;
+                    Kind::StoppedObserved
+                }
+                Kind::Halt => {
+                    canonical.finish()?;
+                    Kind::Closed
+                }
+                _ => return Err(Unavailable),
+            };
+            io_frame(
+                &mut channel,
+                Some(Frame {
+                    kind: reply,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                }),
+                until,
+            )?;
+            context.completed(
+                Frame {
+                    kind: reply,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                },
+                reply,
+            )?;
+            Ok(kind == Kind::Halt)
+        })();
+        match result {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(_) => {
+                context.revoke();
+                // Owner and channel remain outside the fallible closure. No
+                // query, read, reply, reap or retry after uncertainty.
+                let _held = canonical;
+                let _channel = channel;
+                loop {
+                    std::thread::park();
+                }
+            }
+        }
+    }
 }
 
 fn quarantine(

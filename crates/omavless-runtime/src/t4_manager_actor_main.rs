@@ -7,6 +7,8 @@ fn main() -> ExitCode {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     let result = if arguments == ["--actor"] {
         omavless_runtime::manager_actor_service::actor_entry()
+    } else if arguments == ["--actor-canonical"] {
+        omavless_runtime::manager_actor_service::actor_canonical_entry()
     } else if arguments == ["--observe-manager"] {
         omavless_runtime::manager_actor_service::supervisor_entry()
     } else if let Some(scenario) = match arguments.as_slice() {
@@ -31,6 +33,9 @@ fn main() -> ExitCode {
         [arg] if arg == "--stage-authenticated-backup" => Some(
             omavless_runtime::manager_actor_service::DeveloperScenario::StageAuthenticatedBackup,
         ),
+        [arg] if arg == "--observe-canonical-stopped" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalStopped)
+        }
         _ => None,
     } {
         omavless_runtime::manager_actor_service::supervisor_scenario(scenario)

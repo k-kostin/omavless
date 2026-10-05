@@ -19,6 +19,8 @@ pub(super) enum Kind {
     BackupAuthenticated,
     StageAuthenticatedBackup,
     StageRecorded,
+    ObserveStopped,
+    StoppedObserved,
 }
 
 impl Kind {
@@ -35,6 +37,8 @@ impl Kind {
             Self::BackupAuthenticated => 9,
             Self::StageAuthenticatedBackup => 10,
             Self::StageRecorded => 11,
+            Self::ObserveStopped => 12,
+            Self::StoppedObserved => 13,
         }
     }
     fn from_byte(value: u8) -> Result<Self, Unavailable> {
@@ -50,6 +54,8 @@ impl Kind {
             9 => Ok(Self::BackupAuthenticated),
             10 => Ok(Self::StageAuthenticatedBackup),
             11 => Ok(Self::StageRecorded),
+            12 => Ok(Self::ObserveStopped),
+            13 => Ok(Self::StoppedObserved),
             _ => Err(Unavailable),
         }
     }
@@ -59,6 +65,7 @@ impl Kind {
             Self::Halt => Ok(Self::Closed),
             Self::AuthenticateBackup => Ok(Self::BackupAuthenticated),
             Self::StageAuthenticatedBackup => Ok(Self::StageRecorded),
+            Self::ObserveStopped => Ok(Self::StoppedObserved),
             _ => Err(Unavailable),
         }
     }
@@ -155,6 +162,7 @@ impl Context {
                 | (Some(Kind::Halt), Kind::Closed)
                 | (Some(Kind::AuthenticateBackup), Kind::BackupAuthenticated)
                 | (Some(Kind::StageAuthenticatedBackup), Kind::StageRecorded)
+                | (Some(Kind::ObserveStopped), Kind::StoppedObserved)
         ) {
             self.revoke();
             return Err(Unavailable);
@@ -209,6 +217,8 @@ mod tests {
             Kind::BackupAuthenticated,
             Kind::StageAuthenticatedBackup,
             Kind::StageRecorded,
+            Kind::ObserveStopped,
+            Kind::StoppedObserved,
         ] {
             let raw = frame(kind, 2).encode().unwrap();
             let decoded = Frame::decode(&raw).unwrap();
@@ -249,6 +259,19 @@ mod tests {
             .completed(frame(Kind::Closed, 2), Kind::Closed)
             .unwrap();
         assert!(context.begin(Kind::ObserveManager).is_err());
+    }
+    #[test]
+    fn canonical_completion_is_bound_to_original_pending_kind() {
+        for reply in [Kind::Completed, Kind::StageRecorded, Kind::StoppedObserved] {
+            let mut context = Context::new([1; 32]).unwrap();
+            context.ready(frame(Kind::Ready, 0)).unwrap();
+            context.begin(Kind::ObserveStopped).unwrap();
+            let result = context.completed(frame(reply, 1), reply);
+            assert_eq!(result.is_ok(), reply == Kind::StoppedObserved);
+            if result.is_err() {
+                assert!(context.begin(Kind::Halt).is_err());
+            }
+        }
     }
     #[test]
     fn missing_ready_late_reply_wrong_context_and_sequence_permanently_revoke() {

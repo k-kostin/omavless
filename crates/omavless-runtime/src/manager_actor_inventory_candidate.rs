@@ -1,23 +1,26 @@
 // SPDX-License-Identifier: MIT
-//! Inert charged original-row owner. No proc/query/backend or wire caller.
-//! Production integration must supply genuine strict capture/observation bodies.
+//! Charged original-row owner; the canonical developer backend supplies strict
+//! proc operations. Memory controls alone establish no manager authority.
 
-use super::Unavailable;
+use crate::manager_actor_service::Unavailable;
 
 const MAX_ROWS: usize = 4096;
 const SCRATCH: usize = 8;
 // Candidate ONLY: the fixed origin/query/lower total still needs full counting.
+#[cfg(test)]
 const CANDIDATE_FIXED: usize = 120;
+#[cfg(test)]
 const CANDIDATE_NOFILE: usize = 8320;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Class {
+pub(super) enum Class {
     OtherUid,
     SameUid,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
+    AwaitCatalogue,
     Rows,
     Sweep,
     Complete,
@@ -38,7 +41,7 @@ struct Scratch<T> {
     completed: bool,
 }
 
-struct Owner<T> {
+pub(super) struct Owner<T> {
     expected: Vec<u32>,
     rows: Vec<Row<T>>,
     scratch: [Option<Scratch<T>>; SCRATCH],
@@ -49,6 +52,61 @@ struct Owner<T> {
 }
 
 impl<T> Owner<T> {
+    pub(super) fn reserve_before_ready(fixed: usize, bound: usize) -> Result<Self, Unavailable> {
+        if fixed.checked_add(SCRATCH).is_none_or(|need| need > bound) {
+            return Err(Unavailable);
+        }
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(MAX_ROWS).map_err(|_| Unavailable)?;
+        let mut expected = Vec::new();
+        expected
+            .try_reserve_exact(MAX_ROWS)
+            .map_err(|_| Unavailable)?;
+        Ok(Self {
+            expected,
+            rows,
+            scratch: std::array::from_fn(|_| None),
+            phase: Phase::AwaitCatalogue,
+            charged: fixed,
+            bound,
+            swept: 0,
+        })
+    }
+
+    pub(super) fn admit_catalogue(&mut self, expected: &[u32]) -> Result<(), Unavailable> {
+        self.guarded(|owner| {
+            if owner.phase != Phase::AwaitCatalogue
+                || expected.is_empty()
+                || expected.len() > MAX_ROWS
+                || expected[0] == 0
+                || expected.windows(2).any(|pair| pair[0] >= pair[1])
+            {
+                return Err(Unavailable);
+            }
+            owner.expected.extend_from_slice(expected);
+            owner.phase = Phase::Rows;
+            Ok(())
+        })
+    }
+
+    pub(super) fn row_originals(&self) -> Result<(&T, Option<&T>), Unavailable> {
+        let row = &self.rows[self.current_row()?];
+        Ok((&row.directory, row.executable.as_ref()))
+    }
+
+    pub(super) fn scratch_original(&self, slot: usize) -> Result<&T, Unavailable> {
+        if matches!(self.phase, Phase::Revoked | Phase::Finished) {
+            return Err(Unavailable);
+        }
+        Ok(&self
+            .scratch
+            .get(slot)
+            .and_then(Option::as_ref)
+            .ok_or(Unavailable)?
+            .original)
+    }
+
+    #[cfg(test)]
     fn reserve(expected: &[u32], fixed: usize, bound: usize) -> Result<Self, Unavailable> {
         if expected.is_empty()
             || expected.len() > MAX_ROWS
@@ -77,7 +135,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn refuse(&mut self) -> Result<(), Unavailable> {
+    pub(super) fn refuse(&mut self) -> Result<(), Unavailable> {
         self.phase = Phase::Revoked;
         Err(Unavailable)
     }
@@ -115,7 +173,7 @@ impl<T> Owner<T> {
         }
     }
 
-    fn directory(
+    pub(super) fn directory(
         &mut self,
         pid: u32,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
@@ -143,7 +201,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn classify(
+    pub(super) fn classify(
         &mut self,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
         strict_capture: impl FnOnce(&T) -> Result<Class, Unavailable>,
@@ -164,7 +222,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn executable(
+    pub(super) fn executable(
         &mut self,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
         acquire_from_original: impl FnOnce(&T) -> Result<T, Unavailable>,
@@ -186,7 +244,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn scratch_acquire(
+    pub(super) fn scratch_acquire(
         &mut self,
         slot: usize,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
@@ -208,7 +266,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn scratch_perform(
+    pub(super) fn scratch_perform(
         &mut self,
         slot: usize,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
@@ -228,7 +286,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn scratch_release(
+    pub(super) fn scratch_release(
         &mut self,
         slot: usize,
         gate: impl FnOnce() -> Result<(), Unavailable>,
@@ -250,7 +308,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn complete_row(
+    pub(super) fn complete_row(
         &mut self,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
         strict_recheck: impl FnOnce(&T, Option<&T>, Class) -> Result<(), Unavailable>,
@@ -272,7 +330,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn begin_sweep(&mut self, current: &[u32]) -> Result<(), Unavailable> {
+    pub(super) fn begin_sweep(&mut self, current: &[u32]) -> Result<(), Unavailable> {
         self.guarded(|owner| {
             if owner.phase != Phase::Rows
                 || owner.rows.len() != owner.expected.len()
@@ -286,7 +344,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn recheck_row(
+    pub(super) fn recheck_row(
         &mut self,
         pid: u32,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
@@ -315,7 +373,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn complete_inventory(
+    pub(super) fn complete_inventory(
         &mut self,
         current: &[u32],
         gate: impl FnOnce() -> Result<(), Unavailable>,
@@ -334,7 +392,7 @@ impl<T> Owner<T> {
         })
     }
 
-    fn finish(&mut self) -> Result<(), Unavailable> {
+    pub(super) fn finish(&mut self) -> Result<(), Unavailable> {
         if self.phase != Phase::Complete {
             return self.refuse();
         }
@@ -382,6 +440,87 @@ mod tests {
                 },
             )
             .unwrap();
+    }
+
+    #[test]
+    fn deferred_catalogue_is_one_shot_and_rejects_before_backend() {
+        for names in [vec![], vec![0], vec![2, 1], vec![1, 1]] {
+            let mut owner = Owner::<Handle>::reserve_before_ready(120, 8320).unwrap();
+            assert!(owner.admit_catalogue(&names).is_err());
+            assert!(
+                owner
+                    .directory(1, || panic!("sealed gate"), || panic!("sealed open"))
+                    .is_err()
+            );
+            assert!(owner.finish().is_err());
+        }
+        let mut owner = Owner::<Handle>::reserve_before_ready(120, 8320).unwrap();
+        owner.admit_catalogue(&[1]).unwrap();
+        assert!(owner.admit_catalogue(&[1]).is_err());
+        assert!(owner.finish().is_err());
+    }
+
+    #[test]
+    fn executable_late_return_classifier_and_recheck_errors_keep_original_prefix() {
+        for cut in 0..4 {
+            let drops = Rc::new(Cell::new(0));
+            let mut owner = Owner::reserve(&[1], 120, 8320).unwrap();
+            owner
+                .directory(1, || Ok(()), || Ok(handle(1, &drops)))
+                .unwrap();
+            if cut == 0 {
+                assert!(owner.classify(|| Ok(()), |_| Err(Unavailable)).is_err());
+            } else {
+                owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+                let calls = Cell::new(0);
+                let result = owner.executable(
+                    || {
+                        let call = calls.get();
+                        calls.set(call + 1);
+                        if cut == 1 && call == 1 {
+                            Err(Unavailable)
+                        } else {
+                            Ok(())
+                        }
+                    },
+                    |_| Ok(handle(2, &drops)),
+                );
+                if cut == 1 {
+                    assert!(result.is_err());
+                    assert!(owner.rows[0].executable.is_some());
+                } else {
+                    result.unwrap();
+                    if cut == 2 {
+                        assert!(
+                            owner
+                                .complete_row(|| Ok(()), |_, _, _| Err(Unavailable))
+                                .is_err()
+                        );
+                    } else {
+                        owner.complete_row(|| Ok(()), |_, _, _| Ok(())).unwrap();
+                        owner.begin_sweep(&[1]).unwrap();
+                        assert!(
+                            owner
+                                .recheck_row(1, || Ok(()), |_, _, _| Err(Unavailable))
+                                .is_err()
+                        );
+                    }
+                }
+            }
+            assert_eq!(drops.get(), 0);
+            assert!(
+                owner
+                    .directory(1, || panic!("sealed gate"), || panic!("sealed open"))
+                    .is_err()
+            );
+            assert!(
+                owner
+                    .classify(|| panic!("sealed gate"), |_| panic!("sealed classifier"))
+                    .is_err()
+            );
+            assert!(owner.finish().is_err());
+            assert_eq!(drops.get(), 0);
+        }
     }
 
     #[test]
@@ -547,7 +686,7 @@ mod tests {
     #[test]
     fn exact_4096_row_capacity_has_no_skip_or_active_limit_change() {
         assert_eq!(MAX_ROWS * 2 + CANDIDATE_FIXED + SCRATCH, CANDIDATE_NOFILE);
-        assert_eq!(super::super::ACTOR_NOFILE, 64);
+        assert_eq!(crate::manager_actor_service::ACTOR_NOFILE, 64);
         let pids: Vec<u32> = (1..=MAX_ROWS as u32).collect();
         let drops = Rc::new(Cell::new(0));
         let mut owner = Owner::reserve(&pids, CANDIDATE_FIXED, CANDIDATE_NOFILE).unwrap();
