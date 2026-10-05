@@ -29,6 +29,24 @@ class Controls(unittest.TestCase):
     def seen(self,child):
         return SimpleNamespace(si_pid=child.pid,si_code=os.CLD_EXITED,si_status=0)
 
+    def test_fixed_native_local_caps_are_real_admissions_not_absolute_extensions(self):
+        session=l.Session('inner');session.deadline=65.0
+        for seconds in (5,6,8,15,20,65):
+            self.assertEqual(session.local_deadline(seconds),float(seconds))
+        with patch.object(l.time,'monotonic',return_value=60.0):
+            self.assertEqual(session.local_deadline(20),65.0)
+            self.assertEqual(session.local_deadline(15),65.0)
+        self.assertEqual(session.deadline,65.0)
+        for seconds in (True,15.0,20.0,14,16,19,21,90):
+            refused=l.Session('inner')
+            with self.assertRaises(l.Refused):refused.local_deadline(seconds)
+            self.assertTrue(refused.sealed)
+        for seconds in (15,20):
+            refused=l.Session('inner')
+            with patch.object(l.time,'monotonic',return_value=90.0):
+                with self.assertRaises(l.Refused):refused.local_deadline(seconds)
+            self.assertTrue(refused.sealed)
+
     def reap(self,session,child):
         with patch.object(l.os,'waitid',return_value=self.seen(child)), \
              patch.object(l.os,'waitpid',return_value=(child.pid,0)):

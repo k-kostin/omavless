@@ -14,7 +14,7 @@ HERE=Path(__file__).parent
 def module(name):
     spec=importlib.util.spec_from_file_location('copy_test_'+name,HERE/(name+'.py'))
     value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
-n=module('native_copy');a=module('artifacts')
+n=module('native_copy');a=module('artifacts');l=module('lifecycle')
 
 
 class Owner:
@@ -83,11 +83,26 @@ class Controls(unittest.TestCase):
             except OSError:pass  # Test-owned positive-close cuts can have closed it.
         self.temp.cleanup()
 
-    def construct(self):
+    def construct(self,ownership=None):
         value=n.NativeStore.__new__(n.NativeStore);self.instances.append(value)
         self.owner.retained.append(value)
-        value.__init__(self.owner,SimpleNamespace(Session=Owner),self.originals,self.artifacts)
+        value.__init__(self.owner,ownership or SimpleNamespace(Session=Owner),self.originals,self.artifacts)
         return value
+
+    def test_real_session_admits_copy_and_verify_caps_without_expanding_caller(self):
+        command=self.owner.command;now=[0.0]
+        with patch.object(l.time,'monotonic',side_effect=lambda:now[0]):
+            self.owner=l.Session('inner');self.owner.isolated=True
+            self.owner.deadline=65.0;self.owner.command=command
+            value=self.construct(l)
+            self.assertTrue(value.ready);self.assertEqual(value.deadline,65.0)
+            now[0]=21.0;value.verify(26.0)
+            self.assertEqual(value.deadline,65.0)
+            now[0]=26.0
+            with patch.object(n.os,'fstat') as metadata:
+                with self.assertRaises(n.Refused):value.verify(26.0)
+                metadata.assert_not_called()
+            self.assertTrue(value.sealed);self.assertTrue(self.owner.sealed)
 
     def test_full_inert_copy_new_inodes_same_bytes_and_sealed_destination(self):
         value=self.construct();self.assertTrue(value.ready);self.assertFalse(value.sealed)

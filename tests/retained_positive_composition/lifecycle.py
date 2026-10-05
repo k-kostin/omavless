@@ -167,7 +167,9 @@ class Session:
 
     @guarded
     def local_deadline(self, seconds):
-        require(type(seconds) is int and seconds in (5, 6, 8, 65), 'fixed_deadline')
+        # NativeStore's fixed20s copy and15s verification caps share this
+        # unchanged absolute Session fence, just like the existing local caps.
+        require(type(seconds) is int and seconds in (5, 6, 8, 15, 20, 65), 'fixed_deadline')
         now = clock()
         computed = now + seconds
         require(type(computed) is float and math.isfinite(computed) and now < computed,

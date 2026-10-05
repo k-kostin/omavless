@@ -420,8 +420,9 @@ after_native_copy. The complete conservative path has116 baseline/role labels
 unchanged; copying does not upgrade provenance to installed compatibility,
 authority, preservation, actual cause or a whole-flow PASS.
 
-Source-only controls: both Python3.14 and3.12.13 full test runs pass1150 tests
-(two existing skips), all JS/QML contracts and diff whitespace checks. Fourteen
+Source-only controls: the preceding705313 checkpoint's Python3.14 and3.12.13
+full test runs pass1150 tests (two existing skips), all JS/QML contracts and diff
+whitespace checks. Fifteen
 copy controls use nonexecuted synthetic bytes and mocked mount/identity custody,
 including genuine byte writes, new destination inodes, source/hash replacement,
 short/late I/O retention, seal refusal, covered/extra mount rejection, live FD
@@ -429,6 +430,19 @@ inventory grammar and shared lifetime/caller-cap refusal. They do not prove an
 actual tmpfs mount or ELF execution. Thirteen artifact controls include exact
 NativeStore-class admission, seal refusal before later metadata/hash I/O, and
 typed finite caller-deadline propagation/refusal.
+Independent review of705313 identified a concrete source admission blocker:
+NativeStore requested20/15-second local caps but the real Session admitted only
+5/6/8/65. The source-only successor adds exactly15/20 to that closed allowlist;
+the absolute Session fence and stricter image caller cap remain unchanged.
+Its regression constructs NativeStore with the real Session, exercises copy and
+verification admission, and refuses an expired stricter caller before metadata
+I/O. A separate real-Session control checks exact integer admission, nearby and
+typed-alias refusal, absolute-cap clipping and expiry. No705313 native scope was
+selected. The successor's first full gates caught an unupdated launcher graph
+pin; that developer source-test error is retained and corrected before fresh
+gates, not a native outcome. The corrected successor passes1152 tests (two
+existing skips) and all JS/QML contracts under both Python3.14 and3.12.13, plus
+diff whitespace checks; these remain source-only results.
 The initial developer run's stale phase-budget assertion remains a recorded
 source-test failure, corrected in the new source; it was not a native scope.
 Fresh whole source/capsule reviews and exact-head cloud gates remain pending.
