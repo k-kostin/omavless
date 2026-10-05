@@ -159,7 +159,7 @@ class Controls(unittest.TestCase):
                 with patch.object(l.os,'open',return_value=fd) as opened, \
                      patch.object(l.os,'stat',return_value=real_stat):
                     reader=l.pinned_module(entry,'graph.py')
-                self.assertEqual(reader.PINS['images.py'],'28bed5054f2f2674873764fce536d1f944084a015827a5c5c2b57b15d800203a')
+                    self.assertEqual(reader.PINS['images.py'],'cdeb5b7cc3dd8496ae80ba052b081d91b68fcce2cc3e8a4ff35e4c8caf6f05c8')
                 opened.assert_called_once_with(l.STAGE+'/graph.py',l.FLAGS)
                 self.assertIn(fd,l.HELD)
             finally:os.close(fd)
@@ -317,11 +317,14 @@ class Controls(unittest.TestCase):
         self.assertEqual((len(outer_labels),len(case_labels)),(13,101))
         inventory_labels={label for label in owner.PHASES if '_initial_inventory_' in label}
         self.assertEqual(owner.INVENTORY_ROLES,('bus','host'))
-        self.assertEqual(len(inventory_labels),76)
+        self.assertEqual(len(inventory_labels),80)
         self.assertEqual(set(outer_labels+case_labels)|inventory_labels,owner.PHASES)
-        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),190)
-        self.assertEqual(owner.PHASE_LIMIT,191)
-        self.assertEqual(128+owner.PHASE_LIMIT,319)
+        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),194)
+        # Four new alternatives, but exactly one presence and one equality
+        # category occur on the sole initial host attempt.
+        self.assertEqual(len(outer_labels+case_labels)+76+2,192)
+        self.assertEqual(owner.PHASE_LIMIT,193)
+        self.assertEqual(128+owner.PHASE_LIMIT,321)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
         phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
         phases+=['before_bind']*50+['before_verify_copies']

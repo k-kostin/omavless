@@ -302,6 +302,40 @@ controls (two existing skips), all JS/QML contracts,41 focused inert image
 controls and `git diff --check`. No native objects were rebuilt or executed;
 no actual scope was staged, observed, queried or selected by the author.
 
+### Generation-6 observed NONPASS and generation-7 source proposal
+
+ROOT's one whole invocation00b859/session59529 ended e556fd status2. The scope
+is permanently STOP: no query, signal, reap, retry, archive or cleanup. Separate
+approved fixed-file observation587e210 binds its receipt to SHA-256
+`ea0bd7022dd8f0ee360f7b7c7c6747350a198f011ef007502de5c5143d5a0043`
+(5674 bytes).
+Its projection contains178 exact literal frames (83 Bridge,95 Session), no
+opaque tail, last `before_host_initial_inventory_required_members`, empty
+inner record, absent outer record and no marker. This identifies an interval,
+not a missing-member/identity cause, current preservation, completed effect or
+whole-flow PASS. No stopped maps, paths or private payload were queried.
+
+Fresh stage `t3-retained-positive-composition-review-7` proposes exactly two
+additional fixed Boolean observations on the single initial-host attempt:
+`present` or `absent`, then `identity_equal` or `identity_different`.
+They follow the current available precheck; each emission has the same shared
+five-second pre/post deadline gates. They contain no paths, identities, counts,
+rows or exception values. The exact required-member equality, whole membership,
+target identity/hash, parser and anonymous grammar remain unchanged. No libc or
+loader requirement is newly applied to the host.
+
+Four alternatives add only two attempts per complete path:114 baseline/role
+labels +38 bus +38 host +2 Boolean observations =192 Session attempts, cap193.
+The distinct closed vocabulary has194 labels; Bridge remains independently128,
+combined lexical cap321. A recorded category is a sampled predicate result,
+not cause, effect or future authority. Failed/late emission seals before the
+next category or target. Source controls do not authorize a VM invocation;
+fresh capsules and FULL ROOT/independent review remain required.
+
+Generation7 source-only gates: Python3.14 and3.12.13 each pass1133 Python
+controls (two existing skips), all JS/QML contracts,43 focused inert image
+controls and diff whitespace checks. These controls are not execution acceptance.
+
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and
 socket `/home/core/controller.sock` are retained O_PATH originals, owner1000,

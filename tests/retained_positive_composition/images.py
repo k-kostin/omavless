@@ -29,6 +29,7 @@ INVENTORY_STEPS = ('executable','first_text','first_parse','required_members',
     'final_executable','final_live')
 ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
     'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
+REQUIRED_CLASSES = ('present','absent','identity_equal','identity_different')
 
 def anonymous_class(path, identity, offset):
     # Fixed category only, BEFORE the unchanged predicate. No raw row/value
@@ -273,6 +274,17 @@ class Images:
             mark('after','first_parse')
             self.available(deadline)
             mark('before','required_members')
+            if observed and name == 'host':
+                self.available(deadline)
+                # Exactly two fixed Boolean observations, on this one attempt.
+                # Neither category authorizes a later effect or explains absence.
+                presence = 'present' if ROLES[name] in first else 'absent'
+                equality = 'identity_equal' if first.get(ROLES[name]) == executable else 'identity_different'
+                for label in (presence, equality):
+                    self.available(deadline)
+                    require(label in REQUIRED_CLASSES)
+                    self.owner.phase('before_host_initial_inventory_required_members_'+label, deadline)
+                    self.available(deadline)
             require(first.get(ROLES[name]) == executable)
             if name in ('bus','resolved'):
                 require('/usr/lib/libc.so.6' in first and '/usr/lib/ld-linux-x86-64.so.2' in first)
