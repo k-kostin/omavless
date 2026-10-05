@@ -1,4 +1,4 @@
-# K1 one-create isolated readback — source proposal only
+# K1 one-create isolated readback — developer integration checkpoint
 
 ## Current integration target — 2026-10-05
 
@@ -15,7 +15,7 @@ That classification does not apply to a wrapper that actually staged a unit.
 | Completion item | Required behavior / evidence | Current state |
 | --- | --- | --- |
 | Compile and deterministic controls | Fresh HOME-based compile; fixed witness, worker, manager and identity controls | Corrected compile and six selected Rust pure controls pass; first new compile failure remains recorded below |
-| Isolated one-create VM scenario | Original manager Ref/Start, one durable Pending/Arm, original creator complete inventory/readback, exact six frames and known-zero original completion | Prepared source; fresh exact-binary publication/dispatch and independent effect-boundary review still required |
+| Isolated one-create VM scenario | Original manager Ref/Start, one durable Pending/Arm, original creator complete inventory/readback, exact six frames and known-zero original completion | PASS as historical developer evidence: ROOT's original upload, preparation, publication, manager run and separately selected observer all returned zero; exact evidence below |
 | Inventory / acquisition distinction | Same retained socket and complete table/chain/rule/set/object/flowtable inventory; developer administrative origin explicitly separate from canonical acquisition | Existing complete parser and private witness retained; no new production acquisition constructor |
 | Kernel persistence / product integration | Production NetGuard service, runtime Full VPN coordination, crash/restart/recovery and installed package gates | Unavailable; this historical one-create scope does not prove them |
 | Host-only acceptance | Physical NIC, suspend/resume, armed boot and other declared K1 host cases | Unrun; no physical-host PASS |
@@ -31,7 +31,7 @@ exact expected counts (3 + 1 + 1 + 1). The six Python source controls,
 format check and documentation navigation (101 links) also returned zero.
 Produced developer test-binary SHA-256:
 `1263be2059343836bb535466951703a6df441cbf644cbb5f6711874c9a501024`.
-No ignored/native entry ran. This is ordinary developer toolchain/cache evidence,
+No ignored/native entry ran during that SOURCE gate. This is ordinary developer toolchain/cache evidence,
 not toolchain attestation, canonical authority or installed acceptance.
 
 The additional strict all-target Clippy compile found
@@ -66,9 +66,71 @@ result. Success remains historical and explicitly noncanonical; it does not
 delete the table, Stop/Unref the unit, or promise custody after process death.
 The fixed unit SHA-256 is
 `3123aa8e484560fc83b4bde8a09e8e0d192c7d918ff5f8582a982dc6a9f1be52`.
-Fresh publication, whole-scope observation and ROOT dispatch remain pending.
+Fresh publication and ROOT's original run subsequently completed at the exact
+artifact below; their result remains historical and noncanonical.
 
-This is a proposed successor to Draft #657, not an eligible native selector.
+## ROOT-executed isolated completion — 2026-10-05
+
+Tested Rust artifact source:
+`c8b68b8c1faf7454d1fe0d0b343205809fb69b9f`. The following source-controls-only
+successor `ee59522d142ac9e06456b4edb810322a97b412ee` changes no Rust, unit or
+artifact bytes. At `ee59522d`, remote Test, x86 packaging and ARM packaging
+all passed. ARM's first acquisition failed before compilation on the official
+mirror's HTTP 500 for `guile`; one authorized ordinary-infrastructure retry
+passed without a workflow or mirror change. The original failure is not erased
+or misclassified as a source compile result.
+
+ROOT performed all VM actions. The exact native test binary is
+`ca6bcc6fa998ad1167a0d4096f1b925181260110aac134433a6c064fe2c37e15` and the
+exact unit is `3123aa8e484560fc83b4bde8a09e8e0d192c7d918ff5f8582a982dc6a9f1be52`.
+Fixed public-source wrappers were FULL-read reviewed by ROOT and an independent
+reviewer before separately selected dispatch. Their SHA-256 identities are:
+
+| Source role | Exact SHA-256 |
+| --- | --- |
+| Guest publication/run/file-only observer | `4948a9bded078d8bcd4b9e6c88ee5a5ec2001fc736a3b5f1d3df6978bba20db6` |
+| Exclusive root input preparation | `421b5fd4e1e7aa631032e811bf085ebe54c77217440326e1e9a21b190dcdf5a0` |
+| Fixed authenticated upload / separate real-TTY dispatch | `5f1846002f973235ada86c1b87a75dc21c60770b1c40821d207a5b2218458898` |
+
+The source-only wrapper controls passed with original zero (16 guest, 7 input,
+9 dispatch). The ordinary upload receiver accepted only the fixed three pinned
+public bodies into a fresh exclusive directory. Root input preparation made
+fresh root-owned copies, then publication created the fixed stage/unit and
+completed one original daemon-reload. No existing resource was replaced.
+
+| Original ROOT operation | Original result / bounded evidence |
+| --- | --- |
+| Authenticated upload `6af1f4` | Exit 0; exact 35-byte completion marker; empty stderr |
+| Input prepare `49f2b7` → `33f42c` | Original exit 0 |
+| Publish `db7ce8` → `f761f2` | Original exit 0; stored publish result known-zero, both captures empty |
+| Manager run `23559b`, original session `63362` → `a2fc73` | Original exit 0; not a copied stored result |
+| Separately selected file observer `d33cb0`, session `31660` → `5c7c9d` | Original exit 0; historical_complete true, historical_only true, canonical_authority false |
+
+The observer admitted the run's complete exact 256-byte one-test stdout grammar,
+one completion token, one fixed successful footer and empty stderr. Stdout
+SHA-256 is `676d5c6fb50b2da61f7eabd62b6399fe7f377a06d578e53f69500b2a4196e1fc`.
+It emitted only bounded classes/counts/hash/length, not raw private captures or
+kernel/process facts. ROOT retained every original whole outcome as zero; the
+stored file outcomes and projection did not substitute for those originals.
+
+This completes the intended one-create integrated developer checkpoint: real
+LockedState Pending/Arm, private creator witness, strict all-ACK including END,
+same original-socket complete table/chain/rule/set/object/flowtable inventory,
+final original-session recheck and exact six worker frames admitted only after
+the original successful manager invocation. No Stop, Unref, delete, failure
+retry, old-scope query or cleanup was selected. Positive completion is not a
+live-owner transfer, kernel lifetime guarantee, persistent production receipt,
+installed service or canonical launch acquisition.
+
+Root-owned administrative VM manager/broker, ordinary toolchain/loader paths
+and stable trusted administrative home/cache custody are explicit assumptions.
+The wrappers do not prove hostile-parent-rename resistance or authenticate the
+installed PID1/broker image. Old stopped experiment scopes remain untouched.
+No product packet-blocking, crash/restart, boot, physical NIC or suspend gate
+is passed by this completion. Main, release and marketplace remain held.
+
+The following proposal and pre-compilation checkpoints are retained history,
+not the current compilation/native status. This was a successor to Draft #657.
 The compiled `83f42593` extraction has only three pure synthetic test results.
 No source here authorizes effects in the stage6 read-only namespace, host
 namespace, installed service or an earlier attempted fixture.
@@ -168,7 +230,7 @@ never inherited from the old create/replace/delete coordinator or run after an
 uncertain outcome. Retaining a live owner instead would require a different
 protocol and is outside this proposed one-create checkpoint.
 
-## Implemented source, still ineligible
+## Historical pre-compilation source checkpoint
 
 The uncompiled successor adds closed `Fixture::ExclusiveCreate`, its unit,
 `kernel_exclusive_create_fixture.rs` and `manager_exclusive_create_fixture.rs`.
@@ -214,7 +276,7 @@ executable hashes, stage publication, manager properties, sampled budgets and
 original capture custody remain unprepared. No command in this document is an
 executable recipe; no namespace, service or native fixture has been selected.
 
-## Reviewed formatting-only checkpoint
+## Historical reviewed formatting-only checkpoint
 
 ROOT reported eight mocked recipe controls and eight separate stdin-to-stdout
 formatter invocations at original zero. All original source remained unchanged
