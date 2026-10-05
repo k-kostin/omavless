@@ -92,12 +92,62 @@ names, exact inventory row routing, wrong PID/start/proc/image/namespace, late
 entry and permanent refusal. They use only the current test process and fixed
 public HOST source objects; no child, root acquisition, unit query, transport,
 network mutation or guest action. This is not an executed full inventory or
-full `StoppedOwner` admission. Full gates and independent review remain pending.
+full `StoppedOwner` admission. Exact initial checkpoint
+`1f419fbcf081560f9c8cddba9c8b38664016165c` subsequently passed FULL source
+639/2 declared skips plus JS/QML/navigation (`f034d0`), strict runtime/test
+Clippy (`ca7d84`) and FULL Rust (`03629b`:1199 passed,44 ignored, one isolated
+filter, followed by the separate isolated/parity gates). ROOT and independent
+FULL source review cleared only this inactive local-original seam.
 
 The parent reuses the existing strict Process observations and their sampled
 budget checks; this checkpoint is not a hard syscall-cancellation or every-IO
 deadline guarantee. A failed consultation preserves the parent's historical
 originals for its retained owner lifetime; it does not yet implement transport
 quarantine of every partially acquired fresh FD. Canonical launch and actual
-SCM_CREDENTIALS/SCM_RIGHTS transfer remain deliberately unimplemented. Neither
-these tests nor normal binary compilation can upgrade that missing authority.
+strict SCM_CREDENTIALS/SCM_RIGHTS transfer remain deliberately unimplemented.
+Neither these tests nor normal binary compilation can upgrade that missing
+authority.
+
+## Separate owned-child smoke proposal: stopped NONPASS
+
+The new cfg(test)-only kernel-smoke module uses a fixed inherited unprivileged
+HOST socketpair, one fixed request/reply and three actual `File` originals.
+It distinguishes kernel per-message child credentials from creator-time
+SO_PEERCRED, retains its small owner graph until test-process exit, and only
+an exact owned nonreaping zero could authorize one raw-zero reap. It does not
+authenticate a root launcher, supply a transport parent to `Process`, execute
+the complete inventory or admit `StoppedOwner`. Child and parent sampled
+limits are not hard cancellation or a shared child-lifetime guarantee.
+Inner Process budgets are clipped to each caller's original eight-second end;
+capture/recheck/namespace entry gates cannot renew that grant. Existing inner
+Process IO checks remain sampled, not an every-syscall enforcement claim.
+
+The first ONE owned-child attempt returned NONPASS (`cb968a`): nine tests,
+seven passed, one failed at the parent's request-receive result, one ignored.
+No returned errno, child status, underlying cause or completed exchange was
+established. No child query, signal, reap, retry or cleanup followed refusal.
+That positive smoke is now ignored; a corrected fresh child attempt requires
+a new immutable source checkpoint and exact ROOT/independent review first.
+The captures remain separate from the successful initial seam gates.
+
+A separate NEW pair with no child passed (`30f75d`) and projected only
+`OWNED_LOCAL_PAIR_ADDRESS_PRESENT=false`. It did not access the failed pair or
+child and does not establish why the earlier attempt refused. Pure visible
+frame-shape controls reject wrong/missing/duplicate credentials, extra bytes,
+rights mismatch and truncation; they cannot observe hidden ancillary headers.
+After adding the clipped-budget control, the bounded local module passed
+`ed5b5b`:nine passed, two ignored (failed positive child and fixed child worker).
+This ran only the six original current-process controls, two pure controls
+and a NEW no-child pair, never the failed child or its retained resources.
+FULL source/Rust evidence above remains attached only to `1f419fbc`, not this
+successor smoke proposal.
+
+Pinned rustix1.1.5 exposes safely owned SCM_RIGHTS, but silently skips unknown
+ancillary kinds and accepts oversized credential payloads. Draining all
+visible rights before post-receive refusal preserves those originals; it does
+NOT discharge the exact closed-frame contract. No application RawFd adoption,
+O_PATH reconstruction, second authority copy or dependency substitution is
+introduced. The next separately scoped experiment is an external review-only
+safe-library patch with non-lossy shape/error reporting and owned-rights
+retention, retaining upstream licenses and testing malformed/truncated/drop
+ownership. No product dependency change or upstream submission is authorized.

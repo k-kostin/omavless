@@ -8,6 +8,9 @@
 use super::*;
 use std::rc::Rc;
 
+#[path = "restore_abort_retained_parent_kernel_smoke.rs"]
+mod kernel_smoke;
+
 pub(super) struct Bundle {
     pub(super) executable: Option<File>,
     pub(super) executable_name: Option<Zeroizing<Vec<u8>>>,
