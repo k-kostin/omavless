@@ -14,6 +14,8 @@ not replaced by this short entry point.
    [acceptance policy](docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md).
 4. For backend/runtime/protocol/packaging/TUI work, read
    [Rust migration](docs/roadmap/RUST_MIGRATION.md) and the owning feature contract.
+   For new execution and failure handling, also read the owner-approved
+   [execution policy](docs/development/EXECUTION_POLICY.md).
 5. For UI work, use the [UI review skill](skills/omavless-ui-review/SKILL.md).
    For localization, use the [localization skill](skills/omavless-localization/SKILL.md).
 

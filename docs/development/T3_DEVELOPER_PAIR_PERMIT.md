@@ -193,6 +193,9 @@ the explicitly admitted disposable development namespace. The prior
 direct-coordinator VM receipts above do **not** cover this new socket test.
 The subsequent socket checkpoint below covers this successor's VM gate;
 UI integration remains a separate gate.
+The opt-in [development TUI client candidate](T3_DEVELOPER_CLOSE_CLIENT.md)
+adds a distinct explicit client mode on this socket contract; its synthetic
+checks do not extend the historical VM receipt to installed UI acceptance.
 No release package, TUI/QML action, main/RC merge or production activation is
 supplied by this workspace.
 

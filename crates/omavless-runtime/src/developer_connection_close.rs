@@ -416,4 +416,62 @@ mod tests {
             assert!(result["outcome"].is_string());
         }
     }
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn actual_tui_workspace_calls_match_the_canonical_development_parser() {
+        use omavless_tui::developer_close::{
+            Call, Input, KeyCode, KeyEvent, KeyModifiers, Workspace,
+        };
+        fn call(input: Input) -> Call {
+            match input {
+                Input::Send(call) => call,
+                _ => panic!("fixed call required"),
+            }
+        }
+        let now = std::time::Instant::now();
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        let ok = |result| Ok(success_response("client", 0, result).unwrap());
+        let mut workspace = Workspace::new(omavless_tui::i18n::Locale::En);
+        call(workspace.input(key(KeyCode::Char('r')), now, true));
+        workspace.accept(
+            ok(json!({"version":1,"runtimeOwnership":true,"instanceId":"actual"})),
+            now,
+        );
+        let snapshot = workspace
+            .accept(ok(json!({"runtimeOwnership":true,"methods":METHODS})), now)
+            .unwrap();
+        assert!(matches!(
+            parse(&request(snapshot.method(), snapshot.params()), "actual"),
+            Ok(Action::Snapshot)
+        ));
+        let display = json!({"host":"synthetic.invalid","ip":null,"port":443,"network":"tcp","route":"direct"});
+        workspace.accept(
+            ok(
+                json!({"schemaVersion":1,"scope":"development_owned_single_connection_close",
+            "instanceId":"actual","rows":[{"handle":"1".repeat(64),"display":display}]}),
+            ),
+            now,
+        );
+        let prepare = call(workspace.input(key(KeyCode::Char('x')), now, true));
+        assert!(matches!(
+            parse(&request(prepare.method(), prepare.params()), "actual"),
+            Ok(Action::Prepare { .. })
+        ));
+        workspace.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_single_connection_close",
+            "instanceId":"actual","handle":"1".repeat(64),"ticket":"2".repeat(64),"display":display})),now);
+        let confirm = call(workspace.input(key(KeyCode::Enter), now, true));
+        assert!(matches!(
+            parse(&request(confirm.method(), confirm.params()), "actual"),
+            Ok(Action::Confirm { .. })
+        ));
+        let operation = confirm.params()["operationId"].as_str().unwrap().to_owned();
+        workspace.accept(ok(receipt_projection("actual", &operation, None)), now);
+        let receipt = call(workspace.input(key(KeyCode::Char('u')), now, true));
+        assert!(matches!(
+            parse(&request(receipt.method(), receipt.params()), "actual"),
+            Ok(Action::Receipt { .. })
+        ));
+        assert_eq!(receipt.params()["operationId"], operation);
+    }
 }

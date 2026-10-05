@@ -75,6 +75,15 @@ fn run() -> Result<(), CliError> {
         println!("omavless.tui.v1");
         return Ok(());
     }
+    #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+    if arguments == ["tui", "--developer-conditional-close"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::developer_close::run(move |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .map_err(CliError::Terminal);
+    }
     #[cfg(feature = "tui")]
     if arguments == ["tui"] {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
@@ -118,6 +127,10 @@ fn run() -> Result<(), CliError> {
     if arguments == ["-h"] || arguments == ["--help"] {
         #[cfg(feature = "tui")]
         println!("  tui                             terminal controls; close leaves VPN unchanged");
+        #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+        println!(
+            "  tui --developer-conditional-close  opt-in development workspace; not product pair adoption"
+        );
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
