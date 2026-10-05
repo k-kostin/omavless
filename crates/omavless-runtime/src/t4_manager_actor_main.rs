@@ -28,6 +28,9 @@ fn main() -> ExitCode {
         [arg] if arg == "--authenticate-backup" => {
             Some(omavless_runtime::manager_actor_service::DeveloperScenario::AuthenticateBackup)
         }
+        [arg] if arg == "--stage-authenticated-backup" => Some(
+            omavless_runtime::manager_actor_service::DeveloperScenario::StageAuthenticatedBackup,
+        ),
         _ => None,
     } {
         omavless_runtime::manager_actor_service::supervisor_scenario(scenario)

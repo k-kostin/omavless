@@ -14,10 +14,10 @@ use std::path::Path;
 
 const PERSISTENT: usize = 28;
 const SCRATCH: usize = 8;
-const IO_SLOTS: usize = PERSISTENT + SCRATCH;
+pub(super) const IO_SLOTS: usize = PERSISTENT + SCRATCH;
 const MANAGER_ORIGINALS: usize = 17;
 const BASE_FDS: usize = 4; // actor stdio and its original channel, not supervisor
-const NOFILE: usize = 64;
+const NOFILE: usize = super::ACTOR_NOFILE as usize;
 
 // Names are internal operation roles, never an input-selected descriptor index.
 // This is a conservative prospective whole-path envelope; unused roles do not
@@ -25,6 +25,7 @@ const NOFILE: usize = 64;
 // failure and remains charged even if a later check has no need for the handle.
 #[derive(Clone, Copy)]
 #[repr(usize)]
+#[allow(dead_code)] // named prospective slots; active fixture uses only sixteen
 pub(super) enum Slot {
     Root,
     Run,
@@ -66,6 +67,7 @@ pub(super) enum Slot {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
+    Reserved,
     Live,
     Revoked,
     Finished,
@@ -100,6 +102,9 @@ impl<T> Ledger<T> {
         operation: impl FnOnce(&mut Self) -> Result<R, Unavailable>,
     ) -> Result<R, Unavailable> {
         if self.state != State::Live {
+            if self.state == State::Reserved {
+                self.state = State::Revoked;
+            }
             return Err(Unavailable);
         }
         let result = operation(self);
@@ -155,11 +160,11 @@ impl<T> Ledger<T> {
         &mut self,
         slot: Slot,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
-        operation: impl FnOnce(&mut T) -> Result<(), Unavailable>,
+        operation: impl FnOnce(&T) -> Result<(), Unavailable>,
     ) -> Result<(), Unavailable> {
         self.attempted(|owner| {
             gate()?;
-            operation(owner.slots[slot as usize].as_mut().ok_or(Unavailable)?)?;
+            operation(owner.slots[slot as usize].as_ref().ok_or(Unavailable)?)?;
             gate()
         })
     }
@@ -194,10 +199,32 @@ pub(super) struct ChildPlan {
 }
 
 impl FileIo {
-    pub fn new(manager_originals: usize) -> Result<Self, Unavailable> {
-        Ok(Self {
-            ledger: Ledger::new(manager_originals)?,
-        })
+    pub fn revoke(&mut self) {
+        self.ledger.state = State::Revoked;
+    }
+    pub fn reserve() -> Result<Self, Unavailable> {
+        let mut ledger = Ledger::new(MANAGER_ORIGINALS)?;
+        ledger.state = State::Reserved;
+        Ok(Self { ledger })
+    }
+
+    pub fn admit(
+        &mut self,
+        original: &mut crate::restore_abort_cli::stopped_owner::actor_capture::Retained,
+        until: std::time::Instant,
+    ) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            if self.ledger.state == State::Live {
+                self.ledger.state = State::Revoked;
+            }
+            return Err(Unavailable);
+        }
+        // Consume the reserved admission before the actual owner check. No
+        // client count, empty ledger or new upload context may bypass this.
+        self.ledger.state = State::Revoked;
+        original.transaction_fence(until).map_err(|_| Unavailable)?;
+        self.ledger.state = State::Live;
+        Ok(())
     }
 
     pub fn root(
@@ -260,12 +287,17 @@ impl FileIo {
         &mut self,
         slot: Slot,
         gate: impl FnMut() -> Result<(), Unavailable>,
-        operation: impl FnOnce(&mut File) -> Result<(), Unavailable>,
+        operation: impl FnOnce(&File) -> Result<(), Unavailable>,
     ) -> Result<(), Unavailable> {
         self.ledger.perform(slot, gate, operation)
     }
 
     pub fn finish(&mut self) -> Result<(), Unavailable> {
+        if self.ledger.state == State::Reserved {
+            // Non-transaction scenarios never admitted or acquired a lower FD.
+            self.ledger.state = State::Finished;
+            return Ok(());
+        }
         self.ledger.finish()
     }
 }
@@ -281,6 +313,44 @@ mod tests {
         fn drop(&mut self) {
             self.0.set(self.0.get() + 1);
         }
+    }
+
+    #[test]
+    fn reserved_before_ready_has_no_acquisition_and_premature_call_seals() {
+        let mut owner = Ledger::<Handle>::new(17).unwrap();
+        owner.state = State::Reserved;
+        assert!(
+            owner
+                .acquire(
+                    Slot::Root,
+                    || panic!("reserved gate"),
+                    || panic!("reserved open"),
+                    |_| panic!("reserved shape")
+                )
+                .is_err()
+        );
+        assert!(owner.state == State::Revoked);
+        assert!(owner.finish().is_err());
+        let mut owner = FileIo::reserve().unwrap();
+        let mut original =
+            crate::restore_abort_cli::stopped_owner::actor_capture::Retained::new().unwrap();
+        assert!(
+            owner
+                .admit(
+                    &mut original,
+                    std::time::Instant::now() + std::time::Duration::from_secs(1)
+                )
+                .is_err()
+        );
+        assert!(
+            owner
+                .root(
+                    || panic!("failed actual owner gate"),
+                    |_| panic!("failed owner shape")
+                )
+                .is_err()
+        );
+        assert!(owner.finish().is_err());
     }
 
     #[test]

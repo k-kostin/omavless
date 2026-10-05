@@ -17,6 +17,8 @@ pub(super) enum Kind {
     Rejected,
     AuthenticateBackup,
     BackupAuthenticated,
+    StageAuthenticatedBackup,
+    StageRecorded,
 }
 
 impl Kind {
@@ -31,6 +33,8 @@ impl Kind {
             Self::Rejected => 7,
             Self::AuthenticateBackup => 8,
             Self::BackupAuthenticated => 9,
+            Self::StageAuthenticatedBackup => 10,
+            Self::StageRecorded => 11,
         }
     }
     fn from_byte(value: u8) -> Result<Self, Unavailable> {
@@ -44,6 +48,8 @@ impl Kind {
             7 => Ok(Self::Rejected),
             8 => Ok(Self::AuthenticateBackup),
             9 => Ok(Self::BackupAuthenticated),
+            10 => Ok(Self::StageAuthenticatedBackup),
+            11 => Ok(Self::StageRecorded),
             _ => Err(Unavailable),
         }
     }
@@ -52,6 +58,7 @@ impl Kind {
             Self::ObserveManager => Ok(Self::Completed),
             Self::Halt => Ok(Self::Closed),
             Self::AuthenticateBackup => Ok(Self::BackupAuthenticated),
+            Self::StageAuthenticatedBackup => Ok(Self::StageRecorded),
             _ => Err(Unavailable),
         }
     }
@@ -147,6 +154,7 @@ impl Context {
             (Some(Kind::ObserveManager), Kind::Completed)
                 | (Some(Kind::Halt), Kind::Closed)
                 | (Some(Kind::AuthenticateBackup), Kind::BackupAuthenticated)
+                | (Some(Kind::StageAuthenticatedBackup), Kind::StageRecorded)
         ) {
             self.revoke();
             return Err(Unavailable);
@@ -199,6 +207,8 @@ mod tests {
             Kind::Rejected,
             Kind::AuthenticateBackup,
             Kind::BackupAuthenticated,
+            Kind::StageAuthenticatedBackup,
+            Kind::StageRecorded,
         ] {
             let raw = frame(kind, 2).encode().unwrap();
             let decoded = Frame::decode(&raw).unwrap();

@@ -7,13 +7,12 @@
 
 #[path = "manager_actor_protocol.rs"]
 mod protocol;
-#[path = "manager_actor_transfer.rs"]
-mod transfer;
-// SOURCE checkpoint: lower File adapter is not yet selected by a wire operation.
-// No existing operation gains transaction or Restore authority from this module.
-#[allow(dead_code)]
 #[path = "manager_actor_io.rs"]
 mod retained_io;
+#[path = "manager_actor_stage.rs"]
+mod stage;
+#[path = "manager_actor_transfer.rs"]
+mod transfer;
 
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use nix::fcntl::{OFlag, open};
@@ -54,6 +53,14 @@ fn tick(until: Instant) -> Result<(), Unavailable> {
 fn emit(label: &'static [u8], until: Instant) -> Result<(), Unavailable> {
     tick(until)?;
     let mut output = std::io::stdout().lock();
+    output.write_all(label).map_err(|_| Unavailable)?;
+    output.flush().map_err(|_| Unavailable)?;
+    tick(until)
+}
+
+fn emit_actor(label: &'static [u8], until: Instant) -> Result<(), Unavailable> {
+    tick(until)?;
+    let mut output = std::io::stderr().lock();
     output.write_all(label).map_err(|_| Unavailable)?;
     output.flush().map_err(|_| Unavailable)?;
     tick(until)
@@ -158,12 +165,37 @@ fn exchange_backup<T: Read + Write>(
     passphrase: &[u8],
     until: Instant,
 ) -> Result<(), Unavailable> {
-    let request = context.begin(Kind::AuthenticateBackup)?;
+    exchange_private(
+        stream,
+        context,
+        Kind::AuthenticateBackup,
+        archive,
+        passphrase,
+        until,
+    )
+}
+
+fn exchange_private<T: Read + Write>(
+    stream: &mut T,
+    context: &mut Context,
+    kind: Kind,
+    archive: &[u8],
+    passphrase: &[u8],
+    until: Instant,
+) -> Result<(), Unavailable> {
+    if !matches!(
+        kind,
+        Kind::AuthenticateBackup | Kind::StageAuthenticatedBackup
+    ) {
+        context.revoke();
+        return Err(Unavailable);
+    }
+    let request = context.begin(kind)?;
     let result = (|| {
         io_frame(stream, Some(request), until)?;
         transfer::send(stream, archive, passphrase, until)?;
         let reply = io_frame(stream, None, until)?.ok_or(Unavailable)?;
-        context.completed(reply, Kind::BackupAuthenticated)
+        context.completed(reply, kind.completion()?)
     })();
     if result.is_err() {
         context.revoke();
@@ -174,14 +206,15 @@ fn exchange_backup<T: Read + Write>(
 // This scenario transfers only public synthetic data in memory. It registers
 // no backup/restore product operation, user input, passphrase argv or env key.
 const SYNTHETIC_PASSPHRASE: &[u8] = b"synthetic transfer passphrase";
+const SYNTHETIC_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+const SYNTHETIC_TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
 
 fn synthetic_backup(until: Instant) -> Result<zeroize::Zeroizing<Vec<u8>>, Unavailable> {
-    const STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
     tick(until)?;
     let archive = zeroize::Zeroizing::new(
         omavless_domain::private_backup::seal(
-            STORE,
-            include_bytes!("../../../templates/default.yaml"),
+            SYNTHETIC_STORE,
+            SYNTHETIC_TEMPLATE,
             SYNTHETIC_PASSPHRASE,
         )
         .map_err(|_| Unavailable)?,
@@ -201,6 +234,7 @@ pub enum DeveloperScenario {
     PartialAfterFirst,
     DisconnectAfterFirst,
     AuthenticateBackup,
+    StageAuthenticatedBackup,
 }
 
 impl DeveloperScenario {
@@ -208,7 +242,7 @@ impl DeveloperScenario {
         match self {
             Self::CapacityThree => 3,
             Self::CapacityFourth => 4,
-            Self::AuthenticateBackup => 0,
+            Self::AuthenticateBackup | Self::StageAuthenticatedBackup => 0,
             _ => 1,
         }
     }
@@ -376,7 +410,10 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     // Fixed synthetic crypto is prepared BEFORE reservation/launch. It shares
     // the whole budget but cannot consume the actor's READY/read deadline while
     // the actor waits. No real user input or archive path is introduced.
-    let backup = if scenario == DeveloperScenario::AuthenticateBackup {
+    let backup = if matches!(
+        scenario,
+        DeveloperScenario::AuthenticateBackup | DeveloperScenario::StageAuthenticatedBackup
+    ) {
         Some(synthetic_backup(until)?)
     } else {
         None
@@ -484,6 +521,19 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_backup_authenticated\n", until)?;
     }
+    if scenario == DeveloperScenario::StageAuthenticatedBackup {
+        emit(b"t4_service_before_fixture_stage\n", until)?;
+        exchange_private(
+            stream,
+            &mut context,
+            Kind::StageAuthenticatedBackup,
+            backup.as_ref().ok_or(Unavailable)?,
+            SYNTHETIC_PASSPHRASE,
+            until,
+        )?;
+        alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
+        emit(b"t4_service_fixture_stage_recorded\n", until)?;
+    }
     if scenario == DeveloperScenario::CapacityFourth {
         // Unexpected fourth completion cannot silently turn a refusal scenario
         // into normal Halt/success, even if a future capacity regression exists.
@@ -548,7 +598,12 @@ struct Supervisor {
     _entropy: File,
 }
 
-fn quarantine(_held: Retained, _transfer: transfer::Transfer, _channel: UnixStream) -> ! {
+fn quarantine(
+    _held: Retained,
+    _transfer: transfer::Transfer,
+    _stage: stage::Stage,
+    _channel: UnixStream,
+) -> ! {
     // Never query/read/reply/evict after uncertainty. While alive, the owner
     // retains its recorded originals. Fatal process loss has no custody claim.
     loop {
@@ -578,6 +633,7 @@ pub fn actor_entry() -> Result<(), Unavailable> {
     let mut context = Context::new(challenge.nonce)?;
     let mut held = Retained::new().map_err(|_| Unavailable)?;
     let mut transfer = transfer::Transfer::new()?;
+    let mut stage = stage::Stage::reserve()?; // full fixed ledger/buffer before READY
     io_frame(
         &mut channel,
         Some(Frame {
@@ -590,13 +646,20 @@ pub fn actor_entry() -> Result<(), Unavailable> {
     context.phase = Phase::Live;
     loop {
         let until = Instant::now() + Duration::from_secs(5);
-        let result = actor_operation(&mut channel, &mut context, &mut held, &mut transfer, until);
+        let result = actor_operation(
+            &mut channel,
+            &mut context,
+            &mut held,
+            &mut transfer,
+            &mut stage,
+            until,
+        );
         match result {
             Ok(true) => return Ok(()),
             Ok(false) => {}
             Err(_) => {
                 context.revoke();
-                quarantine(held, transfer, channel);
+                quarantine(held, transfer, stage, channel);
             }
         }
     }
@@ -607,6 +670,7 @@ fn actor_operation(
     context: &mut Context,
     held: &mut Retained,
     transfer: &mut transfer::Transfer,
+    stage: &mut stage::Stage,
     until: Instant,
 ) -> Result<bool, Unavailable> {
     let request = receive(channel, until)?;
@@ -617,6 +681,41 @@ fn actor_operation(
         return Err(Unavailable);
     }
     match kind {
+        Kind::StageAuthenticatedBackup => {
+            transfer.admit(until)?;
+            held.observe(until).map_err(|_| Unavailable)?;
+            transfer.receive(channel, until)?;
+            held.transaction_fence(until).map_err(|_| Unavailable)?;
+            emit_actor(b"t4_actor_before_fixture_stage\n", until)?;
+            transfer.with_restore_pair(until, |new_store, new_template| {
+                stage.record(
+                    [SYNTHETIC_STORE, SYNTHETIC_TEMPLATE, new_store, new_template],
+                    &context.nonce,
+                    held,
+                    until,
+                )
+            })?;
+            emit_actor(b"t4_actor_fixture_stage_recorded\n", until)?;
+            let reply = Kind::StageRecorded;
+            io_frame(
+                channel,
+                Some(Frame {
+                    kind: reply,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                }),
+                until,
+            )?;
+            context.completed(
+                Frame {
+                    kind: reply,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                },
+                reply,
+            )?;
+            Ok(false)
+        }
         Kind::AuthenticateBackup => {
             transfer.admit(until)?;
             held.observe(until).map_err(|_| Unavailable)?;
@@ -679,6 +778,7 @@ fn actor_operation(
             // prior operations completed. No uncertain owner can enter here.
             // Release recorded originals before replying. Ordinary File close
             // backend/fatal loss is not a per-FD kernel absence attestation.
+            stage.finish()?;
             held.finish().map_err(|_| Unavailable)?;
             transfer.finish();
             io_frame(
@@ -1074,6 +1174,10 @@ mod tests {
         assert_eq!(DeveloperScenario::CapacityFourth.observations(), 4);
         assert_eq!(DeveloperScenario::AuthenticateBackup.observations(), 0);
         assert_eq!(
+            DeveloperScenario::StageAuthenticatedBackup.observations(),
+            0
+        );
+        assert_eq!(
             DeveloperScenario::WrongNonceAfterFirst.request_shape(),
             Some(RequestShape::WrongNonce)
         );
@@ -1086,6 +1190,68 @@ mod tests {
             None
         );
         assert_eq!(DeveloperScenario::DisconnectAfterFirst.observations(), 1);
+    }
+
+    #[test]
+    fn private_fixture_stage_reply_and_every_prefix_consume_only_original_operation() {
+        let archive = b"bad";
+        let passphrase = b"synthetic transfer passphrase";
+        let total = FRAME_BYTES + 16 + archive.len() + passphrase.len();
+        for cut in 0..total + FRAME_BYTES {
+            let write_cut = if cut < total { cut } else { usize::MAX };
+            let reply_cut = if cut < total {
+                FRAME_BYTES
+            } else {
+                cut - total
+            };
+            let mut memory = Memory {
+                input: reply(Kind::StageRecorded, 1)[..reply_cut].to_vec(),
+                output: Vec::new(),
+                position: 0,
+                fail_at: write_cut,
+            };
+            let mut context = live_context();
+            assert!(
+                exchange_private(
+                    &mut memory,
+                    &mut context,
+                    Kind::StageAuthenticatedBackup,
+                    archive,
+                    passphrase,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_no_reentry(&mut memory, &mut context);
+        }
+        for completed in [
+            Kind::StageRecorded,
+            Kind::BackupAuthenticated,
+            Kind::Completed,
+            Kind::Closed,
+        ] {
+            let mut memory = Memory {
+                input: reply(completed, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: usize::MAX,
+            };
+            let mut context = live_context();
+            let result = exchange_private(
+                &mut memory,
+                &mut context,
+                Kind::StageAuthenticatedBackup,
+                archive,
+                passphrase,
+                Instant::now() + Duration::from_secs(1),
+            );
+            assert_eq!(result.is_ok(), completed == Kind::StageRecorded);
+            if result.is_err() {
+                assert_no_reentry(&mut memory, &mut context);
+            } else {
+                assert_eq!(context.phase, Phase::Live);
+            }
+        }
     }
 
     #[test]

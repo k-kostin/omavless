@@ -173,7 +173,7 @@ pub(crate) fn same_member(before: &Metadata, after: &Metadata) -> bool {
         && before.ctime_nsec() == after.ctime_nsec()
 }
 
-fn ready_bytes(members: [&[u8]; 4]) -> [u8; READY_BYTES] {
+pub(crate) fn ready_bytes(members: [&[u8]; 4]) -> [u8; READY_BYTES] {
     let mut ready = [0_u8; READY_BYTES];
     ready[..8].copy_from_slice(READY_MAGIC);
     for (index, bytes) in members.iter().enumerate() {

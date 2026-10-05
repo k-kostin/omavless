@@ -411,6 +411,18 @@ impl Retained {
     /// crypto and before a reply/effect. Fixed PID1 remains developer origin,
     /// never a canonical user-manager/StoppedOwner or future restore authority.
     pub(crate) fn recheck_original(&mut self, until: Instant) -> Result<()> {
+        self.recheck_original_inner(until, true)
+    }
+
+    pub(crate) fn transaction_fence(&mut self, until: Instant) -> Result<()> {
+        if self.files.len() != CAPTURE_FDS || self.observations.len() != 1 {
+            self.refused = true;
+            return Err(());
+        }
+        self.recheck_original_inner(until, false)
+    }
+
+    fn recheck_original_inner(&mut self, until: Instant, emit_completed: bool) -> Result<()> {
         if self.refused {
             return Err(());
         }
@@ -428,7 +440,11 @@ impl Retained {
             }
             self.recheck_snapshot(*root, before, &mut budget)?;
             self.recheck_snapshot(*root, after, &mut budget)?;
-            phase(b"t4_actor_original_manager_rechecked\n", &budget)
+            if emit_completed {
+                phase(b"t4_actor_original_manager_rechecked\n", &budget)
+            } else {
+                budget.check()
+            }
         })();
         if result.is_err() {
             self.refused = true;

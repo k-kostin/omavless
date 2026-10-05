@@ -107,6 +107,9 @@ pub(super) struct Transfer {
     body: Zeroizing<Vec<u8>>,
     state: InputState,
     opened: Option<OpenedBackup>,
+    restored_store: Option<Zeroizing<Vec<u8>>>,
+    restore_consumed: bool,
+    authenticated: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +130,9 @@ impl Transfer {
             body: Zeroizing::new(body),
             state: InputState::Fresh,
             opened: None,
+            restored_store: None,
+            restore_consumed: false,
+            authenticated: false,
         })
     }
 
@@ -165,7 +171,31 @@ impl Transfer {
 
     fn keep_opened(&mut self, opened: OpenedBackup, until: Instant) -> Result<(), Unavailable> {
         self.opened = Some(opened);
-        tick(until)
+        self.authenticated = false;
+        tick(until)?;
+        self.authenticated = true;
+        Ok(())
+    }
+
+    pub fn with_restore_pair(
+        &mut self,
+        until: Instant,
+        operation: impl FnOnce(&[u8], &[u8]) -> Result<(), Unavailable>,
+    ) -> Result<(), Unavailable> {
+        if self.state != InputState::Consumed || self.restore_consumed || !self.authenticated {
+            return Err(Unavailable);
+        }
+        self.restore_consumed = true;
+        self.authenticated = false;
+        tick(until)?;
+        let opened = self.opened.as_ref().ok_or(Unavailable)?;
+        let restored = opened.restore_store_off().map_err(|_| Unavailable)?;
+        self.restored_store = Some(restored); // positive owned bytes BEFORE post-tick
+        tick(until)?;
+        operation(
+            self.restored_store.as_ref().ok_or(Unavailable)?,
+            opened.template(),
+        )
     }
 
     pub fn finish(&mut self) {
@@ -174,6 +204,9 @@ impl Transfer {
         self.header.zeroize();
         self.body.as_mut_slice().zeroize();
         self.opened = None;
+        self.restored_store = None;
+        self.restore_consumed = true;
+        self.authenticated = false;
         self.state = InputState::Consumed;
     }
 }
@@ -295,6 +328,26 @@ mod tests {
         assert_eq!(owner.opened.as_ref().unwrap().store(), STORE);
         assert_eq!(owner.opened.as_ref().unwrap().template(), TEMPLATE);
         assert_eq!(owner.state, InputState::Consumed);
+        assert!(
+            owner
+                .with_restore_pair(
+                    Instant::now() + Duration::from_secs(1),
+                    |store, template| {
+                        assert_eq!(store, STORE);
+                        assert_eq!(template, TEMPLATE);
+                        Err(Unavailable) // downstream stage failure retains the private return
+                    }
+                )
+                .is_err()
+        );
+        assert_eq!(owner.restored_store.as_ref().unwrap().as_slice(), STORE);
+        assert!(
+            owner
+                .with_restore_pair(Instant::now() + Duration::from_secs(1), |_, _| panic!(
+                    "normalize reentry"
+                ))
+                .is_err()
+        );
         // A reported positive backend result survives a late post-call tick.
         let opened = owner.opened.take().unwrap();
         assert!(
@@ -303,8 +356,10 @@ mod tests {
                 .is_err()
         );
         assert!(owner.opened.is_some());
+        assert!(!owner.authenticated);
         owner.finish();
         assert!(owner.opened.is_none());
+        assert!(owner.restored_store.is_none());
         assert!(owner.body.iter().all(|byte| *byte == 0));
         assert_eq!(owner.header, [0; 16]);
     }
