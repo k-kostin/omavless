@@ -182,14 +182,17 @@ quarantine, controller, helper IO and main are NOT loaded. The launcher must
 install retained command/live/directory-FD hooks before invoking any selected
 containment function. Thirteen regular source originals remain held; only a
 complete positive readback permits the five original directory closes before
-chroot, with no retry after a late or throwing close. Sampled20-second budget,
+chroot, with no retry after a late or throwing close. The exact-finite internal
+enclosing deadline clips its sampled20-second budget; construction/loading
+cannot reset the launcher's whole absolute budget. The per-source
 512KiB/input and2MiB total are explicit, not syscall cancellation. The future
 outer guard independently pins this reader/launcher and validates the six fixed
 catalog-only entries; their names here do not assert their byte authority.
-Ten inert controls stage PUBLIC known sources only, exercise the full fixed
+Twelve inert controls stage PUBLIC known sources only, exercise the full fixed
 definition loader without invoking any native/process/namespace function,
 and cover changed/missing/unknown/FIFO/hardlinked inputs, cached-byte mutation,
-whitelist/hash mismatch, initial clock aliases, late opens/positive closes and
+whitelist/hash mismatch, initial/enclosing clock aliases, a late enclosing-
+budget read, late opens/positive closes and
 no failure cleanup. No launcher/VM/adoption readiness is inferred.
 
 `streams.py` defines only a fixed two-client synthetic CONNECT/byte-echo witness

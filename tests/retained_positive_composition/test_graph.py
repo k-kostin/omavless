@@ -59,8 +59,8 @@ class Controls(unittest.TestCase):
             for fd in value.held:os.close(fd)
         self.temp.cleanup()
 
-    def fixture(self):
-        value=g.Graph.__new__(g.Graph);self.values.append(value);value.__init__();return value
+    def fixture(self,deadline=90.0):
+        value=g.Graph.__new__(g.Graph);self.values.append(value);value.__init__(deadline);return value
 
     def sealed(self,value):
         self.assertTrue(value.sealed)
@@ -126,7 +126,7 @@ class Controls(unittest.TestCase):
         def opened(*args,**kwargs):
             fd=real_open(*args,**kwargs);self.clock[0]=20.0;return fd
         with patch.object(g.os,'open',side_effect=opened) as opening,patch.object(g.os,'fstat') as info:
-            with self.assertRaises(g.Refused):value.__init__()
+            with self.assertRaises(g.Refused):value.__init__(90.0)
             info.assert_not_called();self.assertEqual(len(value.held),1)
             self.clock[0]=0.0
             with self.assertRaises(g.Refused):value.load()
@@ -161,6 +161,24 @@ class Controls(unittest.TestCase):
         with self.assertRaises(g.Refused):g.containment_tree(raw+b'\n')
         with patch.object(g,'BASE_FUNCTIONS',g.BASE_FUNCTIONS|{'invented'}):
             with self.assertRaises(g.Refused):g.containment_tree(raw)
+
+    def test_enclosing_deadline_aliases_and_expiry_precede_any_source_open(self):
+        for bad in (True,1,float('nan'),float('inf'),0.0,-1.0):
+            with patch.object(g.os,'open') as opened:
+                with self.assertRaises(g.Refused):self.fixture(bad)
+                opened.assert_not_called()
+
+    def test_enclosing_deadline_caps_internal_read_and_permanently_stops_next_io(self):
+        real_read=os.pread;value=g.Graph.__new__(g.Graph);self.values.append(value)
+        def reading(*args):
+            data=real_read(*args);self.clock[0]=3.0;return data
+        with patch.object(g.os,'pread',side_effect=reading) as read:
+            with self.assertRaises(g.Refused):value.__init__(3.0)
+            self.assertEqual(value.deadline,3.0);self.assertEqual(read.call_count,1)
+            self.clock[0]=0.0
+            with patch.object(g.os,'open') as opened:
+                with self.assertRaises(g.Refused):value.load()
+                opened.assert_not_called();self.assertEqual(read.call_count,1)
 
     def test_no_candidate_process_namespace_write_or_failure_cleanup_entry(self):
         tree=ast.parse((HERE/'graph.py').read_bytes())

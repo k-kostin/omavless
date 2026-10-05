@@ -85,14 +85,17 @@ def containment_tree(raw):
 
 
 class Graph:
-    def __init__(self):
+    def __init__(self, enclosing_deadline):
         self.sealed=True;self.held=[];self.directories=[];self.iterators=[]
         self.records={};self.raw={};self.modules={};self.directory_closed=False
         self.loaded=False
         start=time.monotonic()
-        require(type(start) is float and math.isfinite(start))
-        self.deadline=start+20.0
-        require(math.isfinite(self.deadline) and start<self.deadline)
+        require(type(start) is float and math.isfinite(start)
+                and type(enclosing_deadline) is float and math.isfinite(enclosing_deadline)
+                and start<enclosing_deadline)
+        local=start+20.0
+        require(math.isfinite(local) and start<local)
+        self.deadline=min(local,enclosing_deadline)
         self.sealed=False
         try:
             self.available()
