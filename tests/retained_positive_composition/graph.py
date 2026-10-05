@@ -17,7 +17,7 @@ STAGE = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3'
 PINS = {
     'lifecycle.py': '47402a2e4beeed35c81455b3568b381385ce3ecdff62fca57f44dc7e44012707',
     'native_copy.py': '87c2c7fb9267b6f8aad34f93d184ad2b492158e54926c964cadbab41f3d03b74',
-    'artifacts.py': '6ae8a1293afcf7a3385f19a0451af8f96016d358f357796208344d74da7ffd4e',
+    'artifacts.py': '50a5a9a950f29f6b4ef3de24c15f44eb08913fd6fd0507f88ad09b14043ac2f1',
     'images.py': 'c7a821f478a7102f1c128fb450c4e172f9cdfc30db1d69b4c69d6a08d5f333bb',
     'controller.py': 'ffc849e9554e9cdf3f3e9fc2a9b5d60066c72d56ca634275b2c33e2f87673a8a',
     'helper.py': 'f369f888d64aeb3c8d9fd2e57354d8185547aeed21e19c86ef6f91c0bddaebc4',

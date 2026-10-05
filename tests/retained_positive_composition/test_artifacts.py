@@ -27,19 +27,24 @@ class Controls(unittest.TestCase):
             for fd in reversed(value.held):os.close(fd)
         self.clock.stop()
 
-    def fixture(self, directory):
+    def fixture(self, directory, variant=None):
         root=Path(directory);root.chmod(0o755);artifacts=root/'artifacts';artifacts.mkdir(mode=0o755)
         artifacts.chmod(0o755)  # Explicit namespace staging mode, even under private umask077.
         elf=bytearray(64);elf[:6]=b'\x7fELF\x02\x01';elf[18:20]=b'\x3e\x00'
         core=bytes(elf);broker=core+b'broker';helper=core+b'helper'
         sha={name:hashlib.sha256(raw).hexdigest() for name,raw in
              (('mihomo',core),('omavless-dns-broker',broker),('host-fixture',helper))}
-        manifest={'schema':'omavless-composed-developer-artifacts-v1',
+        manifest={'schema':'omavless-composed-developer-artifacts-v2',
             'builder_source':'8c038e76c8407eebd7afdd6e0389fc2bbc28cab9',
             'dns_source':'c4e800425243c1b02165f82153e4bf418fe465e6',
+            'broker_source':'aff0c38075338d51d979acc9f10dab1ae6dbba6f',
             'architecture':'x86_64','broker_feature':'release-package','sha256':sha,
             'broker_executed':False,'installed_compatibility':False,'package_attestation':False,'effect_authority':False}
-        raw=json.dumps(manifest).encode();raw+=b' '*(4181-len(raw))
+        if variant=='old-schema':manifest['schema']='omavless-composed-developer-artifacts-v1'
+        if variant=='wrong-broker-source':manifest['broker_source']=manifest['dns_source']
+        if variant=='wrong-helper-pin':manifest['sha256']['host-fixture']='0'*64
+        raw=json.dumps(manifest).encode()
+        raw+=b' '*(a.TABLE['developer-manifest.json'][0]-len(raw))
         contents={'developer-manifest.json':raw,'mihomo':core,'omavless-dns-broker':broker,'host-fixture':helper}
         table={}
         for name,raw in contents.items():
@@ -74,9 +79,16 @@ class Controls(unittest.TestCase):
         values={node.targets[0].id:ast.literal_eval(node.value) for node in base.body
                 if isinstance(node,ast.Assign) and isinstance(node.targets[0],ast.Name)
                 and node.targets[0].id in ('MANIFEST','CORE','BROKER')}
-        self.assertEqual(a.TABLE['developer-manifest.json'][2],values['MANIFEST'])
+        # The unchanged core belongs to the historical bundle. The orderly
+        # broker and v2 role-specific manifest intentionally have separate pins;
+        # historical fixture receipts cannot adopt the new bytes.
+        self.assertNotEqual(a.TABLE['developer-manifest.json'][2],values['MANIFEST'])
         self.assertEqual(a.TABLE['mihomo'][2],values['CORE'])
-        self.assertEqual(a.TABLE['omavless-dns-broker'][2],values['BROKER'])
+        self.assertNotEqual(a.TABLE['omavless-dns-broker'][2],values['BROKER'])
+        self.assertEqual(a.TABLE['developer-manifest.json'][2],
+                         '65925070cd83b2af177bbfa4fbb7b821cdc65e855db53671528b2da03bb621cd')
+        self.assertEqual(a.TABLE['omavless-dns-broker'][2],
+                         'ea958302d745b901294df6164c624a431a7493b67457a255306ec8216545eb9d')
         self.assertEqual(a.TABLE['host-fixture'][2],'fbd19fc83f5d6548ff8f1fe89d4d66ab9032d85cb551a2364f5719a5cad234f7')
         self.assertEqual(len(a.TABLE),4);self.assertEqual(len(a.ROLES),3)
         self.assertLess(sum(row[0] for row in a.TABLE.values()),128*1024*1024)
@@ -90,6 +102,14 @@ class Controls(unittest.TestCase):
                 record=value.mapped_identity('mihomo',info.st_dev,info.st_ino)
                 self.assertEqual(record['path'],'/artifacts/mihomo');self.assertEqual(record['sha256'],sha)
                 self.assertFalse(value.sealed)
+
+    def test_matching_hash_does_not_adopt_old_schema_wrong_source_or_helper(self):
+        for variant in ('old-schema','wrong-broker-source','wrong-helper-pin'):
+            with tempfile.TemporaryDirectory() as temp:
+                _,stack=self.fixture(temp,variant)
+                with stack:
+                    with self.assertRaises(a.Refused):self.construct()
+                self.assertTrue(self.instances[-1].sealed)
 
     def test_unknown_native_store_refuses_before_any_artifact_open(self):
         value=a.Sources.__new__(a.Sources);self.instances.append(value)
@@ -170,7 +190,7 @@ class Controls(unittest.TestCase):
                 if variant=='fifo':
                     path=directory/'developer-manifest.json';path.unlink();os.mkfifo(path,0o600)
                 with stack:
-                    if variant=='pin':a.TABLE['developer-manifest.json']=(4181,0o600,'0'*64)
+                    if variant=='pin':a.TABLE['developer-manifest.json']=(a.TABLE['developer-manifest.json'][0],0o600,'0'*64)
                     with self.assertRaises(a.Refused):self.construct()
                 self.assertTrue(self.instances[-1].sealed)
 

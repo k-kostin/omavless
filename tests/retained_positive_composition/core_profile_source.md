@@ -282,3 +282,30 @@ native/source pins. It must not reinterpret signal death as zero, weaken the
 exact-zero settlement, use a wrapper to forge success, clean unknown DNS
 state on termination, or retry this scope. A stop request may not itself
 establish settled release or authorize removal of retained lease evidence.
+
+## Orderly broker successor — source admission only
+
+Draft #664 freezes the separately reviewed broker implementation at
+`aff0c38075338d51d979acc9f10dab1ae6dbba6f`. SIGTERM sets a sticky flag. The
+ordinary transaction remains responsible for release; a stop cannot cancel a
+lease. The idle branch returns Ok only after the original locked journal is
+empty and still bound, fixed access/context checks and a fresh retained-link
+inventory all succeed under one deadline. Ambiguity remains a nonzero/refusal,
+not cleanup or a substituted exit status. Active release/quarantine semantics
+and the composition's exact-zero settlement are unchanged.
+
+Compile-only command `3041cd/session82174 -> ade8f5` returned original zero.
+The new x86_64 broker is5126984 bytes, SHA
+`ea958302d745b901294df6164c624a431a7493b67457a255306ec8216545eb9d`.
+The core and host helper remain the same developer artifacts. A minimal v2
+manifest explicitly separates their historical export provenance from this
+broker source/build; it does not reuse old broker test or source-tar claims.
+Manifest1235 bytes/SHA
+`65925070cd83b2af177bbfa4fbb7b821cdc65e855db53671528b2da03bb621cd`.
+The historical v1 fixture and all stopped scopes retain their old pins.
+
+Fourteen inert artifact controls include matching-hash counterexamples for
+the old schema, wrong broker source and wrong helper hash. The complete
+composition gate passes234 controls. These are not native execution or VM
+acceptance. A fresh unused stage, complete affected recipe/pin review and
+ROOT-selected actual run remain required.

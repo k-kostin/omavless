@@ -11,7 +11,7 @@ MANIFEST='3caa3d2bfdace10e97617b1e222192bf0c78f8ac194f51ee0a2f90f9defdd896'
 ROLES={'bus':'/usr/bin/dbus-daemon','resolved':'/usr/lib/systemd/systemd-resolved',
        'core':'/artifacts/mihomo','broker':'/artifacts/omavless-dns-broker','host':'/artifacts/host-fixture'}
 NATIVE={'core':(61083808,'3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544'),
-        'broker':(5124576,'6126e5b159eb7996cbf8ac6bdb212be3d7b4b12b1809e09e74c19dbc1394001e'),
+        'broker':(5126984,'ea958302d745b901294df6164c624a431a7493b67457a255306ec8216545eb9d'),
         'host':(49630768,'fbd19fc83f5d6548ff8f1fe89d4d66ab9032d85cb551a2364f5719a5cad234f7')}
 SIX={'/usr/lib/libcrypto.so.3','/usr/lib/libidn2.so.0.4.0','/usr/lib/libssl.so.3',
      '/usr/lib/libunistring.so.5.2.1','/usr/lib/libz.so.1.3.2','/usr/lib/libzstd.so.1.5.7'}

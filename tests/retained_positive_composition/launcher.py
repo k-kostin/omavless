@@ -25,8 +25,8 @@ import types
 STAGE='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='34b5d07b39ace2995879aedd57c8126278b5c9bcf55b4794f19ebc932a6db2d1'
-VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
+GRAPH='7ee270c5dff2a8ca749174ee289d083974b2b787458286ff521f867e7acdcc71'
+VALIDATOR='aee98a1a8e410708deb8896872718a146d92bd3f53c3a5a24a3c4d7e304d8a0e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']
 NS=('user','net','mnt','pid','uts')
