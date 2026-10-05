@@ -48,6 +48,25 @@ class Controls(unittest.TestCase):
         self.assertNotIn('impl CanonicalCreator', bridge)
         self.assertNotIn('impl EffectPort', bridge)
 
+    def test_actual_inventory_reuses_existing_lease_through_owner_verification(self):
+        adapted = self.adapted['kernel_inventory.rs'].decode()
+        self.assertIn('pub(super) fn borrow_policy_inventory_before', adapted)
+        original = self.sources['kernel_inventory.rs'].decode()
+        start = '        let result = self.inspect_policy_inventory_before(deadline);'
+        end = '    #[cfg(test)]\n    pub(super) fn inspect_policy_inventory_once'
+        self.assertIn(original[original.index(start):original.index(end)], adapted)
+        creator = (HERE / 'owned_creator.rs').read_text()
+        self.assertIn('self.session.borrow_policy_inventory_before(self.deadline)?', creator)
+        self.assertIn("lease: LocalInventoryLease<'a>", creator)
+        self.assertIn('if !self.completed { self.lease.session.poisoned = true; }', creator)
+        self.assertNotIn('let (inventory, _, _) = result?', creator)
+        launcher = (HERE / 'owned_launcher.rs').read_text()
+        body = launcher[launcher.index('    pub(crate) fn inventory(&mut self)'):]
+        self.assertLess(body.index('self.acquired.sealed = true'), body.index('creator.borrow_inventory()'))
+        self.assertLess(body.index('inventory_sequence::Attempt'), body.index('inventory.complete()'))
+        self.assertLess(body.index('inventory.complete()'), body.index('self.acquired.sealed = false'))
+        self.assertIn('creator_socket: self.inventory.socket()', launcher)
+
     def test_all_four_actual_readback_leaf_pairs_and_no_sender_added(self):
         for name in ('kernel_observer.rs', 'kernel_inventory.rs',
                      'kernel_chain_observer.rs', 'kernel_rule_wire.rs'):

@@ -23,6 +23,8 @@ mod owned_child;
 use owned_child::OwnedChild;
 #[path = "completion.rs"]
 mod completion;
+#[path = "inventory_sequence.rs"]
+mod inventory_sequence;
 
 const ERROR: EffectError = EffectError::UnavailableOrUncertain;
 
@@ -154,6 +156,26 @@ impl OriginalVerifier for Verify {
     }
 }
 
+struct InventoryBackend<'a, 'b> {
+    originals: &'a mut Originals,
+    inventory: &'a mut crate::kernel_observer::owned_creator::ActualInventory<'b>,
+}
+impl inventory_sequence::Backend for InventoryBackend<'_, '_> {
+    fn lease(&mut self) -> Result<(), inventory_sequence::Refused> {
+        self.inventory.recheck().map_err(|_| inventory_sequence::Refused)
+    }
+    fn original_owner(&mut self) -> Result<(), inventory_sequence::Refused> {
+        require(thread::current().id() == self.originals.owner_thread)
+            .map_err(|_| inventory_sequence::Refused)?;
+        self.originals.verifier.recheck(LaunchBorrow {
+            anchor: self.originals.anchor.as_fd(),
+            thread_namespace: self.originals.thread_namespace.as_fd(),
+            creator_socket: self.inventory.socket(),
+            _same_thread: PhantomData,
+        }).map_err(|_| inventory_sequence::Refused)
+    }
+}
+
 /// Returns only an untrusted observation. No conversion to canonical epoch,
 /// receipt, listener authority or mutation port exists for ActualCreator.
 pub(crate) struct Prototype {
@@ -204,7 +226,23 @@ impl Prototype {
         Ok(Self {acquired,life:Rc::clone(&life)})
     }
     pub(crate) fn inventory(&mut self) -> Result<LocalPolicyInventory,EffectError> {
-        self.acquired.with_lease(|creator|creator.inventory().map_err(|_|ERROR))
+        require(!self.acquired.sealed)?;
+        self.acquired.sealed = true;
+        let Retained { originals, creator } = &mut *self.acquired.retained;
+        require(thread::current().id() == originals.owner_thread)?;
+        originals.verifier.recheck(LaunchBorrow {
+            anchor: originals.anchor.as_fd(),
+            thread_namespace: originals.thread_namespace.as_fd(),
+            creator_socket: creator.creator_socket(),
+            _same_thread: PhantomData,
+        })?;
+        let mut inventory = creator.borrow_inventory().map_err(|_| ERROR)?;
+        inventory_sequence::Attempt::default().run(&mut InventoryBackend {
+            originals, inventory: &mut inventory,
+        }).map_err(|_| ERROR)?;
+        let observed = inventory.complete();
+        self.acquired.sealed = false;
+        Ok(observed)
     }
     pub(crate) fn finish(mut self) -> Result<(),EffectError> {
         self.acquired.with_lease(|_|Ok(()))?;

@@ -391,3 +391,8 @@ established. Primary installed packages are unchanged. All prior nonzero and
 unknown scopes remain permanently stopped; their originals were not retried,
 queried or adopted. Raw private captures and credentials remain outside Git.
 The public exact-source record is [the #654 checkpoint](https://github.com/k-kostin/omavless/pull/654#issuecomment-5991001545).
+
+The separately scoped [inventory lease successor](INVENTORY_LEASE_PROPOSAL.md)
+keeps the existing original-session inventory lease through acquisition
+post-verification. Its changed source and unexecuted controls are not covered
+by the stage5 native result. It introduces no policy-effect or canonical owner.

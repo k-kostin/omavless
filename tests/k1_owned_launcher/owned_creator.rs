@@ -101,18 +101,37 @@ impl ActualCreator {
         self.session.check(self.deadline)
     }
 
-    /// Existing complete table/chain/rule/set/object/flowtable readback, unchanged.
-    /// No result from this method is Canonical, OwnedVerified or an EffectPort.
-    pub(crate) fn inventory(&mut self) -> Result<LocalPolicyInventory> {
+    /// Reuse the actual #641 exclusive lease, including table/generation and
+    /// original deadline. It remains alive through acquisition post-verification.
+    pub(crate) fn borrow_inventory(&mut self) -> Result<ActualInventory<'_>> {
         require(!self.sealed)?;
         self.sealed = true;
         require(thread::current().id() == self.thread && Instant::now() < self.deadline)?;
-        let result = self.session.inspect_policy_inventory_before(self.deadline);
-        if result.is_err() { self.session.poisoned = true; }
-        let (inventory, _, _) = result?;
-        require(Instant::now() < self.deadline)?;
-        self.sealed = false;
-        Ok(inventory)
+        let lease = self.session.borrow_policy_inventory_before(self.deadline)?;
+        Ok(ActualInventory { lease, creator_sealed: &mut self.sealed, completed: false })
+    }
+}
+
+/// No constructor, mutable session accessor, clone, transfer or effect port.
+/// An unfinished scope poisons the original session without any I/O or close.
+pub(crate) struct ActualInventory<'a> {
+    lease: LocalInventoryLease<'a>,
+    creator_sealed: &'a mut bool,
+    completed: bool,
+}
+impl ActualInventory<'_> {
+    pub(crate) fn recheck(&mut self) -> Result<()> { self.lease.recheck() }
+    pub(crate) fn socket(&self) -> BorrowedFd<'_> { self.lease.session.socket.as_fd() }
+    pub(crate) fn complete(mut self) -> LocalPolicyInventory {
+        let observed = self.lease.observed();
+        self.completed = true;
+        *self.creator_sealed = false;
+        observed
+    }
+}
+impl Drop for ActualInventory<'_> {
+    fn drop(&mut self) {
+        if !self.completed { self.lease.session.poisoned = true; }
     }
 }
 

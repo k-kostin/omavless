@@ -122,4 +122,14 @@ pub(crate) mod owned_creator;
     result['kernel_inventory.rs']=replace(result['kernel_inventory.rs'],
         '    fn inspect_policy_inventory_before(',
         '    pub(super) fn inspect_policy_inventory_before(')
+    # Reuse the SAME #641 lease constructor and parser. Only the external
+    # creator supplies its earlier original launch deadline; no renewed second.
+    result['kernel_inventory.rs']=replace(result['kernel_inventory.rs'],
+        '''    pub fn borrow_policy_inventory(&mut self) -> Result<LocalInventoryLease<'_>> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+''', '''    pub fn borrow_policy_inventory(&mut self) -> Result<LocalInventoryLease<'_>> {
+        self.borrow_policy_inventory_before(Instant::now() + Duration::from_secs(1))
+    }
+    pub(super) fn borrow_policy_inventory_before(&mut self, deadline: Instant) -> Result<LocalInventoryLease<'_>> {
+''')
     return {name:raw.encode() for name,raw in result.items()}
