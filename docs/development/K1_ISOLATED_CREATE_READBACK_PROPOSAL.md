@@ -145,3 +145,21 @@ compile/export/freeze and VM publication recipes can be proposed. Exact
 executable hashes, stage publication, manager properties, sampled budgets and
 original capture custody remain unprepared. No command in this document is an
 executable recipe; no namespace, service or native fixture has been selected.
+
+## Reviewed formatting-only checkpoint
+
+ROOT reported eight mocked recipe controls and eight separate stdin-to-stdout
+formatter invocations at original zero. All original source remained unchanged
+until ROOT read the complete outputs. Only the worker, manager and identity
+outputs differed; their reviewed changes are whitespace and import ordering.
+Those exact three outputs were applied, leaving the five identical files alone.
+The Python wiring assertions now accept the corresponding whitespace and an
+optional trailing field comma without relaxing their operation/order checks.
+
+The subsequent six Python source controls, documentation navigation (93 local
+links) and whitespace check completed with explicit exit tracking and zero
+(`a86ec7`). This is formatting/source evidence, not compilation or execution of
+the new Rust controls. The next separately reviewed compile recipe will select
+six pure controls: three witness controls, the worker and manager frame controls,
+and the three-unit fixed-identity control. All new ignored/native entries remain
+UNRUN; the historical compiled witness evidence remains at `83f42593`.

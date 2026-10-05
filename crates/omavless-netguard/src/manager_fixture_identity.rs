@@ -18,7 +18,9 @@ pub(crate) enum Fixture {
 impl Fixture {
     pub(crate) const fn cgroup(self) -> &'static str {
         match self {
-            Self::ExclusiveCreate => "/sys/fs/cgroup/system.slice/omavless-k1-exclusive-create.service",
+            Self::ExclusiveCreate => {
+                "/sys/fs/cgroup/system.slice/omavless-k1-exclusive-create.service"
+            }
             Self::PrivateLifecycle => {
                 "/sys/fs/cgroup/system.slice/omavless-k1-retained-private-lifecycle.service"
             }
@@ -29,7 +31,9 @@ impl Fixture {
     }
     pub(crate) const fn unit_path(self) -> &'static str {
         match self {
-            Self::ExclusiveCreate => "/org/freedesktop/systemd1/unit/omavless_2dk1_2dexclusive_2dcreate_2eservice",
+            Self::ExclusiveCreate => {
+                "/org/freedesktop/systemd1/unit/omavless_2dk1_2dexclusive_2dcreate_2eservice"
+            }
             Self::PrivateLifecycle => {
                 "/org/freedesktop/systemd1/unit/omavless_2dk1_2dretained_2dprivate_2dlifecycle_2eservice"
             }
@@ -40,7 +44,9 @@ impl Fixture {
     }
     pub(crate) const fn unit_sha(self) -> &'static str {
         match self {
-            Self::ExclusiveCreate => "3123aa8e484560fc83b4bde8a09e8e0d192c7d918ff5f8582a982dc6a9f1be52",
+            Self::ExclusiveCreate => {
+                "3123aa8e484560fc83b4bde8a09e8e0d192c7d918ff5f8582a982dc6a9f1be52"
+            }
             Self::PrivateLifecycle => {
                 "198730a79751ccee045c6173d4cbb75db7ece33a784f5390f255cb65aa5e72b5"
             }
@@ -76,7 +82,9 @@ impl Fixture {
     }
     pub(crate) const fn writer(self) -> &'static str {
         match self {
-            Self::ExclusiveCreate => "kernel_observer::creator_lifecycle::exclusive_create::one_create",
+            Self::ExclusiveCreate => {
+                "kernel_observer::creator_lifecycle::exclusive_create::one_create"
+            }
             Self::PrivateLifecycle => {
                 "kernel_observer::creator_lifecycle::response_diagnostic::manager_private_lifecycle"
             }
@@ -94,7 +102,9 @@ impl Fixture {
     }
     pub(crate) const fn unit_bytes(self) -> &'static [u8] {
         match self {
-            Self::ExclusiveCreate => include_bytes!("../tests/fixtures/omavless-k1-exclusive-create.service"),
+            Self::ExclusiveCreate => {
+                include_bytes!("../tests/fixtures/omavless-k1-exclusive-create.service")
+            }
             Self::PrivateLifecycle => {
                 include_bytes!("../tests/fixtures/omavless-k1-retained-private-lifecycle.service")
             }
@@ -107,7 +117,11 @@ impl Fixture {
 
 #[test]
 fn fixed_identities_match_disjoint_original_units() {
-    let fixtures = [Fixture::PrivateLifecycle, Fixture::RetainedLease, Fixture::ExclusiveCreate];
+    let fixtures = [
+        Fixture::PrivateLifecycle,
+        Fixture::RetainedLease,
+        Fixture::ExclusiveCreate,
+    ];
     for fixture in fixtures {
         use sha2::{Digest, Sha256};
         assert_eq!(

@@ -1,5 +1,6 @@
 """Source-only closed one-create wiring; never imports a native fixture."""
 import hashlib
+import re
 from pathlib import Path
 import unittest
 
@@ -24,15 +25,16 @@ class ExclusiveCreateSource(unittest.TestCase):
 
     def test_worker_uses_one_state_request_not_direct_effect_or_cleanup(self):
         source = (SRC / "kernel_exclusive_create_fixture.rs").read_text()
-        self.assertEqual(source.count("?.request("), 1)
-        self.assertIn("Request::Arm { generation: 7, mode: Mode::Full }", source)
+        requests = list(re.finditer(r"\?\s*\.request\(", source))
+        self.assertEqual(len(requests), 1)
+        self.assertRegex(source, r"Request::Arm\s*\{\s*generation:\s*7,\s*mode:\s*Mode::Full,?\s*\}")
         self.assertIn("creator.effects == 1 && creator.created.is_some()", source)
         for call in [".full(", ".replace_owned(", ".delete_owned(", ".send_batch(",
                      "remove_file(", "remove_dir", "Command::", "setns(", "unshare("]:
             self.assertNotIn(call, source)
         self.assertLess(source.index("self.state = Some"), source.index("self.creator = Some"))
-        self.assertLess(source.index("self.creator = Some"), source.index("?.request("))
-        self.assertLess(source.index("?.request("), source.index("self.phase(3)?"))
+        self.assertLess(source.index("self.creator = Some"), requests[0].start())
+        self.assertLess(requests[0].start(), source.index("self.phase(3)?"))
 
     def test_original_pending_and_witness_stay_in_existing_creator(self):
         source = (SRC / "kernel_creator_lifecycle.rs").read_text()
@@ -61,7 +63,7 @@ class ExclusiveCreateSource(unittest.TestCase):
         for name in ["kernel_exclusive_create_fixture.rs", "manager_exclusive_create_fixture.rs"]:
             source = (SRC / name).read_text()
             self.assertLess(source.index("Box::leak("), source.index("catch_unwind("))
-            self.assertIn("loop { std::thread::park(); }", source)
+            self.assertRegex(source, r"loop\s*\{\s*std::thread::park\(\);\s*\}")
             self.assertNotIn("println!", source)
             self.assertNotIn("write_all(", source)
             self.assertIn("rustix::io::write(", source)
