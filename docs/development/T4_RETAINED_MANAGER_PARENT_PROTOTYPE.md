@@ -170,3 +170,29 @@ introduced. The next separately scoped experiment is an external review-only
 safe-library patch with non-lossy shape/error reporting and owned-rights
 retention, retaining upstream licenses and testing malformed/truncated/drop
 ownership. No product dependency change or upstream submission is authorized.
+
+## External known-ABI research checkpoint
+
+The exact external source `faa069b43224c8b284954c781b28c1e1b041a873` now has
+a [pinned textual patch and retained licenses](../../tests/research/rustix-owned-ancillary/README.md)
+for cross-machine source review, not a dependency substitution or runnable
+product fixture. The source adds a Linux-only owned receive frame, ordered
+unknown/malformed header records and exact credential-size checking while
+preserving legacy drain behavior. Known SCM_RIGHTS originals remain owned in
+the returned frame; protocol refusal must retain that whole frame.
+
+After separate FULL ROOT and independent source/recipe review, ROOT alone ran
+ONE exact ignored no-child linux_raw control, authoritative KNOWN_ZERO
+`c8b96a`: one passed, zero failed, 47 filtered out. Only three newly owned
+local pairs were checked for credentials/SCM_RIGHTS, actual truncation flags,
+CLOEXEC and original pipe aliases. No second backend, child retry, guest,
+root-manager authentication or product owner executed. Its original private
+captures and recipe hashes are recorded in the research fixture; raw stderr
+remains unread and outside Git.
+
+The earlier stopped child remains NONPASS and untouched. This external result
+does not establish its cause, the protected guest manager's current identity,
+SCM_PIDFD, unknown descriptor ABI, corrupt-tail/OOM/backend-partial retention
+or production availability. The pinned patch is exactly the tested head,
+not later external documentation or a future PIDFD successor. No ordinary
+Rust source, dependency, trust predicate or CLI path changes in this checkpoint.
