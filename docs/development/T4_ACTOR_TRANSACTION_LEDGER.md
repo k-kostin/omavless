@@ -5,8 +5,50 @@ Status: SOURCE implementation checkpoint from exact
 the frozen #658 source or its selected VM packet. The approved
 [execution policy](EXECUTION_POLICY.md), [actor service](T4_MANAGER_ACTOR_SERVICE.md)
 and [private restore contract](../roadmap/PRIVATE_BACKUP_RESTORE.md) remain the
-authority. No transaction VM recipe or real descriptor acquisition has been
-selected for this successor. Normal runtime/CLI/restore activation is unchanged.
+authority. ROOT has now selected the fixed developer stage/journal scenario
+at exact `d2f583778bd6130a1187a99d7ccde2c9c27e4f3e`, with the bounded original
+results below. Normal runtime/CLI/restore activation is unchanged.
+
+## Exact developer stage/journal actual checkpoint
+
+ROOT and Astra FULL-reviewed the integrated source and narrow aggregate
+admission correction, then the independently bound packet and reached transport.
+ROOT reports original whole run `fdad34` zero and separately selected fixed-file
+observer `1c5850` zero. The tested SOURCE is exactly
+`d2f583778bd6130a1187a99d7ccde2c9c27e4f3e`, not this later documentation
+successor. Public compiled artifact:62,369,792 bytes, SHA-256
+`468ea4e7406e266cc8428621aef473bf704851bb20e0f25044f8ca7a040f438c`.
+Fixed packet SHA-256
+`fb38ef62a21f45d64ab3b59b1637cca8a98eee4dc8f57fec6ea127c762154ac0`.
+Packet/transport memory controls were10+6 zero; ROOT independently repeated
+all16 controls (`f69a2a`) before actual selection.
+
+The observer projected actor output825 bytes/29 closed literal frames, last
+`t4_actor_fixture_stage_recorded`, SHA-256
+`d622292d6fa88817525891684320327cd5547286ab066923d706846b37573e20`;
+supervisor209 bytes/eight frames, last `t4_service_completed`, SHA-256
+`4ec880522cab1ba1ed2f32f9da0cd34d4473df6f8c9adec6df5ad1d04ea72a63`.
+Only the two pre-scoped capture files were read; no uncertain subtree was
+traversed. Labels/hashes alone are not order, cause, current custody or whole
+effect proof. Original whole0 under the exact reviewed program binds genuine
+private authentication, the complete actor-owned stage/journal checks, typed
+StageRecorded, normal Halt and original child0. The author issued no VM,
+native-body or capture query.
+
+Persistent transaction files remain. No cleanup/reset/second invocation is
+selected here; the old five-member retirement recipe is invalid for this
+extended catalogue. Any positive-only retirement requires a separately reviewed
+exact subtree recipe and these original positive receipts. This is still a
+fixed PID1 developer operation with fixturegeneration1 and dry-run Aborted
+journal, not canonical manager/full-inventory StoppedOwner, real live-pair
+Restore/Commit, product rollback, crash reconciliation or product activation.
+
+The packet's sealed original REVIEW erroneously called ordinary `src/main.rs`
+the fixed entry. Preserved catalogue addendum SHA-256
+`ec782b4b333d8d6f26f9fcf95c2673d54d7c12cc6ab62092ea83933fe93f5d52`
+identifies Cargo's actual `src/t4_manager_actor_main.rs`, SHA-256
+`d88baa62d69ad0029f4ee823a068415314980d98f6ba8e5bfacddfc199b44994`.
+Operational source/packet/artifact pins were unchanged by that SOURCE-only note.
 
 ## Exact baseline integration and fixture disposition
 
@@ -144,7 +186,7 @@ admit that extended exact catalogue separately; the old five-member recipe is
 not reused. Product Restore/Commit remains unavailable until canonical origin
 and the original stopped-owner/full-inventory contract are genuinely admitted.
 
-### Integrated executable SOURCE successor (not VM selected)
+### Integrated executable SOURCE behavior (tested at exact d2f583)
 
 `--stage-authenticated-backup` now executes that entire fixed developer slice.
 Wire kind10 accepts the original private transfer; only kind11 `StageRecorded`
@@ -223,9 +265,10 @@ capture controls passed (`7b5018`), feature all-target Clippy passed (`a0ff60`)
 and normal no-feature library check passed (`0c034b`). Compile-only build
 `13d886` returned zero; its unexecuted public artifact is62,369,792 bytes,
 SHA-256 `468ea4e7406e266cc8428621aef473bf704851bb20e0f25044f8ca7a040f438c`.
-These results supersede the prior artifact for any future packet binding, not
-the historical source receipts below. No service/native body or VM selection
-occurred. The new guard is pure memory evidence plus reviewed dispatcher source,
+These results supersede the prior artifact for packet binding, not the
+historical source receipts below. No service/native body or VM selection
+occurred in these author gates; ROOT's later positive selection is above.
+The guard control is pure memory evidence plus reviewed dispatcher source,
 not an actual post-stage fault result.
 
 An outer stage Result error seals both its one-shot operation and the lower
@@ -262,8 +305,9 @@ role count. The actual acquisition/writer code is **not** exercised by those
 memory tests. Seven original-FD/capture controls passed (`820b28`), all-target
 feature Clippy with warnings denied passed (`45ca7e`), and normal no-feature
 library check passed (`2201ba`). The prior three finite catalogue controls are
-unchanged. Real Files, crash/resource cuts and installed/VM evidence still need
-the independently reviewed exact packet and ROOT selection.
+unchanged. At that SOURCE freeze, real Files/VM evidence still required the
+independently reviewed exact packet and ROOT selection; the later d2f583 positive
+is above. Crash/resource cuts and product installed acceptance remain open.
 
 Compile-only build `c02282` returned zero. Its unexecuted public artifact is
 62,369,008 bytes, SHA-256
