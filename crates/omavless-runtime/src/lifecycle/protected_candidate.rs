@@ -12,6 +12,14 @@ trait ProtectionPort {
     fn exchange(&mut self, request: Request) -> Result<Response, ()>;
 }
 
+// No production constructor/registration. Native protected readiness remains
+// unavailable; this binds only the reviewed fixed-purpose optional client.
+impl ProtectionPort for omavless_netguard::client_candidate::FixedClient {
+    fn exchange(&mut self, request: Request) -> Result<Response, ()> {
+        Self::exchange(self, request).map_err(|_| ())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     Fresh,

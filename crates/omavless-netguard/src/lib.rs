@@ -5,6 +5,8 @@
 
 #[allow(dead_code)] // Inactive composition; no canonical provider or product caller.
 mod authority_composition;
+#[cfg(feature = "netguard-client-candidate")]
+pub mod client_candidate;
 pub mod coordinator;
 pub mod effect_port;
 pub mod emergency_wire;
