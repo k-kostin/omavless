@@ -191,6 +191,43 @@ then checks one selected tunnel terminates while the other still echoes. Its
 environment switch is `OMAVLESS_CLOSE_DEVELOPER_SOCKET_VM=1`; run it only inside
 the explicitly admitted disposable development namespace. The prior
 direct-coordinator VM receipts above do **not** cover this new socket test.
-Actual VM evidence for this successor and UI integration remain separate gates.
+The subsequent socket checkpoint below covers this successor's VM gate;
+UI integration remains a separate gate.
 No release package, TUI/QML action, main/RC merge or production activation is
 supplied by this workspace.
+
+## Exact socket checkpoint, 2026-10-06
+
+Tested implementation: `0e812f34a01341d3bb093c38fc2be85f6d0318ea`.
+The final feature-enabled library run returned original zero: 1119 passed,
+zero failed, 36 ignored. Focused connection-close tests (27 passed, three
+ignored), strict all-target feature and default Clippy, default-method absence,
+format and diff checks passed. The ignored cases remain separately selected
+integration gates, not ordinary test coverage.
+
+The separately compiled release test image was 21,485,776 bytes, SHA-256
+`044b4e3e75efb0d18a241ad75f3341eeb1b18bd9586ceea62ba8488410f0c1e4`.
+Six pure delivery controls and primary/independent boundary reviews preceded
+the actual selections. Public upload returned original zero. In a fresh
+x86_64 Omarchy dev-VM boot, the normal application was confirmed disconnected
+and its user service stopped, with both fixed units inactive and no TUN.
+The test then ran in a separate PID/mount/network namespace with loopback only,
+dropping supplementary groups and UID/GID to 1000 before execution.
+
+The actual `actual_owner_developer_pair_socket_selected_close_in_dev_vm` run
+returned original zero. A separately selected two-file observer also returned
+zero with the complete exact one-test success grammar: 232 stdout bytes,
+SHA-256 `e85ce6910159a484c44a43e93433d6d368a0c375a0f11ad0a42bf7f66b7b7916`,
+and empty stderr. The same actual coordinator and root-provisioned developer
+pair were used without a fixture permit. The socket scenario checked snapshot,
+prepare, confirmation, receipt polling and exact replay, one selected tunnel
+termination, one surviving echo tunnel, and unchanged desired state.
+This closes that scoped developer-socket VM gate, not UI or product adoption.
+Namespace-init teardown is containment, not retained-child reaping or product
+recovery proof; the ordinary shared filesystem/sysfs boundary is unchanged.
+
+The first exact-head Test and x86_64 package CI jobs never obtained a hosted
+runner and were cancelled before any steps. GitHub's check annotation explicitly
+reported runner acquisition failure; this is neither a passing CI gate nor a
+source test failure. ARM64 packaging passed. Subsequent CI results must be
+recorded independently, without borrowing local or VM success.
