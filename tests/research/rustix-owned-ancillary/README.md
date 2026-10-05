@@ -5,6 +5,70 @@ vendored production library, upstream submission or protocol authority.
 No build script or test runner here applies or executes the patch automatically.
 The normal CLI and its strict protected-manager refusal remain unchanged.
 
+## Terminal-envelope successor: exact source and descriptor-free evidence
+
+The incremental `terminal-source-79975b1.patch` preserves four external Rust
+files from prepared baseline `0a0c958cd823b5be70abd38cf8def36b1554a089` to
+`79975b10a0c21aa008bb6a8941459beb9bf35d2e`. It requires the separate
+`source-only-0a0c958.patch` baseline; it is not a standalone production patch.
+The adjacent [provenance catalogue](terminal-provenance.json) pins its bytes,
+all four resulting files, private recipe, exact selectors and original result.
+Original upstream licenses remain retained. No runner applies either patch,
+and no ordinary manifest, lock, runtime API or backend contract changes.
+
+The additive terminal receiver initializes full scratch and permanently consumes
+the prepared context before one private backend call. A returned syscall error
+or out-of-bound success length preserves scratch, capacities and an opaque
+scalar snapshot in a whole envelope without error-prefix decoding or guessed
+RawFd adoption. Only bounded success reaches the existing known-owner decoder.
+Callers must retain the WHOLE envelope before inspecting or refusing it.
+Error memory retention is **not ownership of installed-but-unreported FDs**;
+the observed control-length field may still be its input capacity.
+
+`terminal-docs-79975b1.patch` separately preserves the four-site documentation
+correction from `f53aff5b40663fcf6a4c1fa55606d902c876f715` to `79975b1`.
+It adds docs and formatting-only trailing field commas, with no behavior or
+lint-allowance changes. The missing public-field/method
+docs conflict with rustix's `deny(missing_docs)` in immutable source. This
+demonstrated source defect is not a proven cause of an earlier stopped compile.
+All previous NONPASS scopes, sources and evidence remain unchanged.
+
+After FULL ROOT and independent exact source/closed-recipe review and six
+mock recipe controls, ROOT alone selected the fresh private GNU experiment:
+`82cbc6/session25686` ended `a8f693` exit zero. ROOT's original post-zero gate
+`a0ae9b` verified the complete fixed aggregate
+`T4_TERMINAL_DOCS_RAW7_LIBC8_KNOWN_ZERO`. Both linux_raw and forced use-libc
+compiled offline/locked, lib/no-run, jobs=2 with the unchanged full harness;
+seven exact descriptor-free terminal controls passed on each backend, plus
+libc's checked ABI-count conversion control. Each original test ended zero
+with one passed, zero failed/ignored and empty stderr before continuation.
+No actual receive, descriptor callback, ignored kernel body, child, VM,
+privilege, network configuration or product binary was selected. Author did
+not run Cargo. No raw captures or private absolute driver paths are exported.
+
+The controls cover initialized scratch, synthetic post-write error retention,
+opaque error length relations, unbounded-success quarantine, empty success,
+pre-call flag rejection, one consumed unwind path and checked count narrowing.
+They do not prove universal OOM/panic/process-death safety, future unknown-FD
+accounting, malformed-tail recovery, musl compilation or manager/root authority.
+Linux producer ordering and live exclusive buffers are a conditional source
+fault model, not current-kernel attestation or `Err => no installed FD`: kernel
+copyout may fail after descriptor installation. No actual error recovery, T4
+closure, product adoption, merge or publication authority is inferred.
+The public fixture is inert and is not automatically rebuilt from its private
+evidence. The earlier LOCAL-reply experiment and own-pair receipts remain
+separate; they cannot borrow this terminal-envelope result.
+
+The inert public export gate passed five new fixture controls and the full
+source suite (650 Python tests, two declared skips, JS/QML/navigation).
+Both exact patches passed reverse-apply checks against the immutable successor
+without modifying or executing it. These source checks produce no new receive
+or product acceptance evidence. Documentation/test whitespace checks pass;
+whole-export Git checks report five literal blank-context marker lines in the
+two exact patches, not trailing whitespace in the exported Rust source.
+
+## Original known-ABI source export
+
 The patch exports only six source/harness files from the external experiment's
 import base `fc2585fa35855fc4751618aaeeb799e874212b95` to the exact tested
 `faa069b43224c8b284954c781b28c1e1b041a873`. Later external documentation or

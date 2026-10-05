@@ -306,3 +306,28 @@ authentication remain gaps; sampled deadlines are not hard cancellation.
 Stopped scopes and older evidence stay intact. Exact public 9ac CI remains
 nongreen at a separate DNS-broker singleton metadata assertion; private slice
 results are not whole public Rust acceptance, T4 closure or release authority.
+
+## Additive terminal envelope: descriptor-free error-context evidence
+
+The [inert incremental export and provenance](../../tests/research/rustix-owned-ancillary/README.md#terminal-envelope-successor-exact-source-and-descriptor-free-evidence)
+preserve private `79975b10a0c21aa008bb6a8941459beb9bf35d2e` over the separate
+prepared-rustix `0a0c958` baseline. A distinct four-site documentation patch
+preserves its docs-only correction without behavior or lint-allowance changes.
+No ordinary product source, manifest, lock or backend contract changes.
+
+The one-shot terminal context retains initialized scratch, preallocated frame
+storage and opaque scalar fields on returned syscall error or invalid success
+length. It never decodes an error prefix or adopts guessed raw descriptors;
+only bounded success can expose the existing decoded frame. Whole-envelope
+retention precedes semantic refusal. This retains memory, not ownership of
+unreported installed FDs, and supplies no retry or root/manager authority.
+
+After exact source/recipe reviews, ROOT's fresh private GNU compile/pure
+selection `82cbc6/session25686/a8f693` and fixed aggregate gate `a0ae9b` ended
+zero: raw seven and forced-libc eight descriptor-free controls. No actual
+receive, ignored kernel body, child, VM or product execution occurred. This
+does not close backend partial-error/unknown-FD accounting, malformed tails,
+broader OOM/panic/death or authentication gaps. Linux copyout can fail after
+FD installation; live buffers are a conditional fault model, not an
+`Err => no FD` guarantee. No musl or whole T4 acceptance is claimed; stopped
+scopes and the separate LOCAL-reply/own-pair evidence remain unchanged.
