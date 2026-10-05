@@ -46,7 +46,7 @@ impl Held {
         self.real.recheck(true)?;
         self.tick()?;
         let bytes = b"K1_EXCLUSIVE_CREATE_HISTORICAL_KNOWN_ZERO_NOT_CANONICAL\n";
-        let written = rustix::io::write(rustix::stdio::stdout(), bytes);
+        let written = rustix::io::write(std::io::stdout(), bytes);
         self.tick()?;
         ensure(written.is_ok_and(|count| count == bytes.len()))?;
         self.tick()

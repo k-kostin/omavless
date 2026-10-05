@@ -1,5 +1,52 @@
 # K1 one-create isolated readback — source proposal only
 
+## Current integration target — 2026-10-05
+
+New development follows the owner-approved
+[execution policy](EXECUTION_POLICY.md), reconciled from policy PR #662 at
+`b8c967f2039bdad8a385429a212b977318adc9dc`. Old failed experiments and their
+observation restrictions remain frozen. A fresh ordinary public-source
+`cargo test --offline --locked -p omavless-netguard --lib --no-run` is SOURCE
+compilation: it executes the ordinary build/proc-macro graph, but no produced
+test main, manager call, privileged unit, namespace change or nft effect.
+Relevant bounded public compiler diagnostics may be inspected and corrected.
+That classification does not apply to a wrapper that actually staged a unit.
+
+| Completion item | Required behavior / evidence | Current state |
+| --- | --- | --- |
+| Compile and deterministic controls | Fresh HOME-based compile; fixed witness, worker, manager and identity controls | Corrected compile and six selected Rust pure controls pass; first new compile failure remains recorded below |
+| Isolated one-create VM scenario | Original manager Ref/Start, one durable Pending/Arm, original creator complete inventory/readback, exact six frames and known-zero original completion | Prepared source; fresh exact-binary publication/dispatch and independent effect-boundary review still required |
+| Inventory / acquisition distinction | Same retained socket and complete table/chain/rule/set/object/flowtable inventory; developer administrative origin explicitly separate from canonical acquisition | Existing complete parser and private witness retained; no new production acquisition constructor |
+| Kernel persistence / product integration | Production NetGuard service, runtime Full VPN coordination, crash/restart/recovery and installed package gates | Unavailable; this historical one-create scope does not prove them |
+| Host-only acceptance | Physical NIC, suspend/resume, armed boot and other declared K1 host cases | Unrun; no physical-host PASS |
+
+The first fresh compile at policy-reconciled source `05661eb1` returned original
+exit 101 before producing a test binary. No fixture executed and no uncertain
+external effect occurred. This diagnoses that successor's source failure; it
+does not inspect or relabel the old stopped six-pure compile, whose cause
+remains unknown. The corrected compile returned original zero; the three
+private create-witness controls, worker failed-write-order control, manager
+exact-frame grammar control and three-unit identity control each passed, with
+exact expected counts (3 + 1 + 1 + 1). The six Python source controls,
+format check and documentation navigation (101 links) also returned zero.
+Produced developer test-binary SHA-256:
+`1263be2059343836bb535466951703a6df441cbf644cbb5f6711874c9a501024`.
+No ignored/native entry ran. This is ordinary developer toolchain/cache evidence,
+not toolchain attestation, canonical authority or installed acceptance.
+
+The smallest VM scenario is the fixed ignored manager entry
+`manager_retained_lifecycle::adapter::exclusive_create::observe_one_create`,
+executed only by ROOT after review and fresh publication. It admits the literal
+`/run/omavless-k1-exclusive-create` stage, original executable and exact unit
+fragment before original Ref/Start; its new `PrivateNetwork=yes` worker performs
+one Arm(7, Full), one exclusive create and original-socket complete readback.
+The manager requires the original successful invocation and exact six-frame
+result. Success remains historical and explicitly noncanonical; it does not
+delete the table, Stop/Unref the unit, or promise custody after process death.
+The fixed unit SHA-256 is
+`3123aa8e484560fc83b4bde8a09e8e0d192c7d918ff5f8582a982dc6a9f1be52`.
+Fresh publication, whole-scope observation and ROOT dispatch remain pending.
+
 This is a proposed successor to Draft #657, not an eligible native selector.
 The compiled `83f42593` extraction has only three pure synthetic test results.
 No source here authorizes effects in the stage6 read-only namespace, host
