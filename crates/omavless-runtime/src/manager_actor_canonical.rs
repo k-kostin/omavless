@@ -96,6 +96,70 @@ fn query_credentials(system: bool) -> Option<(u32, u32)> {
     if system { None } else { Some((UID, UID)) }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImageOpenErrno {
+    NoEntry,
+    Access,
+    Permission,
+    ProcessLimit,
+    SystemLimit,
+    Other,
+}
+impl ImageOpenErrno {
+    fn original(error: nix::errno::Errno) -> Self {
+        use nix::errno::Errno;
+        match error {
+            Errno::ENOENT => Self::NoEntry,
+            Errno::EACCES => Self::Access,
+            Errno::EPERM => Self::Permission,
+            Errno::EMFILE => Self::ProcessLimit,
+            Errno::ENFILE => Self::SystemLimit,
+            _ => Self::Other,
+        }
+    }
+    fn label(self) -> &'static [u8] {
+        match self {
+            Self::NoEntry => b"t4_actor_inventory_image_open_enoent_refused\n",
+            Self::Access => b"t4_actor_inventory_image_open_eacces_refused\n",
+            Self::Permission => b"t4_actor_inventory_image_open_eperm_refused\n",
+            Self::ProcessLimit => b"t4_actor_inventory_image_open_emfile_refused\n",
+            Self::SystemLimit => b"t4_actor_inventory_image_open_enfile_refused\n",
+            Self::Other => b"t4_actor_inventory_image_open_other_refused\n",
+        }
+    }
+}
+
+fn canonical_image_file(directory: &File) -> nix::Result<File> {
+    // Same single original magic-link open as magic_file; no probe or retry.
+    // Keep its typed error here instead of the shared helper's unit erasure.
+    openat(
+        directory,
+        "exe",
+        OFlag::O_PATH | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    )
+    .map(File::from)
+}
+
+fn record_image_open<T>(
+    original: nix::Result<T>,
+    reported: &mut Option<ImageOpenErrno>,
+) -> std::result::Result<T, Unavailable> {
+    original.map_err(|error| {
+        // Only this original error is classified. No output/budget/IO inside
+        // the acquisition callback; Owner revokes before the outer cut emits.
+        *reported = Some(ImageOpenErrno::original(error));
+        Unavailable
+    })
+}
+
+fn image_open_failure(reported: Option<ImageOpenErrno>) -> InventoryFailure {
+    reported.map_or(
+        InventoryFailure::ImageOpen,
+        InventoryFailure::ImageOpenErrno,
+    )
+}
+
 #[derive(Clone, Copy)]
 enum InventoryFailure {
     CatalogueSeek,
@@ -111,6 +175,7 @@ enum InventoryFailure {
     StatParse,
     Classify,
     ImageOpen,
+    ImageOpenErrno(ImageOpenErrno),
     ImageShape,
     CommandRead,
     CommandParse,
@@ -138,6 +203,7 @@ impl InventoryFailure {
             Self::StatParse => b"t4_actor_inventory_stat_parse_refused\n",
             Self::Classify => b"t4_actor_inventory_classify_refused\n",
             Self::ImageOpen => b"t4_actor_inventory_image_open_refused\n",
+            Self::ImageOpenErrno(error) => error.label(),
             Self::ImageShape => b"t4_actor_inventory_image_shape_refused\n",
             Self::CommandRead => b"t4_actor_inventory_command_read_refused\n",
             Self::CommandParse => b"t4_actor_inventory_command_parse_refused\n",
@@ -1143,12 +1209,16 @@ impl Canonical {
             budget,
         )?;
         if class == Class::SameUid {
+            let mut original_error = None;
+            let acquired = self.rows.executable(
+                || available(budget.check()),
+                |directory| record_image_open(canonical_image_file(directory), &mut original_error),
+            );
+            // Owner already revoked on any error; a positive File is installed
+            // before its unchanged postgate. Gate/charge refusal stays generic.
             self.inventory_diagnostic.cut(
-                InventoryFailure::ImageOpen,
-                available_to_unit(self.rows.executable(
-                    || available(budget.check()),
-                    |directory| available(magic_file(directory, "exe")),
-                )),
+                image_open_failure(original_error),
+                available_to_unit(acquired),
                 budget,
             )?;
             let image_metadata = self
@@ -1451,7 +1521,7 @@ fn time_gate(until: Instant) -> std::result::Result<(), Unavailable> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const INVENTORY_FAILURES: [InventoryFailure; 23] = [
+    const INVENTORY_FAILURES: [InventoryFailure; 29] = [
         InventoryFailure::CatalogueSeek,
         InventoryFailure::CatalogueNext,
         InventoryFailure::CatalogueName,
@@ -1465,6 +1535,12 @@ mod tests {
         InventoryFailure::StatParse,
         InventoryFailure::Classify,
         InventoryFailure::ImageOpen,
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::NoEntry),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::Access),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::Permission),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::ProcessLimit),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::SystemLimit),
+        InventoryFailure::ImageOpenErrno(ImageOpenErrno::Other),
         InventoryFailure::ImageShape,
         InventoryFailure::CommandRead,
         InventoryFailure::CommandParse,
@@ -1476,6 +1552,198 @@ mod tests {
         InventoryFailure::RowComplete,
         InventoryFailure::SweepSet,
     ];
+    #[test]
+    fn image_open_errno_classifies_only_the_original_finite_result() {
+        use nix::errno::Errno;
+        for (error, expected, label) in [
+            (
+                Errno::ENOENT,
+                ImageOpenErrno::NoEntry,
+                b"t4_actor_inventory_image_open_enoent_refused\n".as_slice(),
+            ),
+            (
+                Errno::EACCES,
+                ImageOpenErrno::Access,
+                b"t4_actor_inventory_image_open_eacces_refused\n",
+            ),
+            (
+                Errno::EPERM,
+                ImageOpenErrno::Permission,
+                b"t4_actor_inventory_image_open_eperm_refused\n",
+            ),
+            (
+                Errno::EMFILE,
+                ImageOpenErrno::ProcessLimit,
+                b"t4_actor_inventory_image_open_emfile_refused\n",
+            ),
+            (
+                Errno::ENFILE,
+                ImageOpenErrno::SystemLimit,
+                b"t4_actor_inventory_image_open_enfile_refused\n",
+            ),
+            (
+                Errno::EINTR,
+                ImageOpenErrno::Other,
+                b"t4_actor_inventory_image_open_other_refused\n",
+            ),
+            (
+                Errno::EIO,
+                ImageOpenErrno::Other,
+                b"t4_actor_inventory_image_open_other_refused\n",
+            ),
+            (
+                Errno::ELOOP,
+                ImageOpenErrno::Other,
+                b"t4_actor_inventory_image_open_other_refused\n",
+            ),
+        ] {
+            let mut reported = None;
+            assert!(record_image_open::<usize>(Err(error), &mut reported).is_err());
+            assert_eq!(reported, Some(expected));
+            assert_eq!(image_open_failure(reported).label(), label);
+        }
+        let mut reported = None;
+        assert_eq!(record_image_open(Ok(42), &mut reported), Ok(42));
+        assert_eq!(reported, None);
+        assert_eq!(
+            image_open_failure(None).label(),
+            InventoryFailure::ImageOpen.label()
+        );
+    }
+    #[test]
+    fn image_open_errno_owner_revokes_before_one_diagnostic_with_no_followup() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Handle(Rc<Cell<usize>>);
+        impl Drop for Handle {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner
+            .directory(2, || Ok(()), || Ok(Handle(drops.clone())))
+            .unwrap();
+        owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+        let mut reported = None;
+        let mut opens = 0;
+        let original = owner.executable(
+            || Ok(()),
+            |_| {
+                opens += 1;
+                record_image_open(Err(nix::errno::Errno::ENOENT), &mut reported)
+            },
+        );
+        assert_eq!(opens, 1);
+        let mut diagnostic = InventoryDiagnostic::default();
+        let mut emits = 0;
+        assert!(
+            diagnostic
+                .result(
+                    image_open_failure(reported),
+                    available_to_unit(original),
+                    |_| {
+                        emits += 1;
+                        assert!(
+                            owner
+                                .directory(2, || panic!("revoked gate"), || panic!("revoked open"))
+                                .is_err()
+                        );
+                        assert!(
+                            owner
+                                .executable(
+                                    || panic!("revoked image gate"),
+                                    |_| panic!("retry image")
+                                )
+                                .is_err()
+                        );
+                        assert!(owner.finish().is_err());
+                        assert_eq!(drops.get(), 0);
+                        Err(())
+                    }
+                )
+                .is_err()
+        );
+        assert_eq!(emits, 1);
+        assert!(
+            diagnostic
+                .result::<()>(image_open_failure(reported), Err(()), |_| panic!(
+                    "secondary label"
+                ))
+                .is_err()
+        );
+        assert_eq!(drops.get(), 0); // Live memory owner only; no fatal custody.
+    }
+    #[test]
+    fn image_open_positive_then_late_keeps_original_and_has_no_errno_label() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Handle(Rc<Cell<usize>>);
+        impl Drop for Handle {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner
+            .directory(2, || Ok(()), || Ok(Handle(drops.clone())))
+            .unwrap();
+        owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+        let mut reported = None;
+        let mut gates = 0;
+        let mut opens = 0;
+        let original = owner.executable(
+            || {
+                gates += 1;
+                if gates == 1 { Ok(()) } else { Err(Unavailable) }
+            },
+            |_| {
+                opens += 1;
+                record_image_open(Ok(Handle(drops.clone())), &mut reported)
+            },
+        );
+        assert!(original.is_err());
+        assert_eq!((gates, opens), (2, 1));
+        assert_eq!(reported, None);
+        assert_eq!(
+            image_open_failure(reported).label(),
+            InventoryFailure::ImageOpen.label()
+        );
+        assert_eq!(drops.get(), 0);
+        assert!(
+            owner
+                .executable(|| panic!("post-late gate"), |_| panic!("retry"))
+                .is_err()
+        );
+        assert!(owner.finish().is_err());
+        assert_eq!(drops.get(), 0);
+    }
+    #[test]
+    fn image_open_before_callback_refusal_stays_generic_and_never_opens() {
+        let mut owner = Owner::reserve_before_ready(FIXED, NOFILE as usize).unwrap();
+        owner.admit_catalogue(&[2]).unwrap();
+        owner.directory(2, || Ok(()), || Ok(42)).unwrap();
+        owner.classify(|| Ok(()), |_| Ok(Class::SameUid)).unwrap();
+        let mut reported = None;
+        let original = owner.executable(
+            || Err(Unavailable),
+            |_| {
+                reported = Some(ImageOpenErrno::NoEntry);
+                panic!("callback after pre-gate refusal")
+            },
+        );
+        assert!(original.is_err());
+        assert_eq!(reported, None);
+        assert_eq!(
+            image_open_failure(reported).label(),
+            InventoryFailure::ImageOpen.label()
+        );
+        assert!(owner.finish().is_err());
+    }
     #[test]
     fn inventory_failure_is_one_attempt_preserving_the_original_result() {
         for cut in INVENTORY_FAILURES {
@@ -1515,8 +1783,8 @@ mod tests {
             assert!(label.ends_with(b"\n"));
             assert!(!labels[..index].contains(label));
         }
-        assert_eq!(labels.len(), 23);
-        assert_eq!(17 + labels.len(), 40);
+        assert_eq!(labels.len(), 29);
+        assert_eq!(17 + labels.len(), 46);
         assert_eq!(9 + 7 * QUERY_PHASES.len() + 1 + 1, 60);
         let longest = labels
             .iter()
