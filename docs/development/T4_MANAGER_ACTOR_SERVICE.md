@@ -21,7 +21,7 @@ in [the parent experiment](T4_RETAINED_MANAGER_PARENT_PROTOTYPE.md).
 | Developer actor acquisition | One original child, positive original pidfd acquisition, authenticated post-exec connection, READY before manager acquisition | Pure transition/parser/order cuts; compile exact service feature | ROOT's exact `0d1c7dec` first disposable-VM run returned original zero |
 | Fixed manager operation | Capture and fresh recheck of fixed PID1 process/image/PID+user namespaces, proof consumed within original actor borrow; only completed reply | Source identity/comparison tests; exhaustive acquisition cuts remain open | One observation and separate normal Halt completed in the original actor; no canonical-manager/backup authority |
 | Fault boundary | Unknown operation consumes capability; live reported originals retained; actor/channel loss permanently revokes context and late replies | Wrong nonce/sequence/peer/late/EOF and permanent-reentry controls | New reviewed disconnect and actor-loss cases; not run |
-| Aggregate bounds | Capacity reserved before launch/open; no uncertain-owner eviction or new-context bypass | Slot/FD/allocation limits, refusal before effect | Saturation with one actual quarantined actor; not run |
+| Aggregate bounds | Capacity reserved before launch/open; no uncertain-owner eviction or new-context bypass | Slot/FD/allocation limits, refusal before effect | Three actual observations/51 retained originals then normal Halt passed at `be06bb13`; uncertain saturation/reentry remains open |
 | Product recovery | Canonical manager origin, full inventory, stopped-owner admission, backup/restore/reconciliation | Separate integration contract | Not supplied by the first scenario; remains unavailable |
 
 The opt-in service implementation is present. Exact-head ordinary source gates
@@ -146,6 +146,41 @@ Late/partial or phase-emission failure cannot become a completed-operation
 receipt. The fixed observer must be separately rebound to these new bounds
 before ROOT selects a new scenario; the first packet and its actual result are
 not reused as that recipe.
+
+### Actual three-observation capacity checkpoint
+
+ROOT and the independent reviewer FULL-cleared exact source
+`be06bb131ae2182ffb1b3341c330c3751d191979` and its new fixed capacity packet;
+ROOT's 16 packet/transport pure controls returned original zero (`65f5d4`).
+The compile-only artifact was 58,146,080 bytes, SHA-256
+`51fda31a409275e85889bdef79783d1f831a8bbda1be2f59d1b741dc1b27b411`;
+packet SHA-256
+`f4b0e91b563b6558d682263bcd096ac09b243c27b31ef517e3f59bc6c3e012ed`.
+ROOT reports independent upload `bf112a` zero, prepare `4fb7c9` / terminal
+`52dd87` zero with fixed token, run `e3f441` / terminal `e0ff3c` original zero,
+and separately selected file observer `2c97fa` / terminal `e68d74` zero.
+
+The observer's supervisor projection was 251 bytes/nine literal frames, last
+`t4_service_completed`, SHA-256
+`74f1a24525295617553ad0a59908eff261f14ba31f056e3267b9e97aef61b5fa`;
+actor projection was 1,854 bytes/69 literal frames, last
+`t4_actor_identity_checked`, SHA-256
+`f7f5815f51d8209104dd84dccdde22f75618d601e895129bad7088d8403512c1`.
+Original run zero under the reviewed coordinator binds three separately
+completed fresh observations within the original actor, all51 retained slots,
+normal Halt and original child zero. The finite file projection alone still
+does not prove order, current custody, cause or terminal completion. The
+implementation author issued no VM or capture query. This second positive
+epoch remains reserved until separately reviewed positive-only administration;
+the first epoch's retirement does not authorize removal of these new members.
+
+The fourth-request scenario remains unselected at this checkpoint. Its reviewed
+source refuses capacity before a fourth open, but a future generic nonzero plus
+69 observed frames alone cannot identify whether that fourth request arrived
+or whether a deadline/channel cut happened first. Any such actual result must
+retain this distinction rather than relabel a nonzero as whole PASS or actual
+capacity cause. Live recorded-resource custody remains conditional on actor
+availability, never fatal-process descriptor survival.
 
 After these availability/resource rows, the service must compose the existing
 T4 private transfer, staged transaction, journal classifier and crash-prefix
