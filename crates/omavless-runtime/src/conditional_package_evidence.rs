@@ -30,6 +30,12 @@ const CLOSE_PATCH: &str = "0858827e1af00c3ed3196f021b0dbc76ce34a8de7aa7130d70856
 const DNS_PATCH: &str = "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37";
 const TUN_PATCH: &str = "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab";
 
+// A distinct opt-in developer evidence class. The old source-only reader above
+// is not upgraded into a permit and its receipt schema is unchanged.
+#[cfg(feature = "developer-conditional-close")]
+#[path = "conditional_developer_pair.rs"]
+pub(super) mod developer_pair;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Refusal {
     Object,

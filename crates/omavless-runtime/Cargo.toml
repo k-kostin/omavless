@@ -10,6 +10,8 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
+# Development VM only; no default capability or public close IPC.
+developer-conditional-close = []
 
 [dependencies]
 base64 = "0.22"

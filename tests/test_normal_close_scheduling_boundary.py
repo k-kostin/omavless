@@ -1,6 +1,7 @@
 """Source-retention guards; behavioral evidence belongs to Rust owner tests."""
 from pathlib import Path
 import re
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +22,7 @@ class NormalSchedulingBoundary(unittest.TestCase):
         self.assertIn("EffectProof(snapshot.context)", body)
         self.assertIn("snapshot.expiry", body)
 
-    def test_only_permit_constructor_and_fixture_admission_remain_test_only(self):
+    def test_fixture_permit_constructor_and_admission_remain_test_only(self):
         text = (SRC / "conditional_close_candidate.rs").read_text()
         self.assertRegex(text, r"#\[cfg\(test\)\]\s*impl CandidateEffectPermit")
         self.assertIn("struct CandidateEffectPermit {\n    _private: (),", text)
@@ -34,6 +35,22 @@ class NormalSchedulingBoundary(unittest.TestCase):
         self.assertIn("ExternalCloseOutcome::MissingAttestation", admission)
         self.assertEqual(admission.count(".scheduler"), 0)
         self.assertIn("schedule_permitted_connection_close(snapshot, selected, token, permit, &_lease)", re.sub(r"\s+", " ", admission))
+
+    def test_developer_pair_is_a_distinct_nondefault_private_constructor(self):
+        manifest = tomllib.loads((SRC.parent / "Cargo.toml").read_text())
+        self.assertEqual(manifest["features"]["developer-conditional-close"], [])
+        self.assertNotIn("developer-conditional-close", manifest["features"]["default"])
+        text = (SRC / "conditional_close_candidate.rs").read_text()
+        self.assertRegex(text, r'#\[cfg\(feature = "developer-conditional-close"\)\]\s*pub\(crate\) fn developer_pair_permit')
+        package = (SRC / "conditional_package_evidence.rs").read_text()
+        self.assertIn('mod developer_pair;', package)
+        developer = (SRC / "conditional_developer_pair.rs").read_text()
+        self.assertIn('"omavless-developer-conditional-pair-v1"', developer)
+        self.assertIn('|| r.production_adoption', developer)
+        close = (SRC / "native_coordinator/connection_close.rs").read_text()
+        admission = close.split("    fn confirm_connection_close_reserved(", 1)[1].split("    fn schedule_permitted_connection_close", 1)[0]
+        self.assertIn(".proves_live_for_scheduling()", admission)
+        self.assertNotIn(".proves_live()", admission)
 
 
 if __name__ == "__main__":

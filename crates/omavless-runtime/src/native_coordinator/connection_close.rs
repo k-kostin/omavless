@@ -1448,14 +1448,32 @@ while True:
 
     #[test]
     fn actual_owner_composed_core_selected_close_optin() {
-        use sha2::{Digest, Sha256};
-        use std::io::{Read, Write};
-        use std::net::{TcpListener, TcpStream};
         let Some(executable) = std::env::var_os("OMAVLESS_TEST_OWNER_CONDITIONAL_CORE") else {
             return;
         };
+        composed_core_selected_close(PathBuf::from(executable), false);
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    #[ignore = "exclusive Dev-VM lease; separately root-provisioned exact developer pair"]
+    fn actual_owner_developer_pair_selected_close_in_dev_vm() {
+        assert_eq!(
+            std::env::var("OMAVLESS_CLOSE_DEVELOPER_PAIR_VM").as_deref(),
+            Ok("1")
+        );
+        assert_ne!(nix::unistd::getuid().as_raw(), 0);
+        composed_core_selected_close(
+            PathBuf::from("/var/lib/omavless-close-development-pair/mihomo"),
+            true,
+        );
+    }
+
+    fn composed_core_selected_close(executable: PathBuf, developer_pair: bool) {
+        use sha2::{Digest, Sha256};
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
         let _fixtures = FIXTURES.lock().unwrap();
-        let executable = PathBuf::from(executable);
         let metadata = fs::symlink_metadata(&executable).unwrap();
         assert!(metadata.is_file() && !metadata.file_type().is_symlink());
         assert_eq!(metadata.nlink(), 1);
@@ -1552,11 +1570,22 @@ while True:
             assert!(Instant::now() < loaded);
             std::thread::sleep(Duration::from_millis(5));
         }
-        fixture
-            .owner
-            .host_mut()
-            .install_owned_close_fixture(core)
-            .unwrap();
+        if developer_pair {
+            #[cfg(feature = "developer-conditional-close")]
+            fixture
+                .owner
+                .host_mut()
+                .install_passive_owned_close_fixture(core)
+                .unwrap();
+            #[cfg(not(feature = "developer-conditional-close"))]
+            panic!("developer pair requires explicit feature");
+        } else {
+            fixture
+                .owner
+                .host_mut()
+                .install_owned_close_fixture(core)
+                .unwrap();
+        }
         fixture
             .owner
             .transaction
@@ -1594,6 +1623,19 @@ while True:
         let desired = fixture.owner.desired().unwrap();
         let rows = snapshot(&mut fixture);
         assert_eq!(rows.len(), 2);
+        if developer_pair {
+            assert!(
+                fixture
+                    .owner
+                    .connection_close
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .observation
+                    .fixture_permit()
+                    .is_none()
+            );
+        }
         assert_eq!(rows[0].display, rows[1].display);
         assert_ne!(rows[0].handle, rows[1].handle);
         let confirmation = fixture
@@ -2130,7 +2172,12 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
             .take()
             .ok_or(NativeOwnerError::OwnershipUnavailable)?;
         self.close_context_matches(&snapshot.context)?;
-        if Instant::now() >= snapshot.expiry || !snapshot.observation.session_mut().proves_live() {
+        if Instant::now() >= snapshot.expiry
+            || !snapshot
+                .observation
+                .session_mut()
+                .proves_live_for_scheduling()
+        {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         let selected = snapshot
@@ -2139,8 +2186,14 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
             .find(|row| row.handle == handle)
             .and_then(|row| row.observed.take())
             .ok_or(NativeOwnerError::RecordNotFound)?;
-        // Passive bytes/ABI are NOT conditional package attestation. Only the
-        // cfg(test) fixed owned fixture constructor can exercise the effect.
+        // The opt-in development pair is a distinct root-admin object policy,
+        // not an adoption of the old passive source receipt or released pair.
+        #[cfg(feature = "developer-conditional-close")]
+        if let Some(permit) = snapshot.observation.session_mut().developer_pair_permit() {
+            return self
+                .schedule_permitted_connection_close(snapshot, selected, token, permit, &_lease);
+        }
+        // Default builds still admit effects only via the cfg(test) fixture.
         #[cfg(test)]
         if let Some(permit) = snapshot.observation.fixture_permit() {
             return self
@@ -2151,9 +2204,9 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
     }
 
     // The actual scheduling transition compiles identically in normal builds.
-    // Its private permit has NO production constructor: passive image/ABI
-    // evidence still reaches MissingAttestation above and cannot start a worker.
-    // The sole fixture caller retains the checked admission lease across this call;
+    // Default builds have no production permit constructor. The separate opt-in
+    // developer pair does not adopt passive receipts or release-package authority.
+    // Both callers retain the checked admission lease across this call;
     // existing per-chunk durable/lifetime proofs remain inside the worker.
     fn schedule_permitted_connection_close(
         &mut self,

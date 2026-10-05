@@ -89,6 +89,10 @@ impl CloseFacts {
         session
             .prepare_executable()
             .map_err(|_| HostStepError::Observation)?;
+        #[cfg(feature = "developer-conditional-close")]
+        session
+            .prepare_developer_pair()
+            .map_err(|_| HostStepError::Observation)?;
         if !session.proves_live() {
             return Err(HostStepError::Observation);
         }
@@ -370,6 +374,16 @@ impl NativeLifecycleHost {
             "DIRECT".into(),
         ));
         self.close_fixture = Some(CloseFixture::OwnedLoopback);
+        Ok(())
+    }
+
+    #[cfg(all(test, feature = "developer-conditional-close"))]
+    pub(crate) fn install_passive_owned_close_fixture(
+        &mut self,
+        core: OwnedCore,
+    ) -> Result<(), HostStepError> {
+        self.install_owned_close_fixture(core)?;
+        self.close_fixture = Some(CloseFixture::PassiveOwnedLoopback);
         Ok(())
     }
 

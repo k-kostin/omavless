@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! Inactive fixed conditional transport bound to a parent-owned waitable child.
-//! Production cannot construct the candidate effect permit. Package attestation,
-//! owner confirmation/revision admission and production scheduling remain required.
+//! Default builds cannot construct the candidate effect permit. The explicit
+//! developer feature admits one separately provisioned pair, never release
+//! package authority. Owner confirmation/revision admission remains mandatory.
 use crate::core::OwnedCore;
 use nix::fcntl::{OFlag, open, openat};
 use nix::sys::socket::{
@@ -21,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-// Inactive, non-authorizing package-object research; no effect permit linkage.
+// Passive package-object research and a separately feature-gated developer pair.
 #[path = "conditional_package_evidence.rs"]
 mod package_evidence;
 
@@ -41,8 +42,8 @@ pub(crate) enum Outcome {
     RefusedBeforeWrite,
 }
 
-/// No production constructor, Clone, formatting or deserialization.
-/// This is explicitly NOT a normal owner confirmation or package proof.
+/// No default-production constructor, Clone, formatting or deserialization.
+/// Developer construction never replaces owner confirmation or release proof.
 pub(crate) struct CandidateEffectPermit {
     _private: (),
 }
@@ -479,6 +480,8 @@ pub(crate) struct Session {
     effect_proof: Option<crate::native_coordinator::connection_close::EffectProof>,
     confirmation_expiry: Option<Instant>,
     executable: Option<ExecutableEvidence>,
+    #[cfg(feature = "developer-conditional-close")]
+    developer_pair: Option<package_evidence::developer_pair::Evidence>,
     owned_observation: Option<crate::native_host::CloseFacts>,
     expected_display: Option<serde_json::Value>,
     #[cfg(test)]
@@ -543,6 +546,8 @@ impl Session {
             effect_proof: None,
             confirmation_expiry: None,
             executable: None,
+            #[cfg(feature = "developer-conditional-close")]
+            developer_pair: None,
             owned_observation: None,
             expected_display: None,
             #[cfg(test)]
@@ -580,6 +585,14 @@ impl Session {
     }
 
     fn check(&mut self) -> Result<(), Outcome> {
+        #[cfg(feature = "developer-conditional-close")]
+        let _pair_flight = if self.developer_pair.is_some() {
+            let flight = self.begin_proof_flight()?;
+            self.check_developer_pair()?;
+            Some(flight)
+        } else {
+            None
+        };
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime
             .gate
@@ -588,30 +601,56 @@ impl Session {
         self.check_locked(&mut gate)
     }
 
+    fn begin_proof_flight(&self) -> Result<ProofFlight, Outcome> {
+        let mut gate = self
+            .lifetime
+            .gate
+            .lock()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        self.check_locked(&mut gate)?;
+        let r = gate
+            .reservation
+            .as_mut()
+            .ok_or(Outcome::RefusedBeforeWrite)?;
+        if r.proofs != 0 {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        r.proofs = 1;
+        Ok(ProofFlight {
+            lifetime: Arc::clone(&self.lifetime),
+            identity: Arc::clone(&self.identity),
+        })
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    fn check_developer_pair(&self) -> Result<(), Outcome> {
+        let Some(pair) = &self.developer_pair else {
+            return Ok(());
+        };
+        let valid = self
+            .executable
+            .as_ref()
+            .is_some_and(|image| pair.check(&self.identity, image, self.binding.pid).is_ok());
+        if !valid {
+            self.lifetime
+                .gate
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .revoke();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        Ok(())
+    }
+
     fn effect_lease(&mut self) -> Result<Option<EffectLease>, Outcome> {
         let Some(proof) = self.effect_proof.as_ref() else {
             return Ok(None);
         };
-        let flight = {
-            let mut gate = self
-                .lifetime
-                .gate
-                .lock()
-                .map_err(|_| Outcome::RefusedBeforeWrite)?;
-            self.check_locked(&mut gate)?;
-            let r = gate
-                .reservation
-                .as_mut()
-                .ok_or(Outcome::RefusedBeforeWrite)?;
-            if r.proofs != 0 {
-                return Err(Outcome::RefusedBeforeWrite);
-            }
-            r.proofs = 1;
-            ProofFlight {
-                lifetime: Arc::clone(&self.lifetime),
-                identity: Arc::clone(&self.identity),
-            }
-        };
+        let flight = self.begin_proof_flight()?;
+        // New developer-object pathname/descriptor work uses this same flight,
+        // outside the urgent revoke gate, before EVERY effect chunk/finish.
+        #[cfg(feature = "developer-conditional-close")]
+        self.check_developer_pair()?;
         // Disk reads and try-lock are OUTSIDE the lifetime gate. On error,
         // proof.lease drops its own acquired lease before `flight` unwinds.
         let lease = proof.lease().map_err(|_| Outcome::RefusedBeforeWrite)?;
@@ -679,6 +718,13 @@ impl Session {
             .executable
             .as_ref()
             .is_some_and(|evidence| !evidence.check(self.binding.pid))
+        {
+            gate.revoke();
+            return Err(refuse);
+        }
+        #[cfg(feature = "developer-conditional-close")]
+        if let Some(pair) = &self.developer_pair
+            && !pair.belongs_to(&self.identity)
         {
             gate.revoke();
             return Err(refuse);
@@ -931,6 +977,16 @@ impl Session {
     pub(crate) fn proves_live(&mut self) -> bool {
         self.check().is_ok()
     }
+
+    /// Confirmation already holds the scheduler lease. Check only original
+    /// lifetime facts here; full developer object checks run in the worker's
+    /// outside-gate ProofFlight before any effect and definitive completion.
+    pub(crate) fn proves_live_for_scheduling(&self) -> bool {
+        self.lifetime
+            .gate
+            .lock()
+            .is_ok_and(|mut gate| self.check_locked(&mut gate).is_ok())
+    }
     pub(crate) fn attach_observation(&mut self, facts: crate::native_host::CloseFacts) {
         self.owned_observation = Some(facts);
     }
@@ -989,6 +1045,38 @@ impl Session {
             evidence.digests = Some((image, source));
         }
         self.check()
+    }
+
+    /// Opt-in developer object admission runs with discovery outside the owner
+    /// mutex. Ordinary core paths remain non-authorizing even in this build.
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn prepare_developer_pair(&mut self) -> Result<(), Outcome> {
+        let fixed = Path::new(package_evidence::developer_pair::DIRECTORY).join("mihomo");
+        if self
+            .executable
+            .as_ref()
+            .is_none_or(|image| image.source_path != fixed)
+        {
+            return Ok(());
+        }
+        if self.developer_pair.is_none() {
+            self.developer_pair = Some(
+                package_evidence::developer_pair::Evidence::capture(self)
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?,
+            );
+        }
+        self.check()
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn developer_pair_permit(&mut self) -> Option<CandidateEffectPermit> {
+        self.developer_pair.as_ref()?;
+        // Confirmation holds the shared scheduler lease. Do not introduce
+        // developer package I/O there; the worker rechecks it under ProofFlight
+        // before the first and every subsequent write and definitive finish.
+        let mut gate = self.lifetime.gate.lock().ok()?;
+        self.check_locked(&mut gate).ok()?;
+        Some(CandidateEffectPermit { _private: () })
     }
 
     pub(crate) fn read_fixed(
