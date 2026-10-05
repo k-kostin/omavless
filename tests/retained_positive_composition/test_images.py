@@ -225,6 +225,20 @@ class Controls(unittest.TestCase):
                 SimpleNamespace(sealed=False),SimpleNamespace(Sources=Artifacts))
             opened.assert_not_called()
 
+    def test_go_annotation_is_bounded_zero_identity_only_and_discarded(self):
+        original=mapping([('/usr/lib/libc.so.6',1)])
+        for label in ('heap','heap reservation','gc bits','page alloc index','a'*74):
+            annotated=original+'3000-4000 rw-p 0 00:00 0 [anon: Go: '+label+']\n'
+            self.assertEqual(i.map_objects(annotated),i.map_objects(original))
+        for row in ('3000-4000 rw-p 0 00:01 1 [anon: Go: heap]',
+                    '3000-4000 rw-p 0 00:00 1 [anon: Go: heap]',
+                    '3000-4000 rw-p 1 00:00 0 [anon: Go: heap]',
+                    '3000-4000 rw-p 0 00:00 0 [anon: Other: heap]',
+                    '3000-4000 rw-p 0 00:00 0 [anon: Go: '+('a'*75)+']',
+                    '3000-4000 rw-p 0 00:00 0 [anon: Go: /home/private]',
+                    '3000-4000 rw-p 0 00:00 0 [anon: Go: heap\tindex]'):
+            with self.assertRaises(i.Refused):i.map_objects(original+row+'\n')
+
     def test_actual_kernel_exe_original_fd_identity_before_any_maps_hash(self):
         for role in i.ROLES:
             value,child=self.fixture(role)

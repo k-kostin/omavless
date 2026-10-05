@@ -16,6 +16,10 @@ PUBLIC = re.compile(r'(?:/usr/(?:lib|bin)/[A-Za-z0-9_./+:-]+|/artifacts/(?:mihom
 MAP_LINE = re.compile(r'([0-9a-f]{1,16})-([0-9a-f]{1,16}) ([r-][w-][x-][ps]) ([0-9a-f]{1,16}) ([0-9a-f]{1,8}):([0-9a-f]{1,8}) ([0-9]{1,20})(?:[ \t]+([^\r\n]+))?')
 ROLES = {'bus':'/usr/bin/dbus-daemon','resolved':'/usr/lib/systemd/systemd-resolved',
          'core':'/artifacts/mihomo','broker':'/artifacts/omavless-dns-broker','host':'/artifacts/host-fixture'}
+# Go's Linux runtime places a five-byte " Go: " prefix in a 79-byte
+# NUL-terminated VMA name. Only zero-identity anonymous rows may use this
+# bounded annotation; it is discarded, never an eligible file/object path.
+ANONYMOUS = re.compile(r'(?:\[[A-Za-z0-9_:.-]+\]|\[anon: Go: [A-Za-z][A-Za-z0-9 _.:-]{0,73}\])\Z')
 
 class Refused(RuntimeError):
     def __init__(self):
@@ -40,7 +44,7 @@ def map_objects(text):
         identity = os.makedev(int(major, 16), int(minor, 16)), int(inode)
         if path is None or path == "" or path.startswith("["):
             require(identity == (0, 0) and offset == 0
-                    and (not path or re.fullmatch(r"\[[A-Za-z0-9_:.-]+\]", path)),
+                    and (not path or ANONYMOUS.fullmatch(path)),
                     "anonymous_mapping_shape")
             continue
         require(len(path) <= 4096 and PUBLIC.fullmatch(path)

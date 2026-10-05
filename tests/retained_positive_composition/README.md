@@ -121,3 +121,14 @@ The actual launcher must supply the exact pinned ownership module and its own
 Session/OwnedProcess core; private HOST delivery/native loaded mapping remain
 required and are not inferred from a source hash or a mocked control.
 Full source/native results belong to exact later heads.
+
+Anonymous map rows additionally recognize bounded `[anon: Go: ...]` runtime
+annotations, ONLY with device/inode/offset all zero. Labels are discarded, not
+opened, exported or used as mapped-object authority; every file-backed map still
+requires the complete fixed membership/device/inode preflight. This follows
+[Go's Linux naming implementation](https://go.dev/src/runtime/set_vma_name_linux.go)
+(79-byte name, five-byte prefix) and the
+[Go 1.25 release notes](https://go.dev/doc/go1.25). The fixed frozen manifest
+records Go 1.27.0; neither kernel naming support nor the cause of any historical
+guest NONPASS is inferred. The extra inert parser control covers known labels,
+the byte cap, wrong identity/offset, foreign labels and private path characters.
