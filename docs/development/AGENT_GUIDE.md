@@ -25,6 +25,13 @@ GitHub is the source of truth. Do not rely on private chat history, an earlier
 agent handoff or a stale checkout as the only record of a decision, test result,
 policy or useful implementation.
 
+Read the durable [execution policy](EXECUTION_POLICY.md) before development or
+diagnostic work. It distinguishes build/test failures from uncertain effects,
+requires risk-proportionate review and defines agent/VM coordination. Its scoped
+T4 service alternative does not retroactively accept legacy receiver research.
+Preserve historical outcomes and old sealed experiments; prepare an explicitly
+reviewed successor when executable behavior or fault guarantees must change.
+
 ## Selected implementation direction
 
 Rust is the selected long-term implementation language for the standalone
