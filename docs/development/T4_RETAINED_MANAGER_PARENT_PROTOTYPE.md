@@ -69,3 +69,35 @@ consultation whenever the child rechecks current manager state.
 The prototype does not establish canonical namespace origin, product rollback
 availability, normal CLI admission, broad network baseline or security-scan
 approval. Engineering review is distinct from the previously blocked scan.
+
+## Initial concrete source checkpoint
+
+`restore_abort_retained_parent_prototype.rs` is included only under `cfg(test)`.
+Its private `LocalParent` captures an accessible original with the existing
+strict `Process` flow. Current-process tests use real proc directory, image and
+namespace `File` originals, not imported descriptor numbers. This local seam
+does not authenticate a root parent, bus peer, launcher or recovery child.
+
+The existing `Process` capture/recheck consumes fresh image/name bundles only
+when explicitly supplied this test-only parent. Existing `StoppedOwner` manager
+capture and both namespace comparisons have the same isolated seam. Its full
+inventory still requires the complete PID set, ordinary metadata/status/start
+classification, second sweep and final rechecks; only an exact original
+manager row routes through the parent. A wrong row falls back to strict ordinary
+capture, not an omission. Normal constructors always supply no parent.
+
+Six focused controls passed on the initial source checkpoint (final focused
+terminal `4d6ce7`): actual capture/recheck/namespace originals, closed namespace
+names, exact inventory row routing, wrong PID/start/proc/image/namespace, late
+entry and permanent refusal. They use only the current test process and fixed
+public HOST source objects; no child, root acquisition, unit query, transport,
+network mutation or guest action. This is not an executed full inventory or
+full `StoppedOwner` admission. Full gates and independent review remain pending.
+
+The parent reuses the existing strict Process observations and their sampled
+budget checks; this checkpoint is not a hard syscall-cancellation or every-IO
+deadline guarantee. A failed consultation preserves the parent's historical
+originals for its retained owner lifetime; it does not yet implement transport
+quarantine of every partially acquired fresh FD. Canonical launch and actual
+SCM_CREDENTIALS/SCM_RIGHTS transfer remain deliberately unimplemented. Neither
+these tests nor normal binary compilation can upgrade that missing authority.

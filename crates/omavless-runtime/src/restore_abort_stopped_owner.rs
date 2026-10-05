@@ -49,6 +49,28 @@ enum SelfInvocation {
 #[cfg(test)]
 #[path = "restore_abort_cached_owner_tests.rs"]
 mod cached_owner_tests;
+#[cfg(test)]
+#[path = "restore_abort_retained_parent_prototype.rs"]
+mod retained_parent_prototype;
+
+// Ordinary builds evaluate only the original expression. The alternate arm
+// is private to an inactive test prototype, not a runtime permission fallback.
+macro_rules! retained_original {
+    ($bundle:expr, $field:ident, $ordinary:expr) => {{
+        #[cfg(test)]
+        {
+            if let Some(bundle) = $bundle.as_mut() {
+                bundle.$field.take().ok_or(())
+            } else {
+                $ordinary
+            }
+        }
+        #[cfg(not(test))]
+        {
+            $ordinary
+        }
+    }};
+}
 const MAX_PIDS: usize = 4096;
 const MAX_STATUS: usize = 64 * 1024;
 const MAX_COMMAND: usize = 128 * 1024;
@@ -412,10 +434,27 @@ struct Process {
     executable: File,
     executable_identity: Metadata,
     executable_name: Zeroizing<Vec<u8>>,
+    #[cfg(test)]
+    retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
 }
 
 impl Process {
     fn capture(root: &File, pid: u32, budget: &mut Budget) -> Result<Self> {
+        Self::capture_inner(
+            root,
+            pid,
+            budget,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    fn capture_inner(
+        root: &File,
+        pid: u32,
+        budget: &mut Budget,
+        #[cfg(test)] retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
+    ) -> Result<Self> {
         let directory = capture_step!(DirectoryOpen, directory(root, &pid.to_string()))?;
         let directory_identity =
             capture_step!(DirectoryMetadata, directory.metadata()).map_err(|_| ())?;
@@ -434,13 +473,24 @@ impl Process {
         )?;
         capture_step!(CommandParse, arguments(&command))?;
         let comm = capture_step!(CommRead, proc_bytes(&directory, "comm", 4096, budget))?;
-        let executable = capture_step!(ExecutableOpen, magic_file(&directory, "exe"))?;
+        #[cfg(test)]
+        let mut forwarded = retained_parent
+            .as_ref()
+            .map(|parent| parent.consult(root, pid, &directory, start, budget))
+            .transpose()?;
+        let executable = capture_step!(
+            ExecutableOpen,
+            retained_original!(forwarded, executable, magic_file(&directory, "exe"))
+        )?;
         let executable_identity =
             capture_step!(ExecutableMetadata, executable.metadata()).map_err(|_| ())?;
         if !capture_step!(ExecutableType, executable_identity.is_file()) {
             return Err(());
         }
-        let executable_name = capture_step!(ExecutableLink, proc_link(&directory, "exe"))?;
+        let executable_name = capture_step!(
+            ExecutableLink,
+            retained_original!(forwarded, executable_name, proc_link(&directory, "exe"))
+        )?;
         let process = Self {
             pid,
             directory,
@@ -452,6 +502,8 @@ impl Process {
             executable,
             executable_identity,
             executable_name,
+            #[cfg(test)]
+            retained_parent,
         };
         process.recheck(root, budget)?;
         Ok(process)
@@ -460,7 +512,16 @@ impl Process {
     fn recheck(&self, root: &File, budget: &mut Budget) -> Result<()> {
         capture_step!(RecheckBudget, budget.check())?;
         let current = capture_step!(RecheckDirectory, directory(root, &self.pid.to_string()))?;
-        let executable = capture_step!(RecheckExecutable, magic_file(&current, "exe"))?;
+        #[cfg(test)]
+        let mut forwarded = self
+            .retained_parent
+            .as_ref()
+            .map(|parent| parent.consult(root, self.pid, &current, self.start, budget))
+            .transpose()?;
+        let executable = capture_step!(
+            RecheckExecutable,
+            retained_original!(forwarded, executable, magic_file(&current, "exe"))
+        )?;
         if !identity(
             &self.directory_identity,
             &capture_step!(RecheckNamedDirectoryMetadata, current.metadata()).map_err(|_| ())?,
@@ -496,11 +557,32 @@ impl Process {
             || self.comm
                 != capture_step!(RecheckCommRead, proc_bytes(&current, "comm", 4096, budget))?
             || self.executable_name
-                != capture_step!(RecheckExecutableLink, proc_link(&current, "exe"))?
+                != capture_step!(
+                    RecheckExecutableLink,
+                    retained_original!(forwarded, executable_name, proc_link(&current, "exe"))
+                )?
         {
             return Err(());
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn current_namespace(&self, root: &File, name: &str, budget: &mut Budget) -> Result<File> {
+        if let Some(parent) = &self.retained_parent {
+            if !matches!(name, "ns/pid" | "ns/user") {
+                parent.refuse();
+                return Err(());
+            }
+            let mut bundle = parent.consult(root, self.pid, &self.directory, self.start, budget)?;
+            match name {
+                "ns/pid" => bundle.pid_namespace.take().ok_or(()),
+                "ns/user" => bundle.user_namespace.take().ok_or(()),
+                _ => Err(()),
+            }
+        } else {
+            magic_file(&self.directory, name)
+        }
     }
 }
 
@@ -634,6 +716,27 @@ fn inspect_inventory(
     before: &BTreeSet<u32>,
     order: Vec<u32>,
 ) -> std::result::Result<(), InventoryError> {
+    inspect_inventory_inner(
+        root,
+        uid,
+        myself,
+        budget,
+        before,
+        order,
+        #[cfg(test)]
+        None,
+    )
+}
+
+fn inspect_inventory_inner(
+    root: &File,
+    uid: u32,
+    myself: &Process,
+    budget: &mut Budget,
+    before: &BTreeSet<u32>,
+    order: Vec<u32>,
+    #[cfg(test)] retained_parent: Option<&std::rc::Rc<retained_parent_prototype::LocalParent>>,
+) -> std::result::Result<(), InventoryError> {
     if before.is_empty()
         || before.len() > MAX_PIDS
         || order.len() != before.len()
@@ -649,6 +752,18 @@ fn inspect_inventory(
         let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, *pid)?;
         let metadata = directory.metadata().map_err(|_| ())?;
         if initial.uids.contains(&uid) {
+            // Only the exact retained original manager row can consult its
+            // parent. Every other same-UID row retains ordinary strict capture.
+            #[cfg(test)]
+            let process = retained_parent_prototype::capture_inventory_row(
+                root,
+                *pid,
+                start,
+                &metadata,
+                budget,
+                retained_parent,
+            )?;
+            #[cfg(not(test))]
             let process = Process::capture(root, *pid, budget)?;
             if process.status != initial {
                 return Err(InventoryError::Unknown);
@@ -927,15 +1042,26 @@ pub(super) struct StoppedOwner {
 
 impl StoppedOwner {
     pub(super) fn capture(uid: u32, socket: &Path) -> Result<Self> {
-        Self::capture_inner(uid, socket, SelfInvocation::Recovery)
+        Self::capture_inner(
+            uid,
+            socket,
+            SelfInvocation::Recovery,
+            #[cfg(test)]
+            None,
+        )
     }
 
     #[cfg(test)]
     pub(super) fn capture_for_diagnostic(uid: u32, socket: &Path) -> Result<Self> {
-        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic)
+        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic, None)
     }
 
-    fn capture_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
+    fn capture_inner(
+        uid: u32,
+        socket: &Path,
+        invocation: SelfInvocation,
+        #[cfg(test)] retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
+    ) -> Result<Self> {
         checkpoint!(ProcRoot);
         let listeners = listener_paths(uid, socket)?;
         let root = File::from(
@@ -978,7 +1104,13 @@ impl StoppedOwner {
         checkpoint!(ManagerRecord);
         let pid = service_record(&reply, true)?;
         checkpoint!(ManagerProcess);
-        let manager = Process::capture(&root, pid, &mut budget)?;
+        let manager = Process::capture_inner(
+            &root,
+            pid,
+            &mut budget,
+            #[cfg(test)]
+            retained_parent,
+        )?;
         checkpoint!(ManagerExecutable);
         let manager_executable = TrustedExecutable::capture("/usr/lib/systemd/systemd")?;
         checkpoint!(ManagerIdentity);
@@ -1011,7 +1143,7 @@ impl StoppedOwner {
         checked_once(&self.refused, || self.observe())
     }
 
-    fn namespace_boundary(&self) -> Result<()> {
+    fn namespace_boundary(&self, _budget: &mut Budget) -> Result<()> {
         if !identity(&self.root_identity, &fs::metadata("/proc").map_err(|_| ())?)
             || !identity(&self.root_identity, &self.root.metadata().map_err(|_| ())?)
         {
@@ -1030,8 +1162,18 @@ impl StoppedOwner {
             }
         }
         for name in ["ns/pid", "ns/user"] {
+            let manager_namespace = {
+                #[cfg(test)]
+                {
+                    self.manager.current_namespace(&self.root, name, _budget)?
+                }
+                #[cfg(not(test))]
+                {
+                    magic_file(&self.manager.directory, name)?
+                }
+            };
             same_namespace(
-                &magic_file(&self.manager.directory, name)?,
+                &manager_namespace,
                 &magic_file(&self.myself.directory, name)?,
             )?;
         }
@@ -1041,7 +1183,7 @@ impl StoppedOwner {
     fn observe(&self) -> Result<()> {
         let mut budget = Budget::new();
         checkpoint!(NamespaceBoundary);
-        self.namespace_boundary()?;
+        self.namespace_boundary(&mut budget)?;
         checkpoint!(ProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
         checkpoint!(ManagerRecheck);
@@ -1075,6 +1217,24 @@ impl StoppedOwner {
             service_record(&reply, false)?;
         }
         checkpoint!(Inventory);
+        #[cfg(test)]
+        if let Some(parent) = &self.manager.retained_parent {
+            let before = pids(&self.root, &budget)?;
+            let order = before.iter().copied().collect();
+            inspect_inventory_inner(
+                &self.root,
+                self.uid,
+                &self.myself,
+                &mut budget,
+                &before,
+                order,
+                Some(parent),
+            )
+            .map_err(|_| ())?;
+        } else {
+            inventory(&self.root, self.uid, &self.myself, &mut budget).map_err(|_| ())?;
+        }
+        #[cfg(not(test))]
         inventory(&self.root, self.uid, &self.myself, &mut budget).map_err(|_| ())?;
         checkpoint!(UnixTable);
         let net = directory(&self.myself.directory, "net")?;
@@ -1086,7 +1246,7 @@ impl StoppedOwner {
         checkpoint!(FinalSelf);
         self.myself.recheck(&self.root, &mut budget)?;
         checkpoint!(FinalNamespaces);
-        self.namespace_boundary()?;
+        self.namespace_boundary(&mut budget)?;
         checkpoint!(FinalProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
         checkpoint!(FinalBudget);
