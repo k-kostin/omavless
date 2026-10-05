@@ -90,6 +90,7 @@ pub(super) struct Context {
     pub nonce: [u8; 32],
     pub sequence: u32,
     pub phase: Phase,
+    pending: Option<Kind>,
 }
 impl Context {
     pub fn new(nonce: [u8; 32]) -> Result<Self, Unavailable> {
@@ -100,6 +101,7 @@ impl Context {
             nonce,
             sequence: 0,
             phase: Phase::AwaitReady,
+            pending: None,
         })
     }
     pub fn ready(&mut self, frame: Frame) -> Result<(), Unavailable> {
@@ -108,16 +110,20 @@ impl Context {
         Ok(())
     }
     pub fn begin(&mut self, kind: Kind) -> Result<Frame, Unavailable> {
-        if self.phase != Phase::Live || !matches!(kind, Kind::ObserveManager | Kind::Halt) {
-            self.phase = Phase::Revoked;
+        if self.phase != Phase::Live
+            || self.pending.is_some()
+            || !matches!(kind, Kind::ObserveManager | Kind::Halt)
+        {
+            self.revoke();
             return Err(Unavailable);
         }
         let Some(next) = self.sequence.checked_add(1) else {
-            self.phase = Phase::Revoked;
+            self.revoke();
             return Err(Unavailable);
         };
         self.sequence = next;
         self.phase = Phase::Pending;
+        self.pending = Some(kind);
         Ok(Frame {
             kind,
             sequence: next,
@@ -125,11 +131,15 @@ impl Context {
         })
     }
     pub fn completed(&mut self, frame: Frame, kind: Kind) -> Result<(), Unavailable> {
-        if !matches!(kind, Kind::Completed | Kind::Closed) {
+        if !matches!(
+            (self.pending, kind),
+            (Some(Kind::ObserveManager), Kind::Completed) | (Some(Kind::Halt), Kind::Closed)
+        ) {
             self.revoke();
             return Err(Unavailable);
         }
         self.check(frame, kind, Phase::Pending)?;
+        self.pending = None;
         self.phase = if kind == Kind::Closed {
             Phase::Closed
         } else {
@@ -150,6 +160,7 @@ impl Context {
     }
     pub fn revoke(&mut self) {
         self.phase = Phase::Revoked;
+        self.pending = None;
     }
 }
 
@@ -251,5 +262,20 @@ mod tests {
         exhausted.sequence = u32::MAX;
         assert!(exhausted.begin(Kind::ObserveManager).is_err());
         assert_eq!(exhausted.phase, Phase::Revoked);
+    }
+
+    #[test]
+    fn completed_kind_is_bound_to_original_pending_operation() {
+        for (request, wrong) in [
+            (Kind::ObserveManager, Kind::Closed),
+            (Kind::Halt, Kind::Completed),
+        ] {
+            let mut context = Context::new([1; 32]).unwrap();
+            context.ready(frame(Kind::Ready, 0)).unwrap();
+            context.begin(request).unwrap();
+            assert!(context.completed(frame(wrong, 1), wrong).is_err());
+            assert_eq!(context.phase, Phase::Revoked);
+            assert!(context.begin(request).is_err());
+        }
     }
 }

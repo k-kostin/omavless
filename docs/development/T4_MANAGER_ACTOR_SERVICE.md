@@ -62,8 +62,8 @@ actor output as 618 bytes, 23 closed literal frames, last
 `55053d4868abc50a30016a361ffe13cfca934ca2ded5365fcdff92569c2845e4`.
 These projections alone are not ordering, custody or whole-run proofs. Original
 run zero together with the reviewed program binds the normal Halt reply and
-original child's terminal zero. No cleanup, epoch reset or second invocation
-has been selected. The first epoch's sentinel remains reserved.
+original child's terminal zero. No second service invocation had been selected
+at this checkpoint; positive fixture retirement is recorded separately below.
 
 This is a real fixed PID1 identity observation, not a fabricated model result.
 It does not prove canonical manager origin, whole process inventory, stopped
@@ -98,8 +98,54 @@ recursively delete, follow names, query a process, signal, adopt an uncertain
 scope or use mere absence as positive completion. Every partial retirement
 refuses further effects; there is no cleanup-on-error. This is explicit
 developer-fixture administration, not product rollback or a reusable reset API.
-No such packet has yet been selected. An uncertain fault epoch is ineligible
+An uncertain fault epoch is ineligible
 for this positive-only retirement regardless of a visible completion label.
+
+ROOT subsequently selected the FULL-reviewed four-file positive-only retirement
+packet after its 11 mocked controls returned original zero (`5fa31d`). The
+independent selection `bc01c2`, original terminal `341b6c`, returned zero and
+exactly seven closed outputs ending `T4_FIRST_POSITIVE_EPOCH_RETIRED`. It removed
+only the five admitted first positive members and exact empty epoch, with
+descriptor-relative unlinks and directory sync. The private raw captures were
+deleted and have no promised recovery; the bounded hash/status receipts above
+remain durable and the public user upload remains unchanged. No old stopped
+scope, process query, signal or retry was involved. This is one known-positive
+developer fixture administration result, not product rollback or a reset
+permission for any uncertain actor or transaction.
+
+The next source coordinator exposes only fixed opt-in developer arguments:
+`--capacity-three`, `--capacity-fourth`, `--wrong-nonce-after-first`,
+`--partial-after-first` and `--disconnect-after-first`. They use the same
+single sentinel, original child, private READY channel, 64-FD ceilings, 51-held
+admission and 15-second whole supervisor budget. The actor receives the same
+closed observation/Halt protocol, not a configurable fault instruction. Three
+capacity observations each freshly acquire/recheck 17 originals. The fourth
+attempt still refuses in the existing retained owner before its first open;
+even an unexpected fourth completion cannot become scenario success or Halt.
+The malformed and loss scenarios first complete one real observation, then
+make the pre-scoped fault cut with those 17 originals already retained.
+
+The exact exchange coordinator is now memory-tested over every 0..63 request
+write and reply-read cut. All I/O/decode/deadline errors revoke the original
+pending context before return; subsequent begin/late completion performs no
+next write/read and cannot restore it. A completed reply is additionally bound
+to its original pending operation kind: Closed cannot complete ObserveManager,
+and Completed cannot complete Halt. These are deterministic source tests, not
+real fault/custody evidence. Initial successor source gates passed 16
+protocol/coordinator controls and the unchanged two retained-prefix controls,
+plus feature Clippy with warnings denied. Fresh artifact, packet, FULL source
+reviews and ROOT selection remain required for all five new scenarios. No
+fatal-loss hook or private transfer operation is added by these flags.
+
+Diagnostics add only fixed `t4_service_before_fault_request` and
+`t4_service_before_channel_disconnect` literals. The complete supervisor
+vocabulary is nine labels with at most nine frames; three actual observations
+emit at most 69 actor frames under the unchanged 14-label vocabulary. There is
+no raw nonce, sequence, target, FD, exception, PID or process metadata output.
+Late/partial or phase-emission failure cannot become a completed-operation
+receipt. The fixed observer must be separately rebound to these new bounds
+before ROOT selects a new scenario; the first packet and its actual result are
+not reused as that recipe.
 
 After these availability/resource rows, the service must compose the existing
 T4 private transfer, staged transaction, journal classifier and crash-prefix

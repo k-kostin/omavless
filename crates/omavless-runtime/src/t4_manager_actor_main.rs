@@ -9,6 +9,25 @@ fn main() -> ExitCode {
         omavless_runtime::manager_actor_service::actor_entry()
     } else if arguments == ["--observe-manager"] {
         omavless_runtime::manager_actor_service::supervisor_entry()
+    } else if let Some(scenario) = match arguments.as_slice() {
+        [arg] if arg == "--capacity-three" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::CapacityThree)
+        }
+        [arg] if arg == "--capacity-fourth" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::CapacityFourth)
+        }
+        [arg] if arg == "--wrong-nonce-after-first" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::WrongNonceAfterFirst)
+        }
+        [arg] if arg == "--partial-after-first" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::PartialAfterFirst)
+        }
+        [arg] if arg == "--disconnect-after-first" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::DisconnectAfterFirst)
+        }
+        _ => None,
+    } {
+        omavless_runtime::manager_actor_service::supervisor_scenario(scenario)
     } else {
         Err(omavless_runtime::manager_actor_service::Unavailable)
     };

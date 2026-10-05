@@ -57,16 +57,28 @@ fn io_frame<T: Read + Write>(
     outgoing: Option<Frame>,
     until: Instant,
 ) -> Result<Option<Frame>, Unavailable> {
+    io_frame_width(stream, outgoing, FRAME_BYTES, until)
+}
+
+fn io_frame_width<T: Read + Write>(
+    stream: &mut T,
+    outgoing: Option<Frame>,
+    width: usize,
+    until: Instant,
+) -> Result<Option<Frame>, Unavailable> {
+    if width == 0 || width > FRAME_BYTES || (outgoing.is_none() && width != FRAME_BYTES) {
+        return Err(Unavailable);
+    }
     // Ordinary stream I/O only. Never recvmsg/SCM_RIGHTS, never forwarded FDs.
     let mut bytes = match &outgoing {
         Some(frame) => frame.encode()?,
         None => [0; FRAME_BYTES],
     };
     let mut done = 0;
-    while done < FRAME_BYTES {
+    while done < width {
         tick(until)?;
         let result = if outgoing.is_some() {
-            stream.write(&bytes[done..])
+            stream.write(&bytes[done..width])
         } else {
             stream.read(&mut bytes[done..])
         };
@@ -84,6 +96,88 @@ fn io_frame<T: Read + Write>(
         Ok(None)
     } else {
         Frame::decode(&bytes).map(Some)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RequestShape {
+    Exact,
+    WrongNonce,
+    Partial,
+}
+
+// A failed exchange consumes the ORIGINAL outstanding capability, including
+// decode/EOF/deadline/short I/O. Reentry consults Context before any next write.
+fn exchange<T: Read + Write>(
+    stream: &mut T,
+    context: &mut Context,
+    kind: Kind,
+    shape: RequestShape,
+    until: Instant,
+) -> Result<(), Unavailable> {
+    let mut request = context.begin(kind)?;
+    let result = (|| {
+        if shape == RequestShape::WrongNonce {
+            request.nonce[0] ^= 1;
+            if request.nonce == [0; 32] {
+                request.nonce[1] = 1;
+            }
+        }
+        let width = if shape == RequestShape::Partial {
+            FRAME_BYTES / 2
+        } else {
+            FRAME_BYTES
+        };
+        io_frame_width(stream, Some(request), width, until)?;
+        let reply = io_frame(stream, None, until)?.ok_or(Unavailable)?;
+        context.completed(
+            reply,
+            if kind == Kind::Halt {
+                Kind::Closed
+            } else {
+                Kind::Completed
+            },
+        )?;
+        if shape != RequestShape::Exact {
+            // Even an unexpected authenticated reply to a deliberately wrong
+            // request is not an admitted completed operation or test success.
+            return Err(Unavailable);
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        context.revoke();
+    }
+    result
+}
+
+/// Closed trusted-admin developer scenarios, never request-selected targets,
+/// paths, commands, reset tokens or normal product operation authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeveloperScenario {
+    Single,
+    CapacityThree,
+    CapacityFourth,
+    WrongNonceAfterFirst,
+    PartialAfterFirst,
+    DisconnectAfterFirst,
+}
+
+impl DeveloperScenario {
+    fn observations(self) -> usize {
+        match self {
+            Self::CapacityThree => 3,
+            Self::CapacityFourth => 4,
+            _ => 1,
+        }
+    }
+
+    fn request_shape(self) -> Option<RequestShape> {
+        match self {
+            Self::WrongNonceAfterFirst => Some(RequestShape::WrongNonce),
+            Self::PartialAfterFirst => Some(RequestShape::Partial),
+            _ => None,
+        }
     }
 }
 
@@ -223,6 +317,12 @@ fn epoch() -> Result<(), Unavailable> {
 /// Only the fixed standalone developer binary calls this entry. Not a library
 /// launch API for the daemon; exclusive child reaping is a process prerequisite.
 pub fn supervisor_entry() -> Result<(), Unavailable> {
+    supervisor_scenario(DeveloperScenario::Single)
+}
+
+/// Same standalone/reaping prerequisites and SAME aggregate epoch reservation.
+/// Any uncertain scenario leaves the sentinel and original live actor alone.
+pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailable> {
     let until = Instant::now() + Duration::from_secs(WHOLE_SECONDS);
     emit(b"t4_service_before_startup\n", until)?;
     startup()?;
@@ -312,13 +412,42 @@ pub fn supervisor_entry() -> Result<(), Unavailable> {
     context.ready(receive(stream, until)?)?;
     alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
     emit(b"t4_service_ready\n", until)?;
-    let request = context.begin(Kind::ObserveManager)?;
-    io_frame(stream, Some(request), until)?;
-    context.completed(receive(stream, until)?, Kind::Completed)?;
-    alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
-    emit(b"t4_service_manager_identity_checked\n", until)?;
-    io_frame(stream, Some(context.begin(Kind::Halt)?), until)?;
-    context.completed(receive(stream, until)?, Kind::Closed)?;
+    for _ in 0..scenario.observations() {
+        exchange(
+            stream,
+            &mut context,
+            Kind::ObserveManager,
+            RequestShape::Exact,
+            until,
+        )?;
+        alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
+        emit(b"t4_service_manager_identity_checked\n", until)?;
+    }
+    if scenario == DeveloperScenario::CapacityFourth {
+        // Unexpected fourth completion cannot silently turn a refusal scenario
+        // into normal Halt/success, even if a future capacity regression exists.
+        context.revoke();
+        return Err(Unavailable);
+    }
+    if let Some(shape) = scenario.request_shape() {
+        emit(b"t4_service_before_fault_request\n", until)?;
+        exchange(stream, &mut context, Kind::ObserveManager, shape, until)?;
+        // An unexpected positive reply to a deliberately invalid request is
+        // not a scenario PASS and cannot enable Halt or another acquisition.
+        context.revoke();
+        return Err(Unavailable);
+    }
+    if scenario == DeveloperScenario::DisconnectAfterFirst {
+        emit(b"t4_service_before_channel_disconnect\n", until)?;
+        context.begin(Kind::ObserveManager)?;
+        context.revoke();
+        // Intentional developer channel-loss cut, no actor signal or query.
+        stream
+            .shutdown(std::net::Shutdown::Both)
+            .map_err(|_| Unavailable)?;
+        return Err(Unavailable);
+    }
+    exchange(stream, &mut context, Kind::Halt, RequestShape::Exact, until)?;
     // Only positively completed normal Halt may wait/reap. No failure path
     // queries/waits/signals; Child Drop does not wait or kill the original.
     loop {
@@ -437,7 +566,14 @@ fn actor_operation(
                 }),
                 until,
             )?;
-            context.phase = Phase::Live;
+            context.completed(
+                Frame {
+                    kind: Kind::Completed,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                },
+                Kind::Completed,
+            )?;
             Ok(false)
         }
         Kind::Halt => {
@@ -455,7 +591,14 @@ fn actor_operation(
                 }),
                 until,
             )?;
-            context.phase = Phase::Closed;
+            context.completed(
+                Frame {
+                    kind: Kind::Closed,
+                    sequence: context.sequence,
+                    nonce: context.nonce,
+                },
+                Kind::Closed,
+            )?;
             Ok(true)
         }
         _ => {
@@ -615,5 +758,233 @@ mod tests {
         assert!(io_frame(&mut memory, None, Instant::now() - Duration::from_secs(1)).is_err());
         assert_eq!(memory.position, 0);
         assert!(memory.output.is_empty());
+    }
+
+    fn live_context() -> Context {
+        let mut context = Context::new([1; 32]).unwrap();
+        context
+            .ready(Frame {
+                kind: Kind::Ready,
+                sequence: 0,
+                nonce: [1; 32],
+            })
+            .unwrap();
+        context
+    }
+
+    fn reply(kind: Kind, sequence: u32) -> Vec<u8> {
+        Frame {
+            kind,
+            sequence,
+            nonce: [1; 32],
+        }
+        .encode()
+        .unwrap()
+        .to_vec()
+    }
+
+    fn assert_no_reentry(memory: &mut Memory, context: &mut Context) {
+        assert_eq!(context.phase, Phase::Revoked);
+        let output = memory.output.clone();
+        let read = memory.position;
+        assert!(
+            exchange(
+                memory,
+                context,
+                Kind::ObserveManager,
+                RequestShape::Exact,
+                Instant::now() + Duration::from_secs(1)
+            )
+            .is_err()
+        );
+        assert_eq!(memory.output, output);
+        assert_eq!(memory.position, read);
+        assert!(
+            context
+                .completed(
+                    Frame {
+                        kind: Kind::Completed,
+                        sequence: 1,
+                        nonce: [1; 32]
+                    },
+                    Kind::Completed
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn every_exchange_request_or_reply_cut_permanently_consumes_capability() {
+        for cut in 0..FRAME_BYTES {
+            let mut context = live_context();
+            let mut memory = Memory {
+                input: reply(Kind::Completed, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            assert!(
+                exchange(
+                    &mut memory,
+                    &mut context,
+                    Kind::ObserveManager,
+                    RequestShape::Exact,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(memory.output.len(), cut);
+            assert_eq!(memory.position, 0);
+            assert_no_reentry(&mut memory, &mut context);
+
+            let mut context = live_context();
+            let mut memory = Memory {
+                input: reply(Kind::Completed, 1)[..cut].to_vec(),
+                output: Vec::new(),
+                position: 0,
+                fail_at: FRAME_BYTES,
+            };
+            assert!(
+                exchange(
+                    &mut memory,
+                    &mut context,
+                    Kind::ObserveManager,
+                    RequestShape::Exact,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(memory.output.len(), FRAME_BYTES);
+            assert_eq!(memory.position, cut);
+            assert_no_reentry(&mut memory, &mut context);
+        }
+    }
+
+    #[test]
+    fn malformed_decoded_reply_and_deadline_refuse_all_downstream_effects() {
+        for offset in [0, 8, 45, 63] {
+            let mut raw = reply(Kind::Completed, 1);
+            raw[offset] = 255;
+            let mut memory = Memory {
+                input: raw,
+                output: Vec::new(),
+                position: 0,
+                fail_at: FRAME_BYTES,
+            };
+            let mut context = live_context();
+            assert!(
+                exchange(
+                    &mut memory,
+                    &mut context,
+                    Kind::ObserveManager,
+                    RequestShape::Exact,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_no_reentry(&mut memory, &mut context);
+        }
+        let mut memory = Memory {
+            input: reply(Kind::Completed, 1),
+            output: Vec::new(),
+            position: 0,
+            fail_at: FRAME_BYTES,
+        };
+        let mut context = live_context();
+        assert!(
+            exchange(
+                &mut memory,
+                &mut context,
+                Kind::ObserveManager,
+                RequestShape::Exact,
+                Instant::now() - Duration::from_secs(1)
+            )
+            .is_err()
+        );
+        assert!(memory.output.is_empty());
+        assert_no_reentry(&mut memory, &mut context);
+    }
+
+    #[test]
+    fn exact_completed_operation_then_halt_have_operation_bound_replies() {
+        let mut context = live_context();
+        for (kind, completed, sequence) in [
+            (Kind::ObserveManager, Kind::Completed, 1),
+            (Kind::Halt, Kind::Closed, 2),
+        ] {
+            let mut memory = Memory {
+                input: reply(completed, sequence),
+                output: Vec::new(),
+                position: 0,
+                fail_at: FRAME_BYTES,
+            };
+            exchange(
+                &mut memory,
+                &mut context,
+                kind,
+                RequestShape::Exact,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .unwrap();
+            let sent = Frame::decode(&memory.output).unwrap();
+            assert_eq!(sent.kind, kind);
+            assert_eq!(sent.sequence, sequence);
+        }
+        assert_eq!(context.phase, Phase::Closed);
+    }
+
+    #[test]
+    fn closed_developer_fault_shapes_cannot_pass_even_with_unexpected_reply() {
+        for shape in [RequestShape::WrongNonce, RequestShape::Partial] {
+            let mut memory = Memory {
+                input: reply(Kind::Completed, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: FRAME_BYTES,
+            };
+            let mut context = live_context();
+            assert!(
+                exchange(
+                    &mut memory,
+                    &mut context,
+                    Kind::ObserveManager,
+                    shape,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(
+                memory.output.len(),
+                if shape == RequestShape::Partial {
+                    32
+                } else {
+                    64
+                }
+            );
+            if shape == RequestShape::WrongNonce {
+                assert_ne!(Frame::decode(&memory.output).unwrap().nonce, context.nonce);
+            }
+            assert_no_reentry(&mut memory, &mut context);
+        }
+    }
+
+    #[test]
+    fn capacity_and_fault_scenarios_have_no_path_target_or_reset_parameter() {
+        assert_eq!(DeveloperScenario::Single.observations(), 1);
+        assert_eq!(DeveloperScenario::CapacityThree.observations(), 3);
+        assert_eq!(DeveloperScenario::CapacityFourth.observations(), 4);
+        assert_eq!(
+            DeveloperScenario::WrongNonceAfterFirst.request_shape(),
+            Some(RequestShape::WrongNonce)
+        );
+        assert_eq!(
+            DeveloperScenario::PartialAfterFirst.request_shape(),
+            Some(RequestShape::Partial)
+        );
+        assert_eq!(
+            DeveloperScenario::DisconnectAfterFirst.request_shape(),
+            None
+        );
+        assert_eq!(DeveloperScenario::DisconnectAfterFirst.observations(), 1);
     }
 }
