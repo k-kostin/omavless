@@ -1,0 +1,36 @@
+{
+  "schema": "p4-go-developer-export-provenance-v1",
+  "public_base": "0c02a7ab7d5c2a3ab87cb4bd1135eafed6758a1e",
+  "input_archive": {"bytes": 70553950, "sha256": "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445"},
+  "input_raw_tar": {"bytes": 256690176, "sha256": "7acd196bc5b54582f7959d983682517fb415e58389a7c339b93e46f31752bfbb"},
+  "input_catalogue": {"bytes": 5031644, "sha256": "6fe75954d1032de80963980afcb603d9ad0343611a17c41bc38e66a34e6167dd"},
+  "inventory_source": {"bytes": 10526, "sha256": "a19e32cd2959a849e2f50c6a8a26c4f58cfdf90f9b8ce8097ff6a70d135e5161"},
+  "old_export_source_sha256": "ae62fc126321c6b084221bc34067bbed66e24572b81aa2bb250226f519909da4",
+  "selected_export_source": {"bytes": 16804, "sha256": "76ce3bada4a7cb0f5f23e98bd1abfedf4ab5e4e828fe483663d8352815e7dac5"},
+  "exact_exported_root_members_sha256": "92d87c721d539734bd0f806f188ef8ca0e29fc4dc7b0103cc98572c37c4cd940",
+  "selected_export_tests": {"cases": 22, "bytes": 9066, "sha256": "be66353006b2a7644e98f64c1b198cab351c0f4ed1465739dc27403d6ac706d0"},
+  "selected_export_recipe_sha256": "c7068a806ba8a2236807049ab15b32228c2458f07f4a9a7d1ce99fc26134b57e",
+  "external_original_results": {
+    "reset_toy": {"selection": "a620cb", "exit": 0, "projection": "8cb869", "marker": "P4_ROOT_MEMBERS_RESET_TWOROUNDS_KNOWN_ZERO"},
+    "mock_export": {"selection": "871774", "exit": 0, "projection": "3c0703", "cases": 22},
+    "whole_export": {"selection": "83f840", "original_session": 71814, "terminal": "2db384", "exit": 0, "projection": "7d6877", "stderr_bytes": 0}
+  },
+  "positive_receipt": {
+    "schema": "p4-official-go-developer-tree-reset-v1",
+    "bytes": 2090803,
+    "sha256": "fe42cfda1b8dfdaed64bd2f23de917aa68ed64120abdaa0273628975b6f43f8e",
+    "mode": "0400", "uid": 1000, "gid": 1000, "nlink": 1,
+    "member_count": 17353, "metadata_count": 17353, "executable_count": 10,
+    "tool_executed": false, "native_executed": false, "prior_installed_adoption": false
+  },
+  "scope": {
+    "original_results_supplied_by_root": true,
+    "public_helper_is_only_an_exact_function_export": true,
+    "full_exporter_or_recipe_not_adopted": true,
+    "no_old_failure_cause_claim": true,
+    "no_go_execution": true,
+    "no_engine_selector_result": true,
+    "no_product_runtime_or_installed_acceptance": true,
+    "no_merge_or_release_authority": true
+  }
+}

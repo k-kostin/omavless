@@ -8,6 +8,13 @@ real socket/TUN FD, VM, Rust runtime owner, profile, merge or release is covered
 The [owning design](P4_DEFAULT_EXPIRY_EXHAUSTION_DESIGN.md) retains the case
 causality and closure contract; this proposal does not manufacture elapsed proof.
 
+A separate [developer Go-tree export checkpoint](P4_GO_DEVELOPER_EXPORT_RESET.md)
+now records one fresh known-zero official-byte export and a checked original
+directory reset regression. No Go/tool/engine execution occurred. Its UID 1000
+developer provenance does not satisfy or replace this proposal's old installed
+tool predicate automatically: a fresh closed private-GOROOT build successor
+still requires full graph/environment/resource review and its own selection.
+
 ## Exact source graph
 
 The new [runner](../../tests/fixtures/p4_awg_peer/run_default_residue_overlay.py)
