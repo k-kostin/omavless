@@ -66,6 +66,33 @@ handshakes can require roughly twenty thousand iterations within the shared
 eight-second connection deadline. Actual interoperability may require a
 separately reviewed bounded-chunk optimization. No timing success is claimed.
 
+## Exact production-render helper — ignored, separate action
+
+The private runtime unit-test module `protected_preparation/tests/peer_renderer.rs`
+adds one explicitly ignored `render_fixed_peer_config_once` test. It reads the
+same fixed 16-byte identity under held input-directory/file checks and calls
+`parse_canonical` then the actual `protected_preparation::render`. It does not
+recreate policy in Python, expose a public renderer or open the coverage issuer.
+No test execution with `--ignored` has been performed in source gates.
+
+ROOT must separately create a fresh empty `/run/omavless-k1-rendered` directory,
+uid 1000 and mode 0700. The helper requires real/effective uid 1000 and fixed
+mode-0400 identity input. It exclusively creates `generated.json` relative to
+the original held directory, mode 0600, writes/syncs, and verifies original
+file identity/digest and directory identity. No overwrite, unlink or retry is
+provided; a partial publication or failed final check leaves the file and is
+refusal/outcome-unknown, not safe-to-retry. The fixed generated controller is
+`/run/omavless-k1-rendered/controller.sock`. Only a fixed success literal is
+emitted by the helper; libtest adds its normal fixed test-name/result framing.
+Private URI/config/UUID bytes are never logged or included in argv.
+
+This is a file-only action, separately selected from peer startup, `-t`, actual
+core startup, observation and privileged VM provisioning. ROOT reviews the exact
+test-binary SHA before selecting the one fully qualified ignored test. Merely
+building or running the nonignored pure renderer test is not file-publication
+or installed-core evidence. The helper uses the existing private renderer;
+ordinary runtime/API/package sources and admission issuance are unchanged.
+
 ## Six separately selected VM cases — all pending
 
 1. Numeric success: exact managed core SHA

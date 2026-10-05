@@ -4,6 +4,8 @@ use omavless_profile::canonical::parse_canonical;
 use serde_json::Value;
 use std::os::unix::fs::symlink;
 
+mod peer_renderer;
+
 const URI: &str = "vless://11111111-1111-4111-8111-111111111111@192.0.2.2:443?type=tcp&security=tls&sni=fixture.invalid";
 const ID: &str = "22222222-2222-4222-8222-222222222222";
 
