@@ -313,6 +313,9 @@ mod response_diagnostic;
 #[path = "kernel_retained_lease_fixture.rs"]
 mod retained_lease;
 
+#[path = "kernel_exclusive_create_fixture.rs"]
+mod exclusive_create;
+
 /// Split borrows keep the real readback's exclusive session borrow across the
 /// conditional send; fault injection and counters remain fixture-only.
 struct BatchSender<'a> {

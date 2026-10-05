@@ -26,6 +26,9 @@ const UNIT_BYTES: &[u8] =
 type Facts = HashMap<String, OwnedValue>;
 type Exec = (String, Vec<String>, bool, u64, u64, u64, u64, u32, i32, i32);
 
+#[path = "manager_exclusive_create_fixture.rs"]
+mod exclusive_create;
+
 fn ensure(value: bool) -> Result<()> {
     if value { Ok(()) } else { Err(()) }
 }
@@ -708,6 +711,9 @@ impl FixedLifecycle for Real {
             Fixture::RetainedLease => {
                 crate::manager_negative_witness::RootWitness::capture_for(self.fixture)?
             }
+            Fixture::ExclusiveCreate => {
+                crate::manager_negative_witness::RootWitness::capture_for(self.fixture)?
+            }
         });
         self.recheck(true)?;
         self.owner = admission::admit_retaining_reference(&self.admitted, || self.recheck(true))
@@ -873,6 +879,8 @@ fn run_retained_lease() {
 }
 
 fn run_fixed(fixture: Fixture, test: &'static str, environment: &'static str) {
+    // The new one-create lane must never enter this Stop/Unref coordinator.
+    assert_ne!(fixture, Fixture::ExclusiveCreate);
     assert_eq!(std::env::var(environment).as_deref(), Ok("1"));
     assert_eq!(
         std::env::args().skip(1).collect::<Vec<_>>(),
@@ -959,6 +967,7 @@ fn run_fixed(fixture: Fixture, test: &'static str, environment: &'static str) {
             match fixture {
                 Fixture::PrivateLifecycle => "K1_RETAINED_PRIVATE_UNCERTAIN_PARKED",
                 Fixture::RetainedLease => "K1_RETAINED_LEASE_UNCERTAIN_PARKED",
+                Fixture::ExclusiveCreate => unreachable!(),
             }
         );
         loop {
@@ -970,6 +979,7 @@ fn run_fixed(fixture: Fixture, test: &'static str, environment: &'static str) {
         match fixture {
             Fixture::PrivateLifecycle => "K1_RETAINED_PRIVATE_STOPPED_UNREF_NOT_PRODUCTION",
             Fixture::RetainedLease => "K1_RETAINED_LEASE_STOPPED_UNREF_NOT_PRODUCTION",
+            Fixture::ExclusiveCreate => unreachable!(),
         }
     );
 }

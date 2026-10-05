@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# SOURCE-only developer fixture. Never package/install/enable; no selector yet.
+[Unit]
+Description=OmaVLESS K1 one exclusive create and complete readback
+RefuseManualStart=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+SupplementaryGroups=
+ExecStart=/run/omavless-k1-exclusive-create/probe --exact kernel_observer::creator_lifecycle::exclusive_create::one_create --ignored --nocapture --test-threads=1
+Environment=OMAVLESS_K1_EXCLUSIVE_CREATE_WRITER=1
+OpenFile=/proc/1/ns/net:k1-host-netns:read-only
+PrivateUsers=no
+PrivatePIDs=no
+PrivateNetwork=yes
+RestrictNamespaces=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
+Restart=no
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+RuntimeMaxSec=infinity
+KillMode=none
+SendSIGKILL=no
+StandardInput=null
+StandardOutput=append:/run/omavless-k1-exclusive-create/native.stdout
+StandardError=append:/run/omavless-k1-exclusive-create/native.stderr

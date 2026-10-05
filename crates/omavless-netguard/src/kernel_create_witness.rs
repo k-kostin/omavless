@@ -79,10 +79,7 @@ impl<'a> PreparedCreate<'a> {
             let handle = readback(inventory, &table)?;
             Ok((inventory, generation, table, handle))
         })();
-        let (inventory, generation, table, handle) = match result {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        };
+        let (inventory, generation, table, handle) = result?;
         let session = custody.0.take().ok_or(REFUSE)?;
         let mut lease = LocalInventoryLease {
             session,
