@@ -92,7 +92,7 @@ class Controls(unittest.TestCase):
     def test_real_session_admits_copy_and_verify_caps_without_expanding_caller(self):
         command=self.owner.command;now=[0.0]
         with patch.object(l.time,'monotonic',side_effect=lambda:now[0]):
-            self.owner=l.Session('inner');self.owner.isolated=True
+            self.owner=l.Session('inner',bootstrap_scratch='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-4/scratch');self.owner.isolated=True
             self.owner.deadline=65.0;self.owner.command=command
             value=self.construct(l)
             self.assertTrue(value.ready);self.assertEqual(value.deadline,65.0)

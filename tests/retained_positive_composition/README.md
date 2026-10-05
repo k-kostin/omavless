@@ -829,3 +829,14 @@ must still hold after the actual active DNS readback. Final helper finish,
 fully typed frozen-frame validation and clean acceptance likewise share ONE
 five-second deadline. A late snapshot cannot start observer validation, and a
 late observer cannot start clean acceptance (one additional inert control).
+
+## Separate fixed-profile fixture proposal
+
+The [pinned cache caller closure and counterexamples](core_profile_source.md)
+motivate explicit `profile.store-selected: false` and `store-fake-ip: false`
+in this developer fixture only. The same code-image allowlist still refuses
+mutable cache data and unknown paths. This is a source-supported config
+compatibility correction, not a stopped-run cause or execution PASS. The old
+review3 scope remains permanently stopped; this checkpoint's retained stage
+literal is ineligible for execution. A new unused stage and
+complete graph review are still required before any separately chosen experiment.

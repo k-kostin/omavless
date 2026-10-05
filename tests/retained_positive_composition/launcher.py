@@ -7,6 +7,7 @@ All actual invocation authority remains with ROOT's exclusive disposable VM.
 """
 import ast
 import functools
+import fcntl
 import hashlib
 import json
 import math
@@ -24,8 +25,8 @@ import types
 STAGE='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='6d1a21a8edcf8c56f834507ef04d10d4be476a61895a71984a48e9f5ca2da56f'
-VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
+GRAPH='7ee270c5dff2a8ca749174ee289d083974b2b787458286ff521f867e7acdcc71'
+VALIDATOR='aee98a1a8e410708deb8896872718a146d92bd3f53c3a5a24a3c4d7e304d8a0e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']
 NS=('user','net','mnt','pid','uts')
@@ -40,6 +41,33 @@ class Refused(RuntimeError):
 
 def require(value):
     if not value:raise Refused()
+
+
+def composition_copy_fd_inventory(device):
+    """Complete copy-device scan for this fixed512 PID1 composition only.
+
+    Standalone Bridge's128 scanner stays frozen. Selection is before acquisition,
+    never a fallback after refusal. Check entries while scandir's duplicate is
+    live; closing this administrative scan handle says nothing about originals.
+    """
+    limits=resource.getrlimit(resource.RLIMIT_NOFILE)
+    require(type(limits) is tuple and len(limits)==2
+        and all(type(value) is int and value==512 for value in limits))
+    directory=os.open('/proc/self/fd',FLAGS|os.O_DIRECTORY)
+    try:
+        seen=set()
+        with os.scandir(directory) as stream:
+            for entry in stream:
+                name=entry.name
+                require(type(name) is str and re.fullmatch(r'0|[1-9][0-9]{0,2}',name)
+                    and int(name)<512 and name not in seen and len(seen)<512)
+                seen.add(name)
+                fd=int(name);value=os.fstat(fd)
+                if value.st_dev==device:
+                    require(fcntl.fcntl(fd,fcntl.F_GETFL)&os.O_ACCMODE==os.O_RDONLY)
+        require(str(directory) in seen)
+    finally:
+        os.close(directory)
 
 
 def identity(value):
@@ -122,11 +150,12 @@ def pinned_module(entry,name):
 @guarded
 def modules(entry,kind):
     reader=pinned_module(entry,'graph.py');validator=pinned_module(entry,'validate_receipt.py')
+    require(reader.STAGE == STAGE)
     graph=reader.Graph.__new__(reader.Graph);HELD.append(graph)
     entry.call(graph.__init__,entry.deadline)
     loaded=entry.call(graph.load)
     ownership=loaded['lifecycle.py']
-    entry.available();owner=ownership.Session(kind);HELD.append(owner);entry.available()
+    entry.available();owner=ownership.Session(kind,bootstrap_scratch=STAGE+'/scratch');HELD.append(owner);entry.available()
     owner.deadline=min(owner.deadline,entry.deadline);owner.available()
     base=loaded['containment.py']
     # These exact retained hooks precede ANY selected containment invocation.
@@ -213,6 +242,9 @@ def child(entry,frame):
     originals=native_originals(entry,loaded['artifacts.py'])
     entry.call(graph.release_directories_positive)
     owner.perform(base.isolate,original,Path(ROOT),Path(NATIVE));entry.available()
+    # Exact pinned composition policy, before the first Bridge acquisition.
+    # Standalone Bridge's128 scanner remains unchanged; no refusal fallback.
+    loaded['bridge.py'].no_writable_fds=composition_copy_fd_inventory
     copies=loaded['bridge.py'].Bridge.__new__(loaded['bridge.py'].Bridge)
     owner.retained.append(copies)
     owner.perform(copies.__init__,base,loaded['admission.py'],graph.raw['copy-manifest.json']);entry.available()

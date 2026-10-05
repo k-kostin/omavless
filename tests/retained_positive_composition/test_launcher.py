@@ -104,15 +104,33 @@ class Controls(unittest.TestCase):
     def test_module_loader_passes_same_absolute_cap_and_installs_only_retained_hooks(self):
         entry=l.Entry();entry.deadline=65.0;base=SimpleNamespace();owner=SimpleNamespace(deadline=100.0,
             available=Mock(),command=Mock(),live=Mock(),no_directory_fds=Mock())
+        factory=Mock(return_value=owner)
         class Graph:
             def __init__(self,deadline):self.deadline=deadline;self.raw={}
-            def load(self):return {'lifecycle.py':SimpleNamespace(Session=lambda kind:owner),'containment.py':base}
-        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=Graph),v]) as pinned:
+            def load(self):return {'lifecycle.py':SimpleNamespace(Session=factory),'containment.py':base}
+        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=Graph,STAGE=l.STAGE),v]) as pinned:
             graph,*_=l.modules(entry,'outer')
+        factory.assert_called_once_with('outer',bootstrap_scratch=l.STAGE+'/scratch')
         self.assertEqual(graph.deadline,entry.deadline);self.assertEqual(owner.deadline,entry.deadline)
         self.assertIs(base.command,owner.command);self.assertIs(base.child_status,owner.live)
         self.assertIs(base.no_directory_fds,owner.no_directory_fds)
         self.assertEqual([call.args[1] for call in pinned.call_args_list],['graph.py','validate_receipt.py'])
+
+    def test_graph_stage_mismatch_refuses_before_source_load_or_owner_acquisition(self):
+        entry=l.Entry();graph=Mock()
+        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=graph,STAGE=l.STAGE+'-wrong'),v]):
+            with self.assertRaises(l.Refused):l.modules(entry,'inner')
+        graph.assert_not_called();self.assertTrue(entry.sealed)
+
+    def test_inner_module_owner_receives_exact_same_pinned_stage_scratch(self):
+        entry=l.Entry();owner=SimpleNamespace(deadline=90.0,available=Mock(),command=Mock(),
+            live=Mock(),no_directory_fds=Mock());factory=Mock(return_value=owner)
+        class Graph:
+            def __init__(self,deadline):self.deadline=deadline
+            def load(self):return {'lifecycle.py':SimpleNamespace(Session=factory),'containment.py':SimpleNamespace()}
+        with patch.object(l,'pinned_module',side_effect=[SimpleNamespace(Graph=Graph,STAGE=l.STAGE),v]):
+            l.modules(entry,'inner')
+        factory.assert_called_once_with('inner',bootstrap_scratch=l.STAGE+'/scratch')
 
     def test_initial_clock_unknown_precedes_every_open_spawn_and_output(self):
         for bad in (True,1,float('inf'),float('nan')):
@@ -326,7 +344,9 @@ class Controls(unittest.TestCase):
         self.assertEqual(owner.INVENTORY_ROLES,('bus','host','core'))
         self.assertEqual(owner.REQUIRED_ROLES,('host','core'))
         self.assertEqual(len(inventory_labels),136)
-        self.assertEqual(set(outer_labels+case_labels)|inventory_labels,owner.PHASES)
+        shutdown_labels={label for label in owner.PHASES if '_shutdown_' in label}
+        self.assertEqual(len(shutdown_labels),58)
+        self.assertEqual(set(outer_labels+case_labels)|inventory_labels|shutdown_labels,owner.PHASES)
         self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),252)
         # Four alternatives per host/core, but exactly one presence and one
         # equality category occur on each sole initial attempt.
@@ -334,8 +354,16 @@ class Controls(unittest.TestCase):
         # One rejecting-predicate core label replaces an incomplete parse path,
         # never adds a label to the complete40-frame core inventory.
         self.assertEqual((2*2+1+8+1,2*7+1+8+2+8+1,22+16+2),(14,34,40))
-        self.assertEqual(owner.PHASE_LIMIT,235)
-        self.assertEqual(128+owner.PHASE_LIMIT,363)
+        shutdown_calls=[node for node in ast.walk(owner_methods['shutdown'])
+            if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='phase']
+        self.assertEqual(len(shutdown_calls),15)
+        self.assertEqual(owner.SHUTDOWN_ROLES,('core','broker','resolved','bus'))
+        self.assertEqual(owner.SHUTDOWN_STEPS,('initial_live','verify','inventory','final_live','signal','settle'))
+        self.assertEqual(owner.SHUTDOWN_BUDGETS,('local_fence','session_fence'))
+        self.assertEqual(4*(2*len(owner.SHUTDOWN_STEPS)+1)+2,54)
+        self.assertEqual(234+54,288)
+        self.assertEqual(owner.PHASE_LIMIT,289)
+        self.assertEqual(128+owner.PHASE_LIMIT,417)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
         phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
         phases+=['before_bind']*50+['before_verify_copies']
@@ -374,6 +402,71 @@ class Controls(unittest.TestCase):
              patch.object(l.os,'open') as opened:
             with self.assertRaises(l.Refused):l.child(entry,frame(65.0))
             load.assert_not_called();opened.assert_not_called();self.assertEqual(entry.deadline,65.0)
+
+
+class CompositionInventory(unittest.TestCase):
+    """Only in-memory descriptors; no actual proc/kernel acquisition."""
+    def scan(self,names,*,limits=(512,512),bad_fd=None,fstat_error=None,scan_error=False,standalone=False):
+        spec=importlib.util.spec_from_file_location('fixed_bridge_test',HERE.parent/'six_library_live_mapping'/'bridge.py')
+        bridge=importlib.util.module_from_spec(spec);spec.loader.exec_module(bridge)
+        inspected=[]
+        def entries():
+            for name in names:yield SimpleNamespace(name=name)
+            if scan_error:raise OSError('synthetic scan failure')
+        def checked(fd):
+            inspected.append(fd)
+            if fd==fstat_error:raise OSError('synthetic fstat failure')
+            return SimpleNamespace(st_dev=7)
+        stream=Mock();stream.__enter__=Mock(return_value=entries());stream.__exit__=Mock(return_value=False)
+        with patch.object(l.resource,'getrlimit',return_value=limits), \
+             patch.object(l.os,'open',return_value=3) as opened, \
+             patch.object(l.os,'scandir',return_value=stream), \
+             patch.object(l.os,'fstat',side_effect=checked), \
+             patch.object(l.os,'close') as closed, \
+             patch.object(l.fcntl,'fcntl',side_effect=lambda fd,command:os.O_RDWR if fd==bad_fd else os.O_RDONLY):
+            try:
+                if standalone:bridge.no_writable_fds(7)
+                else:l.composition_copy_fd_inventory(7)
+            finally:
+                if opened.called:closed.assert_called_once_with(3)
+                else:closed.assert_not_called()
+        return inspected
+
+    def test_complete_129_and_512_entries_include_the_suffix(self):
+        for count in (129,512):
+            self.assertEqual(self.scan([str(i) for i in range(count)]),list(range(count)))
+
+    def test_standalone128_policy_is_not_changed_or_retried(self):
+        with self.assertRaises(RuntimeError):self.scan([str(i) for i in range(129)],standalone=True)
+        source=(HERE.parent/'six_library_live_mapping'/'bridge.py').read_bytes()
+        self.assertIn(b'len(seen) < 128',source)
+
+    def test_fixed_soft_and_hard512_required_before_open(self):
+        for limits in ((128,512),(512,1024),(True,512),(512,True),(512,),[512,512]):
+            with self.subTest(limits=limits),self.assertRaises(l.Refused):self.scan(['3'],limits=limits)
+
+    def test_bad_names_duplicates_missing_self_and_overflow_refuse(self):
+        for names in (['3','512'],['3','03'],['3','-1'],['3','x'],['3','3'],['0'],
+                      [str(i) for i in range(513)]):
+            with self.subTest(names=names[:3]),self.assertRaises(l.Refused):self.scan(names)
+
+    def test_suffix_writable_unknown_stat_or_scan_failure_never_passes(self):
+        names=[str(i) for i in range(129)]
+        for changes in ({'bad_fd':128},{'fstat_error':128},{'scan_error':True}):
+            with self.subTest(changes=changes),self.assertRaises((l.Refused,OSError)):
+                self.scan(names,**changes)
+
+    def test_selection_precedes_first_bridge_acquisition_without_refusal_fallback(self):
+        tree=ast.parse((HERE/'launcher.py').read_text())
+        child=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='child')
+        source=ast.unparse(child)
+        self.assertLess(source.index('resource.setrlimit'),source.index('base.isolate'))
+        self.assertLess(source.index('base.isolate'),source.index('.no_writable_fds ='))
+        self.assertLess(source.index('.no_writable_fds ='),source.index('.Bridge.__new__'))
+        self.assertEqual(source.count('composition_copy_fd_inventory'),1)
+        scan=next(n for n in tree.body if isinstance(n,ast.FunctionDef)
+                  and n.name=='composition_copy_fd_inventory')
+        self.assertFalse(any(isinstance(n,ast.ExceptHandler) for n in ast.walk(scan)))
 
 
 if __name__=='__main__':unittest.main()

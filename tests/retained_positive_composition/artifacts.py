@@ -16,9 +16,9 @@ import time
 DIRECTORY = '/artifacts'
 OWNER = 0
 TABLE = {
-    'developer-manifest.json': (4181, 0o600, '39fa6ae1e39b47e511e7a794cadff3322df9b445f04902dcc0c0d1bcd013b532'),
+    'developer-manifest.json': (1235, 0o600, '65925070cd83b2af177bbfa4fbb7b821cdc65e855db53671528b2da03bb621cd'),
     'mihomo': (61083808, 0o555, '3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544'),
-    'omavless-dns-broker': (5124576, 0o555, '6126e5b159eb7996cbf8ac6bdb212be3d7b4b12b1809e09e74c19dbc1394001e'),
+    'omavless-dns-broker': (5126984, 0o555, 'ea958302d745b901294df6164c624a431a7493b67457a255306ec8216545eb9d'),
     'host-fixture': (49630768, 0o555, 'fbd19fc83f5d6548ff8f1fe89d4d66ab9032d85cb551a2364f5719a5cad234f7'),
 }
 ROLES = {'core':'mihomo', 'broker':'omavless-dns-broker', 'host':'host-fixture'}
@@ -90,19 +90,22 @@ class Sources:
                     require(len(header)==64 and header[:6]==b'\x7fELF\x02\x01'
                             and header[18:20]==b'\x3e\x00')
                 self.files[name]=(fd,value,expected)
-            manifest=self.io(os.pread,self.files['developer-manifest.json'][0],4182,0)
+            manifest=self.io(os.pread,self.files['developer-manifest.json'][0],
+                             TABLE['developer-manifest.json'][0]+1,0)
             require(len(manifest)==TABLE['developer-manifest.json'][0]
                     and hashlib.sha256(manifest).hexdigest()==TABLE['developer-manifest.json'][2])
             value=json.loads(manifest,object_pairs_hook=pairs,
                              parse_constant=lambda _:require(False))
-            require(value['schema']=='omavless-composed-developer-artifacts-v1'
+            require(value['schema']=='omavless-composed-developer-artifacts-v2'
                     and value['builder_source']=='8c038e76c8407eebd7afdd6e0389fc2bbc28cab9'
                     and value['dns_source']=='c4e800425243c1b02165f82153e4bf418fe465e6'
+                    and value['broker_source']=='aff0c38075338d51d979acc9f10dab1ae6dbba6f'
                     and value['architecture']=='x86_64' and value['broker_feature']=='release-package')
             require(all(value[key] is False for key in
                     ('broker_executed','installed_compatibility','package_attestation','effect_authority')))
             require(value['sha256']['mihomo']==TABLE['mihomo'][2]
-                    and value['sha256']['omavless-dns-broker']==TABLE['omavless-dns-broker'][2])
+                    and value['sha256']['omavless-dns-broker']==TABLE['omavless-dns-broker'][2]
+                    and value['sha256']['host-fixture']==TABLE['host-fixture'][2])
             self.recheck()
             self.available()
             self.local_budget=None

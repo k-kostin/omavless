@@ -537,7 +537,7 @@ class Controls(unittest.TestCase):
                if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='mark']
         self.assertEqual(set(marks),{(side,step) for step in i.INVENTORY_STEPS for side in ('before','after')})
         self.assertEqual(len(marks),22)
-        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2*len(i.REQUIRED_ROLES),owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(234,235,363))
+        self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2*len(i.REQUIRED_ROLES),owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(234,289,417))
 
     def rejecting_maps(self):
         good=mapping([('/artifacts/mihomo',90)])
@@ -649,7 +649,7 @@ class Controls(unittest.TestCase):
         self.assertEqual(116+38+40+max(first,second,complete),234)
         for category,raw in self.rejecting_maps()[1].items():
             old,_=self.fixture('core')
-            owner=owner_module.Session('inner');owner.deadline=65.0;owner.live=Mock()
+            owner=owner_module.Session('inner',bootstrap_scratch='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-4/scratch');owner.deadline=65.0;owner.live=Mock()
             child=object.__new__(owner_module.OwnedProcess)
             owner.children=[child];owner.anchors={'core':{'child':child,'proc_fd':71}}
             value=i.Images(owner,owner_module,old.copies,SimpleNamespace(Bridge=Bridge),
@@ -686,7 +686,7 @@ class Controls(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('core_real_owner',SOURCE.with_name('lifecycle.py'))
         owner_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(owner_module)
         old,_=self.fixture('core')
-        owner=owner_module.Session('inner');owner.deadline=65.0;owner.live=Mock()
+        owner=owner_module.Session('inner',bootstrap_scratch='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-4/scratch');owner.deadline=65.0;owner.live=Mock()
         # Allocate a typed inert shell only: Popen.__init__ is never called.
         child=object.__new__(owner_module.OwnedProcess)
         owner.children=[child];owner.anchors={'core':{'child':child,'proc_fd':71}}
