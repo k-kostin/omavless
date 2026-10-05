@@ -257,6 +257,28 @@ class Controls(unittest.TestCase):
                 with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_bus')
                 again.assert_not_called()
 
+    def test_kernel_unnamed_producer_separator_counterexample_is_currently_refused(self):
+        # Linux v6.17 show_vma_header_prefix always writes a separator after
+        # inode; show_map_vma appends LF without a path for an unnamed VMA.
+        # No stopped process/maps are inspected.
+        row='5000-6000 rw-p 00000000 00:00 0 '
+        self.assertIsNone(i.MAP_LINE.fullmatch(row))
+        original=mapping([('/usr/lib/libc.so.6',1)])
+        self.assertEqual(i.map_objects(original+row.rstrip(' ')+'\n'),i.map_objects(original))
+        with self.assertRaises(i.Refused):i.map_objects(original+row+'\n')
+
+    def test_kernel_unnamed_counterexample_can_end_at_plain_bracket_boundary(self):
+        value,child=self.fixture('bus')
+        raw=self.maps(value,'bus')+'5000-6000 rw-p 0 00:00 0 [heap]\n6000-7000 rw-p 0 00:00 0 \n'
+        with patch.object(value,'text',return_value=raw) as read:
+            with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_bus')
+        self.assertEqual(value.owner.phase.call_args.args,
+                         ('before_bus_initial_inventory_first_parse_plain_bracket',5.0))
+        self.assertEqual(read.call_count,1)
+        value.copies._verify_target.assert_not_called();self.sealed(value)
+        # Matching a public last literal is not evidence that this row existed
+        # or caused any actual stopped invocation.
+
     def test_initial_bus_exact_substeps_and_accepted_classes_once_per_parse(self):
         value,child=self.fixture('bus')
         rows=['','[heap]','[anon: Go: heap]','[heap]','[anon: Go: heap]']

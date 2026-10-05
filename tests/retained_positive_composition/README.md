@@ -1,9 +1,8 @@
 # Retained positive composition: source-only successor
 
 Developer witness in progress, not a normal Rust runtime, controller permit,
-installed package or production Python fallback. Generation 4 is a source-only
-diagnostic proposal and has not been invoked. Generation 3 and 2's sole whole guards
-terminated NONPASS (exit 2); its scope is permanently stopped. Generation 1's
+installed package or production Python fallback. Generation4,3 and2's sole whole
+guards each terminated NONPASS (exit2); their scopes are permanently stopped. Generation1's
 sole whole guard terminated NONPASS (exit 2); its
 separately reviewed file-only observer did not change that terminal.
 The parent #646 whole wrapper remains NONPASS. Its separately reviewed fixed-file
@@ -190,6 +189,44 @@ each1120 tests/two existing skips plus all JS/QML contracts;86 focused
 image/ownership/launcher/graph controls pass. These are inert source controls,
 not native execution or a guest observation. Exact-head cloud gates and fresh
 immutable delivery/observer capsules remain pending at this source checkpoint.
+
+### Generation-4 stopped invocation and separate fixed-file observation
+
+Exact source `ac7aa56433a632f6def8a4cde0268c2e8a185309` passed cloud test
+37267557445 and x86_64/ARM64 package37267557439. Its fresh manifest SHA-256 was
+`89f29af9c4e168aa229a0b58495276a3306bc898969d6b5fa5e64b903f445040`.
+Complete ROOT/independent source/capsule review and actual source/native staging
+preceded ROOT's sole whole guard f47891/session97651/terminal31c193, exit2.
+Generation4 is permanently stopped: no query, signal, reap, retry, archive or
+cleanup. No previous generation scope is reused or reopened.
+
+ROOT's separate approved fixed-file observation edff280 exited0; its5,682-byte
+receipt SHA-256 is
+`2841cf7b6f606d67d51f9a52be8ddf684c559d1fcd0fd2a25ac1e423c9a5d345`.
+It recorded110 exact frames (83 Bridge +27 Session), last
+`before_bus_initial_inventory_first_parse_plain_bracket`, no opaque tail.
+All pins matched; inner empty, outer absent. The class label precedes the
+unchanged anonymous predicate; the stream does not prove that class caused
+refusal, nor identify any later row. Cause, ordering/completion, current-live,
+preservation, authority, compatibility, adoption and whole PASS remain false.
+
+Separately, a pinned primary-producer counterexample identifies a source bug:
+Linuxv6.17 `show_vma_header_prefix` emits a trailing separator after inode, and
+`show_map_vma` appends LF with no path for an unnamed anonymous VMA. The current
+optional nonempty path group refuses that legal one-space suffix although the
+anonymous predicate already permits an unnamed zero-identity/zero-offset row.
+See [the Linuxv6.17 producer](https://github.com/torvalds/linux/blob/v6.17/fs/proc/task_mmu.c).
+Inert controls show both direct refusal and a synthetic stream whose last fixed
+label is the same plain-bracket boundary. That match does not establish actual
+guest kernel/maps contents or cause. No parser change, glibc annotation
+relaxation, unknown mapped-path open or failure-time query occurs in this
+counterexample checkpoint. Any correction requires a fresh source-only graph
+and independent exact-head review; stopped-generation originals stay fixed.
+
+Counterexample checkpoint source-only gates: both Python3.14/3.12.13 full
+`./tests/run.sh` PASS1122 tests/two existing skips plus all JS/QML contracts;
+32 inert image controls and `git diff --check` PASS. Production source bytes
+still match generation4; only owning documentation and inert tests changed.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and
