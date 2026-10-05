@@ -32,10 +32,10 @@ run is not silently killed into a supposed acceptance result. A future bounded
 parent controller must retain an unknown original unit/process and stop its
 scope without retry, query-based adoption or cleanup.
 
-Fresh synthetic gates passed nine library tests, four binary sequencing/output
+Fresh synthetic gates passed nine library tests, five binary configuration/sequencing/output
 tests and three compile-fail doctests. These tests do not execute `main`, the
 actual binder, namespace ioctls or netlink construction. Exact final source,
-additional handoff-admission controls, MSRV/gates, build provenance, immutable
+MSRV/full-source gates, build provenance, immutable
 freeze and delivery/negative-witness review remain prerequisites. ROOT alone
 may perform a separately approved actual invocation. No product dependency,
 normal acquisition provider, nftables effect or canonical claim is added.

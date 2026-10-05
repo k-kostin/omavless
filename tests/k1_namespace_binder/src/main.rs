@@ -67,6 +67,26 @@ fn entry(
     Ok(0)
 }
 
+fn configuration(
+    arg: Option<&std::ffi::OsStr>,
+    extra: bool,
+    fds: Option<&str>,
+    names: Option<&str>,
+    pid: Option<&str>,
+    own_pid: u32,
+) -> Option<bool> {
+    let negative = arg == Some(std::ffi::OsStr::new(NEGATIVE_ARG));
+    if (arg != Some(std::ffi::OsStr::new(ARG)) && !negative)
+        || extra
+        || fds != Some("1")
+        || names != Some("k1-untrusted-local-anchor")
+        || pid != Some(own_pid.to_string().as_str())
+    {
+        return None;
+    }
+    Some(negative)
+}
+
 fn main() -> ExitCode {
     let Some(deadline) = Instant::now().checked_add(Duration::from_secs(2)) else {
         return ExitCode::from(2);
@@ -74,18 +94,19 @@ fn main() -> ExitCode {
     let mut args = std::env::args_os();
     let _ = args.next();
     let arg = args.next();
-    let expect_mismatch = arg.as_deref() == Some(std::ffi::OsStr::new(NEGATIVE_ARG));
     // Configuration guards only, never manager authentication. No supplied PID
     // is queried, and no supplied name/path becomes an opener argument.
-    let allowed = (arg.as_deref() == Some(std::ffi::OsStr::new(ARG)) || expect_mismatch)
-        && args.next().is_none()
-        && std::env::var("LISTEN_FDS").as_deref() == Ok("1")
-        && std::env::var("LISTEN_FDNAMES").as_deref() == Ok("k1-untrusted-local-anchor")
-        && std::env::var("LISTEN_PID").ok().as_deref()
-            == Some(std::process::id().to_string().as_str());
+    let config = configuration(
+        arg.as_deref(),
+        args.next().is_some(),
+        std::env::var("LISTEN_FDS").ok().as_deref(),
+        std::env::var("LISTEN_FDNAMES").ok().as_deref(),
+        std::env::var("LISTEN_PID").ok().as_deref(),
+        std::process::id(),
+    );
     let result = entry(
-        allowed,
-        expect_mismatch,
+        config.is_some(),
+        config.unwrap_or(false),
         &mut || budget(deadline),
         || actual(deadline),
         &mut io::stdout().lock(),
@@ -103,6 +124,7 @@ mod tests {
         flushes: usize,
         short: bool,
         fail: bool,
+        flush_fail: bool,
         late: &'a Cell<bool>,
     }
     impl Write for Output<'_> {
@@ -115,8 +137,93 @@ mod tests {
         }
         fn flush(&mut self) -> io::Result<()> {
             self.flushes += 1;
+            if self.flush_fail {
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
             self.late.set(true);
             Ok(())
+        }
+    }
+
+    #[test]
+    fn exact_handoff_configuration_is_not_origin_authentication() {
+        let good = std::ffi::OsStr::new(ARG);
+        let negative = std::ffi::OsStr::new(NEGATIVE_ARG);
+        assert_eq!(
+            configuration(
+                Some(good),
+                false,
+                Some("1"),
+                Some("k1-untrusted-local-anchor"),
+                Some("42"),
+                42
+            ),
+            Some(false)
+        );
+        assert_eq!(
+            configuration(
+                Some(negative),
+                false,
+                Some("1"),
+                Some("k1-untrusted-local-anchor"),
+                Some("42"),
+                42
+            ),
+            Some(true)
+        );
+        for (arg, extra, fds, name, pid) in [
+            (
+                None,
+                false,
+                Some("1"),
+                Some("k1-untrusted-local-anchor"),
+                Some("42"),
+            ),
+            (
+                Some(good),
+                true,
+                Some("1"),
+                Some("k1-untrusted-local-anchor"),
+                Some("42"),
+            ),
+            (
+                Some(good),
+                false,
+                Some("2"),
+                Some("k1-untrusted-local-anchor"),
+                Some("42"),
+            ),
+            (
+                Some(good),
+                false,
+                Some("01"),
+                Some("k1-untrusted-local-anchor"),
+                Some("42"),
+            ),
+            (Some(good), false, Some("1"), Some("foreign"), Some("42")),
+            (
+                Some(good),
+                false,
+                Some("1"),
+                Some("k1-untrusted-local-anchor:extra"),
+                Some("42"),
+            ),
+            (
+                Some(good),
+                false,
+                Some("1"),
+                Some("k1-untrusted-local-anchor"),
+                Some("1"),
+            ),
+            (
+                Some(good),
+                false,
+                Some("1"),
+                Some("k1-untrusted-local-anchor"),
+                Some("042"),
+            ),
+        ] {
+            assert_eq!(configuration(arg, extra, fds, name, pid, 42), None);
         }
     }
 
@@ -172,13 +279,19 @@ mod tests {
 
     #[test]
     fn short_throw_and_late_flush_have_one_output_attempt() {
-        for (short, fail) in [(true, false), (false, true), (false, false)] {
+        for (short, fail, flush_fail) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, false),
+            (false, false, true),
+        ] {
             let late = Cell::new(false);
             let mut output = Output {
                 writes: 0,
                 flushes: 0,
                 short,
                 fail,
+                flush_fail,
                 late: &late,
             };
             assert!(entry(
@@ -203,6 +316,7 @@ mod tests {
             flushes: 0,
             short: false,
             fail: false,
+            flush_fail: false,
             late: &late,
         };
         let mut gate = || {

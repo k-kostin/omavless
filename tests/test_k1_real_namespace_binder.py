@@ -55,6 +55,30 @@ class BinderArtifact(unittest.TestCase):
                       "assert_eq!(fake.calls, at)", "retained(anchor_fd)", "owner.verify_queries"):
             self.assertIn(token, faults)
 
+    def test_fixed_noninstalled_entry_and_two_unit_templates(self):
+        source = (ARTIFACT / "src/main.rs").read_text()
+        for token in ('#![forbid(unsafe_code)]', 'File::open("/proc/self/fd/3").map(ManuallyDrop::new)',
+                      "owner.verify_local()?", "Err(Refused::Mismatch) if expect_mismatch",
+                      "config.is_some()", "output.write(raw)", "output.flush()",
+                      "exact_handoff_configuration_is_not_origin_authentication"):
+            self.assertIn(token, source)
+        for token in ("unsafe {", "from_raw_fd", "setns(", "sendto(", "sendmsg(",
+                      "Command::", "write_all(", "eprintln!", "println!"):
+            self.assertNotIn(token, source)
+        positive = (ARTIFACT / "fixture/local-match.service").read_text()
+        negative = (ARTIFACT / "fixture/local-mismatch.service").read_text()
+        for unit in (positive, negative):
+            self.assertEqual(unit.count("OpenFile="), 1)
+            self.assertEqual(unit.count("ExecStart="), 1)
+            self.assertIn("OpenFile=/proc/self/ns/net:k1-untrusted-local-anchor:read-only\n", unit)
+            self.assertIn("CapabilityBoundingSet=\nAmbientCapabilities=\n", unit)
+            self.assertIn("TimeoutStartSec=infinity\n", unit)
+            self.assertNotIn("[Install]", unit)
+        self.assertEqual(negative.replace("isolated mismatch", "local binder")
+                         .replace("--fixed-k1-local-binder-expect-mismatch-not-production",
+                                  "--fixed-k1-local-binder-not-production")
+                         .replace("PrivateNetwork=yes\n", ""), positive)
+
 
 if __name__ == "__main__":
     unittest.main()
