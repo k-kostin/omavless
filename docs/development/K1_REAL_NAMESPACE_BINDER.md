@@ -1,4 +1,4 @@
-# External real namespace/creator binder — first source checkpoint
+# External real namespace/creator binder — review-only source
 
 This is an isolated review-only successor to [the external API patches](K1_NAMESPACE_API_VALIDATION.md)
 and [inactive acquisition](K1_LAUNCH_ACQUISITION.md), not another authority
@@ -58,14 +58,25 @@ That audit and a fresh fixed noninstalled handoff prototype remain pending.
 
 ## First checks and next gates
 
-Five native controls cover pure kind/ID/cookie mismatch, full-width IDs, and
+Nine native controls cover pure kind/ID/cookie mismatch, full-width IDs, and
 the real private seal/lifetime-budget path. The latter use ordinary `/dev/null`
 Files only; no namespace syscall, netlink socket, service or network operation
-is executed. Three compile-fail doctests reject Send, Sync and creator field
+is executed. The private fixed-leaf query seam also drives the actual constructor
+and verification path through 45 constructor and 24 verification error, panic
+and late-return variants. They check no next call, permanent refusal and
+retention of the exact synthetic original descriptors through this process's
+own FD metadata. They do not read other processes or namespace contents.
+The real normal entry always uses the fixed Real implementation; there is no
+public injected backend. Three compile-fail doctests reject Send, Sync and creator field
 replacement. Inert artifact guards check external pins and product exclusion.
 Compilation uses the actual patched external libraries, not reimplemented stubs.
 
-Constructor/readback error injection and original-descriptor retention controls,
+The first `67b4c6d` constructor continued to query the anchor after an initial
+current-namespace opener failure before noticing the missing descriptor. The
+follow-up refuses immediately after the opener's post-return budget gate;
+the executed first-leaf failure control requires zero subsequent queries.
+Earlier successful tests are not retrospective evidence for that correction.
+
 MSRV/cross-compilation, full source checks and independent graph review remain
 required. No real binder invocation or VM gate has run. Any future executable,
 freeze and VM launch requires its own exact full review and ROOT-only operation.

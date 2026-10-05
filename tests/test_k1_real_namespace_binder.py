@@ -42,6 +42,19 @@ class BinderArtifact(unittest.TestCase):
         self.assertEqual(source.count("compile_fail,E0277"), 2)
         self.assertEqual(source.count("compile_fail,E0616"), 1)
 
+    def test_normal_entry_uses_only_private_real_backend_and_fault_matrix_is_present(self):
+        source = (ARTIFACT / "src/lib.rs").read_text()
+        self.assertIn("Self::bind_with(anchor, &mut Real)", source)
+        self.assertIn("self.verify_queries(&mut Real)", source)
+        self.assertNotIn("pub trait Queries", source)
+        self.assertNotIn("pub fn bind_with", source)
+        constructor = source.split("fn bind_with(", 1)[1].split("fn budget(", 1)[0]
+        self.assertLess(constructor.index("let retained_file"), constructor.index("let anchor = owner.sample"))
+        faults = (ARTIFACT / "src/fault_tests.rs").read_text()
+        for token in ("1..=15", "16..=23", "Cut::Error", "Cut::Panic", "Cut::Late",
+                      "assert_eq!(fake.calls, at)", "retained(anchor_fd)", "owner.verify_queries"):
+            self.assertIn(token, faults)
+
 
 if __name__ == "__main__":
     unittest.main()
