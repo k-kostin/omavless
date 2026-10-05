@@ -1,0 +1,132 @@
+# Fixed core profile persistence exclusion — SOURCE proposal
+
+This changes only this developer fixture's literal `CORE_CONFIG`. It sets
+`profile.store-selected: false` and `profile.store-fake-ip: false`; no normal
+product configuration, core code, native bytes or image admission changes.
+The immutable code-image allowlist still refuses a mutable database mapping.
+There is no data-path exemption, unknown pathname open or diagnostic fallback.
+The current tracked launcher still names stopped review3 and is NOT eligible
+for execution. Both FULL reviews, a separately reviewed unused stage/source
+graph and ROOT's separate selection are prerequisites for any new experiment.
+
+## Source-supported incompatibility, not actual cause
+
+ROOT supplied the review3 whole outcome `2e6ade/session38126 -> 9f6e68 EXIT2`;
+All 24 earlier separate stages were original zero. That scope is permanently
+STOP: no query, signal, reap, retry, archive or cleanup. The separately reviewed
+fixed-file observer `ae1fac` returned original zero; its finite projection
+`d2ea2e` matched 234 literal frames (83 Bridge + 151 Session), last
+`before_core_initial_inventory_first_parse_reject_named_path`, with no opaque
+tail. Inner result empty, outer absent, all 18 source/four native pins matched.
+The recorded child length/hash is 10658/SHA
+`6e2285d08791ec8f3299e1f65fedd580db083eacb0f6dce5f4a34facaa72f67a`.
+These are ROOT-supplied bounded facts, not author capture reads, raw maps,
+cause/current-preservation evidence, ordering or whole/native acceptance.
+
+The exact public Mihomo source is
+[`ab405bad5beeeac8b003bb01f60f134f6df54471`](https://github.com/MetaCubeX/mihomo/tree/ab405bad5beeeac8b003bb01f60f134f6df54471),
+tree `bf1d3f0efdc504a883ea89705f274324bc353628`. A fresh SOURCE-only Git fetch
+and clean detached checkout verified those identifiers; no Go/compiler/engine
+was selected. The former fixture omitted profile fields. The pinned
+[config defaults](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/config/config.go)
+set StoreSelected true; ApplyConfig calls updateProfile, which invokes
+[patchSelectGroup](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/hub/executor/executor.go)
+before checking whether any proxy needs a restored selection.
+
+[Cache()](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/component/profile/cachefile/cache.go)
+lazily opens the database. With the unchanged literal `-d /home/core`,
+[Path.Cache()](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/constant/path.go)
+names `/home/core/cache.db`. The pinned
+[go.mod](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/go.mod)
+selects bbolt `v0.0.0-20260706163408-d4ec34ad7c48`.
+[DB.Open](https://github.com/MetaCubeX/bbolt/blob/d4ec34ad7c48/db.go) reaches
+mapping; its [Unix implementation](https://github.com/MetaCubeX/bbolt/blob/d4ec34ad7c48/bolt_unix.go)
+uses the original database FD with PROT_READ/MAP_SHARED. Mapping failures may
+have an inherited heap fallback; this is not a claim that every run maps it.
+A genuine valid row for that fixed mutable data file is refused by unchanged
+`images.PUBLIC`, regardless of read-only map permissions. Source proves this
+conditional incompatibility; it does not identify the actual rejected row.
+
+## Complete singleton caller closure for this fixed case
+
+The pinned source has twelve production `cachefile.Cache()` sites in seven
+files. All importing files were also inventoried to exclude alias imports.
+The additional fakeip cachefile adapter receives an existing CacheFile but
+does not initialize the singleton; a pool test is not a production caller.
+
+| Source file / sites | Reached prerequisite and fixed-case exclusion |
+| --- | --- |
+| `hub/executor/executor.go` /1 | updateProfile calls patchSelectGroup only when StoreSelected is true; the explicit false prevents that call. |
+| `component/fakeip/pool.go` /1 | New chooses cachefileStore only when Persistence is true; false chooses memoryStore. restoreState/StoreState operate on cachefileStore only after a type check. |
+| `component/resource/vehicle.go` /2 | HTTPVehicle ETag read/write; this fixture has no HTTP provider resource and no ETag override. |
+| `adapter/provider/provider.go` /2 | External ProxySetProvider Initial/subscription response; no external proxy providers are configured. The default builtin CompatibleProvider uses only baseProvider, not ProxySetProvider. |
+| `hub/route/storage.go` /3 | Explicit storage GET/PUT/DELETE handlers; the fixed controller never calls them. |
+| `hub/route/proxies.go` /2 | Explicit proxy update/unfix handlers; the fixed controller never calls them. |
+| `hub/route/groups.go` /1 | Explicit group delay handler; the fixed controller never calls it. |
+
+The unchanged config has empty proxies and proxy-groups, no proxy-provider or
+rule-provider definitions, direct mode and only a literal loopback nameserver.
+Config creates the builtin default CompatibleProvider and GLOBAL selector,
+neither of which requires persistent storage during this fixed case. Fake-IP
+remains enabled with the same prefix and in-memory pool; its persistence was
+already false by the pinned default, now made explicit. The controller reaches
+only GET `/connections/conditional-capabilities`, GET `/connections` and POST
+the private retained target's `/close-conditional`; it cannot select an arbitrary
+storage/proxy/group path. Stream CONNECT, DNS broker lease and reset-while-held
+are unrelated to cross-run selection persistence.
+
+The exact public OmaVLESS c4
+[`c4e800425243c1b02165f82153e4bf418fe465e6`](https://github.com/k-kostin/omavless/tree/c4e800425243c1b02165f82153e4bf418fe465e6)
+was separately fetched by its literal object ID from the public origin.
+Its production DNS patch hunks and the retained conditional-close production
+patch hunks were read: they add no cache imports/callers and do not change the
+profile/default or fakeip persistence selection. The same native artifact and
+all broker/descriptor policy remain unchanged. Test-only DNS socket patches do
+not add a production cache role. This inventory is for this fixed source/config
+and literal request graph, not a global prohibition for arbitrary Mihomo use.
+
+## Inert regressions and remaining gates
+
+The predecessor literal config is 529 bytes, SHA
+`acc9e60bca550b5b3ce593bc8290f01a09c7177f48e931e5c922b2ce2e0ec8da`.
+Three pure controls require exactly one two-false profile block and otherwise
+byte-identical predecessor config; refuse a genuine read-only fixed cache map
+without any open/read; and preserve unknown/deleted/alias-path refusals while
+the original artifact row still parses. They do not parse config in Go, create
+a database, map a file or execute the core. Future native execution could still
+refuse for unrelated reasons; no successful outcome or acceptance is inferred.
+
+The anonymous parser policy is also unchanged. The pinned
+[Go 1.27.0 naming source](https://github.com/golang/go/blob/go1.27.0/src/runtime/set_vma_name_linux.go)
+copies the five-byte ` Go: ` prefix into an 80-byte buffer, leaving byte 79 zero;
+[its Linux allocator](https://github.com/golang/go/blob/go1.27.0/src/runtime/mem_linux.go)
+names anonymous private zero-offset mappings. Linux v6.17
+[get_vma_name/show_map_vma](https://github.com/torvalds/linux/blob/v6.17/fs/proc/task_mmu.c)
+wraps an anonymous name in `[anon:%s]`. Existing controls accept only the bounded
+Go/plain-bracket grammar with zero device/inode/offset, while spaced glibc,
+foreign, oversized and path-bearing labels still refuse. This producer review
+does not establish actual mappings, kernel support or any earlier failure cause.
+
+## Exact SOURCE checkpoint gates and transitive pins
+
+The first full SOURCE gate (`811e40/31754 -> 184ac9 EXIT1`) ran 1162 controls
+with two existing skips and five graph-admission errors: the tracked positive
+source hash had not yet been updated. After synchronizing only that graph pin,
+the second (`38c2f1/7335 -> b5b2f1 EXIT1`) had one launcher graph-hash error.
+Both NONPASS SOURCE results are retained; neither selected a native candidate.
+The launcher graph admission constant was then synchronized to the exact graph
+bytes, with no admission predicate or authority change. A tracked-reference scan
+found no other stale predecessor positive/graph pins. Pure source inspection
+verified all 14 core graph pins and both launcher source pins. The external outer
+guard, manifest and index require a separately reviewed fresh recipe; none is
+adopted or modified by these tracked metadata updates.
+
+The fresh full gate (`b5a00d/29536 -> 2ebd30 EXIT0`) passed 1162 controls, with
+the same two existing skips, plus all JavaScript and QML checks. The three new
+focused controls were also original zero (`e48a95`). An initial source-catalogue
+inspection assumed every graph member was co-located and encountered a SOURCE
+ENOENT for the borrowed bridge; the corrected explicit five borrowed paths
+verified all 14 hashes. This was not a failed runtime-scope inspection. These
+results are synthetic/source-only; no Go config parser, core/database, native
+binary, namespace or VM was selected. Python 3.12 is not on this author PATH and
+has not been claimed as a new checkpoint gate.

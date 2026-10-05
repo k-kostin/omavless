@@ -21,6 +21,7 @@ CORE_CONFIG = ("mixed-port: 19090\nexternal-controller-unix: /home/core/controll
     "  omavless-dns-broker: true\n  dns-hijack: []\n"
     "dns:\n  enable: true\n  enhanced-mode: fake-ip\n  fake-ip-range: 198.18.0.1/16\n"
     "  ipv6: false\n  nameserver: [127.0.0.1:19093]\n"
+    "profile:\n  store-selected: false\n  store-fake-ip: false\n"
     "proxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n").encode()
 SIX = {'/usr/lib/libcrypto.so.3','/usr/lib/libidn2.so.0.4.0','/usr/lib/libssl.so.3',
        '/usr/lib/libunistring.so.5.2.1','/usr/lib/libz.so.1.3.2','/usr/lib/libzstd.so.1.5.7'}
