@@ -21,10 +21,10 @@ import sys
 import time
 import types
 
-STAGE='/home/kdk_vm/.cache/t3-retained-positive-composition-review-3'
+STAGE='/home/kdk_vm/.cache/t3-retained-positive-composition-review-4'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='cc9fcbd8b27077cd5d0542b2042b255e9c7e3da6efdae8557edca737cb35dde8'
+GRAPH='f5c7b1520b053a9900e019d45af4f206e59146e0bfdb35531e324b0ec89fe15f'
 VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']

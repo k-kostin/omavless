@@ -159,7 +159,7 @@ class Controls(unittest.TestCase):
                 with patch.object(l.os,'open',return_value=fd) as opened, \
                      patch.object(l.os,'stat',return_value=real_stat):
                     reader=l.pinned_module(entry,'graph.py')
-                self.assertEqual(reader.PINS['images.py'],'11d3a970654a707c5aa1b02ba2ff888b84dc498384796c67e413a02699e8bd0e')
+                self.assertEqual(reader.PINS['images.py'],'ada2f0d1b062b7bc42723f34c684f2bffbd0f556e70ca080687d0248599e9147')
                 opened.assert_called_once_with(l.STAGE+'/graph.py',l.FLAGS)
                 self.assertIn(fd,l.HELD)
             finally:os.close(fd)
@@ -315,10 +315,12 @@ class Controls(unittest.TestCase):
         run=next(n for n in case.body if isinstance(n,ast.FunctionDef) and n.name=='run')
         outer_labels=calls(child.body);case_labels=calls(run.body)
         self.assertEqual((len(outer_labels),len(case_labels)),(13,101))
-        self.assertEqual(set(outer_labels+case_labels),owner.PHASES)
-        self.assertLessEqual(len(outer_labels+case_labels),owner.PHASE_LIMIT)
-        self.assertEqual(owner.PHASE_LIMIT,115)
-        self.assertEqual(128+owner.PHASE_LIMIT,243)
+        inventory_labels={label for label in owner.PHASES if '_bus_initial_inventory_' in label}
+        self.assertEqual(len(inventory_labels),38)
+        self.assertEqual(set(outer_labels+case_labels)|inventory_labels,owner.PHASES)
+        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),152)
+        self.assertEqual(owner.PHASE_LIMIT,153)
+        self.assertEqual(128+owner.PHASE_LIMIT,281)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
         phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
         phases+=['before_bind']*50+['before_verify_copies']

@@ -1,8 +1,8 @@
 # Retained positive composition: source-only successor
 
 Developer witness in progress, not a normal Rust runtime, controller permit,
-installed package or production Python fallback. Generation 3 is a new source-only
-proposal and has not been invoked. Generation 2's sole whole guard
+installed package or production Python fallback. Generation 4 is a source-only
+diagnostic proposal and has not been invoked. Generation 3 and 2's sole whole guards
 terminated NONPASS (exit 2); its scope is permanently stopped. Generation 1's
 sole whole guard terminated NONPASS (exit 2); its
 separately reviewed file-only observer did not change that terminal.
@@ -117,15 +117,79 @@ partial-pipe cleanup or failure wait before returning/raising. The synthetic
 Session tests do not control or prove those internals, and no actual constructor
 failure outcome is supported as ownership/cleanup evidence. No constructor
 workaround or runtime fix follows from the generation-2 literal observation.
-Fresh source/native delivery, outer guard, independent complete-graph review
-and sealed exact-head gates remain required before any ROOT-only generation-3
-proposal can be invoked. Native inputs remain frozen and unchanged.
+The generation-3 source/native delivery, outer guard and independent complete
+graph review were completed before ROOT's sole invocation. Native inputs remain
+frozen and unchanged.
 
 Local source-only gates for this successor: `./tests/run.sh` passes with
 Python3.12.13 and3.14, each1112 tests/two existing skips plus all JS/QML
 contracts. The four additional inert controls cover role substeps and readiness;
-they are not native/guest execution or a whole-wrapper receipt. New exact-head
-cloud gates and a complete immutable source/native graph remain pending.
+they are not native/guest execution or a whole-wrapper receipt. Exact source
+`2167a29934e156e4cdb2d5d2a9e96a64ae0a22d4` passed both cloud test and native
+packaging gates. The immutable source/native manifest SHA-256 is
+`918b5656829163777bb564b71281d8a12c2f5cb2ff58e871375d9a896f5687fa`.
+
+### Generation-3 stopped invocation and separate fixed-file observation
+
+ROOT's sole whole guard (cbce77, session94804, terminal31b8be) exited2.
+Its scope is permanently stopped: no query, signal, reap, retry, archive or
+cleanup. The separately approved fixed-file observer (c511ef0) produced a
+5,651-byte receipt SHA-256
+`c2f5534663ec9b09b67a19d9566b31b2a5e9c9720e7b72916a222233a982c67a`.
+Its filtered projection recorded104 exact frames (83 Bridge +21 Session),
+last `before_bus_first_images`, no opaque tail or remaining bytes. Child stderr
+was3,645 bytes SHA-256
+`6a9a045df9daf2af222b0ff5990d6c65a40bf3af190c26d590ec79060bb16467`.
+All17 source/four native pins matched; inner record empty, outer record absent.
+Log-open, constructor, anchor and readiness literals identify only reached
+source boundaries, not independently proved completed effects/current identity.
+The interval is the bus's first loaded-image inventory; its predicate and cause
+remain unknown. Whole/current/preservation/authority/compatibility/adoption/PASS
+flags remain false. File observation does not change NONPASS.
+
+## Fresh generation 4: narrow initial-bus inventory diagnostics
+
+The new fixed stage ends in `t3-retained-positive-composition-review-4`.
+All generation1/2/3 stopped scopes and sealed capsules stay untouched.
+Only the single `initial_bus` inventory emits these diagnostics; a retained
+one-shot latch refuses a second diagnostic inventory before any label/read.
+Eleven paired steps separate executable, first text, first parse, required
+members, whole membership, targets, second text, second parse, maps equality,
+final executable and final live anchor. The same existing caller five-second
+mapping cap and absolute Session cap fence every label before/after; no new
+deadline, failure-time output, raw map row, path, identity or exception exists.
+
+Before the unchanged anonymous predicate, first-instance-only categories per
+parse are closed: `unnamed`, `plain_bracket`, `go`, `glibc_malloc`,
+`glibc_malloc_arena`, `glibc_loader_malloc`, `foreign_bracket`,
+`invalid_zero_identity`. Two parses permit at most16 class labels; no row count
+is emitted. The category is a reached classification boundary, not permission,
+cause or effect evidence. Unknown categories refuse before output; unchanged
+anonymous/map membership and whole-batch identity checks still precede target
+hashes/opens. All spaced glibc annotations remain refused.
+
+Producer-side source motivates only synthetic counterexamples: upstream glibc
+uses the three named malloc/arena/loader annotations. See the
+[Sourceware producer patch](https://sourceware.org/pipermail/libc-alpha/2023-October/152335.html)
+and pinned upstream mirror commit
+[`fee9e40a8da75fad9717668f6dddcc26f3feca2d`](https://github.com/bminor/glibc/commit/fee9e40a8da75fad9717668f6dddcc26f3feca2d).
+This does not establish the guest's glibc version, annotation setting, actual
+maps contents or refusal cause. No grammar relaxation follows from a hypothesis.
+
+Conservative complete-path budget:114 prior labels +22 paired substeps +16
+class labels =152 Session attempts, cap153; Bridge remains independently128,
+combined lexical cap281. Rejecting classes cannot complete the path, but are
+included in that upper bound. Inert controls cover accepted classes, every
+rejecting class, invalid identity/offset, deduplication, one-shot admission,
+every substep/class output failure and late returns. Fresh exact-head gates,
+immutable source/native capsules and independent complete review are required
+before any separate ROOT-only selection. This is source-only, not runtime repair.
+
+Generation-4 local source gates: `./tests/run.sh` passes Python3.14 and3.12.13,
+each1120 tests/two existing skips plus all JS/QML contracts;86 focused
+image/ownership/launcher/graph controls pass. These are inert source controls,
+not native execution or a guest observation. Exact-head cloud gates and fresh
+immutable delivery/observer capsules remain pending at this source checkpoint.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

@@ -20,6 +20,26 @@ ROLES = {'bus':'/usr/bin/dbus-daemon','resolved':'/usr/lib/systemd/systemd-resol
 # NUL-terminated VMA name. Only zero-identity anonymous rows may use this
 # bounded annotation; it is discarded, never an eligible file/object path.
 ANONYMOUS = re.compile(r'(?:\[[A-Za-z0-9_:.-]+\]|\[anon: Go: [A-Za-z][A-Za-z0-9 _.:-]{0,73}\])\Z')
+INVENTORY_STEPS = ('executable','first_text','first_parse','required_members',
+    'whole_membership','targets','second_text','second_parse','maps_equal',
+    'final_executable','final_live')
+ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
+    'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
+
+def anonymous_class(path, identity, offset):
+    # Fixed category only, BEFORE the unchanged predicate. No raw row/value
+    # escapes; a category is neither acceptance nor a diagnosed cause.
+    if identity != (0, 0) or offset != 0:
+        return 'invalid_zero_identity'
+    if not path:
+        return 'unnamed'
+    if re.fullmatch(r'\[[A-Za-z0-9_:.-]+\]', path):
+        return 'plain_bracket'
+    if path.startswith('[anon: Go: '):
+        return 'go'
+    return {'[anon: glibc: malloc]':'glibc_malloc',
+            '[anon: glibc: malloc arena]':'glibc_malloc_arena',
+            '[anon: glibc: loader malloc]':'glibc_loader_malloc'}.get(path,'foreign_bracket')
 
 class Refused(RuntimeError):
     def __init__(self):
@@ -29,10 +49,11 @@ def require(value, reason=None):
     if not value:
         raise Refused()
 
-def map_objects(text):
+def map_objects(text, before_anonymous=None):
     require(type(text) is str and len(text) <= 1024 * 1024, "mapping_bound")
     objects = {}
     previous_end = 0
+    seen = set()
     for line in text.splitlines():
         match = MAP_LINE.fullmatch(line)
         require(match is not None, "mapping_shape")
@@ -43,6 +64,12 @@ def map_objects(text):
         previous_end = end
         identity = os.makedev(int(major, 16), int(minor, 16)), int(inode)
         if path is None or path == "" or path.startswith("["):
+            if before_anonymous is not None:
+                category = anonymous_class(path, identity, offset)
+                require(category in ANONYMOUS_CLASSES)
+                if category not in seen:
+                    seen.add(category)  # At most eight labels per whole parse.
+                    before_anonymous(category)
             require(identity == (0, 0) and offset == 0
                     and (not path or ANONYMOUS.fullmatch(path)),
                     "anonymous_mapping_shape")
@@ -63,6 +90,7 @@ class Images:
         self.sealed = True
         self.held = []
         self.executables = {}
+        self.initial_bus_observed = False
         try:
             require(type(owner) is ownership.Session and owner.kind == 'inner'
                     and type(copies) is copy_module.Bridge and type(artifacts) is artifact_module.Sources)
@@ -201,14 +229,41 @@ class Images:
             require(len(names) == 1 and names[0] in ROLES)
             name = names[0]
             require(context is None or context in ('initial_' + name, 'final_' + name))
+            observed = context == 'initial_bus'
+            if observed:
+                require(self.initial_bus_observed is False)
+                self.initial_bus_observed = True  # No diagnostic replay.
+            def mark(side, step):
+                if observed:
+                    self.available(deadline)
+                    require(side in ('before','after') and step in INVENTORY_STEPS)
+                    self.owner.phase(side+'_bus_initial_inventory_'+step, deadline)
+                    self.available(deadline)
+            def parsed(raw, step):
+                def category(label):
+                    self.available(deadline)
+                    require(label in ANONYMOUS_CLASSES and step in ('first_parse','second_parse'))
+                    self.owner.phase('before_bus_initial_inventory_'+step+'_'+label, deadline)
+                    self.available(deadline)
+                return map_objects(raw, category if observed else None)
+            mark('before','executable')
             executable = self.executable(child, name, deadline)
-            first = map_objects(self.text(child, deadline))
+            mark('after','executable')
+            mark('before','first_text')
+            raw = self.text(child, deadline)
+            mark('after','first_text')
+            mark('before','first_parse')
+            first = parsed(raw, 'first_parse')
+            mark('after','first_parse')
             self.available(deadline)
+            mark('before','required_members')
             require(first.get(ROLES[name]) == executable)
             if name in ('bus','resolved'):
                 require('/usr/lib/libc.so.6' in first and '/usr/lib/ld-linux-x86-64.so.2' in first)
+            mark('after','required_members')
             # WHOLE batch membership/identity before any mapped-target open/hash.
             # These are retained admission records, not paths discovered/opened from data.
+            mark('before','whole_membership')
             for path, identity in first.items():
                 if path in self.copies.records:
                     row = self.copies.records[path]
@@ -219,7 +274,9 @@ class Images:
                 else:
                     raise Refused()
             self.available(deadline)
+            mark('after','whole_membership')
             result = []
+            mark('before','targets')
             for path, identity in sorted(first.items()):
                 if path in self.copies.records:
                     row = self.copies.records[path]
@@ -234,12 +291,24 @@ class Images:
                     self.available(deadline)
                 else:
                     raise Refused()  # No unknown/other role's path opened or echoed.
-            after = map_objects(self.text(child, deadline))
+            mark('after','targets')
+            mark('before','second_text')
+            raw = self.text(child, deadline)
+            mark('after','second_text')
+            mark('before','second_parse')
+            after = parsed(raw, 'second_parse')
+            mark('after','second_parse')
             self.available(deadline)
+            mark('before','maps_equal')
             require(first == after)
+            mark('after','maps_equal')
+            mark('before','final_executable')
             require(self.executable(child, name, deadline) == executable)
+            mark('after','final_executable')
+            mark('before','final_live')
             self.owner.live(child)
             self.available(deadline)
+            mark('after','final_live')
             return result
         except BaseException:
             self.refuse()

@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-3/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-4/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
     'after_artifact_crosscheck','before_case_constructor','after_case_constructor',
@@ -35,10 +35,20 @@ ROLE_STEPS = ('log_open','owned_constructor','anchor','readiness',
               'first_images','second_images','mapped')
 PHASES |= frozenset(side+'_'+role+'_'+step for role in ROLES
                    for step in ROLE_STEPS for side in ('before','after'))
-# 44 original labels plus 5 roles * 7 substeps * 2 sides = 114 attempts on
-# the complete positive path. Bridge's independent cap remains 128; this
-# Session cap is 115, not a claim about ordering or completed effects.
-PHASE_LIMIT = 115
+INVENTORY_STEPS = ('executable','first_text','first_parse','required_members',
+    'whole_membership','targets','second_text','second_parse','maps_equal',
+    'final_executable','final_live')
+ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
+    'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
+PHASES |= frozenset(side+'_bus_initial_inventory_'+step for step in INVENTORY_STEPS
+                   for side in ('before','after'))
+PHASES |= frozenset('before_bus_initial_inventory_'+step+'_'+category
+                   for step in ('first_parse','second_parse') for category in ANONYMOUS_CLASSES)
+# 114 role/launcher labels + 22 paired initial_bus inventory labels + at most
+# 16 first-instance classes across two parses = 152 attempts. Some rejecting
+# classes cannot complete; this conservative complete-path bound includes all.
+# Bridge's independent cap remains128; combined lexical cap281, not authority.
+PHASE_LIMIT = 153
 
 
 class Refused(RuntimeError):

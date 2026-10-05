@@ -13,11 +13,11 @@ import stat
 import time
 import types
 
-STAGE = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-3'
+STAGE = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-4'
 PINS = {
-    'lifecycle.py': 'c0cea22688f2b21ce85f002a25ae0ba3af0800b1c26ad98eb227869b0ee2b21b',
+    'lifecycle.py': '6c9510792dc6e4ce79b8c8ec0c93f8e91dd276ba3c2ef964e3378029fa01267d',
     'artifacts.py': 'a73111d761205b31cdda1e3323db35fa7efbb18e58069e83c5bbcce490a1aaed',
-    'images.py': '11d3a970654a707c5aa1b02ba2ff888b84dc498384796c67e413a02699e8bd0e',
+    'images.py': 'ada2f0d1b062b7bc42723f34c684f2bffbd0f556e70ca080687d0248599e9147',
     'controller.py': 'ffc849e9554e9cdf3f3e9fc2a9b5d60066c72d56ca634275b2c33e2f87673a8a',
     'helper.py': 'f369f888d64aeb3c8d9fd2e57354d8185547aeed21e19c86ef6f91c0bddaebc4',
     'positive.py': '74a2f2d20bc418a10bc0b21eadfb3e6304b77725cd3ed85ae935122679ee8f44',
