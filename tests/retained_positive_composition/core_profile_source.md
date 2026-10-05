@@ -309,3 +309,34 @@ the old schema, wrong broker source and wrong helper hash. The complete
 composition gate passes234 controls. These are not native execution or VM
 acceptance. A fresh unused stage, complete affected recipe/pin review and
 ROOT-selected actual run remain required.
+
+## Review8 whole developer composition — October 5
+
+Exact fixture source `12b0253564f25f918af18a0c0ddc6f2e2231b2db`
+and frozen broker source `aff0c38075338d51d979acc9f10dab1ae6dbba6f`
+were selected through the independently reviewed fresh review8 recipe.
+The v2 capsule index is
+`06507e5cc4777c4a6b88be1b16e37d623663eeaf2b8600a0ee72a38af6d3271d`;
+its corrected metadata keeps all25 admitted runtime files unchanged, states
+that the broker/manifest changed, and preserves the core/helper identities.
+All24 separately selected source/native preparations returned original zero.
+Whole `238f30/session4549 -> 7bcf67` returned original zero. The final
+allowlisted outer capture is44 bytes, SHA
+`f174aedb11ddef42f2a12d96bf872ecb93d218835e43e3a611f6588e232cab23`.
+
+The exact guard requires original namespace child/launcher zero, the full
+inner case validator and role-zero ledger, followed by equality of its
+admitted VM service/private files/resolver/network/TUN baseline and original
+source identities before emitting its fixed completion label. Thus this
+result covers the actual isolated positive conditional-close/reset-while-held
+composition and actual normal-zero shutdown of the orderly broker; it is not
+just a file-observer projection. No failed predecessor was retried, queried,
+adopted or cleaned. No failure observer was needed for review8.
+
+This is developer composition evidence only: canonical production authority,
+installed compatibility and normal runtime owner adoption remain explicitly
+false in the receipt schema. It does not by itself activate C1 mutations or
+close all T3 workspace/product host gates. The normal host PC was untouched.
+The later #664 test-only startup readiness fix does not alter the frozen broker
+implementation/artifact used here and does not inherit this result for other
+runtime code.
