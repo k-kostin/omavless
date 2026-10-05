@@ -2,6 +2,7 @@
 import importlib.util
 import hashlib
 import json
+import re
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -95,10 +96,19 @@ class Controls(unittest.TestCase):
         self.assertIn('filesystem.map_err(|_| REFUSE)?.filesystem_type() == PROC_SUPER_MAGIC', raw)
         self.assertIn('actual.map_err(|_| REFUSE)? == owner.session.local', raw)
 
-    def test_zero_pin_and_original_exec_then_ready_before_live_verifier(self):
+    def test_frozen_pin_zero_refusal_and_original_exec_then_ready_before_live_verifier(self):
         image = (HERE / 'child_executable.rs').read_text()
-        self.assertIn('const SHA: [u8; 32] = [0; 32]', image)
+        # Exact reviewed frozen bytes, not merely any nonzero replacement.
+        sha = re.search(r'const SHA: \[u8; 32\] = \[([^\]]+)\];', image)
+        self.assertIsNotNone(sha)
+        actual = bytes(int(part.strip(), 16) for part in sha.group(1).split(','))
+        self.assertEqual(actual.hex(), '7838d1c3b1b26fa247d0bb16608153f576477c442817f8e1528f6f9c85fe6311')
+        self.assertIn('const SIZE: u64 = 1_475_200;', image)
+        # Preserve the zero-pin and bounded-size refusal BEFORE original I/O.
+        self.assertIn('require(SHA != [0; 32] && (64..=16*1024*1024).contains(&SIZE))?;', image)
         self.assertLess(image.index('require(SHA !='), image.index('let root = retain_after(open('))
+        self.assertIn('info.nlink()==1 && info.size()==SIZE', image)
+        self.assertIn('static_elf(&bytes) && <[u8;32]>::from(Sha256::digest(&bytes))==SHA', image)
         self.assertIn('file.as_raw_fd() >= 3', image)
         self.assertIn('format!("/proc/self/fd/{}",self.file.as_raw_fd())', image)
         source = (HERE / 'owned_launcher.rs').read_text()

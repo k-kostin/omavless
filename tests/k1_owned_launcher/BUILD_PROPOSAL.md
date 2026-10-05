@@ -1,9 +1,12 @@
 # Static child and original no-policy launch proposal
 
-Source proposal only. No build, child main, namespace, netlink, close, spawn,
-wait, VM delivery or publication has been selected for this successor.
+Historical source proposal at8b, retained to explain the reviewed build steps.
+The README frozen-child successor records later compile-only results; those
+results do not authorize execution. No child main, parent invocation or VM
+delivery/publication is claimed here.
 The original zero-pin source is preserved at
-`81f4fce79282660c4f9e291ed91b5145ac182f13`. The two child pins remain zero here.
+`81f4fce79282660c4f9e291ed91b5145ac182f13` and8b. The two child pins were zero
+at that proposal;4f671a2 separately binds the reviewed frozen child.
 ROOT owns build/freeze review and is the sole subsequent VM operator. All
 stopped unknown/nonzero scopes remain stopped without query, retry or cleanup.
 

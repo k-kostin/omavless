@@ -327,6 +327,26 @@ root-owner, ancestry, xattr, single-link, original-FD and sampled-budget checks.
 It adds closed export names for the pinned parent and type-control compilation.
 The child bytes still originate from8b: changing the parent's admission literals
 does not retrospectively change that child build identity. Exact static_elf
-offline validation, new parent compilation, type controls, independent full
-freeze/source/runner review and ROOT-only fresh VM publication remain pending.
+offline validation, parent compilation and type controls are recorded below;
+independent full freeze/source/runner review and ROOT-only fresh VM publication
+remain pending.
 This is neither production adoption nor installed-origin authority.
+
+ROOT's exact offline structural parser passed (`311a27`, `e48ae2`) without
+executing the child. The parent at4f671a252f70d46c1ffa069f3aff7fecc7bffc00
+compiled known zero (`376bbb`/`86a2000`); readelf (`0d121b`) found static x86_64
+PIE without PT_INTERP or DT_NEEDED. The separate mode0500/single-link frozen
+parent is 1,542,360 bytes, SHA256
+`d84cb7d573dc166c1d6b396a3d8659ea68353dc4786f4e6f02e0a48449f0df4b`.
+The closed compile-only type recipe at that same4f head passed one positive
+and all15 specified negative diagnostic controls (`9f13e4`/`8c9ecf`). No parent,
+child main, VM, inventory or effect was invoked by those checks.
+
+CI at4f exposed a stale source-only assertion still requiring the historical
+literal zero SHA. The test-only successor now checks the exact frozen SHA/size,
+retains the before-I/O zero/size-bound refusal assertion, and requires original
+single-link/size/whole-file-hash admission. It does not weaken the refusal
+contract or retag the4f compiled parent as built from this test/docs successor.
+The corrected source suite completed known zero (`7112fd`/`991296`):698 tests,
+two existing skips, all JS/QML contracts. HOME was inherited unchanged and
+TMPDIR used the existing private0700 scratch; no Cargo/native selection occurred.
