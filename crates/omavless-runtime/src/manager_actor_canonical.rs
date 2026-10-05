@@ -35,6 +35,67 @@ const LISTENERS: [&str; 2] = [
     "/run/user/1000/omavless/control.sock",
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueryPhase {
+    Before,
+    BeforeSpawn,
+    Spawned,
+    Eof,
+    OriginalZero,
+    Parsed,
+    Completed,
+}
+const QUERY_PHASES: [QueryPhase; 7] = [
+    QueryPhase::Before,
+    QueryPhase::BeforeSpawn,
+    QueryPhase::Spawned,
+    QueryPhase::Eof,
+    QueryPhase::OriginalZero,
+    QueryPhase::Parsed,
+    QueryPhase::Completed,
+];
+impl QueryPhase {
+    fn label(self) -> &'static [u8] {
+        match self {
+            Self::Before => b"t4_actor_before_canonical_query\n",
+            Self::BeforeSpawn => b"t4_actor_before_canonical_query_spawn\n",
+            Self::Spawned => b"t4_actor_canonical_query_spawned\n",
+            Self::Eof => b"t4_actor_canonical_query_stdout_eof\n",
+            Self::OriginalZero => b"t4_actor_canonical_query_original_zero\n",
+            Self::Parsed => b"t4_actor_canonical_query_parsed\n",
+            Self::Completed => b"t4_actor_canonical_query_completed\n",
+        }
+    }
+}
+#[derive(Default)]
+struct QueryProgress {
+    next: usize,
+    refused: bool,
+}
+impl QueryProgress {
+    fn emit(
+        &mut self,
+        next: QueryPhase,
+        output: impl FnOnce(&'static [u8]) -> Result<()>,
+    ) -> Result<()> {
+        if self.refused || QUERY_PHASES.get(self.next) != Some(&next) {
+            self.refused = true;
+            return Err(());
+        }
+        // Consume BEFORE output; emission refusal cannot repeat a milestone.
+        self.next += 1;
+        let result = output(next.label());
+        if result.is_err() {
+            self.refused = true;
+        }
+        result
+    }
+}
+
+fn query_credentials(system: bool) -> Option<(u32, u32)> {
+    if system { None } else { Some((UID, UID)) }
+}
+
 fn phase(label: &'static [u8], budget: &Budget) -> Result<()> {
     use std::io::Write;
     budget.check()?;
@@ -623,41 +684,49 @@ impl Canonical {
         if self.query.is_some() {
             return Err(());
         }
-        phase(b"t4_actor_before_canonical_query\n", budget)?;
+        let mut progress = QueryProgress::default();
+        progress.emit(QueryPhase::Before, |label| phase(label, budget))?;
         self.installed_current(budget)?;
         let mut output = Zeroizing::new(Vec::new());
         output.try_reserve_exact(MAX_STATUS + 1).map_err(|_| ())?;
         budget.check()?;
-        let child = Command::new(format!(
+        let mut command = Command::new(format!(
             "/proc/self/fd/{}",
             self.files[self.tool.ok_or(())?].as_raw_fd()
-        ))
-        .arg0("/usr/bin/systemctl")
-        .env_clear()
-        .env("LC_ALL", "C")
-        .env("SYSTEMD_COLORS", "0")
-        .env("XDG_RUNTIME_DIR", "/run/user/1000")
-        .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
-        .env(
-            "DBUS_SYSTEM_BUS_ADDRESS",
-            "unix:path=/run/dbus/system_bus_socket",
-        )
-        .args([
-            if system { "--system" } else { "--user" },
-            "--no-pager",
-            "--no-ask-password",
-            "show",
-            unit,
-            "--property=ActiveState",
-            "--property=SubState",
-            "--property=MainPID",
-            "--property=ControlPID",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| ())?;
+        ));
+        command
+            .arg0("/usr/bin/systemctl")
+            .env_clear()
+            .env("LC_ALL", "C")
+            .env("SYSTEMD_COLORS", "0")
+            .env("XDG_RUNTIME_DIR", "/run/user/1000")
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+            .env(
+                "DBUS_SYSTEM_BUS_ADDRESS",
+                "unix:path=/run/dbus/system_bus_socket",
+            )
+            .args([
+                if system { "--system" } else { "--user" },
+                "--no-pager",
+                "--no-ask-password",
+                "show",
+                unit,
+                "--property=ActiveState",
+                "--property=SubState",
+                "--property=MainPID",
+                "--property=ControlPID",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if let Some((uid, gid)) = query_credentials(system) {
+            // Fixed user-manager children only. The actor cleared and verified
+            // its own supplementary groups before READY, so std's ignored
+            // setgroups EPERM cannot preserve an inherited nonempty group set.
+            command.gid(gid).uid(uid);
+        }
+        progress.emit(QueryPhase::BeforeSpawn, |label| phase(label, budget))?;
+        let child = command.spawn().map_err(|_| ())?;
         self.query = Some(Query {
             child,
             stdout: None,
@@ -684,6 +753,7 @@ impl Canonical {
         )
         .map_err(|_| ())?;
         budget.check()?;
+        progress.emit(QueryPhase::Spawned, |label| phase(label, budget))?;
         loop {
             budget.check()?;
             if !query.eof {
@@ -698,7 +768,10 @@ impl Canonical {
                     .ok_or(())?
                     .read(&mut chunk[..left.min(4096)])
                 {
-                    Ok(0) => query.eof = true,
+                    Ok(0) => {
+                        query.eof = true;
+                        progress.emit(QueryPhase::Eof, |label| phase(label, budget))?;
+                    }
                     Ok(size) => {
                         query.output.extend_from_slice(&chunk[..size]);
                         budget.charge(size)?;
@@ -718,6 +791,7 @@ impl Canonical {
             .map_err(|_| ())?;
             budget.check()?;
             if positive_query(query.eof, status, pid)? {
+                progress.emit(QueryPhase::OriginalZero, |label| phase(label, budget))?;
                 // No concurrent reaper; exact original positive WNOWAIT first.
                 if query.child.wait().map_err(|_| ())?.code() != Some(0) {
                     return Err(());
@@ -729,9 +803,10 @@ impl Canonical {
             std::thread::sleep(Duration::from_millis(1));
         }
         let value = service_record(&self.query.as_ref().ok_or(())?.output, system)?;
+        progress.emit(QueryPhase::Parsed, |label| phase(label, budget))?;
         self.installed_current(budget)?;
         budget.check()?;
-        phase(b"t4_actor_canonical_query_completed\n", budget)?;
+        progress.emit(QueryPhase::Completed, |label| phase(label, budget))?;
         // Only fully parsed, EOF/original0 query originals release/recycle.
         if !self.query.as_ref().ok_or(())?.positive {
             return Err(());
@@ -1137,6 +1212,102 @@ fn time_gate(until: Instant) -> std::result::Result<(), Unavailable> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_fixed_user_queries_change_child_credentials() {
+        let scopes = [true, true, false, false, true, false, false];
+        assert_eq!(scopes.into_iter().filter(|system| !system).count(), 4);
+        assert_eq!(query_credentials(true), None);
+        assert_eq!(query_credentials(false), Some((1000, 1000)));
+    }
+    #[test]
+    fn finite_query_progress_has_seven_unique_closed_frames() {
+        let mut progress = QueryProgress::default();
+        let mut seen = Vec::new();
+        for step in QUERY_PHASES {
+            progress
+                .emit(step, |label| {
+                    seen.push(label);
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert_eq!(seen.len(), 7);
+        for (index, label) in seen.iter().enumerate() {
+            assert!(label.starts_with(b"t4_actor_"));
+            assert!(label.ends_with(b"\n"));
+            assert!(!seen[..index].contains(label));
+        }
+        assert_eq!(9 + 7 * QUERY_PHASES.len() + 1, 59);
+        assert!(
+            progress
+                .emit(QueryPhase::Before, |_| panic!("eighth frame"))
+                .is_err()
+        );
+    }
+    #[test]
+    fn query_progress_order_or_emission_refusal_is_terminal() {
+        for cut in 0..QUERY_PHASES.len() {
+            let mut progress = QueryProgress::default();
+            let mut emitted = 0;
+            for step in QUERY_PHASES[..cut].iter().copied() {
+                progress
+                    .emit(step, |_| {
+                        emitted += 1;
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            assert!(
+                progress
+                    .emit(QUERY_PHASES[cut], |_| {
+                        emitted += 1;
+                        Err(())
+                    })
+                    .is_err()
+            );
+            for later in QUERY_PHASES {
+                assert!(
+                    progress
+                        .emit(later, |_| panic!("after output refusal"))
+                        .is_err()
+                );
+            }
+            assert_eq!(emitted, cut + 1);
+        }
+        let mut progress = QueryProgress::default();
+        assert!(
+            progress
+                .emit(QueryPhase::Eof, |_| panic!("out of order"))
+                .is_err()
+        );
+        assert!(
+            progress
+                .emit(QueryPhase::Before, |_| panic!("after order refusal"))
+                .is_err()
+        );
+    }
+    #[test]
+    fn expired_query_phase_refuses_without_output_or_reentry() {
+        let mut budget = Budget::new();
+        budget.until = Instant::now() - Duration::from_secs(1);
+        let mut progress = QueryProgress::default();
+        let mut writes = 0;
+        assert!(
+            progress
+                .emit(QueryPhase::Before, |_| {
+                    budget.check()?;
+                    writes += 1;
+                    budget.check()
+                })
+                .is_err()
+        );
+        assert_eq!(writes, 0);
+        assert!(
+            progress
+                .emit(QueryPhase::BeforeSpawn, |_| panic!("after expired phase"))
+                .is_err()
+        );
+    }
     #[test]
     fn query_admits_only_original_zero_and_eof() {
         let pid = Pid::from_raw(42);

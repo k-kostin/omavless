@@ -240,7 +240,7 @@ Std's hidden spawn/stdio internals are not counted as reported originals; no
 proven89/128 all-internal-role claim is made. No heap/kernel-reference quota or
 implicit future lower integration is implied by unused margin.
 
-Diagnostics are closed public literals from the start: nine fixed surrounding
+The frozen b42b SOURCE diagnostics were closed public literals: nine fixed surrounding
 phases, two query phases repeated exactly seven times on the complete path,
 and one actor completion, at most24 actor frames. The supervisor has seven
 frames. No row count, raw proc bytes, unit result, dynamic path, errno or exception
@@ -268,4 +268,101 @@ and forbidden unsafe readlink; it remains NONPASS. The successor uses safe
 bounded rustix1.1.5 `readlinkat_raw` and the exact private scope, with later
 compilation/pure gates zero. No installed systemctl/manager/proc or actor body
 was run by the author. Actual canonical observation, whole-inventory stability,
-reported FD custody and product authority remain untested.
+reported FD custody and product authority were then untested.
+
+### First canonical actual: NONPASS, and scoped query successor
+
+The exact tested SOURCE was `b42b97e507356a1ee761f1dd71b1f310a9469f13`,
+compiled artifact SHA256
+`eb78dd23af3af48ccbc7f61217b9e54aea53c73a9dfbbe841d522f41ca39008a`
+(63724016 bytes), with the separately FULL-reviewed `QH9TOgeV` packet.
+ROOT upload `88732c` returned original0; prepare `a7747c`/`30f868` returned
+original0. Whole run `6db95b`/`afb109` returned original2: **NONPASS**.
+Only the separately approved two-file observer `62144d`/`470e16` returned
+original0. Its bounded projection reported:
+
+| Exact capture | Bytes / literal frames | Last public phase | SHA256 |
+| --- | --- | --- | --- |
+| Actor | 314 / 9 | `t4_actor_before_canonical_query` | `6fad388db3a531a0eb714dc5a8f117fdb2bde493bd8a5b450e9464b9fbfdeaf4` |
+| Supervisor | 122 / 5 | `t4_service_ready` | `8dd70e5ec01210a4c9bad017c2670784fbe66b0611f579b12f79a632779f56fb` |
+
+This is compatible with the source path reaching the first user-unit query
+after completed system-manager queries and manager/boundary checks. It does
+not disclose the actual query errno, prove a causal explanation, establish
+current retained custody, or confer StoppedOwner/Restore authority. The original
+actor epoch remains permanently stopped for agent actions: no failed-tree,
+capture or process inspection, retry, signal, reap, cleanup or second invocation.
+The immutable old SOURCE, artifact and packet remain the tested NONPASS objects.
+
+Independently, primary systemd v261 SOURCE establishes a definite producer
+contract incompatibility in that old query design. `systemctl show` requests
+BUS_MANAGER ([systemctl-show.c](https://raw.githubusercontent.com/systemd/systemd/v261/src/systemctl/systemctl-show.c));
+local manager acquisition selects the direct systemd transport
+([systemctl-util.c](https://raw.githubusercontent.com/systemd/systemd/v261/src/systemctl/systemctl-util.c)).
+For user scope, the configured XDG runtime directory selects its
+`systemd/private` socket, whose peer must have UID0 or the client's effective
+UID ([bus-util.c](https://raw.githubusercontent.com/systemd/systemd/v261/src/shared/bus-util.c)).
+An euid0 client against the intended UID1000 manager fails that check; the
+supplied session-bus address is not a fallback for this peer-credential refusal.
+This source counterexample is not proof of the retained actual failure cause
+or an attestation of the guest's installed systemd version.
+
+The successor changes only the four fixed `--user` query children to safe
+`CommandExt::gid(1000).uid(1000)`. The three system-manager query children and
+root actor UID/primary GID, namespaces, original tool FD, manager predicates,
+query arguments/environment, captured ownership and EOF/original-zero/strict
+parse requirements remain unchanged. No alternate bus, user, unit, path or
+shell fallback is added. These credentials are fixed developer origin, not
+client-selected product authority.
+
+Before channel connection, READY, canonical proc captures or any queries, only the
+standalone canonical actor clears its own supplementary groups using safe
+`setgroups(&[])` and verifies `getgroups()` returns empty. Either failure refuses
+startup; there is no fallback or host account/group-database mutation. This is
+a narrow actor-local credential change, not a change to the supervisor or
+classic64-FD actor. No new FD role is acquired. Linux's ordinary syscall and
+std constructor behavior remain backend assumptions, not fatal/unwind custody.
+Rust's [safe setter contract](https://doc.rust-lang.org/stable/std/os/unix/process/trait.CommandExt.html)
+and [1.99.0 implementation](https://raw.githubusercontent.com/rust-lang/rust/1.99.0/library/std/src/sys/process/unix/unix.rs)
+apply child GID, clear supplementary groups, then apply UID; the implementation
+deliberately ignores group-clear EPERM. The earlier explicit actor clear/empty
+verification avoids relying on that ignored error to remove inherited groups.
+Child credential failure remains a spawn refusal, never a root-query retry.
+Std's unreported partial spawn resources remain outside the owned-error proof.
+
+The prospective query diagnostic ledger is fixed and one-shot:
+`before_canonical_query` → `before_canonical_query_spawn` →
+`canonical_query_spawned` → `canonical_query_stdout_eof` →
+`canonical_query_original_zero` → `canonical_query_parsed` →
+`canonical_query_completed` (all have literal `t4_actor_` prefix and LF).
+Spawned is emitted only after returned Child/stdout/pidfd retention and
+nonblocking setup. EOF is emitted once after original stdout read0. Original
+zero requires exact WNOWAIT originalPID exit0 plus EOF, and precedes the positive
+wait; parsed follows the unchanged strict record parser. Completed still follows
+original wait0, parse, original tool recheck and final budget gates. These are
+milestones, not authority or guarantees about a failed phase emission.
+
+There are seven such frames for each of seven queries plus nine fixed
+surrounding phases and one actor completion: at most59 actor frames (previous
+24 is historical, not the new cap). The new canonical vocabulary has17 literals;
+the supervisor remains seven frames. Each emitted phase uses the unchanged
+shared2-second/16MiB budget clipped to operation5 seconds. Ordering/duplicate or
+emission refusal seals the progress ledger and the original operation returns
+refusal without secondary diagnostics. No dynamic count, raw output, errno,
+exception, private path or failure-time probe is logged. A fresh packet must
+admit these exact labels/bounds and a new reconciled epoch only after separate
+ROOT and independent FULL review; this SOURCE successor is not VM permission.
+
+Successor SOURCE gates:17 canonical/row memory controls passed
+(`a5134c`/`eba691`),39 actor/protocol/transfer/stage memory controls passed
+(`be660d`/`4e0240`), and all-target feature Clippy with warnings denied passed
+(`d3e527`/`4f09ef`). The six new controls exercise fixed credential selection,
+exact seven-frame/59-whole bounds, every emission-error prefix, out-of-order and
+expired-phase terminal refusal, and clear-before-empty group admission/error
+ordering. They do not invoke actual credential changes, proc, systemctl, child
+spawn, the actor binary or VM. This is synthetic SOURCE coverage, not proof that
+the changed original user-query child executes or completes in the guest.
+The unchanged seven legacy capture memory controls passed (`70d753`), and the
+normal no-feature library check passed (`90ddaf`). Git fetch/prune succeeded;
+this candidate branch still has no remote counterpart. No push, new packet,
+guest upload, reset, installed tool query or native actor invocation is selected.

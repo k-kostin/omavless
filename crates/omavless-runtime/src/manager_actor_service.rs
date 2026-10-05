@@ -626,6 +626,14 @@ struct Supervisor {
 pub fn actor_canonical_entry() -> Result<(), Unavailable> {
     startup()?;
     epoch()?;
+    canonical_groups(
+        || nix::unistd::setgroups(&[]).map_err(|_| Unavailable),
+        || {
+            nix::unistd::getgroups()
+                .map(|groups| groups.is_empty())
+                .map_err(|_| Unavailable)
+        },
+    )?;
     setrlimit(
         Resource::RLIMIT_NOFILE,
         actor_canonical::NOFILE,
@@ -715,6 +723,19 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
             }
         }
     }
+}
+
+fn canonical_groups(
+    clear: impl FnOnce() -> Result<(), Unavailable>,
+    empty: impl FnOnce() -> Result<bool, Unavailable>,
+) -> Result<(), Unavailable> {
+    // Only this standalone actor's supplementary groups change; its root UID,
+    // primary GID and namespaces do not. No host account/group database write.
+    clear()?;
+    if !empty()? {
+        return Err(Unavailable);
+    }
+    Ok(())
 }
 
 fn quarantine(
@@ -933,6 +954,45 @@ fn actor_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn canonical_groups_clear_then_verify_before_admission() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        canonical_groups(
+            || {
+                calls.borrow_mut().push("clear");
+                Ok(())
+            },
+            || {
+                calls.borrow_mut().push("empty");
+                Ok(true)
+            },
+        )
+        .unwrap();
+        assert_eq!(*calls.borrow(), ["clear", "empty"]);
+    }
+    #[test]
+    fn canonical_group_failures_never_admit_or_fall_back() {
+        assert!(
+            canonical_groups(|| Err(Unavailable), || panic!("read after failed clear"),).is_err()
+        );
+        for read in [Ok(false), Err(Unavailable)] {
+            let calls = std::cell::Cell::new(0);
+            assert!(
+                canonical_groups(
+                    || {
+                        calls.set(calls.get() + 1);
+                        Ok(())
+                    },
+                    || {
+                        calls.set(calls.get() + 1);
+                        read
+                    },
+                )
+                .is_err()
+            );
+            assert_eq!(calls.get(), 2);
+        }
+    }
     #[test]
     fn original_child_reaping_prerequisites_refuse_ignored_caught_parallel_or_missing() {
         let clean = b"Threads:\t1\nSigIgn:\t0000000000000000\nSigCgt:\t0000000000000000\n";
