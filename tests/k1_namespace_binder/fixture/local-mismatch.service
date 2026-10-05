@@ -1,0 +1,15 @@
+[Unit]
+Description=Noninstalled K1 isolated mismatch fixture, not production authority
+
+[Service]
+Type=oneshot
+ExecStart=/run/omavless-k1-binder-local-v1/probe --fixed-k1-local-binder-expect-mismatch-not-production
+OpenFile=/proc/self/ns/net:k1-untrusted-local-anchor:read-only
+PrivateNetwork=yes
+User=nobody
+Group=nobody
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+TimeoutStartSec=infinity
