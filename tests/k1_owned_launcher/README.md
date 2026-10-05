@@ -146,3 +146,60 @@ an unrelated inherited DNS test expects os.pidfd_open, absent from that local
 standalone interpreter. That fixture was not changed or skipped here; the
 eight exact-source adapter controls pass independently on Python 3.12.
 These are not full product native acceptance or a real child invocation.
+
+## Explicit owned spawn successor (still zero-pinned)
+
+The historical dbdd56c used std Command. Pinned Rust 1.98.1
+`48a229ceaefd4985c50990b14116b6d856af0985` has internal partial-pipe drops and a
+fork fallback that can wait/reap before returning a Child. Retaining only a
+returned Child cannot govern those internal outcomes. This successor replaces
+that call with two explicitly retained original nonblocking CLOEXEC pipe pairs,
+fixed safe nix posix_spawn attributes/actions, exactly three dup2 actions to
+0/1/2, an empty environment and the same original-FD executable path. The private
+non-Copy/non-Send/non-Sync OwnedChild takes its PID only from that actual spawn
+return, never from a caller, discovery or a serialized receipt. No std fallback
+or arbitrary spawn API is exposed.
+
+Stderr now shares the PRIVATE bounded protocol output pipe; unexpected bytes
+refuse and are never printed. The parent's copies of the child's two pipe ends
+are deliberately held until READY plus full original live-image/acquisition
+verification. Only then does a one-shot gated handoff close those copies;
+otherwise the retained parent writer would prevent real EOF. Parent I/O ends,
+the owned child and all other originals remain held after unknown/late closure.
+The libc spawn implementation itself remains a synchronous noncancellable
+boundary. This is not retention of every internal libc allocation or a hard
+deadline through libc/kernel execution. An explicit no-retry failure contract
+still applies to the whole attempted instance.
+
+Before using the safe spawn builder, the additional external
+`nix-posix-return.patch` corrects 17 POSIX result checks in the exact upstream
+spawn module. POSIX returns an error number directly; the old -1/errno helper
+could treat ENOMEM as success before reading uninitialized output. Both
+initializers and signal getters now construct values only after exact zero.
+Failed destroy/reinitialization or unwind suppresses a second destructor on an
+uncertain/already-destroyed object; successful reinitialization restores normal
+Drop. The public ABI/API is unchanged. Five actual private-helper controls cover
+positive/unknown/negative errors, uninitialized error outputs, original success,
+both reinit failure cuts, unwind and exactly-once normal destruction. They invoke
+no libc initializer, child or kernel spawn. Existing upstream AIO deprecation
+warnings during all-feature dev-dependency compilation are not new patch warnings.
+
+`spawn-upstream.json` fixes upstream HEAD e35c008 (also current in the read-only
+remote check), original and corrected spawn module hashes and the patch digest.
+The namespace/libc patches and their older immutable caches remain separate.
+The exporter requires the corrected source hash and exact Git HEAD before
+writing its fresh workspace. No upstream submission or product Cargo change is
+authorized. Upstream-declared MSRV is 1.69; a new actual MSRV/cross-target gate
+for this added patch has not yet run. Full independent review and complete
+constructor/hand-off/finish fault controls remain required before any child run.
+
+The patch's first artifact control rejected Git's configured i/w diff prefixes;
+the exported review patch was normalized to a/b, repinned, and all ten source
+controls then passed (`70c97c`). This was source tooling, not a spawn outcome.
+
+Successor gates: five external POSIX helper tests known-zero `67e3b6`; normal
+export library/binary strict Clippy known-zero `f4ef30`; nine inert protocol,
+return-owner and ELF tests known-zero `f77747`; full source 698 tests/two skips
+and JS/QML known-zero `7bc81c`. The final source and nine-test gates inherited
+the ordinary HOME unchanged and used only the separate fixed HOME-cache target
+and scratch paths. No child main, actual spawn, namespace or nft operation ran.

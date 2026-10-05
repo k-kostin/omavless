@@ -4,6 +4,8 @@ Creates a fresh directory under the supplied private build root. No product
 Cargo source/lock is changed. Existing exports are never overwritten.
 """
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -17,16 +19,21 @@ def git(*args):
     return subprocess.run(['git','-C',str(ROOT),*args],check=True,capture_output=True,timeout=30).stdout
 
 def export(parent, export_name='netguard'):
-    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed'):raise ValueError('fixed_export_name')
+    if export_name not in ('netguard', 'netguard-leaf', 'netguard-prelaunch', 'netguard-prelaunch-v2', 'netguard-protocol', 'netguard-protocol-v2', 'netguard-protocol-final', 'netguard-protocol-reviewed', 'netguard-owned-spawn'):raise ValueError('fixed_export_name')
     parent=Path(parent)
     if not parent.is_absolute() or parent.is_symlink() or not parent.is_dir():raise ValueError('private_build_root')
     if parent.stat().st_mode&0o777!=0o700:raise ValueError('private_build_mode')
+    provenance=json.loads((HERE/'spawn-upstream.json').read_text())
+    if hashlib.sha256((HERE/provenance['patch']).read_bytes()).hexdigest()!=provenance['patch_sha256']:raise ValueError('spawn_patch_pin')
+    if hashlib.sha256((parent/'nix-spawn'/provenance['source']).read_bytes()).hexdigest()!=provenance['patched_sha256']:raise ValueError('spawn_source_pin')
+    actual=subprocess.run(['git','-C',str(parent/'nix-spawn'),'rev-parse','HEAD'],check=True,capture_output=True,timeout=30).stdout.decode().strip()
+    if actual!=provenance['commit']:raise ValueError('spawn_upstream_pin')
     prefix='crates/omavless-netguard/src/'
     names=git('ls-tree','-r','--name-only',adapter.BASE,'--',prefix).decode().splitlines()
     if not 1<len(names)<=512 or any(not n.startswith(prefix) or '..' in Path(n).parts for n in names):raise ValueError('source_catalog')
     sources={n[len(prefix):]:git('show',adapter.BASE+':'+n) for n in names}
     sources.update(adapter.adapt({name:sources[name] for name in adapter.PINS}))
-    for name in ('owned_creator.rs','owned_launcher.rs','child_protocol.rs','child_executable.rs','fixed_child.rs','retained_return.rs','static_elf.rs'):sources[name]=(HERE/name).read_bytes()
+    for name in ('owned_creator.rs','owned_launcher.rs','child_protocol.rs','child_executable.rs','fixed_child.rs','retained_return.rs','static_elf.rs','owned_child.rs'):sources[name]=(HERE/name).read_bytes()
     target=parent/export_name;target.mkdir(mode=0o700)
     (target/'src').mkdir(mode=0o700)
     for name,raw in sources.items():
@@ -43,7 +50,7 @@ publish = false
 name = "k1-fixed-child"
 path = "src/fixed_child.rs"
 [dependencies]
-nix = { path = "../nix", default-features = false, features = ["fs", "sched", "socket", "uio", "user", "ioctl", "process"] }
+nix = { path = "../nix-spawn", default-features = false, features = ["fs", "sched", "socket", "uio", "user", "ioctl", "process"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "=0.10.9"

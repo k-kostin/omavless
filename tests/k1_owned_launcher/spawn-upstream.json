@@ -1,0 +1,14 @@
+{
+  "schema": "k1-external-posix-return-review-v1",
+  "upstream": "https://github.com/nix-rust/nix",
+  "commit": "e35c00891f52468979f92b795de2dc1f3dd58a87",
+  "version": "0.31.3",
+  "declared_msrv": "1.69",
+  "source": "src/spawn.rs",
+  "original_sha256": "4a3d2918ec210199fab392757cd4577c46b484a6c923a70474ae049b8bcfc1c9",
+  "patched_sha256": "c8b35ff287ac406a8bd6aff70ad0117952b46d999eef17f47faa96db8514f8fb",
+  "patch": "nix-posix-return.patch",
+  "patch_sha256": "54cf3ea11de782f516078b443dc55721113e0f1865101a2cddd311e9e1808e71",
+  "scope": "external review-only; namespace API patches remain separate; no product adoption or upstream submission",
+  "normal_product_constructor": false
+}

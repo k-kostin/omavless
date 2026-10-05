@@ -1,5 +1,7 @@
 """Source-only controls. No exported Rust function, ELF, socket or child runs."""
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -101,14 +103,42 @@ class Controls(unittest.TestCase):
         self.assertIn('format!("/proc/self/fd/{}",self.file.as_raw_fd())', image)
         source = (HERE / 'owned_launcher.rs').read_text()
         self.assertLess(source.index('Executable::admit(deadline)'), source.index('File::open("/proc/thread-self/ns/net")', source.index('pub(crate) fn open_fixed')))
-        self.assertLess(source.index('protocol::READY'), source.index('creator.attach_launch'))
-        self.assertIn('Command::new(executable.exec_path()).arg0(CHILD)', source)
+        self.assertLess(source.index('child.ready(deadline)'), source.index('creator.attach_launch'))
+        self.assertNotIn('Command::', source)
         self.assertLess(source.index('self.acquired.sealed=true'), source.index('self.life.finish()'))
         finish=source[source.index('    fn finish(&self)'):source.index('\nstruct Verify')]
         self.assertLess(finish.index('protocol::DONE'),finish.index('WaitPidFlag::WNOWAIT'))
         self.assertLess(finish.index('WaitPidFlag::WNOWAIT'),finish.index('protocol::eof'))
         self.assertLess(finish.index('protocol::eof'),finish.index('nix::sys::wait::waitpid'))
         self.assertIn('WaitStatus::Exited(actual,0) if actual==pid', finish)
+
+    def test_external_posix_patch_exact_scope_and_error_ownership(self):
+        metadata=json.loads((HERE/'spawn-upstream.json').read_text())
+        raw=(HERE/metadata['patch']).read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),metadata['patch_sha256'])
+        patch=raw.decode()
+        self.assertEqual(patch.count('diff --git '),1)
+        self.assertIn('diff --git a/src/spawn.rs b/src/spawn.rs',patch)
+        for fragment in ('fn posix_result(', 'unsafe fn initialized<T>', 'unsafe fn reinitialize<T>',
+                         'destroy_or_reinit_error_does_not_destroy_again',
+                         'failed_initializer_never_reads_uninitialized_output'):
+            self.assertIn(fragment,patch)
+        self.assertEqual(metadata['commit'],'e35c00891f52468979f92b795de2dc1f3dd58a87')
+        self.assertFalse(metadata['normal_product_constructor'])
+
+    def test_owned_spawn_has_two_original_pairs_and_only_three_fixed_duplications(self):
+        source=(HERE/'owned_child.rs').read_text()
+        self.assertEqual(source.count('retain_after(pipe2('),2)
+        self.assertEqual(source.count('retain_after(posix_spawn('),1)
+        self.assertIn('[(child_read.as_raw_fd(),0),(child_write.as_raw_fd(),1),(child_write.as_raw_fd(),2)]',source)
+        self.assertIn('let environment:[&CStr;0]=[]',source)
+        self.assertIn('_same_thread: PhantomData<Rc<()>>',source)
+        self.assertNotIn('Command::',source)
+        self.assertNotIn('waitpid(',source)
+        self.assertNotIn('kill(',source)
+        self.assertNotIn('unsafe',source)
+        launcher=(HERE/'owned_launcher.rs').read_text()
+        self.assertLess(launcher.index('acquired.with_lease(|_|Ok(()))?'),launcher.index('life.child.complete_handoff'))
 
 if __name__ == '__main__':
     unittest.main()
