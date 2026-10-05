@@ -1,8 +1,8 @@
 # Original-launch complete-inventory lease successor
 
-Source-only successor to #654. Its exact stage5 native evidence remains
+Inactive successor to #654. Its exact stage5 native evidence remains
 `8e902d664c8922bb7c897f6d7c4c135a8fd22e42`, not this changed source. No inventory
-or new native executable has run. No product crate, dependency or constructor
+or new resource-owning executable has run. No product crate, dependency or constructor
 changes. The existing no-policy entry still selects open/finish only.
 
 ## Concrete change
@@ -52,16 +52,36 @@ checks, not nft subsystem reset continuity. Lease recheck does not send another
 GETGEN or claim a fresh atomic kernel snapshot. Same-thread switch-and-return
 and privileged concurrent mutation remain outside the local witness.
 
-## Gates still unselected
+## Exact-head compilation and pure controls — 2026-10-05
+
+At source `81adf5b7b39e36ab13fdc54be9c4eb3d775d9592`, ROOT and an independent
+reviewer read the seven-file private recipe, full exporter/type-controls graph
+and reached inventory/lease source. Five in-memory recipe classifier controls
+passed before the separately selected actual recipe returned terminal zero.
+
+The fresh private export compiled its positive actual-module example first.
+Six compiler-only negative examples then returned the expected complete Cargo
+JSON failure: escape `E0515`, overlapping borrow `E0499`, private session
+`E0616`, and non-Send/non-Sync/non-Copy `E0277`. No unexpected diagnostic or
+application execution was accepted. The standalone sequence module's two pure
+tests passed; they include error/unwind cuts and permanent re-entry refusal.
+They neither include nor execute the descriptor/netlink/namespace adapter.
+
+The closed recipe used offline/locked Cargo, two build jobs, fresh HOME-cache
+target/TMPDIR, exact clean-source checks, and the unchanged successful build
+input catalog before and after. Compiler-only expected failures are not native
+owner failures. Private build capture paths, raw transcripts and executable
+objects are deliberately not committed. This records compilation and pure
+controls, **not** a new launch or complete read-only kernel inventory witness.
+The old stage5 result still belongs only to its earlier exact source.
+
+## Remaining actual gates
 
 The 11 focused exact-source Python controls completed with known zero
 (`93c141`), using inherited HOME and a fresh private HOME-cache TMPDIR. They
 import only source-tool definitions and execute no Rust/export/native path.
-Pure fixed-sequence error/unwind controls are prepared but unexecuted.
-Actual-module type controls add no escape, overlapping mutable borrow,
-private session and non-Copy/non-Send/non-Sync cases; compilation is unselected.
-A fresh closed export, exact dependency/toolchain recipe,
-compile-only gates and independent full review are required next. Any later
+Pure fixed-sequence and actual-module type controls now have the bounded
+exact-head evidence above. Any later
 ignored read-only kernel witness needs a new fixed entry, fresh original scope,
 separate ROOT authorization and original launch/finish accounting. There is no
 new actual selector or permission to reuse a stopped scope here.
