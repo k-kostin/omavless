@@ -1,6 +1,7 @@
 # T4 retained-manager actor service implementation
 
-Status: active Rust implementation direction, not activated or accepted.
+Status: first developer actor-service integration passed; product activation and
+backup/restore acceptance remain unavailable.
 Starting source is Draft #658 `f7a4acc472db7dac3ccc844034581c8ad2e55c06`.
 The owner-approved execution policy at PR #662
 `b8c967f2039bdad8a385429a212b977318adc9dc` selects the new availability-oriented
@@ -17,22 +18,99 @@ in [the parent experiment](T4_RETAINED_MANAGER_PARENT_PROTOTYPE.md).
 
 | Scope | Required behavior | Deterministic gate | Real integration gate |
 | --- | --- | --- | --- |
-| Developer actor acquisition | One original child, positive original pidfd acquisition, authenticated post-exec connection, READY before manager acquisition | Pure transition/parser/order cuts; compile exact service feature | ROOT-only disposable VM, exact newly reviewed head; not run |
-| Fixed manager operation | Capture and fresh recheck of fixed PID1 process/image/PID+user namespaces, proof consumed within original actor borrow; only completed reply | Source identity/comparison tests and every operation refusal cut | Actual retained manager originals in the same VM actor; not run |
+| Developer actor acquisition | One original child, positive original pidfd acquisition, authenticated post-exec connection, READY before manager acquisition | Pure transition/parser/order cuts; compile exact service feature | ROOT's exact `0d1c7dec` first disposable-VM run returned original zero |
+| Fixed manager operation | Capture and fresh recheck of fixed PID1 process/image/PID+user namespaces, proof consumed within original actor borrow; only completed reply | Source identity/comparison tests; exhaustive acquisition cuts remain open | One observation and separate normal Halt completed in the original actor; no canonical-manager/backup authority |
 | Fault boundary | Unknown operation consumes capability; live reported originals retained; actor/channel loss permanently revokes context and late replies | Wrong nonce/sequence/peer/late/EOF and permanent-reentry controls | New reviewed disconnect and actor-loss cases; not run |
 | Aggregate bounds | Capacity reserved before launch/open; no uncertain-owner eviction or new-context bypass | Slot/FD/allocation limits, refusal before effect | Saturation with one actual quarantined actor; not run |
 | Product recovery | Canonical manager origin, full inventory, stopped-owner admission, backup/restore/reconciliation | Separate integration contract | Not supplied by the first scenario; remains unavailable |
 
-The opt-in service implementation is present. Initial ordinary source gates
+The opt-in service implementation is present. Exact-head ordinary source gates
 passed 12 new pure Rust controls (10 protocol/channel-policy controls and two
 retained-prefix capacity/reentry controls), feature/binary `cargo check`,
-compile-only `cargo build`, and the initial feature Clippy gate. A final exact
-source checkpoint is being prepared; the compile artifact has never run.
+compile-only `cargo build`, normal no-feature library check and feature Clippy
+with warnings denied at implementation head
+`0d1c7dec5b8df05cc073cf13bc1c5d2f63c02b85`.
 The separately bound VM packet's eight memory/AST controls also passed.
-Selected actual implementation head and VM results remain pending. Old model
+The first actual result is bound below. Old model
 tests, prior own-pair results and successful source builds cannot supply the real
 service gate. No physical-host networking, service installation, package action,
 old stopped-resource query, main merge or release is authorized here.
+
+## First actual service checkpoint
+
+ROOT and the independent reviewer FULL-reviewed the service, fixed packet and
+ordinary-copy/real-TTY transport before ROOT's separate selections. ROOT reports
+these exact original outcomes; the implementation author did not inspect the
+private captures or issue any VM command.
+
+| Independent selection | ROOT receipt | Original outcome |
+| --- | --- | --- |
+| Two public input files uploaded into the fresh user-owned fixture | `697094` | zero, exact 35-byte upload marker, empty stderr |
+| Fixed root-owned actor byte-copy preparation | `32a2d9` / terminal `2375b1` | zero, fixed prepare token |
+| One supervisor/actor service run | `8bb317` / terminal `6180d5` | zero |
+| Separately selected, pre-scoped two-file observer | `96be02` / terminal `26b9ca` | zero |
+
+The selected artifact was 58,124,768 bytes, SHA-256
+`59205342db0539b232cee37afcb0f8da0d7dccf86c58f6a41f61e054eebe2a18`,
+compiled from exact `0d1c7dec`. The fixed packet SHA-256 was
+`2b9b6b55eb18c6a6d62e9d49bab43ee1cba4500a4e2b7b07e3b7e0065723890b`.
+The observer projected supervisor output as 179 bytes, seven closed literal
+frames, last `t4_service_completed`, SHA-256
+`209511e916a4680fb0433c8bb567eb7b432b102c2b5714435863c314c9afc5b5`;
+actor output as 618 bytes, 23 closed literal frames, last
+`t4_actor_identity_checked`, SHA-256
+`55053d4868abc50a30016a361ffe13cfca934ca2ded5365fcdff92569c2845e4`.
+These projections alone are not ordering, custody or whole-run proofs. Original
+run zero together with the reviewed program binds the normal Halt reply and
+original child's terminal zero. No cleanup, epoch reset or second invocation
+has been selected. The first epoch's sentinel remains reserved.
+
+This is a real fixed PID1 identity observation, not a fabricated model result.
+It does not prove canonical manager origin, whole process inventory, stopped
+owner admission, private transfer, journal recovery, first Restore/Commit,
+normal-owner integration, fatal descriptor survival or product activation.
+
+## Next integration matrix and reset boundary
+
+The next source change must add closed developer scenarios, not a generic
+command/target/FD endpoint or a new admission path. Each runtime scenario needs
+FULL source/recipe review and an independent ROOT selection. Pure controls may
+exercise the exact service coordinator using memory I/O and mock acquisitions,
+but cannot supply the real acquisition/custody rows.
+
+| Next scenario | Required runtime result | Epoch disposition |
+| --- | --- | --- |
+| Positive capacity | Three fresh observations retain 51 originals; valid Halt releases them before Closed; original child exits zero | Eligible for separately reviewed positive-only fixture retirement |
+| Fourth request | Capacity refusal before any fourth acquisition; all 51 reported originals remain in the live quarantined actor; no further operation or Halt | Reserved; no automatic retirement or replacement actor |
+| Channel loss after a completed acquisition | Original pending capability revoked permanently; late completion cannot restore authority; actor's recorded resources retained only while alive | Reserved; separate disposable-fixture recovery required |
+| Malformed or stale request/reply | Wrong nonce/sequence, partial/EOF, duplicated or late reply permanently revokes the original context; no resend | Reserved on uncertainty |
+| Actor fatal loss | Original channel/context unavailable, no reconnect or replacement capability; no claim that descriptors survived death | Reserved; independent persistent-evidence reconciliation required |
+| Same-epoch supervisor reentry | Existing reservation refuses before listener/child/manager acquisition, including while another actor is quarantined | No bypass by a new upload directory or caller context |
+
+The first successful epoch may be retired only by a separately reviewed,
+ROOT-only fixed-name administration packet tied to the exact original run zero,
+normal Halt/original-child zero and exact two-file observer receipt above. It
+must verify the entire fixed epoch member set and original/current identities,
+the selected actor bytes, exact reservation bytes and exact capture hashes
+before its first unlink. It must unlink only these admitted names relative to
+its retained directory, fsync and remove that exact empty directory, never
+recursively delete, follow names, query a process, signal, adopt an uncertain
+scope or use mere absence as positive completion. Every partial retirement
+refuses further effects; there is no cleanup-on-error. This is explicit
+developer-fixture administration, not product rollback or a reusable reset API.
+No such packet has yet been selected. An uncertain fault epoch is ineligible
+for this positive-only retirement regardless of a visible completion label.
+
+After these availability/resource rows, the service must compose the existing
+T4 private transfer, staged transaction, journal classifier and crash-prefix
+reconciliation contracts. Manager proof acquisition/consumption remains within
+the same original actor operation; private bytes and typed completed results,
+not descriptors or reusable proof tokens, cross the private channel. Recovery
+after fatal loss first classifies persistent evidence under the existing fences;
+it cannot infer completed publication from a lost reply, discard journals,
+evict an uncertain owner or re-enable a pending capability. Those operations
+need a separately reviewed source design and a whole synthetic transaction/crash
+scenario before product activation. The legacy Bundle contract remains separate.
 
 ## Smallest executable scenario
 
