@@ -87,3 +87,39 @@ all existing multipart parser/terminal-DONE rules. None proves empty host
 ruleset, reset continuity, installed origin, canonical ownership, effects,
 or whole K1 acceptance. No nft add/delete, policy installation, activation,
 packet-policy tests or primary-PC action belongs to this scope.
+
+## Exact compile, offline freeze and source-suite checkpoint
+
+The preceding preparation status is historical. ROOT and an independent
+reviewer approved the concrete private recipe for exact source
+`b893b06a839ead60ebd0defdd07d090c6b4f0660`. Four in-memory ELF controls passed
+(`390ab50`) before the original compile scope (`558af2` / `10b215`) returned
+known zero. Its receipt (`028255`) records the static parent build, both pure
+entry-sequence tests and bounded ELF data validation. Parent bytes are
+1,644,536, SHA-256
+`7d00964c959b098f432627bde8ebf013cbd26971e39bc07108c4a9327c0430c8`.
+Neither this parent nor its unchanged child was executed by those gates.
+
+After separate full ROOT and independent review, four offline-freeze controls
+passed (`2eae52` / `eda521`). The separately selected freeze (`940d37`) returned
+known zero; its readback (`f94282`) confirmed a dedicated mode0500/single-link
+parent with those exact bytes and mode0400/single-link provenance. Writable
+output descriptors were positively closed before readonly readback. This is
+an offline artifact-custody result, not guest publication, installed origin or
+an executed inventory witness. Private paths and raw captures are not committed.
+
+The first full source suite at b893 hit an unrelated existing DNS package test
+socket-path limit: 701 tests, two skips and one error at the fixture's bind.
+That failure remains recorded. Fixture-only successor
+`00a1d8e5432fa58daff3745651c8d7402d694526` shortens its temporary-directory prefix,
+preserves the actual stale-socket/symlink assertions, and adds a length/private-
+directory counterexample; no K1 Rust bytes, production guard or socket suffix
+changed. ROOT's fresh full `./tests/run.sh` (`5bc32b` / `c35b1d`, readback
+`b67269`) then passed 702 Python tests with two existing skips and all JS/QML
+contracts. The compiled/frozen artifact still belongs to b893, not a newly
+compiled fixture-only or documentation head.
+
+Stage6 transfer/publication, original-parent native invocation and actual
+complete read-only kernel inventory remain **UNRUN**. No table classification,
+canonical creator, policy effect, installed activation or whole K1 acceptance
+is established by this checkpoint. All stopped scopes remain stopped.

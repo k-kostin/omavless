@@ -400,4 +400,8 @@ by the stage5 native result. It introduces no policy-effect or canonical owner.
 The next [fixed inventory entry](INVENTORY_ENTRY_PROPOSAL.md) is source-only:
 one original five-second open/read-only-inventory/positive-finish sequence,
 closed phase classes, retained original lease and a fresh publication pathname.
-Its parent, export and pure controls have not been compiled or executed.
+Its exact b893 parent now has reviewed compile, two pure-sequence tests,
+data-only ELF validation and offline single-link freeze evidence, recorded in
+that proposal. Fixture-only 00a passes the full source suite (702 Python tests,
+two existing skips, all JS/QML). The parent/child and actual inventory have
+not been invoked; fresh stage6 publication/native acceptance remains unrun.
