@@ -336,6 +336,43 @@ Generation7 source-only gates: Python3.14 and3.12.13 each pass1133 Python
 controls (two existing skips), all JS/QML contracts,43 focused inert image
 controls and diff whitespace checks. These controls are not execution acceptance.
 
+### Generation-7 observed NONPASS and filesystem identity experiment
+
+Exact source `490f4a54f7f8bb4ceb0558a6e900375ca5cbf9d9` passed cloud test
+37280284242 and both architecture package jobs37280284241. ROOT's one whole
+invocation70dc2e/session93621 ended047a97 status2. The generation7 scope is
+permanently STOP: no query, signal, reap, retry, archive or cleanup. Separately
+reviewed fixed-file observation2642ea ended0; its5693-byte receipt SHA-256 is
+`203d31a39105dc19713bcabe59fde2c0907fffec609f31f48077357c2ccef8ee`.
+The projection contains180 literal frames (83 Bridge,97 Session), last
+`before_host_initial_inventory_required_members_identity_different`, no opaque
+tail, empty inner record, absent outer record and no marker. The sampled
+category does not establish cause, current preservation, completed effects,
+native acceptance or whole-flow PASS. Frozen source/capsules remain unchanged.
+
+A separately source-supported filesystem concern motivates a fresh experiment,
+not an explanation of those stopped files. Linuxv6.12
+[`show_map_vma`](https://github.com/torvalds/linux/blob/v6.12/fs/proc/task_mmu.c#L315-L320)
+reports the mapped inode's superblock device, while
+[`btrfs_getattr`](https://github.com/torvalds/linux/blob/v6.12/fs/btrfs/inode.c#L7362-L7363)
+overrides the stat device with the subvolume's anonymous device. Those devices
+can legitimately differ. In contrast,
+[`shmem_getattr`](https://github.com/torvalds/linux/blob/v6.12/mm/shmem.c#L1075-L1103)
+uses [`generic_fillattr`](https://github.com/torvalds/linux/blob/v6.12/fs/stat.c#L42-L48),
+retaining the same superblock device and inode convention as maps. This does
+not establish the guest filesystem, actual mapped identities or failure cause.
+
+The proposed successor retains all four admitted public native source FDs and
+byte-copies them into a fresh private tmpfs before native entry. It retains and
+hashes the new destination originals, closes writers only on known positive
+completion, seals the mount read-only, and requires exec/current-exe/maps to
+refer to those same destination device/inode identities. Existing25 packaged
+loader/library copies remain independently retained and sealed. Bind-mounting
+the old native inode alone would not change its filesystem identity semantics.
+No device/inode, membership, hash, anonymous-map grammar or authority predicate
+is relaxed. Complete new source, bounded-copy/retention controls and immutable
+capsule reviews precede any separately selected fresh ROOT-only invocation.
+
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and
 socket `/home/core/controller.sock` are retained O_PATH originals, owner1000,
