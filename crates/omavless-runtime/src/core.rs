@@ -73,6 +73,26 @@ impl OwnedCore {
         config: &Path,
         controller_socket: &Path,
     ) -> Result<Self, CoreError> {
+        Self::spawn_inner(core, data_directory, config, controller_socket, false)
+    }
+
+    #[cfg(feature = "netguard-runtime-candidate")]
+    pub(crate) fn spawn_protected(
+        core: &Path,
+        data_directory: &Path,
+        config: &Path,
+        controller_socket: &Path,
+    ) -> Result<Self, CoreError> {
+        Self::spawn_inner(core, data_directory, config, controller_socket, true)
+    }
+
+    fn spawn_inner(
+        core: &Path,
+        data_directory: &Path,
+        config: &Path,
+        controller_socket: &Path,
+        clear_environment: bool,
+    ) -> Result<Self, CoreError> {
         if !valid_path(core)
             || !executable(core)
             || !valid_path(data_directory)
@@ -86,7 +106,11 @@ impl OwnedCore {
         let (diagnostics, output) =
             crate::core_diagnostics::Capture::start().map_err(|_| CoreError::SpawnFailed)?;
         let errors = output.try_clone().map_err(|_| CoreError::SpawnFailed)?;
-        let child = Command::new(core)
+        let mut command = Command::new(core);
+        if clear_environment {
+            command.env_clear().env("LANG", "C");
+        }
+        let child = command
             .arg("-d")
             .arg(data_directory)
             .arg("-f")

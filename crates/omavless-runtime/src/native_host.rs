@@ -28,6 +28,10 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVATION_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_PATH_BYTES: usize = 4096;
 
+#[cfg(feature = "netguard-runtime-candidate")]
+#[allow(dead_code)]
+mod protected_preparation;
+
 /// Captured only from the actual parent-owned host. All controller reads and
 /// executable hashing happen after moving this out of the owner mutex.
 pub(crate) struct CloseObservation {
@@ -336,6 +340,8 @@ pub struct NativeLifecycleHost {
     // Retained across stop until disappearance is proved. A replacement at
     // the same configured name cannot silently become our connected device.
     tun_identity: Option<(String, u64)>,
+    #[cfg(feature = "netguard-runtime-candidate")]
+    protected_preparation: Option<protected_preparation::Preparation>,
     #[cfg(test)]
     close_fixture: Option<CloseFixture>,
 }
@@ -447,6 +453,8 @@ impl NativeLifecycleHost {
             ping_slot: std::sync::Arc::default(),
             auxiliary: std::sync::Arc::default(),
             tun_identity: None,
+            #[cfg(feature = "netguard-runtime-candidate")]
+            protected_preparation: None,
             #[cfg(test)]
             close_fixture: None,
         })
@@ -563,6 +571,14 @@ impl NativeLifecycleHost {
     fn configured_devices(
         &self,
     ) -> Result<Option<std::collections::BTreeSet<String>>, HostStepError> {
+        #[cfg(feature = "netguard-runtime-candidate")]
+        if self.protected_preparation.is_some() {
+            return Ok(Some(
+                [omavless_netguard::nft::TUN.to_owned()]
+                    .into_iter()
+                    .collect(),
+            ));
+        }
         let Some(mut devices) =
             crate::tun_scope::configured_devices(&self.paths.config_directory, self.uid)?
         else {
@@ -910,6 +926,10 @@ impl LifecycleHost for NativeLifecycleHost {
             .as_ref()
             .ok_or(HostStepError::Prepare)?
             .verify()
+    }
+    #[cfg(feature = "netguard-runtime-candidate")]
+    fn protected_preflight(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
+        self.protected_eligibility()
     }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         let (own_pid, own_running, controller_ready) = match self.core.as_mut() {
