@@ -1,4 +1,4 @@
-"""Inert runner/source graph guards; never call main, Go or an engine command."""
+"""Inert runner guards; mocked main paths only, never Go or an engine command."""
 import ast
 from contextlib import ExitStack, contextmanager
 import hashlib
@@ -116,6 +116,10 @@ class RunnerControls(unittest.TestCase):
         # execution, resource change or native tool bytes are touched.
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             root=Path(directory)
+            # Model a private owned HOME for this synthetic coordinator only.
+            # No real HOME variable/setting is changed; default CI temp paths
+            # need not happen to sit beneath the user's actual home directory.
+            stack.enter_context(patch.object(Path,'home',return_value=root))
             paths={name:root/name for name in ('source','modules','scratch','cache','artifacts')}
             for path in paths.values():path.mkdir(mode=0o700)
             argv=['inert','--phase','build','--case','reject']
