@@ -1,16 +1,22 @@
 # K1 developer live-owner service core
 
-Status: opt-in development implementation, not accepted as a working product
-feature. The historical `0dd01010` VM install and original Start returned zero,
+Status: opt-in development implementation with scoped installed developer-VM
+evidence at exact application source
+`d3b24a364c1fdc5b07a866edb54ec89994cd1086`, not whole K1 or shipped-product
+acceptance. The actual original launch, live transactions and conservative
+automatic-restart refusal matrix is recorded below. Documentation checkpoints
+do not change the tested application, executable or unit.
+
+The historical `0dd01010` VM install and original Start returned zero,
 but the first status exchange did not complete and the service remained parked
-without control/recovery sockets. No Arm was selected. This manager-descriptor
-ingress successor is source-only until its own exact artifact/unit/recipe review.
-At `c2007781`, ROOT's
+without control/recovery sockets. No Arm was selected. At `c2007781`, ROOT's
 fresh disposable boot, installation, 47 pre-start predicates and first original
 Start returned zero. The current-invocation trace refused at ORIGINAL_NAMESPACES
 before creator assembly or READY; no client/Arm was selected. The new fixed
-manager-descriptor ingress below addresses that launch incompatibility without
-capability expansion; it has not been exercised in the VM. This is the integrated successor to the preserved
+manager-descriptor ingress below addressed that launch incompatibility without
+capability expansion and reached original-namespace admission and READY in the
+actual `d3b24a36` VM cycle. Earlier failed/unknown receipts remain historical,
+not upgraded by this successor. This is the integrated successor to the preserved
 [#661 isolated create/readback checkpoint](K1_ISOLATED_CREATE_READBACK_PROPOSAL.md).
 That checkpoint remains exact `858b528722480f165891ef62ae805c9dcbd22a9a`; its
 private-namespace native success does not attest this new service or launch.
@@ -78,9 +84,11 @@ The literal unit supplies `StandardInput=file:/proc/1/ns/net`. Safe stdin
 duplication retains the same open file description; this is descriptor
 delivery, never self-authentication. Adopted safe namespace type/ID and actual
 netfilter socket namespace-cookie calls compare the original anchor, original
-thread namespace, current thread and canonical manager view. The exact
-installed systemd's opening behavior still needs source/VM evidence before
-selection; literal unit text alone is not that evidence.
+thread namespace, current thread and canonical manager view. Exact installed
+systemd v261 opening/transfer behavior was reviewed from primary source and
+exercised by ROOT's `d3b24a36` original launch below; literal unit text alone is
+not that evidence. This does not attest arbitrary manager versions or
+fabricated launches.
 
 The v261 API has no readable StandardInputFile property: that name is a
 transient setter, while StandardInputFileDescriptorName describes named-FD
@@ -147,7 +155,9 @@ Source controls exercise fixed metadata, inventory and namespace-equality
 predicates plus one-attempt scalar fcntl error/ownership seams. They do not
 execute the new ingress on inherited namespace descriptors or attest actual
 installed manager opening, transfer, slot ordering or minimal-capability
-admission. Those VM rows remain mandatory and separately selected by ROOT.
+admission. ROOT's separately selected exact `d3b24a36` VM launch exercised that
+fixed boundary; source controls are not substituted for its original receipts
+or generalized to other environments.
 
 `HostEpoch` records the actual boot UUID, zero-extended kernel namespace ID and
 namespace device/inode only as held-original consistency projections. They
@@ -170,9 +180,9 @@ no unrelated/duplicate groups). CAP_CHOWN is not added. PrivateUsers remains
 the legacy boolean property and must be false; no version-wide support for
 the separate PrivateUsersEx string property is assumed.
 
-## Fixed developer startup trace successor
+## Developer startup trace and historical refusal boundary
 
-The owner selected a disposable-VM fresh-boot boundary for the next experiment,
+The owner selected a disposable-VM fresh-boot boundary for the historical c200 experiment,
 not a service rollback or cleanup justified by the old descriptor snapshot.
 Current manager/namespace/enrollment/state observations at `0dd01010` matched
 the closed predicates; its six observed descriptors contained no creator
@@ -232,8 +242,11 @@ one fixed atomic batch and full resulting-policy/absence readback. Unknown
 effects poison the instance; no resend, compensation, adoption or cleanup.
 
 The wire uses owner,persist (flags 6): creator death must preserve policy.
-That Linux mechanism was tested historically, but this service's actual
-process-death packet protection is still unmeasured. Losing socket ownership
+That Linux mechanism was tested historically. ROOT also selected one actual
+original-pidfd SIGKILL of this armed service and observed original task
+termination, automatic startup of a new invocation, conservative cold refusal,
+and continued unavailability of the narrow public SSH path. This is not an
+all-packet/family/DNS or physical protection result. Losing socket ownership
 does not preserve proof of application ownership for a successor.
 
 At cold start, any Live/Pending/Armed/unsafe/incoherent durable state seals
@@ -271,22 +284,86 @@ The original parent/entry FDs remain pinned through publication and use.
 
 RuntimeDirectoryPreserve=no removes **only runtime IPC**, after the previous
 invocation/control-group is positively terminated. Fixed KillMode=control-group,
-no delegation/FD retention/descendants and installed-manager behavior need
-actual restart/isolation evidence. Manager removal never authorizes deleting
+no delegation/FD retention/descendants and installed-manager behavior remain
+separate admission conditions. The actual automatic successor reached fresh
+control/recovery publication and READY; this is not an independent historical
+old-cgroup-empty or orphan-cleanup proof. Manager removal never authorizes deleting
 durable `/var/lib` records or nft policy. Handled uncertainty parks with the
 graph held; no watchdog or failure exit drives an automatic restart. Fatal
 death and an explicit owner-selected SIGKILL remain separate boundaries.
 
-## Narrow next VM matrix (expectations, NOT PASS)
+## Exact developer-VM checkpoint, 2026-10-06
+
+Tested application source is **only**
+`d3b24a364c1fdc5b07a866edb54ec89994cd1086`. The public executable is 56,326,304
+bytes, SHA256 `3b484c21f0076b89a73a0ee1700f6ac686658479d28d8bf5392361fc467caa39`;
+the exact 876-byte unit is SHA256
+`7fc59fa8ae3915a65a0470909b7ff7d908ecca26f7c5fbfe1630e47d4368a94c`.
+Guest boot was `875aff36-2a4e-4309-b80b-f0d4d1081ee1`. Full PRIMARY and
+independent boundary reviews preceded ROOT's separate selections. Original
+captures and finite source/scenario receipts remain outside Git; no private
+profiles, credentials, provider URLs or raw private logs are retained here.
+
+| Selected row | Actual evidence | Qualification |
+| --- | --- | --- |
+| Fresh deployment and canonical launch | Fresh-boot, upload, prepare/archive-both, reload and first Start originals0; all49 strict pre-start property predicates; stable current-invocation trace through inherited anchors, original namespaces, creator/state/listeners/authority and READY | Fixed installed minimal-capability developer boundary, not arbitrary-launch or hostile-root attestation |
+| Fresh status | Exact stored response, completion marker and returned shell observed | Explicit original child exit was not sampled; stored success is not original-exit0 proof |
+| Arm7 | Visible original phase exit0 and exact response; narrow public SSH path unavailable | Underlying SSH255 is generic unavailability, not an nft-cause or all-packet claim |
+| Same-owner update7 | Exact stored armed7 response; child later known returned | Original exit remains unobserved after stale graphics; no replay. This fixed repeated Arm7 reaches reinstall/verify, not a different configuration |
+| Disarm7 | Visible original phase exit0, exact response and restored public SSH marker with originalSSH0 | Owned conditional-delete/absence source path; no coordinated Mihomo/core-cleanup proof |
+| Arm8 and root Recover-current | Both visible original phase exit0; armed path unavailable, recovered public marker originalSSH0 | Separate live-owner administrative recovery, not cold/orphan recovery or normal cleanup proof |
+| Arm9 and final wrong UID | Both visible original phase exit0; armed path unavailable | Wrong-UID refusal was last normal live-owner row; no retry or subsequent normal mutation |
+| Explicit fatal old process | One original pidfd SIGKILL, original task termination, fatal marker and explicit original phase exit0; separate historical observer original0 | Task termination is not cgroup retirement, product cleanup or successor authority |
+| Retirement observation | Original retirement exit0, stable current epoch, live PID/nonempty procs and threads/NRestarts nonzero; dead/zero-PID expectations false | Correctly barred manual cold Start; the plan's no-restart expectation was mistaken, not an application failure |
+| Automatic successor | Original pf_manager0 and pf_trace0; stable active/running current epoch, MainPID=ExecMainPID nonzero, NRestarts nonzero, Restart=on-failure/Result=success; all projected startup phase pairs through READY, ignored0 | Current invocation evidence, not historical creator reconstruction; literal READY alone is not protocol/kernel authority |
+| Automatic cold status and Arm10 | Both explicit original phase exit0 and exact `manual_recovery_required` responses through the unchanged reserved frames | No manual cold Start selected/admitted; no successful adoption, normal mutation, replacement/delete or healthy armed claim |
+| Post-fatal public path | cold9 observer wrapper0, underlying SSH known255, no exact marker | Narrow path remains unavailable after the automatic successor; no all-family/route/DNS/physical result |
+
+Original first Start was `5420e0/session9131 -> 9a4a33`; initial READY trace
+`10572b/session57139 -> 08c55f`. Stored arm7/update7/disarm7 observation was
+`a426dc` original0; visible Disarm7 exit0 was `4d6414`, root Recover-current
+exit0 `6f5de3`, wrong-UID exit0 `cd8d81`. The selected fatal was `382cfe`,
+marker `8ff635`, explicit fatal exit0/empty bash `ba3df8`; historical fatal
+observer `37cbd5/17b8e6` original0; retirement `a75acb/33a5ca` original0 with
+the false admission predicates above. Final originals were pf_manager0
+`d7d34a`, pf_trace0 `ae7250`, cold_status0 `18bbb4`, cold_arm10=0 `c57536`;
+cold9 path sample was `b13344`. These identifiers locate retained scoped
+receipts; they are not authority tokens.
+
+### Automatic restart versus the disqualified manual-cold plan
+
+The tested unit explicitly specifies `Restart=on-failure` and `RestartSec=2s`.
+The initial49 configured-property diagnostic did not inspect Restart or
+NRestarts. Its initial current-invocation trace's NRestarts0 was accurate before
+the fatal selection, but cannot be reused unchanged for a successor. The later
+fault plan incorrectly expected a dead service/no restart. Its retirement
+diagnostic completed with false predicates and therefore did **not** admit a
+manual cold Start. The actual useful continuation tested the automatic new
+invocation and existing reserved cold refusal frames instead. No signal,
+Stop, forced restart, compensating Disarm/Recover, retry or cleanup was selected
+to manufacture the original plan's expectation.
+
+MainPID is a live reference; systemd v261 retains ExecMainPID as historical
+execution status after death. Requested zero predicates were projected
+separately, not used to treat historical PID metadata as a live-task claim.
+The unused named cold wrapper adds a redundant explicit outer installed-input
+check: unchanged `retained_command` already begins with `installed_inputs()`.
+It does not repair or allege an unchecked prior Start path.
+
+All five CI jobs at application `d3b24a36` completed SUCCESS, including Test at
+2026-10-05 20:06:39 UTC. Unchanged application/vendor/source gates are not rerun
+locally for this documentation-only evidence checkpoint. CI, source tests, stored
+receipts and public path samples keep their distinct scope.
+
+## Remaining product/physical matrix (NOT PASS)
 
 | Exact selected scenario | Required evidence |
 | --- | --- |
-| Installed original canonical manager launch | original unit/binary/library hashes, actual FD0 origin, effective configuration and same current invocation; direct/nested/substituted launch refuses |
-| Fresh enrolled Arm → Status | original create causality, durable Live+Armed, complete policy and same retained creator; wrong UID/frame cannot mutate |
+| Unsupported/direct/nested/substituted launch | Independent negative launch matrix; measured fixed installed launch is not blanket acceptance |
+| Product runtime coordination | Actual desired/core/TUN/mark and coordinated cleanup prerequisites; fixture Disarm does not prove core cleanup |
 | Actual Full VPN policy | unmarked IPv4/IPv6 and direct UDP/TCP DNS blocked in supported VM paths; fixed bypass/TUN exceptions preserved; foreign sentinel unchanged |
-| Same-owner explicit Disarm and root live Recover | exact owned handle conditional delete, absent readback, Closed+Retired fence; root recovery separately identified |
-| Explicit service SIGKILL while armed | policy and available packet-blocking evidence survive actual process/socket loss, no successful orphan claim |
-| New installed invocation | manager retires only dead invocation IPC, no stale socket adoption; bounded recovery-required response; no policy/record mutation, no automatic adoption |
+| Broader crash/boot/network lifecycle | Core/runtime failure, armed boot and network ordering, suspend/interface changes and relevant physical packet probes |
+| Packaging and orphan disposition | Provisioning/upgrades/removal and any new cold-orphan adjudication guarantee require their own scoped decisions/evidence |
 
 Fewer complete actual rows take priority over a new orchestration framework.
 VM absence of a physical family/route is unavailable, not PASS. Product runtime
