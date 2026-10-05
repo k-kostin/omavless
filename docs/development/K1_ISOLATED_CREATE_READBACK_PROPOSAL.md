@@ -32,8 +32,8 @@ connection, pinned unique manager owner/version, exact unit fragment bytes,
 executable identity and typed effective properties. This graph trusts the
 disposable VM's administrative bus/manager origin; it does not independently
 authenticate the broker or PID1 installed image. That missing canonical
-provenance is not supplied by a unique-name string. The outer owner retains its original
-reference before StartUnit and records the original returned job and invocation
+provenance is not supplied by a unique-name string. The outer owner retains its
+original reference before StartUnit and records the original returned job and invocation
 under the existing bounded observation rules. No supplied PID, arbitrary unit,
 namespace path, caller-produced receipt or post-failure lookup substitutes for
 that acquisition. Review the complete reached admission graph before adapting
@@ -118,9 +118,17 @@ remain distinct from the new sampled five-second worker envelope. No hard
 preemption or universally shared syscall deadline is claimed. The manager has
 one sampled 45-second envelope and at most 450 original-job observations.
 
-Two Rust pure controls and six Python source-wiring controls are prepared but
-UNRUN. They cover finite frames, failed-write continuation, fixed unit and
-existing Pending/witness wiring; they do not prove original acquisition or
+Two Rust pure controls remain UNRUN. At `c7fe444c`, the first six Python
+source-wiring controls returned five passes and one fixture failure (`542d6d`):
+the frame check split at `];` inside the Rust array type before reaching its
+values. The successor narrows that source-only extraction to the array value
+delimiters. Its separately authorized six-check run completed with explicit
+exit tracking and status zero (`332001`); the corrected test SHA-256 is
+`31992fed9b37273ee51d8a8a77e052b44e83bc2c2fd4f2e0f8c01ce6fed087fe`.
+The Rust source remains exactly the uncompiled `c7fe444c` source. Documentation
+navigation passed (93 local links), and the whitespace check passed. No Rust, formatter or
+native fixture was selected. The controls cover finite frames, failed-write
+continuation, fixed unit and existing Pending/witness wiring; they do not prove original acquisition or
 kernel effects. Dedicated negative lifetime/type controls remain pending.
 
 The same source successor replaces the witness's explicit Result match with

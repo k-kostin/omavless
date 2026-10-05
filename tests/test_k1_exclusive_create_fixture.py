@@ -68,7 +68,8 @@ class ExclusiveCreateSource(unittest.TestCase):
 
     def test_shared_frame_catalogue_and_budgets_are_finite(self):
         identity = (SRC / "manager_fixture_identity.rs").read_text()
-        frames = identity.split("EXCLUSIVE_CREATE_FRAMES", 1)[1].split("];", 1)[0]
+        declaration = identity.split("EXCLUSIVE_CREATE_FRAMES", 1)[1]
+        frames = declaration.split("= [\n", 1)[1].split("\n];", 1)[0]
         self.assertEqual(frames.count('b"K1_CREATE_'), 6)
         worker = (SRC / "kernel_exclusive_create_fixture.rs").read_text()
         manager = (SRC / "manager_exclusive_create_fixture.rs").read_text()
