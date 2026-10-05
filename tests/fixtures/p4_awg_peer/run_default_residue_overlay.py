@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import resource
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -114,6 +113,19 @@ def inputs():
     return value
 
 
+def recheck(captured, fixture, tool_hash, source):
+    # First unknown latch prohibits even later source/query effects.
+    if owned.UNSETTLED:
+        raise owned.Unsettled("prior_owned_graph_unknown_preserve")
+    if inputs() != captured:
+        raise ValueError("source_input_drift")
+    if owned.helpers.git(HERE, "rev-parse", "HEAD").decode().strip() != fixture:
+        raise ValueError("fixture_commit_drift")
+    if hashlib.sha256(Path("/usr/bin/go").read_bytes()).hexdigest() != tool_hash:
+        raise ValueError("tool_drift")
+    owned.helpers.verify_source(source)
+
+
 def limits():
     # Proposed caller/child resource envelope. No address-space or RSS claim:
     # Linux RSS rlimit is not an enforced heap cap and race reserves large VA.
@@ -164,51 +176,47 @@ def main():
                     go_timeout_seconds=600, supervisor_timeout_seconds=620,
                     resource_envelope={'nofile':512,'nproc':1024,'cpu_seconds':660,
                                        'file_bytes':256*1024*1024,'core_bytes':0},
-                    intrinsic_engine_heap_cap=False)
+                    intrinsic_engine_heap_cap=False, temporary_export_retained=True)
     if args.phase == "build":
         if any(artifacts.iterdir()):
             raise ValueError("fresh_build_artifacts_required")
         for name, data in captured.items():
             owned.save(artifacts, name, data)
         root = Path(tempfile.mkdtemp(prefix="p4-default-residue-", dir=scratch))
-        identity = root.stat().st_dev, root.stat().st_ino
         exported = root / "source"
         exported.mkdir(mode=0o700)
-        try:
-            proof = owned.helpers.export_source(archive, exported)
-            replacements = {}
-            for name, (_, artifact) in OVERLAYS.items():
-                target = exported / "device" / name
-                if target.exists():
-                    raise ValueError("add_only_overlay_required")
-                owned.save(root, artifact, captured[artifact])
-                replacements[str(target)] = str(root / artifact)
-            owned.save(root, "overlay.json", json.dumps({"Replace": replacements}).encode())
-            code, out, err = owned.command(["/usr/bin/go", "mod", "verify"], exported, env, 30)
-            owned.save(artifacts, "modules.stdout", out)
-            owned.save(artifacts, "modules.stderr", err)
-            if code != 0 or out.strip() != b"all modules verified" or err:
-                raise ValueError("offline_module_verification_refused")
-            build = ["/usr/bin/go", "test", "-c", "-p=2", "-trimpath", "-mod=readonly", "-tags=p4_cookie_overlay,p4_default_residue_overlay", "-overlay", str(root / "overlay.json"), "-o", str(binary)]
-            if args.race:
-                build.append("-race")
-            code, out, err = owned.command([*build, "./device"], exported, env, 120)
-            owned.save(artifacts, "build.stdout", out)
-            owned.save(artifacts, "build.stderr", err)
-            if code != 0 or out or err:
-                raise ValueError("frozen_compile_refused_no_execution")
-            os.chmod(binary, 0o700)
-            expected["binary_sha256"] = hashlib.sha256(object_bytes(binary, 256 * 1024 * 1024)).hexdigest()
-            owned.helpers.verify_export(exported, proof)
-            if any((root / artifact).read_bytes() != captured[artifact] for _, artifact in OVERLAYS.values()):
-                raise ValueError("compiled_overlay_changed")
-            owned.save(artifacts, "build-receipt.json", json.dumps({**expected, "execution": False}, sort_keys=True).encode())
-        finally:
-            if not owned.UNSETTLED:
-                owned.helpers.verify_source(source)
-                if (root.stat().st_dev, root.stat().st_ino) != identity:
-                    raise ValueError("scratch_identity_changed_preserve")
-                shutil.rmtree(root)
+        proof = owned.helpers.export_source(archive, exported)
+        replacements = {}
+        for name, (_, artifact) in OVERLAYS.items():
+            target = exported / "device" / name
+            if target.exists():
+                raise ValueError("add_only_overlay_required")
+            owned.save(root, artifact, captured[artifact])
+            replacements[str(target)] = str(root / artifact)
+        owned.save(root, "overlay.json", json.dumps({"Replace": replacements}).encode())
+        code, out, err = owned.command(["/usr/bin/go", "mod", "verify"], exported, env, 30)
+        owned.save(artifacts, "modules.stdout", out)
+        owned.save(artifacts, "modules.stderr", err)
+        if code != 0 or out.strip() != b"all modules verified" or err:
+            raise ValueError("offline_module_verification_refused")
+        build = ["/usr/bin/go", "test", "-c", "-p=2", "-trimpath", "-mod=readonly", "-tags=p4_cookie_overlay,p4_default_residue_overlay", "-overlay", str(root / "overlay.json"), "-o", str(binary)]
+        if args.race:
+            build.append("-race")
+        code, out, err = owned.command([*build, "./device"], exported, env, 120)
+        owned.save(artifacts, "build.stdout", out)
+        owned.save(artifacts, "build.stderr", err)
+        if code != 0 or out or err:
+            raise ValueError("frozen_compile_refused_no_execution")
+        os.chmod(binary, 0o700)
+        expected["binary_sha256"] = hashlib.sha256(object_bytes(binary, 256 * 1024 * 1024)).hexdigest()
+        owned.helpers.verify_export(exported, proof)
+        if any((root / artifact).read_bytes() != captured[artifact] for _, artifact in OVERLAYS.values()):
+            raise ValueError("compiled_overlay_changed")
+        recheck(captured, fixture, tool_hash, source)
+        # No cleanup path: preserve the exact exported source/overlay on every
+        # positive, nonzero, drift, refusal or unknown constructor outcome.
+        receipt_name = "build-receipt.json"
+        receipt_bytes = json.dumps({**expected, "execution": False}, sort_keys=True).encode()
         result = "BUILT_NO_ENGINE_EXECUTION"
     else:
         for name, data in captured.items():
@@ -239,12 +247,15 @@ def main():
         observation = receipts.verify_events(out, args.case)
         if hashlib.sha256(object_bytes(binary, 256 * 1024 * 1024)).hexdigest() != expected["binary_sha256"]:
             raise ValueError("executed_binary_changed")
-        owned.helpers.verify_source(source)
-        owned.save(artifacts, "execution-receipt.json", json.dumps({**expected, "execution": True, "observation": observation}, sort_keys=True).encode())
+        recheck(captured, fixture, tool_hash, source)
+        receipt_name = "execution-receipt.json"
+        receipt_bytes = json.dumps({**expected, "execution": True, "observation": observation}, sort_keys=True).encode()
         result = "PASS_CPU_SOURCE_ENGINE_ONLY"
-    if inputs() != captured or owned.helpers.git(HERE, "rev-parse", "HEAD").decode().strip() != fixture or hashlib.sha256(Path("/usr/bin/go").read_bytes()).hexdigest() != tool_hash:
-        raise ValueError("source_or_tool_drift")
-    print(result + " " + json.dumps(expected, sort_keys=True))
+    # A failed final output is NOT a receipt-bearing positive checkpoint.
+    # Neither this line nor a saved receipt alone authorizes another command:
+    # ROOT must separately verify the complete CLI's known-zero terminal.
+    print("PROVISIONAL_" + result + " " + json.dumps(expected, sort_keys=True), flush=True)
+    owned.save(artifacts, receipt_name, receipt_bytes)  # Final authorizing action.
 
 
 if __name__ == "__main__":

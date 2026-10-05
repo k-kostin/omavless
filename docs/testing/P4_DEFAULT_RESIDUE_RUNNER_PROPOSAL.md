@@ -115,25 +115,44 @@ raw reap/status. Its output bound is2MiB. The strict parser then requires the
 complete eight-event grammar, both elapsed values and the selected causal
 receipt. Failed complete output is private; unknown supervision emits only a
 fixed refusal JSON with `complete_output_retained=false`, no invented capture.
-First unknown latch retains the graph, forbids further ownership effects and
-prevents temporary export cleanup. No query/signal/reap/close retry follows an
+First unknown latch retains the graph and forbids further ownership effects.
+No query/signal/reap/close retry follows an
 unknown scope. CPython Popen internal constructor failure/partial-pipe behavior
 is not governed or proven by the returned-graph supervisor contract.
 
-Compilation cleanup applies only to the fresh exact-identity export after
-settled command ownership; it is not a stopped-scope compensation. Execution
-does not clean its artifact directory. Complete known-zero event/ELF/input
-rechecks precede an execution receipt. That receipt is channel-only source
+There is NO export or artifact cleanup path, even after positive compilation.
+All source exports/overlays remain available after nonzero, refusal, drift,
+constructor uncertainty or positive completion. The source export is bounded
+by the8MiB archive and three64KiB overlay-input bounds; build-cache total disk
+usage is not quota-bounded by the per-file FSIZE limit. Complete known-zero
+events/ELF/source/input/tool checks precede provisional flushed output and the
+final success-receipt save. No check/query/output follows that final save.
+Failed print yields no success receipt; inherited save/write/fsync/close errors
+may leave partial OR full bytes but cannot yield an accepted receipt without
+the original CLI's known-zero terminal. Neither a saved receipt nor a printed
+provisional line alone authorizes execution/retry. ROOT must separately review
+complete known-zero build closure and select execution; failures stop that
+snapshot, never trigger receipt-based recovery. That receipt is channel-only source
 engine evidence; callback/log stop literals alone are not physical queue joins,
 Go heap erasure, OS TUN, installed compatibility or normal-owner adoption.
 
 The [inert runner guards](../../tests/test_p4_default_residue_runner.py) attest
 input/definition reuse, frozen object predicates, offline/fixed case fields,
 exclusive attempt placement and resource-limit upper-bound behavior using mocks.
-They never call main, spawn Go or execute an engine selector. This source recipe
+They call main ONLY under mocks for commands/tool bytes/resources/export and
+control synthetic coordinator paths; they never spawn Go or an engine selector. This source recipe
 is not an actual resource, teardown, ordinary or race outcome.
 
-Source-only gates:7 inert runner guards plus17 residue/source controls PASS;
-Python3.14 and3.12.13 each full370 controls (two existing skips), all JS/QML
-contracts and `git diff --check` PASS. No runner main, Go compiler, artifact
-creation, engine selector, native/VM command or actual limit change occurred.
+Earlier4786 source gates were7 runner/17 residue controls and full370; its
+independent review identified refusal-time cleanup and premature receipt blocks.
+That checkpoint and immutable source graph remain fixed, not relabelled.
+The source successor removes cleanup and moves every gate before final issuance;
+13 runner controls cover mocked mod/compile nonzero/throw, each input/commit/tool/
+source/owner drift cut in both phases, print/save failures and last-action order.
+No real runner CLI, Go compiler/artifact, engine selector, native/VM command or
+actual limit change occurred. Final exact-head source gates are recorded below.
+
+Refusal-path successor source gates:13 mocked/inert runner guards and17
+residue/source controls PASS. Both Python3.14/3.12.13 full376 controls (two
+existing skips), all JS/QML contracts and `git diff --check` PASS. Mocked main
+paths are synthetic coordinator tests, not real runner CLI/Go/resource evidence.

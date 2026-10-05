@@ -248,9 +248,10 @@ selector, skips/failures, raw diagnostic lines, nonfinite/aliased numeric values
 early/default-overridden/renewed-timer/callback-only claims all refuse. At most64
 events,64KiB per JSON line and2MiB complete output are accepted. No raw packet,
 key, index, peer argument or endpoint enters the projection. This is parser
-contract evidence only. The new immutable opt-in build/execution recipe has
-not yet been implemented or selected, and neither selector has been compiled
-or run. ROOT FULL source/closure/graph/recipe review remains required before Go.
+contract evidence only. A source-only
+[offline runner/recipe proposal](P4_DEFAULT_RESIDUE_RUNNER_PROPOSAL.md) now exists;
+neither selector has been compiled or run. ROOT/independent FULL final
+source/closure/graph/recipe/environment review remains required before Go.
 
 Initial6570 source-only gates:12 inert receipt/source controls PASS; both Python3.14
 and3.12.13 `./tests/run.sh` PASS358 tests/two existing skips plus all JS/QML
