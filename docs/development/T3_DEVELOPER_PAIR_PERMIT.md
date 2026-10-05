@@ -102,6 +102,50 @@ unknown-child custody or product recovery acceptance. Ordinary filesystem and
 the existing sysfs mount persist; no TUN was configured. Reviewed transport and
 finite receipts remain local development evidence, not package provenance.
 
-The replacement/restoration matrix, released-pair adoption, ARM64 and installed
-product acceptance remain pending. Default builds still do not grant this
-developer permit; public-method/UI activation is not part of this checkpoint.
+## Same-head positive and restoration checkpoint
+
+Tested source: `faad53b7350297d5bdba8e2fcdfdb783d603dc25`. The successor
+adds one ignored test and a test-only mount dependency; production behavior is
+unchanged. The full feature-enabled library run returned original zero:
+1109 passed, zero failed, 35 ignored. Focused candidate tests (30 passed,
+two ignored), all-target strict feature Clippy, default library check, format
+and diff checks passed. The separately compiled release test image was
+21,439,224 bytes, SHA-256
+`adb773240536f78dac8875be285292ca9a2190af5a9420c5ae69df4e9571718b`.
+
+The positive selected-close scenario was repeated on this exact image in a
+fresh loopback-only PID/mount/network namespace, dropping to UID/GID 1000.
+Original run and observer both returned zero. Its complete one-test success
+grammar was 225 bytes, SHA-256
+`8df7786d30808be27bb17ce5de3026c45b29c4cdb0578b286fb8a65243b19cbf`,
+with empty stderr. It again asserted one selected close, one surviving tunnel,
+unchanged desired state and exact receipt replay.
+
+The new ignored `actual_owner_developer_pair_rebind_restoration_in_dev_vm`
+ran as root/PID1 in a **separate fresh, non-propagating mount/PID/network
+namespace**. The reviewed administrator packet read and hash-checked the
+original public pair first, made mounts recursively private, then overlaid the
+fixed pair path with a namespace-only tmpfs copy. A distinct same-byte broker
+and exclusive root marker were created only in that copy. The original global
+pair, old process scopes, private profiles, services, DNS, TUN and routes were
+not modified. Root/PID1/marker predicates alone do not establish isolation;
+the separately reviewed original launch is part of this evidence boundary.
+
+After actual coordinator capture and confirmation preparation, the test
+bind-mounted the distinct broker over the copied original. The actual Session
+observed the changed object and revoked its evidence. Successful unmount then
+restored the original full identity tuple, including ctime/mtime; the old
+Session nevertheless remained refused. Confirmation and its exact retry
+returned `RefusedBeforeWrite`, revision stayed zero, desired state was unchanged,
+and **both real tunnels still echoed**. This is not merely confirmation expiry.
+Original whole run and observer returned zero. Complete success grammar was
+229 bytes, SHA-256
+`e7a90517fbe4ee5171d8c42996f9a904bc06c28b2694ecae8232f053605f036c`,
+with empty stderr. Five inert packet controls passed before execution.
+
+Disposable namespace-init teardown has the same containment/not-product-
+recovery limitation described above. The actual checkpoint proves one broker
+replacement/restoration case, not every possible pair drift or fatal resource
+loss. Released-pair adoption, ARM64 and installed-product acceptance remain
+pending. Default builds still do not grant this developer permit; public-method
+and UI activation are not part of these checkpoints.
