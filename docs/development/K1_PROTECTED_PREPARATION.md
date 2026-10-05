@@ -1,5 +1,12 @@
 # K1 protected native preparation candidate
 
+Historical contract for original source `8608857b` (#674). The sections below
+describe that immutable preparation-only snapshot, not the composed successor.
+Current private consuming seams, owned validation, typed readiness, three held
+record descriptors and the still-closed coverage issuer are documented in
+[owned native composition](K1_OWNED_NATIVE_COMPOSITION.md). No original acceptance
+is retroactively expanded by the successor.
+
 Inactive source successor of `9ed6b286fc94536670905cbee1c82c5a1f02fe85`.
 This implements local preparation on the existing `NativeLifecycleHost`, behind
 the existing non-default `netguard-runtime-candidate` feature. It does not wire

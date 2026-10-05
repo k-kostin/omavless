@@ -32,6 +32,43 @@ impl Host {
         }
     }
 }
+impl sealed::Sealed for Host {}
+struct MockAdmission {
+    generation: u64,
+}
+impl ProtectedHost for Host {
+    type Admission = MockAdmission;
+    fn prepare_admitted(&mut self, desired: &DesiredState) -> Result<MockAdmission, HostStepError> {
+        self.prepare(desired)?;
+        self.step("validation_reaped")?;
+        self.step("coverage")?;
+        Ok(MockAdmission {
+            generation: desired.generation,
+        })
+    }
+    fn recheck_admission(&self, admission: &MockAdmission) -> Result<(), HostStepError> {
+        // The reserved state is durable and still disconnected at this cut.
+        if self.cut != Some("reserve_write") {
+            let state = read_desired(&self.paths, self.uid).unwrap();
+            assert_eq!(state.generation, admission.generation);
+            assert!(!state.connected);
+        }
+        self.step("admit")
+    }
+    fn start_admitted(&mut self, admission: MockAdmission) -> Result<(), HostStepError> {
+        assert_eq!(
+            read_desired(&self.paths, self.uid).unwrap().generation,
+            admission.generation
+        );
+        self.start_prepared()
+    }
+    fn commit_protected(&mut self) -> Result<(), HostStepError> {
+        self.commit_prepared()
+    }
+    fn discard_protected(&mut self) -> Result<(), HostStepError> {
+        self.discard_prepared()
+    }
+}
 impl LifecycleHost for Host {
     fn protected_preflight(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
         self.step("preflight")?;
@@ -277,6 +314,9 @@ fn natural_status_floor_orders_reserve_arm_connected_core_and_explicit_disarm() 
                 "preflight",
                 "status",
                 "prepare",
+                "validation_reaped",
+                "coverage",
+                "admit",
                 "arm",
                 "start",
                 "verify",
@@ -330,19 +370,68 @@ fn exhaustion_and_unsupported_preflight_do_not_reserve_arm_or_start() {
     assert_eq!(*f.log.borrow(), vec!["empty", "preflight"]);
 }
 #[test]
-fn only_known_before_arm_prepare_failure_can_discard() {
+fn uncertain_pre_arm_validation_never_discards_or_retries() {
     let f = Fixture::new(3, Some(7));
     let mut c = f.candidate(Some("prepare"), None);
     assert_eq!(
         c.connect_full("public-fixture"),
-        Err(LifecycleError::TransitionFailedRestored)
+        Err(LifecycleError::ManualRecoveryRequired)
     );
     assert_eq!(
         *f.log.borrow(),
-        vec!["empty", "preflight", "status", "prepare", "discard"]
+        vec!["empty", "preflight", "status", "prepare"]
     );
     assert_eq!(f.desired().generation, 3);
-    assert_eq!(c.phase, Phase::Fresh);
+    assert_eq!(c.phase, Phase::Poisoned);
+    let before = f.log.borrow().len();
+    assert!(c.connect_full("public-fixture").is_err());
+    assert_eq!(before, f.log.borrow().len());
+    drop(c);
+    assert_eq!(f.drops.get(), 0);
+}
+
+#[test]
+fn admission_recheck_is_after_reservation_but_before_any_arm() {
+    let f = Fixture::new(3, Some(7));
+    let mut c = f.candidate(Some("admit"), None);
+    assert_eq!(
+        c.connect_full("public-fixture"),
+        Err(LifecycleError::ManualRecoveryRequired)
+    );
+    assert_eq!(f.desired().generation, 8);
+    assert!(!f.desired().connected);
+    assert_eq!(
+        *f.log.borrow(),
+        vec![
+            "empty",
+            "preflight",
+            "status",
+            "prepare",
+            "validation_reaped",
+            "coverage",
+            "admit"
+        ]
+    );
+    assert_eq!(f.root.borrow().marker, Marker::Closed(7));
+    drop(c);
+    assert_eq!(f.drops.get(), 0);
+}
+
+#[test]
+fn validation_and_coverage_cuts_do_not_reserve_or_arm() {
+    for cut in ["validation_reaped", "coverage"] {
+        let f = Fixture::new(3, Some(7));
+        let mut c = f.candidate(Some(cut), None);
+        assert_eq!(
+            c.connect_full("public-fixture"),
+            Err(LifecycleError::ManualRecoveryRequired)
+        );
+        assert_eq!(f.desired().generation, 3);
+        assert!(!f.log.borrow().contains(&"arm"));
+        assert!(!f.log.borrow().contains(&"discard"));
+        drop(c);
+        assert_eq!(f.drops.get(), 0);
+    }
 }
 #[test]
 fn every_post_arm_core_cut_keeps_protection_and_has_no_compensation() {

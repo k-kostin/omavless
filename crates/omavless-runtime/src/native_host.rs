@@ -571,6 +571,14 @@ impl NativeLifecycleHost {
     fn configured_devices(
         &self,
     ) -> Result<Option<std::collections::BTreeSet<String>>, HostStepError> {
+        #[cfg(feature = "netguard-runtime-candidate")]
+        if self.protected_preparation.is_some() {
+            return Ok(Some(
+                [omavless_netguard::nft::TUN.to_owned()]
+                    .into_iter()
+                    .collect(),
+            ));
+        }
         let Some(mut devices) =
             crate::tun_scope::configured_devices(&self.paths.config_directory, self.uid)?
         else {
@@ -918,6 +926,10 @@ impl LifecycleHost for NativeLifecycleHost {
             .as_ref()
             .ok_or(HostStepError::Prepare)?
             .verify()
+    }
+    #[cfg(feature = "netguard-runtime-candidate")]
+    fn protected_preflight(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
+        self.protected_eligibility()
     }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         let (own_pid, own_running, controller_ready) = match self.core.as_mut() {

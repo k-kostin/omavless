@@ -55,6 +55,15 @@ struct PackageHashes {
     broker: [u8; 32],
 }
 
+/// Private exact-package binding for the protected candidate, not acceptance.
+#[cfg(feature = "netguard-runtime-candidate")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProtectedPairIdentity {
+    receipt: [u8; 32],
+    core: [u8; 32],
+    broker: [u8; 32],
+}
+
 fn safe_file(path: &Path, owner: u32, mode: u32, max_bytes: u64) -> Result<File, HostStepError> {
     let parent = fs::symlink_metadata(path.parent().ok_or(HostStepError::Prepare)?)
         .map_err(|_| HostStepError::Prepare)?;
@@ -137,6 +146,14 @@ fn decoded_sha(raw: &str) -> Result<[u8; 32], HostStepError> {
 }
 
 impl ManagedPair {
+    #[cfg(feature = "netguard-runtime-candidate")]
+    pub(crate) fn protected_identity(&self) -> ProtectedPairIdentity {
+        ProtectedPairIdentity {
+            receipt: self.receipt_sha,
+            core: self.core_sha,
+            broker: self.broker_sha,
+        }
+    }
     pub(crate) fn detect(config_directory: &Path, uid: u32) -> Result<Option<Self>, HostStepError> {
         Self::detect_at(
             &config_directory.join(SELECTOR),

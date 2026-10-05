@@ -15,6 +15,8 @@ pub(crate) struct ConfigReadiness {
     pub(crate) mode: RoutingMode,
     profile_name: String,
     managed_dns: bool,
+    #[cfg(feature = "netguard-runtime-candidate")]
+    protected: bool,
 }
 
 impl ConfigReadiness {
@@ -28,6 +30,20 @@ impl ConfigReadiness {
             mode,
             profile_name,
             managed_dns: false,
+            #[cfg(feature = "netguard-runtime-candidate")]
+            protected: false,
+        }
+    }
+
+    /// Typed expectation from the closed canonical generator, NOT socket-mark
+    /// coverage or permission to Arm. No YAML parsing or caller capability bit.
+    #[cfg(feature = "netguard-runtime-candidate")]
+    pub(crate) fn protected_full(profile_name: String) -> Self {
+        Self {
+            mode: RoutingMode::Global,
+            profile_name,
+            managed_dns: true,
+            protected: true,
         }
     }
 
@@ -97,6 +113,15 @@ impl ConfigReadiness {
         match endpoint {
             ReadOnlyEndpoint::Configs => {
                 let tun = &payload["tun"];
+                #[cfg(feature = "netguard-runtime-candidate")]
+                if self.protected
+                    && (tun["device"] != omavless_netguard::nft::TUN
+                        || tun["auto-route"] != true
+                        || tun["strict-route"] != true
+                        || !(tun.get("auto-redirect").is_none() || tun["auto-redirect"] == false))
+                {
+                    return false;
+                }
                 let dns_ready = if self.managed_dns {
                     tun["enable"].as_bool() == Some(true)
                         && tun["omavless-dns-broker"].as_bool() == Some(true)
@@ -409,5 +434,36 @@ mod tests {
         assert!(expected.matches(ReadOnlyEndpoint::Rules, &json!({"rules":[]})));
         assert!(!expected.matches(ReadOnlyEndpoint::RuleProviders, &json!({"providers":null})));
         assert!(expected.matches(ReadOnlyEndpoint::RuleProviders, &json!({"providers":{}})));
+    }
+
+    #[cfg(feature = "netguard-runtime-candidate")]
+    #[test]
+    fn protected_typed_readiness_requires_fixed_device_routes_and_dns() {
+        let expected = ConfigReadiness::protected_full("Synthetic".into());
+        let good = json!({"mode":"global", "tun": {
+            "enable":true, "device":"omavless0", "auto-route":true,
+            "strict-route":true, "omavless-dns-broker":true,
+            "disable-system-dns":true, "omavless-dns-ready":true
+        }});
+        // Exact managed-core serializer omits auto-redirect when false.
+        assert!(expected.matches(ReadOnlyEndpoint::Configs, &good));
+        for (key, bad_value) in [
+            ("device", json!("Meta")),
+            ("auto-route", json!(false)),
+            ("strict-route", json!(false)),
+            ("auto-redirect", json!(true)),
+            ("auto-redirect", json!("false")),
+            ("auto-redirect", json!(null)),
+            ("enable", json!(false)),
+            ("omavless-dns-ready", json!(false)),
+            ("omavless-dns-broker", json!(false)),
+        ] {
+            let mut bad = good.clone();
+            bad["tun"][key] = bad_value;
+            assert!(!expected.matches(ReadOnlyEndpoint::Configs, &bad));
+        }
+        let mut explicit = good;
+        explicit["tun"]["auto-redirect"] = json!(false);
+        assert!(expected.matches(ReadOnlyEndpoint::Configs, &explicit));
     }
 }

@@ -61,6 +61,43 @@ fn stage(host: &mut NativeLifecycleHost, desired: &DesiredState) -> Result<(), P
 }
 
 #[test]
+fn coverage_issuer_has_no_accepted_digest_or_native_spawn() {
+    for digest in [[0; 32], [1; 32], [255; 32]] {
+        assert!(matches!(
+            issue_coverage(digest, None),
+            Err(PreparationError::Unsupported)
+        ));
+    }
+    let (_root, mut host, desired) = fixture();
+    stage(&mut host, &desired).unwrap();
+    assert!(matches!(
+        host.admit_prepared_protection(&desired),
+        Err(PreparationError::Unsupported)
+    ));
+    let preparation = host.protected_preparation.as_ref().unwrap();
+    assert!(!preparation.admitted && !preparation.started);
+    assert!(preparation.bound.is_some());
+    assert!(host.core.is_none());
+}
+
+#[test]
+fn validation_data_directory_replacement_is_not_an_equivalent_input() {
+    let (root, mut host, desired) = fixture();
+    stage(&mut host, &desired).unwrap();
+    fs::rename(&host.paths.data_directory, root.path().join("old-data")).unwrap();
+    fs::create_dir(&host.paths.data_directory).unwrap();
+    fs::set_permissions(
+        &host.paths.data_directory,
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    assert_eq!(
+        host.recheck_protected_candidate(&desired),
+        Err(PreparationError::Changed)
+    );
+}
+
+#[test]
 fn canonical_policy_is_fixed_and_has_no_external_resource_dependencies() {
     let bytes = rendered(URI).unwrap();
     let config: Value = serde_json::from_slice(&bytes).unwrap();

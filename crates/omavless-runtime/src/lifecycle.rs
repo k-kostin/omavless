@@ -17,7 +17,9 @@ use std::fmt;
 
 #[cfg(feature = "netguard-runtime-candidate")]
 #[allow(dead_code)]
-mod protected_candidate;
+pub(crate) mod protected_candidate;
+#[cfg(feature = "netguard-native-scenario")]
+pub use protected_candidate::native_roundtrip as developer_protected_roundtrip;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActualState {

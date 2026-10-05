@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! Unregistered candidate owns the same executor, not another runtime owner.
-//! No concrete transport or production constructor. Typed injected replies
-//! establish conformance only, not peer/namespace/kernel authority. A real
-//! port must enforce one original whole deadline and current authenticated peer.
+//! Explicit developer composition uses the fixed client; no product constructor
+//! is registered. Mock replies establish conformance, never kernel authority.
+//! Native coverage issuance remains closed before any real validation or Arm.
 use super::*;
 use omavless_netguard::protocol::{Health, Mode, POLICY_VERSION, Protection, Request, Response};
 
@@ -10,6 +10,23 @@ trait ProtectionPort {
     /// No retry/reconnect. Error includes unknown delivery, timeout, late reply
     /// or channel loss; an error response is not a no-effect certificate.
     fn exchange(&mut self, request: Request) -> Result<Response, ()>;
+}
+
+/// Private consuming boundary: ordinary host prepare/start cannot satisfy it.
+mod sealed {
+    pub trait Sealed {}
+}
+impl sealed::Sealed for crate::native_host::NativeLifecycleHost {}
+pub(crate) trait ProtectedHost: LifecycleHost + sealed::Sealed {
+    type Admission;
+    fn prepare_admitted(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<Self::Admission, HostStepError>;
+    fn recheck_admission(&self, admission: &Self::Admission) -> Result<(), HostStepError>;
+    fn start_admitted(&mut self, admission: Self::Admission) -> Result<(), HostStepError>;
+    fn commit_protected(&mut self) -> Result<(), HostStepError>;
+    fn discard_protected(&mut self) -> Result<(), HostStepError>;
 }
 
 // No production constructor/registration. Native protected readiness remains
@@ -29,28 +46,33 @@ enum Phase {
     Poisoned,
 }
 
-struct ProtectedCandidate<H: LifecycleHost, P: ProtectionPort> {
+struct ProtectedCandidate<H: ProtectedHost, P: ProtectionPort> {
     // No accessor/into_host/ordinary-executor extraction. On uncertain unwind
     // or abandoned armed session, forget the original graph, not copied proof.
     owned: Option<(LifecycleExecutor<H>, P)>,
     phase: Phase,
+    admission: Option<H::Admission>,
 }
 
-impl<H: LifecycleHost, P: ProtectionPort> Drop for ProtectedCandidate<H, P> {
+impl<H: ProtectedHost, P: ProtectionPort> Drop for ProtectedCandidate<H, P> {
     fn drop(&mut self) {
         if !matches!(self.phase, Phase::Fresh | Phase::Closed)
             && let Some(original) = self.owned.take()
         {
             std::mem::forget(original);
+            if let Some(admission) = self.admission.take() {
+                std::mem::forget(admission);
+            }
         }
     }
 }
 
-impl<H: LifecycleHost, P: ProtectionPort> ProtectedCandidate<H, P> {
+impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
     fn new(executor: LifecycleExecutor<H>, port: P) -> Self {
         Self {
             owned: Some((executor, port)),
             phase: Phase::Fresh,
+            admission: None,
         }
     }
     fn poison(&mut self) -> LifecycleError {
@@ -135,17 +157,10 @@ impl<H: LifecycleHost, P: ProtectionPort> ProtectedCandidate<H, P> {
             .ok_or(LifecycleError::ManualRecoveryRequired)?
             .0
             .host
-            .prepare(&target);
-        if prepared.is_err() {
-            // Cleanup is allowed here only because NO Arm was attempted.
-            self.local(|e| {
-                e.host
-                    .discard_prepared()
-                    .map_err(|_| LifecycleError::ManualRecoveryRequired)
-            })?;
-            self.phase = Phase::Fresh;
-            return Err(LifecycleError::TransitionFailedRestored);
-        }
+            .prepare_admitted(&target);
+        // Even before Arm, an uncertain validator can remain alive. No generic
+        // discard/restored/retry transition is permitted for this failure.
+        self.admission = Some(prepared.map_err(|_| self.poison())?);
         let reserved = DesiredState {
             generation: target.generation,
             ..current
@@ -154,11 +169,22 @@ impl<H: LifecycleHost, P: ProtectionPort> ProtectedCandidate<H, P> {
             // Known no Arm, but uncertain desired write cannot be reset/retried.
             self.local(|e| {
                 e.host
-                    .discard_prepared()
+                    .discard_protected()
                     .map_err(|_| LifecycleError::ManualRecoveryRequired)
             })?;
             return Err(self.poison());
         }
+        self.owned
+            .as_ref()
+            .ok_or(LifecycleError::ManualRecoveryRequired)?
+            .0
+            .host
+            .recheck_admission(
+                self.admission
+                    .as_ref()
+                    .ok_or(LifecycleError::ManualRecoveryRequired)?,
+            )
+            .map_err(|_| self.poison())?;
         let response = self.exchange(Request::Arm {
             generation: target.generation,
             mode: Mode::Full,
@@ -171,15 +197,19 @@ impl<H: LifecycleHost, P: ProtectionPort> ProtectedCandidate<H, P> {
             return Err(self.poison());
         }
         self.local(|e| e.write(&target))?;
+        let admission = self
+            .admission
+            .take()
+            .ok_or(LifecycleError::ManualRecoveryRequired)?;
         self.local(|e| {
             e.host
-                .start_prepared()
+                .start_admitted(admission)
                 .map_err(|_| LifecycleError::RecoveryFailed)
         })?;
         self.local(|e| e.verify_connected(&target))?;
         self.local(|e| {
             e.host
-                .commit_prepared()
+                .commit_protected()
                 .map_err(|_| LifecycleError::RecoveryFailed)
         })?;
         let e = &mut self
@@ -219,7 +249,7 @@ impl<H: LifecycleHost, P: ProtectionPort> ProtectedCandidate<H, P> {
         })?;
         self.local(|e| {
             e.host
-                .discard_prepared()
+                .discard_protected()
                 .map_err(|_| LifecycleError::ManualRecoveryRequired)
         })?;
         self.local(|e| e.verify_empty(&target))?;
@@ -246,3 +276,20 @@ impl<H: LifecycleHost, P: ProtectionPort> ProtectedCandidate<H, P> {
 
 #[cfg(test)]
 mod tests;
+
+/// Explicit SOURCE developer driver: consumes the caller's existing native
+/// executor; no service installation, alternate host, registration or default
+/// constructor. Coverage issuance remains closed, so no real validation/Arm
+/// can currently follow preparation. No error path automatically disconnects.
+#[cfg(feature = "netguard-native-scenario")]
+pub fn native_roundtrip(
+    executor: LifecycleExecutor<crate::native_host::NativeLifecycleHost>,
+    profile_id: &str,
+) -> Result<LifecycleOutcome, LifecycleError> {
+    let mut owner = ProtectedCandidate::new(
+        executor,
+        omavless_netguard::client_candidate::FixedClient::new(),
+    );
+    owner.connect_full(profile_id)?;
+    owner.disconnect()
+}

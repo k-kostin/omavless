@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-//! Inactive local preparation, not core validation or socket-mark evidence.
-//! The original NativeLifecycleHost owns the held files. No ordinary staging,
-//! readiness, desired state, core process, template or protection is changed.
+//! Private protected preparation/start on the original NativeLifecycleHost.
+//! Coverage issuance remains closed. Canonical source/validation/readiness are
+//! not socket-mark evidence; ordinary templates and staged paths stay separate.
 
 use super::*;
 use crate::desired::RoutingMode;
@@ -13,6 +13,7 @@ use std::fs::{File, Metadata, OpenOptions};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::os::unix::fs::{FileExt, OpenOptionsExt};
+mod validation;
 
 const STAGING: &str = ".config.k1.candidate.json";
 const MAX_CONFIG: u64 = 64 * 1024;
@@ -28,14 +29,32 @@ pub(super) enum PreparationError {
     OutcomeUnknown,
 }
 
-/// Intentionally uninhabited. Neither source preparation nor a valid package
-/// receipt can manufacture installed transport/resolver/mark coverage.
-pub(super) enum ArmAdmission {}
+/// Move-only, private-field binding. No public constructor or deserialization.
+pub(crate) struct ArmAdmission {
+    desired: DesiredState,
+    config: [u8; 32],
+    core: [u8; 32],
+    coverage: Coverage,
+}
+struct Coverage {
+    core: [u8; 32],
+    pair: crate::managed_pair::ProtectedPairIdentity,
+}
+// CLOSED: package provenance and config syntax do not establish networking or
+// complete socket coverage. Any future successful issuer requires ROOT review.
+fn issue_coverage(
+    _core: [u8; 32],
+    _pair: Option<crate::managed_pair::ProtectedPairIdentity>,
+) -> Result<Coverage, PreparationError> {
+    Err(PreparationError::Unsupported)
+}
 
 /// No Debug, Clone, serialization, external constructor or copied receipt.
 pub(super) struct Preparation {
     // None records entry into publication even if that operation fails.
     bound: Option<Bound>,
+    admitted: bool,
+    started: bool,
 }
 
 struct Bound {
@@ -43,6 +62,43 @@ struct Bound {
     store_digest: [u8; 32],
     core: HeldFile,
     config: HeldFile,
+    data: HeldDirectory,
+}
+
+struct HeldDirectory {
+    file: File,
+    metadata: Metadata,
+}
+impl HeldDirectory {
+    fn capture(path: &Path, uid: u32) -> Result<Self, PreparationError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_DIRECTORY)
+            .open(path)
+            .map_err(|_| PreparationError::Refused)?;
+        let metadata = file.metadata().map_err(|_| PreparationError::Refused)?;
+        if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
+            return Err(PreparationError::Refused);
+        }
+        let held = Self { file, metadata };
+        held.recheck(path)?;
+        Ok(held)
+    }
+    fn recheck(&self, path: &Path) -> Result<(), PreparationError> {
+        if !same(
+            &self.metadata,
+            &self
+                .file
+                .metadata()
+                .map_err(|_| PreparationError::Changed)?,
+        ) || !same(
+            &self.metadata,
+            &fs::symlink_metadata(path).map_err(|_| PreparationError::Changed)?,
+        ) {
+            return Err(PreparationError::Changed);
+        }
+        Ok(())
+    }
 }
 
 struct HeldFile {
@@ -296,7 +352,11 @@ impl NativeLifecycleHost {
         let bytes = render(profile, &self.paths.controller_socket)?;
         let path = self.paths.config_directory.join(STAGING);
         // Consume before create/write/sync. Errors are not retry authorization.
-        self.protected_preparation = Some(Preparation { bound: None });
+        self.protected_preparation = Some(Preparation {
+            bound: None,
+            admitted: false,
+            started: false,
+        });
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -319,6 +379,7 @@ impl NativeLifecycleHost {
             store_digest,
             core,
             config,
+            data: HeldDirectory::capture(&self.paths.data_directory, self.uid)?,
         };
         self.protected_preparation
             .as_mut()
@@ -349,23 +410,219 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Changed);
         }
         bound.core.recheck(&self.paths.core)?;
+        bound.data.recheck(&self.paths.data_directory)?;
         bound
             .config
             .recheck(&self.paths.config_directory.join(STAGING))
     }
 
-    /// Proposed post-prepare / pre-reservation-and-Arm seam, intentionally NOT
-    /// wired to LifecycleHost yet. Even exact unchanged inputs cannot yield an
-    /// admission until installed core validation and complete path evidence
-    /// are implemented and independently accepted.
+    /// Private post-prepare / pre-reservation-and-Arm consuming seam. The
+    /// coverage issuer is CLOSED; exact package/config bytes alone never admit.
     fn admit_prepared_protection(
-        &self,
+        &mut self,
         desired: &DesiredState,
     ) -> Result<ArmAdmission, PreparationError> {
         self.recheck_protected_candidate(desired)?;
-        Err(PreparationError::Unsupported)
+        let preparation = self
+            .protected_preparation
+            .as_mut()
+            .ok_or(PreparationError::Refused)?;
+        if preparation.admitted {
+            return Err(PreparationError::Refused);
+        }
+        // Refuse BEFORE executing a real validator until its network behavior
+        // and runtime coverage for this exact core/policy have been accepted.
+        let coverage = issue_coverage(
+            preparation
+                .bound
+                .as_ref()
+                .ok_or(PreparationError::Refused)?
+                .core
+                .digest,
+            self.paths
+                .managed_pair
+                .as_ref()
+                .map(ManagedPair::protected_identity),
+        )?;
+        preparation.admitted = true;
+        let bound = preparation.bound.take().ok_or(PreparationError::Refused)?;
+        let staged = self.paths.config_directory.join(STAGING);
+        let deadline = Instant::now() + VALIDATION_TIMEOUT;
+        let child = std::process::Command::new(&self.paths.core)
+            .env_clear()
+            .env("LANG", "C")
+            .args(["-t", "-d"])
+            .arg(&self.paths.data_directory)
+            .arg("-f")
+            .arg(&staged)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|_| PreparationError::OutcomeUnknown)?;
+        let original = validation::Validation::new(child, bound);
+        let bound = original
+            .complete(
+                deadline,
+                Instant::now,
+                || std::thread::sleep(Duration::from_millis(10)),
+                |bound| {
+                    bound.core.recheck(&self.paths.core).map_err(|_| ())?;
+                    bound
+                        .data
+                        .recheck(&self.paths.data_directory)
+                        .map_err(|_| ())?;
+                    bound.config.recheck(&staged).map_err(|_| ())
+                },
+            )
+            .map_err(|_| PreparationError::OutcomeUnknown)?;
+        let admission = ArmAdmission {
+            desired: desired.clone(),
+            config: bound.config.digest,
+            core: bound.core.digest,
+            coverage,
+        };
+        self.protected_preparation
+            .as_mut()
+            .ok_or(PreparationError::Refused)?
+            .bound = Some(bound);
+        self.recheck_protected_candidate(desired)?;
+        Ok(admission)
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+impl NativeLifecycleHost {
+    pub(super) fn protected_eligibility(&self) -> Result<(), HostStepError> {
+        if self.protected_preparation.is_some()
+            || self.core.is_some()
+            || !self.auxiliary.mutation_safe()
+        {
+            return Err(HostStepError::Prepare);
+        }
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?;
+        if pair.core_path() != self.paths.core {
+            return Err(HostStepError::Prepare);
+        }
+        pair.verify()
+    }
+}
+
+impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHost {
+    type Admission = ArmAdmission;
+    fn prepare_admitted(&mut self, desired: &DesiredState) -> Result<ArmAdmission, HostStepError> {
+        self.prepare_protected_candidate(desired)
+            .map_err(|_| HostStepError::Prepare)?;
+        self.admit_prepared_protection(desired)
+            .map_err(|_| HostStepError::Prepare)
+    }
+    fn recheck_admission(&self, admission: &ArmAdmission) -> Result<(), HostStepError> {
+        self.recheck_protected_candidate(&admission.desired)
+            .map_err(|_| HostStepError::Prepare)?;
+        self.paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?
+            .verify()?;
+        if self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?
+            .protected_identity()
+            != admission.coverage.pair
+        {
+            return Err(HostStepError::Prepare);
+        }
+        let preparation = self
+            .protected_preparation
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?;
+        let bound = preparation.bound.as_ref().ok_or(HostStepError::Prepare)?;
+        if !preparation.admitted
+            || preparation.started
+            || bound.config.digest != admission.config
+            || bound.core.digest != admission.core
+            || admission.coverage.core != admission.core
+        {
+            return Err(HostStepError::Prepare);
+        }
+        Ok(())
+    }
+    fn start_admitted(&mut self, admission: ArmAdmission) -> Result<(), HostStepError> {
+        self.recheck_admission(&admission)?;
+        if !self.ping_slot.revoke() || self.managed_tuns()? != 0 {
+            return Err(HostStepError::Start);
+        }
+        self.protected_preparation
+            .as_mut()
+            .ok_or(HostStepError::Start)?
+            .started = true;
+        self.profile_id = Some(admission.desired.profile_id);
+        self.readiness = Some(ConfigReadiness::protected_full(PROFILE.to_owned()));
+        self.tun_identity = None;
+        self.remove_controller()?;
+        let core = OwnedCore::spawn_protected(
+            &self.paths.core,
+            &self.paths.data_directory,
+            &self.paths.config_directory.join(STAGING),
+            &self.paths.controller_socket,
+        )
+        .map_err(|_| HostStepError::Start)?;
+        // Store the returned original BEFORE every readiness/panic cut.
+        self.core = Some(core);
+        let core = self.core.as_mut().ok_or(HostStepError::Start)?;
+        self.core_diagnostics = Some(core.diagnostic_reader());
+        let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
+        core.wait_configured(expected.startup_timeout(), expected)
+            .map_err(|_| HostStepError::Start)?;
+        let pid = core.pid().ok_or(HostStepError::Start)?;
+        if !crate::controller_permissions::secure_owned(
+            &self.paths.controller_socket,
+            pid,
+            self.uid,
+        ) || !core.running().map_err(|_| HostStepError::Start)?
+        {
+            return Err(HostStepError::Start);
+        }
+        if !self.verify_tun(pid)? {
+            return Err(HostStepError::Start);
+        }
+        Ok(())
+    }
+    fn commit_protected(&mut self) -> Result<(), HostStepError> {
+        let preparation = self
+            .protected_preparation
+            .as_ref()
+            .ok_or(HostStepError::Commit)?;
+        let bound = preparation.bound.as_ref().ok_or(HostStepError::Commit)?;
+        if !preparation.started || self.core.is_none() || self.tun_identity.is_none() {
+            return Err(HostStepError::Commit);
+        }
+        bound
+            .core
+            .recheck(&self.paths.core)
+            .map_err(|_| HostStepError::Commit)?;
+        bound
+            .config
+            .recheck(&self.paths.config_directory.join(STAGING))
+            .map_err(|_| HostStepError::Commit)?;
+        // Keep the exact held launch config. Never install/overwrite ordinary
+        // config.yaml or delete this record while the protected child is live.
+        Ok(())
+    }
+    fn discard_protected(&mut self) -> Result<(), HostStepError> {
+        // This fixture retains its staged record until host retirement, even
+        // after a known stop. No unlink/adoption/retry authority is introduced.
+        if self.core.is_some() || self.managed_tuns()? != 0 || !self.auxiliary.mutation_safe() {
+            return Err(HostStepError::Cleanup);
+        }
+        Ok(())
+    }
+}
