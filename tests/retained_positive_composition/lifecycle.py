@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-2/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3/scratch'
 PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
     'before_native_copy','after_native_copy',
     'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
@@ -44,15 +44,21 @@ REQUIRED_ROLES = ('host','core')
 ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
     'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
 REQUIRED_CLASSES = ('present','absent','identity_equal','identity_different')
+PARSE_REJECTIONS = ('shape','range','anonymous','named_path','named_identity','object_count','empty')
 PHASES |= frozenset(side+'_'+role+'_initial_inventory_'+step for role in INVENTORY_ROLES for step in INVENTORY_STEPS
                    for side in ('before','after'))
 PHASES |= frozenset('before_'+role+'_initial_inventory_'+step+'_'+category for role in INVENTORY_ROLES
                    for step in ('first_parse','second_parse') for category in ANONYMOUS_CLASSES)
 PHASES |= frozenset('before_'+role+'_initial_inventory_required_members_'+category
                    for role in REQUIRED_ROLES for category in REQUIRED_CLASSES)
+PHASES |= frozenset('before_core_initial_inventory_'+step+'_reject_'+category
+                   for step in ('first_parse','second_parse') for category in PARSE_REJECTIONS)
 # 116 role/launcher labels + three one-shot inventories each with 22 paired
 # labels and at most16 first-instance classes across two parses + exactly two
-# required-member categories per host/core =234 attempts (238 vocabulary).
+# required-member categories per host/core =234 attempts (252 vocabulary).
+# Core's single false-parser-predicate observation stops that attempt before
+# its after-parse label: first-parse failure<=5+8+1=14, second<=15+8+2+8+1=34,
+# both below complete core40. This is not an extra complete-path label.
 # Some rejecting
 # classes cannot complete; this conservative complete-path bound includes all.
 # Bridge's independent cap remains128; combined lexical cap363, not authority.

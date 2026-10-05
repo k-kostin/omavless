@@ -396,7 +396,8 @@ class Controls(unittest.TestCase):
                 with patch.object(value,'text',return_value=raw) as read:
                     with self.assertRaises(i.Refused):value.inventory(child,5.0,f'initial_{role}')
                 self.assertEqual(value.owner.phase.call_args.args,
-                                 (f'before_{role}_initial_inventory_first_parse_'+category,5.0))
+                                 (f'before_{role}_initial_inventory_first_parse_'+
+                                  ('reject_anonymous' if role=='core' else category),5.0))
                 self.assertEqual(read.call_count,1)
                 value.copies._verify_target.assert_not_called();self.sealed(value)
             for device,inode,offset in (('00:00',1,0),('00:00',0,1),('00:01',0,0)):
@@ -516,6 +517,9 @@ class Controls(unittest.TestCase):
         self.assertEqual(i.REQUIRED_ROLES,('host','core'))
         self.assertEqual(i.REQUIRED_CLASSES,owner.REQUIRED_CLASSES)
         self.assertEqual(i.REQUIRED_CLASSES,('present','absent','identity_equal','identity_different'))
+        self.assertEqual(i.PARSE_REJECTIONS,owner.PARSE_REJECTIONS)
+        self.assertEqual(i.PARSE_REJECTIONS,('shape','range','anonymous','named_path',
+                                            'named_identity','object_count','empty'))
         self.assertEqual((len(i.INVENTORY_STEPS),len(i.ANONYMOUS_CLASSES)),(11,8))
         labels={side+'_'+role+'_initial_inventory_'+step for role in i.INVENTORY_ROLES for step in i.INVENTORY_STEPS
                 for side in ('before','after')}
@@ -523,7 +527,9 @@ class Controls(unittest.TestCase):
                  for step in ('first_parse','second_parse') for category in i.ANONYMOUS_CLASSES}
         labels|={'before_'+role+'_initial_inventory_required_members_'+category
                  for role in i.REQUIRED_ROLES for category in i.REQUIRED_CLASSES}
-        self.assertEqual(len(labels),122);self.assertLessEqual(labels,owner.PHASES)
+        labels|={'before_core_initial_inventory_'+step+'_reject_'+category
+                 for step in ('first_parse','second_parse') for category in i.PARSE_REJECTIONS}
+        self.assertEqual(len(labels),136);self.assertLessEqual(labels,owner.PHASES)
         self.assertTrue(all(len(('T3_RETAINED_PHASE_V1 '+label+'\n').encode('ascii'))<=128 for label in labels))
         tree=ast.parse(SOURCE.read_text())
         inventory=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='inventory')
@@ -532,6 +538,129 @@ class Controls(unittest.TestCase):
         self.assertEqual(set(marks),{(side,step) for step in i.INVENTORY_STEPS for side in ('before','after')})
         self.assertEqual(len(marks),22)
         self.assertEqual((116+len(i.INVENTORY_ROLES)*(len(marks)+2*len(i.ANONYMOUS_CLASSES))+2*len(i.REQUIRED_ROLES),owner.PHASE_LIMIT,128+owner.PHASE_LIMIT),(234,235,363))
+
+    def rejecting_maps(self):
+        good=mapping([('/artifacts/mihomo',90)])
+        excess=good+''.join(f'{n*4096:x}-{(n+1)*4096:x} r-xp 0 00:1f {n} /usr/lib/f{n}.so\n'
+                            for n in range(2,66))
+        return good,{
+            'shape':good+'malformed synthetic row\n',
+            'range':good+'1800-2800 rw-p 0 00:00 0 \n',
+            'anonymous':good+'3000-4000 rw-p 0 00:00 0 [anon: glibc: malloc]\n',
+            'named_path':good+'3000-4000 rw-p 0 00:1f 91 /dev/zero (deleted)\n',
+            'named_identity':good+'3000-4000 r-xp 0 00:1f 0 /usr/lib/libc.so.6\n',
+            'object_count':excess,
+            'empty':'1000-2000 rw-p 0 00:00 0 \n',
+        }
+
+    def test_first_false_predicate_categories_preserve_every_refusal_and_stop_once(self):
+        good,cases=self.rejecting_maps()
+        self.assertEqual(set(cases),set(i.PARSE_REJECTIONS))
+        rejected=[]
+        self.assertEqual(i.map_objects(good,before_reject=rejected.append),{'/artifacts/mihomo':(31,90)})
+        self.assertEqual(rejected,[])
+        for category,raw in cases.items():
+            rejected=[]
+            with self.assertRaisesRegex(i.Refused,'^fixed_loaded_image_refused$'):
+                i.map_objects(raw,before_reject=rejected.append)
+            self.assertEqual(rejected,[category])
+            with self.assertRaises(i.Refused):i.map_objects(raw)
+
+    def test_last_unnamed_is_not_the_false_predicate_or_an_actual_cause(self):
+        good=mapping([('/artifacts/mihomo',90)])+'2000-3000 rw-p 0 00:00 0 \n'
+        seen=[];rejected=[]
+        self.assertEqual(i.map_objects(good,seen.append,rejected.append),{'/artifacts/mihomo':(31,90)})
+        self.assertEqual((seen,rejected),(['unnamed'],[]))
+        for suffix,category in (('malformed synthetic row\n','shape'),
+                ('3000-4000 rw-p 0 00:1f 91 /dev/zero (deleted)\n','named_path'),
+                ('2800-4000 rw-p 0 00:00 0 \n','range'),('\n','shape')):
+            seen=[];rejected=[]
+            with self.assertRaises(i.Refused):i.map_objects(good+suffix,seen.append,rejected.append)
+            self.assertEqual((seen,rejected),(['unnamed'],[category]))
+
+    def test_core_only_first_or_second_parse_refusal_precedes_remaining_steps(self):
+        good,cases=self.rejecting_maps()
+        for step in ('first_parse','second_parse'):
+            for category,raw in cases.items():
+                value,child=self.fixture('core')
+                texts=[raw] if step=='first_parse' else [good,raw]
+                with patch.object(value,'text',side_effect=texts) as read:
+                    with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_core')
+                expected='before_core_initial_inventory_'+step+'_reject_'+category
+                labels=[call.args[0] for call in value.owner.phase.call_args_list]
+                self.assertEqual(labels[-1],expected)
+                self.assertEqual(sum('_reject_' in label for label in labels),1)
+                self.assertNotIn('after_core_initial_inventory_'+step,labels)
+                self.assertEqual(read.call_count,1 if step=='first_parse' else 2)
+                self.assertEqual(value.artifacts.mapped_identity.call_count,int(step=='second_parse'))
+                self.sealed(value)
+        for role,context in (('core','final_core'),('core',None),('host','initial_host'),
+                             ('bus','initial_bus'),('broker','initial_broker'),('resolved','initial_resolved')):
+            value,child=self.fixture(role)
+            with patch.object(value,'text',return_value=cases['shape']):
+                with self.assertRaises(i.Refused):value.inventory(child,5.0,context)
+            self.assertFalse(any('_reject_' in call.args[0] for call in value.owner.phase.call_args_list))
+            self.sealed(value)
+
+    def test_rejection_label_throw_or_late_seals_without_secondary_output_or_replay(self):
+        _,cases=self.rejecting_maps()
+        for variant in ('throw','late'):
+            value,child=self.fixture('core');now=[0.0]
+            def phase(label,deadline):
+                if label.endswith('_reject_shape'):
+                    if variant=='throw':raise RuntimeError('synthetic private detail')
+                    now[0]=5.0
+            value.owner.phase.side_effect=phase
+            with patch.object(i.time,'monotonic',side_effect=lambda:now[0]), \
+                 patch.object(value,'text',return_value=cases['shape']) as read:
+                with self.assertRaisesRegex(i.Refused,'^fixed_loaded_image_refused$'):
+                    value.inventory(child,5.0,'initial_core')
+                count=value.owner.phase.call_count;now[0]=0.0
+                with self.assertRaises(i.Refused):value.inventory(child,5.0,'initial_core')
+            self.assertEqual(read.call_count,1);self.assertEqual(value.owner.phase.call_count,count)
+            self.assertEqual(value.owner.phase.call_args.args,
+                             ('before_core_initial_inventory_first_parse_reject_shape',5.0))
+            value.artifacts.mapped_identity.assert_not_called();self.sealed(value)
+
+    def test_unknown_category_or_device_conversion_exception_is_not_caught_or_logged(self):
+        _,cases=self.rejecting_maps();observed=[]
+        with patch.object(i,'PARSE_REJECTIONS',()):
+            with self.assertRaises(i.Refused):i.map_objects(cases['shape'],before_reject=observed.append)
+        self.assertEqual(observed,[])
+        with patch.object(i.os,'makedev',side_effect=OverflowError('synthetic private')):
+            with self.assertRaises(OverflowError):
+                i.map_objects('1000-2000 rw-p 0 00:00 0 \n',before_reject=observed.append)
+        self.assertEqual(observed,[])
+        value,child=self.fixture('core')
+        with patch.object(value,'text',return_value='1000-2000 rw-p 0 00:00 0 \n'), \
+             patch.object(i.os,'makedev',side_effect=OverflowError('synthetic private')):
+            with self.assertRaisesRegex(i.Refused,'^fixed_loaded_image_refused$'):
+                value.inventory(child,5.0,'initial_core')
+        self.assertEqual(value.owner.phase.call_args.args,('before_core_initial_inventory_first_parse',5.0))
+        value.artifacts.mapped_identity.assert_not_called();self.sealed(value)
+
+    def test_failed_parse_bound_fits_core40_and_real_owner_closed_labels(self):
+        spec=importlib.util.spec_from_file_location('reject_real_owner',SOURCE.with_name('lifecycle.py'))
+        owner_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(owner_module)
+        first=2*i.INVENTORY_STEPS.index('first_parse')+1+len(i.ANONYMOUS_CLASSES)+1
+        second=(2*i.INVENTORY_STEPS.index('second_parse')+1+2*len(i.ANONYMOUS_CLASSES)+2+1)
+        complete=2*len(i.INVENTORY_STEPS)+2*len(i.ANONYMOUS_CLASSES)+2
+        self.assertEqual((first,second,complete),(14,34,40))
+        self.assertEqual(116+38+40+max(first,second,complete),234)
+        for category,raw in self.rejecting_maps()[1].items():
+            old,_=self.fixture('core')
+            owner=owner_module.Session('inner');owner.deadline=65.0;owner.live=Mock()
+            child=object.__new__(owner_module.OwnedProcess)
+            owner.children=[child];owner.anchors={'core':{'child':child,'proc_fd':71}}
+            value=i.Images(owner,owner_module,old.copies,SimpleNamespace(Bridge=Bridge),
+                old.artifacts,SimpleNamespace(Sources=Artifacts,TABLE=old.artifacts.files))
+            value.executable=Mock(return_value=(31,90));self.values.append(value)
+            with patch.object(value,'text',return_value=raw), \
+                 patch.object(owner_module.os,'write',side_effect=lambda fd,raw:len(raw)) as emitted:
+                with self.assertRaises(i.Refused):value.inventory(child,owner.local_deadline(5),'initial_core')
+            self.assertEqual(emitted.call_args.args[1],
+                ('T3_RETAINED_PHASE_V1 before_core_initial_inventory_first_parse_reject_'+category+'\n').encode('ascii'))
+            self.assertLessEqual(owner.phase_count,first);self.sealed(value)
 
     def test_native_required_member_categories_preserve_exact_predicate_and_no_target_on_refusal(self):
         for role in i.REQUIRED_ROLES:

@@ -457,7 +457,7 @@ narrow file observation, not actual cause, effect, preservation or whole PASS.
 
 ### Fresh initial-core source diagnostic proposal
 
-The source-only successor targets unused retained-native-tmpfs review-2. It
+The frozen8f7b3dc source checkpoint targeted retained-native-tmpfs review-2. It
 adds one fixed initial-core latch, independent of bus/host; no final, repeated,
 broker or resolved inventory emits these observations. Core now uses the same
 eleven paired inventory substeps and at most eight first-instance anonymous
@@ -489,6 +489,67 @@ gates each pass1153 tests (two existing skips), all JS/QML contracts and diff
 whitespace checks. Initial isolated unittest file-name selectors failed at
 module import before controls ran; the corrected discover selections pass.
 These are source/mock results, not a native acceptance or authorization.
+
+### Review-2 NONPASS and first false-predicate source proposal
+
+ROOT's fresh review-2 staged frozen8f7b3dc with24 individual known-zero actions.
+The sole whole invocation `0fe496/session16614` ended `2840fc` exit2: NONPASS
+and permanent STOP, without query, retry, signal/reap, archive or cleanup.
+After separate full source/recipe reviews and six pure controls, ROOT's one
+fixed-file observer `253901` returned0. Its finite public projection `479e19`
+reported233 exact literals (83 Bridge,150 Session), last
+`before_core_initial_inventory_first_parse_unnamed`, whole literal grammar and
+no opaque tail. Child stderr was10577 bytes, SHA
+`e06f420940355083f81b36e5fdac274be4312bfe2ed8eb4cde19d316a842c0ce`.
+Inner record was empty, outer record absent and completion marker false; all
+18 source/four native pins matched. These fixed-file facts do not prove actual
+cause, ordering, completion, continued preservation, effects or whole PASS.
+No stopped capture, stage, maps, process or native state was read by the author.
+
+The unnamed category implies zero device/inode, zero offset and no pathname;
+its following anonymous predicate is therefore true. Pure synthetic controls
+show that malformed later rows, a later nonpublic/deleted path, overlap range
+and a later blank row can all leave the same last unnamed category. A phase
+emission or deadline boundary can also stop there. No matcher relaxation is
+justified by the observed literal alone.
+
+The new source proposal targets unused retained-native-tmpfs review-3. Only
+the sole initial-core inventory can emit a first false-parser-predicate label
+for shape, range, anonymous shape, named path, named identity, object count or
+empty result. It observes the already-read text, BEFORE the exact unchanged
+require(false), and immediately refuses; a callback/phase failure cannot emit
+a secondary category, replay, advance a row or open a mapped target. No raw
+row, path, exception or private value is emitted. Conversion exceptions are
+not caught or classified. Bus/host, final, repeated and other-role inventories
+do not gain these observations. All predicates and5s/65s gates are unchanged.
+
+There are14 new vocabulary alternatives (seven categories for each parse),
+but at most ONE rejecting label on a whole attempt. First-parse failure has
+at most5 prior paired-step frames +8 anonymous classes +1 rejecting label =14.
+Second-parse failure has15 prior paired-step frames +8 first-parse classes +2
+required-member Boolean observations +8 second-parse classes +1 rejecting
+label =34. Both paths stop BEFORE after-parse and all later steps; neither
+exceeds complete core40. Consequently the conservative whole Session bound
+remains116 + bus38 + host40 + max(core40,14,34) =234 attempts, vocabulary252,
+Session cap235, independent Bridge cap128 and combined lexical cap363.
+These are diagnostic cardinality bounds, not effect authority or hard timers.
+
+Prepared controls preserve all seven refusals, accepted unnamed mappings and
+the last-unnamed counterexamples, scope the labels to core's first/second parse,
+exercise real Session closed labels/shared local5s, stop on late/throwing phase
+output, and leave unknown categories/conversion exceptions without output.
+The first focused50 source gate found a reused sealed synthetic fixture across
+negative categories; the corrected fixture uses fresh objects per case. That
+inert source-test error is not a native outcome. The first focused launcher17
+gate also caught a stale explicit expected images SHA after graph repinning;
+the assertion is corrected to the new source hash.
+The immediate pin-edit follow-up had an assertion-indentation import error,
+corrected before the final gates; no test body or native candidate ran there.
+Corrected focused50 image/27 lifecycle/17 launcher/13 graph controls pass.
+Full Python3.14 and3.12.13 gates each pass1159 tests (two existing skips), all
+JS/QML contracts and diff whitespace checks. These remain source/mock evidence,
+not a native acceptance or failure-cause proof.
+Source/capsule reviews are still required; no new VM recipe is selected here.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

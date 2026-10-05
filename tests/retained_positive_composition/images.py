@@ -31,6 +31,7 @@ INVENTORY_STEPS = ('executable','first_text','first_parse','required_members',
 ANONYMOUS_CLASSES = ('unnamed','plain_bracket','go','glibc_malloc',
     'glibc_malloc_arena','glibc_loader_malloc','foreign_bracket','invalid_zero_identity')
 REQUIRED_CLASSES = ('present','absent','identity_equal','identity_different')
+PARSE_REJECTIONS = ('shape','range','anonymous','named_path','named_identity','object_count','empty')
 
 def anonymous_class(path, identity, offset):
     # Fixed category only, BEFORE the unchanged predicate. No raw row/value
@@ -55,11 +56,19 @@ def require(value, reason=None):
     if not value:
         raise Refused()
 
-def map_objects(text, before_anonymous=None):
+def map_objects(text, before_anonymous=None, before_reject=None):
     require(type(text) is str and len(text) <= 1024 * 1024, "mapping_bound")
     objects = {}
     previous_end = 0
     seen = set()
+    rejected = False
+    def checked(value, reason, category):
+        nonlocal rejected
+        if not value and before_reject is not None:
+            require(not rejected and category in PARSE_REJECTIONS)
+            rejected = True  # First false predicate only; callback failure cannot replay.
+            before_reject(category)
+        require(value, reason)  # Exact unchanged predicate, never acceptance by observation.
     # The proc producer uses LF, not Python's broader line-separator grammar.
     # Preserve CR/VT and every path byte for the predicates below; discard only
     # one optional terminal LF, never embedded or repeated empty rows.
@@ -68,11 +77,11 @@ def map_objects(text, before_anonymous=None):
         lines.pop()
     for line in lines:
         match = MAP_LINE.fullmatch(line)
-        require(match is not None, "mapping_shape")
+        checked(match is not None, "mapping_shape", 'shape')
         start, end, _, offset, major, minor, inode, path = match.groups()
         start, end, offset = int(start, 16), int(end, 16), int(offset, 16)
-        require(previous_end <= start < end <= 2**64 - 1 and offset <= 2**64 - 1,
-                "mapping_range")
+        checked(previous_end <= start < end <= 2**64 - 1 and offset <= 2**64 - 1,
+                "mapping_range", 'range')
         previous_end = end
         identity = os.makedev(int(major, 16), int(minor, 16)), int(inode)
         if path is None or path == "" or path.startswith("["):
@@ -82,18 +91,18 @@ def map_objects(text, before_anonymous=None):
                 if category not in seen:
                     seen.add(category)  # At most eight labels per whole parse.
                     before_anonymous(category)
-            require(identity == (0, 0) and offset == 0
+            checked(identity == (0, 0) and offset == 0
                     and (not path or ANONYMOUS.fullmatch(path)),
-                    "anonymous_mapping_shape")
+                    "anonymous_mapping_shape", 'anonymous')
             continue
-        require(len(path) <= 4096 and PUBLIC.fullmatch(path)
+        checked(len(path) <= 4096 and PUBLIC.fullmatch(path)
                 and all(p not in ("", ".", "..") for p in path.split("/")[1:]),
-                "mapping_nonpublic_or_deleted")
-        require(0 < identity[1] <= 2**64 - 1 and (path not in objects or objects[path] == identity),
-                "mapping_identity_conflict")
+                "mapping_nonpublic_or_deleted", 'named_path')
+        checked(0 < identity[1] <= 2**64 - 1 and (path not in objects or objects[path] == identity),
+                "mapping_identity_conflict", 'named_identity')
         objects[path] = identity
-        require(len(objects) <= 64, "mapping_count")
-    require(objects, "mapping_empty")
+        checked(len(objects) <= 64, "mapping_count", 'object_count')
+    checked(objects, "mapping_empty", 'empty')
     return objects
 
 class Images:
@@ -267,7 +276,14 @@ class Images:
                     require(label in ANONYMOUS_CLASSES and step in ('first_parse','second_parse'))
                     self.owner.phase('before_'+name+'_initial_inventory_'+step+'_'+label, deadline)
                     self.available(deadline)
-                return map_objects(raw, category if observed else None)
+                def rejected(label):
+                    self.available(deadline)
+                    require(observed and name == 'core' and label in PARSE_REJECTIONS
+                            and step in ('first_parse','second_parse'))
+                    self.owner.phase('before_core_initial_inventory_'+step+'_reject_'+label, deadline)
+                    self.available(deadline)
+                return map_objects(raw, category if observed else None,
+                                   rejected if observed and name == 'core' else None)
             mark('before','executable')
             executable = self.executable(child, name, deadline)
             mark('after','executable')

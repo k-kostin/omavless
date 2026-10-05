@@ -159,7 +159,7 @@ class Controls(unittest.TestCase):
                 with patch.object(l.os,'open',return_value=fd) as opened, \
                      patch.object(l.os,'stat',return_value=real_stat):
                     reader=l.pinned_module(entry,'graph.py')
-                    self.assertEqual(reader.PINS['images.py'],'3542dff2c68f057c42d41333e62aa2f6a281dcc7ceaa5c96d12512f07152a394')
+                    self.assertEqual(reader.PINS['images.py'],'c7a821f478a7102f1c128fb450c4e172f9cdfc30db1d69b4c69d6a08d5f333bb')
                 opened.assert_called_once_with(l.STAGE+'/graph.py',l.FLAGS)
                 self.assertIn(fd,l.HELD)
             finally:os.close(fd)
@@ -325,12 +325,15 @@ class Controls(unittest.TestCase):
         inventory_labels={label for label in owner.PHASES if '_initial_inventory_' in label}
         self.assertEqual(owner.INVENTORY_ROLES,('bus','host','core'))
         self.assertEqual(owner.REQUIRED_ROLES,('host','core'))
-        self.assertEqual(len(inventory_labels),122)
+        self.assertEqual(len(inventory_labels),136)
         self.assertEqual(set(outer_labels+case_labels)|inventory_labels,owner.PHASES)
-        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),238)
+        self.assertEqual(len(outer_labels+case_labels)+len(inventory_labels),252)
         # Four alternatives per host/core, but exactly one presence and one
         # equality category occur on each sole initial attempt.
         self.assertEqual(len(outer_labels+case_labels)+114+4,234)
+        # One rejecting-predicate core label replaces an incomplete parse path,
+        # never adds a label to the complete40-frame core inventory.
+        self.assertEqual((2*2+1+8+1,2*7+1+8+2+8+1,22+16+2),(14,34,40))
         self.assertEqual(owner.PHASE_LIMIT,235)
         self.assertEqual(128+owner.PHASE_LIMIT,363)
         phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25

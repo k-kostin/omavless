@@ -21,10 +21,10 @@ import sys
 import time
 import types
 
-STAGE='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-2'
+STAGE='/home/kdk_vm/.cache/t3-retained-native-tmpfs-review-3'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='6c568e71229256d2b5d8ea200f0d09df67b3a0e5b5f392a5ba5c8590736bcd7b'
+GRAPH='6d1a21a8edcf8c56f834507ef04d10d4be476a61895a71984a48e9f5ca2da56f'
 VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']
