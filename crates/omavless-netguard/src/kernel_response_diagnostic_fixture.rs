@@ -102,6 +102,9 @@ impl Isolation {
     pub(super) fn capture_lease_regression() -> Result<Self> {
         Self::capture_using(Witness::read_lease_regression)
     }
+    pub(super) fn capture_exclusive_create() -> Result<Self> {
+        Self::capture_using(Witness::read_exclusive_create)
+    }
     fn capture_using(read: fn((u64, u64)) -> std::result::Result<Witness, ()>) -> Result<Self> {
         // First open: missing FD3 cannot accidentally become our own ns opener.
         let host = File::open("/proc/self/fd/3").map_err(|_| REFUSE)?;

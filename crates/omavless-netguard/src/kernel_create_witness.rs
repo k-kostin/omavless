@@ -79,10 +79,7 @@ impl<'a> PreparedCreate<'a> {
             let handle = readback(inventory, &table)?;
             Ok((inventory, generation, table, handle))
         })();
-        let (inventory, generation, table, handle) = match result {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        };
+        let (inventory, generation, table, handle) = result?;
         let session = custody.0.take().ok_or(REFUSE)?;
         let mut lease = LocalInventoryLease {
             session,
@@ -176,7 +173,7 @@ mod tests {
     }
     #[test]
     fn classification_without_complete_table_metadata_cannot_finish() {
-        let table = Some(TableMetadata {
+        let mut table = Some(TableMetadata {
             flags: 6,
             uses: 1,
             handle: 9,
@@ -202,12 +199,13 @@ mod tests {
             ),
             Ok(9)
         );
-        let mut zero = table.unwrap();
-        zero.handle = 0;
+        if let Some(metadata) = &mut table {
+            metadata.handle = 0;
+        }
         assert!(
             readback(
                 LocalPolicyInventory::ExactUntrusted(Policy::FullVpn),
-                &Some(zero)
+                &table
             )
             .is_err()
         );

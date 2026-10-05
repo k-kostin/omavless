@@ -8,6 +8,12 @@ migration, standalone Arch/NixOS packaging and later TUI work.
 `AGENTS.md` is the mandatory entry point. Backend/runtime/protocol/TUI work must
 also read `RUST_MIGRATION.md`.
 
+For development iteration and diagnosis, follow the owner-approved
+[execution policy](../development/EXECUTION_POLICY.md). It replaces blanket
+procedural re-review/diagnostic refusal for new work with explicit risk classes;
+it does not change historical evidence or grant permission to retry uncertain
+effects, merge main or publish a release.
+
 ## 1. One long-lived branch
 
 `main` is the only long-lived release source of truth. It preserves the stable
@@ -128,6 +134,11 @@ current queue. Do not put roadmap/agent rules exclusively in a separate branch.
 
 Every proposed main update must complete the [release reconciliation checklist](#release-reconciliation-checklist).
 There is no docs-only exception for bypassing that checklist or the main hold.
+
+The October 5 execution-policy decision retains that main-update boundary.
+A documentation change cannot silently change a product security guarantee;
+state the approved contract delta and its remaining implementation and
+acceptance gates. Do not bypass branch protection or claim unrun behavior.
 
 ### Branch cleanup lifecycle
 

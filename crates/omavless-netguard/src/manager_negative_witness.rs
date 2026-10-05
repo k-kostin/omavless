@@ -160,6 +160,11 @@ impl Witness {
         let dirs = Self::directories_for(fixture)?;
         Self::from_dirs_unit(dirs, namespace, (0, 0), fixture.unit())
     }
+    pub(crate) fn read_exclusive_create(namespace: (u64, u64)) -> Result<Self> {
+        let fixture = crate::manager_fixture_identity::Fixture::ExclusiveCreate;
+        let dirs = Self::directories_for(fixture)?;
+        Self::from_dirs_unit(dirs, namespace, (0, 0), fixture.unit())
+    }
     fn from_dirs(dirs: Vec<Directory>, namespace: (u64, u64), owner: (u32, u32)) -> Result<Self> {
         Self::from_dirs_unit(dirs, namespace, owner, UNIT)
     }
