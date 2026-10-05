@@ -177,6 +177,28 @@ impl FixtureCreator {
                     deadline.min(lease.deadline),
                 )?;
             }
+            if old.is_none() {
+                // Only this existing cfg(test) path, after durable Pending,
+                // can exercise the extracted original-session create witness.
+                let prepared = inventory::create_witness::PreparedCreate::new(lease, deadline)?;
+                let witness = prepared.execute(|session, requests, allowance| {
+                    BatchSender {
+                        session,
+                        effects: &mut self.effects,
+                        receive_fault: &mut self.receive_fault,
+                        end_ack_loss: &mut self.end_ack_loss,
+                        prefix_ack_loss: &mut self.prefix_ack_loss,
+                        send_cut: &mut self.send_cut,
+                        generation_refused: &mut self.generation_refused,
+                    }
+                    .send_batch_replies(requests, allowance)
+                })?;
+                let handle = witness.finish()?;
+                self.created = Some(handle);
+                self.cut();
+                require(!self.lose_reply)?;
+                return Ok(self.id(handle));
+            }
             lease.recheck()?;
             let requests = full_batch(
                 lease.generation,
@@ -304,6 +326,13 @@ struct BatchSender<'a> {
 }
 impl BatchSender<'_> {
     fn send_batch(&mut self, requests: AtomicBatch, deadline: Instant) -> Result<()> {
+        self.send_batch_replies(requests, deadline).map(|_| ())
+    }
+    fn send_batch_replies(
+        &mut self,
+        requests: AtomicBatch,
+        deadline: Instant,
+    ) -> Result<BatchReplies> {
         self.session.next_sequence = self
             .session
             .next_sequence
@@ -399,6 +428,7 @@ impl BatchSender<'_> {
         self.session.check(deadline)?;
         require(Instant::now() < deadline)?;
         *self.generation_refused = replies.changed();
-        require(!replies.changed())
+        require(!replies.changed())?;
+        Ok(replies)
     }
 }

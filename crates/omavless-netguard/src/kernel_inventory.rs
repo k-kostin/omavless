@@ -4,6 +4,10 @@ use super::*;
 use crate::policy::Policy;
 use std::collections::BTreeSet;
 
+#[cfg(test)]
+#[path = "kernel_create_witness.rs"]
+pub(super) mod create_witness;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LocalPolicyInventory {
     TableAbsent,
