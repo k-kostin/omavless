@@ -1,5 +1,9 @@
 # Fresh manager process capture subboundary diagnostic
 
+This retained v7 proposal is superseded for new delivery by the fresh
+[same-result executable-open diagnostic](MANAGER_EXECUTABLE_ERRNO.md).
+Its source pins describe the historical generation, never a v8 build.
+
 ROOT's separately reviewed fixed-file-only observation of stopped #638 v6
 recorded the exact first ten ordered BEFORE phases, ending `manager_process`,
 and its matching fixed FAILED_AT label. The diagnostic did not complete;

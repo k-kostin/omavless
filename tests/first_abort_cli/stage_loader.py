@@ -9,8 +9,8 @@ import stat
 import sys
 import time
 
-SOURCE = Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7')
-DESTINATION = Path('/run/ov-t4-cli-guard-v7')
+SOURCE = Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v8')
+DESTINATION = Path('/run/ov-t4-cli-guard-v8')
 CODE = ('core.py', 'support.py', 'startup_inventory.py', 'startup_followup.py',
         'lineage.py', 'root_guard.py')
 ELFS = ('helper', 'omavless')
@@ -149,8 +149,8 @@ def deliver(expected):
     value = json.loads(os.pread(fd, s.st_size + 1, 0), object_pairs_hook=unique,
                        parse_constant=lambda _: need(False))
     need(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'}
-         and value['schema'] == 't4-disposable-cli-delivery-v7'
-         and value['native_head'] == 'c338449e5c7c9706a34620a663966e1b78c3229b'
+         and value['schema'] == 't4-disposable-cli-delivery-v8'
+         and value['native_head'] == 'bf650713ed6daa066b38bbe8c1ed608f8a36534c'
          and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head'])
          and type(value['code']) is dict and set(value['code']) == set(CODE)
          and type(value['elfs']) is dict and set(value['elfs']) == set(ELFS))

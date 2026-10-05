@@ -5,7 +5,7 @@ use std::io::Write;
 
 pub(crate) const ENTRY: &str =
     "production_owner::first_abort::cli_vm_fixture::diagnose_stopped_admission";
-const HELPER: &[u8] = b"/home/ov-t4-abort-v5/.t4-first-abort/helper";
+const HELPER: &[u8] = b"/home/ov-t4-abort-v6/.t4-first-abort/helper";
 
 /// Private test-only latch: no extra observation, error details or output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +69,35 @@ impl ManagerCaptureStep {
             Self::RecheckCommandRead => "recheck_command_read",
             Self::RecheckCommRead => "recheck_comm_read",
             Self::RecheckExecutableLink => "recheck_executable_link",
+        }
+    }
+}
+
+/// A category of the existing failed open result, never its cause or details.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ManagerExecutableOpenError {
+    AccessDenied,
+    OperationDenied,
+    NotFound,
+    Other,
+}
+
+impl ManagerExecutableOpenError {
+    fn from_errno(error: nix::errno::Errno) -> Self {
+        match error {
+            nix::errno::Errno::EACCES => Self::AccessDenied,
+            nix::errno::Errno::EPERM => Self::OperationDenied,
+            nix::errno::Errno::ENOENT => Self::NotFound,
+            _ => Self::Other,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::AccessDenied => "eacces",
+            Self::OperationDenied => "eperm",
+            Self::NotFound => "enoent",
+            Self::Other => "other",
         }
     }
 }
@@ -148,6 +177,7 @@ struct Trace {
     count: usize,
     last: Option<Phase>,
     manager_capture_step: Option<ManagerCaptureStep>,
+    manager_executable_open_error: Option<ManagerExecutableOpenError>,
 }
 
 impl Trace {
@@ -165,6 +195,7 @@ impl Trace {
         }
         self.last = Some(phase);
         self.manager_capture_step = None;
+        self.manager_executable_open_error = None;
         self.count += 1;
         let raw = format!("T4_STOPPED_BEFORE_V1 {}\n", phase.name());
         if !matches!(write(raw.as_bytes()), Ok(size) if size == raw.len()) {
@@ -173,6 +204,20 @@ impl Trace {
             return Err(());
         }
         Ok(())
+    }
+
+    fn manager_executable_open_error(&mut self, error: nix::errno::Errno) {
+        if !self.active
+            || self.sealed
+            || self.reported
+            || self.last != Some(Phase::ManagerProcess)
+            || self.manager_capture_step != Some(ManagerCaptureStep::ExecutableOpen)
+        {
+            return;
+        }
+        self.manager_executable_open_error = Some(ManagerExecutableOpenError::from_errno(error));
+        // This operation has already failed. It cannot allow another operation.
+        self.sealed = true;
     }
 
     fn manager_capture_before(&mut self, step: ManagerCaptureStep) -> Result<(), ()> {
@@ -210,6 +255,13 @@ impl Trace {
                 raw.push_str("T4_STOPPED_MANAGER_CAPTURE_BEFORE_V1 ");
                 raw.push_str(step.name());
                 raw.push('\n');
+                if step == ManagerCaptureStep::ExecutableOpen
+                    && let Some(error) = self.manager_executable_open_error
+                {
+                    raw.push_str("T4_STOPPED_MANAGER_EXECUTABLE_OPEN_ERROR_V1 ");
+                    raw.push_str(error.name());
+                    raw.push('\n');
+                }
             }
             raw
         };
@@ -224,6 +276,14 @@ impl Trace {
 }
 
 thread_local! { static TRACE: Cell<Trace> = Cell::new(Trace::default()); }
+
+pub(super) fn manager_executable_open_error(error: nix::errno::Errno) {
+    TRACE.with(|cell| {
+        let mut trace = cell.get();
+        trace.manager_executable_open_error(error);
+        cell.set(trace);
+    });
+}
 
 pub(super) fn manager_capture_before(step: ManagerCaptureStep) -> Result<(), ()> {
     TRACE.with(|cell| {
@@ -495,5 +555,128 @@ fn manager_capture_latch_is_private_finite_reset_and_terminal() {
                 Ok(raw.len())
             })
             .unwrap();
+    }
+}
+
+#[test]
+fn manager_executable_errno_is_finite_scoped_and_permanently_failed() {
+    use nix::errno::Errno;
+    for (error, literal) in [
+        (Errno::EACCES, "eacces"),
+        (Errno::EPERM, "eperm"),
+        (Errno::ENOENT, "enoent"),
+        (Errno::EIO, "other"),
+        (Errno::EINTR, "other"),
+        (Errno::UnknownErrno, "other"),
+    ] {
+        let mut trace = Trace {
+            active: true,
+            ..Trace::default()
+        };
+        trace
+            .before(Phase::ManagerProcess, |raw| Ok(raw.len()))
+            .unwrap();
+        trace
+            .manager_capture_before(ManagerCaptureStep::ExecutableOpen)
+            .unwrap();
+        trace.manager_executable_open_error(error);
+        assert_eq!(trace.count, 1, "the error latch emits/observes nothing");
+        assert!(trace.sealed);
+        assert!(
+            trace
+                .manager_capture_before(ManagerCaptureStep::ExecutableMetadata)
+                .is_err()
+        );
+        assert!(
+            trace
+                .before(Phase::ManagerExecutable, |_| panic!("later operation"))
+                .is_err()
+        );
+        trace.manager_executable_open_error(Errno::EINVAL);
+        let mut writes = 0;
+        // Even a synthetic successful return cannot turn an observed error into success.
+        assert!(trace.finish(true, |raw| {
+            writes += 1;
+            let expected = format!("T4_STOPPED_FAILED_AT_V1 manager_process\nT4_STOPPED_MANAGER_CAPTURE_BEFORE_V1 executable_open\nT4_STOPPED_MANAGER_EXECUTABLE_OPEN_ERROR_V1 {literal}\n");
+            assert_eq!(raw, expected.as_bytes());
+            assert!(raw.len() <= 256);
+            Ok(raw.len())
+        }).is_err());
+        assert_eq!(writes, 1);
+        assert!(
+            trace
+                .finish(false, |_| panic!("second terminal attempt"))
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn manager_executable_errno_wrong_phase_step_or_inactive_has_no_effect() {
+    use nix::errno::Errno;
+    let mut inactive = Trace::default();
+    inactive.manager_executable_open_error(Errno::EACCES);
+    assert!(!inactive.sealed);
+    assert_eq!(inactive.manager_executable_open_error, None);
+    for (phase, step) in [
+        (Phase::SelfProcess, ManagerCaptureStep::ExecutableOpen),
+        (Phase::ManagerProcess, ManagerCaptureStep::CommRead),
+        (Phase::ManagerProcess, ManagerCaptureStep::RecheckExecutable),
+        (Phase::ManagerIdentity, ManagerCaptureStep::ExecutableOpen),
+    ] {
+        let mut trace = Trace {
+            active: true,
+            ..Trace::default()
+        };
+        trace.before(phase, |raw| Ok(raw.len())).unwrap();
+        trace.manager_capture_before(step).unwrap();
+        trace.manager_executable_open_error(Errno::EACCES);
+        assert!(!trace.sealed);
+        assert_eq!(trace.manager_executable_open_error, None);
+        trace.before(Phase::FinalLock, |raw| Ok(raw.len())).unwrap();
+        assert_eq!(trace.manager_capture_step, None);
+        trace
+            .finish(true, |raw| {
+                assert_eq!(raw, b"T4_STOPPED_READONLY_OBSERVATION_NOT_ADMISSION\n");
+                Ok(raw.len())
+            })
+            .unwrap();
+    }
+}
+
+#[test]
+fn manager_executable_errno_terminal_short_throw_and_extra_bytes_do_not_retry() {
+    for variant in 0..3 {
+        let mut trace = Trace {
+            active: true,
+            ..Trace::default()
+        };
+        trace
+            .before(Phase::ManagerProcess, |raw| Ok(raw.len()))
+            .unwrap();
+        trace
+            .manager_capture_before(ManagerCaptureStep::ExecutableOpen)
+            .unwrap();
+        trace.manager_executable_open_error(nix::errno::Errno::EACCES);
+        let mut writes = 0;
+        assert!(
+            trace
+                .finish(false, |raw| {
+                    writes += 1;
+                    match variant {
+                        0 => Ok(raw.len() - 1),
+                        1 => Err(std::io::Error::other("private synthetic value")),
+                        _ => Ok(raw.len() + 1),
+                    }
+                })
+                .is_err()
+        );
+        assert_eq!(writes, 1);
+        assert!(trace.reported && trace.sealed);
+        assert!(
+            trace
+                .finish(false, |_| panic!("fallback or retry output"))
+                .is_err()
+        );
     }
 }

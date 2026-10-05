@@ -381,7 +381,13 @@ fn magic_file(parent: &File, name: &str) -> Result<File> {
         Mode::empty(),
     )
     .map(File::from)
-    .map_err(|_| ())
+    .map_err(|error| {
+        // Reuse this exact failed syscall result: no diagnostic probe or retry.
+        #[cfg(test)]
+        crate::restore_abort_cli::diagnostic::manager_executable_open_error(error);
+        #[cfg(not(test))]
+        let _ = error;
+    })
 }
 
 fn proc_link(parent: &File, name: &str) -> Result<Zeroizing<Vec<u8>>> {

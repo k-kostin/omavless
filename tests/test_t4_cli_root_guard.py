@@ -24,8 +24,8 @@ class GuardTests(unittest.TestCase):
         cli = (native / 'restore_abort_cli.rs').read_text()
         diagnostic = (native / 'restore_abort_diagnostic.rs').read_text()
         fixture = (native / 'restore_first_abort_cli_vm_tests.rs').read_text()
-        self.assertEqual(guard.UID, 48048)
-        self.assertEqual(guard.NAME, 'ov-t4-abort-v5')
+        self.assertEqual(guard.UID, 48049)
+        self.assertEqual(guard.NAME, 'ov-t4-abort-v6')
         self.assertEqual(guard.HOME, Path('/home') / guard.NAME)
         self.assertEqual(guard.RUNTIME, Path('/run/user') / str(guard.UID))
         self.assertEqual(guard.ARTIFACTS, guard.HOME / '.t4-first-abort')
@@ -48,11 +48,12 @@ class GuardTests(unittest.TestCase):
         loader_source = Path(loader.__file__).read_text()
         self.assertEqual(re.findall(r"value\['native_head'\] == '([0-9a-f]{40})'", loader_source),
                          [guard.NATIVE_HEAD])
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v7'))
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v8'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v8'))
         for source in (cli, diagnostic, fixture):
-            for stale in ('48046', '48047', 'ov-t4-abort-v3', 'ov-t4-abort-v4',
-                          'guard-v5', 'guard-v6', 'delivery-v5', 'delivery-v6'):
+            for stale in ('48046', '48047', '48048', 'ov-t4-abort-v3', 'ov-t4-abort-v4',
+                          'ov-t4-abort-v5', 'guard-v5', 'guard-v6', 'guard-v7',
+                          'delivery-v5', 'delivery-v6', 'delivery-v7'):
                 self.assertNotIn(stale, source)
 
     def test_manager_capture_diagnostic_has_no_extra_observation_or_eager_parse(self):
@@ -90,6 +91,31 @@ class GuardTests(unittest.TestCase):
             self.core.UNCERTAIN=False
             with self.assertRaises(guard.Refused):guard.admission_trace(bad)
             self.assertTrue(self.core.UNCERTAIN)
+
+    def test_manager_executable_errno_uses_only_existing_failed_open_result(self):
+        native = Path(__file__).resolve().parents[1] / 'crates/omavless-runtime/src'
+        source = (native / 'restore_abort_stopped_owner.rs').read_text()
+        diagnostic = (native / 'restore_abort_diagnostic.rs').read_text()
+        body = source.split('fn magic_file(', 1)[1].split('\nfn proc_link(', 1)[0]
+        self.assertEqual(body.count('openat('), 1)
+        self.assertIn('OFlag::O_PATH | OFlag::O_CLOEXEC', body)
+        self.assertNotIn('O_NOFOLLOW', body)
+        self.assertIn('.map_err(|error| {', body)
+        self.assertIn('#[cfg(test)]\n        crate::restore_abort_cli::diagnostic::manager_executable_open_error(error);', body)
+        self.assertIn('#[cfg(not(test))]\n        let _ = error;', body)
+        latch = diagnostic.split('fn manager_executable_open_error(&mut self,', 1)[1].split('\n    fn manager_capture_before(', 1)[0]
+        self.assertIn('self.last != Some(Phase::ManagerProcess)', latch)
+        self.assertIn('self.manager_capture_step != Some(ManagerCaptureStep::ExecutableOpen)', latch)
+        self.assertIn('self.sealed = true', latch)
+        for forbidden in ('write(', 'format!', 'File', 'read(', 'Instant', 'clock', 'budget', 'open('):
+            self.assertNotIn(forbidden, latch)
+        categories = re.findall(r'Self::\w+ => "([a-z]+)",',
+            diagnostic.split('impl ManagerExecutableOpenError {', 1)[1].split('\n}', 1)[0])
+        self.assertEqual(categories, ['eacces', 'eperm', 'enoent', 'other'])
+        terminal = diagnostic.split('fn finish(', 1)[1].split('\nthread_local!', 1)[0]
+        self.assertLess(terminal.index('T4_STOPPED_FAILED_AT_V1'), terminal.index('T4_STOPPED_MANAGER_CAPTURE_BEFORE_V1'))
+        self.assertLess(terminal.index('T4_STOPPED_MANAGER_CAPTURE_BEFORE_V1'), terminal.index('T4_STOPPED_MANAGER_EXECUTABLE_OPEN_ERROR_V1'))
+        self.assertIn('raw.len() > 256', terminal)
 
     def test_diagnostic_failure_never_calls_normal_cli_or_reentry(self):
         obj=guard.Guard.__new__(guard.Guard)
@@ -191,7 +217,7 @@ class GuardTests(unittest.TestCase):
         self.assertNotIn('CREATE_MAIL_SPOOL=no',argv)
         self.assertIn('SUB_UID_COUNT=0',argv)
         self.assertIn('SUB_GID_COUNT=0',argv)
-        self.assertIn('48048',argv)
+        self.assertIn('48049',argv)
         self.assertNotIn('48044',argv)
 
     def setUp(self):
@@ -455,11 +481,11 @@ class GuardTests(unittest.TestCase):
 
 class LoaderTests(unittest.TestCase):
     def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v8'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v7'))
-        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v5'))
-        self.assertEqual(guard.RUNTIME, Path('/run/user/48048'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v8'))
+        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v6'))
+        self.assertEqual(guard.RUNTIME, Path('/run/user/48049'))
 
     def test_loader_capacity_separate_and_shared_devices(self):
         for devices, amounts, accepted in (
@@ -484,7 +510,7 @@ class LoaderTests(unittest.TestCase):
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v7',
+            value = {'schema': 't4-disposable-cli-delivery-v8',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),

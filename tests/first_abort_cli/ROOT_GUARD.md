@@ -1,6 +1,8 @@
 # Fixed disposable UID normal-CLI guard
 
-The fresh manager-capture UID48048/v5/v7 successor is scoped in
+The fresh source-only UID48049/v6/v8 successor is scoped in
+[same-result executable-open diagnostic](MANAGER_EXECUTABLE_ERRNO.md).
+The stopped manager-capture UID48048/v5/v7 predecessor is scoped in
 [MANAGER_CAPTURE_BOUNDARIES.md](MANAGER_CAPTURE_BOUNDARIES.md). The earlier
 quoted-delivery UID48047/v4/v6 generation is retained in
 [DELIVERY_TRANSPORT.md](DELIVERY_TRANSPORT.md). The generation identities and
