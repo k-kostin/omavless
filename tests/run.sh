@@ -24,6 +24,7 @@ python3 -m unittest -v \
   "$here/test_p4_timer_overlay.py" \
   "$here/test_p4_default_elapsed_overlay.py" \
   "$here/test_p4_default_rekey_overlay.py" \
+  "$here/test_p4_default_residue_source.py" \
   "$here/test_p4_awg_cookie_transport.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_staged_native_unit_acceptance.py" \

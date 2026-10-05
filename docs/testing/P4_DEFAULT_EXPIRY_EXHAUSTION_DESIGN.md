@@ -155,3 +155,96 @@ never a retry of a failed artifact. Inert Python receipt/source guards and Go
 formatting may run before that review. No real sockets/TUN FDs, namespace,
 installed profile, Rust/runtime caller, normal P4 activation, main/RC merge,
 release or marketplace publication follows from these channel-only cases.
+
+## Add-only source implementation checkpoint (not compiled or executed)
+
+The new opt-in `p4_cookie_overlay && p4_default_residue_overlay` files are
+[`default_residue_support_test.go`](../../tests/fixtures/p4_awg_peer/upstream-tests/default_residue_support_test.go)
+and [`default_residue_cases_test.go`](../../tests/fixtures/p4_awg_peer/upstream-tests/default_residue_cases_test.go).
+The exact #589 configured-channel packet/TUN support remains byte-identical
+(SHA-256 `6722869be1b098603966eb0df564579789146a15c1340bc121e4ac96c5d2cb6f`).
+Its old device factory/cleanup is not called by the new cases. No underlying
+engine file, option/default, Timer method/callback or key epoch is changed.
+The strict pure [receipt parser](../../tests/fixtures/p4_awg_peer/default_residue_receipt.py)
+has no entry point, build/subprocess or execution authority. The
+[ordinary guards](../../tests/test_p4_default_residue_source.py) exercise synthetic
+receipts and source constraints only; they cannot establish engine behavior.
+
+Finite resources per selector: two Devices, two peers, five real timers per
+peer, two fake TUNs and two channel Binds. `runtime.NumCPU()` must be1..32 before
+any `NewDevice`; `GOMAXPROCS` is not a worker-count substitute. Each Device has
+3N encryption/decryption/handshake workers, five TUN/event/receive/sequential
+workers, three refcounted queue closers and one limiter collector. With at most
+ten concurrent timer callbacks and two one-shot Close workers, the source bound
+is `2 ×(3N+9)+12 <=222`, excluding Go runtime/background/finalizer goroutines.
+All eight worker families retain bounded fixed-format start/stop counts, without
+logging arguments. The fixture keeps at most two4096-byte protected originals,
+128 wire events,128 delivery events and128 callback events per event family;
+two inbound channels each128 packets, TUN input/output8 and Read-entry16.
+The inherited engine queues remain1024 inbound/outbound/handshake, per-peer
+staged128, batch size1. Upstream `PreallocatedBuffersPerPool=0` has no intrinsic
+pool allocation cap: do not claim an engine heap limit. This experiment limits
+external admission and retained observations; its later actual supervisor
+resource/command limits remain an independently reviewed prerequisite.
+
+Case A correlates each actual ReceiveFunc delivery and subsequent entry with
+the original protected receiver index/counter. It validates actual delivery
+ages, not merely the test's wake-up timestamp. An exact early fake-TUN positive
+control and a full1.5-second late negative window are separate. No more than
+two retained data packets exist; keepalives are not mistaken for payloads.
+The packet classifier returns a minimum transport size, so the fixture uses
+the actual remaining body length to select64-byte IP payloads and decrypts only
+the transport header for index/counter correlation. The engine receives the
+unchanged original ciphertext through its real ReceiveFunc.
+Both Binds withhold all subsequent H1, including genuine responder idle-loss
+requests after the late reverse exchange. Neither side's real timers are
+cancelled by the fixture; no new response/session may renew residue expiry.
+Any actually retained partial-handshake index on either peer is checked at
+zero removal, not assumed absent merely because the client initiated baseline.
+
+Case B observes twenty authenticated fresh H1 emissions,19 retry intervals,
+twenty actual rearm targets,19 fixed retry callback entries and one exhaustion
+entry. The single genuine staged TUN packet is drained by the engine, not the
+test. Its receipt carries actual trigger/exhaustion/retry extrema and scheduled
+duration extrema separately. Counts18/20 retain their actual distinct meanings.
+The quiet window is5.5 seconds, with no21st H1 in the chain. Both cases observe
+retained original indexed current keys at539; previous/next slots were genuinely
+empty and are reported as such. Original creation epochs must differ by at most
+250ms for the joint539-second observation window, or setup refuses early.
+
+Zero callbacks are fixed entry timestamps only. Locked key/handshake slot
+clearance, both captured key indices, any genuine partial-handshake index and
+staged-channel drain independently establish removal at540–550 seconds.
+Receipts require callback age <= removal age, each <=550, and never infer removal
+from a logger event alone. `Handshake.Clear` clears only the upstream actual
+ephemeral/chain/hash/local-index/state fields; no claim is made about untouched
+remote index, timestamps, static identity or physical Go cipher-memory erasure.
+
+Both real `Device.Close` calls share a finite five-second teardown deadline,
+with exactly one attempt per Device even on failure. The actual return and
+`Device.Wait` closure are required, followed by all fixed worker stop boundaries.
+Upstream Close joins receive/sequential and its registered stopping group,
+synchronizes Timer callbacks, drops queue references and closes the limiter's
+stop channel. Encryption/decryption and limiter/queue-closer goroutines do not
+expose separate joins; fixed stop literals alone are not physical join proof.
+The future unchanged owned-graph supervisor still must prove whole process
+completion. `teardown_complete` describes this bounded source closure contract,
+not an independently executed receipt or generic secure-erasure claim. Receipt
+body time is sampled after both closures; Go JSON elapsed permits only10ms
+rounding tolerance and cannot exceed570 seconds.
+
+The receipt grammar accepts exactly one selected case/run/PASS, one finite
+causal receipt and one package PASS. Duplicate/unknown/missing fields, wrong
+selector, skips/failures, raw diagnostic lines, nonfinite/aliased numeric values,
+early/default-overridden/renewed-timer/callback-only claims all refuse. At most64
+events,64KiB per JSON line and2MiB complete output are accepted. No raw packet,
+key, index, peer argument or endpoint enters the projection. This is parser
+contract evidence only. The new immutable opt-in build/execution recipe has
+not yet been implemented or selected, and neither selector has been compiled
+or run. ROOT FULL source/closure/graph/recipe review remains required before Go.
+
+Local source-only gates:12 inert receipt/source controls PASS; both Python3.14
+and3.12.13 `./tests/run.sh` PASS358 tests/two existing skips plus all JS/QML
+contracts;67-link documentation discovery and `git diff --check` PASS.
+`gofmt` checked source syntax/format only. No Go compiler, test ELF, actual
+engine selector, ordinary/race execution, native networking or VM action ran.
