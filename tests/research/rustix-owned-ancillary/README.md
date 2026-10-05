@@ -231,3 +231,77 @@ An earlier inert source-suite attempt under an overly long private TMPDIR
 failed one synthetic AF_UNIX bind; that NONPASS is retained and JS/QML were
 not reached. A fresh shorter private TMPDIR gate passed. No product Rust build
 or new actual receive evidence is inferred from the documentation checkpoint.
+
+## Separate prepared own-pair control: exact actual result
+
+`source-only-0a0c958.patch` preserves eleven source/harness files from the same
+import base to external `0a0c958cd823b5be70abd38cf8def36b1554a089`.
+It is 88439 bytes, SHA256
+`c094660297f6e51414450b221159298cfbf77a4b683ac2df5b2cc9e78e6ce18f`.
+All three earlier exports and their source/recipe/receipt evidence remain
+unchanged. No runner applies this patch; product dependencies/API are unchanged.
+The upstream licenses remain retained. Reverse-apply checks all eleven exact
+result files without modifying or executing them. Nine outputs keep their
+1971 hashes; the changed/new outputs are:
+
+| Resulting file | SHA256 |
+| --- | --- |
+| rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs | 5249428ee8ab93f10c8747cfe0efcbde58627693abb61b26fdc9acf49b4f86a5 |
+| rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated_kernel_control.rs | df51f0e08be5290999763e6cc2794ef4e9dbb1e5108d873922391f46adb9f464 |
+
+After FULL ROOT and independent source/recipe review, ROOT's separate
+offline/locked single-threaded compile/inert selection `029d9d` (final
+`059988`) ended KNOWN_ZERO. Safe post-zero check `ccb537` confirmed seven
+passed, zero failed, zero ignored, 56 filtered out. The entire new default-
+ignored body compiled but was not invoked. Inert recipe SHA256:
+`cbefd3a0a9b862814afccbee8a4c675b68f53cb06aff30936a537e9c58262624`;
+review `9167b0c828a56f8648fab7c7f9abd8c262d3597183618c57954a97d486f6cfb4`.
+Original captures remain private under
+`/home/kk/.cache/ovtmp-root/t4-prepared-control-inert.jClhr2Ak/`:
+
+| Capture | Bytes | SHA256 |
+| --- | ---: | --- |
+| first.stdout | 1168 | a41b44d2b5b06027189b8291554c4b5420ea7f608cf954e36cceb2d03445cfec |
+| first.stderr | 576130 | 64a6a4ebc1d5b416ecc82b5f4c0a9e93fc4c8b5f1588d29660584bdb789ae190 |
+
+After a distinct FULL ROOT and independent immutable actual-recipe review,
+ROOT alone selected the exact clean head's one new linux_raw ignored entry:
+`net::send_recv::msg::owned_ancillary_experiment::preallocated::kernel_control::fresh_no_child_preallocated_receive_once`.
+Selection `30990f` ended KNOWN_ZERO; safe post-zero check `9fe085` confirmed
+one passed, zero failed, zero ignored, 62 filtered out. Author selected neither
+Cargo nor actual receive. No second backend, child, VM, old scope, product
+binary, privilege or network configuration was exercised. Fresh actual recipe
+SHA256 `b5fd7734ff2953c5f981007b8bab00075a07f7674c5ebe19c8ffeb6c9223c882`;
+review `e747c4d0d7f57a72ae7fdd8e82aa584afa64160614635d1b3a88e2f2925639a7`.
+HOME remained inherited `/home/kk`, never assigned/exported. Target/TMPDIR and
+normal Cargo/Rustup homes stayed fixed. Original captures remain private under
+`/home/kk/.cache/ovtmp-root/t4-prepared-own-pair-first.nAzlQWD5/`:
+
+| Capture | Bytes | SHA256 |
+| --- | ---: | --- |
+| first.stdout | 245 | 4bceea5b57a394259da2166d6463fb1dd408605530aeb73519da3fc04e2f1057 |
+| first.stderr | 576003 | 30d8dffaa36ec0a2ce56b8ec7805625c4071f219081571d2722d6685d85b8309 |
+
+All four captures are0600 single-link uid/gid1000; stderr was hashed only,
+not read or exported. The actual control acquired one fresh nonblocking
+unnamed SEQPACKET pair and two fresh nonblocking pipes after all receive and
+outer-retention reservations. It performed one prepared receive, requiring
+exact credentials/two RIGHTS/PIDFD order and bounds, original option queries,
+CLOEXEC, one zero-time PIDFD poll, separated pipe-alias bytes and unchanged
+four returned vector pointers/capacities. Whole owners entered retention before
+post-call gates. There was no PIDFD read, process identity reconstruction,
+signal, reap, retry or cleanup. The eight-second sampled budget is not hard
+syscall cancellation. No prior actual receipt was borrowed.
+
+This is only a bounded successful own-pair composition on the tested backend;
+poll and shape are not descriptor-class, liveness, authentication or manager
+authority. Backend-installed but unreported descriptors on error remain
+unsupported, as do future unknown descriptor classes, malformed tails and
+broader OOM/panic/process-death guarantees. Libc actual receive is untested.
+No retained-manager transport integration, closed privileged protocol,
+canonical namespace, normal runtime adoption, merge or publication is proved.
+
+This documentation/export checkpoint passed the full source gate: 639 tests,
+two declared skips, JS/QML/navigation (`7a2db6`), reverse-apply and whitespace
+checks. Only documentation and the inert textual research fixture changed;
+the source gate does not execute this patch or produce new kernel evidence.

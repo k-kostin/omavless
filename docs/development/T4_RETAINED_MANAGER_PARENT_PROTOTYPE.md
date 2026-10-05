@@ -254,3 +254,30 @@ hard cancellation, current-kernel attestation, manager authentication or normal
 owner adoption. No product Cargo/API/dependency or CLI path changes. Any actual
 receive control requires its own fixed source/recipe review and authorization;
 this inert result cannot inherit either older own-pair kernel result.
+
+## Prepared own-pair successor: narrow actual composition
+
+External `0a0c958cd823b5be70abd38cf8def36b1554a089` is preserved in a
+separate eleven-file [textual export and exact receipt](../../tests/research/rustix-owned-ancillary/README.md).
+The prepared receiver is unchanged apart from the isolated default-ignored
+control module. ROOT's separately reviewed compile/inert gate `029d9d` /
+`059988` passed seven tests, zero failed, zero ignored, 56 filtered out; the
+new ignored body compiled without being selected.
+
+After distinct FULL ROOT and independent source/immutable-recipe review, ROOT
+alone selected that new linux_raw own-pair control once: `30990f` KNOWN_ZERO,
+safe post-zero `9fe085`, one passed, zero failed, zero ignored, 62 filtered out.
+All reservations precede acquisition of one fresh nonblocking unnamed pair
+and two pipes. One prepared receive checks exact credentials/two RIGHTS/PIDFD
+shape, original option queries, CLOEXEC, zero-time poll, pipe aliases and
+unchanged returned vector pointers/capacities. Whole owners are retained before
+post-call gates. No PIDFD read, child, old scope, VM, configuration, product
+binary, retry or second backend ran; author did not select Cargo. Older exact
+source heads, patches, receipts and permanently stopped scopes remain intact.
+
+This composes bounded successful receive/decode only. It does not authenticate
+a manager/launcher, integrate transport into `LocalParent`, prove descriptor
+class or close backend-installed-but-unreported error ownership, unknown-FD,
+malformed-tail or broader OOM/panic/process-death gaps. No product dependency,
+API or ordinary CLI changes, actual libc receive, adoption or publication are
+implied. The sampled deadline remains distinct from hard cancellation.
