@@ -829,3 +829,30 @@ must still hold after the actual active DNS readback. Final helper finish,
 fully typed frozen-frame validation and clean acceptance likewise share ONE
 five-second deadline. A late snapshot cannot start observer validation, and a
 late observer cannot start clean acceptance (one additional inert control).
+
+## Separate synthetic coordinator stage-cut controls
+
+`test_positive_stage_cuts.py` reaches the unchanged `Case.run` through inert
+owner/helper/controller/bootstrap/stream adapters. Its explicit whole positive
+ledger has 56 operation calls and 31 coordinator phases: 143 sampled synthetic
+boundaries (before/after each operation plus each phase). Every boundary has a
+first-refusal cut asserting the exact positive prefix, permanent Case/owner
+seal and no downstream call. Seven post-core-mapping cuts also check that a
+model clock recovery cannot reenter the refused coordinator. Only the complete
+synthetic order returns the finite result, whose whole/production/installed/
+adoption authority remains false.
+
+The three controls do not create or import a descriptor, process, socket,
+namespace, echo thread or native artifact. Synthetic `fileno`71 is never passed
+to a real write; all reached OS effect sites are inert replacements. Leaf
+adapters intentionally do not establish their own resource custody or timing:
+the existing real-source leaf controls and separate exact-head acceptance are
+still required. No production code, image/parser predicate, diagnostic grammar,
+five/eight/65-second budget, unknown-result handling or settlement rule changes.
+This is coordinator coverage, not proof of any stopped invocation's cause,
+descriptor survival or native/whole-flow PASS.
+
+Source-only gates: the three focused controls pass; the ordinary Python3.14
+suite passes 1162 controls with two existing skips, all JS/QML contracts and
+`git diff --check`. Those ordinary gates keep their existing authorized HOST
+synthetic file/socket controls; this new suite adds no kernel/native execution.

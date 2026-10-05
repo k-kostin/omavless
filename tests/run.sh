@@ -13,6 +13,7 @@ python3 -m unittest -v \
   "$here/retained_positive_composition/test_images.py" \
   "$here/retained_positive_composition/test_helper.py" \
   "$here/retained_positive_composition/test_positive.py" \
+  "$here/retained_positive_composition/test_positive_stage_cuts.py" \
   "$here/retained_positive_composition/test_streams.py" \
   "$here/retained_positive_composition/test_bootstrap.py" \
   "$here/retained_positive_composition/test_kernel_socket_alias.py" \
