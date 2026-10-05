@@ -16,6 +16,19 @@ const CANDIDATE_NOFILE: usize = 8320;
 pub(super) enum Class {
     OtherUid,
     SameUid,
+    SameUidExitedGroup,
+}
+
+pub(super) enum Secondary<T> {
+    Image(T),
+    ExitedGroupPidfd(T),
+}
+impl<T> Secondary<T> {
+    pub(super) fn original(&self) -> &T {
+        match self {
+            Self::Image(original) | Self::ExitedGroupPidfd(original) => original,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -31,7 +44,7 @@ enum Phase {
 struct Row<T> {
     pid: u32,
     directory: T,
-    executable: Option<T>,
+    secondary: Option<Secondary<T>>,
     class: Option<Class>,
     complete: bool,
 }
@@ -91,7 +104,15 @@ impl<T> Owner<T> {
 
     pub(super) fn row_originals(&self) -> Result<(&T, Option<&T>), Unavailable> {
         let row = &self.rows[self.current_row()?];
-        Ok((&row.directory, row.executable.as_ref()))
+        let image = match row.secondary.as_ref() {
+            Some(secondary @ Secondary::Image(_)) => Some(secondary.original()),
+            _ => None,
+        };
+        Ok((&row.directory, image))
+    }
+
+    pub(super) fn row_secondary(&self) -> Result<Option<&Secondary<T>>, Unavailable> {
+        Ok(self.rows[self.current_row()?].secondary.as_ref())
     }
 
     pub(super) fn scratch_original(&self, slot: usize) -> Result<&T, Unavailable> {
@@ -193,7 +214,7 @@ impl<T> Owner<T> {
             owner.rows.push(Row {
                 pid,
                 directory,
-                executable: None,
+                secondary: None,
                 class: None,
                 complete: false,
             });
@@ -230,7 +251,7 @@ impl<T> Owner<T> {
         self.guarded(|owner| {
             if owner.phase != Phase::Rows
                 || owner.rows.last().is_none_or(|row| {
-                    row.class != Some(Class::SameUid) || row.executable.is_some() || row.complete
+                    row.class != Some(Class::SameUid) || row.secondary.is_some() || row.complete
                 })
             {
                 return Err(Unavailable);
@@ -239,8 +260,32 @@ impl<T> Owner<T> {
             owner.charge()?;
             let row = owner.rows.last_mut().ok_or(Unavailable)?;
             let executable = acquire_from_original(&row.directory)?;
-            row.executable = Some(executable);
+            row.secondary = Some(Secondary::Image(executable));
             gate()
+        })
+    }
+
+    pub(super) fn exited_group(
+        &mut self,
+        mut gate: impl FnMut() -> Result<(), Unavailable>,
+        acquire_from_original: impl FnOnce(&T) -> Result<T, Unavailable>,
+    ) -> Result<(), Unavailable> {
+        self.guarded(|owner| {
+            if owner.phase != Phase::Rows
+                || owner.rows.last().is_none_or(|row| {
+                    row.class != Some(Class::SameUidExitedGroup)
+                        || row.secondary.is_some()
+                        || row.complete
+                })
+            {
+                return Err(Unavailable);
+            }
+            gate()?;
+            owner.charge()?;
+            let row = owner.rows.last_mut().ok_or(Unavailable)?;
+            let original = acquire_from_original(&row.directory)?;
+            row.secondary = Some(Secondary::ExitedGroupPidfd(original));
+            gate() // reported pidfd already retained; no failed-open fallback
         })
     }
 
@@ -311,7 +356,7 @@ impl<T> Owner<T> {
     pub(super) fn complete_row(
         &mut self,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
-        strict_recheck: impl FnOnce(&T, Option<&T>, Class) -> Result<(), Unavailable>,
+        strict_recheck: impl FnOnce(&T, Option<&Secondary<T>>, Class) -> Result<(), Unavailable>,
     ) -> Result<(), Unavailable> {
         self.guarded(|owner| {
             if owner.phase != Phase::Rows || owner.scratch.iter().any(Option::is_some) {
@@ -319,11 +364,20 @@ impl<T> Owner<T> {
             }
             let row = owner.rows.last_mut().ok_or(Unavailable)?;
             let class = row.class.ok_or(Unavailable)?;
-            if row.complete || (class == Class::SameUid) != row.executable.is_some() {
+            let witnessed = matches!(
+                (class, row.secondary.as_ref()),
+                (Class::OtherUid, None)
+                    | (Class::SameUid, Some(Secondary::Image(_)))
+                    | (
+                        Class::SameUidExitedGroup,
+                        Some(Secondary::ExitedGroupPidfd(_))
+                    )
+            );
+            if row.complete || !witnessed {
                 return Err(Unavailable);
             }
             gate()?;
-            strict_recheck(&row.directory, row.executable.as_ref(), class)?;
+            strict_recheck(&row.directory, row.secondary.as_ref(), class)?;
             gate()?;
             row.complete = true;
             Ok(())
@@ -348,7 +402,7 @@ impl<T> Owner<T> {
         &mut self,
         pid: u32,
         mut gate: impl FnMut() -> Result<(), Unavailable>,
-        recheck_original: impl FnOnce(&T, Option<&T>, Class) -> Result<(), Unavailable>,
+        recheck_original: impl FnOnce(&T, Option<&Secondary<T>>, Class) -> Result<(), Unavailable>,
     ) -> Result<(), Unavailable> {
         self.guarded(|owner| {
             if owner.phase != Phase::Sweep
@@ -364,7 +418,7 @@ impl<T> Owner<T> {
             gate()?;
             recheck_original(
                 &row.directory,
-                row.executable.as_ref(),
+                row.secondary.as_ref(),
                 row.class.ok_or(Unavailable)?,
             )?;
             gate()?;
@@ -487,7 +541,7 @@ mod tests {
                 );
                 if cut == 1 {
                     assert!(result.is_err());
-                    assert!(owner.rows[0].executable.is_some());
+                    assert!(owner.rows[0].secondary.is_some());
                 } else {
                     result.unwrap();
                     if cut == 2 {
@@ -576,7 +630,7 @@ mod tests {
                     || Ok(()),
                     |original, executable, _| {
                         assert_eq!(original.id, *pid as usize);
-                        assert_eq!(executable.unwrap().id, *pid as usize + MAX_ROWS);
+                        assert_eq!(executable.unwrap().original().id, *pid as usize + MAX_ROWS);
                         Ok(())
                     },
                 )
@@ -681,6 +735,177 @@ mod tests {
             assert_eq!(drops.get(), 0);
             assert!(owner.finish().is_err());
         }
+    }
+
+    #[test]
+    fn exited_group_each_acquisition_and_late_check_cut_keeps_typed_prefix() {
+        for cut in 0..4 {
+            let drops = Rc::new(Cell::new(0));
+            let mut owner = Owner::reserve(&[1], 0, 8).unwrap();
+            owner
+                .directory(1, || Ok(()), || Ok(handle(1, &drops)))
+                .unwrap();
+            owner
+                .classify(|| Ok(()), |_| Ok(Class::SameUidExitedGroup))
+                .unwrap();
+            let mut gates = 0;
+            let mut opens = 0;
+            let opened = owner.exited_group(
+                || {
+                    gates += 1;
+                    if (cut == 0 && gates == 1) || (cut == 2 && gates == 2) {
+                        Err(Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                },
+                |directory| {
+                    assert_eq!(directory.id, 1);
+                    opens += 1;
+                    if cut == 1 {
+                        Err(Unavailable)
+                    } else {
+                        Ok(handle(42, &drops))
+                    }
+                },
+            );
+            let result = if cut == 3 {
+                opened.unwrap();
+                owner.complete_row(
+                    || Ok(()),
+                    |_, secondary, class| {
+                        assert!(class == Class::SameUidExitedGroup);
+                        assert!(matches!(secondary, Some(Secondary::ExitedGroupPidfd(_))));
+                        Err(Unavailable) // model fdinfo/poll/identity refusal
+                    },
+                )
+            } else {
+                opened
+            };
+            assert!(result.is_err());
+            assert_eq!(opens, usize::from(cut != 0));
+            if cut >= 2 {
+                assert!(matches!(
+                    owner.rows[0].secondary,
+                    Some(Secondary::ExitedGroupPidfd(_))
+                ));
+            }
+            assert_eq!(drops.get(), 0);
+            assert!(
+                owner
+                    .exited_group(|| panic!("retry gate"), |_| panic!("retry open"))
+                    .is_err()
+            );
+            assert!(
+                owner
+                    .executable(|| panic!("fallback gate"), |_| panic!("image fallback"))
+                    .is_err()
+            );
+            assert!(owner.finish().is_err());
+            assert_eq!(drops.get(), 0);
+        }
+    }
+
+    #[test]
+    fn secondary_roles_and_precharged_bound_cannot_be_substituted() {
+        for class in [Class::SameUid, Class::OtherUid, Class::SameUidExitedGroup] {
+            let drops = Rc::new(Cell::new(0));
+            let mut owner = Owner::reserve(&[1], 0, 8).unwrap();
+            owner
+                .directory(1, || Ok(()), || Ok(handle(1, &drops)))
+                .unwrap();
+            owner.classify(|| Ok(()), |_| Ok(class)).unwrap();
+            if class == Class::SameUidExitedGroup {
+                assert!(
+                    owner
+                        .executable(|| panic!("wrong-role gate"), |_| panic!("image for exited"))
+                        .is_err()
+                );
+            } else {
+                assert!(
+                    owner
+                        .exited_group(|| panic!("wrong-role gate"), |_| panic!("pidfd for live"))
+                        .is_err()
+                );
+            }
+            assert_eq!(drops.get(), 0);
+        }
+        let drops = Rc::new(Cell::new(0));
+        let mut owner = Owner::reserve(&[1], 0, 8).unwrap();
+        owner
+            .directory(1, || Ok(()), || Ok(handle(1, &drops)))
+            .unwrap();
+        owner
+            .classify(|| Ok(()), |_| Ok(Class::SameUidExitedGroup))
+            .unwrap();
+        owner.charged = owner.bound; // synthetic full reservation
+        assert!(
+            owner
+                .exited_group(|| Ok(()), |_| panic!("open before capacity"))
+                .is_err()
+        );
+        assert!(owner.finish().is_err());
+        assert_eq!(drops.get(), 0);
+    }
+
+    #[test]
+    fn all_4096_mixed_secondary_witnesses_fit_without_a_third_row_handle() {
+        let drops = Rc::new(Cell::new(0));
+        let pids: Vec<_> = (1..=MAX_ROWS as u32).collect();
+        let mut owner = Owner::reserve(&pids, CANDIDATE_FIXED, CANDIDATE_NOFILE).unwrap();
+        for pid in &pids {
+            owner
+                .directory(*pid, || Ok(()), || Ok(handle(*pid as usize, &drops)))
+                .unwrap();
+            let class = if pid % 2 == 0 {
+                Class::SameUidExitedGroup
+            } else {
+                Class::SameUid
+            };
+            owner.classify(|| Ok(()), |_| Ok(class)).unwrap();
+            if class == Class::SameUidExitedGroup {
+                owner
+                    .exited_group(|| Ok(()), |_| Ok(handle(*pid as usize + MAX_ROWS, &drops)))
+                    .unwrap();
+                assert!(owner.row_originals().unwrap().1.is_none()); // never an image
+            } else {
+                owner
+                    .executable(|| Ok(()), |_| Ok(handle(*pid as usize + MAX_ROWS, &drops)))
+                    .unwrap();
+            }
+            owner
+                .complete_row(
+                    || Ok(()),
+                    |directory, secondary, _| {
+                        assert_eq!(secondary.unwrap().original().id, directory.id + MAX_ROWS);
+                        Ok(()) // synthetic checker, not kernel group proof
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(owner.charged + SCRATCH, CANDIDATE_NOFILE);
+        assert_eq!(drops.get(), 0);
+        owner.begin_sweep(&pids).unwrap();
+        for pid in &pids {
+            owner
+                .recheck_row(
+                    *pid,
+                    || Ok(()),
+                    |directory, secondary, class| {
+                        assert_eq!(directory.id, *pid as usize);
+                        assert_eq!(secondary.unwrap().original().id, directory.id + MAX_ROWS);
+                        assert_eq!(
+                            matches!(secondary, Some(Secondary::ExitedGroupPidfd(_))),
+                            class == Class::SameUidExitedGroup
+                        );
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        owner.complete_inventory(&pids, || Ok(())).unwrap();
+        owner.finish().unwrap();
+        assert_eq!(drops.get(), MAX_ROWS * 2);
     }
 
     #[test]
@@ -793,7 +1018,7 @@ mod tests {
                 || Ok(()),
                 |original, executable, class| {
                     assert_eq!(original.id, 41);
-                    assert_eq!(executable.unwrap().id, 42);
+                    assert_eq!(executable.unwrap().original().id, 42);
                     assert!(class == Class::SameUid);
                     Ok(())
                 },
@@ -807,7 +1032,7 @@ mod tests {
                 || Ok(()),
                 |original, executable, _| {
                     assert_eq!(original.id, 41);
-                    assert_eq!(executable.unwrap().id, 42);
+                    assert_eq!(executable.unwrap().original().id, 42);
                     Ok(())
                 },
             )
