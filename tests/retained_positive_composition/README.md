@@ -1,8 +1,9 @@
 # Retained positive composition: source-only successor
 
 Developer witness in progress, not a normal Rust runtime, controller permit,
-installed package or production Python fallback. Current generation 2 has not
-been invoked. Generation 1's sole whole guard terminated NONPASS (exit 2); its
+installed package or production Python fallback. Generation 2's sole whole guard
+terminated NONPASS (exit 2); its scope is permanently stopped. Generation 1's
+sole whole guard terminated NONPASS (exit 2); its
 separately reviewed file-only observer did not change that terminal.
 The parent #646 whole wrapper remains NONPASS. Its separately reviewed fixed-file
 observer validated only recorded 25 copied objects, both daemon mapping passes
@@ -31,15 +32,42 @@ broker-release local deadline also fences that label. Unknown/short/late output
 seals before any second label or other followup; no failure-time output exists.
 Labels record a reached boundary only, not effect authority or cause.
 
-The complete source path adds 44 labels (13 launcher +31 Case). The independent
-new-stream cap is 45, so the reached old 83-frame prepare stream plus every
-allowed new attempt fits the existing 128-frame total. Inert AST-flow counting
+The source path adds 44 Session labels (13 launcher +31 Case), with an independent
+45-frame cap. The recorded 83 Bridge prepare frames plus these 44 labels describe
+only that prepare prefix, not the complete Bridge mapping flow. Bridge has its
+own 128-frame cap; the separate file observer's combined lexical cap is 173
+(128 Bridge +45 Session), without ordering or completion authority. Inert
+AST-flow counting
 checks the dynamic bus/resolved loops and exact finite labels; executed mocked
 child controls check order and no later label after unknown/late return.
 No 15/65/90-second budget, identity predicate, copy/native provenance, positive
 raw-zero requirement or canonical guard is relaxed. Native inputs are unchanged.
 Fresh source/outer guard/transport review and exact-head gates remain mandatory
 before ROOT alone may authorize a new invocation.
+
+### Generation-2 staged graph and stopped whole invocation
+
+The sole fresh whole invocation used source
+`237aad2b1ff5c029012cf90d3764fdd649e9b46e` at the fixed generation-2 stage.
+Its reviewed source/native manifest SHA-256 is
+`d8115a959516717e61b40b47c93cd3d5d5b515f351085379afffc9e0a0a36bc5`:
+16 tracked source members plus a separate ROOT guard, with the same four frozen
+native inputs. Source and native staging completed normally; that staging is
+not whole-invocation acceptance. ROOT observed the whole guard exit 2
+(session 91326, terminal 3e4c37). Generation 2 now permits no process query,
+signal, reap, retry, archive or cleanup; generation 1 remains stopped too.
+No recorded milestone establishes the failing predicate, current live identity,
+canonical preservation, compatibility or adoption.
+
+A separate fixed-file-only observer has been sealed and passed ROOT's 37 inert
+observer and 7 transport controls. Its independent review and actual ROOT-only
+file observation remain pending. The observer authenticates the fixed source/
+native graph, hashes finite captures and projects only a public literal phase
+prefix, stopping at the first unknown/partial/over-cap frame. It never traverses
+the retained inventory root or queries processes. These source controls are
+not an observer execution PASS or a whole-wrapper PASS. Any eventual file
+result remains recorded-only with all whole/current/production/compatibility/
+adoption flags false; the permanent NONPASS terminal is unchanged.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and
