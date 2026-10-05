@@ -12,7 +12,12 @@ lock fixes registry dependencies; path sources additionally require the exact
 Git commits and patch digests, not just a version or Cargo.lock. No upstream
 submission, installation or package service is authorized by this artifact.
 
-## Actual mechanism, not yet executed on a kernel
+## Actual mechanism
+
+The later exact e6488ed fixed positive/negative local pair completed under
+ROOT's reviewed v3 controller. See [the scoped evidence record](K1_LOCAL_BINDER_FIXTURE.md#fresh-v3-actual-result)
+for source, artifact and capture hashes, retained earlier NONPASS outcomes,
+and the limits of that result. This does not establish canonical origin.
 
 `LocalBinding::bind_untrusted_anchor` consumes one original safe File and retains
 it before fallible work. It opens the current thread's network namespace,
@@ -78,5 +83,6 @@ the executed first-leaf failure control requires zero subsequent queries.
 Earlier successful tests are not retrospective evidence for that correction.
 
 MSRV/cross-compilation, full source checks and independent graph review remain
-required. No real binder invocation or VM gate has run. Any future executable,
+required at the initial checkpoint. The later fixed local-pair gate is recorded
+separately above; it does not transfer to changed source. Any future executable,
 freeze and VM launch requires its own exact full review and ROOT-only operation.
