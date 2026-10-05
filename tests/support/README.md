@@ -52,3 +52,13 @@ the shared allocator's sequence grows during a whole-suite run. This changes
 only fixture roots, not the production suffix, cleanup rules or readiness
 deadlines. Existing collision/private-mode tests still apply. Arbitrarily long
 TMPDIRs remain bounded by the operating system's Unix-socket path limit.
+
+The DNS package-guard Python fixture likewise uses the compact `dp-` prefix
+with its existing exclusive `TemporaryDirectory` allocator. A 55-byte parent
+plus the former descriptive prefix and fixed `run/omavless-dns/control.sock`
+suffix exceeded Linux's pathname limit. The added counterexample preserves
+that failure shape and checks the compact path, original TMPDIR selection and
+private mode. The actual stale-socket/symlink refusal test, production guard,
+socket suffix and cleanup ownership are unchanged; no `/tmp` fallback is added.
+This follows the test-only principle of PR #433 (`9ac200cd`) and the later
+core/probe short-label helpers, not a production path or security-policy change.
