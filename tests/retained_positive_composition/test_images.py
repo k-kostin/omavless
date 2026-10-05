@@ -251,9 +251,11 @@ class Controls(unittest.TestCase):
             else:value.copies.records[i.ROLES[role]].update(mode=info.st_mode,uid=0,gid=0,nlink=1)
             with tempfile.TemporaryFile() as temp:
                 fd=os.dup(temp.fileno())
-                with patch.object(i.os,'open',return_value=fd) as opened,patch.object(i.os,'fstat',return_value=info):
+                with patch.object(i.os,'open',return_value=fd) as opened,patch.object(i.os,'fstat',return_value=info), \
+                     patch.object(i.os,'stat',return_value=info) as current:
                     self.assertEqual(value.executable(child,role,5.0),(31,inode))
                 opened.assert_called_once_with('exe',i.EXE_FLAGS,dir_fd=71)
+                current.assert_called_once_with('exe',dir_fd=71,follow_symlinks=True)
                 self.assertIn(fd,value.held)
             value.copies._verify_target.assert_not_called();value.artifacts.recheck.assert_not_called()
 
@@ -271,6 +273,105 @@ class Controls(unittest.TestCase):
                 maps_read.assert_not_called();value.copies._verify_target.assert_not_called()
                 value.artifacts.mapped_identity.assert_not_called()
         self.sealed(value)
+
+    def kernel_fixture(self):
+        value,child=self.fixture();del value.executable
+        original=SimpleNamespace(st_dev=31,st_ino=90,st_size=64,st_mode=stat.S_IFREG|0o555,
+                                 st_uid=0,st_gid=0,st_nlink=1)
+        value.artifacts.files['mihomo']=(55,original,'b'*64)
+        return value,child,original
+
+    def test_thousand_rechecks_keep_one_original_fd_and_reread_current_exe(self):
+        value,child,original=self.kernel_fixture()
+        with tempfile.TemporaryFile() as temp:
+            fd=os.dup(temp.fileno())
+            with patch.object(i.os,'open',return_value=fd) as opened, \
+                 patch.object(i.os,'fstat',return_value=original) as held, \
+                 patch.object(i.os,'stat',return_value=original) as current:
+                for _ in range(1000):
+                    self.assertEqual(value.executable(child,'core',5.0),(31,90))
+                self.assertEqual(opened.call_count,1)
+                self.assertEqual(held.call_count,1000)
+                self.assertEqual(current.call_count,1000)
+                self.assertEqual(value.held,[fd])
+                self.assertEqual(value.executables,{'core':(child,71,fd)})
+            self.assertFalse(value.sealed)
+            value.artifacts.recheck.assert_not_called()
+
+    def test_changed_current_or_held_metadata_seals_before_next_query_even_if_restored(self):
+        for source in ('held','current'):
+            for key in ('st_dev','st_ino','st_size','st_mode','st_uid','st_gid','st_nlink'):
+                value,child,original=self.kernel_fixture()
+                changed=SimpleNamespace(**vars(original));setattr(changed,key,getattr(changed,key)+1)
+                with tempfile.TemporaryFile() as temp:
+                    fd=os.dup(temp.fileno())
+                    with patch.object(i.os,'open',return_value=fd) as opened, \
+                         patch.object(i.os,'fstat',return_value=original) as held, \
+                         patch.object(i.os,'stat',return_value=original) as current:
+                        value.executable(child,'core',5.0)
+                        (held if source=='held' else current).return_value=changed
+                        with self.assertRaises(i.Refused):value.executable(child,'core',5.0)
+                        self.sealed(value)
+                        held.return_value=current.return_value=original
+                        opened.reset_mock();held.reset_mock();current.reset_mock();value.owner.live.reset_mock()
+                        with self.assertRaises(i.Refused):value.executable(child,'core',5.0)
+                        opened.assert_not_called();held.assert_not_called();current.assert_not_called()
+                        value.owner.live.assert_not_called()
+
+    def test_cached_child_proc_fd_and_held_membership_cannot_be_substituted(self):
+        for variant in ('child','proc','held'):
+            value,child,original=self.kernel_fixture()
+            with tempfile.TemporaryFile() as temp:
+                fd=os.dup(temp.fileno())
+                with patch.object(i.os,'open',return_value=fd), \
+                     patch.object(i.os,'fstat',return_value=original) as held, \
+                     patch.object(i.os,'stat',return_value=original) as current:
+                    value.executable(child,'core',5.0)
+                    if variant=='child':value.executables['core']=(Child(),71,fd)
+                    elif variant=='proc':value.owner.anchors['core']['proc_fd']=72
+                    else:value.executables['core']=(child,71,fd+100)
+                    held.reset_mock();current.reset_mock()
+                    with self.assertRaises(i.Refused):value.executable(child,'core',5.0)
+                    held.assert_not_called();current.assert_not_called()
+                self.sealed(value)
+
+    def test_late_first_open_retains_original_and_late_current_stat_has_no_followup(self):
+        for stage in ('open','current'):
+            value,child,original=self.kernel_fixture();clock=[0.0]
+            with tempfile.TemporaryFile() as temp:
+                fd=os.dup(temp.fileno())
+                def opened(*args,**kwargs):
+                    if stage=='open':clock[0]=5.0
+                    return fd
+                def observed(*args,**kwargs):
+                    clock[0]=5.0;return original
+                with patch.object(i.time,'monotonic',side_effect=lambda:clock[0]), \
+                     patch.object(i.os,'open',side_effect=opened) as opening, \
+                     patch.object(i.os,'fstat',return_value=original) as held, \
+                     patch.object(i.os,'stat',side_effect=observed) as current:
+                    with self.assertRaises(i.Refused):value.executable(child,'core',5.0)
+                    self.assertEqual(value.held,[fd])
+                    self.assertEqual(value.executables,{'core':(child,71,fd)})
+                    self.assertEqual(held.call_count,int(stage=='current'))
+                    self.assertEqual(current.call_count,int(stage=='current'))
+                    self.assertEqual(value.owner.live.call_count,1)
+                    clock[0]=0.0;opening.reset_mock();held.reset_mock();current.reset_mock()
+                    with self.assertRaises(i.Refused):value.executable(child,'core',5.0)
+                    opening.assert_not_called();held.assert_not_called();current.assert_not_called()
+                self.sealed(value)
+
+    def test_unknown_current_stat_type_or_throw_permanently_seals(self):
+        for variant in ('bool','float','throw'):
+            value,child,original=self.kernel_fixture()
+            changed=SimpleNamespace(**vars(original));changed.st_uid=False if variant=='bool' else 0.0
+            with tempfile.TemporaryFile() as temp:
+                fd=os.dup(temp.fileno())
+                with patch.object(i.os,'open',return_value=fd),patch.object(i.os,'fstat',return_value=original), \
+                     patch.object(i.os,'stat',return_value=changed) as current:
+                    if variant=='throw':current.side_effect=OSError('private must not escape')
+                    with self.assertRaisesRegex(i.Refused,'^fixed_loaded_image_refused$'):
+                        value.executable(child,'core',5.0)
+                self.sealed(value)
 
     def test_no_execution_signal_reap_write_cleanup_or_dynamic_proc_path(self):
         forbidden={'exec','eval','spawn','kill','waitid','waitpid','system','write','unlink','close','rmdir','mkdir','chmod','chown'}

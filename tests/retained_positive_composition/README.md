@@ -65,12 +65,18 @@ use small nonexecuted synthetic ELF-shaped bytes and replaced literal test table
 they do not establish actual artifact execution or adoption.
 
 The loaded-image adapter now binds all five fixed roles to the exact retained
-Session/OwnedProcess classes. Kernel `exe` opens follow only the kernel link
-through each live child's original proc-directory FD, and its original object
-metadata must match the fixed copied executable or native artifact BEFORE maps
-or object hashing. Maps text is read only from that same original proc FD;
+Session/OwnedProcess classes. The first kernel `exe` open per role follows only
+the kernel link through that live child's original proc-directory FD, retaining
+the returned original even before the post-open deadline gate. EVERY check
+compares both held-FD metadata and a fresh kernel `stat('exe')` through that same
+original proc FD against all seven admitted metadata fields, with the same
+concrete child, anchor and pre/post live/deadline fences. Changed current
+executable identity cannot be hidden by restoring the link after refusal.
+This per-role cache is not current-image hash evidence: artifact byte rechecks
+and complete loaded-map identity/hashes remain independent.
+Maps text is read only from that same original proc FD;
 unknown/private/deleted paths and wrong device/inode membership refuse before
-any target open. The complete second mapping read, second kernel exe object and
+any target open. The complete second mapping read, second current kernel exe comparison and
 live anchor must agree. Native core/broker/helper paths are eligible only for
 their own role; the original library adapter admits exactly the copied 25 rows.
 All failures permanently seal the owner, artifacts and copied-object adapter,
@@ -149,6 +155,22 @@ These controls do NOT execute the positive case or establish actual DNS,
 controller, mapping or shutdown acceptance. The pinned launcher, native HOST
 builder, outer canonical guard and strict public
 receipt remain required; this Draft is NOT VM-ready or integrated acceptance.
+
+Repeated helper/stream checks retain at most five executable originals, not one
+FD per byte-fragmented read or worker iteration. Five roles have ten initial,
+five final and four shutdown inventories: at most38 retained maps FDs on the
+fixed successful Case path. The retained copies/store/source ancestors add56,
+native artifacts add6, role anchors15, logs/configs7, bootstrap3, controller2,
+private stream sockets5 and parent pipes at most3, plus standard FDs3: total143
+before one concurrent HTTP socket and bounded temporary utility/hash/proc
+reads. Successful temporary/HTTP closes are existing known-success boundaries;
+no failure close is added. The future launcher must separately account for its
+own source/result descriptors and enforce the proposed512 parent limit. Its
+pre-role128-entry FD inventory and child128 limit are not loosened here.
+Five new inert controls include1,000 repetitions with one original open and
+1,000 fresh current-link checks, current/held metadata changes, substituted
+cache bindings, late first opens/current stats and permanent refusal. This is
+a source resource calculation, not an observed guest exhaustion or live proof.
 
 `streams.py` defines only a fixed two-client synthetic CONNECT/byte-echo witness
 in fresh PID1/root with concrete retained core/Session/Images/Controller objects.

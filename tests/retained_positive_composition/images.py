@@ -62,6 +62,7 @@ class Images:
         self.owner, self.ownership, self.copies, self.artifacts = owner, ownership, copies, artifacts
         self.sealed = True
         self.held = []
+        self.executables = {}
         try:
             require(type(owner) is ownership.Session and owner.kind == 'inner'
                     and type(copies) is copy_module.Bridge and type(artifacts) is artifact_module.Sources)
@@ -146,7 +147,12 @@ class Images:
         return raw.decode('ascii','strict')
 
     def executable(self, child, name, deadline):
-        """Follow only kernel exe through the original live child's proc FD."""
+        """Retain one original per role; reread current kernel exe on EVERY call.
+
+        This bounds descriptor retention in fragmented helper/stream loops. A
+        cached FD alone is never current-image evidence: both its original
+        metadata and the current kernel link must still match admission.
+        """
         try:
             self.available(deadline)
             require(type(child) is self.ownership.OwnedProcess and name in ROLES
@@ -154,11 +160,17 @@ class Images:
                     and any(child is held for held in self.owner.children))
             self.owner.live(child)
             self.available(deadline)
-            fd = os.open('exe', EXE_FLAGS, dir_fd=self.owner.anchors[name]['proc_fd'])
-            self.held.append(fd)
-            self.available(deadline)
+            proc_fd = self.owner.anchors[name]['proc_fd']
+            if name not in self.executables:
+                fd = os.open('exe', EXE_FLAGS, dir_fd=proc_fd)
+                self.held.append(fd)  # Retain before even the late-return gate.
+                self.executables[name] = (child, proc_fd, fd)
+                self.available(deadline)
+            cached_child, cached_proc, fd = self.executables[name]
+            require(cached_child is child and type(cached_proc) is int
+                    and type(proc_fd) is int and cached_proc == proc_fd
+                    and type(fd) is int and fd >= 0 and fd in self.held)
             value = self.io(deadline, os.fstat, fd)
-            require(stat.S_ISREG(value.st_mode))
             if name in ('core','broker','host'):
                 _, original, _ = self.artifacts.files[ROLES[name].rsplit('/',1)[1]]
                 expected = tuple(getattr(original, key) for key in
@@ -166,8 +178,14 @@ class Images:
             else:
                 row = self.copies.records[ROLES[name]]
                 expected = tuple(row[key] for key in ('device','inode','size','mode','uid','gid','nlink'))
-            require(tuple(getattr(value, key) for key in
-                          ('st_dev','st_ino','st_size','st_mode','st_uid','st_gid','st_nlink')) == expected)
+            keys = ('st_dev','st_ino','st_size','st_mode','st_uid','st_gid','st_nlink')
+            require(all(type(item) is int for item in expected))
+            require(stat.S_ISREG(value.st_mode)
+                    and all(type(getattr(value, key)) is int for key in keys)
+                    and tuple(getattr(value, key) for key in keys) == expected)
+            current = self.io(deadline, os.stat, 'exe', dir_fd=proc_fd, follow_symlinks=True)
+            require(all(type(getattr(current, key)) is int for key in keys)
+                    and tuple(getattr(current, key) for key in keys) == expected)
             self.owner.live(child)
             self.available(deadline)
             return value.st_dev, value.st_ino
