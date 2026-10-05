@@ -142,6 +142,25 @@ and a NEW no-child pair, never the failed child or its retained resources.
 FULL source/Rust evidence above remains attached only to `1f419fbc`, not this
 successor smoke proposal.
 
+Independent review of `e80f73c` identified a newly cloned endpoint outside its
+retained owner at the post-clone gate and a plain returned bundle before partial
+unwraps. The successor retains the cloned endpoint before that gate and the
+returned bundle plus incrementally built file vector before extraction. This
+does not solve inherited partial acquisition inside `Process` or `LocalParent`;
+the opening comment now states that limitation instead of claiming all originals.
+
+A second NEW no-child pair enables SO_PASSCRED on BOTH endpoints, as the failed
+child proposal did. Its finite projection was address-present true (`cabe00`),
+where the receiver-only probe was false. This demonstrates a HOST counterexample
+to assuming an original credential-enabled pair always returns no address.
+It is not the failed child's returned error or underlying cause. Unrelated
+owner-return edits occurred during that compile, so its binary is not attributed
+to the final successor source. A fresh unchanged focused gate subsequently
+passed `e51227`:ten passed and the same two child entry points ignored.
+The actual child remains ignored and the receive refusal criterion unchanged;
+any future accepted address policy requires exact original-socket proof and
+independent review, not pathname/address-based authority or a blanket bypass.
+
 Pinned rustix1.1.5 exposes safely owned SCM_RIGHTS, but silently skips unknown
 ancillary kinds and accepts oversized credential payloads. Draining all
 visible rights before post-receive refusal preserves those originals; it does

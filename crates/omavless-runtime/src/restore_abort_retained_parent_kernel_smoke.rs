@@ -3,7 +3,8 @@
 //!
 //! Pinned rustix 1.1.5 hides unknown ancillary kinds and oversized credentials.
 //! This checkpoint therefore cannot authenticate a production/root transport.
-//! All originals below are deliberately retained until test-process exit.
+//! Returned owner graphs are retained until test-process exit. The existing
+//! Process/LocalParent partial-acquisition limitation is not eliminated here.
 
 use super::*;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
@@ -272,14 +273,14 @@ fn owned_child_credentials_and_original_files_smoke() {
         creator.pid.as_raw_nonzero().get(),
         std::process::id() as i32
     );
-    let child_endpoint = client.try_clone().unwrap();
+    let mut child_endpoint = Retained::new(Some(client.try_clone().unwrap()));
     gate(end).unwrap();
     let executable = format!("/proc/self/fd/{}", parent.original.executable.as_raw_fd());
     let mut command = Retained::new(Command::new(executable));
     command
         .args(["--exact", WORKER, "--ignored", "--test-threads=1"])
         .env("OMAVLESS_T4_PAIR_SMOKE", "one")
-        .stdin(Stdio::from(child_endpoint))
+        .stdin(Stdio::from(child_endpoint.take().unwrap()))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     gate(end).unwrap();
@@ -300,23 +301,24 @@ fn owned_child_credentials_and_original_files_smoke() {
     .unwrap();
     gate(end).unwrap();
     let mut consultation_budget = clipped_budget(end).unwrap();
-    let bundle = parent
-        .consult(
-            &parent.root,
-            parent.original.pid,
-            &parent.original.directory,
-            parent.original.start,
-            &mut consultation_budget,
-        )
-        .unwrap();
-    let files = Retained::new(vec![
-        bundle.executable.unwrap(),
-        bundle.pid_namespace.unwrap(),
-        bundle.user_namespace.unwrap(),
-    ]);
+    let mut bundle = Retained::new(
+        parent
+            .consult(
+                &parent.root,
+                parent.original.pid,
+                &parent.original.directory,
+                parent.original.start,
+                &mut consultation_budget,
+            )
+            .unwrap(),
+    );
+    let mut files = Retained::new(Vec::new());
+    files.push(bundle.executable.take().unwrap());
+    files.push(bundle.pid_namespace.take().unwrap());
+    files.push(bundle.user_namespace.take().unwrap());
     gate(end).unwrap();
     let mut reply = REPLY.to_vec();
-    let name = bundle.executable_name.unwrap();
+    let name = bundle.executable_name.take().unwrap();
     assert!(!name.is_empty() && name.len() <= MAX_NAME);
     reply.extend_from_slice(&name);
     send(
@@ -362,8 +364,7 @@ fn inner_process_budget_cannot_renew_outer_grant() {
     assert!(expired.check().is_err());
 }
 
-#[test]
-fn own_local_pair_receiver_shape_without_child() {
+fn local_pair_receiver_shape_without_child(client_passcred: bool) -> bool {
     let end = Instant::now() + Duration::from_secs(2);
     let (server, client) = socketpair(
         AddressFamily::UNIX,
@@ -377,6 +378,10 @@ fn own_local_pair_receiver_shape_without_child() {
     gate(end).unwrap();
     set_socket_passcred(&*server, true).unwrap();
     gate(end).unwrap();
+    if client_passcred {
+        set_socket_passcred(&*client, true).unwrap();
+        gate(end).unwrap();
+    }
     send(&*client, REQUEST, &[], end).unwrap();
     ready(&*server, PollFlags::IN, end).unwrap();
     let mut bytes = [0; 128];
@@ -410,11 +415,25 @@ fn own_local_pair_receiver_shape_without_child() {
     assert!((result.flags - (ReturnFlags::CMSG_CLOEXEC | ReturnFlags::EOR)).is_empty());
     // Closed HOST kernel metadata only. This new local pair is unrelated to
     // the failed owned-child attempt; no old child/socket is queried here.
+    let address_present = result.address.is_some();
+    gate(end).unwrap();
+    address_present
+}
+
+#[test]
+fn own_local_pair_receiver_shape_without_child() {
     println!(
         "OWNED_LOCAL_PAIR_ADDRESS_PRESENT={}",
-        result.address.is_some()
+        local_pair_receiver_shape_without_child(false)
     );
-    gate(end).unwrap();
+}
+
+#[test]
+fn own_local_pair_both_passcred_receiver_shape_without_child() {
+    println!(
+        "OWNED_LOCAL_PAIR_BOTH_PASSCRED_ADDRESS_PRESENT={}",
+        local_pair_receiver_shape_without_child(true)
+    );
 }
 
 #[test]
