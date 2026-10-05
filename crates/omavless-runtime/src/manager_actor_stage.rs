@@ -8,12 +8,14 @@ use super::retained_io::{ChildPlan, FileIo, IO_SLOTS, Slot};
 use super::{Unavailable, emit_actor, tick};
 use crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical;
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
-use crate::restore_decision_candidate::{DecisionChain, DecisionRecord, TerminalChoice};
-use crate::restore_staging_candidate::{
-    MEMBERS, PENDING_DIRECTORY, READY_MEMBER, planned_stage_identity, ready_bytes, same_directory,
-    same_member,
+use crate::restore_decision_candidate::{
+    DecisionChain, DecisionPhase, DecisionRecord, TerminalChoice,
 };
-use nix::fcntl::{AtFlags, OFlag};
+use crate::restore_staging_candidate::{
+    LivePairClass, MEMBERS, PENDING_DIRECTORY, READY_MEMBER, class_from_matches,
+    planned_stage_identity, ready_bytes, same_directory, same_member,
+};
+use nix::fcntl::{AtFlags, OFlag, renameat};
 use nix::sys::stat::{Mode, fstatat, mkdirat};
 use rustix::fs::{RawDir, SeekFrom, flistxattr, seek};
 use sha2::{Digest, Sha256};
@@ -43,6 +45,12 @@ const CREATED_DIRECTORIES: [Slot; 4] = [
 ];
 pub(super) const ORIGIN_FENCES: usize =
     2 * CREATED_DIRECTORIES.len() + 2 * (LIVE.len() + MEMBERS.len() + 1 + 2);
+pub(super) const COMMIT_ORIGIN_FENCES: usize = ORIGIN_FENCES + 8;
+pub(super) const COMMITTED_PHASE: &[u8] = b"t4_actor_fixture_pair_committed\n";
+const REPLACEMENTS: [(Slot, &str); 2] = [
+    (Slot::ReplacementStore, "restore-store.new"),
+    (Slot::ReplacementTemplate, "restore-template.new"),
+];
 pub(super) const SUCCESS_PHASES: [&[u8]; 6] = [
     b"t4_actor_before_fixture_stage\n",
     b"t4_actor_before_fixture_transaction_directory\n",
@@ -64,34 +72,105 @@ const EPOCH_MEMBERS: [&str; 5] = [
 enum StageOwner<'a> {
     Classic(&'a mut Retained),
     Canonical(&'a mut Canonical),
+    CanonicalCommit(&'a mut Canonical),
 }
 impl StageOwner<'_> {
     fn admit(&mut self, io: &mut FileIo, until: Instant) -> Result<(), Unavailable> {
         match self {
             Self::Classic(owner) => io.admit(owner, until),
             Self::Canonical(owner) => io.admit_canonical(owner, until),
+            Self::CanonicalCommit(owner) => io.admit_canonical_commit(owner, until),
         }
     }
     fn fence(&mut self, until: Instant) -> Result<(), Unavailable> {
         match self {
             Self::Classic(owner) => owner.transaction_fence(until).map_err(|_| Unavailable),
-            Self::Canonical(owner) => owner.stage_origin(until),
+            Self::Canonical(owner) | Self::CanonicalCommit(owner) => owner.stage_origin(until),
         }
     }
     fn final_fence(&mut self, until: Instant) -> Result<(), Unavailable> {
         match self {
             Self::Classic(owner) => owner.transaction_fence(until).map_err(|_| Unavailable),
-            Self::Canonical(owner) => owner.complete_stage(until),
+            Self::Canonical(owner) | Self::CanonicalCommit(owner) => owner.complete_stage(until),
         }
     }
     fn revoke(&mut self) {
-        if let Self::Canonical(owner) = self {
+        if let Self::Canonical(owner) | Self::CanonicalCommit(owner) = self {
             owner.revoke();
         }
     }
     fn canonical(&self) -> bool {
-        matches!(self, Self::Canonical(_))
+        matches!(self, Self::Canonical(_) | Self::CanonicalCommit(_))
     }
+    fn commits(&self) -> bool {
+        matches!(self, Self::CanonicalCommit(_))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LiveRole {
+    Old,
+    ReplacementReady,
+    Renamed,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CommitStep {
+    Write(usize),
+    Rename(usize),
+}
+fn pair_steps(
+    mut step: impl FnMut(CommitStep) -> Result<(), Unavailable>,
+) -> Result<(), Unavailable> {
+    // One fixed order, no retry branch. The actual owned-I/O implementation
+    // below and fault-cut controls use this same continuation boundary.
+    for operation in [
+        CommitStep::Write(0),
+        CommitStep::Write(1),
+        CommitStep::Rename(0),
+        CommitStep::Rename(1),
+    ] {
+        step(operation)?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct RenameShape {
+    identity: (u64, u64, u32, u32, u32),
+    content: (u64, i64, i64),
+    ctime: (i64, i64),
+    links: u64,
+}
+impl RenameShape {
+    fn of(metadata: &Metadata) -> Self {
+        Self {
+            identity: (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.uid(),
+                metadata.gid(),
+                metadata.mode(),
+            ),
+            content: (metadata.len(), metadata.mtime(), metadata.mtime_nsec()),
+            ctime: (metadata.ctime(), metadata.ctime_nsec()),
+            links: metadata.nlink(),
+        }
+    }
+    fn own_successor(self, after: Self, links: u64) -> bool {
+        self.identity == after.identity
+            && self.content == after.content
+            && self.links == 1
+            && after.links == links
+            && after.ctime >= self.ctime
+    }
+}
+
+// An own rename may change ONLY ctime and link count of the held originals.
+// This check is reached once, directly after that exact positive rename, never
+// as a generic refresh exemption or a way to adopt an externally changed file.
+fn same_after_own_rename(before: &Metadata, after: &Metadata, links: u64) -> bool {
+    RenameShape::of(before).own_successor(RenameShape::of(after), links)
 }
 
 #[derive(Clone, Copy)]
@@ -203,6 +282,7 @@ pub(super) struct Stage {
     consumed: bool,
     completed: bool,
     diagnostic: Diagnostic,
+    live: [LiveRole; 2],
 }
 
 impl Stage {
@@ -214,6 +294,7 @@ impl Stage {
             consumed: false,
             completed: false,
             diagnostic: Diagnostic::default(),
+            live: [LiveRole::Old; 2],
         })
     }
 
@@ -229,6 +310,7 @@ impl Stage {
                 attempted: false,
                 first: None,
             },
+            live: [LiveRole::Old; 2],
         }
     }
     pub fn revoke(&mut self) {
@@ -588,6 +670,16 @@ impl Stage {
         until: Instant,
     ) -> Result<(), Unavailable> {
         self.binding(parent, slot, name, false, until)?;
+        self.verify_bytes(slot, expected, until)?;
+        self.binding(parent, slot, name, false, until)
+    }
+
+    fn verify_bytes(
+        &mut self,
+        slot: Slot,
+        expected: &[u8],
+        until: Instant,
+    ) -> Result<(), Unavailable> {
         let mut offset = 0;
         let mut digest = Sha256::new();
         loop {
@@ -629,7 +721,229 @@ impl Stage {
         if offset != expected.len() || digest.finalize()[..] != Sha256::digest(expected)[..] {
             return Err(Unavailable);
         }
-        self.binding(parent, slot, name, false, until)
+        Ok(())
+    }
+
+    fn verify_unlinked_old(
+        &mut self,
+        slot: Slot,
+        expected: &[u8],
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        for read_bytes in [true, false] {
+            let original = self.original[slot as usize].as_ref().ok_or(Unavailable)?;
+            if original.nlink() != 0 {
+                return Err(Unavailable);
+            }
+            self.io.perform(
+                slot,
+                || tick(until),
+                |file| {
+                    let current = file.metadata().map_err(|_| Unavailable)?;
+                    if !same_member(original, &current) || original.gid() != current.gid() {
+                        return Err(Unavailable);
+                    }
+                    let mut xattrs = [0; 1];
+                    if flistxattr(file, &mut xattrs).map_err(|_| Unavailable)? != 0 {
+                        return Err(Unavailable);
+                    }
+                    Ok(())
+                },
+            )?;
+            if read_bytes {
+                self.verify_bytes(slot, expected, until)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn commit_sources(
+        &mut self,
+        members: [&[u8]; 4],
+        intent: &[u8],
+        until: Instant,
+    ) -> Result<LivePairClass, Unavailable> {
+        self.hierarchy(until)?;
+        for (index, name) in MEMBERS.into_iter().enumerate() {
+            self.verify_member(
+                Slot::StageDirectory,
+                STAGED[index],
+                name,
+                members[index],
+                until,
+            )?;
+        }
+        self.verify_member(
+            Slot::StageDirectory,
+            Slot::StageReady,
+            READY_MEMBER,
+            &ready_bytes(members),
+            until,
+        )?;
+        self.verify_member(Slot::State, Slot::Intent, INTENT, intent, until)?;
+        let mut config_names = [""; 4];
+        let mut count = 2;
+        config_names[0] = LIVE[0].1;
+        config_names[1] = LIVE[1].1;
+        let mut current_is_new = [false; 2];
+        for index in 0..2 {
+            let (old, live_name) = LIVE[index];
+            let (new, temporary_name) = REPLACEMENTS[index];
+            match self.live[index] {
+                LiveRole::Old => {
+                    self.verify_member(Slot::Config, old, live_name, members[index], until)?
+                }
+                LiveRole::ReplacementReady => {
+                    self.verify_member(Slot::Config, old, live_name, members[index], until)?;
+                    self.verify_member(
+                        Slot::Config,
+                        new,
+                        temporary_name,
+                        members[index + 2],
+                        until,
+                    )?;
+                    config_names[count] = temporary_name;
+                    count += 1;
+                }
+                LiveRole::Renamed => {
+                    self.verify_unlinked_old(old, members[index], until)?;
+                    self.verify_member(Slot::Config, new, live_name, members[index + 2], until)?;
+                    current_is_new[index] = true;
+                }
+            }
+        }
+        self.catalogue(Slot::Config, &config_names[..count], until)?;
+        self.catalogue(
+            Slot::StageDirectory,
+            &[MEMBERS[0], MEMBERS[1], MEMBERS[2], MEMBERS[3], READY_MEMBER],
+            until,
+        )?;
+        self.catalogue(Slot::State, &[PENDING_DIRECTORY, INTENT], until)?;
+        self.catalogue(Slot::Transaction, &["config", "state"], until)?;
+        self.catalogue(
+            Slot::Epoch,
+            &[
+                EPOCH_MEMBERS[0],
+                EPOCH_MEMBERS[1],
+                EPOCH_MEMBERS[2],
+                EPOCH_MEMBERS[3],
+                EPOCH_MEMBERS[4],
+                TRANSACTION,
+            ],
+            until,
+        )?;
+        let actual = [
+            members[usize::from(current_is_new[0]) * 2],
+            members[1 + usize::from(current_is_new[1]) * 2],
+        ];
+        // The byte comparisons are backed by the held/name-bound exact reads
+        // above, not an imported detached class or invented VerifiedLivePair.
+        Ok(class_from_matches(
+            actual[0] == members[0],
+            actual[1] == members[1],
+            actual[0] == members[2],
+            actual[1] == members[3],
+        ))
+    }
+
+    fn advance_own_rename(&mut self, index: usize, until: Instant) -> Result<(), Unavailable> {
+        if self.live[index] != LiveRole::Renamed {
+            return Err(Unavailable);
+        }
+        for (slot, links) in [(LIVE[index].0, 0), (REPLACEMENTS[index].0, 1)] {
+            self.io.perform(
+                slot,
+                || tick(until),
+                |file| {
+                    let after = file.metadata().map_err(|_| Unavailable)?;
+                    let before = self.original[slot as usize].as_ref().ok_or(Unavailable)?;
+                    if !same_after_own_rename(before, &after, links) {
+                        return Err(Unavailable);
+                    }
+                    // This is the only mutation-specific advancement. It cannot
+                    // run from a sweep, after Err, or for a second own rename.
+                    self.original[slot as usize] = Some(after);
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    fn commit_pair(
+        &mut self,
+        members: [&[u8]; 4],
+        intent: &[u8],
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        let result = (|| {
+            if !held.commits() || self.live != [LiveRole::Old; 2] {
+                return Err(Unavailable);
+            }
+            if !matches!(
+                self.commit_sources(members, intent, until)?,
+                LivePairClass::Old | LivePairClass::Identical
+            ) {
+                return Err(Unavailable);
+            }
+            pair_steps(|operation| {
+                let index = match operation {
+                    CommitStep::Write(index) | CommitStep::Rename(index) => index,
+                };
+                if matches!(operation, CommitStep::Write(_)) {
+                    if self.live[index] != LiveRole::Old {
+                        return Err(Unavailable);
+                    }
+                    let (slot, name) = REPLACEMENTS[index];
+                    self.write_member(Slot::Config, slot, name, members[index + 2], held, until)?;
+                    self.live[index] = LiveRole::ReplacementReady;
+                    self.commit_sources(members, intent, until)?;
+                    return Ok(());
+                }
+                let result = held.fence(until);
+                self.cut(StageCut::Origin, result, until)?;
+                self.commit_sources(members, intent, until)?;
+                if self.live[index] != LiveRole::ReplacementReady {
+                    return Err(Unavailable);
+                }
+                self.io.perform(
+                    Slot::Config,
+                    || tick(until),
+                    |directory| {
+                        renameat(directory, REPLACEMENTS[index].1, directory, LIVE[index].1)
+                            .map_err(|_| Unavailable)?;
+                        self.live[index] = LiveRole::Renamed; // BEFORE post-tick
+                        Ok(())
+                    },
+                )?;
+                self.advance_own_rename(index, until)?;
+                self.io.perform(
+                    REPLACEMENTS[index].0,
+                    || tick(until),
+                    |file| file.sync_all().map_err(|_| Unavailable),
+                )?;
+                self.io.perform(
+                    Slot::Config,
+                    || tick(until),
+                    |file| file.sync_all().map_err(|_| Unavailable),
+                )?;
+                self.commit_sources(members, intent, until)?;
+                let result = held.fence(until);
+                self.cut(StageCut::Origin, result, until)?;
+                Ok(())
+            })?;
+            if self.live != [LiveRole::Renamed; 2]
+                || !matches!(
+                    self.commit_sources(members, intent, until)?,
+                    LivePairClass::New | LivePairClass::Identical
+                )
+            {
+                return Err(Unavailable);
+            }
+            Ok(())
+        })();
+        self.cut(StageCut::MemberWrite, result, until)
     }
 
     fn catalogue(
@@ -700,6 +1014,21 @@ impl Stage {
         self.record_owned(members, nonce, &mut StageOwner::Canonical(held), until)
     }
 
+    pub fn commit_canonical(
+        &mut self,
+        members: [&[u8]; 4],
+        nonce: &[u8; 32],
+        held: &mut Canonical,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        self.record_owned(
+            members,
+            nonce,
+            &mut StageOwner::CanonicalCommit(held),
+            until,
+        )
+    }
+
     fn record_owned(
         &mut self,
         members: [&[u8]; 4],
@@ -744,7 +1073,11 @@ impl Stage {
             .encode();
         let terminal = DecisionRecord::decode(&intent)
             .map_err(|_| Unavailable)?
-            .terminal(TerminalChoice::Abort)
+            .terminal(if held.commits() {
+                TerminalChoice::Commit
+            } else {
+                TerminalChoice::Abort
+            })
             .map_err(|_| Unavailable)?
             .encode();
         tick(until)?;
@@ -810,6 +1143,9 @@ impl Stage {
         emit_actor(SUCCESS_PHASES[2], until)?;
         self.write_member(Slot::State, Slot::Intent, INTENT, &intent, held, until)?;
         emit_actor(SUCCESS_PHASES[3], until)?;
+        if held.commits() {
+            self.commit_pair(members, &intent, held, until)?;
+        }
         self.write_member(
             Slot::State,
             Slot::Terminal,
@@ -837,12 +1173,30 @@ impl Stage {
             until,
         )?;
         for (index, (slot, name)) in LIVE.into_iter().enumerate() {
-            self.verify_member(Slot::Config, slot, name, members[index], until)?;
+            let (slot, expected) = if held.commits() {
+                if self.live[index] != LiveRole::Renamed {
+                    return Err(Unavailable);
+                }
+                (REPLACEMENTS[index].0, members[index + 2])
+            } else {
+                (slot, members[index])
+            };
+            self.verify_member(Slot::Config, slot, name, expected, until)?;
+            if held.commits() {
+                self.verify_unlinked_old(LIVE[index].0, members[index], until)?;
+            }
         }
         self.verify_member(Slot::State, Slot::Intent, INTENT, &intent, until)?;
         self.verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)?;
         let chain = DecisionChain::decode(&intent, Some(&terminal)).map_err(|_| Unavailable)?;
-        if !chain.active().matches_current_bindings(1, None, &planned) {
+        if !chain.active().matches_current_bindings(1, None, &planned)
+            || chain.active().phase()
+                != if held.commits() {
+                    DecisionPhase::Committed
+                } else {
+                    DecisionPhase::Aborted
+                }
+        {
             return Err(Unavailable);
         }
         self.catalogue(
@@ -925,6 +1279,145 @@ mod tests {
         StageCut::Journal,
         StageCut::FinalOwner,
     ];
+
+    #[test]
+    fn commit_closed_trace_and_slot_plan_preserve_capture_and_fd_caps() {
+        let bytes =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::auth_success_trace_bytes()
+                + SUCCESS_PHASES[..5]
+                    .iter()
+                    .map(|label| label.len())
+                    .sum::<usize>()
+                + COMMITTED_PHASE.len()
+                + crate::restore_abort_cli::stopped_owner::actor_canonical::STAGE_OWNER_PHASES
+                    .iter()
+                    .map(|label| label.len())
+                    .sum::<usize>();
+        let (categories, longest_inventory) =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::inventory_trace_limits();
+        let longest_stage = CUTS.iter().map(|cut| cut.label().len()).max().unwrap();
+        assert_eq!(bytes, 4001);
+        assert_eq!(bytes + longest_inventory + longest_stage, 4083);
+        assert!(bytes + longest_inventory + longest_stage <= 4096);
+        assert_eq!(106 + 6 + 2 + 2, 116);
+        assert_eq!(17 + categories + 3 + 6 + 2 + CUTS.len(), 68);
+        let mut transaction_labels: std::collections::BTreeSet<_> =
+            SUCCESS_PHASES[..5].iter().copied().collect();
+        assert!(transaction_labels.insert(COMMITTED_PHASE));
+        assert_eq!(transaction_labels.len(), 6);
+        assert!(transaction_labels.insert(SUCCESS_PHASES[5]));
+        assert_eq!(transaction_labels.len(), 7); // feature union is 69, each packet 68
+        assert_eq!(COMMIT_ORIGIN_FENCES, 34);
+        assert_eq!(ORIGIN_FENCES, 26);
+        assert_eq!(REPLACEMENTS.len(), 2);
+        assert_ne!(REPLACEMENTS[0].0 as usize, LIVE[0].0 as usize);
+        assert_ne!(REPLACEMENTS[1].0 as usize, LIVE[1].0 as usize);
+        assert_eq!(IO_SLOTS, 36);
+        assert_eq!(8192 + 41 + IO_SLOTS + 8, 8277);
+    }
+
+    #[test]
+    fn each_commit_operation_refusal_stops_before_any_later_step_or_terminal() {
+        let expected = [
+            CommitStep::Write(0),
+            CommitStep::Write(1),
+            CommitStep::Rename(0),
+            CommitStep::Rename(1),
+        ];
+        for cut in 0..4 {
+            let mut visited = Vec::new();
+            let result = pair_steps(|step| {
+                visited.push(step);
+                if visited.len() == cut + 1 {
+                    Err(Unavailable)
+                } else {
+                    Ok(())
+                }
+            });
+            let mut terminal = false;
+            if result.is_ok() {
+                terminal = true;
+            }
+            assert!(result.is_err());
+            assert!(!terminal);
+            assert_eq!(visited, expected[..=cut]);
+        }
+        let mut visited = Vec::new();
+        pair_steps(|step| {
+            visited.push(step);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(visited, expected);
+    }
+
+    #[test]
+    fn only_own_rename_ctime_and_exact_link_transition_can_advance_originals() {
+        let before = RenameShape {
+            identity: (1, 2, 0, 0, 0o100600),
+            content: (5, 6, 7),
+            ctime: (8, 9),
+            links: 1,
+        };
+        for links in [0, 1] {
+            let after = RenameShape {
+                links,
+                ctime: (8, 10),
+                ..before
+            };
+            assert!(before.own_successor(after, links));
+            let mut bad = after;
+            bad.identity.0 += 1;
+            assert!(!before.own_successor(bad, links));
+            bad = after;
+            bad.identity.1 += 1;
+            assert!(!before.own_successor(bad, links));
+            bad = after;
+            bad.identity.2 = 1000;
+            assert!(!before.own_successor(bad, links));
+            bad = after;
+            bad.identity.3 = 1000;
+            assert!(!before.own_successor(bad, links));
+            bad = after;
+            bad.identity.4 = 0o100644;
+            assert!(!before.own_successor(bad, links));
+            for field in 0..3 {
+                bad = after;
+                match field {
+                    0 => bad.content.0 += 1,
+                    1 => bad.content.1 += 1,
+                    _ => bad.content.2 += 1,
+                }
+                assert!(!before.own_successor(bad, links));
+            }
+            bad = after;
+            bad.ctime = (7, 999);
+            assert!(!before.own_successor(bad, links));
+            bad = after;
+            bad.links = 2;
+            assert!(!before.own_successor(bad, links));
+        }
+        assert!(!RenameShape { links: 0, ..before }.own_successor(before, 1));
+    }
+
+    #[test]
+    fn commit_missing_or_expired_canonical_owner_never_opens_a_replacement() {
+        let mut stage = Stage::reserve_canonical();
+        let mut owner = Canonical::reserve().unwrap();
+        assert!(
+            stage
+                .commit_canonical(
+                    [b"old", b"old-template", b"new", b"new-template"],
+                    &[1; 32],
+                    &mut owner,
+                    Instant::now() - std::time::Duration::from_secs(1)
+                )
+                .is_err()
+        );
+        assert!(stage.original.iter().all(Option::is_none));
+        assert!(stage.finish().is_err());
+        assert!(stage.permit_request(Kind::Halt).is_err());
+    }
 
     #[test]
     fn source_shaped_stage_output_and_descriptor_plan_stay_inside_fixed_caps() {

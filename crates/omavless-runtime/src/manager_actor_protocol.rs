@@ -21,6 +21,8 @@ pub(super) enum Kind {
     StageRecorded,
     ObserveStopped,
     StoppedObserved,
+    CommitAuthenticatedBackup,
+    PairCommitted,
 }
 
 impl Kind {
@@ -39,6 +41,8 @@ impl Kind {
             Self::StageRecorded => 11,
             Self::ObserveStopped => 12,
             Self::StoppedObserved => 13,
+            Self::CommitAuthenticatedBackup => 14,
+            Self::PairCommitted => 15,
         }
     }
     fn from_byte(value: u8) -> Result<Self, Unavailable> {
@@ -56,6 +60,8 @@ impl Kind {
             11 => Ok(Self::StageRecorded),
             12 => Ok(Self::ObserveStopped),
             13 => Ok(Self::StoppedObserved),
+            14 => Ok(Self::CommitAuthenticatedBackup),
+            15 => Ok(Self::PairCommitted),
             _ => Err(Unavailable),
         }
     }
@@ -66,6 +72,7 @@ impl Kind {
             Self::AuthenticateBackup => Ok(Self::BackupAuthenticated),
             Self::StageAuthenticatedBackup => Ok(Self::StageRecorded),
             Self::ObserveStopped => Ok(Self::StoppedObserved),
+            Self::CommitAuthenticatedBackup => Ok(Self::PairCommitted),
             _ => Err(Unavailable),
         }
     }
@@ -163,6 +170,7 @@ impl Context {
                 | (Some(Kind::AuthenticateBackup), Kind::BackupAuthenticated)
                 | (Some(Kind::StageAuthenticatedBackup), Kind::StageRecorded)
                 | (Some(Kind::ObserveStopped), Kind::StoppedObserved)
+                | (Some(Kind::CommitAuthenticatedBackup), Kind::PairCommitted)
         ) {
             self.revoke();
             return Err(Unavailable);
@@ -219,6 +227,8 @@ mod tests {
             Kind::StageRecorded,
             Kind::ObserveStopped,
             Kind::StoppedObserved,
+            Kind::CommitAuthenticatedBackup,
+            Kind::PairCommitted,
         ] {
             let raw = frame(kind, 2).encode().unwrap();
             let decoded = Frame::decode(&raw).unwrap();
@@ -268,6 +278,25 @@ mod tests {
             context.begin(Kind::ObserveStopped).unwrap();
             let result = context.completed(frame(reply, 1), reply);
             assert_eq!(result.is_ok(), reply == Kind::StoppedObserved);
+            if result.is_err() {
+                assert!(context.begin(Kind::Halt).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn commit_completion_never_aliases_stage_or_generic_completion() {
+        for reply in [
+            Kind::Completed,
+            Kind::StageRecorded,
+            Kind::PairCommitted,
+            Kind::Closed,
+        ] {
+            let mut context = Context::new([1; 32]).unwrap();
+            context.ready(frame(Kind::Ready, 0)).unwrap();
+            context.begin(Kind::CommitAuthenticatedBackup).unwrap();
+            let result = context.completed(frame(reply, 1), reply);
+            assert_eq!(result.is_ok(), reply == Kind::PairCommitted);
             if result.is_err() {
                 assert!(context.begin(Kind::Halt).is_err());
             }

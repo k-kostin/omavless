@@ -205,7 +205,7 @@ fn matches_member(bytes: &[u8], ready: &[u8; READY_BYTES], index: usize) -> bool
         && ready[24 + index * 32..56 + index * 32] == Sha256::digest(bytes)[..]
 }
 
-fn class_from_matches(
+pub(crate) fn class_from_matches(
     old_store: bool,
     old_template: bool,
     new_store: bool,

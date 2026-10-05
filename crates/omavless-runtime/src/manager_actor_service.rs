@@ -14,6 +14,7 @@ mod stage;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
 pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;
+pub(crate) const CANONICAL_COMMIT_ORIGIN_FENCES: usize = stage::COMMIT_ORIGIN_FENCES;
 
 use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical};
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
@@ -240,6 +241,7 @@ pub enum DeveloperScenario {
     CanonicalStopped,
     CanonicalAuthenticate,
     CanonicalStage,
+    CanonicalCommit,
 }
 
 impl DeveloperScenario {
@@ -251,7 +253,8 @@ impl DeveloperScenario {
             | Self::StageAuthenticatedBackup
             | Self::CanonicalStopped
             | Self::CanonicalAuthenticate
-            | Self::CanonicalStage => 0,
+            | Self::CanonicalStage
+            | Self::CanonicalCommit => 0,
             _ => 1,
         }
     }
@@ -416,6 +419,7 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         DeveloperScenario::CanonicalStopped
             | DeveloperScenario::CanonicalAuthenticate
             | DeveloperScenario::CanonicalStage
+            | DeveloperScenario::CanonicalCommit
     );
     let nofile = if canonical_mode {
         actor_canonical::NOFILE
@@ -437,6 +441,7 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
             | DeveloperScenario::StageAuthenticatedBackup
             | DeveloperScenario::CanonicalAuthenticate
             | DeveloperScenario::CanonicalStage
+            | DeveloperScenario::CanonicalCommit
     ) {
         Some(synthetic_backup(until)?)
     } else {
@@ -575,7 +580,9 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
     }
     if matches!(
         scenario,
-        DeveloperScenario::CanonicalAuthenticate | DeveloperScenario::CanonicalStage
+        DeveloperScenario::CanonicalAuthenticate
+            | DeveloperScenario::CanonicalStage
+            | DeveloperScenario::CanonicalCommit
     ) {
         emit(b"t4_service_before_backup_transfer\n", until)?;
         exchange_backup(
@@ -588,17 +595,31 @@ pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailabl
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
         emit(b"t4_service_backup_authenticated\n", until)?;
     }
-    if scenario == DeveloperScenario::CanonicalStage {
+    if matches!(
+        scenario,
+        DeveloperScenario::CanonicalStage | DeveloperScenario::CanonicalCommit
+    ) {
         emit(b"t4_service_before_fixture_stage\n", until)?;
         exchange(
             stream,
             &mut context,
-            Kind::StageAuthenticatedBackup,
+            if scenario == DeveloperScenario::CanonicalCommit {
+                Kind::CommitAuthenticatedBackup
+            } else {
+                Kind::StageAuthenticatedBackup
+            },
             RequestShape::Exact,
             until,
         )?;
         alive(owner.pidfd.as_ref().ok_or(Unavailable)?)?;
-        emit(b"t4_service_fixture_stage_recorded\n", until)?;
+        emit(
+            if scenario == DeveloperScenario::CanonicalCommit {
+                b"t4_service_fixture_pair_committed\n"
+            } else {
+                b"t4_service_fixture_stage_recorded\n"
+            },
+            until,
+        )?;
     }
     if scenario == DeveloperScenario::CapacityFourth {
         // Unexpected fourth completion cannot silently turn a refusal scenario
@@ -753,6 +774,19 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
                     })?;
                     emit_actor(stage::SUCCESS_PHASES[5], until)?;
                     Kind::StageRecorded
+                }
+                Kind::CommitAuthenticatedBackup => {
+                    emit_actor(stage::SUCCESS_PHASES[0], until)?;
+                    transfer.with_restore_pair(until, |new_store, new_template| {
+                        stage.commit_canonical(
+                            [SYNTHETIC_STORE, SYNTHETIC_TEMPLATE, new_store, new_template],
+                            &context.nonce,
+                            &mut canonical,
+                            until,
+                        )
+                    })?;
+                    emit_actor(stage::COMMITTED_PHASE, until)?;
+                    Kind::PairCommitted
                 }
                 Kind::Halt => {
                     stage.finish()?;
@@ -1043,6 +1077,75 @@ fn actor_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_commit_uses_one_already_authenticated_pair_and_a_distinct_reply() {
+        assert_eq!(DeveloperScenario::CanonicalCommit.observations(), 0);
+        assert!(DeveloperScenario::CanonicalCommit.request_shape().is_none());
+        let mut context = live_context();
+        for (kind, completed, sequence) in [
+            (Kind::ObserveStopped, Kind::StoppedObserved, 1),
+            (Kind::AuthenticateBackup, Kind::BackupAuthenticated, 2),
+            (Kind::CommitAuthenticatedBackup, Kind::PairCommitted, 3),
+            (Kind::Halt, Kind::Closed, 4),
+        ] {
+            let mut memory = Memory {
+                input: reply(completed, sequence),
+                output: Vec::new(),
+                position: 0,
+                fail_at: usize::MAX,
+            };
+            let until = Instant::now() + Duration::from_secs(1);
+            if kind == Kind::AuthenticateBackup {
+                exchange_backup(
+                    &mut memory,
+                    &mut context,
+                    b"synthetic archive",
+                    SYNTHETIC_PASSPHRASE,
+                    until,
+                )
+                .unwrap();
+            } else {
+                exchange(&mut memory, &mut context, kind, RequestShape::Exact, until).unwrap();
+                assert_eq!(memory.output.len(), FRAME_BYTES);
+            }
+        }
+        assert_eq!(context.phase, Phase::Closed);
+        assert!(context.begin(Kind::CommitAuthenticatedBackup).is_err());
+        assert!(!include_str!("main.rs").contains("--commit-canonical-synthetic-backup"));
+    }
+
+    #[test]
+    fn commit_reply_cuts_revoke_same_originals_before_halt_without_compensation() {
+        for cut in 0..FRAME_BYTES {
+            let mut context = live_context();
+            let mut canonical = Canonical::reserve().unwrap();
+            let mut stage = stage::Stage::reserve_canonical();
+            let mut memory = Memory {
+                input: reply(Kind::PairCommitted, 1),
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            assert!(
+                exchange(
+                    &mut memory,
+                    &mut context,
+                    Kind::CommitAuthenticatedBackup,
+                    RequestShape::Exact,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            canonical_refusal(&mut context, &mut canonical, &mut stage);
+            let written = memory.output.len();
+            assert!(context.begin(Kind::Halt).is_err());
+            assert!(context.begin(Kind::StageAuthenticatedBackup).is_err());
+            assert!(canonical.finish().is_err());
+            assert!(stage.finish().is_err());
+            assert_eq!(memory.output.len(), written);
+        }
+    }
 
     #[test]
     fn canonical_stage_reply_or_output_error_revokes_all_original_owners_before_halt() {

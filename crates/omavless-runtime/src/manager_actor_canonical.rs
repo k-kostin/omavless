@@ -366,6 +366,7 @@ struct StageAdmission {
     origin_fences: usize,
     final_attempted: bool,
     refused: bool,
+    commit: bool,
 }
 const ORIGIN_FENCES: usize = crate::manager_actor_service::CANONICAL_STAGE_ORIGIN_FENCES;
 pub(crate) const STAGE_OWNER_PHASES: [&[u8]; 2] = [
@@ -373,6 +374,13 @@ pub(crate) const STAGE_OWNER_PHASES: [&[u8]; 2] = [
     b"t4_actor_stage_owner_checked\n",
 ];
 impl StageAdmission {
+    fn limit(&self) -> usize {
+        if self.commit {
+            crate::manager_actor_service::CANONICAL_COMMIT_ORIGIN_FENCES
+        } else {
+            ORIGIN_FENCES
+        }
+    }
     fn admit(&mut self, authenticated: bool) -> std::result::Result<(), Unavailable> {
         if self.refused || self.consumed {
             self.refused = true;
@@ -390,7 +398,7 @@ impl StageAdmission {
             || !self.consumed
             || self.completed
             || self.final_attempted
-            || self.origin_fences >= ORIGIN_FENCES
+            || self.origin_fences >= self.limit()
         {
             self.refused = true;
             return Err(Unavailable);
@@ -403,7 +411,7 @@ impl StageAdmission {
             || !self.consumed
             || self.completed
             || self.final_attempted
-            || self.origin_fences != ORIGIN_FENCES
+            || self.origin_fences != self.limit()
         {
             self.refused = true;
             return Err(Unavailable);
@@ -413,6 +421,33 @@ impl StageAdmission {
     }
     fn may_halt(&self) -> bool {
         !self.refused && (!self.consumed || self.completed)
+    }
+}
+
+#[cfg(test)]
+mod commit_plan_tests {
+    use super::*;
+    #[test]
+    fn commit_requires_exact_fixed_34_fences_and_never_reuses_consumed_admission() {
+        for count in [0, 26, 33, 34, 35] {
+            let mut admission = StageAdmission {
+                commit: true,
+                ..StageAdmission::default()
+            };
+            admission.admit(true).unwrap();
+            let mut result = Ok(());
+            for _ in 0..count {
+                result = admission.origin();
+                if result.is_err() {
+                    break;
+                }
+            }
+            let result = result.and_then(|()| admission.final_check());
+            assert_eq!(result.is_ok(), count == 34);
+            assert!(!admission.may_halt());
+            assert!(admission.admit(true).is_err());
+            assert!(admission.origin().is_err());
+        }
     }
 }
 
@@ -2116,7 +2151,23 @@ impl Canonical {
         let _ = self.rows.refuse();
     }
     pub(crate) fn begin_stage(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
+        self.begin_stage_plan(until, false)
+    }
+    pub(crate) fn begin_commit(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
+        self.begin_stage_plan(until, true)
+    }
+    fn begin_stage_plan(
+        &mut self,
+        until: Instant,
+        commit: bool,
+    ) -> std::result::Result<(), Unavailable> {
         let result = (|| {
+            // Only the closed canonical Commit call site selects this plan,
+            // before the permanently consumed admission. No imported count.
+            if self.stage.consumed || self.stage.refused {
+                return Err(Unavailable);
+            }
+            self.stage.commit = commit;
             self.stage.admit(
                 !self.refused && self.completed && self.authentication == Authentication::Complete,
             )?;

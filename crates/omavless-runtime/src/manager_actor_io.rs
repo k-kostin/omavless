@@ -238,6 +238,22 @@ impl FileIo {
         Ok(())
     }
 
+    pub fn admit_canonical_commit(
+        &mut self,
+        original: &mut crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical,
+        until: std::time::Instant,
+    ) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            self.revoke();
+            original.revoke();
+            return Err(Unavailable);
+        }
+        self.revoke();
+        original.begin_commit(until)?;
+        self.ledger.state = State::Live;
+        Ok(())
+    }
+
     pub fn admit(
         &mut self,
         original: &mut crate::restore_abort_cli::stopped_owner::actor_capture::Retained,
@@ -342,6 +358,62 @@ mod tests {
     impl Drop for Handle {
         fn drop(&mut self) {
             self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn rename_cut_keeps_both_old_and_replacement_slots_without_normal_halt() {
+        for cut in 0..3 {
+            let drops = Rc::new(Cell::new(0));
+            let mut owner = Ledger::new(17).unwrap();
+            for slot in [
+                Slot::Config,
+                Slot::OldStore,
+                Slot::OldTemplate,
+                Slot::ReplacementStore,
+                Slot::ReplacementTemplate,
+            ] {
+                owner
+                    .acquire(slot, || Ok(()), || Ok(Handle(drops.clone())), |_| Ok(()))
+                    .unwrap();
+            }
+            let gates = Cell::new(0);
+            let changed = Cell::new(false);
+            assert!(
+                owner
+                    .perform(
+                        Slot::Config,
+                        || {
+                            let gate = gates.get();
+                            gates.set(gate + 1);
+                            if (cut == 0 && gate == 0) || (cut == 2 && gate == 1) {
+                                Err(Unavailable)
+                            } else {
+                                Ok(())
+                            }
+                        },
+                        |_| {
+                            changed.set(true);
+                            if cut == 1 { Err(Unavailable) } else { Ok(()) }
+                        }
+                    )
+                    .is_err()
+            );
+            assert_eq!(changed.get(), cut != 0);
+            assert_eq!(drops.get(), 0);
+            assert!(owner.slots[Slot::OldStore as usize].is_some());
+            assert!(owner.slots[Slot::ReplacementStore as usize].is_some());
+            assert!(owner.finish().is_err());
+            assert!(
+                owner
+                    .perform(
+                        Slot::Config,
+                        || panic!("sealed gate"),
+                        |_| panic!("later rename")
+                    )
+                    .is_err()
+            );
+            assert_eq!(drops.get(), 0);
         }
     }
 
