@@ -302,6 +302,9 @@ No retained-manager transport integration, closed privileged protocol,
 canonical namespace, normal runtime adoption, merge or publication is proved.
 
 This documentation/export checkpoint passed the full source gate: 639 tests,
-two declared skips, JS/QML/navigation (`7a2db6`), reverse-apply and whitespace
-checks. Only documentation and the inert textual research fixture changed;
+two declared skips, JS/QML/navigation (`7a2db6`) and reverse-apply checks.
+Documentation whitespace checks passed. Git's whole-export whitespace check
+reports four context-marker-only lines in the literal patch; they are retained
+to preserve the exact diff, not source trailing whitespace. Only documentation
+and the inert textual research fixture changed;
 the source gate does not execute this patch or produce new kernel evidence.
