@@ -15,7 +15,24 @@ import subprocess
 import tempfile
 import time
 
-STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-1/scratch'
+STAGE_SCRATCH = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-2/scratch'
+PHASES = frozenset(('before_copy_prepare','after_copy_prepare',
+    'before_artifact_admission','after_artifact_admission','before_artifact_crosscheck',
+    'after_artifact_crosscheck','before_case_constructor','after_case_constructor',
+    'before_case_run','after_case_run','before_case_receipt_validation',
+    'after_case_receipt_validation','before_inner_record_output',
+    'before_initial_images_verify','after_initial_images_verify',
+    'before_bus_spawn','after_bus_maps','before_resolved_spawn','after_resolved_maps',
+    'before_broker_spawn','before_host_spawn','after_host_maps',
+    'before_broker_release','after_broker_maps','before_core_spawn','after_core_active',
+    'after_core_bootstrap','after_core_maps','before_stream_witness','after_stream_witness',
+    'before_stream_finish','after_stream_finish','before_core_shutdown','after_core_shutdown',
+    'after_dns_release','before_broker_shutdown','after_broker_shutdown',
+    'before_host_finish','after_host_zero','before_daemon_shutdown',
+    'after_resolved_zero','after_bus_zero','before_complete','after_complete'))
+# The reached Bridge.prepare emits exactly 83 existing frames; this separate
+# capped stream can add at most 45. Combined complete flow stays <=128.
+PHASE_LIMIT = 45
 
 
 class Refused(RuntimeError):
@@ -87,6 +104,7 @@ class Session:
         self.zero_reaped = {}
         self.anchors = {}
         self.retained = []
+        self.phase_count = 0
         self.isolated = False
         require(kind in ('inner', 'outer'), 'fixed_owner_kind')
         start = clock()
@@ -104,6 +122,25 @@ class Session:
         except BaseException:
             self.sealed = True
             raise
+
+    @guarded
+    def phase(self, label, deadline=None):
+        # Before/after known-stage observation ONLY. No exception/value/path
+        # formatting, failure-time output, retry, continuation or effect permit.
+        require(self.kind == 'inner' and type(label) is str and label in PHASES
+                and type(self.phase_count) is int and 0 <= self.phase_count < PHASE_LIMIT,
+                'fixed_phase_shape')
+        cap = self.deadline if deadline is None else deadline
+        require(type(cap) is float and math.isfinite(cap) and cap <= self.deadline,
+                'fixed_phase_deadline')
+        require(clock() < cap, 'fixed_phase_deadline')
+        self.phase_count += 1  # Attempt seals on uncertainty; never retry.
+        raw = ('T3_RETAINED_PHASE_V1 ' + label + '\n').encode('ascii')
+        require(len(raw) <= 128, 'fixed_phase_bound')
+        require(clock() < cap, 'fixed_phase_deadline')
+        count = os.write(2, raw)
+        require(type(count) is int and count == len(raw), 'fixed_phase_short_write')
+        require(clock() < cap, 'fixed_phase_deadline')
 
     @guarded
     def local_deadline(self, seconds):

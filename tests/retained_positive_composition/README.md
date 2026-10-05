@@ -1,11 +1,45 @@
 # Retained positive composition: source-only successor
 
 Developer witness in progress, not a normal Rust runtime, controller permit,
-installed package or production Python fallback. No guest invocation occurred.
+installed package or production Python fallback. Current generation 2 has not
+been invoked. Generation 1's sole whole guard terminated NONPASS (exit 2); its
+separately reviewed file-only observer did not change that terminal.
 The parent #646 whole wrapper remains NONPASS. Its separately reviewed fixed-file
 observer validated only recorded 25 copied objects, both daemon mapping passes
 and zero-shutdown rows; current-live, whole-wrapper, preservation, adoption and
 compatibility flags remain false. Neither result is converted to acceptance.
+
+## Fresh generation 2: finite recorded milestones
+
+The fixed new stage ends in `t3-retained-positive-composition-review-2`; the
+stopped generation 1 is never queried, reused, retried or cleaned up.
+Its file-only observer recorded an empty inner result and a 2728-byte child
+stderr hash `7657611c70eea363c4eca345f1c83a1bc185d12768b43b41bbc158f4835324e6`.
+Reconstructing only pinned public `Bridge.prepare` breadcrumb literals yields
+exactly those bytes/hash: 83 frames ending at `before_verify_copies`. This
+identifies the recorded boundary without reading private stderr. It does NOT
+identify the failing predicate or show progress through the later silent
+artifact/Case stages, nor prove current identity, preservation or acceptance.
+
+Generation 2 adds only finite `T3_RETAINED_PHASE_V1` labels around copy preparation,
+artifact admission/crosscheck, Case construction/run/receipt, initial image
+verification, each role, readback/stream, shutdown and exact-zero completion.
+The literal allowlist has no exception messages, paths, PID/namespace/device
+values, URLs or arbitrary caller data. Exact inner Session ownership and the
+existing absolute deadline precede each single typed-full write; a shared
+broker-release local deadline also fences that label. Unknown/short/late output
+seals before any second label or other followup; no failure-time output exists.
+Labels record a reached boundary only, not effect authority or cause.
+
+The complete source path adds 44 labels (13 launcher +31 Case). The independent
+new-stream cap is 45, so the reached old 83-frame prepare stream plus every
+allowed new attempt fits the existing 128-frame total. Inert AST-flow counting
+checks the dynamic bus/resolved loops and exact finite labels; executed mocked
+child controls check order and no later label after unknown/late return.
+No 15/65/90-second budget, identity predicate, copy/native provenance, positive
+raw-zero requirement or canonical guard is relaxed. Native inputs are unchanged.
+Fresh source/outer guard/transport review and exact-head gates remain mandatory
+before ROOT alone may authorize a new invocation.
 
 This first source checkpoint implements a fixed Unix conditional controller
 for the future fresh retained Session's own core. Directory `/home/core` and

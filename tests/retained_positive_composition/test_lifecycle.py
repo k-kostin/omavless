@@ -33,6 +33,63 @@ class Controls(unittest.TestCase):
              patch.object(l.os,'waitpid',return_value=(child.pid,0)):
             self.assertEqual(session.settle_zero(child,6),0)
 
+    def test_fixed_phase_full_write_only_inner_no_values_or_effect_authority(self):
+        session=l.Session('inner')
+        with patch.object(l.os,'write',side_effect=lambda fd,raw:len(raw)) as write:
+            session.phase('before_copy_prepare')
+        self.assertEqual(write.call_args.args,(2,b'T3_RETAINED_PHASE_V1 before_copy_prepare\n'))
+        self.assertEqual(session.phase_count,1);self.assertFalse(session.sealed)
+        self.assertFalse(session.children);self.assertFalse(session.zero_reaped)
+
+    def test_unknown_phase_wrong_scope_or_bad_counter_seals_before_output(self):
+        for kind,label,count in (('outer','before_copy_prepare',0),('inner','private/value',0),
+                ('inner',True,0),('inner','before_copy_prepare',True),
+                ('inner','before_copy_prepare',1.0),('inner','before_copy_prepare',45)):
+            session=l.Session(kind);session.phase_count=count
+            with patch.object(l.os,'write') as write:
+                with self.assertRaises(l.Refused):session.phase(label)
+                self.assertTrue(session.sealed);write.assert_not_called()
+                with self.assertRaises(l.Refused):session.phase('before_copy_prepare')
+                write.assert_not_called()
+
+    def test_short_alias_throw_and_late_phase_output_permanently_seal(self):
+        for result in (0,True,1.0,None):
+            session=l.Session('inner')
+            with patch.object(l.os,'write',return_value=result) as write:
+                with self.assertRaises(l.Refused):session.phase('before_copy_prepare')
+                with self.assertRaises(l.Refused):session.phase('after_copy_prepare')
+                self.assertEqual(write.call_count,1);self.assertTrue(session.sealed)
+        for variant in ('throw','late'):
+            session=l.Session('inner')
+            def effect(fd,raw):
+                if variant=='throw':raise OSError('private synthetic value')
+                session.deadline=0.0;return len(raw)
+            with patch.object(l.os,'write',side_effect=effect) as write:
+                with self.assertRaises(OSError if variant=='throw' else l.Refused):session.phase('before_copy_prepare')
+                with self.assertRaises(l.Refused):session.phase('after_copy_prepare')
+                self.assertEqual(write.call_count,1);self.assertTrue(session.sealed)
+
+    def test_expired_or_nonfinite_phase_clock_no_output_or_reset(self):
+        for bad in (float('nan'),float('inf'),True,1,90.0):
+            session=l.Session('inner')
+            with patch.object(l.time,'monotonic',return_value=bad),patch.object(l.os,'write') as write:
+                with self.assertRaises(l.Refused):session.phase('before_copy_prepare')
+                write.assert_not_called();self.assertTrue(session.sealed)
+                self.assertEqual(session.phase_count,0)
+
+    def test_phase_shared_local_cap_no_expansion_or_postlate_continuation(self):
+        for cap in (True,5,float('nan'),float('inf'),91.0,0.0):
+            session=l.Session('inner')
+            with patch.object(l.os,'write') as write:
+                with self.assertRaises(l.Refused):session.phase('before_broker_release',cap)
+                write.assert_not_called();self.assertTrue(session.sealed)
+        session=l.Session('inner');now=[0.0]
+        def late(fd,raw):now[0]=5.0;return len(raw)
+        with patch.object(l.time,'monotonic',side_effect=lambda:now[0]),patch.object(l.os,'write',side_effect=late) as write:
+            with self.assertRaises(l.Refused):session.phase('before_broker_release',5.0)
+            with self.assertRaises(l.Refused):session.phase('after_broker_maps')
+            self.assertEqual(write.call_count,1);self.assertTrue(session.sealed)
+
     def test_outer_one_exact_namespace_child_zero_raw_ledger(self):
         session=l.Session('outer');child=self.child(session,'namespace')
         self.reap(session,child);result=session.complete()

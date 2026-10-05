@@ -13,14 +13,14 @@ import stat
 import time
 import types
 
-STAGE = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-1'
+STAGE = '/home/kdk_vm/.cache/t3-retained-positive-composition-review-2'
 PINS = {
-    'lifecycle.py': '39026512d72c9525a8650474ad967e1b3cfc991c7e447328525643da1a00021c',
+    'lifecycle.py': 'bc44652a3ea44102d460017eb5c3bba1e221e25c9095a41a8ff990f31706f5e7',
     'artifacts.py': 'a73111d761205b31cdda1e3323db35fa7efbb18e58069e83c5bbcce490a1aaed',
     'images.py': '11d3a970654a707c5aa1b02ba2ff888b84dc498384796c67e413a02699e8bd0e',
     'controller.py': 'ffc849e9554e9cdf3f3e9fc2a9b5d60066c72d56ca634275b2c33e2f87673a8a',
     'helper.py': 'f369f888d64aeb3c8d9fd2e57354d8185547aeed21e19c86ef6f91c0bddaebc4',
-    'positive.py': '0281d4812fe41b3573f603257b4eb3ea2c45179025a2fa00248c736cee2deea3',
+    'positive.py': 'dc5bd78ac19d4a957e247471433011d970437fd6b47d47d5a2b0366a3cc154a9',
     'streams.py': '1f0b676610f4f5d6f599a1d73ff9ea6ea2d469c320cf789fbe3e88ee56ae9384',
     'bootstrap.py': 'ae86bfae0bbacc3bc5f3c9db99c1c75ec04f79b50f55ccea575b1ba3fb7c3a73',
     'bridge.py': 'aeb863f81b3b250091020e7b7610e10346da65fd2dba58d50b4c9e63a8e79f45',

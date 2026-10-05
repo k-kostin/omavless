@@ -1,5 +1,6 @@
 """Executed mocked entry controls: NEVER run an actual guest/native recipe."""
 from contextlib import ExitStack
+import ast
 import hashlib
 import importlib.util
 import json
@@ -228,6 +229,11 @@ class Controls(unittest.TestCase):
         self.assertEqual(len(writes),1);record=v.decode(writes[0]);v.validate_case(record['case'],f.RAW)
         self.assertFalse(record['parent_whole_known_zero']);self.assertFalse(record['production_effect_authority'])
         self.assertEqual(len(context[3].retained),3)
+        self.assertEqual([call.args[0] for call in context[3].phase.call_args_list],
+            ['before_copy_prepare','after_copy_prepare','before_artifact_admission',
+             'after_artifact_admission','before_artifact_crosscheck','after_artifact_crosscheck',
+             'before_case_constructor','after_case_constructor','before_case_run','after_case_run',
+             'before_case_receipt_validation','after_case_receipt_validation','before_inner_record_output'])
 
     def test_changed_native_original_or_late_case_parks_before_later_stage_output(self):
         class Parked(BaseException):pass
@@ -243,7 +249,62 @@ class Controls(unittest.TestCase):
                 output.assert_not_called();park.assert_called_once()
             if variant=='changed':self.assertNotIn('case_constructed',steps)
             else:self.assertIn('case_run',steps)
+            last=context[3].phase.call_args.args[0]
+            self.assertEqual(last,'before_artifact_crosscheck' if variant=='changed' else 'before_case_run')
             self.clock[0]=0.0
+
+    def test_fixed_source_complete_phase_budget_and_public_old_frame_hash(self):
+        owner=module('lifecycle')
+        def calls(nodes,env=None):
+            env={} if env is None else env;found=[]
+            def label(node):
+                if isinstance(node,ast.Constant) and type(node.value) is str:return node.value
+                if isinstance(node,ast.Name) and node.id in env:return env[node.id]
+                if isinstance(node,ast.BinOp) and isinstance(node.op,ast.Add):return label(node.left)+label(node.right)
+                self.fail('unknown phase expression requires explicit budget review')
+            def has_phase(node):
+                return any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
+                    and n.func.attr=='phase' for n in ast.walk(node))
+            for node in nodes:
+                if isinstance(node,ast.Expr) and isinstance(node.value,ast.Call):
+                    call=node.value
+                    if isinstance(call.func,ast.Attribute) and call.func.attr=='phase':
+                        self.assertIn(len(call.args),(1,2));self.assertFalse(call.keywords)
+                        if len(call.args)==2:
+                            self.assertIsInstance(call.args[1],ast.Name);self.assertEqual(call.args[1].id,'deadline')
+                        found.append(label(call.args[0]))
+                elif isinstance(node,ast.For) and has_phase(node):
+                    if isinstance(node.target,ast.Tuple):
+                        self.assertEqual([n.id for n in node.target.elts],['role','argv'])
+                        values=[ast.literal_eval(row.elts[0]) for row in node.iter.elts]
+                    else:
+                        self.assertIsInstance(node.target,ast.Name);self.assertEqual(node.target.id,'role')
+                        values=ast.literal_eval(node.iter)
+                    for value in values:found+=calls(node.body,{**env,'role':value})
+                    self.assertFalse(node.orelse)
+                elif isinstance(node,ast.Try):
+                    self.assertFalse(any(has_phase(n) for n in node.handlers+node.finalbody+node.orelse))
+                    found+=calls(node.body,env)
+                elif isinstance(node,ast.If) and has_phase(node):
+                    self.fail('conditional phase requires explicit branch budget review')
+            return found
+        launcher=ast.parse((HERE/'launcher.py').read_text())
+        child=next(n for n in launcher.body if isinstance(n,ast.FunctionDef) and n.name=='child')
+        positive=ast.parse((HERE/'positive.py').read_text())
+        case=next(n for n in positive.body if isinstance(n,ast.ClassDef) and n.name=='Case')
+        run=next(n for n in case.body if isinstance(n,ast.FunctionDef) and n.name=='run')
+        outer_labels=calls(child.body);case_labels=calls(run.body)
+        self.assertEqual((len(outer_labels),len(case_labels)),(13,31))
+        self.assertEqual(set(outer_labels+case_labels),owner.PHASES)
+        self.assertLessEqual(len(outer_labels+case_labels),owner.PHASE_LIMIT)
+        self.assertLessEqual(83+owner.PHASE_LIMIT,128)
+        phases=['before_store_create','before_store_mount','before_source_admission']+['before_copy']*25
+        phases+=['before_source_recheck','before_fd_inventory','before_store_freeze','before_source_recheck']
+        phases+=['before_bind']*50+['before_verify_copies']
+        public=''.join('T3_LIVE_FD_PHASE_V1 '+phase+'\n' for phase in phases).encode('ascii')
+        self.assertEqual((len(phases),len(public)),(83,2728))
+        self.assertEqual(hashlib.sha256(public).hexdigest(),
+            '7657611c70eea363c4eca345f1c83a1bc185d12768b43b41bbc158f4835324e6')
 
     def test_late_namespace_spawn_is_retained_but_cannot_observe_or_read_result(self):
         entry=l.Entry();owner,base,context,_=self.outer()

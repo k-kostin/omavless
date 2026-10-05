@@ -264,16 +264,22 @@ class Case:
     def run(self):
         try:
             self.available()
+            self.owner.phase('before_initial_images_verify')
             self.images.verify(self.owner.local_deadline(5))
+            self.owner.phase('after_initial_images_verify')
             self.write('/tmp/dbus.xml',self.base.bus_config('success').encode())
             for role,argv in (('bus',['/usr/bin/dbus-daemon','--nofork','--nopidfile','--config-file=/tmp/dbus.xml']),
                               ('resolved',self.base.resolved_exec())):
+                self.owner.phase('before_'+role+'_spawn')
                 child = self.spawn(role,argv);self.owner.ready(role)
                 if role=='resolved':self.owner.perform(self.base.verify_child,child,974,self.base.RESOLVER_CAPS)
                 self.mapped(role)
+                self.owner.phase('after_'+role+'_maps')
+            self.owner.phase('before_broker_spawn')
             broker_command = self.base.cap_exec('omavless-dns-broker',0,['--serve'])
             gate = "import os; assert os.read(0,1)==b'G'; os.execve("+repr(broker_command[0])+","+repr(broker_command)+","+repr(self.base.ENV)+")"
             broker = self.spawn('broker',['/usr/bin/python3','-I','-B','-c',gate],pipes=True)
+            self.owner.phase('before_host_spawn')
             host = self.spawn('host',self.base.cap_exec('host-fixture',0,
                 ['success',str(broker.pid),str(self.children['resolved'].pid)]),pipes=True)
             helper = self.helper_module.Helper(self.owner,host,self.ownership,self.images,
@@ -281,9 +287,11 @@ class Case:
             helper.ready(self.owner.local_deadline(5))
             self.owner.perform(self.base.verify_child,host,0,self.base.CAP)
             self.owner.native_ready('host');self.mapped('host')
+            self.owner.phase('after_host_maps')
             deadline = self.owner.local_deadline(5)
             require(type(broker.stdin) is io.FileIO)
             self.owner.live(broker);self.owner.within(deadline)
+            self.owner.phase('before_broker_release',deadline);self.owner.within(deadline)
             written = self.call(deadline,os.write,broker.stdin.fileno(),b'G')
             require(type(written) is int and written == 1)
             self.owner.live(broker);self.owner.within(deadline)
@@ -291,42 +299,62 @@ class Case:
             self.wait_snapshot(helper,'broker_ready')
             self.owner.perform(self.base.verify_child,broker,0,self.base.CAP)
             self.owner.native_ready('broker');self.mapped('broker')
+            self.owner.phase('after_broker_maps')
             deadline = self.owner.local_deadline(5)
             self.call(deadline,os.mkdir,'/home/core',0o700)
             self.call(deadline,os.chown,'/home/core',1000,1000)
             self.write('/home/core/config.yaml',CORE_CONFIG,1000)
+            self.owner.phase('before_core_spawn')
             core = self.spawn('core',self.base.cap_exec('mihomo',1000,
                 ['-d','/home/core','-f','/home/core/config.yaml']))
             self.wait_snapshot(helper,'active')
+            self.owner.phase('after_core_active')
             self.owner.perform(self.base.verify_child,core,1000,self.base.CAP)
             bootstrap = self.call(self.owner.local_deadline(5),self.bootstrap_module.Bootstrap,
                 self.owner,self.ownership,self.images,self.image_module)
             socket_bootstrap = self.call(self.owner.local_deadline(5),bootstrap.receipt)
+            self.owner.phase('after_core_bootstrap')
             control = self.call(self.owner.local_deadline(5),self.controller_module.Controller,
                 self.owner,core,self.ownership)
             control.ready();self.owner.native_ready('core');self.mapped('core')
+            self.owner.phase('after_core_maps')
             streams = self.stream_module.Streams(self.owner,self.ownership,self.images,self.image_module,
                                                 control,self.controller_module)
+            self.owner.phase('before_stream_witness')
             stream_witness = self.call(self.owner.local_deadline(8),streams.witness)
+            self.owner.phase('after_stream_witness')
             deadline = self.owner.local_deadline(5)
             self.call(deadline,self.base.active,self.call(deadline,self.observer,
                 self.call(deadline,helper.snapshot,deadline)))
             control.ready();self.available()
+            self.owner.phase('before_stream_finish')
             stream_finish = self.call(self.owner.local_deadline(5),streams.finish_positive)
+            self.owner.phase('after_stream_finish')
             for role in ('core','broker','host'):self.final_map(role)
+            self.owner.phase('before_core_shutdown')
             self.stops['core'] = self.owner.shutdown('core',self.images,self.base)
+            self.owner.phase('after_core_shutdown')
             self.wait_snapshot(helper,'released')
+            self.owner.phase('after_dns_release')
+            self.owner.phase('before_broker_shutdown')
             self.stops['broker'] = self.owner.shutdown('broker',self.images,self.base)
+            self.owner.phase('after_broker_shutdown')
+            self.owner.phase('before_host_finish')
             final = self.final_snapshot(helper)
             helper.positive_eof(self.owner.local_deadline(5))
             self.stops['host'] = self.owner.host_finished_zero()
+            self.owner.phase('after_host_zero')
+            self.owner.phase('before_daemon_shutdown')
             for role in ('resolved','bus'):
                 self.final_map(role)
                 self.stops[role] = self.owner.shutdown(role,self.images,self.base)
+                self.owner.phase('after_'+role+'_zero')
             for rows in (self.initial,self.final):
                 loaded = {row['path'] for role in ('bus','resolved') for row in rows[role]}
                 require(SIX <= loaded)
+            self.owner.phase('before_complete')
             complete = self.owner.complete()
+            self.owner.phase('after_complete')
             self.available()
             return {'case':'success','initial':self.initial,'final':self.final,'copies':self.copies.records,
                 'stream_witness':stream_witness,'stream_positive_finish':stream_finish,

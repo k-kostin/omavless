@@ -21,10 +21,10 @@ import sys
 import time
 import types
 
-STAGE='/home/kdk_vm/.cache/t3-retained-positive-composition-review-1'
+STAGE='/home/kdk_vm/.cache/t3-retained-positive-composition-review-2'
 ROOT=STAGE+'/scratch/inventory/root'
 NATIVE=STAGE+'/native'
-GRAPH='8f2e176c38b0fff1746c32313f8ea6bf52d7b7a768628ab8cc2c3b161c5adfd1'
+GRAPH='61d1cd2527a32ba83ebf7d29b94c6567f79fdbcd3719b04aa5d8aa32e35066d9'
 VALIDATOR='8acc602d2d6abfc56fd2e0f6d2d2cc35d00d046e4e1b0acddc55f2217def7f1e'
 SOURCE_PINS={'graph.py':GRAPH,'validate_receipt.py':VALIDATOR}
 RUN=['--run','--ack-retained-positive-disposable-vm']
@@ -215,22 +215,35 @@ def child(entry,frame):
     copies=loaded['bridge.py'].Bridge.__new__(loaded['bridge.py'].Bridge)
     owner.retained.append(copies)
     owner.perform(copies.__init__,base,loaded['admission.py'],graph.raw['copy-manifest.json']);entry.available()
+    owner.phase('before_copy_prepare');entry.available()
     owner.perform(copies.prepare,original);entry.available()
+    owner.phase('after_copy_prepare');entry.available()
     artifacts=loaded['artifacts.py'].Sources.__new__(loaded['artifacts.py'].Sources)
     owner.retained.append(artifacts)
+    owner.phase('before_artifact_admission');entry.available()
     owner.perform(artifacts.__init__);entry.available()
+    owner.phase('after_artifact_admission');entry.available()
+    owner.phase('before_artifact_crosscheck');entry.available()
     for name,(fd,original) in originals.items():
         current=entry.call(os.fstat,fd);_,bound,_=artifacts.files[name]
         require(identity(original)==identity(current)==identity(bound))
+    owner.phase('after_artifact_crosscheck');entry.available()
+    owner.phase('before_case_constructor');entry.available()
     case=loaded['positive.py'].Case(owner,ownership,base,copies,loaded['bridge.py'],
         artifacts,loaded['artifacts.py'],loaded['images.py'],loaded['controller.py'],
         loaded['helper.py'],loaded['streams.py'],loaded['bootstrap.py'])
     owner.retained.append(case);entry.available()
+    owner.phase('after_case_constructor');entry.available()
+    owner.phase('before_case_run');entry.available()
     result=owner.perform(case.run);entry.available()
+    owner.phase('after_case_run');entry.available()
+    owner.phase('before_case_receipt_validation');entry.available()
     entry.call(validator.validate_case,result,graph.raw['copy-manifest.json'])
+    owner.phase('after_case_receipt_validation');entry.available()
     record={'schema':'retained-positive-inner-record-v1','namespace_boundary_checked':True,
             'case':result,'parent_whole_known_zero':False,'production_effect_authority':False}
     raw=entry.call(json.dumps,record,sort_keys=True,separators=(',',':'),allow_nan=False).encode('ascii')+b'\n'
+    owner.phase('before_inner_record_output');entry.available()
     owner.available();entry.output(raw)
 
 
