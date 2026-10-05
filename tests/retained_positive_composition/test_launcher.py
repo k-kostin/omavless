@@ -404,4 +404,69 @@ class Controls(unittest.TestCase):
             load.assert_not_called();opened.assert_not_called();self.assertEqual(entry.deadline,65.0)
 
 
+class CompositionInventory(unittest.TestCase):
+    """Only in-memory descriptors; no actual proc/kernel acquisition."""
+    def scan(self,names,*,limits=(512,512),bad_fd=None,fstat_error=None,scan_error=False,standalone=False):
+        spec=importlib.util.spec_from_file_location('fixed_bridge_test',HERE.parent/'six_library_live_mapping'/'bridge.py')
+        bridge=importlib.util.module_from_spec(spec);spec.loader.exec_module(bridge)
+        inspected=[]
+        def entries():
+            for name in names:yield SimpleNamespace(name=name)
+            if scan_error:raise OSError('synthetic scan failure')
+        def checked(fd):
+            inspected.append(fd)
+            if fd==fstat_error:raise OSError('synthetic fstat failure')
+            return SimpleNamespace(st_dev=7)
+        stream=Mock();stream.__enter__=Mock(return_value=entries());stream.__exit__=Mock(return_value=False)
+        with patch.object(l.resource,'getrlimit',return_value=limits), \
+             patch.object(l.os,'open',return_value=3) as opened, \
+             patch.object(l.os,'scandir',return_value=stream), \
+             patch.object(l.os,'fstat',side_effect=checked), \
+             patch.object(l.os,'close') as closed, \
+             patch.object(l.fcntl,'fcntl',side_effect=lambda fd,command:os.O_RDWR if fd==bad_fd else os.O_RDONLY):
+            try:
+                if standalone:bridge.no_writable_fds(7)
+                else:l.composition_copy_fd_inventory(7)
+            finally:
+                if opened.called:closed.assert_called_once_with(3)
+                else:closed.assert_not_called()
+        return inspected
+
+    def test_complete_129_and_512_entries_include_the_suffix(self):
+        for count in (129,512):
+            self.assertEqual(self.scan([str(i) for i in range(count)]),list(range(count)))
+
+    def test_standalone128_policy_is_not_changed_or_retried(self):
+        with self.assertRaises(RuntimeError):self.scan([str(i) for i in range(129)],standalone=True)
+        source=(HERE.parent/'six_library_live_mapping'/'bridge.py').read_bytes()
+        self.assertIn(b'len(seen) < 128',source)
+
+    def test_fixed_soft_and_hard512_required_before_open(self):
+        for limits in ((128,512),(512,1024),(True,512),(512,True),(512,),[512,512]):
+            with self.subTest(limits=limits),self.assertRaises(l.Refused):self.scan(['3'],limits=limits)
+
+    def test_bad_names_duplicates_missing_self_and_overflow_refuse(self):
+        for names in (['3','512'],['3','03'],['3','-1'],['3','x'],['3','3'],['0'],
+                      [str(i) for i in range(513)]):
+            with self.subTest(names=names[:3]),self.assertRaises(l.Refused):self.scan(names)
+
+    def test_suffix_writable_unknown_stat_or_scan_failure_never_passes(self):
+        names=[str(i) for i in range(129)]
+        for changes in ({'bad_fd':128},{'fstat_error':128},{'scan_error':True}):
+            with self.subTest(changes=changes),self.assertRaises((l.Refused,OSError)):
+                self.scan(names,**changes)
+
+    def test_selection_precedes_first_bridge_acquisition_without_refusal_fallback(self):
+        tree=ast.parse((HERE/'launcher.py').read_text())
+        child=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='child')
+        source=ast.unparse(child)
+        self.assertLess(source.index('resource.setrlimit'),source.index('base.isolate'))
+        self.assertLess(source.index('base.isolate'),source.index('.no_writable_fds ='))
+        self.assertLess(source.index('.no_writable_fds ='),source.index('.Bridge.__new__'))
+        self.assertEqual(source.count('composition_copy_fd_inventory'),1)
+        scan=next(n for n in tree.body if isinstance(n,ast.FunctionDef)
+                  and n.name=='composition_copy_fd_inventory')
+        self.assertFalse(any(isinstance(n,ast.ExceptHandler) for n in ast.walk(scan)))
+
+
 if __name__=='__main__':unittest.main()

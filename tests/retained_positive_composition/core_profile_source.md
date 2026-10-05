@@ -209,3 +209,48 @@ verified all 14 hashes. This was not a failed runtime-scope inspection. These
 results are synthetic/source-only; no Go config parser, core/database, native
 binary, namespace or VM was selected. Python 3.12 is not on this author PATH and
 has not been claimed as a new checkpoint gate.
+
+## Review6 stopped scope and fixed composition descriptor inventory
+
+Review6 used source `3506b566c988211c8c4d927d39c1acece2a6081e` with all
+24 separately selected preparation stages returning original zero. The whole
+selection `e4ca6c/session59304 -> 26da4c` returned original EXIT2. It remains
+STOP: no query, signal, reap, retry, archive or cleanup. The separately reviewed
+fixed-file observer `1fee68` returned original zero. Its bounded projection
+`17ed14` reports 270 literal frames (83 Bridge, 187 Session), last
+`before_core_shutdown_verify`, with no opaque tail; inner empty, outer absent
+and completion marker false. Child stderr is 12731 bytes, SHA
+`6f945f1d67d63bec491879caf224d1607ead12590631dd65ca30fe82bdba08fe`.
+These are lexical file facts, not cause, custody, kernel absence or acceptance.
+
+Source inspection narrowed the failure surface: `Images.verify` first invokes
+the Bridge verification and its writable-copy descriptor inventory. The
+standalone Bridge scanner admits at most128 entries, whereas this retained
+PID1 composition deliberately sets both NOFILE limits to512 and retains source,
+image and native descriptors. That is a supported composition mismatch, not
+evidence that the stopped process actually crossed128 or that its timeout was
+not responsible. Both independent source reviewers agreed with the bounded
+correction; no timing budget or image/namespace/hash predicate is relaxed.
+
+The launcher now selects a composition-only fixed512 scanner after isolation,
+before the first Bridge acquisition, never as a retry or refusal fallback.
+It requires exact integer soft/hard512 before opening, enumerates to EOF with
+live scandir duplicate, requires distinct canonical numeric descriptors below
+512 and its own directory entry, and checks every descriptor on the copy
+device is read-only. The standalone128 body and Images source stay unchanged.
+The temporary scanner directory is closed under ordinary backend semantics;
+this is not a close, release or custody claim for any retained original. The
+scan still needs descriptor headroom and safely refuses exhaustion.
+
+Six new in-memory controls cover full129/512 suffixes, standalone129 refusal,
+limit/type errors before open, malformed/duplicate/oversized/self-missing names,
+writable/unknown/iteration suffix failures and hook selection ordering. The
+focused launcher gate `8672e3` passed25 controls; complete source gate
+`cea832/session37831 -> 566ef9` returned zero, 1179 Python controls with the
+same two existing opt-in skips, plus JavaScript and QML contracts. Launcher
+SHA `91bf0105dff0ef9fb76b633992e0fb64ab7d54a495ac8093168c47d0e82991be`,
+test SHA `8872b8efc6ecd21c0e74b4199dbd5e7a7cb4fb89400fba501d10b4afa953d021`,
+unchanged Images SHA
+`c7a821f478a7102f1c128fb450c4e172f9cdfc30db1d69b4c69d6a08d5f333bb`.
+These gates are source-only. A fresh reviewed recipe is required before any
+successor VM selection; all predecessor stopped scopes remain ineligible.
