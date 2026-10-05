@@ -465,3 +465,72 @@ check `5e3026`, all-target feature Clippy with warnings denied
 `749023`/`2e96a2`, and diff whitespace check. Initial focused no-run compilation
 `76f4f2`/`755335` also returned0. No actor binary, installed tool, credential
 syscall, actual proc backend or guest action was run by the writer.
+
+### Third canonical actual: original image-open category still unknown
+
+ROOT selected exact3671084292672c979ca0886641fa774919e5ae8d actor
+63854648 bytes/SHA256
+`861eccc7e0749c3c68258ab68aa729c1291a1c3b947addccd68866a493479533`
+with a separately reviewed fresh-boot-bound packet. Upload `94d996` returned
+original0 with the fixed35-byte receipt/empty stderr; prepare `86d816` returned
+original0. Whole run `79601`/`6a066f` returned original2: **NONPASS**.
+Separate pre-scoped two-file observer `7ceb65` returned original0:
+
+| Exact capture | Bytes / literal frames | Last phase | SHA256 |
+| --- | --- | --- | --- |
+| Actor | 1202 / 34 | `t4_actor_inventory_image_open_refused` | `4bb3c447cd795bd0f86d17653273e2e13d9893edd91120e1e1496df462281d2f` |
+| Supervisor | 122 / 5 | `t4_service_ready` | `8dd70e5ec01210a4c9bad017c2670784fbe66b0611f579b12f79a632779f56fb` |
+
+This outer category covers the pre-open owner/gate/charge, original SameUID
+executable open and post-positive budget gate. It does not identify the original
+errno, process fate, zombie state or actual cause. The actual scope stays
+permanently stopped for agent actions: no failed tree, capture/process query,
+retry, reap, signal or cleanup. Separately authorized disposable administration
+is not product recovery.
+
+### Original image-open errno SOURCE successor
+
+This separate branch starts from exact367; it does not change the later private
+authentication or synthetic-stage branches. Shared legacy `magic_file` and its
+cfg(test)-only reporter remain unchanged. A canonical-private helper makes the
+SAME single original `openat` of fixed `exe`, O_PATH|O_CLOEXEC/Mode::empty, and
+keeps its typed Errno. Positive File ownership still transfers immediately into
+the existing charged Owner before the unchanged post-open gate.
+
+On the original Err only, the acquisition callback records a stack-local closed
+category and returns the same Unavailable. It emits nothing, performs no probe,
+metadata/path read or ambient-errno resampling. After `Owner::executable` returns,
+its existing guard has revoked on Err and retained the reported prefix. Only then
+does the existing one-attempt InventoryDiagnostic select a finite label. A
+charge/gate/invariant refusal without an open Err keeps generic image_open_refused.
+
+The six static suffixes are image_open_enoent_refused, image_open_eacces_refused,
+image_open_eperm_refused, image_open_emfile_refused, image_open_enfile_refused
+and image_open_other_refused (all t4_actor_inventory_ prefix and LF). Exact
+ENOENT/EACCES/EPERM/EMFILE/ENFILE map respectively; every other Errno, including
+EINTR, is OTHER without retry. No raw integer/PID/UID/path/count, private text
+or copied live authority is serialized.
+
+Six new failure literals make46 total, not a second failure frame. Successful
+whole59/conservative failed60, supervisor7, capture4096 and8320/classic64 bounds
+are unchanged. Attempt consumption still precedes output using the same budget;
+diagnostic failure cannot change the original Err or permit downstream
+IO/finish/release. Missing labels remain possible on expiry. No Class/start-time,
+required regular image, daemon, UID/GID/namespace, inventory equality, listener
+or backend fault predicate is relaxed. ENOENT is only an original returned
+category, not proof that skipping a zombie is safe; EMFILE/ENFILE confer no
+permission to raise limits or evict uncertain owners.
+
+Four new controls use memory resources only: exact mappings/OTHER/no-success
+label, revocation before one diagnostic and no later IO, positive image retention
+on a late postgate without an errno label, and pre-callback refusal without an
+open. Existing all-failure/expired controls cover29 failure labels and the
+unchanged60-frame/4096 bound. Focused memory gates passed:27 canonical/inventory
+controls (`2a0bbe`),39 service/protocol/transfer/stage controls
+(`0d8763`/`1def2e`), and seven capture controls (`4eeab7`). Strict feature-library
+Clippy with warnings denied (`276068`/`a85c73`), normal no-feature library check
+(`50f46a`/`de0750`), formatting and diff whitespace checks passed. These are
+library-only compile/memory controls, not actor binary or installed-proc evidence.
+No actor build or VM action is selected by this implementation. Fresh artifact/packet/
+vocabulary and separate review/boot/runtime admission precede any future ROOT
+actual choice; old367 remains immutable NONPASS, not a retry target.
