@@ -1,11 +1,15 @@
 # T4 recovery-attempt receipt model
 
-Status: test-only protocol model, stacked on the inactive network-transition
-planner. The implementation is compiled only under `cfg(test)` and has no
+Status: dormant developer protocol, stacked on the inactive network-transition
+planner. The implementation is compiled under tests or the disabled
+`network-resume-fixture` feature and has no
 production caller, production filesystem adapter, event subscription, timer, retry worker,
 IPC method, settings change or VPN effect. A separate test-only temporary-file
 fixture now composes this protocol with the existing private atomic writer and
 migration lock; its scope and crash limitations are recorded below.
+The [owner continuation](T4_NETWORK_RESUME_CONTINUATION.md) adds one fixed,
+no-argument developer example using fresh owned synthetic fixtures; it does
+not provide production Ready provisioning or a production filesystem adapter.
 
 ## Problem and bounded result
 
@@ -94,10 +98,12 @@ Production activation still requires:
 - Separately justified rearming after a later stable epoch or explicit owner
   reconciliation. An unresolved Reserved attempt blocks later epochs too.
 
-The existing process-start reconciler is unchanged. Any future event worker
-must share its attempt/recovery barriers before this can claim cross-trigger
-at-most-once behavior. Neither an owner restart nor startup reconciliation is
-implemented by this model.
+The dormant owner continuation now shares one Admission and terminal eligibility
+between guarded startup and events, using a distinct enrollment-time startup
+trigger rather than a fabricated event Hint. An enrolled original owner refuses
+both unrestricted startup entry points and the lowest lifecycle startup escape.
+Normal production factories remain unenrolled, and production restart identity,
+Ready provisioning and source integration are not provided by this protocol.
 
 ## Evidence scope
 

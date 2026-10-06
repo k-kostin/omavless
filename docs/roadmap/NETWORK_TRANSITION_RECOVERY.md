@@ -14,6 +14,15 @@ event/coordinator composition remain activation gates.
 The tentative pure-model window is three monotonic seconds of quiet after the
 latest hint, expiring after 60 seconds; host event-source and boot-epoch design
 remain unselected, so these bounds are not yet a product behavior promise.
+The [executable owner continuation](../development/T4_NETWORK_RESUME_CONTINUATION.md)
+now composes an authenticated owned Unix fixture source, bounded event owner,
+real private receipt files and the original native coordinator. A disabled
+developer feature can run the same fixed owned fixture; the normal daemon has
+no subscription or new recovery registration. The continuation remains dormant;
+its private owner-installed guard now shares startup/event admission and blocks
+legacy startup escapes after enrollment. Host-source/provisioning/production
+factory integration and real sleep/NIC gates
+remain pending, with no automatic product reconnect behavior enabled.
 This is distinct from the existing bounded **process-start** reconciliation in
 `lifecycle.rs` / `connection_transaction.rs`. It does not make resume or network
 changes a second unconditional startup path.

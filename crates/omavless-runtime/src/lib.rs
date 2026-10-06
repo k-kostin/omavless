@@ -68,8 +68,12 @@ pub mod native_coordinator;
 pub mod native_dispatch;
 pub mod native_host;
 pub mod native_probe_resolver;
-#[cfg(test)]
+#[cfg(any(test, feature = "network-resume-fixture"))]
 mod network_recovery_receipt;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod network_resume;
+#[cfg(feature = "network-resume-fixture")]
+pub use network_resume::developer_network_resume_fixture;
 pub mod network_transition_plan;
 mod onboarding_protocol;
 pub mod owner;

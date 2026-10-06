@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Test-only T4 receipt protocol. Storage and host observations below are models,
+//! Dormant T4 developer receipt protocol. Storage and host observations are fixtures,
 //! not production durability/provenance adapters. See the owning contract.
 //! No automatic operation can manufacture a Ready record from absence or
 //! re-arm a record after restart, a changed epoch, or an attempted recovery.
@@ -8,17 +8,18 @@
 use crate::network_transition_plan::{self as hint_plan, Attempt, Current, Decision, Hint};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 #[path = "network_recovery_receipt_files.rs"]
 mod file_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Fence {
-    boot: [u8; 16],
-    owner_instance: [u8; 16],
-    owner_generation: u64,
-    desired_revision: u64,
-    network_epoch: u64,
+pub(crate) struct Fence {
+    pub(crate) boot: [u8; 16],
+    pub(crate) owner_instance: [u8; 16],
+    pub(crate) owner_generation: u64,
+    pub(crate) desired_revision: u64,
+    pub(crate) network_epoch: u64,
 }
 
 impl Fence {
@@ -38,7 +39,7 @@ impl Fence {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum Phase {
+pub(crate) enum Phase {
     Ready,
     Reserved,
     Finished,
@@ -46,16 +47,16 @@ enum Phase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Receipt {
-    schema: u8,
-    fence: Fence,
-    phase: Phase,
+pub(crate) struct Receipt {
+    pub(crate) schema: u8,
+    pub(crate) fence: Fence,
+    pub(crate) phase: Phase,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Refused;
+pub(crate) struct Refused;
 
-fn decode(raw: &[u8]) -> Result<Receipt, Refused> {
+pub(crate) fn decode(raw: &[u8]) -> Result<Receipt, Refused> {
     if raw.len() > 1024 {
         return Err(Refused);
     }
@@ -74,7 +75,7 @@ fn decode(raw: &[u8]) -> Result<Receipt, Refused> {
 /// A successful replacement must survive every modeled subsequent crash. An
 /// error can mean either old or new state persisted, never permission to act.
 /// The model does not prove that any existing filesystem adapter meets this.
-trait Journal {
+pub(crate) trait Journal {
     fn load(&mut self) -> Result<Receipt, Refused>;
     fn replace_synced(&mut self, expected: Receipt, next: Receipt) -> Result<(), Refused>;
 }
@@ -82,21 +83,27 @@ trait Journal {
 /// Only fresh, attributed observations qualify. The lease also serializes Off,
 /// profile/mode changes, owner revocation and later network epochs. Production
 /// kernel/event source and lease composition are intentionally absent.
-trait Observation {
+pub(crate) trait Observation {
     fn current(&mut self) -> Result<(Fence, Current), Refused>;
     fn synthetic_effect(&mut self) -> Result<(), Refused>;
 }
 
-struct Admission {
+pub(crate) struct Admission {
     fence: Fence,
     poisoned: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Trigger {
+    Event(Hint),
+    Startup { enrolled_tick: u64 },
 }
 
 impl Admission {
     // Construct exactly once with the process's fresh owner instance. Recreating
     // this handle for each event would erase an in-memory uncertain-write latch;
     // the future owner adapter must make that impossible under its singleton.
-    fn new(fence: Fence) -> Result<Self, Refused> {
+    pub(crate) fn new(fence: Fence) -> Result<Self, Refused> {
         if !fence.valid() {
             return Err(Refused);
         }
@@ -106,9 +113,27 @@ impl Admission {
         })
     }
 
-    fn attempt(
+    pub(crate) fn attempt(
         &mut self,
         hint: Hint,
+        journal: &mut impl Journal,
+        host: &mut impl Observation,
+    ) -> Result<(), Refused> {
+        self.attempt_trigger(Trigger::Event(hint), journal, host)
+    }
+
+    pub(crate) fn attempt_startup(
+        &mut self,
+        enrolled_tick: u64,
+        journal: &mut impl Journal,
+        host: &mut impl Observation,
+    ) -> Result<(), Refused> {
+        self.attempt_trigger(Trigger::Startup { enrolled_tick }, journal, host)
+    }
+
+    fn attempt_trigger(
+        &mut self,
+        trigger: Trigger,
         journal: &mut impl Journal,
         host: &mut impl Observation,
     ) -> Result<(), Refused> {
@@ -122,7 +147,7 @@ impl Admission {
         if ready.schema != 1 || ready.fence != self.fence || ready.phase != Phase::Ready {
             return Err(Refused);
         }
-        self.check(hint, host)?;
+        self.check(trigger, host)?;
         let reserved = Receipt {
             phase: Phase::Reserved,
             ..ready
@@ -133,7 +158,7 @@ impl Admission {
         }
         // Off or stale facts discovered after sync burn the receipt too. The
         // only safe effect site is after durable reservation AND a fresh fence.
-        self.check(hint, host)?;
+        self.check(trigger, host)?;
         host.synthetic_effect()?;
         // Completion never grants another attempt. A completion-write error or
         // crash keeps Reserved/Finished, both terminal for automatic recovery.
@@ -147,7 +172,7 @@ impl Admission {
         Ok(())
     }
 
-    fn check(&self, hint: Hint, host: &mut impl Observation) -> Result<(), Refused> {
+    fn check(&self, trigger: Trigger, host: &mut impl Observation) -> Result<(), Refused> {
         let (fence, mut current) = host.current()?;
         if fence != self.fence || !self.fence.matches(current) {
             return Err(Refused);
@@ -156,7 +181,22 @@ impl Admission {
         // Ready receipt at admission; after reservation this same invocation is
         // consuming that proof, not re-admitting another attempt.
         current.attempt = Attempt::NoneProven;
-        if hint_plan::plan(hint, current) != Decision::CandidateOnce {
+        let admitted = match trigger {
+            Trigger::Event(hint) => hint_plan::plan(hint, current) == Decision::CandidateOnce,
+            Trigger::Startup { enrolled_tick } => {
+                current
+                    .now_tick
+                    .checked_sub(enrolled_tick)
+                    .is_some_and(|age| {
+                        (hint_plan::QUIET_SECS..=hint_plan::MAX_HINT_AGE_SECS).contains(&age)
+                    })
+                    && current.desired_connected
+                    && current.mutation_idle
+                    && current.owned == hint_plan::OwnedState::ProvenEmpty
+                    && current.recovery_safety_proven
+            }
+        };
+        if !admitted {
             return Err(Refused);
         }
         Ok(())
