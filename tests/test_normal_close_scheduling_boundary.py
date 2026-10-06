@@ -9,6 +9,47 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
+    def test_product_epoch_source_is_optional_and_not_a_default_daemon_flag(self):
+        manifest = tomllib.loads((SRC.parent / "Cargo.toml").read_text())
+        self.assertEqual(manifest["features"]["product-image-witness"],
+                         ["developer-image-witness", "omavless-image-witness/product-epochs"])
+        self.assertNotIn("product-image-witness", manifest["features"]["default"])
+        helper = SRC.parent.parent / "omavless-image-witness"
+        self.assertEqual(tomllib.loads((helper / "Cargo.toml").read_text())
+                         ["features"]["product-epochs"], ["developer-helper"])
+        self.assertNotIn("--product-image-witness", (SRC / "main.rs").read_text())
+        for value in ("/var/lib/omavless-image-product/runtime.enrollment",
+                      "/run/omavless-image-product/control.sock",
+                      "omavless-product-current-image-v1"):
+            self.assertIn(value, (helper / "src/class.rs").read_text())
+
+    def test_original_worker_publication_not_helper_ack_orders_new_epoch(self):
+        source = (SRC / "conditional_close_candidate.rs").read_text()
+        worker = source.split("impl Scheduler {", 1)[1].split("impl Worker {", 1)[0]
+        worker = worker.split(".spawn(move || {", 1)[1]
+        self.assertLess(worker.index("product_retirement_ready(outcome)"), worker.index("drop(session)"))
+        self.assertLess(worker.index("drop(session)"), worker.index("drop(slot)"))
+        self.assertLess(worker.index("drop(slot)"), worker.index("sender.try_send"))
+        monitor = source.split("impl CloseEpochCompletion {", 1)[1].split("impl Session {", 1)[0]
+        for value in ("Arc::ptr_eq(&self.original.identity", "Arc::ptr_eq(&self.original.lifetime",
+                      "gate.live && gate.reservation.is_none()", "self.outcome == Outcome::Closed"):
+            self.assertIn(value, monitor)
+        close = (SRC / "native_coordinator/connection_close.rs").read_text()
+        publication = close.split("pub(crate) fn poll_connection_close(", 1)[1].split("pub(crate) fn connection_close_receipt(", 1)[0]
+        self.assertLess(publication.index("finish_external_close"), publication.index("complete_close_epoch"))
+
+    def test_product_capacity_and_busy_checks_precede_old_snapshot_invalidation(self):
+        close = (SRC / "native_coordinator/connection_close.rs").read_text()
+        capture = close.split("pub(crate) fn capture_connection_close(", 1)[1].split("pub(crate) fn retain_connection_close(", 1)[0]
+        self.assertLess(capture.index("close_epoch_admission()"), capture.index("invalidate_connection_close()"))
+        self.assertLess(capture.index("ENTROPY_LIMIT -"), capture.index("invalidate_connection_close()"))
+        self.assertLess(capture.index("invalidate_connection_close()"), capture.index("self.batch_lock()"))
+        host = (SRC / "native_host.rs").read_text()
+        capture = host.split("pub(crate) fn capture_connection_close(", 1)[1].split("fn capture_original_close(", 1)[0]
+        self.assertLess(capture.index("epochs.reserve()?"), capture.index("CloseImageCapture::ProductWitness"))
+        self.assertNotIn(".finish(", capture)
+        self.assertNotIn("Client::bind", capture)
+
     def test_current_image_helper_is_separate_default_off_and_passive_gate_unpromoted(self):
         manifest=tomllib.loads((SRC.parent/"Cargo.toml").read_text())
         self.assertEqual(manifest["features"]["developer-image-witness"],

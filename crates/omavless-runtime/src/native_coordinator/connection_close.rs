@@ -2762,6 +2762,27 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(crate) fn capture_connection_close(&mut self) -> Result<CloseDiscovery, NativeOwnerError> {
+        #[cfg(feature = "product-image-witness")]
+        let product = match self.host().close_epoch_admission() {
+            crate::lifecycle::CloseEpochAdmission::Legacy => false,
+            crate::lifecycle::CloseEpochAdmission::Ready => true,
+            crate::lifecycle::CloseEpochAdmission::Busy => {
+                return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+            }
+            crate::lifecycle::CloseEpochAdmission::Refused => {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+        };
+        #[cfg(feature = "product-image-witness")]
+        if product
+            && self.connection_close.issued.len()
+                > ENTROPY_LIMIT - (crate::conditional_close_candidate::MAX_ROWS + 1)
+        {
+            // Reserve room for a complete maximum-row snapshot AND its one
+            // confirmation before source/controller/pidfd/helper acquisition.
+            // Never evict previous opaque handles/tickets to create authority.
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
         self.invalidate_connection_close();
         if self.connection_close.active.is_some() {
             return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
@@ -3012,19 +3033,28 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let Some(active) = self.connection_close.active.as_mut() else {
             return Ok(None);
         };
+        #[cfg(not(feature = "product-image-witness"))]
         let Some(outcome) = active.worker.poll() else {
             return Ok(None);
         };
+        #[cfg(feature = "product-image-witness")]
+        let Some(completed) = active.worker.poll_epoch() else {
+            return Ok(None);
+        };
+        #[cfg(feature = "product-image-witness")]
+        let outcome = completed.outcome();
         let active = self
             .connection_close
             .active
             .take()
             .ok_or(NativeOwnerError::Invariant)?;
         self.connection_close.cancellation = None;
-        self.coordinator
-            .finish_external_close(&active.token, outcome.into())
-            .map(Some)
-            .map_err(Into::into)
+        let receipt = self
+            .coordinator
+            .finish_external_close(&active.token, outcome.into())?;
+        #[cfg(feature = "product-image-witness")]
+        self.host_mut().complete_close_epoch(&completed);
+        Ok(Some(receipt))
     }
 
     #[cfg(feature = "developer-conditional-close")]

@@ -36,6 +36,16 @@ pub enum HostStepError {
     Cleanup,
 }
 
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum CloseEpochAdmission {
+    Legacy,
+    Ready,
+    Busy,
+    Refused,
+}
+
 impl fmt::Display for HostStepError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -75,6 +85,18 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn close_epoch_admission(&self) -> CloseEpochAdmission {
+        CloseEpochAdmission::Legacy
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn complete_close_epoch(
+        &mut self,
+        _original: &crate::conditional_close_candidate::CloseEpochCompletion,
+    ) {
+    }
     /// Unsupported hosts cannot manufacture an observation or a close permit.
     /// This seam does not expose any IPC action by itself.
     #[doc(hidden)]

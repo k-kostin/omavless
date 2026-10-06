@@ -1300,6 +1300,18 @@ impl RuntimeServer {
         )
     }
 
+    /// Optional SOURCE candidate through the SAME ordinary current owner. No
+    /// default CLI flag, service activation, enrollment or repeated-operation
+    /// acceptance is implied by construction; every snapshot still needs fresh
+    /// original image/controller/package proof and terminal/drain admission.
+    #[cfg(feature = "product-image-witness")]
+    pub fn bind_current_product_image(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(
+            paths,
+            production_owner::ProductionNativeOwner::current_product_image,
+        )
+    }
+
     fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
     where
         H: lifecycle::LifecycleHost + Send + 'static,

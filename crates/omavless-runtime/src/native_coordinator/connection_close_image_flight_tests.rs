@@ -11,6 +11,62 @@ fn image_probe_discovery(fixture: &mut Fixture) -> CloseDiscovery {
     discovery
 }
 
+#[cfg(feature = "product-image-witness")]
+#[test]
+fn product_epoch_same_worker_publication_drains_before_next_snapshot_admission() {
+    use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = fixture("ok");
+    let mut discovery = image_probe_discovery(&mut fixture);
+    let session = discovery.observation.session_mut();
+    let original = session.cancellation();
+    let image = session.original_image_for_test();
+    session.install_image_probe_for_test(Box::new(move |_| Ok(image.try_clone().unwrap())));
+    session.install_image_finish_probe_for_test(Box::new(move |_| Ok(())));
+    fixture.owner.host_mut().install_product_epoch_from_fixture_session(original);
+    let discovered = discovery.observe().unwrap();
+    let rows = fixture.owner.retain_connection_close(discovered).unwrap();
+    assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Busy);
+    assert!(matches!(fixture.owner.capture_connection_close(), Err(NativeOwnerError::Coordinator(CoordinatorError::Busy))));
+    // Busy must not invalidate the original snapshot before its confirmation.
+    let confirmation = fixture.owner.prepare_connection_close(rows[0].handle).unwrap();
+    fixture.owner.confirm_connection_close("product-positive", 0, rows[0].handle, confirmation.ticket).unwrap();
+    let completed = receipt(&mut fixture);
+    assert_eq!(completed.outcome, ExternalCloseOutcome::Closed);
+    assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Ready);
+    assert_eq!(fixture.owner.host().product_history_for_test(), (1, 1));
+    assert_eq!(fixture.owner.confirm_connection_close("product-positive", 0, rows[0].handle, confirmation.ticket).unwrap(), Some(completed));
+    assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+    // Admission is tested here; no real product helper/package is fabricated.
+}
+
+#[cfg(feature = "product-image-witness")]
+#[test]
+fn product_epoch_unknown_or_failed_finish_never_renews_from_a_helper_ack() {
+    use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
+    let _fixtures = FIXTURES.lock().unwrap();
+    for reply in ["drop", "ok"] {
+        let mut fixture = fixture(reply);
+        let mut discovery = image_probe_discovery(&mut fixture);
+        let session = discovery.observation.session_mut();
+        let original = session.cancellation();
+        let image = session.original_image_for_test();
+        session.install_image_probe_for_test(Box::new(move |_| Ok(image.try_clone().unwrap())));
+        session.install_image_finish_probe_for_test(Box::new(move |_| Err(crate::conditional_close_candidate::Outcome::RefusedBeforeWrite)));
+        fixture.owner.host_mut().install_product_epoch_from_fixture_session(original);
+        let discovered = discovery.observe().unwrap();
+        let rows = fixture.owner.retain_connection_close(discovered).unwrap();
+        let confirmation = fixture.owner.prepare_connection_close(rows[0].handle).unwrap();
+        fixture.owner.confirm_connection_close("product-unknown", 0, rows[0].handle, confirmation.ticket).unwrap();
+        let completed = receipt(&mut fixture);
+        assert_eq!(completed.outcome, ExternalCloseOutcome::Unknown);
+        assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Refused);
+        assert!(fixture.owner.capture_connection_close().is_err());
+        assert_eq!(fixture.owner.host().product_history_for_test(), (1, 1));
+        assert_eq!(fixture.owner.confirm_connection_close("product-unknown", 0, rows[0].handle, confirmation.ticket).unwrap(), Some(completed));
+    }
+}
+
 #[test]
 fn image_rpc_cancelled_late_positive_is_offlock_and_never_published() {
     use std::sync::atomic::{AtomicUsize, Ordering};

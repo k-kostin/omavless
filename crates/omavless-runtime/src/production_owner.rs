@@ -845,6 +845,13 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         Self::current_with_image(runtime_paths, CloseImageSelection::InstalledDevelopment)
     }
 
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn current_product_image(
+        runtime_paths: &RuntimePaths,
+    ) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::Product)
+    }
+
     fn current_with_image(
         runtime_paths: &RuntimePaths,
         image: CloseImageSelection,

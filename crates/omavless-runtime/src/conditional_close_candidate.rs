@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 #[path = "conditional_package_evidence.rs"]
 mod package_evidence;
 
-const MAX_ROWS: usize = 128;
+pub(crate) const MAX_ROWS: usize = 128;
 const MAX_SNAPSHOT: usize = 256 * 1024;
 const MAX_REPLY: usize = 16 * 1024;
 const BUDGET: Duration = Duration::from_secs(3);
@@ -260,6 +260,8 @@ enum WitnessClass {
     #[cfg(test)]
     Tests,
     InstalledRuntime,
+    #[cfg(feature = "product-image-witness")]
+    Product,
 }
 #[cfg(feature = "developer-image-witness")]
 enum ImageWitness {
@@ -435,6 +437,10 @@ pub(crate) struct Cancellation {
     identity: Arc<()>,
 }
 impl Cancellation {
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn epoch_lifetime_available(&self) -> bool {
+        self.lifetime.gate.lock().is_ok_and(|gate| gate.live)
+    }
     pub(crate) fn cancel(&self) {
         let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(r) = &mut gate.reservation
@@ -536,6 +542,8 @@ pub(crate) struct Session {
     image_witness: Option<ImageWitness>,
     #[cfg(feature = "developer-image-witness")]
     pending_executable: Option<PendingExecutable>,
+    #[cfg(feature = "product-image-witness")]
+    product_witness_finished: bool,
     #[cfg(all(test, feature = "developer-image-witness"))]
     image_probe: Option<ImageProbe>,
     #[cfg(all(test, feature = "developer-image-witness"))]
@@ -614,6 +622,8 @@ impl Session {
             image_witness: None,
             #[cfg(feature = "developer-image-witness")]
             pending_executable: None,
+            #[cfg(feature = "product-image-witness")]
+            product_witness_finished: false,
             #[cfg(all(test, feature = "developer-image-witness"))]
             image_probe: None,
             #[cfg(all(test, feature = "developer-image-witness"))]
@@ -801,6 +811,12 @@ impl Session {
                                     original, deadline,
                                 )
                             }
+                            #[cfg(feature = "product-image-witness")]
+                            WitnessClass::Product => {
+                                omavless_image_witness::Client::bind_original_product(
+                                    original, deadline,
+                                )
+                            }
                         }
                         .map_err(|_| Outcome::RefusedBeforeWrite)?;
                         self.image_witness = Some(ImageWitness::Bound(client));
@@ -944,6 +960,13 @@ impl Session {
             if result.is_err() {
                 self.revoke_image();
                 return Err(Outcome::RefusedBeforeWrite);
+            }
+            #[cfg(feature = "product-image-witness")]
+            {
+                // Not authority by itself: the SAME original worker combines
+                // this with definitive phase + zero flights and publishes only
+                // AFTER this whole Session's fields have dropped.
+                self.product_witness_finished = true;
             }
         }
         #[cfg(not(feature = "developer-image-witness"))]
@@ -1409,6 +1432,14 @@ impl Session {
         self.capture_executable_via_class(source_path, WitnessClass::InstalledRuntime)
     }
 
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn capture_executable_via_product_witness(
+        &mut self,
+        source_path: &Path,
+    ) -> Result<(), Outcome> {
+        self.capture_executable_via_class(source_path, WitnessClass::Product)
+    }
+
     #[cfg(feature = "developer-image-witness")]
     fn capture_executable_via_class(
         &mut self,
@@ -1763,8 +1794,55 @@ impl Drop for Slot {
 }
 pub(crate) struct Worker {
     cancellation: Cancellation,
-    result: std::sync::mpsc::Receiver<Outcome>,
+    result: std::sync::mpsc::Receiver<WorkerResult>,
     thread: Option<std::thread::JoinHandle<()>>,
+}
+struct WorkerResult {
+    outcome: Outcome,
+    #[cfg(feature = "product-image-witness")]
+    product_retired: bool,
+}
+
+/// Constructed only from this original worker's after-Drop publication. No
+/// Clone, wire/boolean constructor or caller-selected session identity.
+#[cfg(feature = "product-image-witness")]
+pub struct CloseEpochCompletion {
+    outcome: Outcome,
+    original: Cancellation,
+    retired: bool,
+}
+#[cfg(feature = "product-image-witness")]
+impl CloseEpochCompletion {
+    pub(crate) fn outcome(&self) -> Outcome {
+        self.outcome
+    }
+    pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
+        self.retired
+            && self.outcome == Outcome::Closed
+            && Arc::ptr_eq(&self.original.identity, &expected.identity)
+            && Arc::ptr_eq(&self.original.lifetime, &expected.lifetime)
+            && self.original.lifetime.gate.lock().is_ok_and(|gate| {
+                // Original session/stream fields and counted flights have gone;
+                // observed lifetime poison may never be renewed.
+                gate.live && gate.reservation.is_none()
+            })
+    }
+}
+
+#[cfg(feature = "product-image-witness")]
+impl Session {
+    fn product_retirement_ready(&self, outcome: Outcome) -> bool {
+        self.product_witness_finished
+            && outcome == Outcome::Closed
+            && self.lifetime.gate.lock().is_ok_and(|gate| {
+                gate.live
+                    && gate.reservation.as_ref().is_some_and(|r| {
+                        Arc::ptr_eq(&r.identity, &self.identity)
+                            && matches!(r.phase, Phase::Finished(Outcome::Closed))
+                            && r.proofs == 0
+                    })
+            })
+    }
 }
 impl Scheduler {
     pub(crate) fn start(
@@ -1802,11 +1880,17 @@ impl Scheduler {
                     Ok(outcome) => outcome,
                     Err(_) => session.finish(Outcome::Unknown),
                 };
+                #[cfg(feature = "product-image-witness")]
+                let product_retired = session.product_retirement_ready(outcome);
                 // Release retained descriptors and this exact reservation
                 // before result publication or worker-slot release.
                 drop(session);
                 drop(slot);
-                let _ = sender.try_send(outcome);
+                let _ = sender.try_send(WorkerResult {
+                    outcome,
+                    #[cfg(feature = "product-image-witness")]
+                    product_retired,
+                });
                 #[cfg(test)]
                 if let Some(barrier) = after_publish {
                     barrier.wait();
@@ -1825,7 +1909,19 @@ impl Worker {
     pub(crate) fn cancel(&self) {
         self.cancellation.cancel();
     }
+    #[cfg(any(test, not(feature = "product-image-witness")))]
     pub(crate) fn poll(&mut self) -> Option<Outcome> {
+        self.poll_original().map(|result| result.outcome)
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn poll_epoch(&mut self) -> Option<CloseEpochCompletion> {
+        self.poll_original().map(|result| CloseEpochCompletion {
+            outcome: result.outcome,
+            original: self.cancellation.clone(),
+            retired: result.product_retired,
+        })
+    }
+    fn poll_original(&mut self) -> Option<WorkerResult> {
         let result = self.result.try_recv().ok();
         if self
             .thread
