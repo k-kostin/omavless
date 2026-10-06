@@ -19,7 +19,8 @@ AmbientCapabilities=CAP_SYS_PTRACE
 NoNewPrivileges=yes
 LimitNOFILE=64
 LimitCORE=0
-TasksMax=1
+# Two bounded tasks allow systemd's pre-exec idmapping probe; steady helper is one.
+TasksMax=2
 RestrictAddressFamilies=AF_UNIX
 # Kernel peer/child identity must share the actual PID/user view; no fake PID1.
 PrivateUsers=no

@@ -100,6 +100,13 @@ class LocalArchPackageTests(unittest.TestCase):
         self.assertIn("CapabilityBoundingSet=CAP_SYS_PTRACE", helper_unit)
         self.assertIn("RuntimeDirectoryMode=0755", helper_unit)
         self.assertIn("Restart=no", helper_unit)
+        self.assertEqual(helper_unit.count("TasksMax=2\n"), 1)
+        self.assertNotIn("TasksMax=1\n", helper_unit)
+        self.assertIn("LimitNOFILE=64\n", helper_unit)
+        self.assertIn("NoNewPrivileges=yes\n", helper_unit)
+        self.assertIn("PrivateUsers=no\n", helper_unit)
+        self.assertIn("PrivateNetwork=no\n", helper_unit)
+        self.assertIn("RestrictNamespaces=yes\n", helper_unit)
         self.assertNotIn("[Install]", helper_unit)
         self.assertNotIn("CAP_NET_ADMIN", helper_unit)
 
@@ -133,6 +140,10 @@ class LocalArchPackageTests(unittest.TestCase):
         self.assertFalse(any(path.startswith(("var/", "etc/")) for path in listing))
         metadata = subprocess.check_output(["bsdtar", "-xOf", str(archive), ".PKGINFO"], text=True)
         self.assertIn("depend = omavless-dns\n", metadata)
+        packaged_unit = subprocess.check_output(["bsdtar", "-xOf", str(archive),
+            "usr/lib/systemd/system/omavless-image-witness.service"])
+        self.assertEqual(packaged_unit, (ROOT / "packaging/systemd/omavless-image-witness.service").read_bytes())
+        self.assertEqual(packaged_unit.count(b"TasksMax=2\n"), 1)
 
     def test_refuses_wrong_identity_dirty_checkout_unsafe_paths_without_payload(self):
         self.assertNotEqual(self.invoke(sha="0" * 40).returncode, 0)

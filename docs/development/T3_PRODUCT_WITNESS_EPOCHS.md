@@ -152,7 +152,12 @@ The inactive system unit runs the fixed helper with `--product-epoch-service`
 as root with CAP_SYS_PTRACE only (bounding+ambient), NOFILE64, no auto-restart
 and no Install target. Genuine PID/user/network views remain; only this helper
 uses mount hardening because it does not exec the capability-enabled core.
-Runtime parent is root0755 and socket ACL selects the enrolled UID. Native/DNS/
+The packaged aggregate task ceiling is2, allowing systemd's temporary pre-exec
+idmapping probe in addition to the executor. The synchronous helper itself has
+one thread and spawns no children; actual steady TasksCurrent1/Threads1 remain
+required. TasksMax2 is not a claim of a kernel task ceiling1, a new channel pool,
+self-cgroup write, additional capability or context/budget renewal. Runtime
+parent is root0755 and socket ACL selects the enrolled UID. Native/DNS/
 netguard caps and unit policy are unchanged. Unit-active is not original binding
 or helper/client completion proof. Record or runtime/core inode/hash drift
 refuses; no upgrade/restart repair or stale-token adoption is provided.
@@ -241,3 +246,33 @@ evidence. A new static
 guard initially selected the admission constructor instead of the dispatcher;
 its function boundary was corrected before passing. No old accepted helper
 primitive was rerun for this prose/caller change and no product VM gate ran.
+
+## Initial packaged service pre-exec refusal and narrow successor
+
+ROOT installed the exact432 runtime/helper and complete three-patch LegacyMeta
+pair, verified their hashes/core capabilities, and performed genuine DNS/Product
+image enrollment. This did not establish a product witness epoch. The first
+normal helper unit start command returned0, but systemd's original execution
+failed233/RUNTIME_DIRECTORY before the helper executable: special directory
+setup reported Resource temporarily unavailable. No Bind/Observe/native close
+or helper listener startup is claimed, and that attempt stays NONPASS.
+
+The installed systemd261.2 source path calls is_idmapping_supported from
+setup_exec_directory before the UID0 branch, through userns_acquire_self_root /
+userns_acquire / pidref_safe_fork. A TasksMax1 unit cannot accommodate executor
+plus this transient probe; the error propagates as directory setup failure.
+The package-only successor changes TasksMax1→2. CAP_SYS_PTRACE-only bounding /
+ambient sets, NOFILE64, NNP, Restart=no, original PID/user/net views and all helper
+Rust/channel/epoch logic stay unchanged. See the primary
+[execution setup source](https://github.com/systemd/systemd/blob/v261.2/src/core/exec-invoke.c)
+and [namespace probe source](https://github.com/systemd/systemd/blob/v261.2/src/basic/namespace-util.c).
+
+The successor package reuses the exact432 compiled images, not a newly built
+Rust head: runtime8731544/d6da91a95f37024fdc7a1fdab1cdae82f7b93ed84595e289680f7ab3cb29a0d8;
+helper604760/43294cedccd858ea68402a33c0295581a45bd3a3e29d922e5f4f0471168ea877.
+New package/source identity and unit hash remain separately recorded. Genuine
+existing image enrollment hashes do not change or need authority-copy repair.
+No override, administrator cgroup write, automatic startup retry or record edit
+is supplied. ROOT must separately admit the failed pre-exec filesystem prefix
+and select the new packaged unit after source/packet review; actual TasksCurrent1,
+Threads1, cap0x80000, NOFILE64 and unchanged namespaces remain pending gates.
