@@ -3,7 +3,9 @@
 Source successor to the exact installed `9b7f33d9` checkpoint. This is one
 explicit controlled positive interruption, not recovery from a revoked or
 unknown-error engine. Default Backup/Restore dispatch stays unavailable.
-Actual VM selection requires primary and independent affected-graph review.
+The exact-source installed VM gate subsequently completed; see the
+[Current36 evidence](../testing/T4_CURRENT_INTENT_VM_2026-10-07.md). That result
+is controlled positive pause/Abort, not arbitrary uncertain-error recovery.
 
 The fixed private pause entry uses the existing genuine current constructor,
 instance/revision, peer, owner mutex, authenticated archive, original boundary
@@ -30,7 +32,7 @@ Any throw, late/unknown I/O, failed publication, drift or reentry while Resuming
 keeps the original graph occupied, unavailable and irrevocably revoked. There
 is no late reactivation, automatic Abort/cleanup or fatal-FD-survival claim.
 
-Source controls must cover positive pause→OLD/Aborted→ordinary use, exact lease
+Source controls cover positive pause→OLD/Aborted→ordinary use, exact lease
 contention, second pause/forward/ordinary mutation while paused, wrong instance
 and revision, resume consumption/replay refusal, source/terminal substitution,
 before/after publication and final-gate cuts. Actual scope needs a preserved
@@ -63,5 +65,5 @@ original scheduler revision/instance. It cannot hold a second pause or admit
 another forward execution. Existing file slots, exclusive publication,
 readback, catalogues, deadlines and namespace/resource predicates remain in
 force. The synthetic Off-host filesystem controls do not themselves attest
-genuine installed current-owner acceptance; that remains a separately selected
-package/VM gate after affected-graph review.
+genuine installed current-owner acceptance; the subsequent Current36 package/VM
+gate supplies its separately recorded scope, not a broader default activation.
