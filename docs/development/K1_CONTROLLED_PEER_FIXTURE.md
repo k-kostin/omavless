@@ -278,3 +278,45 @@ not proof that every missing packet is attributed to the core. A separately
 reviewed fresh experiment may admit only that observed tuple in the actual
 blocking VM chain. A fixture-only firewall admission is not product ownership,
 foreign-firewall preservation, coverage issuance or permission to Arm.
+
+## Numeric13 positive exchange, refusing census
+
+At boot `d560d51c-9526-42a6-aedf-e0e122773c51`, a separately reviewed
+Numeric13 fixture admitted exactly the observed rewritten SYN tuple at the
+front of the blocking VM INPUT chain. Its original before/admitted/after
+snapshots fence the remaining foreign chain structure, allowing only counter
+advancement. This is an explicit disposable-VM firewall fixture modification,
+not production firewall ownership or foreign-rule preservation acceptance.
+Staging (`b5d8f4`) and network preparation (`3fbbbd`) returned originalSSH0.
+
+The runtime (`9c82df`) observed the exact numeric HTTP response and the peer's
+HTTP-sent marker, followed by normal original core stop and observer finalization.
+The trigger is 22 bytes, SHA256
+`677090916d138d4290ee6c2760eeaf3ebe0cd9c83f6249dea42704b0fc7eab47`;
+the peer marker capture is 32 bytes, SHA256
+`ffe467ecd11465e7dfab4bace5bea24c6c72cddffbc0c93d085a840caf58479b`.
+The overall selection still remained **NONPASS** at `CENSUS_PARSE`. No packet
+postchecks, original reaps or cleanup are claimed. A bounded separate
+observation (`030b8e`) found a listener-rooted clone/accept, marked outer TCP
+connect and sends, but also five refusing unknown-socket events. Its private
+14,391-byte trace has SHA256
+`de70e1f4d5947af163cf74e326f883438e94fe320d091418b36d0361b1ff9301`.
+Core stderr was empty and its bounded startup projection had no warning/error.
+
+Source review exposed two observation gaps, not permission to relax `bad`
+events: `sk_free` may release a write-memory reference before final retirement,
+and the TUN's checksum-query path creates one UDP control socket solely for a
+fixed ethtool ioctl. The separate successor observes `__sk_free` and requires
+that control socket's positive creation, exact GET/device/mark, paired ioctl
+completion and final retirement. UDP data/connect/mark still refuse. Its
+compile/load and new real runtime gates are pending; it does not retroactively
+accept Numeric13 or confer coverage authority.
+
+Available private inputs and captures were archived before an explicit
+disposable-VM administrator reboot (`aa5379`, `f2ca15`). The parked original SSH
+then ended255 (`62a703`) because of reboot, not successful product recovery or
+cleanup. The subsequent boot is
+`a58ecb8b-e8fe-42ff-96bf-eec831cfc342`; the native user unit and DNS broker were
+inactive with zero manager FD-store count. Saved private application profiles
+were not reset, exported or committed. Production coverage issuance remains
+closed.
