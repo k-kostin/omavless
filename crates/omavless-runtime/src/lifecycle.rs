@@ -678,6 +678,57 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         self.reconcile_startup()
     }
 
+    /// Developer fixture only. Unlike general startup reconciliation this
+    /// refuses Off, adoption and stop decisions, and preserves exact intent.
+    #[cfg(test)]
+    pub(crate) fn recover_network_empty(
+        &mut self,
+        expected: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let desired = self.read()?;
+        if &desired != expected || !desired.connected {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let observed = self.observe_or_manual(&desired)?;
+        if reconcile(&desired, observed) != ReconcileAction::RecoverConnected {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.recover_connected_empty(&desired)
+    }
+
+    fn recover_connected_empty(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.actual = ActualState::Reconnecting;
+        let recovered = self.host.prepare(desired).is_ok()
+            && self.host.start_prepared().is_ok()
+            && self.verify_connected(desired).is_ok()
+            && self.host.commit_prepared().is_ok();
+        if recovered {
+            self.actual = ActualState::Connected;
+            return Ok(self.outcome(desired, true));
+        }
+        // Recovery preserves connected intent. Clean partial owned state, but
+        // never rewrite desired disconnected on its own.
+        if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let empty = self.host.observe(desired).is_ok_and(|value| {
+            !value.service_active
+                && !value.controller_ready
+                && value.core_count == 0
+                && value.tun_count == 0
+        });
+        if !empty {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = ActualState::Failed;
+        Err(LifecycleError::RecoveryFailed)
+    }
+
     /// Execute exactly one accepted restart-reconciliation decision. Callers
     /// must not loop this method after `RecoveryFailed`; a fresh owner process
     /// may attempt one new bounded recovery after re-observation.
@@ -708,35 +759,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
                 self.actual = ActualState::Disconnected;
                 Ok(self.outcome(&desired, true))
             }
-            ReconcileAction::RecoverConnected => {
-                self.actual = ActualState::Reconnecting;
-                let recovered = self.host.prepare(&desired).is_ok()
-                    && self.host.start_prepared().is_ok()
-                    && self.verify_connected(&desired).is_ok()
-                    && self.host.commit_prepared().is_ok();
-                if recovered {
-                    self.actual = ActualState::Connected;
-                    return Ok(self.outcome(&desired, true));
-                }
-                // Recovery preserves connected intent. Clean partial owned
-                // state, but never rewrite desired disconnected on its own.
-                if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
-                    self.actual = ActualState::ManualRecoveryRequired;
-                    return Err(LifecycleError::ManualRecoveryRequired);
-                }
-                let empty = self.host.observe(&desired).is_ok_and(|value| {
-                    !value.service_active
-                        && !value.controller_ready
-                        && value.core_count == 0
-                        && value.tun_count == 0
-                });
-                if !empty {
-                    self.actual = ActualState::ManualRecoveryRequired;
-                    return Err(LifecycleError::ManualRecoveryRequired);
-                }
-                self.actual = ActualState::Failed;
-                Err(LifecycleError::RecoveryFailed)
-            }
+            ReconcileAction::RecoverConnected => self.recover_connected_empty(&desired),
         }
     }
 }

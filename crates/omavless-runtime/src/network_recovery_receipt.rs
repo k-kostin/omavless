@@ -13,12 +13,12 @@ mod file_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Fence {
-    boot: [u8; 16],
-    owner_instance: [u8; 16],
-    owner_generation: u64,
-    desired_revision: u64,
-    network_epoch: u64,
+pub(crate) struct Fence {
+    pub(crate) boot: [u8; 16],
+    pub(crate) owner_instance: [u8; 16],
+    pub(crate) owner_generation: u64,
+    pub(crate) desired_revision: u64,
+    pub(crate) network_epoch: u64,
 }
 
 impl Fence {
@@ -38,7 +38,7 @@ impl Fence {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum Phase {
+pub(crate) enum Phase {
     Ready,
     Reserved,
     Finished,
@@ -46,16 +46,16 @@ enum Phase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Receipt {
-    schema: u8,
-    fence: Fence,
-    phase: Phase,
+pub(crate) struct Receipt {
+    pub(crate) schema: u8,
+    pub(crate) fence: Fence,
+    pub(crate) phase: Phase,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Refused;
+pub(crate) struct Refused;
 
-fn decode(raw: &[u8]) -> Result<Receipt, Refused> {
+pub(crate) fn decode(raw: &[u8]) -> Result<Receipt, Refused> {
     if raw.len() > 1024 {
         return Err(Refused);
     }
@@ -74,7 +74,7 @@ fn decode(raw: &[u8]) -> Result<Receipt, Refused> {
 /// A successful replacement must survive every modeled subsequent crash. An
 /// error can mean either old or new state persisted, never permission to act.
 /// The model does not prove that any existing filesystem adapter meets this.
-trait Journal {
+pub(crate) trait Journal {
     fn load(&mut self) -> Result<Receipt, Refused>;
     fn replace_synced(&mut self, expected: Receipt, next: Receipt) -> Result<(), Refused>;
 }
@@ -82,12 +82,12 @@ trait Journal {
 /// Only fresh, attributed observations qualify. The lease also serializes Off,
 /// profile/mode changes, owner revocation and later network epochs. Production
 /// kernel/event source and lease composition are intentionally absent.
-trait Observation {
+pub(crate) trait Observation {
     fn current(&mut self) -> Result<(Fence, Current), Refused>;
     fn synthetic_effect(&mut self) -> Result<(), Refused>;
 }
 
-struct Admission {
+pub(crate) struct Admission {
     fence: Fence,
     poisoned: bool,
 }
@@ -96,7 +96,7 @@ impl Admission {
     // Construct exactly once with the process's fresh owner instance. Recreating
     // this handle for each event would erase an in-memory uncertain-write latch;
     // the future owner adapter must make that impossible under its singleton.
-    fn new(fence: Fence) -> Result<Self, Refused> {
+    pub(crate) fn new(fence: Fence) -> Result<Self, Refused> {
         if !fence.valid() {
             return Err(Refused);
         }
@@ -106,7 +106,7 @@ impl Admission {
         })
     }
 
-    fn attempt(
+    pub(crate) fn attempt(
         &mut self,
         hint: Hint,
         journal: &mut impl Journal,

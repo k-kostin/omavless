@@ -17,6 +17,9 @@ mod provider;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
+#[cfg(test)]
+#[path = "native_coordinator/network_resume.rs"]
+pub(crate) mod network_resume;
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
 
 use crate::connection_transaction::{

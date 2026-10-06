@@ -1,0 +1,87 @@
+# T4 network-resume owner continuation
+
+Status: executable, test-only owner composition; no installed event subscriber
+or product recovery activation. It depends on the exact admission planner and
+receipt/crash fixtures from #365, #374 and #419. Their historic outcomes and
+production boundaries remain unchanged. The completion matrix is deliberately
+narrow; real sleep/NIC acceptance is not inferred from deterministic tests.
+
+## Completion matrix
+
+| Scope | Required behavior | Evidence / remaining gate |
+| --- | --- | --- |
+| Owned local source | Authenticate Unix peer credentials to the fixture PID/UID; pin receiver boot and owner identity; strict bounded fixed events | Deterministic real Unix stream fixture; not host bus authority or PID lifetime proof |
+| Event owner | Suspend pauses observation; resume/link bursts wait three quiet monotonic seconds; discard after 60 seconds from the first hint | Executable owner tests; no wall-clock input |
+| Safety | Off, changed generation/revision/profile/mode/store, unavailable/mixed/foreign/unsafe ownership never reconnect; healthy state observes only | Original ownership-gated coordinator and injected binding evidence under real MigrationLock |
+| One attempt | Existing exact Ready is reserved durably before coordinator invocation; failure/unknown completion never rearms | Real private files, pre/post publication errors, inherited process-death fixture |
+| Restart | New owner instance refuses old Ready/Reserved/Finished; missing/lost receipt never initializes Ready | Event-path fixture; shared production process-start reconciliation remains a mandatory activation gate |
+| Real integration | Canonical daemon source subscription, authenticated host event delivery and actual binding proof | Pending; no host bus, service, core or network was contacted |
+| Hardware | Real suspend/resume and physical NIC transition | Pending separate bare-metal gate; VM evidence cannot close it |
+
+## Concrete pipeline
+
+`network_resume` is compiled only under `cfg(test)`. An attributed owned Unix
+stream sends only a sequence and Suspend/Resume/NetworkChanged enum. The source
+rejects oversized, duplicate-field, malformed and gapped frames, channel loss
+and timeout. Duplicate/reordered notifications are discarded. Receiver time is
+monotonic synthetic fixture time; the sender cannot choose time, owner, epoch,
+profile or commands. Boot/instance identity comes from fixture setup, never the
+wire. No SSID, endpoint, URL, address or raw OS event payload is accepted.
+
+One EventOwner retains at most one pending hint and one non-clonable Admission.
+There is no source reconnect, automatic Ready provisioning, reset or rearm API.
+The stable epoch is the already-established Ready fence; sequence advancement
+does not prove a new network epoch. New-epoch provisioning remains separate.
+The first hint bounds a burst's total age, so continuous notifications cannot
+push the deadline indefinitely. Source availability and a fully drained channel
+are rechecked at observation and the effect boundary. EOF or queued unprocessed
+events invalidate the old action rather than skipping a possible newer Suspend.
+
+The concrete `native_coordinator/network_resume` port borrows the original
+OfflineNativeCoordinator under its actual MigrationLock. It checks the exact
+committed Rust marker, revision, complete desired target, complete private-store
+digest and live target existence. Off/busy does not enter the lifecycle host
+observer. Incomplete observation remains uncertainty. The separate ResumeBinding
+trait has no production host implementation: synthetic evidence is bound to the
+exact desired target and cannot advertise real DNS/routes/protection safety.
+
+After durable reservation and fresh revalidation, the port reserves a mutation
+slot in the original coordinator and uses a narrow proved-empty lifecycle entry.
+That entry refuses Off, adoption and stop decisions, preserves exact desired
+intent and shares the existing bounded recovery implementation. Successful
+verification repairs compatibility pointers and advances the original revision.
+Any recovery/pointer error establishes the original manual-recovery barrier;
+the event owner also terminalizes. Failed completion publication cannot repeat
+an already completed coordinator operation. Healthy observations perform no
+restart and make no claim of DNS, routes, Internet or leak protection.
+
+The sole production-path code change extracts the existing startup recovery
+body into a common private helper without changing its operations or error
+handling. The event entry, source, receipt composition and coordinator port
+remain test-only. No IPC, CLI, settings, UI, package or service change occurs.
+
+## Required activation decisions
+
+Production activation must independently review authentic host source identity,
+boot/owner lifetime provenance, loss/replacement handling and per-host behavior.
+logind, NetworkManager and netlink notifications are observation hints, never
+network trust. Network names cannot authorize recovery.
+
+Ready provisioning must distinguish first use from loss/rollback and establish
+the exact durable anchor; an absent file cannot authorize it. The fixture uses
+trusted exclusive directories and the existing private atomic writer, not a
+pinned-dirfd or power-loss/rollback-resistant production storage proof. It does
+not inject faults inside write/fsync/rename. Source and effect operate serially
+in one fixture owner; real scheduler cancellation/lease ordering remains part
+of integration review.
+
+The existing startup reconciler can recover once in a new process and is
+unchanged. Therefore this candidate cannot be installed as a production event
+worker until startup and event paths share a durable attempt/recovery barrier.
+Restart refusal here is explicitly event-path evidence, not a cross-trigger
+product guarantee. A later stable epoch cannot bypass unresolved reservation.
+
+Primary and independent exact-head review must cover the changed recovery seam
+and complete reached dependency boundary before any host activation. Dev VM
+control belongs exclusively to its designated operator; this lane has only
+source, synthetic owned files/streams and ordinary build/test authority.

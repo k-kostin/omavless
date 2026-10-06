@@ -70,6 +70,8 @@ pub mod native_host;
 pub mod native_probe_resolver;
 #[cfg(test)]
 mod network_recovery_receipt;
+#[cfg(test)]
+mod network_resume;
 pub mod network_transition_plan;
 mod onboarding_protocol;
 pub mod owner;
