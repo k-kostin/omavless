@@ -18,6 +18,10 @@ not replaced by this short entry point.
    [Rust migration](docs/roadmap/RUST_MIGRATION.md) and the owning feature contract.
 5. For UI work, use the [UI review skill](skills/omavless-ui-review/SKILL.md).
    For localization, use the [localization skill](skills/omavless-localization/SKILL.md).
+6. For development-VM operation or encrypted reboot, use the
+   [VM operation skill](skills/omavless-dev-vm/SKILL.md).
+   The orchestrator follows the lightweight retrospective checkpoints in
+   [execution policy](docs/development/EXECUTION_POLICY.md#9-lightweight-orchestration-retrospectives).
 
 ## Non-negotiable boundaries
 

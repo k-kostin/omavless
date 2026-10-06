@@ -32,6 +32,11 @@ T4 service alternative does not retroactively accept legacy receiver research.
 Preserve historical outcomes and old sealed experiments; prepare an explicitly
 reviewed successor when executable behavior or fault guarantees must change.
 
+For development-VM operation and encrypted reboot, use the
+[VM skill](../../skills/omavless-dev-vm/SKILL.md). The orchestrator performs
+[lightweight retrospectives](EXECUTION_POLICY.md#9-lightweight-orchestration-retrospectives)
+without repeating unchanged audits or duplicating existing workflow helpers.
+
 ## Selected implementation direction
 
 Rust is the selected long-term implementation language for the standalone

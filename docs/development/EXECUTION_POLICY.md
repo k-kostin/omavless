@@ -201,3 +201,35 @@ session when its agreed outcome is achieved or a genuine external/owner decision
 prevents remaining in-scope work; save an exact-head handoff. Do not stop merely
 because several steps ran, and do not fabricate closure to avoid a blocker.
 New scope needs its own applicable owner direction.
+
+## 9. Lightweight orchestration retrospectives
+
+The primary agent reassesses the working process at a meaningful integration
+checkpoint, after the same bottleneck recurs, or approximately every two to
+three hours of active work if neither event has occurred. This is an in-session
+checkpoint, not a scheduled extra agent, permission to keep an idle session
+alive, or a reason to rerun unchanged reviews and tests.
+
+Use existing observations and ask three questions: what delayed an executable
+outcome, what smallest reusable change removes the cause, and how will the
+next actual attempt demonstrate improvement? Normally spend a few minutes;
+do not produce another full audit or speculative optimization backlog.
+
+Record a short cause/change/check entry in the owning PR or handoff. When a
+solution is reusable, keep one maintained procedure, helper or narrowly scoped
+project skill and link it from the agent guide. Inspect existing skills and
+other active agents' workflow PRs first; reuse them rather than duplicating
+them. Local machine paths, secrets and private captures stay outside Git.
+Do not create a new branch for every retrospective: use an existing owned
+scope, or one separate workflow PR when the change is independently useful.
+
+Examples worth fixing are repeated VM unlock rediscovery, an incompatible
+package/bundle discovered only after installation, repeated socket/temp-root
+setup, full unchanged graph re-reviews, and serial VM waits while independent
+source work is available. Prefer preflight, compatible cache reuse and explicit
+single-operator VM scheduling. Password entry, a reset or a successful source
+test never substitutes for boot, original completion or product acceptance.
+
+Ask an independent reviewer when the proposal changes a difficult ownership,
+privilege or fault boundary; routine process notes do not require Astra.
+Failure classification and applicable owner authorization remain unchanged.
