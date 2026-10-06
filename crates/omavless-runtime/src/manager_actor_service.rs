@@ -15,6 +15,8 @@ mod stage;
 mod transfer;
 pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;
 pub(crate) const CANONICAL_COMMIT_ORIGIN_FENCES: usize = stage::COMMIT_ORIGIN_FENCES;
+pub(crate) const CANONICAL_INSPECT_ORIGIN_FENCES: usize = stage::INSPECT_ORIGIN_FENCES;
+pub(crate) const CANONICAL_MIXED_ORIGIN_FENCES: usize = stage::MIXED_ORIGIN_FENCES;
 
 use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical};
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
@@ -26,9 +28,10 @@ use nix::unistd::{getgid, getppid, getuid};
 use protocol::{Context, FRAME_BYTES, Frame, Kind, Phase};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::process::{Pid, PidfdFlags, pidfd_open};
+use sha2::Digest;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Child, Command, Stdio};
@@ -211,6 +214,11 @@ fn exchange_private<T: Read + Write>(
 const SYNTHETIC_PASSPHRASE: &[u8] = b"synthetic transfer passphrase";
 const SYNTHETIC_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
 const SYNTHETIC_TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
+// Distinct public OLD members, confined to the interruption scenario. Both
+// members must differ from authenticated NEW to produce a genuine Mixed class.
+const INTERRUPTED_OLD_STORE: &[u8] = br#"
+{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+const INTERRUPTED_OLD_TEMPLATE: &[u8] = b"# public interrupted OLD template\nmode: global\n";
 
 fn synthetic_backup(until: Instant) -> Result<zeroize::Zeroizing<Vec<u8>>, Unavailable> {
     tick(until)?;
@@ -242,6 +250,7 @@ pub enum DeveloperScenario {
     CanonicalAuthenticate,
     CanonicalStage,
     CanonicalCommit,
+    CanonicalInterruptedInspection,
 }
 
 impl DeveloperScenario {
@@ -255,6 +264,7 @@ impl DeveloperScenario {
             | Self::CanonicalAuthenticate
             | Self::CanonicalStage
             | Self::CanonicalCommit => 0,
+            Self::CanonicalInterruptedInspection => 0,
             _ => 1,
         }
     }
@@ -410,6 +420,9 @@ pub fn supervisor_entry() -> Result<(), Unavailable> {
 /// Same standalone/reaping prerequisites and SAME aggregate epoch reservation.
 /// Any uncertain scenario leaves the sentinel and original live actor alone.
 pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailable> {
+    if scenario == DeveloperScenario::CanonicalInterruptedInspection {
+        return interrupted_inspection_scenario();
+    }
     let until = Instant::now() + Duration::from_secs(WHOLE_SECONDS);
     emit(b"t4_service_before_startup\n", until)?;
     startup()?;
@@ -685,9 +698,304 @@ struct Supervisor {
     _entropy: File,
 }
 
+struct PairSupervisor {
+    // Fixed reservation BEFORE writer effects, never a growing actor list.
+    children: [Option<Child>; 2],
+    pidfds: [Option<OwnedFd>; 2],
+    streams: [Option<UnixStream>; 2],
+    attempted: [bool; 2],
+    listener: UnixListener,
+    _sentinel: File,
+    _entropy: File,
+}
+
+fn settle_original(
+    id: u32,
+    wanted: i32,
+    mut gate: impl FnMut() -> Result<(), Unavailable>,
+    observe: impl FnOnce() -> Result<nix::sys::wait::WaitStatus, Unavailable>,
+    reap: impl FnOnce() -> Result<Option<i32>, Unavailable>,
+) -> Result<(), Unavailable> {
+    gate()?;
+    let observed = observe()?;
+    gate()?;
+    match observed {
+        nix::sys::wait::WaitStatus::Exited(pid, code)
+            if code == wanted && u32::try_from(pid.as_raw()).ok() == Some(id) => {}
+        _ => return Err(Unavailable),
+    }
+    if reap()? != Some(wanted) {
+        return Err(Unavailable);
+    }
+    gate()
+}
+impl PairSupervisor {
+    fn spawn(
+        &mut self,
+        index: usize,
+        argument: &'static str,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        if index >= 2 || self.attempted[index] {
+            return Err(Unavailable);
+        }
+        self.attempted[index] = true;
+        tick(until)?;
+        let child = Command::new(std::env::current_exe().map_err(|_| Unavailable)?)
+            .arg(argument)
+            .env_clear()
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|_| Unavailable)?;
+        self.children[index] = Some(child); // BEFORE every reported-child postcheck
+        let pid = Pid::from_raw(
+            i32::try_from(self.children[index].as_ref().ok_or(Unavailable)?.id())
+                .map_err(|_| Unavailable)?,
+        )
+        .ok_or(Unavailable)?;
+        self.pidfds[index] = Some(pidfd_open(pid, PidfdFlags::NONBLOCK).map_err(|_| Unavailable)?);
+        loop {
+            tick(until)?;
+            alive(self.pidfds[index].as_ref().ok_or(Unavailable)?)?;
+            match self.listener.accept() {
+                Ok((stream, _)) => {
+                    self.streams[index] = Some(stream);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+                Err(_) => return Err(Unavailable),
+            }
+        }
+        let stream = self.streams[index].as_mut().ok_or(Unavailable)?;
+        peer(
+            stream,
+            self.children[index].as_ref().ok_or(Unavailable)?.id(),
+        )?;
+        stream.set_nonblocking(true).map_err(|_| Unavailable)?;
+        tick(until)
+    }
+    fn ready(
+        &mut self,
+        index: usize,
+        nonce: [u8; 32],
+        until: Instant,
+    ) -> Result<Context, Unavailable> {
+        let mut context = Context::new(nonce)?;
+        let stream = self.streams[index].as_mut().ok_or(Unavailable)?;
+        io_frame(
+            stream,
+            Some(Frame {
+                kind: Kind::Challenge,
+                sequence: 0,
+                nonce,
+            }),
+            until,
+        )?;
+        context.ready(receive(stream, until)?)?;
+        alive(self.pidfds[index].as_ref().ok_or(Unavailable)?)?;
+        Ok(context)
+    }
+    fn wait_original(
+        &mut self,
+        index: usize,
+        wanted: i32,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        loop {
+            tick(until)?;
+            let mut pollfd = [PollFd::new(
+                self.pidfds[index].as_ref().ok_or(Unavailable)?,
+                PollFlags::IN,
+            )];
+            let count = poll(
+                &mut pollfd,
+                Some(&Timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                }),
+            )
+            .map_err(|_| Unavailable)?;
+            if count == 1 && pollfd[0].revents() == PollFlags::IN {
+                break;
+            }
+            if count != 0 || !pollfd[0].revents().is_empty() {
+                return Err(Unavailable);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let id = self.children[index].as_ref().ok_or(Unavailable)?.id();
+        settle_original(
+            id,
+            wanted,
+            || tick(until),
+            || {
+                nix::sys::wait::waitid(
+                    nix::sys::wait::Id::PIDFd(
+                        self.pidfds[index].as_ref().ok_or(Unavailable)?.as_fd(),
+                    ),
+                    nix::sys::wait::WaitPidFlag::WEXITED
+                        | nix::sys::wait::WaitPidFlag::WNOHANG
+                        | nix::sys::wait::WaitPidFlag::WNOWAIT,
+                )
+                .map_err(|_| Unavailable)
+            },
+            || {
+                self.children[index]
+                    .as_mut()
+                    .ok_or(Unavailable)?
+                    .try_wait()
+                    .map_err(|_| Unavailable)?
+                    .map(|status| status.code())
+                    .ok_or(Unavailable)
+            },
+        )
+    }
+}
+
+fn interrupted_inspection_scenario() -> Result<(), Unavailable> {
+    const WHOLE: u64 = 45;
+    const {
+        assert!(2 * actor_canonical::NOFILE == 16640);
+    }
+    let until = Instant::now() + Duration::from_secs(WHOLE);
+    startup()?;
+    epoch()?;
+    setrlimit(
+        Resource::RLIMIT_NOFILE,
+        actor_canonical::NOFILE,
+        actor_canonical::NOFILE,
+    )
+    .map_err(|_| Unavailable)?;
+    let archive = synthetic_backup(until)?;
+    // Two owner/ledger/channel ceilings are reserved in this closed plan before
+    // effects. Each child additionally reserves actual buffers before READY.
+    let mut nonces = [[0; 32]; 2];
+    let sentinel = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
+        .open(SENTINEL)
+        .map_err(|_| Unavailable)?;
+    sentinel.sync_all().map_err(|_| Unavailable)?;
+    let listener = UnixListener::bind(CHANNEL).map_err(|_| Unavailable)?;
+    listener.set_nonblocking(true).map_err(|_| Unavailable)?;
+    let mut entropy = File::from(
+        open(
+            "/dev/urandom",
+            OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| Unavailable)?,
+    );
+    for nonce in &mut nonces {
+        entropy.read_exact(nonce).map_err(|_| Unavailable)?;
+    }
+    if nonces[0] == [0; 32] || nonces[1] == [0; 32] || nonces[0] == nonces[1] {
+        return Err(Unavailable);
+    }
+    let mut owner = PairSupervisor {
+        children: [None, None],
+        pidfds: [None, None],
+        streams: [None, None],
+        attempted: [false, false],
+        listener,
+        _sentinel: sentinel,
+        _entropy: entropy,
+    };
+    emit(b"t4_service_pair_capacity_reserved\n", until)?;
+    owner.spawn(0, "--actor-mixed-writer", until)?;
+    let mut writer = owner.ready(0, nonces[0], until)?;
+    emit(b"t4_service_mixed_writer_ready\n", until)?;
+    let stream = owner.streams[0].as_mut().ok_or(Unavailable)?;
+    exchange(
+        stream,
+        &mut writer,
+        Kind::ObserveStopped,
+        RequestShape::Exact,
+        until,
+    )?;
+    exchange_backup(stream, &mut writer, &archive, SYNTHETIC_PASSPHRASE, until)?;
+    let request = writer.begin(Kind::InterruptMixed)?;
+    io_frame(stream, Some(request), until)?;
+    // Only the predeclared original86 admits another actor. No expected wire
+    // completion, compensation or generic nonzero-as-known-effect inference.
+    owner.wait_original(0, 86, until)?;
+    writer.revoke();
+    emit(b"t4_service_original_writer_86_reaped\n", until)?;
+    owner.spawn(1, "--actor-inspector", until)?;
+    let mut inspector = owner.ready(1, nonces[1], until)?;
+    emit(b"t4_service_fresh_inspector_ready\n", until)?;
+    let stream = owner.streams[1].as_mut().ok_or(Unavailable)?;
+    exchange(
+        stream,
+        &mut inspector,
+        Kind::ObserveStopped,
+        RequestShape::Exact,
+        until,
+    )?;
+    exchange_backup(
+        stream,
+        &mut inspector,
+        &archive,
+        SYNTHETIC_PASSPHRASE,
+        until,
+    )?;
+    let request = inspector.begin(Kind::InspectInterrupted)?;
+    io_frame(stream, Some(request), until)?;
+    let transaction: [u8; 16] = sha2::Sha256::digest(nonces[0])[..16]
+        .try_into()
+        .map_err(|_| Unavailable)?;
+    let mut done = 0;
+    while done < transaction.len() {
+        tick(until)?;
+        match stream.write(&transaction[done..]) {
+            Ok(0) => return Err(Unavailable),
+            Ok(size) => done += size,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+            Err(_) => return Err(Unavailable),
+        }
+        tick(until)?;
+    }
+    inspector.completed(receive(stream, until)?, Kind::InterruptedInspected)?;
+    alive(owner.pidfds[1].as_ref().ok_or(Unavailable)?)?;
+    emit(b"t4_service_intent_mixed_candidate_inspected\n", until)?;
+    exchange(
+        stream,
+        &mut inspector,
+        Kind::Halt,
+        RequestShape::Exact,
+        until,
+    )?;
+    owner.wait_original(1, 0, until)?;
+    emit(b"t4_service_interrupted_inspection_completed\n", until)
+}
+
 /// Separate fixed-admin developer mode. Never selected by the classic actor
 /// wire and never changes that mode's64-FD envelope or PID1 predicates.
 pub fn actor_canonical_entry() -> Result<(), Unavailable> {
+    canonical_actor(ActorRole::Normal)
+}
+pub fn actor_mixed_writer_entry() -> Result<(), Unavailable> {
+    canonical_actor(ActorRole::MixedWriter)
+}
+pub fn actor_inspector_entry() -> Result<(), Unavailable> {
+    canonical_actor(ActorRole::Inspector)
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ActorRole {
+    Normal,
+    MixedWriter,
+    Inspector,
+}
+fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
     startup()?;
     epoch()?;
     canonical_groups(
@@ -743,6 +1051,33 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
             if request.sequence != expected.sequence || request.nonce != expected.nonce {
                 return Err(Unavailable);
             }
+            match role {
+                ActorRole::Normal
+                    if matches!(kind, Kind::InterruptMixed | Kind::InspectInterrupted) =>
+                {
+                    return Err(Unavailable);
+                }
+                ActorRole::MixedWriter
+                    if !matches!(
+                        kind,
+                        Kind::ObserveStopped | Kind::AuthenticateBackup | Kind::InterruptMixed
+                    ) =>
+                {
+                    return Err(Unavailable);
+                }
+                ActorRole::Inspector
+                    if !matches!(
+                        kind,
+                        Kind::ObserveStopped
+                            | Kind::AuthenticateBackup
+                            | Kind::InspectInterrupted
+                            | Kind::Halt
+                    ) =>
+                {
+                    return Err(Unavailable);
+                }
+                _ => (),
+            }
             stage.permit_request(kind)?; // BEFORE every acquisition/normalization match
             let reply = match kind {
                 Kind::ObserveStopped => {
@@ -787,6 +1122,63 @@ pub fn actor_canonical_entry() -> Result<(), Unavailable> {
                     })?;
                     emit_actor(stage::COMMITTED_PHASE, until)?;
                     Kind::PairCommitted
+                }
+                Kind::InterruptMixed => {
+                    emit_actor(stage::SUCCESS_PHASES[0], until)?;
+                    transfer.with_restore_pair(until, |new_store, new_template| {
+                        stage.mixed_canonical(
+                            [
+                                INTERRUPTED_OLD_STORE,
+                                INTERRUPTED_OLD_TEMPLATE,
+                                new_store,
+                                new_template,
+                            ],
+                            &context.nonce,
+                            &mut canonical,
+                            until,
+                        )
+                    })?;
+                    emit_actor(stage::MIXED_PHASE, until)?;
+                    tick(until)?;
+                    // Deliberate owned process-exit cut, not an Err transition,
+                    // signal, Rust Drop cleanup or claim of fatal FD custody.
+                    std::process::exit(86);
+                }
+                Kind::InspectInterrupted => {
+                    let mut transaction = [0; 16];
+                    let mut done = 0;
+                    while done < transaction.len() {
+                        tick(until)?;
+                        match channel.read(&mut transaction[done..]) {
+                            Ok(0) => return Err(Unavailable),
+                            Ok(size) => done += size,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                std::thread::sleep(Duration::from_millis(1))
+                            }
+                            Err(_) => return Err(Unavailable),
+                        }
+                        tick(until)?;
+                    }
+                    emit_actor(stage::INSPECTION_PHASES[0], until)?;
+                    transfer.with_restore_pair(until, |new_store, new_template| {
+                        let result = stage.inspect_canonical(
+                            [
+                                INTERRUPTED_OLD_STORE,
+                                INTERRUPTED_OLD_TEMPLATE,
+                                new_store,
+                                new_template,
+                            ],
+                            transaction,
+                            &mut canonical,
+                            until,
+                        )?;
+                        if !result.mixed_intent_candidate() {
+                            return Err(Unavailable);
+                        }
+                        Ok(())
+                    })?;
+                    emit_actor(stage::INSPECTION_PHASES[1], until)?;
+                    Kind::InterruptedInspected
                 }
                 Kind::Halt => {
                     stage.finish()?;
@@ -1077,6 +1469,109 @@ fn actor_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn planned_original_86_is_classified_before_reap_and_all_late_cuts_stop() {
+        use nix::sys::wait::WaitStatus;
+        use nix::unistd::Pid as NixPid;
+        for outcome in [
+            WaitStatus::Exited(NixPid::from_raw(123), 0),
+            WaitStatus::Exited(NixPid::from_raw(124), 86),
+            WaitStatus::Signaled(
+                NixPid::from_raw(123),
+                nix::sys::signal::Signal::SIGTERM,
+                false,
+            ),
+            WaitStatus::StillAlive,
+        ] {
+            let mut reaped = false;
+            assert!(
+                settle_original(
+                    123,
+                    86,
+                    || Ok(()),
+                    || Ok(outcome),
+                    || {
+                        reaped = true;
+                        Ok(Some(86))
+                    }
+                )
+                .is_err()
+            );
+            assert!(!reaped);
+        }
+        for cut in 0..5 {
+            let calls = std::cell::Cell::new(0);
+            let mut reaped = false;
+            let result = settle_original(
+                123,
+                86,
+                || {
+                    let n = calls.get();
+                    calls.set(n + 1);
+                    if cut < 3 && n == cut {
+                        Err(Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                },
+                || {
+                    if cut == 3 {
+                        Err(Unavailable)
+                    } else {
+                        Ok(WaitStatus::Exited(NixPid::from_raw(123), 86))
+                    }
+                },
+                || {
+                    reaped = true;
+                    if cut == 4 {
+                        Err(Unavailable)
+                    } else {
+                        Ok(Some(86))
+                    }
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(reaped, cut == 2 || cut == 4);
+        }
+        assert!(
+            settle_original(
+                123,
+                86,
+                || Ok(()),
+                || Ok(WaitStatus::Exited(NixPid::from_raw(123), 86)),
+                || Ok(Some(86))
+            )
+            .is_ok()
+        );
+        assert!(
+            settle_original(
+                123,
+                86,
+                || Ok(()),
+                || Ok(WaitStatus::Exited(NixPid::from_raw(123), 86)),
+                || Ok(None)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn interrupted_fixture_changes_both_members_and_keeps_product_entry_unregistered() {
+        assert_ne!(INTERRUPTED_OLD_STORE, SYNTHETIC_STORE);
+        assert_ne!(INTERRUPTED_OLD_TEMPLATE, SYNTHETIC_TEMPLATE);
+        assert!(serde_json::from_slice::<serde_json::Value>(INTERRUPTED_OLD_STORE).is_ok());
+        assert_eq!(
+            DeveloperScenario::CanonicalInterruptedInspection.observations(),
+            0
+        );
+        assert!(
+            DeveloperScenario::CanonicalInterruptedInspection
+                .request_shape()
+                .is_none()
+        );
+        assert!(!include_str!("main.rs").contains("--inspect-fixed-interrupted-transaction"));
+    }
 
     #[test]
     fn canonical_commit_uses_one_already_authenticated_pair_and_a_distinct_reply() {

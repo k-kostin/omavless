@@ -9,7 +9,7 @@ use super::{Unavailable, emit_actor, tick};
 use crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical;
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use crate::restore_decision_candidate::{
-    DecisionChain, DecisionPhase, DecisionRecord, TerminalChoice,
+    DecisionChain, DecisionPhase, DecisionRecord, RECORD_BYTES, RecoveryReview, TerminalChoice,
 };
 use crate::restore_staging_candidate::{
     LivePairClass, MEMBERS, PENDING_DIRECTORY, READY_MEMBER, class_from_matches,
@@ -46,7 +46,14 @@ const CREATED_DIRECTORIES: [Slot; 4] = [
 pub(super) const ORIGIN_FENCES: usize =
     2 * CREATED_DIRECTORIES.len() + 2 * (LIVE.len() + MEMBERS.len() + 1 + 2);
 pub(super) const COMMIT_ORIGIN_FENCES: usize = ORIGIN_FENCES + 8;
+pub(super) const INSPECT_ORIGIN_FENCES: usize = 18 * 2;
+pub(super) const MIXED_ORIGIN_FENCES: usize = COMMIT_ORIGIN_FENCES - 4;
 pub(super) const COMMITTED_PHASE: &[u8] = b"t4_actor_fixture_pair_committed\n";
+pub(super) const MIXED_PHASE: &[u8] = b"t4_actor_fixture_mixed_interruption_checked\n";
+pub(super) const INSPECTION_PHASES: [&[u8]; 2] = [
+    b"t4_actor_before_interrupted_inspection\n",
+    b"t4_actor_fixture_intent_mixed_inspected\n",
+];
 const REPLACEMENTS: [(Slot, &str); 2] = [
     (Slot::ReplacementStore, "restore-store.new"),
     (Slot::ReplacementTemplate, "restore-template.new"),
@@ -73,6 +80,8 @@ enum StageOwner<'a> {
     Classic(&'a mut Retained),
     Canonical(&'a mut Canonical),
     CanonicalCommit(&'a mut Canonical),
+    CanonicalInspect(&'a mut Canonical),
+    CanonicalMixed(&'a mut Canonical),
 }
 impl StageOwner<'_> {
     fn admit(&mut self, io: &mut FileIo, until: Instant) -> Result<(), Unavailable> {
@@ -80,30 +89,45 @@ impl StageOwner<'_> {
             Self::Classic(owner) => io.admit(owner, until),
             Self::Canonical(owner) => io.admit_canonical(owner, until),
             Self::CanonicalCommit(owner) => io.admit_canonical_commit(owner, until),
+            Self::CanonicalInspect(owner) => io.admit_canonical_inspection(owner, until),
+            Self::CanonicalMixed(owner) => io.admit_canonical_mixed(owner, until),
         }
     }
     fn fence(&mut self, until: Instant) -> Result<(), Unavailable> {
         match self {
             Self::Classic(owner) => owner.transaction_fence(until).map_err(|_| Unavailable),
-            Self::Canonical(owner) | Self::CanonicalCommit(owner) => owner.stage_origin(until),
+            Self::Canonical(owner)
+            | Self::CanonicalCommit(owner)
+            | Self::CanonicalInspect(owner)
+            | Self::CanonicalMixed(owner) => owner.stage_origin(until),
         }
     }
     fn final_fence(&mut self, until: Instant) -> Result<(), Unavailable> {
         match self {
             Self::Classic(owner) => owner.transaction_fence(until).map_err(|_| Unavailable),
-            Self::Canonical(owner) | Self::CanonicalCommit(owner) => owner.complete_stage(until),
+            Self::Canonical(owner)
+            | Self::CanonicalCommit(owner)
+            | Self::CanonicalInspect(owner)
+            | Self::CanonicalMixed(owner) => owner.complete_stage(until),
         }
     }
     fn revoke(&mut self) {
-        if let Self::Canonical(owner) | Self::CanonicalCommit(owner) = self {
-            owner.revoke();
+        match self {
+            Self::Classic(_) => (),
+            Self::Canonical(owner)
+            | Self::CanonicalCommit(owner)
+            | Self::CanonicalInspect(owner)
+            | Self::CanonicalMixed(owner) => owner.revoke(),
         }
     }
     fn canonical(&self) -> bool {
-        matches!(self, Self::Canonical(_) | Self::CanonicalCommit(_))
+        !matches!(self, Self::Classic(_))
     }
     fn commits(&self) -> bool {
-        matches!(self, Self::CanonicalCommit(_))
+        matches!(self, Self::CanonicalCommit(_) | Self::CanonicalMixed(_))
+    }
+    fn mixed(&self) -> bool {
+        matches!(self, Self::CanonicalMixed(_))
     }
 }
 
@@ -112,6 +136,20 @@ enum LiveRole {
     Old,
     ReplacementReady,
     Renamed,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Inspection {
+    review: RecoveryReview,
+    class: LivePairClass,
+    phase: DecisionPhase,
+}
+impl Inspection {
+    pub fn mixed_intent_candidate(self) -> bool {
+        self.review == RecoveryReview::OldRollbackCandidate
+            && self.class == LivePairClass::Mixed
+            && self.phase == DecisionPhase::Intent
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -129,6 +167,19 @@ fn pair_steps(
         CommitStep::Write(1),
         CommitStep::Rename(0),
         CommitStep::Rename(1),
+    ] {
+        step(operation)?;
+    }
+    Ok(())
+}
+
+fn mixed_steps(
+    mut step: impl FnMut(CommitStep) -> Result<(), Unavailable>,
+) -> Result<(), Unavailable> {
+    for operation in [
+        CommitStep::Write(0),
+        CommitStep::Write(1),
+        CommitStep::Rename(0),
     ] {
         step(operation)?;
     }
@@ -887,7 +938,8 @@ impl Stage {
             ) {
                 return Err(Unavailable);
             }
-            pair_steps(|operation| {
+            let mixed = held.mixed();
+            let operation = |operation| {
                 let index = match operation {
                     CommitStep::Write(index) | CommitStep::Rename(index) => index,
                 };
@@ -932,8 +984,19 @@ impl Stage {
                 let result = held.fence(until);
                 self.cut(StageCut::Origin, result, until)?;
                 Ok(())
-            })?;
-            if self.live != [LiveRole::Renamed; 2]
+            };
+            if mixed {
+                mixed_steps(operation)?;
+            } else {
+                pair_steps(operation)?;
+            }
+            if mixed {
+                if self.live != [LiveRole::Renamed, LiveRole::ReplacementReady]
+                    || self.commit_sources(members, intent, until)? != LivePairClass::Mixed
+                {
+                    return Err(Unavailable);
+                }
+            } else if self.live != [LiveRole::Renamed; 2]
                 || !matches!(
                     self.commit_sources(members, intent, until)?,
                     LivePairClass::New | LivePairClass::Identical
@@ -1027,6 +1090,355 @@ impl Stage {
             &mut StageOwner::CanonicalCommit(held),
             until,
         )
+    }
+
+    pub fn mixed_canonical(
+        &mut self,
+        members: [&[u8]; 4],
+        nonce: &[u8; 32],
+        held: &mut Canonical,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        if members[0] == members[2] || members[1] == members[3] {
+            self.revoke();
+            held.revoke();
+            return Err(Unavailable);
+        }
+        self.record_owned(members, nonce, &mut StageOwner::CanonicalMixed(held), until)
+    }
+
+    fn inspection_capture(
+        &mut self,
+        location: (Slot, Slot, &'static str),
+        directory: bool,
+        optional: bool,
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<bool, Unavailable> {
+        let (parent, slot, name) = location;
+        let result = held.fence(until);
+        self.cut(StageCut::Origin, result, until)?;
+        self.hierarchy(until)?;
+        let mut present = true;
+        if optional {
+            self.io.perform(
+                parent,
+                || tick(until),
+                |file| {
+                    present = match fstatat(file, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+                        Ok(_) => true,
+                        Err(nix::errno::Errno::ENOENT) => false,
+                        Err(_) => return Err(Unavailable),
+                    };
+                    Ok(())
+                },
+            )?;
+        }
+        if present {
+            self.io.child(
+                ChildPlan {
+                    parent,
+                    slot,
+                    name,
+                    flags: OFlag::O_RDONLY
+                        | OFlag::O_NONBLOCK
+                        | if directory {
+                            OFlag::O_DIRECTORY
+                        } else {
+                            OFlag::empty()
+                        },
+                    mode: Mode::empty(),
+                },
+                || tick(until),
+                |_| Ok(()),
+            )?;
+            self.capture_shape(
+                slot,
+                directory,
+                Some(if directory { 0o700 } else { 0o600 }),
+                until,
+            )?;
+            self.binding(parent, slot, name, directory, until)?;
+        }
+        let result = held.fence(until);
+        self.cut(StageCut::Origin, result, until)?;
+        Ok(present)
+    }
+
+    fn inspection_digest(
+        &mut self,
+        slot: Slot,
+        limit: usize,
+        until: Instant,
+    ) -> Result<[u8; 32], Unavailable> {
+        if self.original[slot as usize]
+            .as_ref()
+            .ok_or(Unavailable)?
+            .len()
+            > limit as u64
+        {
+            return Err(Unavailable);
+        }
+        let mut digest = Sha256::new();
+        let mut offset = 0_usize;
+        loop {
+            let mut buffer = [0_u8; 4096];
+            let mut read = 0;
+            self.io.perform(
+                slot,
+                || tick(until),
+                |file| {
+                    let remaining = limit
+                        .checked_add(1)
+                        .and_then(|n| n.checked_sub(offset))
+                        .ok_or(Unavailable)?;
+                    read = file
+                        .read_at(&mut buffer[..remaining.min(4096)], offset as u64)
+                        .map_err(|_| Unavailable)?;
+                    Ok(())
+                },
+            )?;
+            if read == 0 {
+                break;
+            }
+            offset = offset.checked_add(read).ok_or(Unavailable)?;
+            if offset > limit {
+                return Err(Unavailable);
+            }
+            digest.update(&buffer[..read]);
+        }
+        Ok(digest.finalize().into())
+    }
+
+    fn inspection_records(
+        &mut self,
+        terminal: bool,
+        until: Instant,
+    ) -> Result<([u8; RECORD_BYTES], Option<[u8; RECORD_BYTES]>), Unavailable> {
+        let mut intent = [0; RECORD_BYTES];
+        let mut final_record = [0; RECORD_BYTES];
+        for (slot, bytes) in [
+            (Slot::Intent, &mut intent),
+            (Slot::Terminal, &mut final_record),
+        ] {
+            if slot as usize == Slot::Terminal as usize && !terminal {
+                continue;
+            }
+            if self.original[slot as usize]
+                .as_ref()
+                .ok_or(Unavailable)?
+                .len()
+                != RECORD_BYTES as u64
+            {
+                return Err(Unavailable);
+            }
+            self.io.perform(
+                slot,
+                || tick(until),
+                |file| file.read_exact_at(bytes, 0).map_err(|_| Unavailable),
+            )?;
+        }
+        Ok((intent, terminal.then_some(final_record)))
+    }
+
+    fn inspect_inner(
+        &mut self,
+        members: [&[u8]; 4],
+        transaction: [u8; 16],
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<Inspection, Unavailable> {
+        tick(until)?;
+        let planned = planned_stage_identity(members).map_err(|_| Unavailable)?;
+        let expected_intent = DecisionRecord::intent(1, None, &planned, transaction)
+            .map_err(|_| Unavailable)?
+            .encode();
+        held.admit(&mut self.io, until)?;
+        held.fence(until)?;
+        self.io.root(|| tick(until), |_| Ok(()))?;
+        self.capture_shape(Slot::Root, true, None, until)?;
+        held.fence(until)?;
+        // Exact same originals throughout this inspection; no create flag.
+        for (parent, slot, name) in [
+            (Slot::Root, Slot::Run, "run"),
+            (Slot::Run, Slot::Epoch, "omavless-t4-actor-development"),
+            (Slot::Epoch, Slot::Transaction, TRANSACTION),
+            (Slot::Transaction, Slot::Config, "config"),
+            (Slot::Transaction, Slot::State, "state"),
+            (Slot::State, Slot::StageDirectory, PENDING_DIRECTORY),
+        ] {
+            // /run is trusted non-writable rather than a fresh0700 directory.
+            if slot as usize == Slot::Run as usize {
+                held.fence(until)?;
+                self.directory(parent, slot, name, false, held, until)?;
+                held.fence(until)?;
+            } else {
+                self.inspection_capture((parent, slot, name), true, false, held, until)?;
+            }
+        }
+        for (slot, name) in LIVE {
+            self.inspection_capture((Slot::Config, slot, name), false, false, held, until)?;
+        }
+        for (index, name) in MEMBERS.into_iter().enumerate() {
+            self.inspection_capture(
+                (Slot::StageDirectory, STAGED[index], name),
+                false,
+                false,
+                held,
+                until,
+            )?;
+        }
+        self.inspection_capture(
+            (Slot::StageDirectory, Slot::StageReady, READY_MEMBER),
+            false,
+            false,
+            held,
+            until,
+        )?;
+        self.inspection_capture(
+            (Slot::State, Slot::Intent, INTENT),
+            false,
+            false,
+            held,
+            until,
+        )?;
+        let terminal = self.inspection_capture(
+            (Slot::State, Slot::Terminal, TERMINAL),
+            false,
+            true,
+            held,
+            until,
+        )?;
+        let mut temporary = [false; 2];
+        for (index, (slot, name)) in REPLACEMENTS.into_iter().enumerate() {
+            temporary[index] =
+                self.inspection_capture((Slot::Config, slot, name), false, true, held, until)?;
+        }
+        let mut inspection = None;
+        // Two complete same-original passes. Optional absence is checked again
+        // by the exact directory sets, not inferred from an earlier ENOENT.
+        for pass in 0..2 {
+            self.hierarchy(until)?;
+            for (index, name) in MEMBERS.into_iter().enumerate() {
+                self.verify_member(
+                    Slot::StageDirectory,
+                    STAGED[index],
+                    name,
+                    members[index],
+                    until,
+                )?;
+            }
+            self.verify_member(
+                Slot::StageDirectory,
+                Slot::StageReady,
+                READY_MEMBER,
+                &ready_bytes(members),
+                until,
+            )?;
+            self.verify_member(Slot::State, Slot::Intent, INTENT, &expected_intent, until)?;
+            let (intent, final_record) = self.inspection_records(terminal, until)?;
+            let chain =
+                DecisionChain::decode(&intent, final_record.as_ref().map(|bytes| bytes.as_slice()))
+                    .map_err(|_| Unavailable)?;
+            if let Some(bytes) = &final_record {
+                self.verify_member(Slot::State, Slot::Terminal, TERMINAL, bytes, until)?;
+            }
+            let mut actual = [[0; 32]; 2];
+            let mut names = [LIVE[0].1, LIVE[1].1, "", ""];
+            let mut count = 2;
+            for index in 0..2 {
+                self.binding(Slot::Config, LIVE[index].0, LIVE[index].1, false, until)?;
+                actual[index] = self.inspection_digest(
+                    LIVE[index].0,
+                    members[index].len().max(members[index + 2].len()),
+                    until,
+                )?;
+                self.binding(Slot::Config, LIVE[index].0, LIVE[index].1, false, until)?;
+                if temporary[index] {
+                    self.verify_member(
+                        Slot::Config,
+                        REPLACEMENTS[index].0,
+                        REPLACEMENTS[index].1,
+                        members[index + 2],
+                        until,
+                    )?;
+                    names[count] = REPLACEMENTS[index].1;
+                    count += 1;
+                }
+            }
+            let class = class_from_matches(
+                actual[0] == <[u8; 32]>::from(Sha256::digest(members[0])),
+                actual[1] == <[u8; 32]>::from(Sha256::digest(members[1])),
+                actual[0] == <[u8; 32]>::from(Sha256::digest(members[2])),
+                actual[1] == <[u8; 32]>::from(Sha256::digest(members[3])),
+            );
+            let current = Inspection {
+                review: chain.active().review_inspection(1, None, &planned, class),
+                class,
+                phase: chain.active().phase(),
+            };
+            if pass != 0 && Some(current) != inspection {
+                return Err(Unavailable);
+            }
+            inspection = Some(current);
+            self.catalogue(Slot::Config, &names[..count], until)?;
+            self.catalogue(
+                Slot::StageDirectory,
+                &[MEMBERS[0], MEMBERS[1], MEMBERS[2], MEMBERS[3], READY_MEMBER],
+                until,
+            )?;
+            self.catalogue(
+                Slot::State,
+                if terminal {
+                    &[PENDING_DIRECTORY, INTENT, TERMINAL]
+                } else {
+                    &[PENDING_DIRECTORY, INTENT]
+                },
+                until,
+            )?;
+            self.catalogue(Slot::Transaction, &["config", "state"], until)?;
+            self.catalogue(
+                Slot::Epoch,
+                &[
+                    EPOCH_MEMBERS[0],
+                    EPOCH_MEMBERS[1],
+                    EPOCH_MEMBERS[2],
+                    EPOCH_MEMBERS[3],
+                    EPOCH_MEMBERS[4],
+                    TRANSACTION,
+                ],
+                until,
+            )?;
+        }
+        self.hierarchy(until)?;
+        let result = held.final_fence(until);
+        self.cut(StageCut::FinalOwner, result, until)?;
+        inspection.ok_or(Unavailable)
+    }
+
+    pub fn inspect_canonical(
+        &mut self,
+        members: [&[u8]; 4],
+        transaction: [u8; 16],
+        held: &mut Canonical,
+        until: Instant,
+    ) -> Result<Inspection, Unavailable> {
+        if self.consumed || !self.diagnostic.enabled {
+            self.revoke();
+            held.revoke();
+            return Err(Unavailable);
+        }
+        self.consumed = true;
+        let mut original = StageOwner::CanonicalInspect(held);
+        let result = self.inspect_inner(members, transaction, &mut original, until);
+        if result.is_err() {
+            self.revoke();
+            original.revoke();
+        } else {
+            self.completed = true;
+        }
+        self.diagnostic
+            .result(result, |label| emit_actor(label, until))
     }
 
     fn record_owned(
@@ -1146,15 +1558,17 @@ impl Stage {
         if held.commits() {
             self.commit_pair(members, &intent, held, until)?;
         }
-        self.write_member(
-            Slot::State,
-            Slot::Terminal,
-            TERMINAL,
-            &terminal,
-            held,
-            until,
-        )?;
-        emit_actor(SUCCESS_PHASES[4], until)?;
+        if !held.mixed() {
+            self.write_member(
+                Slot::State,
+                Slot::Terminal,
+                TERMINAL,
+                &terminal,
+                held,
+                until,
+            )?;
+            emit_actor(SUCCESS_PHASES[4], until)?;
+        }
         // Full positive reinspection. No terminal marker/prefix supplies success.
         for (index, name) in MEMBERS.into_iter().enumerate() {
             self.verify_member(
@@ -1173,25 +1587,28 @@ impl Stage {
             until,
         )?;
         for (index, (slot, name)) in LIVE.into_iter().enumerate() {
-            let (slot, expected) = if held.commits() {
-                if self.live[index] != LiveRole::Renamed {
-                    return Err(Unavailable);
-                }
+            let (slot, expected) = if held.commits() && self.live[index] == LiveRole::Renamed {
                 (REPLACEMENTS[index].0, members[index + 2])
             } else {
                 (slot, members[index])
             };
             self.verify_member(Slot::Config, slot, name, expected, until)?;
-            if held.commits() {
+            if held.commits() && self.live[index] == LiveRole::Renamed {
                 self.verify_unlinked_old(LIVE[index].0, members[index], until)?;
             }
         }
         self.verify_member(Slot::State, Slot::Intent, INTENT, &intent, until)?;
-        self.verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)?;
-        let chain = DecisionChain::decode(&intent, Some(&terminal)).map_err(|_| Unavailable)?;
+        if !held.mixed() {
+            self.verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)?;
+        }
+        let chain =
+            DecisionChain::decode(&intent, if held.mixed() { None } else { Some(&terminal) })
+                .map_err(|_| Unavailable)?;
         if !chain.active().matches_current_bindings(1, None, &planned)
             || chain.active().phase()
-                != if held.commits() {
+                != if held.mixed() {
+                    DecisionPhase::Intent
+                } else if held.commits() {
                     DecisionPhase::Committed
                 } else {
                     DecisionPhase::Aborted
@@ -1199,13 +1616,32 @@ impl Stage {
         {
             return Err(Unavailable);
         }
+        if held.mixed() && self.commit_sources(members, &intent, until)? != LivePairClass::Mixed {
+            return Err(Unavailable);
+        }
         self.catalogue(
             Slot::StageDirectory,
             &[MEMBERS[0], MEMBERS[1], MEMBERS[2], MEMBERS[3], READY_MEMBER],
             until,
         )?;
-        self.catalogue(Slot::Config, &[LIVE[0].1, LIVE[1].1], until)?;
-        self.catalogue(Slot::State, &[PENDING_DIRECTORY, INTENT, TERMINAL], until)?;
+        self.catalogue(
+            Slot::Config,
+            if held.mixed() {
+                &[LIVE[0].1, LIVE[1].1, REPLACEMENTS[1].1]
+            } else {
+                &[LIVE[0].1, LIVE[1].1]
+            },
+            until,
+        )?;
+        self.catalogue(
+            Slot::State,
+            if held.mixed() {
+                &[PENDING_DIRECTORY, INTENT]
+            } else {
+                &[PENDING_DIRECTORY, INTENT, TERMINAL]
+            },
+            until,
+        )?;
         self.catalogue(Slot::Transaction, &["config", "state"], until)?;
         self.catalogue(
             Slot::Epoch,
@@ -1268,6 +1704,139 @@ pub(super) fn test_failure_projection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_cut_uses_only_the_real_write_write_rename_prefix() {
+        for cut in 0..3 {
+            let mut visited = Vec::new();
+            assert!(
+                mixed_steps(|step| {
+                    visited.push(step);
+                    if visited.len() == cut + 1 {
+                        Err(Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                })
+                .is_err()
+            );
+            assert_eq!(visited.len(), cut + 1);
+            assert!(!visited.contains(&CommitStep::Rename(1)));
+        }
+        let mut visited = Vec::new();
+        mixed_steps(|step| {
+            visited.push(step);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            visited,
+            [
+                CommitStep::Write(0),
+                CommitStep::Write(1),
+                CommitStep::Rename(0)
+            ]
+        );
+        assert_eq!(MIXED_ORIGIN_FENCES, 30);
+        assert_eq!(INSPECT_ORIGIN_FENCES, 36);
+        assert_eq!(7 + 2 + 5 + 1 + 1 + 2, 18);
+        const {
+            assert!(18 <= IO_SLOTS);
+        }
+    }
+
+    #[test]
+    fn source_shaped_two_actor_trace_fits_8192_without_hidden_capture_growth() {
+        let auth_owner =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::auth_success_trace_bytes()
+                + crate::restore_abort_cli::stopped_owner::actor_canonical::STAGE_OWNER_PHASES
+                    .iter()
+                    .map(|s| s.len())
+                    .sum::<usize>();
+        let writer = auth_owner
+            + SUCCESS_PHASES[..4].iter().map(|s| s.len()).sum::<usize>()
+            + MIXED_PHASE.len();
+        let inspector = auth_owner + INSPECTION_PHASES.iter().map(|s| s.len()).sum::<usize>();
+        assert_eq!((writer, inspector), (3979, 3873));
+        assert_eq!(writer + inspector, 7852);
+        let (_, longest) =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::inventory_trace_limits();
+        let longest_stage = CUTS.iter().map(|s| s.label().len()).max().unwrap();
+        assert_eq!(writer + inspector + longest + longest_stage, 7934);
+        assert!(writer + inspector + longest + longest_stage <= 8192);
+        assert_eq!((106 + 4 + 1 + 2) + (106 + 2 + 2), 223);
+        assert_eq!((106 + 4 + 1 + 2) + (106 + 2 + 2) + 2, 225);
+        let (categories, _) =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::inventory_trace_limits();
+        assert_eq!(17 + categories + 3 + 2 + 4 + 1 + 2 + CUTS.len(), 69);
+    }
+
+    #[test]
+    fn inspected_real_decision_chain_never_promotes_new_intent_to_commit() {
+        let planned =
+            planned_stage_identity([b"old-store", b"old-template", b"new-store", b"new-template"])
+                .unwrap();
+        let intent = DecisionRecord::intent(1, None, &planned, [1; 16]).unwrap();
+        for class in [
+            LivePairClass::Old,
+            LivePairClass::Mixed,
+            LivePairClass::New,
+            LivePairClass::Identical,
+            LivePairClass::Diverged,
+        ] {
+            let review = intent.review_inspection(1, None, &planned, class);
+            assert_eq!(
+                review,
+                if class == LivePairClass::Diverged {
+                    RecoveryReview::ManualRecovery
+                } else {
+                    RecoveryReview::OldRollbackCandidate
+                }
+            );
+            let verified =
+                crate::restore_staging_candidate::VerifiedLivePair::synthetic(planned, class);
+            assert_eq!(review, intent.review(1, None, &verified));
+            for terminal in [TerminalChoice::Commit, TerminalChoice::Abort] {
+                let record = intent.terminal(terminal).unwrap();
+                assert_eq!(
+                    record.review_inspection(1, None, &planned, class),
+                    record.review(1, None, &verified)
+                );
+            }
+        }
+        let crossed = DecisionRecord::intent(1, None, &planned, [2; 16])
+            .unwrap()
+            .terminal(TerminalChoice::Commit)
+            .unwrap()
+            .encode();
+        assert!(DecisionChain::decode(&intent.encode(), Some(&crossed)).is_err());
+        let mut torn = intent.encode();
+        torn[0] ^= 1;
+        assert!(DecisionChain::decode(&torn, None).is_err());
+        assert_eq!(
+            intent.review_inspection(2, None, &planned, LivePairClass::Mixed),
+            RecoveryReview::ManualRecovery
+        );
+    }
+
+    #[test]
+    fn inspector_expiry_retains_empty_prefix_and_never_creates_or_retries() {
+        let mut owner = Canonical::reserve().unwrap();
+        let mut lower = Stage::reserve_canonical();
+        assert!(
+            lower
+                .inspect_canonical(
+                    [b"old", b"old-template", b"new", b"new-template"],
+                    [1; 16],
+                    &mut owner,
+                    Instant::now() - std::time::Duration::from_secs(1)
+                )
+                .is_err()
+        );
+        assert!(lower.original.iter().all(Option::is_none));
+        assert!(lower.finish().is_err());
+        assert!(lower.permit_request(Kind::Halt).is_err());
+    }
 
     const CUTS: [StageCut; 8] = [
         StageCut::Admission,
@@ -1548,6 +2117,9 @@ mod tests {
             Kind::StoppedObserved,
             Kind::CommitAuthenticatedBackup,
             Kind::PairCommitted,
+            Kind::InterruptMixed,
+            Kind::InspectInterrupted,
+            Kind::InterruptedInspected,
         ] {
             let mut stage = Stage::reserve().unwrap();
             // Memory-only completed-mode fixture, no Files or real stage run.

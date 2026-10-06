@@ -254,6 +254,38 @@ impl FileIo {
         Ok(())
     }
 
+    pub fn admit_canonical_inspection(
+        &mut self,
+        original: &mut crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical,
+        until: std::time::Instant,
+    ) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            self.revoke();
+            original.revoke();
+            return Err(Unavailable);
+        }
+        self.revoke();
+        original.begin_inspection(until)?;
+        self.ledger.state = State::Live;
+        Ok(())
+    }
+
+    pub fn admit_canonical_mixed(
+        &mut self,
+        original: &mut crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical,
+        until: std::time::Instant,
+    ) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            self.revoke();
+            original.revoke();
+            return Err(Unavailable);
+        }
+        self.revoke();
+        original.begin_mixed_interruption(until)?;
+        self.ledger.state = State::Live;
+        Ok(())
+    }
+
     pub fn admit(
         &mut self,
         original: &mut crate::restore_abort_cli::stopped_owner::actor_capture::Retained,

@@ -23,6 +23,9 @@ pub(super) enum Kind {
     StoppedObserved,
     CommitAuthenticatedBackup,
     PairCommitted,
+    InterruptMixed,
+    InspectInterrupted,
+    InterruptedInspected,
 }
 
 impl Kind {
@@ -43,6 +46,9 @@ impl Kind {
             Self::StoppedObserved => 13,
             Self::CommitAuthenticatedBackup => 14,
             Self::PairCommitted => 15,
+            Self::InterruptMixed => 16,
+            Self::InspectInterrupted => 17,
+            Self::InterruptedInspected => 18,
         }
     }
     fn from_byte(value: u8) -> Result<Self, Unavailable> {
@@ -62,6 +68,9 @@ impl Kind {
             13 => Ok(Self::StoppedObserved),
             14 => Ok(Self::CommitAuthenticatedBackup),
             15 => Ok(Self::PairCommitted),
+            16 => Ok(Self::InterruptMixed),
+            17 => Ok(Self::InspectInterrupted),
+            18 => Ok(Self::InterruptedInspected),
             _ => Err(Unavailable),
         }
     }
@@ -73,6 +82,8 @@ impl Kind {
             Self::StageAuthenticatedBackup => Ok(Self::StageRecorded),
             Self::ObserveStopped => Ok(Self::StoppedObserved),
             Self::CommitAuthenticatedBackup => Ok(Self::PairCommitted),
+            Self::InterruptMixed => Ok(Self::Rejected), // no completion: producer exits86
+            Self::InspectInterrupted => Ok(Self::InterruptedInspected),
             _ => Err(Unavailable),
         }
     }
@@ -171,6 +182,7 @@ impl Context {
                 | (Some(Kind::StageAuthenticatedBackup), Kind::StageRecorded)
                 | (Some(Kind::ObserveStopped), Kind::StoppedObserved)
                 | (Some(Kind::CommitAuthenticatedBackup), Kind::PairCommitted)
+                | (Some(Kind::InspectInterrupted), Kind::InterruptedInspected)
         ) {
             self.revoke();
             return Err(Unavailable);
@@ -229,6 +241,9 @@ mod tests {
             Kind::StoppedObserved,
             Kind::CommitAuthenticatedBackup,
             Kind::PairCommitted,
+            Kind::InterruptMixed,
+            Kind::InspectInterrupted,
+            Kind::InterruptedInspected,
         ] {
             let raw = frame(kind, 2).encode().unwrap();
             let decoded = Frame::decode(&raw).unwrap();
@@ -300,6 +315,47 @@ mod tests {
             if result.is_err() {
                 assert!(context.begin(Kind::Halt).is_err());
             }
+        }
+    }
+
+    #[test]
+    fn interruption_has_no_wire_completion_and_inspection_reply_is_kind_bound() {
+        let mut context = Context::new([1; 32]).unwrap();
+        context.ready(frame(Kind::Ready, 0)).unwrap();
+        context.begin(Kind::InterruptMixed).unwrap();
+        assert!(
+            context
+                .completed(frame(Kind::Rejected, 1), Kind::Rejected)
+                .is_err()
+        );
+        assert!(context.begin(Kind::InspectInterrupted).is_err());
+        for reply in [
+            Kind::Completed,
+            Kind::PairCommitted,
+            Kind::InterruptedInspected,
+        ] {
+            let mut context = Context::new([2; 32]).unwrap();
+            context
+                .ready(Frame {
+                    kind: Kind::Ready,
+                    sequence: 0,
+                    nonce: [2; 32],
+                })
+                .unwrap();
+            context.begin(Kind::InspectInterrupted).unwrap();
+            assert_eq!(
+                context
+                    .completed(
+                        Frame {
+                            kind: reply,
+                            sequence: 1,
+                            nonce: [2; 32]
+                        },
+                        reply
+                    )
+                    .is_ok(),
+                reply == Kind::InterruptedInspected
+            );
         }
     }
     #[test]

@@ -366,7 +366,15 @@ struct StageAdmission {
     origin_fences: usize,
     final_attempted: bool,
     refused: bool,
-    commit: bool,
+    plan: LowerPlan,
+}
+#[derive(Clone, Copy, Default)]
+enum LowerPlan {
+    #[default]
+    Stage,
+    Commit,
+    Inspect,
+    InterruptMixed,
 }
 const ORIGIN_FENCES: usize = crate::manager_actor_service::CANONICAL_STAGE_ORIGIN_FENCES;
 pub(crate) const STAGE_OWNER_PHASES: [&[u8]; 2] = [
@@ -375,10 +383,13 @@ pub(crate) const STAGE_OWNER_PHASES: [&[u8]; 2] = [
 ];
 impl StageAdmission {
     fn limit(&self) -> usize {
-        if self.commit {
-            crate::manager_actor_service::CANONICAL_COMMIT_ORIGIN_FENCES
-        } else {
-            ORIGIN_FENCES
+        match self.plan {
+            LowerPlan::Stage => ORIGIN_FENCES,
+            LowerPlan::Commit => crate::manager_actor_service::CANONICAL_COMMIT_ORIGIN_FENCES,
+            LowerPlan::Inspect => crate::manager_actor_service::CANONICAL_INSPECT_ORIGIN_FENCES,
+            LowerPlan::InterruptMixed => {
+                crate::manager_actor_service::CANONICAL_MIXED_ORIGIN_FENCES
+            }
         }
     }
     fn admit(&mut self, authenticated: bool) -> std::result::Result<(), Unavailable> {
@@ -431,7 +442,7 @@ mod commit_plan_tests {
     fn commit_requires_exact_fixed_34_fences_and_never_reuses_consumed_admission() {
         for count in [0, 26, 33, 34, 35] {
             let mut admission = StageAdmission {
-                commit: true,
+                plan: LowerPlan::Commit,
                 ..StageAdmission::default()
             };
             admission.admit(true).unwrap();
@@ -2151,15 +2162,27 @@ impl Canonical {
         let _ = self.rows.refuse();
     }
     pub(crate) fn begin_stage(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
-        self.begin_stage_plan(until, false)
+        self.begin_stage_plan(until, LowerPlan::Stage)
     }
     pub(crate) fn begin_commit(&mut self, until: Instant) -> std::result::Result<(), Unavailable> {
-        self.begin_stage_plan(until, true)
+        self.begin_stage_plan(until, LowerPlan::Commit)
+    }
+    pub(crate) fn begin_inspection(
+        &mut self,
+        until: Instant,
+    ) -> std::result::Result<(), Unavailable> {
+        self.begin_stage_plan(until, LowerPlan::Inspect)
+    }
+    pub(crate) fn begin_mixed_interruption(
+        &mut self,
+        until: Instant,
+    ) -> std::result::Result<(), Unavailable> {
+        self.begin_stage_plan(until, LowerPlan::InterruptMixed)
     }
     fn begin_stage_plan(
         &mut self,
         until: Instant,
-        commit: bool,
+        plan: LowerPlan,
     ) -> std::result::Result<(), Unavailable> {
         let result = (|| {
             // Only the closed canonical Commit call site selects this plan,
@@ -2167,7 +2190,7 @@ impl Canonical {
             if self.stage.consumed || self.stage.refused {
                 return Err(Unavailable);
             }
-            self.stage.commit = commit;
+            self.stage.plan = plan;
             self.stage.admit(
                 !self.refused && self.completed && self.authentication == Authentication::Complete,
             )?;

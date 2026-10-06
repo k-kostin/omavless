@@ -316,10 +316,27 @@ impl DecisionRecord {
         desired_raw: Option<&[u8]>,
         observed: &VerifiedLivePair,
     ) -> RecoveryReview {
-        if !self.matches_current_bindings(owner_generation, desired_raw, observed.stage()) {
+        self.review_inspection(
+            owner_generation,
+            desired_raw,
+            observed.stage(),
+            observed.class(),
+        )
+    }
+
+    /// Non-authoritative classification of fresh bounded inspection evidence.
+    /// This does not construct a lease-bound VerifiedLivePair or grant effects.
+    pub(crate) fn review_inspection(
+        &self,
+        owner_generation: u64,
+        desired_raw: Option<&[u8]>,
+        stage: &StageIdentity,
+        class: LivePairClass,
+    ) -> RecoveryReview {
+        if !self.matches_current_bindings(owner_generation, desired_raw, stage) {
             return RecoveryReview::ManualRecovery;
         }
-        match (self.phase, observed.class()) {
+        match (self.phase, class) {
             (
                 DecisionPhase::Intent,
                 LivePairClass::Old

@@ -9,6 +9,10 @@ fn main() -> ExitCode {
         omavless_runtime::manager_actor_service::actor_entry()
     } else if arguments == ["--actor-canonical"] {
         omavless_runtime::manager_actor_service::actor_canonical_entry()
+    } else if arguments == ["--actor-mixed-writer"] {
+        omavless_runtime::manager_actor_service::actor_mixed_writer_entry()
+    } else if arguments == ["--actor-inspector"] {
+        omavless_runtime::manager_actor_service::actor_inspector_entry()
     } else if arguments == ["--observe-manager"] {
         omavless_runtime::manager_actor_service::supervisor_entry()
     } else if let Some(scenario) = match arguments.as_slice() {
@@ -44,6 +48,9 @@ fn main() -> ExitCode {
         }
         [arg] if arg == "--commit-canonical-synthetic-backup" => {
             Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalCommit)
+        }
+        [arg] if arg == "--inspect-fixed-interrupted-transaction" => {
+            Some(omavless_runtime::manager_actor_service::DeveloperScenario::CanonicalInterruptedInspection)
         }
         _ => None,
     } {
