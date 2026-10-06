@@ -211,6 +211,87 @@ remain separate; this plan neither executes nor grants those effects.
 
 ## Source gates
 
+### Fixed native observation interval candidate (issuer still closed)
+
+The private same-owner roundtrip now places one move-only traffic interval
+between protected readiness/commit and explicit disconnect. This is not a new
+owner, service, public callback, observation receipt or caller-provided approval.
+`issue_coverage` still returns `Unsupported`, so this source cannot reach Arm or
+execute the interval through the native driver. ROOT must separately approve
+exact-core qualification and review an issuer change before activation.
+
+The interval uses only the ROOT-approved VM-only, root-owned `0755` test ELF
+`/usr/lib/omavless-netguard/development-native-tests`. Its fixed ignored Rust
+selector has no path/URI/command input: after one stdin release byte it issues
+one A/IN query for `probe.k1.invalid` from `198.18.0.1:40531` to
+`192.0.2.53:53`, requires the exact zero-TTL `192.0.2.80` answer, and sends the
+fixed HTTP request to `192.0.2.80:80`. No mark or bypass is assigned. The helper
+exists only in the test binary, not a product CLI or package registration.
+ROOT will independently admit the exact ELF bytes when provisioning that VM
+artifact; a root-owned arbitrary executable is not package qualification.
+
+Before releasing traffic the native parent retains the original `Child`, actual
+child executable FD, original source ELF and private captures, and checks the
+actual image identity, original parent/UID and zero permitted/effective/ambient
+capabilities. The child waits on its original stdin barrier. The 30-second parent
+deadline and 20-second fixed traffic deadline are finite, without retries. The
+child sets its file-size limit to 4096 bytes before traffic; parent capture reads
+also enforce that bound. Whole stdout/stderr grammar is checked only after
+original zero WNOWAIT, then source/capture ownership and original reap are
+required. Live polling reads only bounded metadata, not a falsely stable live
+byte snapshot.
+
+There is one interval slot, never take/reinsert/retry. Before acquisition a
+private capacity record counts the current WHOLE process FD inventory (including
+its temporary directory iterator) and reserves 24 additional FD roles within a
+fixed aggregate 256 and the existing `RLIMIT_NOFILE` soft limit. This includes
+the already held native owner/core/receipt/singleton/lease/runtime graph, rather
+than pretending the interval starts in an empty process. The 24-role allowance
+covers the six persistent roles below, temporary proc-status reads, output
+clones and overlapping stdin/exec-error/spawn plumbing; no limit is raised.
+The exclusive idle-owner/auxiliary fences precede this admission. Repeated
+inventory/rlimit checks refuse growth beyond that reserved ceiling; this is a
+software role reservation, not an atomic reservation of future Linux FD numbers
+or a promise that allocation cannot fail. Allocation failure retains the
+reported original prefix and never evicts an uncertain graph to make capacity.
+
+Persistent interval FD
+roles are source ELF, capture directory, stdout, stderr, current executable and
+stdin write barrier (six); proc-status reads and standard-library spawn pipe/
+duplication descriptors are temporary, so six is not a peak-descriptor claim.
+The original child is retained immediately after spawn, before proc/image reads.
+On timeout, unknown/nonzero status, acquisition failure after an original prefix,
+source/capture drift or unwind, the interval holder retains its owned prefix and
+the existing outer guard retains the WHOLE armed native owner, singleton and
+migration lease. No automatic stop, signal, kill, compensation or reconnect is
+introduced. Fatal process death remains unavailable, not descriptor survival.
+
+After positive original traffic zero/reap, the same candidate rechecks current
+desired generation/profile/mode, managed pair, held core/config/store and data
+directory identity, actual configured core/TUN and original owner/singleton/lease
+before its existing explicit stop, empty-TUN, Disarm and distinct final Status.
+Runtime data cache creation is allowed without treating directory timestamps as
+immutable; directory inode/ownership/mode/link identity remains bound.
+
+ROOT separately owns the original BPF observer and packet census. Native code
+does not receive its PID, result, receipt or boolean and cannot turn it into Arm
+authority. A native positive traffic interval alone is not whole acceptance:
+ROOT additionally requires its original observer zero, complete strict socket
+and mark-before-connect/send census, packet/leak checks and all declared finite
+fault cases. Ordinary constructors/defaults and the unsupported issuer remain
+unchanged. No ignored selector, real child, network or VM was executed by the
+source writer.
+
+Interval SOURCE gates: the complete `protected_` filter passed 43 tests with two
+ignored selectors; eight of the passing controls directly cover interval
+ordering, post-traffic refusal, one-use, original-prefix Drop/unwind, fixed DNS
+bytes, child privilege/parent, capture replacement/overflow and aggregate
+capacity boundaries. Feature all-target strict Clippy, default check, scoped
+format and diff checks passed. An initial exact-name filter selected zero tests;
+it was not counted as evidence. The first protocol test used an incorrect literal
+header length and failed before any traffic; the exact-length assertion was
+corrected and all affected controls rerun. No ignored test or VM was selected.
+
 Locked/offline targeted protected tests: 30 passed, zero failed/ignored (mock
 validation and lifecycle plus inert private-file preparation). The broader
 `core_readiness` name filter also passed 11 tests; that filter includes the

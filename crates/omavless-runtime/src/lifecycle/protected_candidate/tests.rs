@@ -36,8 +36,31 @@ impl sealed::Sealed for Host {}
 struct MockAdmission {
     generation: u64,
 }
+struct MockInterval(Rc<Cell<u8>>);
+impl Drop for MockInterval {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() + 1);
+    }
+}
 impl ProtectedHost for Host {
     type Admission = MockAdmission;
+    type Interval = MockInterval;
+    fn begin_interval(&mut self, _: &DesiredState) -> Result<MockInterval, HostStepError> {
+        self.step("interval_begin")?;
+        Ok(MockInterval(self.drops.clone()))
+    }
+    fn complete_interval(&mut self, _: &mut MockInterval) -> Result<(), HostStepError> {
+        if self.cut == Some("interval_panic") {
+            panic!("fixed inert interval cut");
+        }
+        self.step("interval_complete")
+    }
+    fn recheck_interval(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
+        if self.log.borrow().contains(&"interval_complete") {
+            self.step("interval_postcheck")?;
+        }
+        self.step("interval_recheck")
+    }
     fn prepare_admitted(&mut self, desired: &DesiredState) -> Result<MockAdmission, HostStepError> {
         self.prepare(desired)?;
         self.step("validation_reaped")?;
@@ -68,6 +91,59 @@ impl ProtectedHost for Host {
     fn discard_protected(&mut self) -> Result<(), HostStepError> {
         self.discard_prepared()
     }
+}
+
+#[test]
+fn interval_failure_retains_armed_owner_without_stop_or_disarm() {
+    for cut in [
+        "interval_begin",
+        "interval_complete",
+        "interval_recheck",
+        "interval_postcheck",
+        "interval_panic",
+    ] {
+        let f = Fixture::new(0, None);
+        let mut candidate = f.candidate(Some(cut), None);
+        candidate.connect_full("fixture").unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            candidate.observe_interval()
+        }));
+        assert!(result.is_err() || result.unwrap().is_err());
+        assert!(!f.log.borrow().contains(&"stop"));
+        assert!(!f.log.borrow().contains(&"disarm"));
+        assert_eq!(f.root.borrow().marker, Marker::Armed(1));
+        drop(candidate);
+        assert_eq!(f.drops.get(), 0);
+    }
+}
+#[test]
+fn positive_interval_is_one_use_then_existing_explicit_close() {
+    let f = Fixture::new(0, None);
+    let mut candidate = f.candidate(None, None);
+    candidate.connect_full("fixture").unwrap();
+    candidate.observe_interval().unwrap();
+    assert_eq!(candidate.phase, Phase::Armed(1));
+    candidate.disconnect().unwrap();
+    let log = f.log.borrow();
+    assert!(
+        log.iter().position(|s| *s == "interval_complete").unwrap()
+            < log.iter().position(|s| *s == "stop").unwrap()
+    );
+    drop(log);
+    drop(candidate);
+    assert_eq!(f.drops.get(), 3);
+}
+#[test]
+fn second_interval_never_spawns_or_disconnects() {
+    let f = Fixture::new(0, None);
+    let mut candidate = f.candidate(None, None);
+    candidate.connect_full("fixture").unwrap();
+    candidate.observe_interval().unwrap();
+    let before = f.log.borrow().clone();
+    assert!(candidate.observe_interval().is_err());
+    assert_eq!(*f.log.borrow(), before);
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
 }
 impl LifecycleHost for Host {
     fn protected_preflight(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
@@ -249,7 +325,7 @@ struct Fixture {
 
 #[test]
 fn borrowed_same_executor_checks_original_fence_and_never_compensates() {
-    for fail_at in 1..=32 {
+    for fail_at in 1..=48 {
         let f = Fixture::new(0, None);
         let mut initial = f.candidate(None, None);
         let (Executor::Owned(executor), port) = initial.owned.take().unwrap() else {
@@ -271,10 +347,12 @@ fn borrowed_same_executor_checks_original_fence_and_never_compensates() {
             owned: Some((Executor::Borrowed(&mut retained), port)),
             phase: Phase::Fresh,
             admission: None,
+            interval: None,
             origin: Some(&mut fence),
         };
         let result = candidate
             .connect_full("fixture")
+            .and_then(|_| candidate.observe_interval())
             .and_then(|_| candidate.disconnect());
         if calls.get() == fail_at {
             assert!(result.is_err());

@@ -19,6 +19,7 @@ mod sealed {
 impl sealed::Sealed for crate::native_host::NativeLifecycleHost {}
 pub(crate) trait ProtectedHost: LifecycleHost + sealed::Sealed {
     type Admission;
+    type Interval;
     fn prepare_admitted(
         &mut self,
         desired: &DesiredState,
@@ -27,6 +28,9 @@ pub(crate) trait ProtectedHost: LifecycleHost + sealed::Sealed {
     fn start_admitted(&mut self, admission: Self::Admission) -> Result<(), HostStepError>;
     fn commit_protected(&mut self) -> Result<(), HostStepError>;
     fn discard_protected(&mut self) -> Result<(), HostStepError>;
+    fn begin_interval(&mut self, desired: &DesiredState) -> Result<Self::Interval, HostStepError>;
+    fn complete_interval(&mut self, interval: &mut Self::Interval) -> Result<(), HostStepError>;
+    fn recheck_interval(&mut self, desired: &DesiredState) -> Result<(), HostStepError>;
 }
 
 // No production constructor/registration. Native protected readiness remains
@@ -74,6 +78,7 @@ struct ProtectedCandidate<'a, H: ProtectedHost, P: ProtectionPort> {
     owned: Option<(Executor<'a, H>, P)>,
     phase: Phase,
     admission: Option<H::Admission>,
+    interval: Option<H::Interval>,
     origin: Option<&'a mut dyn FnMut() -> Result<(), LifecycleError>>,
 }
 
@@ -86,6 +91,9 @@ impl<H: ProtectedHost, P: ProtectionPort> Drop for ProtectedCandidate<'_, H, P> 
             if let Some(admission) = self.admission.take() {
                 std::mem::forget(admission);
             }
+            if let Some(interval) = self.interval.take() {
+                std::mem::forget(interval);
+            }
         }
     }
 }
@@ -96,6 +104,7 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
             owned: Some((Executor::Owned(executor), port)),
             phase: Phase::Fresh,
             admission: None,
+            interval: None,
             origin: None,
         }
     }
@@ -254,6 +263,58 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
         self.phase = Phase::Armed(target.generation);
         Ok(e.outcome(&target, true))
     }
+    fn observe_interval(&mut self) -> Result<(), LifecycleError> {
+        let Phase::Armed(generation) = self.phase else {
+            return Err(self.poison());
+        };
+        if self.interval.is_some() {
+            return Err(self.poison());
+        }
+        let desired = self.local(|e| e.read())?;
+        if !desired.connected
+            || desired.generation != generation
+            || desired.mode != RoutingMode::Global
+        {
+            return Err(self.poison());
+        }
+        self.local(|e| e.verify_connected(&desired))?;
+        self.local(|e| {
+            e.host
+                .recheck_interval(&desired)
+                .map_err(|_| LifecycleError::ManualRecoveryRequired)
+        })?;
+        let interval = self.local(|e| {
+            e.host
+                .begin_interval(&desired)
+                .map_err(|_| LifecycleError::ManualRecoveryRequired)
+        })?;
+        self.interval = Some(interval);
+        self.origin_check()?;
+        let result = self
+            .owned
+            .as_mut()
+            .ok_or(LifecycleError::ManualRecoveryRequired)?
+            .0
+            .host
+            .complete_interval(
+                self.interval
+                    .as_mut()
+                    .ok_or(LifecycleError::ManualRecoveryRequired)?,
+            );
+        result.map_err(|_| self.poison())?;
+        self.local(|e| {
+            if e.read()? != desired {
+                return Err(LifecycleError::ManualRecoveryRequired);
+            }
+            e.host
+                .recheck_interval(&desired)
+                .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+            e.verify_connected(&desired)
+        })?;
+        self.origin_check()?;
+        self.phase = Phase::Armed(generation);
+        Ok(())
+    }
     fn disconnect(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
         let Phase::Armed(armed_generation) = self.phase else {
             return Err(self.poison());
@@ -332,9 +393,11 @@ pub(crate) fn borrowed_native_roundtrip(
         )),
         phase: Phase::Fresh,
         admission: None,
+        interval: None,
         origin: Some(origin),
     };
     candidate.connect_full(profile_id)?;
+    candidate.observe_interval()?;
     candidate.disconnect()
 }
 
