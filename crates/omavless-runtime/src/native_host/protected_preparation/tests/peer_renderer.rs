@@ -122,7 +122,7 @@ fn fixed_peer_uses_production_canonical_renderer() {
     assert_eq!(value["external-controller-unix"], CONTROLLER);
     assert!(value["proxies"][0].get("skip-cert-verify").is_none());
     assert!(matches!(
-        issue_coverage([0; 32], None),
+        approved_policy_decision(),
         Err(PreparationError::Unsupported)
     ));
 }

@@ -64,12 +64,10 @@ fn stage(host: &mut NativeLifecycleHost, desired: &DesiredState) -> Result<(), P
 
 #[test]
 fn coverage_issuer_has_no_accepted_digest_or_native_spawn() {
-    for digest in [[0; 32], [1; 32], [255; 32]] {
-        assert!(matches!(
-            issue_coverage(digest, None),
-            Err(PreparationError::Unsupported)
-        ));
-    }
+    assert!(matches!(
+        approved_policy_decision(),
+        Err(PreparationError::Unsupported)
+    ));
     let (_root, mut host, desired) = fixture();
     stage(&mut host, &desired).unwrap();
     assert!(matches!(
@@ -80,6 +78,48 @@ fn coverage_issuer_has_no_accepted_digest_or_native_spawn() {
     assert!(!preparation.admitted && !preparation.started);
     assert!(preparation.bound.is_some());
     assert!(host.core.is_none());
+}
+
+#[test]
+fn protected_policy_token_binds_exact_renderer_and_changes_refuse() {
+    let (_root, mut host, desired) = fixture();
+    stage(&mut host, &desired).unwrap();
+    let bound = host
+        .protected_preparation
+        .as_mut()
+        .unwrap()
+        .bound
+        .as_mut()
+        .unwrap();
+    assert!(bound.policy.version == PolicyVersion::RuleTcpVerifiedTlsDohV1);
+    assert_eq!(bound.policy.config, bound.config.digest);
+    bound.policy.config[0] ^= 1;
+    assert_eq!(
+        host.recheck_protected_candidate(&desired),
+        Err(PreparationError::Changed)
+    );
+    assert!(host.core.is_none());
+}
+
+#[test]
+fn protected_preparation_capacity_reserves_whole_graph_and_peak() {
+    assert!(PreparationCapacity::from_inventory(240, 256).is_ok());
+    assert!(PreparationCapacity::from_inventory(241, 1024).is_err());
+    assert!(PreparationCapacity::from_inventory(20, 35).is_err());
+    assert!(PreparationCapacity::from_inventory(usize::MAX, u64::MAX).is_err());
+}
+
+#[test]
+fn protected_issuer_is_after_original_validation_and_restored_bound() {
+    // Owning placement regression, not fabricated original-process evidence.
+    let source = include_str!("../protected_preparation.rs");
+    let start = source.find("fn admit_prepared_protection(").unwrap();
+    let body = &source[start..source[start..].find("#[cfg(test)]").unwrap() + start];
+    let complete = body.find(".complete(").unwrap();
+    let restore = body.find(".bound = Some(bound)").unwrap();
+    let issuer = body.find("issue_coverage(").unwrap();
+    assert!(complete < restore && restore < issuer);
+    assert!(body.find("approved_policy_decision()?").unwrap() < complete);
 }
 
 #[test]

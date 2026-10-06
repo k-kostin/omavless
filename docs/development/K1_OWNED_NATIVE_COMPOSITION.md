@@ -26,7 +26,8 @@ is unchanged. All three families may receive ordinary package compatibility
 checks, but protected eligibility and its immediate pre-Arm recheck require
 the distinct four-patch family. `ProtectedPairIdentity` still binds the exact
 receipt/core/broker digest triple. Neither family recognition nor a decoded
-receipt is socket coverage. `issue_coverage` remains unconditionally Unsupported.
+receipt is socket coverage. The pre-validator policy decision remains
+unconditionally Unsupported; the later private constructor is unreachable.
 
 `ProductionNativeOwner::protected_developer_roundtrip` is private, feature-only
 and unregistered. It consumes an already constructed real owner and its real
@@ -103,8 +104,8 @@ ProtectedCandidate still exclusively owns the same executor and protection port.
    identities and bytes, store digest, exact desired state and data-directory
    identity. This supersedes #674's two-record-handle count: the bound record now
    also retains one data-directory descriptor. The count is not peak descriptors.
-3. Ask the private coverage issuer for this exact core and pair identity (receipt,
-   core and broker digests). **The issuer always returns Unsupported.** No digest
+3. Ask the private policy decision gate for this exact core and pair identity.
+   **The gate always returns Unsupported.** No digest
    is currently admitted, no caller boolean/JSON receipt overrides this, and no
    real validator can be spawned by the current candidate. Neither package
    provenance nor readiness supplies socket coverage.
@@ -216,7 +217,7 @@ remain separate; this plan neither executes nor grants those effects.
 The private same-owner roundtrip now places one move-only traffic interval
 between protected readiness/commit and explicit disconnect. This is not a new
 owner, service, public callback, observation receipt or caller-provided approval.
-`issue_coverage` still returns `Unsupported`, so this source cannot reach Arm or
+The pre-validator policy decision still returns `Unsupported`, so this source cannot reach Arm or
 execute the interval through the native driver. ROOT must separately approve
 exact-core qualification and review an issuer change before activation.
 
@@ -352,3 +353,55 @@ actual protected core Rule mode. All three existing NativeLifecycleHost intent
 checks (close capture, fresh observation and lifecycle observation) use that
 mapping; ordinary readiness still requires literal mode equality. Mode matching
 alone never grants controller/TUN readiness or coverage.
+
+## Private Rule issuance structure (still closed)
+
+The Rule issuer continuation retains a private move-only renderer token with
+policy version `RuleTcpVerifiedTlsDohV1` and the exact staged config digest.
+Only the closed canonical renderer constructs it. No arbitrary JSON decoder,
+caller boolean, observer/test receipt or public token can select this policy.
+
+A protected-only package holder captures the original selected-user600 selector,
+root755 broker and root644 receipt, checking full named/held metadata and bytes
+on every recheck. It admits only the exact897ada/4bbba/c6e triple documented
+above after strict four-family verification. The original core is the existing
+Bound file; its exact security.capability bytes are read through that descriptor
+with feature-only rustix/fs. Ordinary package detection is unchanged. Same-byte
+replacement of any captured member refuses; this is new original-file custody,
+not a guarantee previously supplied by ManagedPair's path/hash snapshot.
+
+Before staging/acquisition a bounded capacity record counts the whole current
+process inventory and reserves16 additional roles within256 and the unchanged
+RLIMIT_NOFILE. These cover three package originals, config/data/publication and
+validator plumbing plus transient reads; they are not merely a persistent FD
+count. The later interval separately reserves its existing24 roles against the
+then-current whole graph. Neither admission raises limits or evicts originals.
+
+The no-argument `approved_policy_decision` still returns Unsupported before any
+validator spawn. Thus this source cannot execute validation or Arm through the
+native driver. Downstream structure now constructs Coverage only after the
+same Validation owner returns original observed/reaped zero with held/package
+postchecks; its actual Child adapter uses try_wait, not WNOWAIT. Bound is restored
+into the same host before any late fallible issuance step. An acquisition guard
+retains Bound on a spawn error/unwind. A private nonescaping validated view then
+binds exact policy version/config/core/package into Coverage and ArmAdmission.
+Immediate pre-Arm/start and interval checks retain the same original binding.
+
+Enabling requires a separate accepted Rule-policy decision and full source
+review. The old Global matrix, actual Rule validator, new UDP/ICMP case outcomes,
+and native observer/interval proof remain separately scoped evidence. No current
+nonzero/unknown observation becomes acceptance by this structural source change.
+There is no native activation, ordinary-default change or successful test-only
+substitution of an installed package. Focused controls use inert files and
+memory: exact-member mismatch, same-byte inode replacement, mutation/mode/link,
+missing capabilities, token mismatch, capacity refusal, closed entry and owning
+post-validator constructor placement; inherited validator/lifecycle fault cuts
+remain applicable. Ignored VM selectors must remain unselected by source gates.
+
+This structural checkpoint passed53 protected-filter tests (three VM selectors
+ignored), strict all-target feature Clippy, strict all-target ordinary-default
+Clippy, scoped runtime formatting and diff checks. The successful Coverage path
+was not exercised with a real installed package; no core/validator, service,
+socket traffic, privileged operation or VM action was selected. The optional
+rustix dependency reuses the existing locked1.1.5 version; no new version or
+default feature is introduced.

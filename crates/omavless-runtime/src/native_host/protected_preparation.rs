@@ -40,14 +40,45 @@ pub(crate) struct ArmAdmission {
 struct Coverage {
     core: [u8; 32],
     pair: crate::managed_pair::ProtectedPairIdentity,
+    policy: PolicyVersion,
+    config: [u8; 32],
 }
-// CLOSED: package provenance and config syntax do not establish networking or
-// complete socket coverage. Any future successful issuer requires ROOT review.
-fn issue_coverage(
-    _core: [u8; 32],
-    _pair: Option<crate::managed_pair::ProtectedPairIdentity>,
-) -> Result<Coverage, PreparationError> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PolicyVersion {
+    RuleTcpVerifiedTlsDohV1,
+}
+struct RenderedPolicy {
+    version: PolicyVersion,
+    config: [u8; 32],
+}
+// CLOSED, no flag or argument. Removing this requires the separate accepted
+// Rule-policy decision and review. No real validator/Arm is enabled here.
+fn approved_policy_decision() -> Result<(), PreparationError> {
     Err(PreparationError::Unsupported)
+}
+/// Only constructed locally AFTER original Validation::complete and restored
+/// host-owned Bound postchecks; cannot escape or outlive those originals.
+struct ValidatedPreparation<'a> {
+    bound: &'a Bound,
+    pair: &'a ManagedPair,
+}
+fn issue_coverage(validated: ValidatedPreparation<'_>) -> Result<Coverage, PreparationError> {
+    let bound = validated.bound;
+    let package = bound.package.as_ref().ok_or(PreparationError::Refused)?;
+    package
+        .recheck(validated.pair, &bound.core.file)
+        .map_err(|_| PreparationError::Changed)?;
+    if bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
+        || bound.policy.config != bound.config.digest
+    {
+        return Err(PreparationError::Changed);
+    }
+    Ok(Coverage {
+        core: bound.core.digest,
+        pair: package.identity(),
+        policy: bound.policy.version,
+        config: bound.config.digest,
+    })
 }
 
 /// No Debug, Clone, serialization, external constructor or copied receipt.
@@ -64,6 +95,55 @@ struct Bound {
     core: HeldFile,
     config: HeldFile,
     data: HeldDirectory,
+    policy: RenderedPolicy,
+    package: Option<crate::managed_pair::ProtectedPackage>,
+    capacity: PreparationCapacity,
+}
+struct AcquiredBound(Option<Bound>);
+impl Drop for AcquiredBound {
+    fn drop(&mut self) {
+        if let Some(bound) = self.0.take() {
+            std::mem::forget(bound);
+        }
+    }
+}
+
+struct PreparationCapacity {
+    ceiling: usize,
+}
+impl PreparationCapacity {
+    fn inventory() -> Result<usize, PreparationError> {
+        fs::read_dir("/proc/self/fd")
+            .map_err(|_| PreparationError::Refused)?
+            .try_fold(0usize, |n, entry| {
+                entry.map_err(|_| PreparationError::Refused)?;
+                n.checked_add(1)
+                    .filter(|v| *v <= 256)
+                    .ok_or(PreparationError::Refused)
+            })
+    }
+    fn reserve() -> Result<Self, PreparationError> {
+        // Three package originals + staged/config/data/parent publication and
+        // validator null/exec-error plumbing, with transient iterator/hash margin.
+        let (soft, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
+            .map_err(|_| PreparationError::Refused)?;
+        Self::from_inventory(Self::inventory()?, soft)
+    }
+    fn from_inventory(count: usize, soft: u64) -> Result<Self, PreparationError> {
+        let ceiling = count.checked_add(16).ok_or(PreparationError::Refused)?;
+        if ceiling > 256 || ceiling as u64 > soft {
+            return Err(PreparationError::Refused);
+        }
+        Ok(Self { ceiling })
+    }
+    fn check(&self) -> Result<(), PreparationError> {
+        let (soft, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
+            .map_err(|_| PreparationError::Changed)?;
+        if Self::inventory()? > self.ceiling || soft < self.ceiling as u64 {
+            return Err(PreparationError::Changed);
+        }
+        Ok(())
+    }
 }
 
 struct HeldDirectory {
@@ -205,7 +285,14 @@ impl HeldFile {
     }
 }
 
+#[cfg(test)]
 fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, PreparationError> {
+    render_bound(profile, controller).map(|(bytes, _)| bytes)
+}
+fn render_bound(
+    profile: CanonicalProfile,
+    controller: &Path,
+) -> Result<(Vec<u8>, RenderedPolicy), PreparationError> {
     let CanonicalProfile::Vless(vless) = &profile else {
         return Err(PreparationError::Unsupported);
     };
@@ -293,7 +380,11 @@ fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, Prepa
     if bytes.len() as u64 > MAX_CONFIG {
         return Err(PreparationError::Refused);
     }
-    Ok(bytes)
+    let policy = RenderedPolicy {
+        version: PolicyVersion::RuleTcpVerifiedTlsDohV1,
+        config: Sha256::digest(&bytes).into(),
+    };
+    Ok((bytes, policy))
 }
 
 impl NativeLifecycleHost {
@@ -315,7 +406,23 @@ impl NativeLifecycleHost {
         }
         let core = HeldFile::capture(&self.paths.core, 0, 0o755, MAX_CORE)?;
         pair.verify().map_err(|_| PreparationError::Changed)?;
-        self.prepare_bound_candidate(desired, core)
+        self.prepare_bound_candidate(desired, core)?;
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(PreparationError::Refused)?;
+        let bound = self
+            .protected_preparation
+            .as_mut()
+            .and_then(|p| p.bound.as_mut())
+            .ok_or(PreparationError::Refused)?;
+        bound.capacity.check()?;
+        bound.package = Some(
+            pair.capture_protected(&bound.core.file)
+                .map_err(|_| PreparationError::Changed)?,
+        );
+        self.recheck_protected_candidate(desired)
     }
 
     fn prepare_bound_candidate(
@@ -341,6 +448,7 @@ impl NativeLifecycleHost {
         {
             return Err(PreparationError::Refused);
         }
+        let capacity = PreparationCapacity::reserve()?;
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| PreparationError::Refused)?;
         let store_digest = Sha256::digest(store.as_bytes()).into();
@@ -352,7 +460,7 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Refused);
         }
         let (_, profile) = profiles.pop().ok_or(PreparationError::Refused)?;
-        let bytes = render(profile, &self.paths.controller_socket)?;
+        let (bytes, policy) = render_bound(profile, &self.paths.controller_socket)?;
         let path = self.paths.config_directory.join(STAGING);
         // Consume before create/write/sync. Errors are not retry authorization.
         self.protected_preparation = Some(Preparation {
@@ -383,6 +491,9 @@ impl NativeLifecycleHost {
             core,
             config,
             data: HeldDirectory::capture(&self.paths.data_directory, self.uid)?,
+            policy,
+            package: None,
+            capacity,
         };
         self.protected_preparation
             .as_mut()
@@ -413,6 +524,23 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Changed);
         }
         bound.core.recheck(&self.paths.core)?;
+        if bound.policy.config != bound.config.digest
+            || bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
+        {
+            return Err(PreparationError::Changed);
+        }
+        bound.capacity.check()?;
+        if let Some(package) = &bound.package {
+            package
+                .recheck(
+                    self.paths
+                        .managed_pair
+                        .as_ref()
+                        .ok_or(PreparationError::Changed)?,
+                    &bound.core.file,
+                )
+                .map_err(|_| PreparationError::Changed)?;
+        }
         bound.data.recheck(&self.paths.data_directory)?;
         bound
             .config
@@ -426,6 +554,7 @@ impl NativeLifecycleHost {
         desired: &DesiredState,
     ) -> Result<ArmAdmission, PreparationError> {
         self.recheck_protected_candidate(desired)?;
+        approved_policy_decision()?;
         let preparation = self
             .protected_preparation
             .as_mut()
@@ -435,20 +564,25 @@ impl NativeLifecycleHost {
         }
         // Refuse BEFORE executing a real validator until its network behavior
         // and runtime coverage for this exact core/policy have been accepted.
-        let coverage = issue_coverage(
-            preparation
-                .bound
-                .as_ref()
-                .ok_or(PreparationError::Refused)?
-                .core
-                .digest,
-            self.paths
-                .managed_pair
-                .as_ref()
-                .map(ManagedPair::protected_identity),
-        )?;
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(PreparationError::Refused)?;
+        let candidate = preparation
+            .bound
+            .as_ref()
+            .ok_or(PreparationError::Refused)?;
+        candidate
+            .package
+            .as_ref()
+            .ok_or(PreparationError::Refused)?
+            .recheck(pair, &candidate.core.file)
+            .map_err(|_| PreparationError::Changed)?;
         preparation.admitted = true;
-        let bound = preparation.bound.take().ok_or(PreparationError::Refused)?;
+        let mut acquired = AcquiredBound(Some(
+            preparation.bound.take().ok_or(PreparationError::Refused)?,
+        ));
         let staged = self.paths.config_directory.join(STAGING);
         let deadline = Instant::now() + VALIDATION_TIMEOUT;
         let child = std::process::Command::new(&self.paths.core)
@@ -463,13 +597,21 @@ impl NativeLifecycleHost {
             .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|_| PreparationError::OutcomeUnknown)?;
-        let original = validation::Validation::new(child, bound);
+        // No fallible operation between the reported child and its whole owner.
+        let original = validation::Validation::new(child, acquired.0.take().expect("held bound"));
         let bound = original
             .complete(
                 deadline,
                 Instant::now,
                 || std::thread::sleep(Duration::from_millis(10)),
                 |bound| {
+                    bound.capacity.check().map_err(|_| ())?;
+                    bound
+                        .package
+                        .as_ref()
+                        .ok_or(())?
+                        .recheck(pair, &bound.core.file)
+                        .map_err(|_| ())?;
                     bound.core.recheck(&self.paths.core).map_err(|_| ())?;
                     bound
                         .data
@@ -479,17 +621,23 @@ impl NativeLifecycleHost {
                 },
             )
             .map_err(|_| PreparationError::OutcomeUnknown)?;
+        self.protected_preparation
+            .as_mut()
+            .ok_or(PreparationError::Refused)?
+            .bound = Some(bound);
+        self.recheck_protected_candidate(desired)?;
+        let bound = self
+            .protected_preparation
+            .as_ref()
+            .and_then(|p| p.bound.as_ref())
+            .ok_or(PreparationError::Refused)?;
+        let coverage = issue_coverage(ValidatedPreparation { bound, pair })?;
         let admission = ArmAdmission {
             desired: desired.clone(),
             config: bound.config.digest,
             core: bound.core.digest,
             coverage,
         };
-        self.protected_preparation
-            .as_mut()
-            .ok_or(PreparationError::Refused)?
-            .bound = Some(bound);
-        self.recheck_protected_candidate(desired)?;
         Ok(admission)
     }
 }
@@ -552,6 +700,22 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
             .as_ref()
             .ok_or(HostStepError::Observation)?
             .verify_protected()?;
+        bound
+            .package
+            .as_ref()
+            .ok_or(HostStepError::Observation)?
+            .recheck(
+                self.paths
+                    .managed_pair
+                    .as_ref()
+                    .ok_or(HostStepError::Observation)?,
+                &bound.core.file,
+            )?;
+        if bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
+            || bound.policy.config != bound.config.digest
+        {
+            return Err(HostStepError::Observation);
+        }
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| HostStepError::Observation)?;
         if <[u8; 32]>::from(Sha256::digest(store.as_bytes())) != bound.store_digest {
@@ -619,6 +783,9 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
             || bound.config.digest != admission.config
             || bound.core.digest != admission.core
             || admission.coverage.core != admission.core
+            || admission.coverage.config != bound.config.digest
+            || admission.coverage.policy != bound.policy.version
+            || bound.policy.config != bound.config.digest
         {
             return Err(HostStepError::Prepare);
         }

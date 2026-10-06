@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
-netguard-runtime-candidate = ["dep:omavless-netguard", "omavless-netguard/netguard-client-candidate", "nix/resource"]
+netguard-runtime-candidate = ["dep:omavless-netguard", "omavless-netguard/netguard-client-candidate", "nix/resource", "dep:rustix"]
 netguard-native-scenario = ["netguard-runtime-candidate"]
 
 [dependencies]
@@ -26,6 +26,7 @@ omavless-tui = { path = "../omavless-tui", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
+rustix = { version = "1.1.5", features = ["fs"], optional = true }
 signal-hook = "0.3"
 ureq = { version = "3.4", default-features = false, features = ["platform-verifier", "rustls"] }
 url = "2.5"
