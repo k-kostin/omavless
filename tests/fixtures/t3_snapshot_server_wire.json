@@ -1,0 +1,1 @@
+{"api":"omavless.control","version":1,"id":"product-epoch-1","ok":true,"revision":7,"result":{"schemaVersion":1,"scope":"development_owned_single_connection_close","instanceId":"same-original","rows":[{"handle":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","display":{"host":null,"ip":"127.0.0.1","port":19781,"network":"tcp","route":"DIRECT"}}]}}

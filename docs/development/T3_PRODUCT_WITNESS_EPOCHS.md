@@ -276,3 +276,41 @@ No override, administrator cgroup write, automatic startup retry or record edit
 is supplied. ROOT must separately admit the failed pre-exec filesystem prefix
 and select the new packaged unit after source/packet review; actual TasksCurrent1,
 Threads1, cap0x80000, NOFILE64 and unchanged namespaces remain pending gates.
+
+## First two-epoch attempt: final-wire fixture defect, not product PASS
+
+ROOT installed the bounded TasksMax2 package and observed genuine helper
+TasksMax2/TasksCurrent1. Supervisor3 preparation returned0. The selected first
+two_closed run (original session77754) reached checkpointB: same original native
+process/core/Meta observations succeeded. It then parked at checkpoint-1 and
+remains NONPASS. A separately reviewed fixed capture reader returned0: the flow
+contained only the exact refusal phase before; runtime stdout/stderr and flow
+stderr were empty. No unobserved response bytes or provider completion are claimed.
+
+Cause in the frozen harness: it checked only the internal retained-row DTO's
+three fields, while actual RuntimeServer final dispatch additionally inserts
+instanceId. A genuine successful snapshot therefore fails that local validation
+before any Prepare/Confirm can be issued by this immutable flow. This proves no
+targeted conditional DELETE from that caller, not no effects, zero, drain or
+recovery: normal connect/snapshot had already acquired resources.
+
+Change/check: the successor requires the complete final four-field result and
+exact original server instance. A tiny DATA-only final projection function is
+actually called by dispatch; its success_response encode/decode regression
+checks the shared public synthetic wire fixture consumed by the harness tests.
+This makes wrapper fields part of the executable contract rather than a
+self-confirming handwritten internal DTO mock. It adds no permission, capture,
+query, replay, lifecycle or budget behavior. Future diagnostics retain only
+finite method/code/state/outcome and phase in memory, print only on failure,
+and never emit response bytes, opaque tokens, profiles or exception messages.
+Successful capture grammar remains unchanged.
+
+ROOT separately selected the supported SAME owner's ordinary disconnect once;
+its original CLI0 and independently parsed Off/empty profile/Meta absence were
+observed. This earned genuine Off through cancellation and owned stop, not a
+close retry or desired-file edit. Original77754 stayed parked/nonpass; archived
+evidence and any later disposable-VM administration are not product cleanup.
+Fresh source/ELF/package/enrollment provenance and boot binding are required
+before a new two-epoch selection. Older scope5/c9 UI or worker evidence does not
+qualify this successor. Unchanged comprehensive suites are not rerun for this
+small serialization change; focused producer/harness/static/strict gates apply.

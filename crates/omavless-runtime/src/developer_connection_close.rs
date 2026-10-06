@@ -141,6 +141,19 @@ fn receipt_projection(
     })
 }
 
+// DATA-only final wire wrapper, shared by ordinary and retired discovery.
+// The original owner has already retained the actual discovery; this function
+// cannot construct admission, permission, image evidence or a close operation.
+fn snapshot_success_response(
+    id: &str,
+    revision: u64,
+    instance: &str,
+    mut result: Value,
+) -> Result<Value, omavless_control_protocol::ProtocolError> {
+    result["instanceId"] = json!(instance);
+    success_response(id, revision, result)
+}
+
 impl<H: LifecycleHost + Send + 'static> RegisteredNativeOwner<H> {
     pub(super) fn admit_developer_close(
         &mut self,
@@ -333,9 +346,8 @@ impl RuntimeServer {
             Err(error) => return fail(owner.revision(), error.stable_code()),
         };
         match owner.developer_close_retain(discovered) {
-            Ok(mut result) => {
-                result["instanceId"] = json!(self.instance_id);
-                success_response(id, owner.revision(), result)
+            Ok(result) => {
+                snapshot_success_response(id, owner.revision(), &self.instance_id, result)
             }
             Err(error) => fail(owner.revision(), error.stable_code()),
         }
@@ -353,6 +365,25 @@ mod tests {
         let mut request = make_request("dev-close", method, json!({})).unwrap();
         request["params"] = params;
         request
+    }
+
+    #[test]
+    fn snapshot_final_server_serialization_matches_client_fixture() {
+        // This is the actual final wrapper called by dispatch, not merely the
+        // internal retained-row DTO (which deliberately lacks instanceId).
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/t3_snapshot_server_wire.json"
+        ))
+        .unwrap();
+        let mut retained = expected["result"].clone();
+        retained.as_object_mut().unwrap().remove("instanceId");
+        let wire =
+            snapshot_success_response("product-epoch-1", 7, "same-original", retained).unwrap();
+        let encoded = omavless_control_protocol::encode_response(&wire).unwrap();
+        let decoded = omavless_control_protocol::decode_response(&encoded).unwrap();
+        assert_eq!(decoded, expected);
+        assert_eq!(decoded["result"]["instanceId"], "same-original");
+        assert_eq!(decoded["result"].as_object().unwrap().len(), 4);
     }
 
     #[test]

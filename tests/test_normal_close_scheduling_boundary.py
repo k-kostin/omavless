@@ -9,6 +9,23 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
+    def test_snapshot_wire_fixture_covers_actual_final_dispatch_wrapper(self):
+        import json
+        source = (SRC / 'developer_connection_close.rs').read_text()
+        dispatch = source.split('pub(super) fn dispatch_developer_close(', 1)[1].split('#[cfg(test)]', 1)[0]
+        self.assertIn('snapshot_success_response(id, owner.revision(), &self.instance_id, result)', dispatch)
+        wrapper = source.split('fn snapshot_success_response(', 1)[1].split('impl<H:', 1)[0]
+        self.assertIn('result["instanceId"] = json!(instance)', wrapper)
+        self.assertIn('success_response(id, revision, result)', wrapper)
+        self.assertNotIn('observe(', wrapper)
+        self.assertNotIn('permit', wrapper)
+        test = source.split('fn snapshot_final_server_serialization_matches_client_fixture()', 1)[1].split('#[test]', 1)[0]
+        self.assertIn('omavless_control_protocol::encode_response(&wire)', test)
+        self.assertIn('omavless_control_protocol::decode_response(&encoded)', test)
+        fixture = json.loads((ROOT / 'tests/fixtures/t3_snapshot_server_wire.json').read_bytes())
+        self.assertEqual(set(fixture['result']), {'schemaVersion', 'scope', 'instanceId', 'rows'})
+        self.assertEqual(fixture['result']['instanceId'], 'same-original')
+
     def test_product_epoch_source_is_optional_and_not_a_default_daemon_flag(self):
         manifest = tomllib.loads((SRC.parent / "Cargo.toml").read_text())
         self.assertEqual(manifest["features"]["product-image-witness"],
