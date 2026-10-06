@@ -31,6 +31,7 @@ pub(crate) struct Clock {
     injected: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
 }
 impl Clock {
+    #[cfg(feature = "network-resume-fixture")]
     pub(crate) fn monotonic() -> Self {
         Self {
             origin: Instant::now(),
