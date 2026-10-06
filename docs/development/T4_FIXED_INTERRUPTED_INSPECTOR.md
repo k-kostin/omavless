@@ -514,3 +514,21 @@ refusals, typed terminal retirement/closure under the SAME held origin, then
 normal installed current()/login/store admission and reviewed product dispatcher
 integration. Isolated initialize/fault/recovery results do not waive those gates
 or generic unreported constructor/recv-error/backend ownership limitations.
+
+### Exact fresh-context recovery checkpoint
+
+PRIMARY and independent source/packet reviews preceded ROOT's sole selection of
+exact4079fc5e6c1e587f761e510346668ecd34e46ad1. Sealed release test ELF24,532,744
+bytes, SHA256`4c825982a75572d66314c03c1be391c1d23d143e1fd9b751c36afe8645c9d697`.
+The prior matrix22 process was positively completed; BOOT682f9d46-d8f0-425f-a9f4-308475bef0b5
+and its existing runtime namespace were preserved, with no reboot/lease repair.
+New source23 creation/upload/admission and read-only prepare completed0. Original
+recovery test/SSH`d5be35` completed0 in0.6s. Separate fixed-file observer`9dff4e`
+completed0: stdout301 bytes,
+SHA256`6c16c63f702c8522bbf9d0d66e11100a5864a2b64235d6ff81d9673193885547`,
+exact recovery marker and one successful harness, no refusal labels; stderr empty.
+The source's final assertions establish this fixed NEW-authenticated context's
+existing original operation/singleton leases, retained MIXED originals, OLD pair
+and durable Aborted readback under its SAME held final origin. No former authority
+or stale endpoint was adopted. This is AbortedStillFenced, not terminal retirement,
+ordinary owner/current() admission, installed-profile acceptance or full T4 closure.
