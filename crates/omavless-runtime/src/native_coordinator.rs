@@ -31,9 +31,11 @@ pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefr
 #[cfg(all(test, feature = "t4-manager-actor-service"))]
 pub(crate) use restore_candidate::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
-pub(crate) use restore_candidate::NativeRecoveryOrigin;
-#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::NativeSessionOrigin;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::NativeSteadyCompletion;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeFirstError, PreparedRestorePair};
 
@@ -396,9 +398,30 @@ pub struct OfflineNativeCoordinator<H> {
     connection_close: connection_close::CloseState,
     #[cfg(feature = "t4-manager-actor-service")]
     held_restore_execution: restore_candidate::HeldExecutionSlot,
+    #[cfg(feature = "t4-manager-actor-service")]
+    native_completed_origin: Option<NativeSteadyCompletion>,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn install_native_completed(
+        &mut self,
+        origin: NativeSteadyCompletion,
+    ) -> Result<(), NativeOwnerError> {
+        if self.native_completed_origin.is_some() || self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        self.native_completed_origin = Some(origin);
+        Ok(())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn native_completed_recheck(&self) -> Result<(), NativeOwnerError> {
+        self.native_completed_origin
+            .as_ref()
+            .ok_or(NativeOwnerError::ManualRecoveryRequired)?
+            .recheck()
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)
+    }
     #[must_use]
     pub fn new(
         host: H,
@@ -425,6 +448,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             connection_close: connection_close::CloseState::default(),
             #[cfg(feature = "t4-manager-actor-service")]
             held_restore_execution: restore_candidate::HeldExecutionSlot::default(),
+            #[cfg(feature = "t4-manager-actor-service")]
+            native_completed_origin: None,
         }
     }
 
@@ -488,6 +513,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn desired(
         &self,
     ) -> Result<crate::desired::DesiredState, ConnectionTransactionError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(origin) = &self.native_completed_origin {
+            return origin
+                .desired(self.transaction.desired_paths(), self.uid())
+                .map_err(|_| ConnectionTransactionError::Store);
+        }
         self.transaction.desired()
     }
 
@@ -500,6 +531,17 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(crate) fn rust_ownership_available(&self) -> bool {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(origin) = &self.native_completed_origin {
+            return self.required_ownership.is_some_and(|fence| {
+                fence.phase == OwnershipPhase::Rust
+                    && origin.ownership(
+                        self.transaction.cutover_paths(),
+                        self.uid(),
+                        fence.generation,
+                    )
+            });
+        }
         self.required_ownership.is_some_and(|fence| {
             fence.phase == OwnershipPhase::Rust
                 && self
@@ -1257,6 +1299,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(origin) = &self.native_completed_origin {
+            origin
+                .recheck()
+                .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+            return Err(NativeOwnerError::OwnershipBusy); // continuous original lease, no duplicate OFD wrapper
+        }
         if self.retained_restore_busy() {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }

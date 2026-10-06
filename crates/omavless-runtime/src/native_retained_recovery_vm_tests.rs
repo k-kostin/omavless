@@ -7,6 +7,61 @@ const RECOVERY_ROOT: &str =
 const RECOVERY_RUNTIME: &str = "/run/user/1000/t4n22/after-first-rename";
 
 #[test]
+#[ignore = "ROOT-only SAME-held Aborted retirement/closure and genuine readonly installed owner"]
+fn isolated_installed_host_aborted_closure_owner_readonly() {
+    assert!(
+        identity(
+            Uid::current().as_raw(),
+            nix::unistd::geteuid().as_raw(),
+            std::env::var_os("HOME").as_deref(),
+            std::env::var(OPT_IN).ok().as_deref()
+        ),
+        "fixed_native_vm_identity_refused"
+    );
+    assert!(
+        std::env::var_os("OMAVLESS_HOME").is_none()
+            && std::env::var_os("XDG_RUNTIME_DIR").as_deref()
+                == Some(std::ffi::OsStr::new("/run/user/1000")),
+        "fixed_native_vm_environment_refused"
+    );
+    let root = Path::new(RECOVERY_ROOT);
+    let runtime = Path::new(RECOVERY_RUNTIME);
+    let config = root.join("home/.config/omavless");
+    let desired = DesiredPaths::below(&root.join("state"));
+    let paths = CutoverPaths::below(runtime, &root.join("state"), UID);
+    let until = Instant::now() + Duration::from_secs(90);
+    let mut recovery = crate::native_coordinator::FreshRecovery::reserve()
+        .expect("fixed_native_vm_recovery_reservation_refused");
+    let result = recovery.complete_aborted(
+        &root.join("input.ovb"),
+        PASSWORD,
+        paths.clone(),
+        desired,
+        NativeHostPaths::new(
+            Path::new(CORE).into(),
+            config.clone(),
+            config,
+            runtime.join("omavless"),
+            Path::new("/proc").into(),
+            Path::new("/sys/class/net").into(),
+        ),
+        UID,
+    );
+    let readonly = result.is_ok() && recovery.completed_owner_readonly();
+    let busy = MigrationLock::acquire_existing(&paths, UID).is_err();
+    // Global existence fence deliberately remains. No later current()/mutation
+    // or listener handoff is claimed by this one bounded admission scope.
+    let closure_fenced = crate::pending_private_transaction::pending_at(&paths.state_directory);
+    std::mem::forget(recovery);
+    assert!(
+        readonly && busy && closure_fenced && Instant::now() < until,
+        "fixed_native_vm_closure_admission_refused"
+    );
+    println!("T4_NATIVE_SAME_HELD_CLOSURE_NORMAL_OWNER_READONLY");
+    assert!(Instant::now() < until, "fixed_native_vm_deadline_refused");
+}
+
+#[test]
 #[ignore = "ROOT-only NEW original authenticated recovery after matrix22 original exit0"]
 fn isolated_installed_host_fresh_intent_mixed_rollback() {
     assert!(

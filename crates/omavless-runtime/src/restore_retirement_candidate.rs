@@ -63,6 +63,28 @@ pub(crate) struct RetirementReceipt {
 }
 
 impl RetirementReceipt {
+    /// Data encoding for an already bound retained terminal/pair. This does
+    /// not mint durability, a creation token, cleanup or startup authority.
+    /// The private held engine must separately prove all original bindings.
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn from_retained_terminal(
+        terminal: &DecisionRecord,
+        members: [&[u8]; 4],
+    ) -> Result<Self, RetirementError> {
+        let stage = crate::restore_staging_candidate::planned_stage_identity(members)
+            .map_err(|_| RetirementError::Admission)?;
+        if !terminal.matches_stage_identity(&stage) || terminal.phase() != DecisionPhase::Aborted {
+            return Err(RetirementError::Admission);
+        }
+        Ok(Self {
+            terminal: DecisionRecord::decode(&terminal.encode())
+                .map_err(|_| RetirementError::Admission)?,
+            expected: [
+                MemberBinding::from_bytes(members[0])?,
+                MemberBinding::from_bytes(members[1])?,
+            ],
+        })
+    }
     pub(crate) fn terminal(&self) -> &DecisionRecord {
         &self.terminal
     }

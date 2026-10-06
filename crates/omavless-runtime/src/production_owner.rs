@@ -155,8 +155,47 @@ enum ProductionOwnership {
     },
     Stale,
 }
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) enum NativeCompletedRead {
+    Status,
+    Store,
+}
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
+    /// Explicit inactive developer dispatch: concrete SAME-holder rechecks,
+    /// actual owner status/list accessors, no network/mutation/listener grant.
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn dispatch_native_completed_read(
+        &mut self,
+        request: NativeCompletedRead,
+    ) -> Result<serde_json::Value, ProductionOwnerError> {
+        self.coordinator
+            .native_completed_recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let result = match request {
+            NativeCompletedRead::Status => {
+                let desired = self.desired()?;
+                serde_json::json!({"disconnected":self.actual()==ActualState::Disconnected,"desiredOff":!desired.connected,"ownership":self.rust_ownership_available(),"loginReady":self.login_ready()})
+            }
+            NativeCompletedRead::Store => {
+                let projection = self.list_projection()?;
+                serde_json::json!({"profiles":projection.profiles().len(),"subscriptions":projection.subscriptions().len()})
+            }
+        };
+        self.coordinator
+            .native_completed_recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        Ok(result)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn install_native_completion(
+        &mut self,
+        origin: crate::native_coordinator::NativeSteadyCompletion,
+    ) -> Result<(), ProductionOwnerError> {
+        self.coordinator
+            .install_native_completed(origin)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
     /// Inspect a pending restore at the same lock/owner boundary as production
     /// startup, but never construct or reconcile the ordinary owner. Only
     /// synthetic tests call this candidate; it is not a product recovery path.
@@ -523,6 +562,68 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         let store =
             parse_private_store(&input).map_err(|_| ProductionOwnerError::HostUnavailable)?;
         Ok(store.list_projection())
+    }
+    /// Feature-only SAME-held completion consumer. Installed before startup
+    /// reconciliation; errors retain the stale owner rather than dropping it.
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn initialize_native_completed_installed(
+        installed: &mut Option<Self>,
+        host: impl FnOnce() -> Result<H, ProductionOwnerError>,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        paths: CutoverPaths,
+        uid: u32,
+        lock: &MigrationLock,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<(), ProductionOwnerError> {
+        if installed.is_some() {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        let marker = admission
+            .marker(&paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        admission
+            .receipt(&paths, uid, lock, marker.generation())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        *installed = Some(Self {
+            coordinator: OfflineNativeCoordinator::new_ownership_gated(
+                host()?,
+                desired_paths,
+                store_path,
+                paths,
+                uid,
+                marker.generation(),
+            ),
+            startup: ConnectionTransactionOutcome {
+                changed: false,
+                pruned: 0,
+            },
+            ownership: ProductionOwnership::Stale,
+            login_ready: false,
+        });
+        let owner = installed
+            .as_mut()
+            .ok_or(ProductionOwnerError::ManualRecoveryRequired)?;
+        let startup = owner
+            .coordinator
+            .reconcile_startup_admitted(lock, admission)
+            .map_err(recovery_error)?;
+        admission
+            .recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        if owner.actual() != ActualState::Disconnected || startup.changed {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        owner.startup = startup;
+        owner.ownership = ProductionOwnership::Committed {
+            rust_generation: marker.generation(),
+            origin_preparing_generation: None,
+        };
+        Ok(())
     }
 
     pub(crate) fn rust_ownership_available(&mut self) -> bool {

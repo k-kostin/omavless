@@ -532,3 +532,48 @@ existing original operation/singleton leases, retained MIXED originals, OLD pair
 and durable Aborted readback under its SAME held final origin. No former authority
 or stale endpoint was adopted. This is AbortedStillFenced, not terminal retirement,
 ordinary owner/current() admission, installed-profile acceptance or full T4 closure.
+
+### Retained Aborted retirement and read-only normal-owner handoff (source)
+
+This continuation accepts a freshly authenticated OLD/Aborted state, not another
+MIXED rollback. It captures the existing terminal/stage/current OLD originals and
+uses the same current operation/singleton leases. All lower36 and Boundary
+capacities are preallocated; receipt/closure use nonrecycled Scratch2/3 roles.
+No extra descriptor namespace, old PID/FD adoption or missing-lock repair exists.
+
+The exact data-only RetirementReceipt binds the retained Aborted terminal and
+stage OLD bytes; it is not a CreatedStage/cleanup grant. Receipt is O_EXCL/durable
+before any deletion. Only held authenticated NEW remnants, five stage members,
+stage directory, terminal and Intent are unlinked in fixed order. Each reported
+own unlink advances only that original's name/nlink role before its postcheck;
+removed Files remain held0links and their bytes/metadata stay checked. Original
+catalogues retain their entries and mark only those known own removals; duplicate,
+unknown or reintroduced names refuse. Durable closure/readback precedes the last
+pending receipt unlink; current OLD and final SAME origin are verified last.
+
+NativeCompletedOff is a private nonescaping loan of the SAME origin/engine/lease,
+not a snapshot, boolean pending exception or counterfeit historical actor bundle.
+Its feature-only StartupAdmission variant binds exact paths/UID/lease identity,
+rechecks at all existing admission fences, accepts only SettledDisconnected and
+unchanged pointer plans. Ordinary/current admission and global closure existence
+fence remain unchanged. The actual normal owner is installed stale before startup
+reconciliation and retained on error; only full postchecks make it committed.
+
+After that loan ends, the installed owner retains an identity-preserving Arc to
+the SAME original holder. Every completed-owner desired/ownership/status/store
+consultation repeats current full original/closure/manager/inventory checks.
+No snapshot is an authority grant and first uncertainty seals this holder.
+Explicit developer read dispatch calls real owner status/list accessors under
+pre/post consultations. Original and normal owner both remain retained on loss.
+Login readiness is its actual value; an absent receipt is not fabricated consumed
+epoch/package identity. The ignored fixed VM selector requires disconnected/Off,
+ownership available, empty public store, actual loginReadyfalse and original
+lease busy after read dispatch. No new listener or stale-socket unlink is claimed.
+
+This first scope is read-only normal-owner construction/consultation, NOT general
+mutable eligibility or later current()/restart admission. Mutations remain Busy
+under its continuous original lease; durable closure remains globally pending.
+The subsequent one-way typed lease/singleton disposition must preserve original
+exclusivity without duplicating Flock wrappers (whose Drop can unlock a shared
+OFD), then prove the actual mutating and fresh restart seams. No default dispatch
+registration, cleanup waiver, automatic resume or full T4 acceptance is inferred.

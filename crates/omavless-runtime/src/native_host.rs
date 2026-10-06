@@ -362,6 +362,18 @@ impl ObservationOnlyNativeHost {
     }
 }
 
+#[cfg(feature = "t4-manager-actor-service")]
+impl NativeLifecycleHost {
+    pub(crate) fn new_retained_completion(
+        paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::new(paths, uid)?;
+        host.drop_paths = DropPaths::Preserve;
+        Ok(host)
+    }
+}
+
 impl LifecycleHost for ObservationOnlyNativeHost {
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         self.inner.observe(desired)

@@ -25,7 +25,9 @@ mod native_recovery;
 #[cfg(all(test, feature = "t4-manager-actor-service"))]
 pub(crate) use native_recovery::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
-pub(crate) use native_recovery::NativeRecoveryOrigin;
+pub(crate) use native_recovery::{
+    NativeCompletedOff, NativeRecoveryOrigin, NativeSteadyCompletion,
+};
 
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) struct NativeSessionOrigin<'a, H> {

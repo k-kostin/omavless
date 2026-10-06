@@ -37,6 +37,17 @@ struct RecoveryHeld {
     authenticated: Option<omavless_domain::private_backup::OpenedBackup>,
     host: Option<ObservationOnlyNativeHost>,
     engine: crate::manager_actor_service::NativeEngine,
+    facts: Option<OriginFacts>,
+}
+struct OriginFacts {
+    paths: CutoverPaths,
+    desired_paths: DesiredPaths,
+    marker: OwnershipMarker,
+    desired: DesiredState,
+    marker_bytes: Zeroizing<Vec<u8>>,
+    desired_bytes: Zeroizing<Vec<u8>>,
+    login_bytes: Option<Zeroizing<Vec<u8>>>,
+    uid: u32,
 }
 
 /// One preinstalled, nonescaping prefix. Losing this handle while the process
@@ -46,9 +57,70 @@ struct RecoveryHeld {
 pub(crate) struct FreshRecovery {
     original: Arc<Mutex<RecoveryHeld>>,
     attempted: bool,
+    normal_owner: Option<
+        crate::production_owner::ProductionNativeOwner<crate::native_host::NativeLifecycleHost>,
+    >,
+}
+#[derive(Clone)]
+pub(crate) struct NativeSteadyCompletion {
+    original: Arc<Mutex<RecoveryHeld>>,
+}
+impl NativeSteadyCompletion {
+    fn checked<T>(&self, read: impl FnOnce(&OriginFacts) -> T) -> Result<T, ()> {
+        let mut held = self.original.lock().map_err(|_| ())?;
+        let RecoveryHeld {
+            lock,
+            boundary,
+            host,
+            engine,
+            facts,
+            ..
+        } = &mut *held;
+        let facts = facts.as_ref().ok_or(())?;
+        let mut origin = NativeRecoveryOrigin {
+            lock: lock.as_ref().ok_or(())?,
+            boundary: boundary.as_ref().ok_or(())?,
+            host: host.as_mut().ok_or(())?,
+            paths: &facts.paths,
+            desired_paths: &facts.desired_paths,
+            marker: facts.marker.clone(),
+            desired: facts.desired.clone(),
+            marker_bytes: facts.marker_bytes.clone(),
+            desired_bytes: facts.desired_bytes.clone(),
+            login_bytes: facts.login_bytes.clone(),
+            uid: facts.uid,
+        };
+        engine
+            .check_native_completed(
+                &mut origin,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .map_err(|_| ())?;
+        Ok(read(facts))
+    }
+    pub(crate) fn desired(&self, paths: &DesiredPaths, uid: u32) -> Result<DesiredState, ()> {
+        self.checked(|facts| {
+            if uid == facts.uid && paths == &facts.desired_paths {
+                Some(facts.desired.clone())
+            } else {
+                None
+            }
+        })?
+        .ok_or(())
+    }
+    pub(crate) fn ownership(&self, paths: &CutoverPaths, uid: u32, generation: u64) -> bool {
+        self.checked(|facts| {
+            paths == &facts.paths && uid == facts.uid && generation == facts.marker.generation()
+        })
+        .unwrap_or(false)
+    }
+    pub(crate) fn recheck(&self) -> Result<(), ()> {
+        self.checked(|_| ())
+    }
 }
 impl Drop for FreshRecovery {
     fn drop(&mut self) {
+        std::mem::forget(self.normal_owner.take());
         std::mem::forget(Arc::clone(&self.original));
     }
 }
@@ -65,6 +137,49 @@ pub(crate) struct NativeRecoveryOrigin<'a> {
     desired_bytes: Zeroizing<Vec<u8>>,
     login_bytes: Option<Zeroizing<Vec<u8>>>,
     uid: u32,
+}
+
+/// Nonescaping SAME-holder completion loan. Private fields; no snapshot,
+/// HistoricalOff fabrication, caller boolean or missing-fence inference.
+pub(crate) struct NativeCompletedOff<'a, 'b> {
+    origin: &'a mut NativeRecoveryOrigin<'b>,
+    engine: &'a mut crate::manager_actor_service::NativeEngine,
+    until: std::time::Instant,
+}
+impl NativeCompletedOff<'_, '_> {
+    pub(crate) fn recheck(&mut self) -> Result<(), ()> {
+        self.engine
+            .check_native_completed(self.origin, self.until)
+            .map_err(|_| ())
+    }
+    pub(crate) fn bind(
+        &mut self,
+        paths: &CutoverPaths,
+        uid: u32,
+        lock: &MigrationLock,
+    ) -> Result<(), ()> {
+        if uid != self.origin.uid
+            || paths != self.origin.paths
+            || !std::ptr::eq(lock, self.origin.lock)
+        {
+            return Err(());
+        }
+        self.recheck()
+    }
+    pub(crate) fn marker(&mut self, paths: &CutoverPaths, uid: u32) -> Result<OwnershipMarker, ()> {
+        if uid != self.origin.uid || paths != self.origin.paths {
+            return Err(());
+        }
+        self.recheck()?;
+        Ok(self.origin.marker.clone())
+    }
+    pub(crate) fn desired(&mut self, paths: &DesiredPaths, uid: u32) -> Result<DesiredState, ()> {
+        if uid != self.origin.uid || paths != self.origin.desired_paths {
+            return Err(());
+        }
+        self.recheck()?;
+        Ok(self.origin.desired.clone())
+    }
 }
 
 fn held_bytes(file: &File, maximum: usize) -> Result<Zeroizing<Vec<u8>>, FirstError> {
@@ -174,7 +289,8 @@ impl NativeRecoveryOrigin<'_> {
             crate::restore_disposition_complete_model::COMPLETE_MEMBER,
             crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
         ] {
-            if !absent(&self.paths.state_directory.join(name)) {
+            if !view.own_completion_member(name) && !absent(&self.paths.state_directory.join(name))
+            {
                 return Err(FirstError::Admission);
             }
         }
@@ -223,6 +339,22 @@ impl NativeRecoveryOrigin<'_> {
 
 #[allow(dead_code)]
 impl FreshRecovery {
+    pub(crate) fn completed_status(&mut self) -> Result<serde_json::Value, FirstError> {
+        self.dispatch_completed_read(crate::production_owner::NativeCompletedRead::Status)
+    }
+    pub(crate) fn completed_store(&mut self) -> Result<serde_json::Value, FirstError> {
+        self.dispatch_completed_read(crate::production_owner::NativeCompletedRead::Store)
+    }
+    pub(crate) fn dispatch_completed_read(
+        &mut self,
+        request: crate::production_owner::NativeCompletedRead,
+    ) -> Result<serde_json::Value, FirstError> {
+        self.normal_owner
+            .as_mut()
+            .ok_or(FirstError::StillFenced)?
+            .dispatch_native_completed_read(request)
+            .map_err(|_| FirstError::StillFenced)
+    }
     #[cfg(test)]
     pub(crate) fn original_leases_held(&self, paths: &CutoverPaths, uid: u32) -> bool {
         self.attempted
@@ -251,8 +383,10 @@ impl FreshRecovery {
                 authenticated: None,
                 host: None,
                 engine: crate::manager_actor_service::NativeEngine::reserve(),
+                facts: None,
             })),
             attempted: false,
+            normal_owner: None,
         })
     }
     /// Private developer issuer. The supplied paths are positively bound anew;
@@ -265,6 +399,74 @@ impl FreshRecovery {
         desired_paths: DesiredPaths,
         host_paths: NativeHostPaths,
         uid: u32,
+    ) -> Result<(), FirstError> {
+        self.reconcile(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            false,
+        )
+    }
+    pub(crate) fn complete_aborted(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.reconcile(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            true,
+        )
+    }
+    #[cfg(test)]
+    pub(crate) fn completed_owner_readonly(&mut self) -> bool {
+        let Some(owner) = self.normal_owner.as_mut() else {
+            return false;
+        };
+        owner.actual() == crate::lifecycle::ActualState::Disconnected
+            && owner.rust_ownership_available()
+            && owner
+                .desired()
+                .is_ok_and(|desired| !desired.connected && desired.profile_id.is_empty())
+            && owner
+                .list_projection()
+                .is_ok_and(|store| store.profiles().is_empty())
+            && !owner.login_ready()
+            && owner
+                .dispatch_native_completed_read(
+                    crate::production_owner::NativeCompletedRead::Status,
+                )
+                .is_ok_and(|v| {
+                    v["disconnected"] == true
+                        && v["desiredOff"] == true
+                        && v["ownership"] == true
+                        && v["loginReady"] == false
+                })
+            && owner
+                .dispatch_native_completed_read(crate::production_owner::NativeCompletedRead::Store)
+                .is_ok_and(|v| v["profiles"] == 0 && v["subscriptions"] == 0)
+    }
+    #[allow(clippy::too_many_arguments)] // two private closed entry modes, no public selector
+    fn reconcile(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+        complete: bool,
     ) -> Result<(), FirstError> {
         if self.attempted {
             return Err(FirstError::StillFenced);
@@ -294,6 +496,15 @@ impl FreshRecovery {
         held.lock =
             Some(MigrationLock::acquire_existing(&paths, uid).map_err(|_| FirstError::Admission)?);
         Boundary::capture_native_paths(&paths, &host_paths.store, uid, &mut held.boundary)?;
+        let normal_paths = NativeHostPaths::new(
+            host_paths.core.clone(),
+            host_paths.data_directory.clone(),
+            host_paths.config_directory.clone(),
+            host_paths.runtime_directory.clone(),
+            host_paths.proc_root.clone(),
+            host_paths.sys_class_net.clone(),
+        );
+        let normal_store = normal_paths.store.clone();
         held.host = Some(
             ObservationOnlyNativeHost::new(host_paths, uid).map_err(|_| FirstError::Admission)?,
         );
@@ -312,6 +523,7 @@ impl FreshRecovery {
             authenticated,
             host,
             engine,
+            facts,
         } = &mut *held;
         let boundary = boundary.as_ref().ok_or(FirstError::Admission)?;
         let original_member = |index: usize, maximum| {
@@ -335,9 +547,53 @@ impl FreshRecovery {
             login_bytes: original_member(2, 1024)?,
             uid,
         };
-        engine.reconcile_native_mixed(
-            &mut origin,
-            authenticated.as_ref().ok_or(FirstError::Admission)?,
-        )
+        let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
+        if complete {
+            engine.complete_native_aborted(&mut origin, backup)?;
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let proof = NativeCompletedOff {
+                origin: &mut origin,
+                engine,
+                until,
+            };
+            let mut admission = crate::startup_admission::StartupAdmission::NativeCompleted(proof);
+            crate::production_owner::ProductionNativeOwner::initialize_native_completed_installed(
+                &mut self.normal_owner,
+                || {
+                    crate::native_host::NativeLifecycleHost::new_retained_completion(
+                        normal_paths,
+                        uid,
+                    )
+                    .map_err(|_| crate::production_owner::ProductionOwnerError::HostUnavailable)
+                },
+                desired_paths.clone(),
+                &normal_store,
+                paths.clone(),
+                uid,
+                lock.as_ref().ok_or(FirstError::Admission)?,
+                &mut admission,
+            )
+            .map_err(|_| FirstError::StillFenced)?;
+            *facts = Some(OriginFacts {
+                paths: paths.clone(),
+                desired_paths: desired_paths.clone(),
+                marker: origin.marker.clone(),
+                desired: origin.desired.clone(),
+                marker_bytes: origin.marker_bytes.clone(),
+                desired_bytes: origin.desired_bytes.clone(),
+                login_bytes: origin.login_bytes.clone(),
+                uid,
+            });
+            self.normal_owner
+                .as_mut()
+                .ok_or(FirstError::StillFenced)?
+                .install_native_completion(NativeSteadyCompletion {
+                    original: Arc::clone(&self.original),
+                })
+                .map_err(|_| FirstError::StillFenced)?;
+            Ok(())
+        } else {
+            engine.reconcile_native_mixed(&mut origin, backup)
+        }
     }
 }

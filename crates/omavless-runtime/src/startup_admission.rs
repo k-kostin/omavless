@@ -6,6 +6,8 @@ use std::marker::PhantomData;
 pub(crate) enum StartupAdmission<'a, 'b> {
     Ordinary(PhantomData<&'a &'b ()>),
     HistoricalOff(&'a mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedEpochOff<'b>),
+    #[cfg(feature = "t4-manager-actor-service")]
+    NativeCompleted(crate::native_coordinator::NativeCompletedOff<'a, 'b>),
 }
 impl StartupAdmission<'_, '_> {
     pub(crate) fn desired(
@@ -20,6 +22,10 @@ impl StartupAdmission<'_, '_> {
                     .map_err(|_| crate::desired::DesiredError::UnsafeStateDirectory)?;
                 crate::desired::read_desired_snapshot(paths, uid)
             }
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(e) => e
+                .desired(paths, uid)
+                .map_err(|_| crate::desired::DesiredError::UnsafeStateDirectory),
         }
     }
     pub(crate) fn marker(
@@ -33,6 +39,8 @@ impl StartupAdmission<'_, '_> {
                 self.recheck()?;
                 crate::cutover::read_marker_existing(paths, uid).map_err(|_| ())
             }
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(e) => e.marker(paths, uid),
         }
     }
     pub(crate) fn ordinary() -> Self {
@@ -42,6 +50,8 @@ impl StartupAdmission<'_, '_> {
         match self {
             Self::Ordinary(_) => Ok(()),
             Self::HistoricalOff(e) => e.recheck().map_err(|_| ()),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(e) => e.recheck(),
         }
     }
     pub(crate) fn bind(
@@ -59,6 +69,8 @@ impl StartupAdmission<'_, '_> {
                 }
             }
             Self::HistoricalOff(e) => e.bind(paths, uid, lock).map_err(|_| ()),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(e) => e.bind(paths, uid, lock),
         }
     }
     pub(crate) fn receipt(
@@ -75,6 +87,8 @@ impl StartupAdmission<'_, '_> {
                     .map_err(|_| ())
             }
             Self::HistoricalOff(_) => self.recheck(),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(_) => self.recheck(),
         }
     }
     pub(crate) fn transaction(
@@ -102,6 +116,12 @@ impl StartupAdmission<'_, '_> {
             {
                 Err(())
             }
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(_)
+                if action != crate::desired::ReconcileAction::SettledDisconnected =>
+            {
+                Err(())
+            }
             _ => {
                 let _ = action;
                 Ok(())
@@ -115,6 +135,8 @@ impl StartupAdmission<'_, '_> {
         self.recheck()?;
         match self {
             Self::HistoricalOff(_) if plan.changed() => Err(()),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::NativeCompleted(_) if plan.changed() => Err(()),
             _ => {
                 let _ = plan;
                 Ok(())
