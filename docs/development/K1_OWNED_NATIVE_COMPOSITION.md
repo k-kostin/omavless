@@ -4,7 +4,7 @@ SOURCE only, unregistered. Composes fixed-client source `24b91bb4` and preparati
 source `8608857b` into the existing LifecycleExecutor/NativeLifecycleHost. The
 actual #676 client/service boundary result does not accept this new native path.
 
-`netguard-native-scenario` exposes the explicit library function
+Historical #679 `netguard-native-scenario` exposed the explicit library function
 `lifecycle::developer_protected_roundtrip(existing_executor, profile_id)`. It
 consumes an existing native executor, constructs one lazy FixedClient, connects
 and explicitly disconnects on success. It never disconnects as error cleanup.
@@ -12,7 +12,55 @@ There is no CLI registration, ordinary factory replacement, service installer,
 root launcher, package change or default-feature activation. The caller must
 already own the ordinary runtime lifetime/desired-store authority; the function
 does not acquire a new daemon lock or permit parallel owners. A future executable
-driver must prove that custody before calling this function.
+driver must prove that custody before calling this function. The source
+continuation below removes that bare-executor entry in favor of whole-owner
+custody; it is not an additional parallel factory.
+
+## Same-owner qualification continuation
+
+The private `managed_pair::qualified_receipt` decoder derives from exact T3
+`4d4747af47d60956b370e588469a3b9472ed42a1`, with a typed family result added.
+Strict three-patch close/Meta and four-patch close/omavless0 schemas retain their
+exact patch/tag/feature/device/enrollment vocabulary; legacy two-patch parsing
+is unchanged. All three families may receive ordinary package compatibility
+checks, but protected eligibility and its immediate pre-Arm recheck require
+the distinct four-patch family. `ProtectedPairIdentity` still binds the exact
+receipt/core/broker digest triple. Neither family recognition nor a decoded
+receipt is socket coverage. `issue_coverage` remains unconditionally Unsupported.
+
+`ProductionNativeOwner::protected_developer_roundtrip` is private, feature-only
+and unregistered. It consumes an already constructed real owner and its real
+unregistered singleton, installs a whole-graph custody guard before acquiring
+the original MigrationLock, and requires committed Rust ownership, idle empty
+mutation scheduling, no batch, disconnected state and safe auxiliary custody.
+The existing executor stays inside its original transaction: ProtectedCandidate
+borrows it for the entire sequence, never extracts or replaces it. No ordinary
+executor or host is returned. The coordinator is permanently blocked before
+entering the private sequence. Named/held singleton socket and owner-lock facts,
+the same migration lease, exact ownership generation, login receipt and pending
+transaction absence are checked before each local operation/exchange.
+
+Error/unwind retains the whole original owner, singleton and migration lease;
+the protected candidate retains its original fixed client and admission too.
+Only positive Closed after stop/empty/Disarm and a distinct final healthy Status
+with the same closed generation may retire the graph normally. That final Status
+is reached only after known successful Disarm, never after uncertainty.
+Fatal process loss is unavailable, not descriptor survival or recovery. There
+is no ignored executable selector, normal constructor registration, traffic
+callback, privileged helper, cleanup or issuer override in this continuation.
+Current qualification may reach fixed Status, but the closed issuer still
+prevents validator execution and Arm. Real same-owner validation/start/readiness,
+protected traffic, stop/Disarm and failure integration remain unexecuted.
+
+Continuation checks: seven receipt/package cases passed; the protected filter
+passed 35 cases with the existing ROOT-only renderer case ignored. Strict
+all-target Clippy passed for the explicit scenario feature, headless defaults
+and ordinary defaults, plus package formatter/diff checks. Tests use inert
+package bytes and mock lifecycle/port effects; none executed a native core,
+NetGuard exchange, broker, namespace, BPF program or VM action. The initial
+new final-Status test transcript lacked its last event and a mock branch was
+temporarily placed in the wrong test type; both source-only failures were
+corrected before the passing gates. No coverage issuer was enabled.
 
 ## Owning contract
 

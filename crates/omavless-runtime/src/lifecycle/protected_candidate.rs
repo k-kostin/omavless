@@ -46,15 +46,38 @@ enum Phase {
     Poisoned,
 }
 
-struct ProtectedCandidate<H: ProtectedHost, P: ProtectionPort> {
-    // No accessor/into_host/ordinary-executor extraction. On uncertain unwind
-    // or abandoned armed session, forget the original graph, not copied proof.
-    owned: Option<(LifecycleExecutor<H>, P)>,
-    phase: Phase,
-    admission: Option<H::Admission>,
+enum Executor<'a, H> {
+    Owned(LifecycleExecutor<H>),
+    Borrowed(&'a mut LifecycleExecutor<H>),
+}
+impl<H> std::ops::Deref for Executor<'_, H> {
+    type Target = LifecycleExecutor<H>;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(e) => e,
+            Self::Borrowed(e) => e,
+        }
+    }
+}
+impl<H> std::ops::DerefMut for Executor<'_, H> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Owned(e) => e,
+            Self::Borrowed(e) => e,
+        }
+    }
 }
 
-impl<H: ProtectedHost, P: ProtectionPort> Drop for ProtectedCandidate<H, P> {
+struct ProtectedCandidate<'a, H: ProtectedHost, P: ProtectionPort> {
+    // No accessor/into_host/ordinary-executor extraction. On uncertain unwind
+    // or abandoned armed session, forget the original graph, not copied proof.
+    owned: Option<(Executor<'a, H>, P)>,
+    phase: Phase,
+    admission: Option<H::Admission>,
+    origin: Option<&'a mut dyn FnMut() -> Result<(), LifecycleError>>,
+}
+
+impl<H: ProtectedHost, P: ProtectionPort> Drop for ProtectedCandidate<'_, H, P> {
     fn drop(&mut self) {
         if !matches!(self.phase, Phase::Fresh | Phase::Closed)
             && let Some(original) = self.owned.take()
@@ -67,13 +90,20 @@ impl<H: ProtectedHost, P: ProtectionPort> Drop for ProtectedCandidate<H, P> {
     }
 }
 
-impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
+impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
     fn new(executor: LifecycleExecutor<H>, port: P) -> Self {
         Self {
-            owned: Some((executor, port)),
+            owned: Some((Executor::Owned(executor), port)),
             phase: Phase::Fresh,
             admission: None,
+            origin: None,
         }
+    }
+    fn origin_check(&mut self) -> Result<(), LifecycleError> {
+        if self.origin.as_mut().is_some_and(|check| check().is_err()) {
+            return Err(self.poison());
+        }
+        Ok(())
     }
     fn poison(&mut self) -> LifecycleError {
         self.phase = Phase::Poisoned;
@@ -87,6 +117,7 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
         effect: impl FnOnce(&mut LifecycleExecutor<H>) -> Result<T, LifecycleError>,
     ) -> Result<T, LifecycleError> {
         self.phase = Phase::InFlight; // consumed BEFORE any callback/effect/panic
+        self.origin_check()?;
         let result = effect(
             &mut self
                 .owned
@@ -98,6 +129,7 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
     }
     fn exchange(&mut self, request: Request) -> Result<Response, LifecycleError> {
         self.phase = Phase::InFlight;
+        self.origin_check()?;
         let result = self
             .owned
             .as_mut()
@@ -151,6 +183,7 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
         // Reserve headroom for explicit disconnected intent as well. No wraps,
         // recycled attempts or trusted floor invented from a wire omission.
         self.phase = Phase::InFlight;
+        self.origin_check()?;
         let prepared = self
             .owned
             .as_mut()
@@ -263,6 +296,15 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
         {
             return Err(self.poison());
         }
+        // A distinct final observation follows only the positively completed
+        // Disarm. It is never a retry or a query that repairs an uncertain reply.
+        if Self::healthy(self.exchange(Request::Status {})?)
+            != Some(Protection::Disarmed {
+                closed_generation: Some(armed_generation),
+            })
+        {
+            return Err(self.poison());
+        }
         let e = &mut self
             .owned
             .as_mut()
@@ -274,22 +316,27 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<H, P> {
     }
 }
 
+/// Called only inside the consuming real-owner custody guard. The borrowed
+/// executor never escapes or replaces its owning transaction. On uncertainty
+/// the caller retains that WHOLE owner as well as singleton and migration lease.
+#[cfg(feature = "netguard-native-scenario")]
+pub(crate) fn borrowed_native_roundtrip(
+    executor: &mut LifecycleExecutor<crate::native_host::NativeLifecycleHost>,
+    profile_id: &str,
+    origin: &mut dyn FnMut() -> Result<(), LifecycleError>,
+) -> Result<LifecycleOutcome, LifecycleError> {
+    let mut candidate = ProtectedCandidate {
+        owned: Some((
+            Executor::Borrowed(executor),
+            omavless_netguard::client_candidate::FixedClient::new(),
+        )),
+        phase: Phase::Fresh,
+        admission: None,
+        origin: Some(origin),
+    };
+    candidate.connect_full(profile_id)?;
+    candidate.disconnect()
+}
+
 #[cfg(test)]
 mod tests;
-
-/// Explicit SOURCE developer driver: consumes the caller's existing native
-/// executor; no service installation, alternate host, registration or default
-/// constructor. Coverage issuance remains closed, so no real validation/Arm
-/// can currently follow preparation. No error path automatically disconnects.
-#[cfg(feature = "netguard-native-scenario")]
-pub fn native_roundtrip(
-    executor: LifecycleExecutor<crate::native_host::NativeLifecycleHost>,
-    profile_id: &str,
-) -> Result<LifecycleOutcome, LifecycleError> {
-    let mut owner = ProtectedCandidate::new(
-        executor,
-        omavless_netguard::client_candidate::FixedClient::new(),
-    );
-    owner.connect_full(profile_id)?;
-    owner.disconnect()
-}

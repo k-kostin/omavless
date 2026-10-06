@@ -8,6 +8,8 @@
 //! separate boundary: constructing this value alone still exposes no IPC.
 
 use crate::RuntimePaths;
+#[cfg(feature = "netguard-native-scenario")]
+mod protected_native;
 use crate::connection_transaction::{ConnectionTransactionError, ConnectionTransactionOutcome};
 use crate::cutover::{
     CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, TransitionBootstrap, read_marker,

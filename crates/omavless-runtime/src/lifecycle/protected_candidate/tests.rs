@@ -139,6 +139,20 @@ impl ProtectionPort for Port {
             Request::Disarm { .. } => "disarm",
         };
         self.log.borrow_mut().push(name);
+        if name == "status" && self.log.borrow().contains(&"disarm") {
+            if self.cut == Some("final_status_unknown") {
+                return Err(());
+            }
+            if self.cut == Some("final_status_wrong") {
+                return Ok(Response::Status {
+                    policy_version: POLICY_VERSION,
+                    protection: Protection::Disarmed {
+                        closed_generation: None,
+                    },
+                    health: Health::Verified,
+                });
+            }
+        }
         if let Request::Arm { generation, .. } = request {
             let saved = read_desired(&self.paths, self.uid).unwrap();
             assert!(!saved.connected && saved.generation == generation);
@@ -232,6 +246,55 @@ struct Fixture {
     drops: Rc<Cell<u8>>,
     root: Rc<RefCell<Observation>>,
 }
+
+#[test]
+fn borrowed_same_executor_checks_original_fence_and_never_compensates() {
+    for fail_at in 1..=32 {
+        let f = Fixture::new(0, None);
+        let mut initial = f.candidate(None, None);
+        let (Executor::Owned(executor), port) = initial.owned.take().unwrap() else {
+            panic!()
+        };
+        // Models the outer guard's retention, never a second executor.
+        let mut retained = std::mem::ManuallyDrop::new(executor);
+        let calls = Cell::new(0);
+        let mut fence = || {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == fail_at {
+                Err(LifecycleError::ManualRecoveryRequired)
+            } else {
+                Ok(())
+            }
+        };
+        let mut candidate = ProtectedCandidate {
+            owned: Some((Executor::Borrowed(&mut retained), port)),
+            phase: Phase::Fresh,
+            admission: None,
+            origin: Some(&mut fence),
+        };
+        let result = candidate
+            .connect_full("fixture")
+            .and_then(|_| candidate.disconnect());
+        if calls.get() == fail_at {
+            assert!(result.is_err());
+            assert_eq!(candidate.phase, Phase::Poisoned);
+            let before = f.log.borrow().clone();
+            assert!(candidate.disconnect().is_err());
+            assert_eq!(*f.log.borrow(), before);
+        }
+        drop(candidate);
+        assert_eq!(
+            retained.actual(),
+            if result.is_err() {
+                ActualState::ManualRecoveryRequired
+            } else {
+                ActualState::Disconnected
+            }
+        );
+        // Outer guard, not the borrowed reference, retains this original Host.
+    }
+}
 impl Fixture {
     fn new(desired_generation: u64, floor: Option<u64>) -> Self {
         let tmp = tempfile::tempdir().unwrap();
@@ -262,7 +325,7 @@ impl Fixture {
         &self,
         host_cut: Option<&'static str>,
         port_cut: Option<&'static str>,
-    ) -> ProtectedCandidate<Host, Port> {
+    ) -> ProtectedCandidate<'static, Host, Port> {
         ProtectedCandidate::new(
             LifecycleExecutor::new(
                 Host {
@@ -324,11 +387,28 @@ fn natural_status_floor_orders_reserve_arm_connected_core_and_explicit_disarm() 
                 "stop",
                 "discard",
                 "empty",
-                "disarm"
+                "disarm",
+                "status"
             ]
         );
         drop(c);
         assert_eq!(f.drops.get(), 2);
+    }
+}
+#[test]
+fn final_status_is_distinct_and_unknown_never_retries_or_releases() {
+    for cut in ["final_status_unknown", "final_status_wrong"] {
+        let f = Fixture::new(0, None);
+        let mut c = f.candidate(None, Some(cut));
+        c.connect_full("fixture").unwrap();
+        assert!(c.disconnect().is_err());
+        assert_eq!(c.phase, Phase::Poisoned);
+        assert_eq!(f.root.borrow().marker, Marker::Closed(1));
+        let before = f.log.borrow().clone();
+        assert!(c.disconnect().is_err());
+        assert_eq!(*f.log.borrow(), before);
+        drop(c);
+        assert_eq!(f.drops.get(), 0);
     }
 }
 #[test]

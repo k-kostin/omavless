@@ -19,6 +19,8 @@ pub(crate) mod connection_close;
 mod onboarding;
 mod probe;
 mod profile_admission;
+#[cfg(feature = "netguard-native-scenario")]
+mod protected_native;
 mod provider;
 mod restore_candidate;
 mod restore_retirement_candidate;

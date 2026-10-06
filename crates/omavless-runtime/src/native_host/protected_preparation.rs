@@ -510,7 +510,7 @@ impl NativeLifecycleHost {
         if pair.core_path() != self.paths.core {
             return Err(HostStepError::Prepare);
         }
-        pair.verify()
+        pair.verify_protected()
     }
 }
 
@@ -529,7 +529,7 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
             .managed_pair
             .as_ref()
             .ok_or(HostStepError::Prepare)?
-            .verify()?;
+            .verify_protected()?;
         if self
             .paths
             .managed_pair
