@@ -99,6 +99,7 @@ class Metadata(unittest.TestCase):
         self.assertEqual(manifest['features'], {
             'netguard-service-core': ['dep:nix-netguard', 'dep:zbus', 'nix/dir'],
             'netguard-client-candidate': ['nix/poll'],
+            'netguard-client-diagnostics': ['netguard-client-candidate'],
         })
         self.assertEqual(manifest['bin'], [{'name': 'omavless-netguard', 'path': 'src/main.rs',
                                            'required-features': ['netguard-service-core']}])

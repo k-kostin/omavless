@@ -167,6 +167,10 @@ fn installed_current_owner_protected_roundtrip() {
                     "K1_NATIVE_DIAGNOSTIC {}",
                     crate::protected_native_diagnostic::last().token()
                 );
+                eprintln!(
+                    "K1_NATIVE_CLIENT_DIAGNOSTIC {}",
+                    omavless_netguard::client_diagnostic::last_token()
+                );
             });
             // Never turn a failed constructor/roundtrip into a retry, cleanup,
             // original-child completion or guessed ownership. ROOT may choose

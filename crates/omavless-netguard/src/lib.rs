@@ -7,6 +7,8 @@
 mod authority_composition;
 #[cfg(feature = "netguard-client-candidate")]
 pub mod client_candidate;
+#[cfg(feature = "netguard-client-diagnostics")]
+pub mod client_diagnostic;
 pub mod coordinator;
 pub mod effect_port;
 pub mod emergency_wire;

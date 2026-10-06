@@ -18,6 +18,7 @@ serde_json = "1.0"
 # Explicit private-fork adoption; not an upstream API release or default runtime.
 netguard-service-core = ["dep:nix-netguard", "dep:zbus", "nix/dir"]
 netguard-client-candidate = ["nix/poll"]
+netguard-client-diagnostics = ["netguard-client-candidate"]
 
 [[bin]]
 name = "omavless-netguard"

@@ -17,6 +17,12 @@ pub enum ClientError {
 }
 type Result<T> = std::result::Result<T, ClientError>;
 const REFUSE: ClientError = ClientError::UnavailableOrUnknown;
+macro_rules! diagnostic {
+    ($cut:ident) => {
+        #[cfg(feature = "netguard-client-diagnostics")]
+        crate::client_diagnostic::mark(crate::client_diagnostic::Cut::$cut);
+    };
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Peer {
@@ -176,6 +182,7 @@ fn positive(request: Request, response: Response) -> bool {
 }
 impl<B: Backend> Client<B> {
     fn new(backend: B) -> Self {
+        diagnostic!(NotEntered);
         Self {
             original: Some(Original {
                 backend,
@@ -213,14 +220,18 @@ impl<B: Backend> Client<B> {
         let body = protocol::encode_request(request).map_err(|_| REFUSE)?;
         check(g, deadline)?;
         if g.endpoint.is_none() {
+            diagnostic!(EndpointAdmit);
             g.endpoint = Some(g.backend.admit()?);
             check(g, deadline)?;
         }
+        diagnostic!(EndpointRecheck);
         recheck(g, deadline)?;
         check(g, deadline)?;
         // Positive ownership is stored BEFORE the post-create time/check cut.
+        diagnostic!(SocketCreate);
         g.socket = Some(g.backend.create()?);
         check(g, deadline)?;
+        diagnostic!(Connect);
         match g.backend.connect(g.socket.as_ref().ok_or(REFUSE)?)? {
             Connect::Complete => {}
             Connect::Pending => {
@@ -228,33 +239,45 @@ impl<B: Backend> Client<B> {
                 let remaining = deadline
                     .checked_duration_since(g.backend.now())
                     .ok_or(REFUSE)?;
+                diagnostic!(ConnectWait);
                 g.backend
                     .wait(g.socket.as_ref().ok_or(REFUSE)?, Interest::Write, remaining)?;
             }
         }
         check(g, deadline)?;
+        diagnostic!(Connected);
         g.backend.connected(g.socket.as_ref().ok_or(REFUSE)?)?;
         check(g, deadline)?;
+        diagnostic!(Peer);
         let first_peer = peer(g, deadline, self.peer)?;
+        diagnostic!(EndpointRecheck);
         recheck(g, deadline)?;
         let mut wire = (body.len() as u32).to_be_bytes().to_vec();
         wire.extend(body);
+        diagnostic!(WriteRequest);
         transfer(g, deadline, &mut wire, true)?;
         let mut prefix = [0; 4];
+        diagnostic!(ReadPrefix);
         transfer(g, deadline, &mut prefix, false)?;
+        diagnostic!(FrameLength);
         let length = u32::from_be_bytes(prefix) as usize;
         if length == 0 || length > protocol::MAX_FRAME_BYTES {
             return Err(REFUSE);
         }
         let mut bytes = vec![0; length];
+        diagnostic!(ReadBody);
         transfer(g, deadline, &mut bytes, false)?;
         check(g, deadline)?;
+        diagnostic!(Decode);
         let response = protocol::decode_response(&bytes).map_err(|_| REFUSE)?;
         check(g, deadline)?;
+        diagnostic!(PositiveResponse);
         if !positive(request, response) {
             return Err(REFUSE);
         }
+        diagnostic!(FinalEndpoint);
         recheck(g, deadline)?;
+        diagnostic!(FinalPeer);
         peer(g, deadline, Some(first_peer))?;
         check(g, deadline)?;
         self.peer = Some(first_peer);

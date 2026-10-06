@@ -11,7 +11,7 @@ repository.workspace = true
 default = ["tui"]
 tui = ["dep:omavless-tui"]
 netguard-runtime-candidate = ["dep:omavless-netguard", "omavless-netguard/netguard-client-candidate", "nix/resource", "dep:rustix"]
-netguard-native-scenario = ["netguard-runtime-candidate"]
+netguard-native-scenario = ["netguard-runtime-candidate", "omavless-netguard/netguard-client-diagnostics"]
 
 [dependencies]
 base64 = "0.22"

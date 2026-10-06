@@ -462,3 +462,30 @@ that invocation remains NONPASS. Process-wide FD inventory can interfere across
 concurrent fixtures, but the failing predicate was not captured, so the cause is
 not claimed as established. Serial gates do not waive the unchanged production
 256-FD bound or count as a passing unrestricted parallel suite.
+
+### First exchange localization (development successor)
+
+Later disposable-VM attempts kept the original nonpassing outcomes. Native44
+refused on the private fixture prelude; Native45 never released its native
+barrier because the observer's TUN module hooks were unavailable. These are
+not runtime Arm/start results. Native46 added early read-only module/BTF
+preflight and separately loaded the module by ordinary VM administration.
+
+Native46 used the same runtime `2f2586fc0f3aba48ed215922add4f195cf970483`
+and ELF `7cd8844a32763629ebf00ba119f48e55d80aa9f84a5a3c2dce56c3b58b090ea9`.
+Its current owner passed construction, but the first FixedClient Status exchange
+refused before validator/core execution. The closed last-entered label was
+`status_exchange`, not `status_interpretation`. Ordinary service startup reached
+READY, published the required endpoint modes/group, and had an empty retained
+state domain. This does not prove whether transport, endpoint validation or
+decoded response verification failed; no new Status/Recover was sent.
+
+The new explicit `netguard-client-diagnostics` feature distinguishes those
+existing client operations through thread-local closed source labels. It is
+selected only by the private native developer scenario, not defaults or the
+service feature. The ignored launcher prints the last client label only after
+whole-owner retention. No response payload, errno, new probe, retry, deadline
+change or authority input is introduced. Like the earlier labels, this is the
+last operation entered, not necessarily its exact failed predicate. The
+earlier attempt remains NONPASS; a separately admitted exact successor and
+original completion are still required.
