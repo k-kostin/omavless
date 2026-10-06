@@ -416,7 +416,9 @@ mod tests {
     }
     #[test]
     fn retained_member_detects_same_byte_replacement_mode_link_and_content_drift() {
-        let root = crate::test_temp::directory("q-pair").unwrap();
+        // Admission rejects writable ancestors, including conventional /tmp.
+        let home = std::env::var_os("HOME").expect("qualified pair test needs home");
+        let root = crate::test_temp::directory_under(Path::new(&home), "q-pair").unwrap();
         let uid = nix::unistd::getuid().as_raw();
         let chain = Chain::open(&root, uid, true).unwrap();
         let path = root.join("member");
@@ -444,7 +446,8 @@ mod tests {
     }
     #[test]
     fn secure_chain_and_member_refuse_links_wrong_owner_or_unknown_kind() {
-        let root = crate::test_temp::directory("q-path").unwrap();
+        let home = std::env::var_os("HOME").expect("qualified pair test needs home");
+        let root = crate::test_temp::directory_under(Path::new(&home), "q-path").unwrap();
         let uid = nix::unistd::getuid().as_raw();
         let chain = Chain::open(&root, uid, true).unwrap();
         fs::write(root.join("member"), b"public").unwrap();
@@ -470,5 +473,19 @@ mod tests {
         assert!(chain.check().is_err());
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(old).unwrap();
+    }
+    #[test]
+    fn private_leaf_does_not_admit_a_world_writable_ancestor() {
+        let home = std::env::var_os("HOME").expect("qualified pair test needs home");
+        let root = crate::test_temp::directory_under(Path::new(&home), "q-writable").unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o777)).unwrap();
+        let leaf = root.join("private");
+        fs::create_dir(&leaf).unwrap();
+        fs::set_permissions(&leaf, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(matches!(
+            Chain::open(&leaf, nix::unistd::getuid().as_raw(), true),
+            Err(Refusal::Object)
+        ));
+        fs::remove_dir_all(root).unwrap();
     }
 }
