@@ -2795,22 +2795,32 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .as_ref()
                 .is_some_and(|identity| Arc::ptr_eq(identity, &retired.identity))
                 || Instant::now() >= retired.expiry
+                || Instant::now() >= retired.original.original_deadline()
             {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             let _lease = self.batch_lock()?;
             self.close_context_matches(&retired.context)?;
+            if Instant::now() >= retired.original.original_deadline() {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
             self.host_mut().complete_close_retirement(&retired.original);
             if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Ready {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
-            Ok(())
+            Ok(retired.original.original_deadline())
         })();
-        if let Err(error) = result {
-            self.host_mut().refuse_close_epoch();
-            // Retiring stays occupied, including Busy/late/context drift. No
-            // dropped result or future request can silently recapture originals.
-            return Err(error);
+        match result {
+            Ok(deadline) if Instant::now() < deadline => (),
+            Ok(_) => {
+                self.host_mut().refuse_close_epoch();
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Err(error) => {
+                self.host_mut().refuse_close_epoch();
+                // Retiring stays occupied, including Busy/late/context drift.
+                return Err(error);
+            }
         }
         self.connection_close.retiring = None;
         // This is the explicit Snapshot request's next stage, not a retry of

@@ -99,6 +99,11 @@ uncancelled and have zero flights; exactly the task's one flight may then exist.
 Effect authorization/attempt, expiry, panic, cancellation, drift or failed Finish
 refuses and poisons. The current FD/count and WHOLE old Session fields drop
 before the sealed, noncloneable retirement result is returned.
+That result retains the original absolute Session deadline, not merely the later
+snapshot expiry. It is checked after whole Session Drop/before publication and
+again after owner/context checks before active-clear and new capture. A delayed
+positive result cannot borrow the five-second snapshot window after its original
+three-second budget expired; failure leaves Retiring poisoned/occupied.
 
 The owner rechecks that exact Retiring identity, old context/revision and original
 expiry before consuming the result. Unknown/lost/late/Busy/drift results keep the
@@ -158,11 +163,17 @@ or actual two-session acceptance. Read-only observation descriptors may drop on
 failure as in the baseline; original core remains under its owner and no fatal
 descriptor-survival/product recovery claim is introduced.
 
-Retirement successor source results:7 epoch/retirement/capacity behavioral
+Retirement successor source results:8 epoch/retirement/capacity behavioral
 controls plus6 existing image-RPC fault controls passed (the broader `product_`
 filter also includes one preexisting receipt-is-not-product test). Strict
 all-target feature/default Clippy, feature/default checks,14 static retention
-guards and explicit formatting of the included Rust tests passed. A new static
+guards and explicit formatting of the included Rust tests passed. Independent
+review found that the first retirement head lost the original3s deadline in its
+returned result; the opaque deadline and post-Drop/owner-consumption guards now
+refuse a deterministic delayed result while snapshot expiry remains future.
+Four focused retirement controls and strict feature Clippy passed on that narrow
+successor. The original finding/head remains preserved, not accepted product
+evidence. A new static
 guard initially selected the admission constructor instead of the dispatcher;
 its function boundary was corrected before passing. No old accepted helper
 primitive was rerun for this prose/caller change and no product VM gate ran.

@@ -1362,8 +1362,13 @@ impl Session {
             self.revoke_image();
             return Err(Outcome::RefusedBeforeWrite);
         }
+        let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
         drop(self); // ALL original session/channel/source fields, not ACK alone
-        Ok(CloseEpochRetirement { original })
+        if remaining(deadline).is_err() {
+            original.lifetime.revoke();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        Ok(CloseEpochRetirement { original, deadline })
     }
 
     #[cfg(feature = "product-image-witness")]
@@ -1913,18 +1918,20 @@ pub struct CloseEpochCompletion {
 #[cfg(feature = "product-image-witness")]
 pub struct CloseEpochRetirement {
     original: Cancellation,
+    deadline: Instant,
 }
 #[cfg(feature = "product-image-witness")]
 impl CloseEpochRetirement {
     pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
-        Arc::ptr_eq(&self.original.identity, &expected.identity)
+        remaining(self.deadline).is_ok()
+            && Arc::ptr_eq(&self.original.identity, &expected.identity)
             && Arc::ptr_eq(&self.original.lifetime, &expected.lifetime)
-            && self
-                .original
-                .lifetime
-                .gate
-                .lock()
-                .is_ok_and(|gate| gate.live && gate.reservation.is_none())
+            && self.original.lifetime.gate.lock().is_ok_and(|gate| {
+                gate.live && gate.reservation.is_none() && remaining(self.deadline).is_ok()
+            })
+    }
+    pub(crate) fn original_deadline(&self) -> Instant {
+        self.deadline
     }
 }
 #[cfg(feature = "product-image-witness")]

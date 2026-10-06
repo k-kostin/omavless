@@ -58,11 +58,17 @@ class NormalSchedulingBoundary(unittest.TestCase):
         self.assertLess(retire.index("self.finish_image_witness(deadline)?"), retire.index("drop(flight)"))
         self.assertLess(retire.index("drop(flight)"), retire.index("drop(self)"))
         self.assertLess(retire.index("drop(self)"), retire.index("Ok(CloseEpochRetirement"))
+        after_drop = retire.split("drop(self);", 1)[1]
+        self.assertLess(after_drop.index("remaining(deadline)"), after_drop.index("Ok(CloseEpochRetirement"))
         self.assertIn("self.check_with_flight(&flight)?", retire)
         self.assertNotIn("Instant::now() + BUDGET", retire)
         close = (SRC / "native_coordinator/connection_close.rs").read_text()
         admit = close.split("pub(crate) fn admit_connection_close_snapshot(", 1)[1].split("pub(crate) fn complete_connection_close_retirement(", 1)[0]
         self.assertLess(admit.index("retiring = Some"), admit.index(".snapshot\n            .take()"))
+        complete = close.split("pub(crate) fn complete_connection_close_retirement(", 1)[1].split("pub(super) fn invalidate_connection_close(", 1)[0]
+        self.assertGreaterEqual(complete.count("retired.original.original_deadline()"), 3)
+        self.assertLess(complete.index("close_context_matches"), complete.index("complete_close_retirement"))
+        self.assertLess(complete.index("Instant::now() < deadline"), complete.index("retiring = None"))
         self.assertNotIn(".finish(", admit)
         self.assertNotIn(".retire(", admit)
         server = (SRC / "developer_connection_close.rs").read_text()

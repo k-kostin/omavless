@@ -228,6 +228,59 @@ fn product_retirement_observed_context_drift_is_sticky_before_and_after_detached
 
 #[cfg(feature = "product-image-witness")]
 #[test]
+fn product_retirement_delayed_original_result_cannot_borrow_future_snapshot_expiry() {
+    use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = fixture("ok");
+    let mut discovery = image_probe_discovery(&mut fixture);
+    let session = discovery.observation.session_mut();
+    let original = session.cancellation();
+    let image = session.original_image_for_test();
+    session.install_image_probe_for_test(Box::new(move |_| Ok(image.try_clone().unwrap())));
+    session.install_image_finish_probe_for_test(Box::new(move |_| Ok(())));
+    fixture
+        .owner
+        .host_mut()
+        .install_product_epoch_from_fixture_session(original);
+    let discovered = discovery.observe().unwrap();
+    fixture.owner.retain_connection_close(discovered).unwrap();
+    let deadline = Instant::now() + Duration::from_millis(400);
+    fixture
+        .owner
+        .connection_close
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .observation
+        .session_mut()
+        .image_deadline_for_test(deadline); // shorten, never extend the original3s
+    let task = match fixture.owner.admit_connection_close_snapshot().unwrap() {
+        CloseSnapshotAdmission::Retire(task) => task,
+        _ => panic!("same_original_snapshot_required"),
+    };
+    let retired = task.retire().unwrap();
+    assert_eq!(retired.original.original_deadline(), deadline);
+    while Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        Instant::now() < retired.expiry,
+        "snapshot5s_is_still_future"
+    );
+    assert!(
+        fixture
+            .owner
+            .complete_connection_close_retirement(Ok(retired))
+            .is_err()
+    );
+    assert!(fixture.owner.connection_close.retiring.is_some());
+    assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Refused);
+    assert_eq!(fixture.owner.host().product_history_for_test(), (1, 1));
+    assert!(!fixture.root.join("r/effects").exists());
+}
+
+#[cfg(feature = "product-image-witness")]
+#[test]
 fn product_epoch_same_worker_publication_drains_before_next_snapshot_admission() {
     use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
     let _fixtures = FIXTURES.lock().unwrap();
