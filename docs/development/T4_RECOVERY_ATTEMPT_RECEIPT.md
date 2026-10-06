@@ -1,11 +1,15 @@
 # T4 recovery-attempt receipt model
 
-Status: test-only protocol model, stacked on the inactive network-transition
-planner. The implementation is compiled only under `cfg(test)` and has no
+Status: dormant developer protocol, stacked on the inactive network-transition
+planner. The implementation is compiled under tests or the disabled
+`network-resume-fixture` feature and has no
 production caller, production filesystem adapter, event subscription, timer, retry worker,
 IPC method, settings change or VPN effect. A separate test-only temporary-file
 fixture now composes this protocol with the existing private atomic writer and
 migration lock; its scope and crash limitations are recorded below.
+The [owner continuation](T4_NETWORK_RESUME_CONTINUATION.md) adds one fixed,
+no-argument developer example using fresh owned synthetic fixtures; it does
+not provide production Ready provisioning or a production filesystem adapter.
 
 ## Problem and bounded result
 

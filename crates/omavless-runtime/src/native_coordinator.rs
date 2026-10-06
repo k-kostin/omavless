@@ -17,7 +17,7 @@ mod provider;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
-#[cfg(test)]
+#[cfg(any(test, feature = "network-resume-fixture"))]
 #[path = "native_coordinator/network_resume.rs"]
 pub(crate) mod network_resume;
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};

@@ -1,6 +1,6 @@
 # T4 network-resume owner continuation
 
-Status: executable, test-only owner composition; no installed event subscriber
+Status: executable, dormant developer owner composition; no installed event subscriber
 or product recovery activation. It depends on the exact admission planner and
 receipt/crash fixtures from #365, #374 and #419. Their historic outcomes and
 production boundaries remain unchanged. The completion matrix is deliberately
@@ -20,13 +20,18 @@ narrow; real sleep/NIC acceptance is not inferred from deterministic tests.
 
 ## Concrete pipeline
 
-`network_resume` is compiled only under `cfg(test)`. An attributed owned Unix
+`network_resume` is compiled under tests or the disabled-by-default
+`network-resume-fixture` feature. An attributed owned Unix
 stream sends only a sequence and Suspend/Resume/NetworkChanged enum. The source
 rejects oversized, duplicate-field, malformed and gapped frames, channel loss
 and timeout. Duplicate/reordered notifications are discarded. Receiver time is
 monotonic synthetic fixture time; the sender cannot choose time, owner, epoch,
 profile or commands. Boot/instance identity comes from fixture setup, never the
 wire. No SSID, endpoint, URL, address or raw OS event payload is accepted.
+One 100-ms monotonic deadline covers the whole frame; each blocking read is
+limited by its remaining budget. A slow source cannot extend this budget by
+delivering one byte just before successive read timeouts. The limit is an I/O
+deadline, not a promise of scheduler latency on a stalled machine.
 
 One EventOwner retains at most one pending hint and one non-clonable Admission.
 There is no source reconnect, automatic Ready provisioning, reset or rearm API.
@@ -55,10 +60,37 @@ the event owner also terminalizes. Failed completion publication cannot repeat
 an already completed coordinator operation. Healthy observations perform no
 restart and make no claim of DNS, routes, Internet or leak protection.
 
-The sole production-path code change extracts the existing startup recovery
+The sole default-production-path code change extracts the existing startup recovery
 body into a common private helper without changing its operations or error
 handling. The event entry, source, receipt composition and coordinator port
-remain test-only. No IPC, CLI, settings, UI, package or service change occurs.
+remain dormant. No daemon IPC/CLI registration, settings, UI, package or
+service change occurs.
+
+## Fixed developer entry
+
+The feature enables one no-argument library function and a required-feature
+Cargo example, `network_resume_fixture`. Types, source handles, journal, binding
+trait and coordinator hooks stay crate-private. The function accepts no path,
+identity, command, endpoint, profile, channel or callback. It creates a fresh
+owned fixture directory, seeds synthetic Ready only there, drives a burst into
+the original coordinator with the private synthetic host, verifies one recovery
+and a duplicate refusal, then removes its owned fixture. It returns only the
+coarse `owned_fixture` status, effect count, revision and intent-preservation
+boolean. This is not a production Ready initializer or host binding provider.
+
+Compile preflight and the fixed scenario with `--features network-resume-fixture`
+and `--example network_resume_fixture`; place Cargo and temporary storage in
+dedicated HOME directories. There are no installed service/core/network calls.
+Extra example arguments are refused before creating a fixture. Normal builds,
+including normal daemon startup, do not contain or invoke the exported entry.
+Enabling the feature still does not register an event subscriber or production
+recovery path. Actual Ready provisioning and all activation gates remain pending.
+
+Exact `5290891f1ff8499d35daa99ab4ef24490fb78312` records the original test-only
+checkpoint: primary/independent review and GitHub test plus both package jobs
+passed. Its local workspace/developer evidence and environment qualifications
+are retained in #692. Evidence on that head is not transferred to this feature
+and deadline successor; its changed code needs its own checks and review.
 
 ## Required activation decisions
 

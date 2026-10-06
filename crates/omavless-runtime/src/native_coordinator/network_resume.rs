@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Original coordinator port for the test-only event continuation. No host
+//! Original coordinator port for the dormant developer continuation. No host
 //! implements binding evidence in production and no IPC method exposes this.
 
 use super::*;

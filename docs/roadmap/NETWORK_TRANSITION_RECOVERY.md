@@ -16,7 +16,9 @@ latest hint, expiring after 60 seconds; host event-source and boot-epoch design
 remain unselected, so these bounds are not yet a product behavior promise.
 The [executable owner continuation](../development/T4_NETWORK_RESUME_CONTINUATION.md)
 now composes an authenticated owned Unix fixture source, bounded event owner,
-real private receipt files and the original native coordinator. It is test-only;
+real private receipt files and the original native coordinator. A disabled
+developer feature can run the same fixed owned fixture; the normal daemon has
+no subscription or new recovery registration. The continuation remains dormant;
 host-source/provisioning/shared-startup integration and real sleep/NIC gates
 remain pending, with no automatic product reconnect behavior enabled.
 This is distinct from the existing bounded **process-start** reconciliation in

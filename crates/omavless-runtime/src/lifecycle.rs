@@ -680,7 +680,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
 
     /// Developer fixture only. Unlike general startup reconciliation this
     /// refuses Off, adoption and stop decisions, and preserves exact intent.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "network-resume-fixture"))]
     pub(crate) fn recover_network_empty(
         &mut self,
         expected: &DesiredState,

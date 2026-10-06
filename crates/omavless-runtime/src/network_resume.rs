@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Executable developer continuation: authenticated owned Unix fixture source,
 //! bounded event owner, durable receipt, and the original coordinator port.
-//! Entire module is test-only. Nothing subscribes to a real host event bus.
+//! Test/developer feature only. Nothing subscribes to a real host event bus.
 
 use crate::desired::DesiredState;
 use crate::network_recovery_receipt::{
@@ -10,12 +10,20 @@ use crate::network_recovery_receipt::{
 use crate::network_transition_plan::{self as plan, Attempt, Decision, Hint};
 use nix::sys::socket::{MsgFlags, getsockopt, recv, sockopt::PeerCredentials};
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufReader, Read};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// Fixed isolated developer scenario only. No caller-selected path, command,
+/// endpoint, event source, profile or host callback is accepted. This seeds
+/// Ready solely inside a newly created owned synthetic fixture directory.
+#[cfg(feature = "network-resume-fixture")]
+pub fn developer_network_resume_fixture() -> serde_json::Value {
+    fixture::run_developer_fixture()
+}
 
 pub(crate) struct Context {
     pub(crate) fence: Fence,
@@ -99,14 +107,24 @@ impl Source {
         }
         let result = (|| {
             let mut bytes = Vec::new();
-            let count = self
-                .reader
-                .by_ref()
-                .take(257)
-                .read_until(b'\n', &mut bytes)
-                .map_err(|_| Refused)?;
-            if count == 0 || count > 256 || bytes.last() != Some(&b'\n') {
-                return Err(Refused);
+            let deadline = Instant::now() + Duration::from_millis(100);
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() || bytes.len() == 256 {
+                    return Err(Refused);
+                }
+                self.reader
+                    .get_ref()
+                    .set_read_timeout(Some(remaining))
+                    .map_err(|_| Refused)?;
+                let mut byte = [0; 1];
+                if self.reader.read(&mut byte).map_err(|_| Refused)? != 1 {
+                    return Err(Refused);
+                }
+                bytes.push(byte[0]);
+                if byte[0] == b'\n' {
+                    break;
+                }
             }
             let frame: Frame = serde_json::from_slice(&bytes).map_err(|_| Refused)?;
             if frame.sequence == 0 {
@@ -377,5 +395,4 @@ impl Journal for Files<'_> {
     }
 }
 
-#[cfg(test)]
-mod tests;
+mod fixture;

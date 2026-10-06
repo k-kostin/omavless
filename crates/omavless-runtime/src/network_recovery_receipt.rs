@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Test-only T4 receipt protocol. Storage and host observations below are models,
+//! Dormant T4 developer receipt protocol. Storage and host observations are fixtures,
 //! not production durability/provenance adapters. See the owning contract.
 //! No automatic operation can manufacture a Ready record from absence or
 //! re-arm a record after restart, a changed epoch, or an attempted recovery.
@@ -8,6 +8,7 @@
 use crate::network_transition_plan::{self as hint_plan, Attempt, Current, Decision, Hint};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 #[path = "network_recovery_receipt_files.rs"]
 mod file_tests;
 
