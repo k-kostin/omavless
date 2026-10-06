@@ -107,6 +107,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &Value,
         instance: &str,
+        now: u64,
     ) -> Result<Value, omavless_control_protocol::StableErrorCode> {
         use crate::developer_subscription_schedule as schedule;
         if !self.rust_ownership_available() {
@@ -114,7 +115,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         }
         if let Some((revision, preference)) = schedule::parse(request, instance)? {
             self.coordinator
-                .set_automatic_subscription_preference(revision, preference)
+                .set_automatic_subscription_preference_at(revision, preference, now)
                 .map_err(schedule::code)?;
         }
         let (preference, attempt, registered) = self
@@ -166,6 +167,30 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     pub(crate) fn automatic_lost(&mut self, ticket: crate::native_coordinator::NativeBatchTicket) {
         self.coordinator.lose_automatic_subscription_ticket(ticket);
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_interrupted(
+        &self,
+        ticket: &crate::native_coordinator::NativeBatchTicket,
+    ) -> bool {
+        self.coordinator.automatic_interrupted_ticket(ticket)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_acknowledge(
+        &mut self,
+        proof: &crate::batch_scheduler::DrainedAutomaticAttempt,
+        sequence: u64,
+        preference: u64,
+        revision: u64,
+        now: u64,
+    ) -> Result<(), crate::native_coordinator::AutomaticRefreshError> {
+        if !self.rust_ownership_available() {
+            return Err(crate::developer_subscription_schedule::unavailable());
+        }
+        self.coordinator
+            .acknowledge_automatic_subscription(proof, sequence, preference, revision, now)
+            .map(|_| ())
     }
     /// Build an owner from trusted paths and an already constructed host.
     /// Tests use this boundary with a deterministic host; production uses

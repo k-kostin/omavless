@@ -55,6 +55,9 @@ impl From<AttemptError> for AutomaticRefreshError {
 pub(super) struct AutomaticRefreshState {
     active: Option<AutomaticAttempt>,
     blocked: Option<AutomaticRefreshError>,
+    interrupted: Option<(AutomaticAttempt, AutomaticRefreshError)>,
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    rearm: Option<(String, u64)>,
     next_operation: u64,
 }
 
@@ -151,6 +154,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         schedule: RefreshSchedule,
     ) -> Result<PreferenceSnapshot, AutomaticRefreshError> {
         let generation = self.automatic_generation()?;
+        if schedule != RefreshSchedule::Off
+            && read_attempt(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                generation,
+                self.batch
+                    .as_ref()
+                    .map_or("unregistered", |batch| batch.instance.as_str()),
+            )?
+            .is_some_and(|attempt| attempt.state == AttemptState::AcknowledgedUncertain)
+        {
+            return Err(AttemptError::AttemptUncertain.into());
+        }
         let result = set_preference(
             self.transaction.cutover_paths(),
             self.transaction.uid(),
@@ -201,6 +217,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if let Some(error) = self.automatic_refresh.blocked {
             return Err(error);
         }
+        if let Some((_, error)) = &self.automatic_refresh.interrupted {
+            return Err(*error);
+        }
         if self.automatic_refresh.active.is_some() {
             return Err(NativeOwnerError::LongOperation(
                 crate::long_operation::LongOperationError::Busy,
@@ -222,6 +241,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             fence.expected_generation,
             instance,
         )?;
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        if previous.is_some_and(|attempt| attempt.state == AttemptState::AcknowledgedUncertain)
+            && self
+                .automatic_refresh
+                .rearm
+                .as_ref()
+                .is_none_or(|(original, sequence)| {
+                    original != instance
+                        || Some(*sequence) != previous.map(|attempt| attempt.sequence)
+                })
+        {
+            return Err(AttemptError::AttemptUncertain.into());
+        }
         if previous.is_some_and(|attempt| {
             matches!(
                 attempt.state,
@@ -233,13 +265,36 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return Err(AttemptError::AttemptUncertain.into());
         }
         let history = previous.map(|attempt| AttemptHistory {
-            last_attempt_at_secs: attempt
-                .finished_at_secs
-                .expect("validated terminal attempt"),
+            last_attempt_at_secs: attempt.finished_at_secs.unwrap_or(now_secs),
             consecutive_failures: attempt.consecutive_failures,
         });
-        let decision = plan_refresh(preference.schedule, history, now_secs, fence)
-            .map_err(|_| AutomaticRefreshError::ClockInvalid)?;
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        if previous.is_some_and(|attempt| attempt.state == AttemptState::AcknowledgedUncertain) {
+            let RefreshSchedule::Every { interval_secs } = preference.schedule else {
+                return Err(AttemptError::ScheduleOff.into());
+            };
+            let due = crate::subscription_schedule_attempt::acknowledged_attempt_due(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                fence.expected_generation,
+                instance,
+                preference.revision,
+                interval_secs,
+            )?;
+            if now_secs < due {
+                return Ok(AutomaticRefreshStart::Idle(ScheduleDecision::WaitUntil(
+                    due,
+                )));
+            }
+        }
+        let decision = if previous
+            .is_some_and(|attempt| attempt.state == AttemptState::AcknowledgedUncertain)
+        {
+            ScheduleDecision::Due // the journal checks the exact durable rearm anchor before issuing work
+        } else {
+            plan_refresh(preference.schedule, history, now_secs, fence)
+                .map_err(|_| AutomaticRefreshError::ClockInvalid)?
+        };
         if decision != ScheduleDecision::Due {
             return Ok(AutomaticRefreshStart::Idle(decision));
         }
@@ -292,6 +347,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             preference_revision: preference.revision,
             started_at_secs: now_secs,
         });
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        {
+            self.automatic_refresh.rearm = None;
+        }
         Ok(AutomaticRefreshStart::Started(AutomaticSubscriptionBatch {
             job,
         }))
@@ -451,7 +510,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             finish_attempt_with_receipt(
                 self.transaction.cutover_paths(),
                 self.transaction.uid(),
-                active.journal,
+                &active.journal,
                 receipt,
                 now_secs,
                 self.automatic_fence()?,
@@ -459,7 +518,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .map_err(Into::into)
         })();
         if let Err(error) = result {
-            self.automatic_refresh.blocked = Some(error);
+            // Only a lost worker or an uncertain journal publication has
+            // attempt-local disposition. Independent store/ownership/parser/
+            // preference uncertainty remains a non-resettable admission block.
+            if error != AutomaticRefreshError::Attempt(AttemptError::WriteUncertain) {
+                self.automatic_refresh.blocked = Some(error);
+            }
+            self.automatic_refresh.interrupted = Some((active, error));
         }
         result
     }
@@ -482,9 +547,165 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             })
         {
             let _ = self.abort_subscription_batch(ticket);
-            self.automatic_refresh.active = None;
-            self.automatic_refresh.blocked = Some(AutomaticRefreshError::WorkerLost);
+            if let Some(active) = self.automatic_refresh.active.take() {
+                self.automatic_refresh.interrupted =
+                    Some((active, AutomaticRefreshError::WorkerLost));
+            }
         }
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_interrupted_ticket(&self, ticket: &NativeBatchTicket) -> bool {
+        self.automatic_refresh
+            .interrupted
+            .as_ref()
+            .is_some_and(|(active, _)| {
+                active.batch.instance() == ticket.instance()
+                    && active.batch.sequence() == ticket.sequence()
+                    && active.batch.base_revision() == ticket.base_revision()
+            })
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn acknowledge_automatic_subscription(
+        &mut self,
+        drain: &crate::batch_scheduler::DrainedAutomaticAttempt,
+        expected_sequence: u64,
+        expected_preference_revision: u64,
+        expected_revision: u64,
+        now: u64,
+    ) -> Result<AttemptSnapshot, AutomaticRefreshError> {
+        if let Some(error) = self.automatic_refresh.blocked {
+            return Err(error);
+        }
+        let (active, error) = self
+            .automatic_refresh
+            .interrupted
+            .as_ref()
+            .ok_or(AutomaticRefreshError::StaleWorker)?;
+        if !matches!(
+            error,
+            AutomaticRefreshError::WorkerLost
+                | AutomaticRefreshError::Attempt(AttemptError::WriteUncertain)
+        ) || !self.automatic_interrupted_ticket(drain.ticket())
+        {
+            return Err(AttemptError::AttemptUncertain.into());
+        }
+        let _lock = self.batch_lock()?;
+        if self.revision() != expected_revision
+            || self.coordinator.active()
+            || self.coordinator.queued() != 0
+            || self
+                .batch
+                .as_ref()
+                .is_none_or(|batch| batch.stopped || batch.active.is_some())
+        {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::RevisionConflict).into());
+        }
+        let generation = self.automatic_generation()?;
+        let preference = read_locked(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            generation,
+        )?;
+        if preference.owner_generation != generation
+            || preference.schedule != RefreshSchedule::Off
+            || preference.revision != expected_preference_revision
+            || preference.revision <= active.preference_revision
+        {
+            return Err(AttemptError::PreferenceChanged.into());
+        }
+        let current = omavless_store::read_private_utf8(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| AutomaticRefreshError::Owner(NativeOwnerError::ManualRecoveryRequired))?;
+        omavless_domain::private_store::parse_private_store(&current)
+            .map_err(|_| AutomaticRefreshError::Owner(NativeOwnerError::ManualRecoveryRequired))?;
+        crate::desired::read_desired_snapshot(
+            self.transaction.desired_paths(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| AutomaticRefreshError::Owner(NativeOwnerError::ManualRecoveryRequired))?;
+        let instance = active.batch.instance().to_owned();
+        let result = crate::subscription_schedule_attempt::acknowledge_attempt_locked(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            &active.journal,
+            expected_sequence,
+            preference.revision,
+            now,
+        );
+        match result {
+            Ok(snapshot) => {
+                self.automatic_refresh.interrupted = None;
+                self.automatic_refresh.rearm = Some((instance, snapshot.sequence));
+                Ok(snapshot)
+            }
+            Err(error) => {
+                if error == AttemptError::WriteUncertain {
+                    self.automatic_refresh.blocked = Some(error.into());
+                }
+                Err(error.into())
+            }
+        }
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn set_automatic_subscription_preference_at(
+        &mut self,
+        revision: u64,
+        schedule: RefreshSchedule,
+        now: u64,
+    ) -> Result<PreferenceSnapshot, AutomaticRefreshError> {
+        schedule
+            .validate()
+            .map_err(|_| AutomaticRefreshError::Preference(PreferenceError::IntervalOutOfRange))?;
+        let generation = self.automatic_generation()?;
+        if schedule != RefreshSchedule::Off
+            && let Some((instance, sequence)) = &self.automatic_refresh.rearm
+        {
+            if let Some(error) = self.automatic_refresh.blocked {
+                return Err(error);
+            }
+            let current = read_preference(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                generation,
+            )?;
+            if current.revision == revision && current.schedule == schedule {
+                return Ok(current);
+            }
+            let RefreshSchedule::Every { interval_secs } = schedule else {
+                return Err(AttemptError::ScheduleOff.into());
+            };
+            now.checked_add(interval_secs)
+                .filter(|_| now.checked_mul(1000).is_some())
+                .ok_or(AutomaticRefreshError::ClockInvalid)?;
+            crate::subscription_schedule_attempt::anchor_acknowledged_attempt(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                generation,
+                instance,
+                *sequence,
+                revision,
+                now,
+            )
+            .inspect_err(|error| {
+                if *error == AttemptError::WriteUncertain {
+                    self.automatic_refresh.blocked = Some((*error).into());
+                }
+            })?;
+            let result = set_preference(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                generation,
+                revision,
+                schedule,
+            );
+            return self.accept_automatic_preference_result(schedule, result);
+        }
+        self.set_automatic_subscription_preference(revision, schedule)
     }
 }
 

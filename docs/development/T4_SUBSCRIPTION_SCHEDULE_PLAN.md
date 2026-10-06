@@ -224,3 +224,43 @@ commit and terminal journal publication. The lifecycle host is deterministic;
 this is not installed core, provider, VM or product-timer acceptance. Cancellation
 and fault coverage, full exact-head gates, primary/independent review and the
 explicit interrupted-attempt disposition remain separate requirements.
+
+## Same-original-supervisor acknowledgement candidate
+
+The dormant composition additionally proposes
+`developer.subscription_schedule.acknowledge`, with exact instance, attempt
+sequence, expected preference revision and expected owner revision. It is not a
+reset command and cannot carry a drain token, time, path or provider. Before its
+effectful fixture gate, the new acknowledgement authority requires primary and
+independent review of the immutable source.
+
+The original scheduler retains each automatic ticket with its actual thread
+handle. Joining that handle outside the dispatcher lock creates a private,
+non-cloneable drain bound to that scheduler and dispatcher. A spawn refusal may
+create the corresponding never-spawned proof only after its captured runnable
+closure has been dropped. A caller's instance string, PID, `is_finished`, empty
+registry or fresh owner does not provide this authority. The pending drain is
+bounded to one retained automatic attempt; unrelated manual work cannot evict it.
+
+An uncertain attempt keeps its original in-memory journal ticket after worker
+loss or uncertain terminal publication. Attempt-local disposition is separate
+from preference/store/ownership/parser/clock uncertainty. Acknowledgement
+requires the exact retained drain, an unchanged Started identity, explicit Off,
+no active/queued work, the expected current revision, valid store/desired state
+and exact native generation rechecked under the existing migration lease. A
+manual-recovery barrier, prior-instance start, corrupt/missing/stale journal,
+already-written terminal or unrelated uncertainty refuses.
+
+Only confirmed acknowledgement writes version-3 AcknowledgedUncertain and
+clears that exact attempt-local blocker. Original start identity, start time
+and failure history remain; no success, failure, rollback or no-effect claim is
+made. Existing version-2 Started/resolved records retain their decoder and
+normal writer. Publication/readback uncertainty remains blocked.
+
+Acknowledgement never enables a schedule. A separate explicit enable uses
+trusted injected time to publish a full normal-interval anchor, preserving the
+failure count. The same original context keeps a private rearm permission;
+restart cannot inherit it, including after an unconfirmed acknowledgement
+write. Admission before that interval performs no new batch or GET. General
+prior-instance disposition still requires a separately admitted lifetime design
+and is not implemented by this candidate.

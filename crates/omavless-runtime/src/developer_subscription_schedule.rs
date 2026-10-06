@@ -14,6 +14,7 @@ use std::sync::Arc;
 pub(crate) const METHODS: &[&str] = &[
     "developer.subscription_schedule.get",
     "developer.subscription_schedule.set",
+    "developer.subscription_schedule.acknowledge",
 ];
 pub(crate) type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
@@ -96,6 +97,37 @@ pub(crate) fn code(error: AutomaticRefreshError) -> StableErrorCode {
     }
 }
 
+pub(crate) fn parse_acknowledgement(
+    request: &Value,
+    instance: &str,
+) -> Result<(u64, u64, u64), StableErrorCode> {
+    omavless_control_protocol::validate_request(request)
+        .map_err(|_| StableErrorCode::InvalidArgument)?;
+    let params = request["params"]
+        .as_object()
+        .ok_or(StableErrorCode::InvalidArgument)?;
+    if request["method"] != "developer.subscription_schedule.acknowledge" || params.len() != 4 {
+        return Err(StableErrorCode::InvalidArgument);
+    }
+    if params.get("instanceId").and_then(Value::as_str) != Some(instance) {
+        return Err(StableErrorCode::Conflict);
+    }
+    let sequence = params
+        .get("attemptSequence")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or(StableErrorCode::InvalidArgument)?;
+    let preference = params
+        .get("expectedPreferenceRevision")
+        .and_then(Value::as_u64)
+        .ok_or(StableErrorCode::InvalidArgument)?;
+    let revision = params
+        .get("expectedRevision")
+        .and_then(Value::as_u64)
+        .ok_or(StableErrorCode::InvalidArgument)?;
+    Ok((sequence, preference, revision))
+}
+
 pub(crate) fn projection(
     preference: crate::subscription_schedule_preference::PreferenceSnapshot,
     attempt: Option<crate::subscription_schedule_attempt::AttemptSnapshot>,
@@ -112,6 +144,7 @@ pub(crate) fn projection(
             AttemptState::StartedInCurrentInstance=>"running", AttemptState::UncertainFromPreviousInstance=>"uncertain",
             AttemptState::Succeeded=>"succeeded",AttemptState::Empty=>"empty",AttemptState::Failed=>"failed",
             AttemptState::Cancelled=>"cancelled",AttemptState::Superseded=>"superseded",
+            AttemptState::AcknowledgedUncertain=>"acknowledgedUncertain",
         }
     }));
     json!({"schemaVersion":1,"intervalSecs":interval,"preferenceRevision":preference.revision,"workerRegistered":registered,"attempt":attempt})
