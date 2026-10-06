@@ -61,6 +61,7 @@ pub enum AttemptState {
     Failed,
     Cancelled,
     Superseded,
+    AcknowledgedUncertain,
 }
 
 /// The private instance string is deliberately absent from this read projection.
@@ -95,6 +96,152 @@ enum WireState {
     Failed,
     Cancelled,
     Superseded,
+    AcknowledgedUncertain,
+}
+
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+pub(crate) fn acknowledge_attempt_locked(
+    paths: &CutoverPaths,
+    uid: u32,
+    ticket: &AttemptTicket,
+    expected_sequence: u64,
+    preference_revision: u64,
+    now: u64,
+    #[cfg(test)] fault: Option<crate::native_coordinator::AcknowledgementFault>,
+) -> Result<AttemptSnapshot, AttemptError> {
+    #[cfg(test)]
+    if let Some(fault) = fault {
+        return acknowledge_attempt_with_writer(
+            paths,
+            uid,
+            ticket,
+            expected_sequence,
+            preference_revision,
+            now,
+            |path, payload, uid| {
+                use crate::native_coordinator::AcknowledgementFault;
+                if matches!(fault, AcknowledgementFault::Before) {
+                    return Err(omavless_store::StoreIoError::Io);
+                }
+                atomic_replace_private(path, payload, uid)?;
+                if matches!(fault, AcknowledgementFault::After) {
+                    return Err(omavless_store::StoreIoError::Io);
+                }
+                if matches!(fault, AcknowledgementFault::Readback) {
+                    fs::set_permissions(path, fs::Permissions::from_mode(0o400))
+                        .map_err(|_| omavless_store::StoreIoError::Io)?;
+                }
+                Ok(())
+            },
+        );
+    }
+    acknowledge_attempt_with_writer(
+        paths,
+        uid,
+        ticket,
+        expected_sequence,
+        preference_revision,
+        now,
+        atomic_replace_private,
+    )
+}
+
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+fn acknowledge_attempt_with_writer<F>(
+    paths: &CutoverPaths,
+    uid: u32,
+    ticket: &AttemptTicket,
+    expected_sequence: u64,
+    preference_revision: u64,
+    now: u64,
+    publish: F,
+) -> Result<AttemptSnapshot, AttemptError>
+where
+    F: FnOnce(&std::path::Path, &[u8], u32) -> Result<(), omavless_store::StoreIoError>,
+{
+    let mut attempt = read_attempt_locked(paths, uid)?.ok_or(AttemptError::StaleTicket)?;
+    if attempt.state != WireState::Started
+        || attempt.sequence != expected_sequence
+        || attempt.sequence != ticket.sequence
+        || attempt.owner_generation != ticket.owner_generation
+        || attempt.preference_revision != ticket.preference_revision
+        || attempt.owner_revision != ticket.owner_revision
+        || attempt.batch_sequence != ticket.batch_sequence
+        || attempt.instance_id != ticket.instance_id
+    {
+        return Err(AttemptError::StaleTicket);
+    }
+    if now < attempt.started_at_secs {
+        return Err(AttemptError::ClockRegressed);
+    }
+    attempt.schema_version = 3;
+    attempt.state = WireState::AcknowledgedUncertain;
+    attempt.acknowledged_at_secs = Some(now);
+    attempt.acknowledged_preference_revision = Some(preference_revision);
+    write_attempt_with_writer(paths, uid, &attempt, publish)?;
+    Ok(attempt.snapshot(&ticket.instance_id))
+}
+
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+pub(crate) fn anchor_acknowledged_attempt(
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    instance: &str,
+    sequence: u64,
+    expected_preference_revision: u64,
+    now: u64,
+) -> Result<(), AttemptError> {
+    let _lock = locked_owner(paths, uid, generation).map_err(preference_error)?;
+    let preference = read_preference_locked(paths, uid, generation).map_err(preference_error)?;
+    if preference.schedule != RefreshSchedule::Off
+        || preference.revision != expected_preference_revision
+    {
+        return Err(AttemptError::PreferenceChanged);
+    }
+    let mut attempt = read_attempt_locked(paths, uid)?.ok_or(AttemptError::StaleTicket)?;
+    if attempt.state != WireState::AcknowledgedUncertain
+        || attempt.owner_generation != generation
+        || attempt.instance_id != instance
+        || attempt.sequence != sequence
+    {
+        return Err(AttemptError::StaleTicket);
+    }
+    if Some(now) < attempt.acknowledged_at_secs {
+        return Err(AttemptError::ClockRegressed);
+    }
+    attempt.rearm_at_secs = Some(now);
+    attempt.rearm_preference_revision = Some(
+        expected_preference_revision
+            .checked_add(1)
+            .ok_or(AttemptError::CounterExhausted)?,
+    );
+    write_attempt_locked(paths, uid, &attempt)
+}
+
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+pub(crate) fn acknowledged_attempt_due(
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    instance: &str,
+    preference_revision: u64,
+    interval: u64,
+) -> Result<u64, AttemptError> {
+    let _lock = locked_owner(paths, uid, generation).map_err(preference_error)?;
+    let attempt = read_attempt_locked(paths, uid)?.ok_or(AttemptError::StaleTicket)?;
+    if attempt.state != WireState::AcknowledgedUncertain
+        || attempt.owner_generation != generation
+        || attempt.instance_id != instance
+        || attempt.rearm_preference_revision != Some(preference_revision)
+    {
+        return Err(AttemptError::AttemptUncertain);
+    }
+    attempt
+        .rearm_at_secs
+        .ok_or(AttemptError::AttemptUncertain)?
+        .checked_add(interval)
+        .ok_or(AttemptError::InvalidState)
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -112,11 +259,19 @@ struct WireAttempt {
     finished_at_secs: Option<u64>,
     consecutive_failures: u32,
     state: WireState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    acknowledged_at_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    acknowledged_preference_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rearm_at_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rearm_preference_revision: Option<u64>,
 }
 
 impl WireAttempt {
     fn validate(&self) -> Result<(), AttemptError> {
-        if self.schema_version != SCHEMA_VERSION
+        if !matches!(self.schema_version, SCHEMA_VERSION | 3)
             || self.owner_generation == 0
             || self.preference_revision == 0
             || self.sequence == 0
@@ -126,7 +281,34 @@ impl WireAttempt {
         {
             return Err(AttemptError::InvalidState);
         }
+        if self.state != WireState::AcknowledgedUncertain
+            && (self.schema_version != SCHEMA_VERSION
+                || self.acknowledged_at_secs.is_some()
+                || self.acknowledged_preference_revision.is_some()
+                || self.rearm_at_secs.is_some()
+                || self.rearm_preference_revision.is_some())
+        {
+            return Err(AttemptError::InvalidState);
+        }
         match self.state {
+            WireState::AcknowledgedUncertain
+                if self.schema_version == 3
+                    && self.finished_at_secs.is_none()
+                    && self.completed_owner_revision.is_none()
+                    && self
+                        .acknowledged_at_secs
+                        .is_some_and(|now| now >= self.started_at_secs)
+                    && self
+                        .acknowledged_preference_revision
+                        .is_some_and(|revision| revision > 0)
+                    && match (self.rearm_at_secs, self.rearm_preference_revision) {
+                        (None, None) => true,
+                        (Some(now), Some(revision)) => {
+                            Some(now) >= self.acknowledged_at_secs
+                                && Some(revision) > self.acknowledged_preference_revision
+                        }
+                        _ => false,
+                    } => {}
             WireState::Started
                 if self.finished_at_secs.is_none() && self.completed_owner_revision.is_none() => {}
             WireState::Succeeded
@@ -165,6 +347,7 @@ impl WireAttempt {
             WireState::Failed => AttemptState::Failed,
             WireState::Cancelled => AttemptState::Cancelled,
             WireState::Superseded => AttemptState::Superseded,
+            WireState::AcknowledgedUncertain => AttemptState::AcknowledgedUncertain,
         };
         AttemptSnapshot {
             sequence: self.sequence,
@@ -234,6 +417,18 @@ fn write_attempt_locked(
     uid: u32,
     next: &WireAttempt,
 ) -> Result<(), AttemptError> {
+    write_attempt_with_writer(paths, uid, next, atomic_replace_private)
+}
+
+fn write_attempt_with_writer<F>(
+    paths: &CutoverPaths,
+    uid: u32,
+    next: &WireAttempt,
+    publish: F,
+) -> Result<(), AttemptError>
+where
+    F: FnOnce(&std::path::Path, &[u8], u32) -> Result<(), omavless_store::StoreIoError>,
+{
     let mut payload = serde_json::to_vec(next).map_err(|_| AttemptError::InvalidState)?;
     payload.push(b'\n');
     if payload.len() as u64 > MAX_BYTES {
@@ -242,7 +437,7 @@ fn write_attempt_locked(
     let path = paths.state_directory.join(FILE_NAME);
     // Any error may follow publication but precede durable sync. The caller
     // must stop; it cannot assume the previous bytes are still authoritative.
-    atomic_replace_private(&path, &payload, uid).map_err(|_| AttemptError::WriteUncertain)?;
+    publish(&path, &payload, uid).map_err(|_| AttemptError::WriteUncertain)?;
     let actual = read_attempt_locked(paths, uid)
         .map_err(|_| AttemptError::WriteUncertain)?
         .ok_or(AttemptError::WriteUncertain)?;
@@ -314,6 +509,26 @@ pub fn begin_attempt_for_batch(
         return Err(AttemptError::OwnershipUnavailable);
     }
     let history = match previous.as_ref() {
+        Some(attempt) if attempt.state == WireState::AcknowledgedUncertain => {
+            let anchor = attempt
+                .rearm_at_secs
+                .ok_or(AttemptError::AttemptUncertain)?;
+            if attempt.instance_id != current_instance
+                || attempt.rearm_preference_revision != Some(preference.revision)
+            {
+                return Err(AttemptError::AttemptUncertain);
+            }
+            let RefreshSchedule::Every { interval_secs } = preference.schedule else {
+                return Err(AttemptError::ScheduleOff);
+            };
+            let due = anchor
+                .checked_add(interval_secs)
+                .ok_or(AttemptError::InvalidState)?;
+            if now_secs < due {
+                return Err(AttemptError::WaitUntil(due));
+            }
+            None
+        }
         Some(attempt) if attempt.state == WireState::Started => {
             return Err(if attempt.instance_id == current_instance {
                 AttemptError::AttemptInProgress
@@ -355,6 +570,10 @@ pub fn begin_attempt_for_batch(
         finished_at_secs: None,
         consecutive_failures: failures,
         state: WireState::Started,
+        acknowledged_at_secs: None,
+        acknowledged_preference_revision: None,
+        rearm_at_secs: None,
+        rearm_preference_revision: None,
     };
     write_attempt_locked(paths, uid, &next)?;
     Ok(AttemptTicket {
@@ -373,11 +592,12 @@ pub fn begin_attempt_for_batch(
 pub fn finish_attempt_with_receipt(
     paths: &CutoverPaths,
     uid: u32,
-    ticket: AttemptTicket,
+    ticket: impl std::borrow::Borrow<AttemptTicket>,
     receipt: NativeBatchCompletionReceipt,
     now_secs: u64,
     owner: OwnerFence,
 ) -> Result<AttemptSnapshot, AttemptError> {
+    let ticket = ticket.borrow();
     if !owner.matches()
         || owner.expected_generation != ticket.owner_generation
         || receipt.instance() != ticket.instance_id
@@ -496,7 +716,7 @@ fn finish_attempt(
     finish_attempt_with_receipt(
         paths,
         uid,
-        ticket,
+        &ticket,
         NativeBatchCompletionReceipt::synthetic(&batch, completed_revision, kind),
         now_secs,
         owner,
@@ -506,6 +726,98 @@ fn finish_attempt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acknowledged_uncertainty_preserves_identity_failures_and_refuses_publication_faults() {
+        for phase in ["before", "after", "readback", "success"] {
+            let fixture = Fixture::new();
+            let revision = fixture.enable();
+            let first = begin_attempt(
+                &fixture.paths,
+                fixture.uid,
+                "daemon-1",
+                revision,
+                100,
+                OWNER,
+            )
+            .unwrap();
+            finish_attempt(
+                &fixture.paths,
+                fixture.uid,
+                first,
+                AttemptOutcome::Failure,
+                110,
+                OWNER,
+            )
+            .unwrap();
+            let ticket = begin_attempt(
+                &fixture.paths,
+                fixture.uid,
+                "daemon-1",
+                revision,
+                410,
+                OWNER,
+            )
+            .unwrap();
+            let started = fs::read(fixture.path()).unwrap();
+            set_preference(
+                &fixture.paths,
+                fixture.uid,
+                GENERATION,
+                revision,
+                RefreshSchedule::Off,
+            )
+            .unwrap();
+            let lock = locked_owner(&fixture.paths, fixture.uid, GENERATION).unwrap();
+            let result = acknowledge_attempt_with_writer(
+                &fixture.paths,
+                fixture.uid,
+                &ticket,
+                2,
+                2,
+                420,
+                |path, payload, uid| {
+                    if phase == "before" {
+                        return Err(omavless_store::StoreIoError::Io);
+                    }
+                    atomic_replace_private(path, payload, uid)?;
+                    if phase == "after" {
+                        return Err(omavless_store::StoreIoError::Io);
+                    }
+                    if phase == "readback" {
+                        fs::set_permissions(path, fs::Permissions::from_mode(0o400)).unwrap();
+                    }
+                    Ok(())
+                },
+            );
+            if phase == "success" {
+                let snapshot = result.unwrap();
+                assert_eq!(snapshot.state, AttemptState::AcknowledgedUncertain);
+                assert_eq!(snapshot.sequence, 2);
+                assert_eq!(snapshot.started_at_secs, 410);
+                assert_eq!(snapshot.finished_at_secs, None);
+                assert_eq!(snapshot.consecutive_failures, 1);
+                assert_eq!(
+                    acknowledge_attempt_locked(
+                        &fixture.paths,
+                        fixture.uid,
+                        &ticket,
+                        2,
+                        2,
+                        421,
+                        None
+                    ),
+                    Err(AttemptError::StaleTicket)
+                );
+            } else {
+                assert_eq!(result, Err(AttemptError::WriteUncertain));
+                if phase == "before" {
+                    assert_eq!(fs::read(fixture.path()).unwrap(), started);
+                }
+            }
+            drop(lock);
+        }
+    }
     use crate::cutover::{CutoverPaths, read_marker};
     use crate::subscription_schedule_preference::{read_preference, set_preference};
     use nix::unistd::Uid;
@@ -1165,6 +1477,10 @@ mod tests {
             finished_at_secs: Some(110),
             consecutive_failures: 0,
             state: WireState::Succeeded,
+            acknowledged_at_secs: None,
+            acknowledged_preference_revision: None,
+            rearm_at_secs: None,
+            rearm_preference_revision: None,
         };
         let mut payload = serde_json::to_vec(&terminal).unwrap();
         payload.push(b'\n');
@@ -1220,6 +1536,10 @@ mod tests {
             finished_at_secs: Some(110),
             consecutive_failures: u32::MAX,
             state: WireState::Failed,
+            acknowledged_at_secs: None,
+            acknowledged_preference_revision: None,
+            rearm_at_secs: None,
+            rearm_preference_revision: None,
         };
         let mut payload = serde_json::to_vec(&terminal).unwrap();
         payload.push(b'\n');

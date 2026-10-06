@@ -21,6 +21,8 @@ pub use batch::{
 };
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
+#[cfg(test)]
+pub(crate) use schedule::AcknowledgementFault;
 pub use schedule::{AutomaticRefreshError, AutomaticRefreshStart, AutomaticSubscriptionBatch};
 
 use crate::connection_transaction::{

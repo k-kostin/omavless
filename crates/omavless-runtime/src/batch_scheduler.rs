@@ -68,10 +68,35 @@ impl BatchWork {
 
 #[derive(Default)]
 pub(super) struct BatchScheduler {
-    worker: Mutex<Option<thread::JoinHandle<()>>>,
+    worker: Mutex<Option<WorkerHandle>>,
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    drained: Mutex<Option<DrainedAutomaticAttempt>>,
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    context: Arc<()>,
     stopping: Arc<AtomicBool>,
     #[cfg(test)]
     pub(super) fail_next_spawn: AtomicBool,
+}
+
+struct WorkerHandle {
+    handle: thread::JoinHandle<()>,
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    automatic: Option<NativeBatchTicket>,
+}
+
+/// Private, non-cloneable original-supervisor drain. No PID, instance string,
+/// caller token or is_finished observation can construct this proof.
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+pub(crate) struct DrainedAutomaticAttempt {
+    ticket: NativeBatchTicket,
+    context: Arc<()>,
+    dispatcher: std::sync::Weak<Mutex<RuntimeDispatcher>>,
+}
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+impl DrainedAutomaticAttempt {
+    pub(crate) fn ticket(&self) -> &NativeBatchTicket {
+        &self.ticket
+    }
 }
 
 // Runs even when a worker unwinds. Does not format or retain a panic payload.
@@ -99,16 +124,54 @@ impl Drop for Supervisor {
 }
 
 impl BatchScheduler {
+    #[cfg(test)]
+    pub(super) fn invalidate_original_drain_for_test(&self, dispatcher: bool) {
+        let mut slot = self.drained.lock().unwrap();
+        let proof = slot.as_mut().expect("actual original drain");
+        if dispatcher {
+            proof.dispatcher = std::sync::Weak::new();
+        } else {
+            proof.context = Arc::new(());
+        }
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn retain_drain(&self, ticket: NativeBatchTicket, dispatcher: &Arc<Mutex<RuntimeDispatcher>>) {
+        let eligible=dispatcher.lock().ok().is_some_and(|mut owner| {
+            matches!(&mut *owner,RuntimeDispatcher::Native(owner) if owner.automatic_interrupted(&ticket))
+        });
+        if eligible
+            && let Ok(mut slot) = self.drained.lock()
+            && slot.is_none()
+        {
+            *slot = Some(DrainedAutomaticAttempt {
+                ticket,
+                context: Arc::clone(&self.context),
+                dispatcher: Arc::downgrade(dispatcher),
+            });
+        }
+    }
+
+    fn join_worker(&self, worker: WorkerHandle, dispatcher: &Arc<Mutex<RuntimeDispatcher>>) {
+        let _ = worker.handle.join();
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        if let Some(ticket) = worker.automatic {
+            self.retain_drain(ticket, dispatcher);
+        }
+        #[cfg(not(any(test, feature = "developer-subscription-schedule")))]
+        let _ = dispatcher;
+    }
     fn start_work(
         &self,
         work: BatchWork,
-        worker: &mut Option<thread::JoinHandle<()>>,
+        worker: &mut Option<WorkerHandle>,
         dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
         pool: &remote_fetch::RemoteFetchPool,
     ) -> io::Result<()> {
         if let Some(previous) = worker.take() {
-            let _ = previous.join();
+            self.join_worker(previous, dispatcher);
         }
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        let automatic = work.automatic().then(|| work.ticket());
         let supervisor = Supervisor {
             dispatcher: Arc::clone(dispatcher),
             ticket: Some(work.ticket()),
@@ -117,7 +180,24 @@ impl BatchScheduler {
         };
         let stopping = Arc::clone(&self.stopping);
         let pool = pool.clone();
-        *worker = Some(self.spawn(move || run(work, supervisor, &stopping, &pool))?);
+        match self.spawn(move || run(work, supervisor, &stopping, &pool)) {
+            Ok(handle) => {
+                *worker = Some(WorkerHandle {
+                    handle,
+                    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                    automatic,
+                })
+            }
+            Err(error) => {
+                // The captured runnable closure/supervisor have been dropped
+                // by spawn before this returned refusal; no detached work exists.
+                #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                if let Some(ticket) = automatic {
+                    self.retain_drain(ticket, dispatcher);
+                }
+                return Err(error);
+            }
+        }
         Ok(())
     }
 
@@ -376,7 +456,102 @@ impl BatchScheduler {
         // rather than waiting as long as the 25-second provider deadline.
         let _auxiliary_guard = auxiliary.map(|slot| slot.quiesce());
         if let Some(worker) = handle {
-            let _ = worker.join();
+            self.join_worker(worker, dispatcher);
+        }
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(super) fn acknowledge_automatic(
+        &self,
+        request: &Value,
+        instance: &str,
+        dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
+        clock: &developer_subscription_schedule::Clock,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let parsed = developer_subscription_schedule::parse_acknowledgement(request, instance);
+        let (sequence, preference_revision, revision) = match parsed {
+            Ok(fields) => fields,
+            Err(code) => return error_response(id, 0, code, false, None),
+        };
+        let Ok(mut worker) = self.worker.lock() else {
+            return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+        };
+        if worker
+            .as_ref()
+            .is_some_and(|worker| !worker.handle.is_finished())
+        {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        }
+        if let Some(previous) = worker.take() {
+            self.join_worker(previous, dispatcher);
+        }
+        let Ok(mut drained) = self.drained.lock() else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::ManualRecoveryRequired,
+                false,
+                None,
+            );
+        };
+        let Some(proof) = drained.as_ref() else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::ManualRecoveryRequired,
+                false,
+                None,
+            );
+        };
+        if !Arc::ptr_eq(&proof.context, &self.context)
+            || proof
+                .dispatcher
+                .upgrade()
+                .is_none_or(|original| !Arc::ptr_eq(&original, dispatcher))
+        {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::ManualRecoveryRequired,
+                false,
+                None,
+            );
+        }
+        let Ok(mut owner) = dispatcher.lock() else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::ManualRecoveryRequired,
+                false,
+                None,
+            );
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *owner else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        };
+        match owner.automatic_acknowledge(proof, sequence, preference_revision, revision, clock()) {
+            Ok(()) => {
+                drained.take();
+                success_response(
+                    id,
+                    owner.revision(),
+                    json!({"schemaVersion":1,"acknowledgedUncertain":true,"enabled":false}),
+                )
+            }
+            Err(error) => error_response(
+                id,
+                owner.revision(),
+                developer_subscription_schedule::code(error),
+                false,
+                None,
+            ),
         }
     }
 }

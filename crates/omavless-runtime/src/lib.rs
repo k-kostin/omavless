@@ -366,6 +366,7 @@ trait NativeRuntimeOwner: Send {
         &mut self,
         request: &Value,
         instance: &str,
+        now: u64,
     ) -> std::result::Result<Value, StableErrorCode>;
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     fn automatic_start(
@@ -387,6 +388,17 @@ trait NativeRuntimeOwner: Send {
     ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError>;
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     fn automatic_lost(&mut self, ticket: native_coordinator::NativeBatchTicket);
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_interrupted(&self, ticket: &native_coordinator::NativeBatchTicket) -> bool;
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_acknowledge(
+        &mut self,
+        proof: &batch_scheduler::DrainedAutomaticAttempt,
+        sequence: u64,
+        preference: u64,
+        revision: u64,
+        now: u64,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -709,8 +721,9 @@ where
         &mut self,
         request: &Value,
         instance: &str,
+        now: u64,
     ) -> std::result::Result<Value, StableErrorCode> {
-        self.owner.automatic_control(request, instance)
+        self.owner.automatic_control(request, instance, now)
     }
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     fn automatic_start(
@@ -758,6 +771,22 @@ where
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     fn automatic_lost(&mut self, ticket: native_coordinator::NativeBatchTicket) {
         self.owner.automatic_lost(ticket);
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_interrupted(&self, ticket: &native_coordinator::NativeBatchTicket) -> bool {
+        self.owner.automatic_interrupted(ticket)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_acknowledge(
+        &mut self,
+        proof: &batch_scheduler::DrainedAutomaticAttempt,
+        sequence: u64,
+        preference: u64,
+        revision: u64,
+        now: u64,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError> {
+        self.owner
+            .automatic_acknowledge(proof, sequence, preference, revision, now)
     }
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>> {
         self.owner.batch_coordinator().host().auxiliary_slot()
@@ -1568,13 +1597,26 @@ impl RuntimeServer {
             if self.developer_schedule.is_none() {
                 return error_response(id, 0, StableErrorCode::UnknownMethod, false, None);
             }
+            let clock = &self
+                .developer_schedule
+                .as_ref()
+                .expect("explicit registration checked")
+                .clock;
+            if request["method"] == "developer.subscription_schedule.acknowledge" {
+                return self.batch_scheduler.acknowledge_automatic(
+                    request,
+                    &self.instance_id,
+                    &self.dispatcher,
+                    clock,
+                );
+            }
             let mut dispatcher = self.dispatcher.lock().map_err(|_| {
                 omavless_control_protocol::ProtocolError::new(StableErrorCode::InternalError)
             })?;
             let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
                 return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
             };
-            return match owner.automatic_control(request, &self.instance_id) {
+            return match owner.automatic_control(request, &self.instance_id, clock()) {
                 Ok(projection) => success_response(id, owner.revision(), projection),
                 Err(code) => error_response(
                     id,
