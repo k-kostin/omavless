@@ -14,10 +14,14 @@ mod batch;
 mod onboarding;
 mod probe;
 mod provider;
+mod schedule;
 mod startup;
-pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
+pub use batch::{
+    NativeBatchCompletionReceipt, NativeBatchOutcome, NativeBatchTicket, NativeSubscriptionBatch,
+};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
+pub use schedule::{AutomaticRefreshError, AutomaticRefreshStart, AutomaticSubscriptionBatch};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -373,6 +377,7 @@ pub struct OfflineNativeCoordinator<H> {
     batch: Option<batch::BatchOwnerState>,
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
+    automatic_refresh: schedule::AutomaticRefreshState,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -397,6 +402,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             batch: None,
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
+            automatic_refresh: schedule::AutomaticRefreshState::default(),
         }
     }
 
@@ -1329,6 +1335,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             LockAdmission::Locked(lock) => lock,
             LockAdmission::Uncached(outcome) => return Ok(outcome),
         };
+        // An admitted explicit Disconnect wins over automatic maintenance even
+        // when the already-disconnected lifecycle returns NoChange/revision 0.
+        // Cancellation changes no host policy and never affects manual batches.
+        if matches!(action, OwnerAction::Disconnect) {
+            let _ = self.cancel_automatic_subscription_refresh();
+        }
         let completion = match action {
             OwnerAction::Connect { profile_id, mode } => {
                 self.transaction.connect(&lock, profile_id, mode)
@@ -3684,10 +3696,15 @@ mod tests {
         let mut request = batch_request("subscriptions.refresh_all", "batch-1");
         request["params"]["expectedRevision"] = json!(1);
         let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+        let ticket = job.supervisor_ticket();
         run_batch(&owner, &mut job);
         owner.publish_subscription_batch_progress(&job).unwrap();
         assert_eq!(batch_status(&owner, "batch-1")["progress"]["completed"], 1);
         owner.complete_subscription_batch(job, || 20).unwrap();
+        assert_eq!(
+            owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+            NativeBatchOutcome::Committed
+        );
         assert_eq!(owner.revision(), 2);
         assert_eq!(batch_status(&owner, "batch-1")["state"], "succeeded");
         assert_eq!(batch_status(&owner, "batch-1")["outcomeRevision"], 2);
@@ -3715,6 +3732,7 @@ mod tests {
                 .start_subscription_batch(&batch_request("subscriptions.refresh_all", "cancel"))
                 .unwrap()
                 .unwrap();
+            let ticket = job.supervisor_ticket();
             if prepared {
                 run_batch(&owner, &mut job);
             }
@@ -3741,6 +3759,10 @@ mod tests {
                     .is_err()
             );
             assert_eq!(batch_status(&owner, "cancel")["state"], "cancelled");
+            assert_eq!(
+                owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+                NativeBatchOutcome::Cancelled
+            );
             assert_eq!(owner.revision(), 1);
             assert_eq!(fs::read(&path).unwrap(), before);
             assert!(
@@ -3766,6 +3788,7 @@ mod tests {
             .start_subscription_batch(&batch_request("subscriptions.refresh_all", "stale"))
             .unwrap()
             .unwrap();
+        let ticket = job.supervisor_ticket();
         run_batch(&owner, &mut job);
         let request = OwnerRequest::new(
             OwnerAction::Disconnect,
@@ -3783,6 +3806,9 @@ mod tests {
         );
         assert_eq!(owner.revision(), 3);
         assert_eq!(batch_status(&owner, "stale")["state"], "failed");
+        let receipt = owner.subscription_batch_receipt(&ticket).unwrap();
+        assert_eq!(receipt.outcome(), NativeBatchOutcome::Failed);
+        assert_eq!(receipt.completed_revision(), 3);
         assert_eq!(fs::read(&path).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
@@ -3841,11 +3867,16 @@ mod tests {
             .start_subscription_batch(&batch_request("subscriptions.refresh_all", "empty"))
             .unwrap()
             .unwrap();
+        let ticket = job.supervisor_ticket();
         owner
             .complete_subscription_batch(job, || panic!("empty batch read clock"))
             .unwrap();
         assert_eq!(owner.revision(), 0);
         assert_eq!(batch_status(&owner, "empty")["state"], "succeeded");
+        assert_eq!(
+            owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+            NativeBatchOutcome::Empty
+        );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
         fs::remove_dir_all(root).unwrap();
@@ -3952,6 +3983,7 @@ mod tests {
             let (root, path, mut owner) = batch_fixture("batch-uncertain-write");
             let request = batch_request("subscriptions.refresh_all", "uncertain");
             let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+            let ticket = job.supervisor_ticket();
             run_batch(&owner, &mut job);
             let before = fs::read(&path).unwrap();
             let revision = owner.revision();
@@ -3976,6 +4008,10 @@ mod tests {
             assert_eq!(after != before, after_replace);
             assert_eq!(owner.revision(), revision);
             assert!(owner.transaction.blocked());
+            assert_eq!(
+                owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+                NativeBatchOutcome::Uncertain
+            );
             assert_eq!(
                 batch_status(&owner, "uncertain")["error"]["code"],
                 "manual_recovery_required"

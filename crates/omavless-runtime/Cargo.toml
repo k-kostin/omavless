@@ -10,6 +10,7 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
+developer-subscription-schedule = []
 
 [dependencies]
 base64 = "0.22"

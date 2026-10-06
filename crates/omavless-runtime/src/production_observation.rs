@@ -723,11 +723,9 @@ mod tests {
         Arc,
         atomic::{AtomicU8, Ordering},
     };
-    fn root(label: &str) -> (PathBuf, u32) {
-        // The observation fixture nests a runtime control socket. Reuse the
-        // short, private allocator so a home-based TMPDIR stays usable.
-        let short_label: String = label.chars().take(12).collect();
-        let root = crate::test_temp::directory(&short_label).unwrap();
+    fn root(_label: &str) -> (PathBuf, u32) {
+        // Leave room for the fixed nested control socket with HOME fixtures.
+        let root = crate::test_temp::directory("obs").unwrap();
         let uid = fs::metadata(&root).unwrap().uid();
         (root, uid)
     }

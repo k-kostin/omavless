@@ -15,6 +15,7 @@ Before planning, implementing, gating or merging work:
 2. Compare local `main` and the current branch with their remote refs; do not
    reason from a stale checkout.
 3. Read the current remote versions of:
+   - [execution policy](EXECUTION_POLICY.md) for new development and review;
    - `DEVELOPMENT_ROADMAP.md`;
    - `docs/roadmap/DEVELOPMENT_WORKFLOW.md`;
    - `docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md`;
