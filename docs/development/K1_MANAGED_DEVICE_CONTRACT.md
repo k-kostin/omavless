@@ -93,3 +93,13 @@ case was not selected. Formatting, whitespace and read-only overlay application
 checks pass. No Go compilation, kernel TUN test, broker service or VM action was
 performed by this source checkpoint. Final lint/commit identity belongs to the
 owning Draft PR.
+
+ROOT subsequently selected isolated public-source Go tests for frozen commit
+`08194a275d315db7ca502e50f960c80af6dc163b`: both `with_gvisor` and
+`with_gvisor,omavless_k1_device` passed the two focused device-policy tests and
+the complete `^TestSystemDNS` selection (original command `8b32a9`, exit 0).
+The source copy came from the exact archived managed source with a local
+sing-tun replacement; reverse overlay application check also passed. The
+toolchain was `go1.27.0-X:nodwarf5`, not package-qualified Go 1.27.1. This is
+additional source-test evidence, not package provenance, installed broker/TUN
+acceptance or permission to open the coverage issuer.
