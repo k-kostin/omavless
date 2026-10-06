@@ -189,6 +189,13 @@ one reviewer/helper; replace or finish the helper before starting another.
 Parallelize independent work, not overlapping edits or simultaneous VM control.
 Delegation is optional when coordination would cost more than the task.
 
+Distinguish delivery of a message from starting work. Before assigning a new
+deliverable to an existing agent, check whether it is running or completed.
+Use the available follow-up/resume operation for an idle or completed agent;
+a queued message alone may not trigger another turn. Confirm a short start or
+progress checkpoint before scheduling dependent integration work. Reuse that
+agent and its owned branch rather than spawning a duplicate writer.
+
 ## 8. Checkpoints, branches and session completion
 
 Continue existing feature PRs; create a new PR for an independently reviewable
@@ -233,3 +240,9 @@ test never substitutes for boot, original completion or product acceptance.
 Ask an independent reviewer when the proposal changes a difficult ownership,
 privilege or fault boundary; routine process notes do not require Astra.
 Failure classification and applicable owner authorization remain unchanged.
+
+Before carrying a shared fix across feature branches, check that each target
+actually contains the affected implementation/test and its owning wiring.
+Do not import an absent research precursor just to make a cherry-pick apply.
+A source-only conflict is a normal diagnostic: preserve unrelated work,
+resolve or abort the carry, and retain each tested runtime's exact identity.
