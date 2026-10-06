@@ -139,3 +139,15 @@ ordinary source failures (test-module ordering and helper arity) were corrected;
 neither was a native/VM failure. No new ignored test, Go/compiler-core build,
 package action or actual installation ran. Full combined CI and new pair
 construction/VM acceptance are separate, not silently borrowed from96.
+
+The ordinary qualified producer successor fixes Cargo jobs4 in its sanitized
+environment and passes one validated existing short private HOME-child TMPDIR
+(<=32 pathname bytes) to both compilers. It neither creates nor deletes that
+caller directory and leaves the outside-Git output guard unchanged. Qualified
+scratch survives both outcomes; legacy temporary cleanup remains unchanged.
+Public-source command failure/timeout emits a closed phase and at most16KiB
+combined stdout/stderr payload, escaping terminal controls, with truncation
+marked. This projection is not a memory/all-I/O or preemptive syscall bound.
+Compiler/Go-JSON files stay in private source scratch, never runtime/profile
+logs. Four mode/receipt/temp/diagnostic pure controls returned0; actual pair
+construction remains ROOT-selected and records its actual native tool version.

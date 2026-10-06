@@ -31,6 +31,40 @@ EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFile
 
 
 class PackageTests(unittest.TestCase):
+    def test_qualified_public_source_failure_is_fixed_phase_bounded_and_legacy_quiet(self):
+        from types import SimpleNamespace
+        result=SimpleNamespace(returncode=1,stderr=b"public compiler error\x1b"+b"x"*20000,stdout=b"public output")
+        output=io.StringIO()
+        with mock.patch.object(build_pair.subprocess,"run",return_value=result), mock.patch.object(build_pair.sys,"stderr",output):
+            with self.assertRaises(stage.Refused):
+                build_pair.command(["/usr/bin/cargo","build"],public_diagnostics=True)
+        text=output.getvalue()
+        self.assertIn("phase=broker-build",text);self.assertNotIn("\x1b",text)
+        self.assertIn("diagnostic_truncated",text);self.assertLess(len(text),16550)
+        output=io.StringIO()
+        with mock.patch.object(build_pair.subprocess,"run",return_value=result), mock.patch.object(build_pair.sys,"stderr",output):
+            with self.assertRaises(stage.Refused):build_pair.command(["/usr/bin/cargo","build"])
+        self.assertEqual(output.getvalue(),"")
+        with mock.patch.object(build_pair.subprocess,"run",side_effect=subprocess.TimeoutExpired([],1,stderr=b"public timeout")), mock.patch.object(build_pair.sys,"stderr",output):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                build_pair.command(["/usr/bin/go","test"],public_diagnostics=True)
+        self.assertIn("phase=dns-tests timeout",output.getvalue())
+
+    def test_qualified_compiler_tmpdir_is_short_private_home_child_without_mutation(self):
+        from types import SimpleNamespace
+        uid=os.getuid()
+        metadata=SimpleNamespace(st_uid=uid,st_mode=0o40700)
+        with mock.patch.object(Path,"lstat",return_value=metadata), mock.patch.object(os,"mkdir") as create:
+            self.assertEqual(build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":"/home/test/t"}),"/home/test/t")
+            for path in ("/tmp/t","relative","/home/test/extra/t","/home/test/"+"x"*40):
+                with self.assertRaises(stage.Refused):
+                    build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":path})
+            create.assert_not_called()
+        for mode in (0o40755,0o40777,0o120700,0o100700):
+            with mock.patch.object(Path,"lstat",return_value=SimpleNamespace(st_uid=uid,st_mode=mode)):
+                with self.assertRaises(stage.Refused):
+                    build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":"/home/test/t"})
+
     def test_distinct_close_pair_mode_never_promotes_legacy_dns_receipt(self):
         path = self.pair / "source-receipt.json"
         receipt = json.loads(path.read_text())
