@@ -153,6 +153,25 @@ pub(crate) enum Completion {
     CommittedFailure(ConnectionTransactionError),
 }
 
+// Keep the existing ordinary owned lease inline: boxing after successful FD
+// acquisition would introduce a new allocation/failure boundary. The shared
+// borrower adds no FD and never owns another Flock wrapper.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum MigrationLease {
+    Owned(MigrationLock),
+    #[cfg(feature = "t4-manager-actor-service")]
+    Original(crate::native_coordinator::NativeMigrationBorrow),
+}
+impl std::ops::Deref for MigrationLease {
+    type Target = MigrationLock;
+    fn deref(&self) -> &MigrationLock {
+        match self {
+            Self::Owned(lock) => lock,
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::Original(lock) => lock,
+        }
+    }
+}
 pub(crate) struct ConnectionTransactionState<H> {
     lifecycle: LifecycleExecutor<H>,
     desired_paths: DesiredPaths,
@@ -161,6 +180,8 @@ pub(crate) struct ConnectionTransactionState<H> {
     uid: u32,
     blocked: bool,
     connection_blocked: bool,
+    #[cfg(feature = "t4-manager-actor-service")]
+    native_original_lease: Option<crate::native_coordinator::NativeOrdinaryLease>,
 }
 
 impl<H: LifecycleHost> ConnectionTransactionState<H> {
@@ -179,6 +200,8 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             uid,
             blocked: false,
             connection_blocked: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            native_original_lease: None,
         }
     }
 
@@ -245,8 +268,52 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         })
     }
 
-    pub(crate) fn acquire_lock(&self) -> Result<MigrationLock, ConnectionTransactionError> {
-        MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)
+    pub(crate) fn acquire_lock(&self) -> Result<MigrationLease, ConnectionTransactionError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(original) = &self.native_original_lease {
+            return original
+                .borrow(&self.cutover_paths, self.uid)
+                .map(MigrationLease::Original)
+                .map_err(|error| match error {
+                    crate::native_coordinator::NativeLeaseError::Busy => {
+                        ConnectionTransactionError::Busy
+                    }
+                    crate::native_coordinator::NativeLeaseError::Unavailable => {
+                        ConnectionTransactionError::ManualRecoveryRequired
+                    }
+                });
+        }
+        MigrationLock::acquire(&self.cutover_paths, self.uid)
+            .map(MigrationLease::Owned)
+            .map_err(lock_error)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn install_original_lease(
+        &mut self,
+        original: crate::native_coordinator::NativeOrdinaryLease,
+    ) -> Result<(), ()> {
+        if self.native_original_lease.is_some() {
+            return Err(());
+        }
+        self.native_original_lease = Some(original);
+        // Install before the first post-transfer check. Refusal leaves the
+        // SAME keeper in its destination, never drop/take/reinsert around a
+        // fallible callback or expose a vacant ordinary acquisition fallback.
+        let result = self
+            .native_original_lease
+            .as_ref()
+            .ok_or(())?
+            .borrow(&self.cutover_paths, self.uid)
+            .map(|_| ())
+            .map_err(|_| ());
+        if result.is_err() {
+            self.block();
+        }
+        result
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn original_lease_vacant(&self) -> bool {
+        self.native_original_lease.is_none()
     }
 
     pub(crate) fn blocked(&self) -> bool {

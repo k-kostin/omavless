@@ -37,7 +37,10 @@ pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeFirstError, PreparedRestorePair};
 #[cfg(feature = "t4-manager-actor-service")]
-pub(crate) use restore_candidate::{NativeMutationLease, NativeSteadyCompletion};
+pub(crate) use restore_candidate::{
+    NativeLeaseError, NativeMigrationBorrow, NativeMutationLease, NativeOrdinaryLease,
+    NativeSteadyCompletion,
+};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -318,7 +321,7 @@ enum Admission {
 }
 
 enum LockAdmission {
-    Locked(MigrationLock),
+    Locked(crate::connection_transaction::MigrationLease),
     Uncached(NativeOwnerExecution),
 }
 
@@ -403,6 +406,26 @@ pub struct OfflineNativeCoordinator<H> {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn activate_native_ordinary_lease(&mut self) -> Result<(), NativeOwnerError> {
+        if self.retained_restore_busy() || !self.transaction.original_lease_vacant() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        let completion = self
+            .native_completed_origin
+            .as_ref()
+            .ok_or(NativeOwnerError::ManualRecoveryRequired)?;
+        let original = completion
+            .ordinary_origin()
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+        self.transaction
+            .install_original_lease(original)
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+        // Actual original graph stays in the installed ordinary lease keeper.
+        // Old completion consultation cannot serve as a cached-Off exception.
+        self.native_completed_origin = None;
+        Ok(())
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn transfer_native_completion(
         &mut self,

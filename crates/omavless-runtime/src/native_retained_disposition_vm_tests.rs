@@ -5,7 +5,7 @@ use super::*;
 const DISPOSITION_ROOT: &str = "/home/kdk_vm/.cache/t4-native-disposition-review25/operation";
 const DISPOSITION_RUNTIME: &str = "/run/user/1000/t4n25/operation";
 
-fn selected() {
+pub(super) fn selected() {
     assert!(
         identity(
             Uid::current().as_raw(),
@@ -23,8 +23,12 @@ fn selected() {
     );
 }
 fn recovery_paths() -> (CutoverPaths, DesiredPaths, NativeHostPaths) {
-    let root = Path::new(DISPOSITION_ROOT);
-    let runtime = Path::new(DISPOSITION_RUNTIME);
+    recovery_paths_at(Path::new(DISPOSITION_ROOT), Path::new(DISPOSITION_RUNTIME))
+}
+pub(super) fn recovery_paths_at(
+    root: &Path,
+    runtime: &Path,
+) -> (CutoverPaths, DesiredPaths, NativeHostPaths) {
     let config = root.join("home/.config/omavless");
     (
         CutoverPaths::below(runtime, &root.join("state"), UID),
@@ -43,6 +47,9 @@ fn recovery_paths() -> (CutoverPaths, DesiredPaths, NativeHostPaths) {
 #[test]
 #[ignore = "ROOT-only NEW25 real owner fixed MIXED producer; original0 before any later phase"]
 fn isolated_native_disposition_mixed_producer() {
+    mixed_producer(Path::new(DISPOSITION_ROOT), Path::new(DISPOSITION_RUNTIME));
+}
+pub(super) fn mixed_producer(root: &Path, runtime: &Path) {
     selected();
     let (limit, _) =
         nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE).unwrap();
@@ -53,13 +60,8 @@ fn isolated_native_disposition_mixed_producer() {
     })
     .expect("fixed_native_vm_matrix_reservation_refused");
     let until = Instant::now() + Duration::from_secs(90);
-    let root = Path::new(DISPOSITION_ROOT);
-    let Some((cutover, desired)) = fault_matrix::construct(
-        &mut aggregate[0],
-        root,
-        Path::new(DISPOSITION_RUNTIME),
-        until,
-    ) else {
+    let Some((cutover, desired)) = fault_matrix::construct(&mut aggregate[0], root, runtime, until)
+    else {
         panic!("fixed_native_vm_matrix_construct_refused");
     };
     let config = root.join("home/.config/omavless");
@@ -114,13 +116,16 @@ fn isolated_native_disposition_mixed_producer() {
 #[test]
 #[ignore = "ROOT-only AFTER exact new25 producer original0; fresh authenticated rollback"]
 fn isolated_native_disposition_new_authenticated_rollback() {
+    authenticated_rollback(Path::new(DISPOSITION_ROOT), Path::new(DISPOSITION_RUNTIME));
+}
+pub(super) fn authenticated_rollback(root: &Path, runtime: &Path) {
     selected();
     let until = Instant::now() + Duration::from_secs(90);
-    let (paths, desired, host) = recovery_paths();
+    let (paths, desired, host) = recovery_paths_at(root, runtime);
     let mut recovery = crate::native_coordinator::FreshRecovery::reserve()
         .expect("fixed_native_vm_recovery_reservation_refused");
     let result = recovery.reconcile_mixed(
-        &Path::new(DISPOSITION_ROOT).join("input.ovb"),
+        &root.join("input.ovb"),
         PASSWORD,
         paths.clone(),
         desired,

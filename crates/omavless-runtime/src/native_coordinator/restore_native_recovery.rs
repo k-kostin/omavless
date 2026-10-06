@@ -5,7 +5,7 @@ use crate::cutover::{CutoverPaths, OwnershipMarker, OwnershipPhase, read_marker_
 use crate::desired::{DesiredPaths, DesiredState, read_desired_snapshot};
 use crate::native_host::{NativeHostPaths, ObservationOnlyNativeHost};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
 static RECOVERY_RESERVED: AtomicBool = AtomicBool::new(false);
 
@@ -20,7 +20,7 @@ fn native_fresh_recovery_reserves_one_original_and_retains_after_handle_loss() {
     let retained = original.upgrade().unwrap();
     let slot = retained.lock().unwrap();
     let held = slot.as_ref().unwrap();
-    assert!(held.lock.is_none() && held.authenticated.is_none() && held.host.is_none());
+    assert!(held.lock.get().is_none() && held.authenticated.is_none() && held.host.is_none());
     assert!(
         held.boundary
             .as_ref()
@@ -33,7 +33,9 @@ fn native_fresh_recovery_reserves_one_original_and_retains_after_handle_loss() {
 }
 
 struct RecoveryHeld {
-    lock: Option<MigrationLock>,
+    lock: Arc<OnceLock<MigrationLock>>,
+    failed_lock: Option<MigrationLock>,
+    scope: Arc<AtomicBool>,
     boundary: Option<Boundary>,
     authenticated: Option<omavless_domain::private_backup::OpenedBackup>,
     host: Option<ObservationOnlyNativeHost>,
@@ -60,7 +62,9 @@ fn native_completion_move_and_borrow_drop_keep_the_one_original_flock() {
     let uid = nix::unistd::getuid().as_raw();
     let lock = MigrationLock::acquire(&paths, uid).unwrap();
     let mut source = Some(RecoveryHeld {
-        lock: Some(lock),
+        lock: Arc::new(OnceLock::from(lock)),
+        failed_lock: None,
+        scope: Arc::new(AtomicBool::new(false)),
         boundary: None,
         authenticated: None,
         host: None,
@@ -74,13 +78,45 @@ fn native_completion_move_and_borrow_drop_keep_the_one_original_flock() {
     {
         // The actual production borrower uses a nonescaping reference, not an
         // owned Flock wrapper. Letting that reference end cannot unlock it.
-        let original = destination.as_ref().unwrap().lock.as_ref().unwrap();
+        let original = destination.as_ref().unwrap().lock.get().unwrap();
         assert!(original.authorizes(&paths, uid));
         assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
     }
     assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
     drop(source);
     assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    for _ in 0..3 {
+        let once = Arc::clone(&destination.as_ref().unwrap().lock);
+        let borrower = NativeMigrationBorrow {
+            original: once,
+            _scope: NativeScopeBorrow {
+                scope: Arc::new(AtomicBool::new(true)),
+                available: Arc::new(AtomicBool::new(true)),
+            },
+        };
+        assert!(std::ptr::eq(
+            &*borrower,
+            destination.as_ref().unwrap().lock.get().unwrap()
+        ));
+        assert!(borrower.authorizes(&paths, uid));
+        assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+        drop(borrower); // Arc borrow ends, but the ONE original Flock stays held
+        assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    }
+    let available = Arc::new(AtomicBool::new(true));
+    let scope = Arc::new(AtomicBool::new(false));
+    let original = Arc::clone(&destination.as_ref().unwrap().lock);
+    let cut = std::panic::catch_unwind(|| {
+        let _borrower = NativeMigrationBorrow {
+            original: Arc::clone(&original),
+            _scope: NativeScopeBorrow::reserve(&scope, &available).unwrap(),
+        };
+        panic!("public original borrower unwind");
+    });
+    assert!(cut.is_err() && !available.load(Ordering::Acquire));
+    assert!(!scope.load(Ordering::Acquire));
+    assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    drop(original);
     drop(destination); // only this fully positive local fixture, no uncertain owner
     drop(MigrationLock::acquire_existing(&paths, uid).unwrap());
     fs::remove_file(paths.operation_lock).unwrap();
@@ -99,7 +135,8 @@ struct OriginFacts {
 
 /// One preinstalled, nonescaping prefix. Losing this handle while the process
 /// lives cannot release an uncertain recovery lease/ledger to another caller.
-/// Fatal process loss only means unavailable. No reset/retry or ordinary owner.
+/// Fatal process loss only means unavailable. No reset/retry or implicit
+/// ordinary admission; its explicit completion consumer stays separately gated.
 #[allow(dead_code)]
 pub(crate) struct FreshRecovery {
     original: Arc<Mutex<Option<RecoveryHeld>>>,
@@ -117,6 +154,252 @@ pub(crate) struct FreshRecovery {
 pub(crate) struct NativeSteadyCompletion {
     original: Arc<Mutex<Option<RecoveryHeld>>>,
     available: Arc<AtomicBool>,
+}
+
+/// Current ordinary lease origin, never a decoded history or frozen-Off grant.
+/// The ONE initialized OnceLock owns the ONE actual MigrationLock object.
+pub(crate) struct NativeOrdinaryLease {
+    original: Arc<Mutex<Option<RecoveryHeld>>>,
+    lock: Arc<OnceLock<MigrationLock>>,
+    available: Arc<AtomicBool>,
+    paths: CutoverPaths,
+    uid: u32,
+    generation: u64,
+    scope: Arc<AtomicBool>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeLeaseError {
+    Busy,
+    Unavailable,
+}
+struct NativeScopeBorrow {
+    scope: Arc<AtomicBool>,
+    available: Arc<AtomicBool>,
+}
+impl NativeScopeBorrow {
+    fn reserve(
+        scope: &Arc<AtomicBool>,
+        available: &Arc<AtomicBool>,
+    ) -> Result<Self, NativeLeaseError> {
+        scope
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| NativeLeaseError::Busy)?;
+        Ok(Self {
+            scope: Arc::clone(scope),
+            available: Arc::clone(available),
+        })
+    }
+}
+impl Drop for NativeScopeBorrow {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            // No mutex recovery, callback or Flock Drop during unwind. The
+            // original graph remains in its installed keeper; later admission
+            // is permanently unavailable even when the scope bit is released.
+            self.available.store(false, Ordering::Release);
+        }
+        self.scope.store(false, Ordering::Release);
+    }
+}
+pub(crate) struct NativeMigrationBorrow {
+    original: Arc<OnceLock<MigrationLock>>,
+    _scope: NativeScopeBorrow,
+}
+impl std::ops::Deref for NativeMigrationBorrow {
+    type Target = MigrationLock;
+    fn deref(&self) -> &MigrationLock {
+        // Minted only after get() succeeded; OnceLock cannot be unset. Keeping
+        // this same Arc alive cannot create a second Flock or unlock the first.
+        self.original
+            .get()
+            .expect("original migration lease initialized")
+    }
+}
+impl NativeOrdinaryLease {
+    pub(crate) fn borrow(
+        &self,
+        paths: &CutoverPaths,
+        uid: u32,
+    ) -> Result<NativeMigrationBorrow, NativeLeaseError> {
+        if !self.available.load(Ordering::Acquire) {
+            return Err(NativeLeaseError::Unavailable);
+        }
+        if paths != &self.paths || uid != self.uid {
+            self.refuse();
+            return Err(NativeLeaseError::Unavailable);
+        }
+        // A flock excludes another open description, not simultaneous leases
+        // from this SAME owner. This guard spans the ordinary effect scope.
+        let reservation = NativeScopeBorrow::reserve(&self.scope, &self.available)?;
+        let result = self.borrow_checked(paths, uid);
+        if result.is_err() {
+            self.refuse();
+            return Err(NativeLeaseError::Unavailable); // reservation release cannot restore availability
+        }
+        Ok(NativeMigrationBorrow {
+            original: Arc::clone(&self.lock),
+            _scope: reservation,
+        })
+    }
+    fn refuse(&self) {
+        self.available.store(false, Ordering::Release);
+        // Poison is itself permanent unavailability; never recover the guard
+        // or reconstruct an authority snapshot from its possibly partial data.
+        if let Ok(mut slot) = self.original.lock()
+            && let Some(held) = slot.as_mut()
+        {
+            held.engine.revoke_native();
+        }
+    }
+    fn borrow_checked(&self, paths: &CutoverPaths, uid: u32) -> Result<(), ()> {
+        let mut held = self.original.lock().map_err(|_| ())?;
+        let held = held.as_mut().ok_or(())?;
+        if !Arc::ptr_eq(&held.lock, &self.lock)
+            || !held.engine.ordinary_lease_held()
+            || held.failed_lock.is_some()
+        {
+            return Err(());
+        }
+        held.engine.check_ordinary_lease_prefix()?;
+        let actual = self.lock.get().ok_or(())?;
+        current_ordinary_lease(actual, paths, uid, self.generation)
+    }
+}
+fn current_ordinary_lease(
+    actual: &MigrationLock,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+) -> Result<(), ()> {
+    if !actual.authorizes(paths, uid)
+        || !read_marker_existing(paths, uid).is_ok_and(|marker| {
+            marker.phase() == OwnershipPhase::Rust && marker.generation() == generation
+        })
+        || crate::pending_private_transaction::pending_at(&paths.state_directory)
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn native_ordinary_scope_busy_never_releases_the_other_borrow() {
+    let scope = Arc::new(AtomicBool::new(false));
+    let available = Arc::new(AtomicBool::new(true));
+    let first = NativeScopeBorrow::reserve(&scope, &available).unwrap();
+    for _ in 0..3 {
+        assert!(matches!(
+            NativeScopeBorrow::reserve(&scope, &available),
+            Err(NativeLeaseError::Busy)
+        ));
+        assert!(scope.load(Ordering::Acquire));
+    }
+    drop(first);
+    assert!(available.load(Ordering::Acquire));
+    let second = NativeScopeBorrow::reserve(&scope, &available).unwrap();
+    assert!(scope.load(Ordering::Acquire));
+    drop(second);
+    assert!(!scope.load(Ordering::Acquire));
+}
+
+#[cfg(test)]
+#[test]
+fn native_ordinary_scope_unwind_cannot_restore_available_authority() {
+    let scope = Arc::new(AtomicBool::new(false));
+    let available = Arc::new(AtomicBool::new(true));
+    let result = std::panic::catch_unwind(|| {
+        let _original_scope = NativeScopeBorrow::reserve(&scope, &available).unwrap();
+        panic!("public inert scope cut");
+    });
+    assert!(result.is_err());
+    assert!(!scope.load(Ordering::Acquire));
+    assert!(!available.load(Ordering::Acquire));
+}
+
+#[cfg(test)]
+#[test]
+fn native_ordinary_current_marker_pending_and_lease_drift_are_permanent_refusal() {
+    use std::fs;
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let root = crate::test_temp::directory_under(
+        Path::new(&std::env::var_os("HOME").unwrap()),
+        "t4-ordinary-drift",
+    )
+    .unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    for cut in ["marker", "pending", "lease"] {
+        let base = root.join(cut);
+        fs::DirBuilder::new().mode(0o700).create(&base).unwrap();
+        let paths = CutoverPaths::below(&base, &base, nix::unistd::getuid().as_raw());
+        let uid = nix::unistd::getuid().as_raw();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&paths.state_directory)
+            .unwrap();
+        let marker = br#"{"schemaVersion":1,"generation":2,"phase":"rust"}"#;
+        fs::write(&paths.ownership_marker, marker).unwrap();
+        fs::set_permissions(&paths.ownership_marker, fs::Permissions::from_mode(0o600)).unwrap();
+        let actual = Arc::new(OnceLock::from(MigrationLock::acquire(&paths, uid).unwrap()));
+        // Real retained/named lease and marker checks, not a native completion
+        // issuer. The reserved empty engine below cannot grant native effects.
+        assert!(current_ordinary_lease(actual.get().unwrap(), &paths, uid, 2).is_ok());
+        let original = Arc::new(Mutex::new(Some(RecoveryHeld {
+            lock: Arc::clone(&actual),
+            failed_lock: None,
+            scope: Arc::new(AtomicBool::new(false)),
+            boundary: None,
+            authenticated: None,
+            host: None,
+            engine: crate::manager_actor_service::NativeEngine::reserve(),
+            facts: None,
+        })));
+        let keeper = NativeOrdinaryLease {
+            original: Arc::clone(&original),
+            lock: Arc::clone(&actual),
+            available: Arc::new(AtomicBool::new(true)),
+            paths: paths.clone(),
+            uid,
+            generation: 2,
+            scope: Arc::new(AtomicBool::new(false)),
+        };
+        match cut {
+            "marker" => fs::write(&paths.ownership_marker, b"{}").unwrap(),
+            "pending" => fs::write(
+                paths
+                    .state_directory
+                    .join(crate::restore_closure_model::CLOSURE_MEMBER),
+                b"foreign",
+            )
+            .unwrap(),
+            "lease" => fs::rename(&paths.operation_lock, base.join("original-lock")).unwrap(),
+            _ => unreachable!(),
+        }
+        assert!(current_ordinary_lease(actual.get().unwrap(), &paths, uid, 2).is_err());
+        keeper.refuse(); // exact production irreversible refusal operation
+        match cut {
+            "marker" => fs::write(&paths.ownership_marker, marker).unwrap(),
+            "pending" => fs::remove_file(
+                paths
+                    .state_directory
+                    .join(crate::restore_closure_model::CLOSURE_MEMBER),
+            )
+            .unwrap(),
+            "lease" => fs::rename(base.join("original-lock"), &paths.operation_lock).unwrap(),
+            _ => unreachable!(),
+        }
+        assert!(current_ordinary_lease(actual.get().unwrap(), &paths, uid, 2).is_ok());
+        assert!(matches!(
+            keeper.borrow(&paths, uid),
+            Err(NativeLeaseError::Unavailable)
+        ));
+        assert!(!keeper.available.load(Ordering::Acquire));
+        assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+        drop((keeper, original, actual)); // known wholly local fixture, no uncertain actor
+        drop(MigrationLock::acquire_existing(&paths, uid).unwrap());
+        fs::remove_dir_all(base).unwrap();
+    }
+    fs::remove_dir(root).unwrap();
 }
 
 /// Private loan minted only from the moved original holder under its mutex.
@@ -156,6 +439,43 @@ impl NativeMutationLease<'_, '_> {
     }
 }
 impl NativeSteadyCompletion {
+    pub(crate) fn ordinary_origin(&self) -> Result<NativeOrdinaryLease, ()> {
+        let result = self.ordinary_origin_inner();
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+            if let Ok(mut slot) = self.original.lock()
+                && let Some(held) = slot.as_mut()
+            {
+                held.engine.revoke_native();
+            }
+        }
+        result
+    }
+    fn ordinary_origin_inner(&self) -> Result<NativeOrdinaryLease, ()> {
+        self.recheck()?;
+        let mut slot = self.original.lock().map_err(|_| ())?;
+        let held = slot.as_mut().ok_or(())?;
+        let facts = held.facts.as_ref().ok_or(())?;
+        if !held.engine.disposition_ready()
+            || held.failed_lock.is_some()
+            || held.lock.get().is_none()
+        {
+            return Err(());
+        }
+        let result = NativeOrdinaryLease {
+            original: Arc::clone(&self.original),
+            lock: Arc::clone(&held.lock),
+            available: Arc::clone(&self.available),
+            paths: facts.paths.clone(),
+            uid: facts.uid,
+            generation: facts.marker.generation(),
+            scope: Arc::clone(&held.scope),
+        };
+        // Original table stays retained; older completion proof is consumed.
+        // Later ordinary operations use fresh ordinary state, not OriginFacts.
+        held.engine.consume_into_ordinary_lease()?;
+        Ok(result)
+    }
     pub(crate) fn with_mutation<T>(
         &self,
         operation: impl FnOnce(&mut NativeMutationLease<'_, '_>) -> Result<T, ()>,
@@ -187,7 +507,7 @@ impl NativeSteadyCompletion {
             return Err(());
         }
         let mut origin = NativeRecoveryOrigin {
-            lock: lock.as_ref().ok_or(())?,
+            lock: lock.get().ok_or(())?,
             boundary: boundary.as_ref().ok_or(())?,
             host: host.as_mut().ok_or(())?,
             paths: &facts.paths,
@@ -240,7 +560,7 @@ impl NativeSteadyCompletion {
         } = held;
         let facts = facts.as_ref().ok_or(())?;
         let mut origin = NativeRecoveryOrigin {
-            lock: lock.as_ref().ok_or(())?,
+            lock: lock.get().ok_or(())?,
             boundary: boundary.as_ref().ok_or(())?,
             host: host.as_mut().ok_or(())?,
             paths: &facts.paths,
@@ -502,6 +822,25 @@ impl NativeRecoveryOrigin<'_> {
 
 #[allow(dead_code)]
 impl FreshRecovery {
+    #[cfg(test)]
+    pub(crate) fn ordinary_owner(
+        &mut self,
+    ) -> Option<
+        &mut crate::production_owner::ProductionNativeOwner<
+            crate::native_host::NativeLifecycleHost,
+        >,
+    > {
+        // Test selector uses the real existing coordinator methods, never a
+        // second per-operation writer API or copied completion grant.
+        self.normal_owner.as_mut()
+    }
+    pub(crate) fn activate_ordinary_owner(&mut self) -> Result<(), FirstError> {
+        self.normal_owner
+            .as_mut()
+            .ok_or(FirstError::StillFenced)?
+            .activate_native_ordinary_lease()
+            .map_err(|_| FirstError::StillFenced)
+    }
     pub(crate) fn completed_owner_onboarding(
         &mut self,
         request: &serde_json::Value,
@@ -544,7 +883,7 @@ impl FreshRecovery {
             } = slot.as_mut().ok_or(FirstError::StillFenced)?;
             let facts = facts.as_ref().ok_or(FirstError::StillFenced)?;
             let mut origin = NativeRecoveryOrigin {
-                lock: lock.as_ref().ok_or(FirstError::StillFenced)?,
+                lock: lock.get().ok_or(FirstError::StillFenced)?,
                 boundary: boundary.as_ref().ok_or(FirstError::StillFenced)?,
                 host: host.as_mut().ok_or(FirstError::StillFenced)?,
                 paths: &facts.paths,
@@ -610,7 +949,7 @@ impl FreshRecovery {
                     return false;
                 };
                 held.lock
-                    .as_ref()
+                    .get()
                     .is_some_and(|lock| lock.authorizes(paths, uid))
                     && held.engine.recovery_held()
             })
@@ -628,7 +967,9 @@ impl FreshRecovery {
         }
         Ok(Self {
             original: Arc::new(Mutex::new(Some(RecoveryHeld {
-                lock: None,
+                lock: Arc::new(OnceLock::new()),
+                failed_lock: None,
+                scope: Arc::new(AtomicBool::new(false)),
                 boundary: Some(Boundary::reserve_installed()?),
                 authenticated: None,
                 host: None,
@@ -747,8 +1088,14 @@ impl FreshRecovery {
         {
             return Err(FirstError::Admission);
         }
-        held.lock =
-            Some(MigrationLock::acquire_existing(&paths, uid).map_err(|_| FirstError::Admission)?);
+        let reported =
+            MigrationLock::acquire_existing(&paths, uid).map_err(|_| FirstError::Admission)?;
+        if let Err(reported) = held.lock.set(reported) {
+            // This private single-writer slot was empty before acquisition;
+            // retain any positively reported value if that invariant fails.
+            held.failed_lock = Some(reported);
+            return Err(FirstError::StillFenced);
+        }
         Boundary::capture_native_paths(&paths, &host_paths.store, uid, &mut held.boundary)?;
         let normal_paths = NativeHostPaths::new(
             host_paths.core.clone(),
@@ -778,6 +1125,7 @@ impl FreshRecovery {
             host,
             engine,
             facts,
+            ..
         } = held;
         let boundary = boundary.as_ref().ok_or(FirstError::Admission)?;
         let original_member = |index: usize, maximum| {
@@ -789,7 +1137,7 @@ impl FreshRecovery {
                 .transpose()
         };
         let mut origin = NativeRecoveryOrigin {
-            lock: lock.as_ref().ok_or(FirstError::Admission)?,
+            lock: lock.get().ok_or(FirstError::Admission)?,
             boundary,
             host: host.as_mut().ok_or(FirstError::Admission)?,
             paths: &paths,
@@ -824,7 +1172,7 @@ impl FreshRecovery {
                 &normal_store,
                 paths.clone(),
                 uid,
-                lock.as_ref().ok_or(FirstError::Admission)?,
+                lock.get().ok_or(FirstError::Admission)?,
                 &mut admission,
             )
             .map_err(|_| FirstError::StillFenced)?;

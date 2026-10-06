@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 pub(crate) struct HeldExecution {
     // Each reported object is inserted before the next fallible operation.
-    lock: Option<MigrationLock>,
+    lock: Option<crate::connection_transaction::MigrationLease>,
     boundary: Option<Boundary>,
     authenticated: Option<omavless_domain::private_backup::OpenedBackup>,
     prepared: Option<PreparedRestorePair>,

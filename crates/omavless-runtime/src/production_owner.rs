@@ -163,6 +163,15 @@ pub(crate) enum NativeCompletedRead {
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn activate_native_ordinary_lease(&mut self) -> Result<(), ProductionOwnerError> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        self.coordinator
+            .activate_native_ordinary_lease()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn dispatch_native_completed_onboarding(
         &mut self,
         request: &serde_json::Value,

@@ -689,3 +689,169 @@ absent pending fences and still-held original lease. No installed application
 store, private profiles, services or network were changed. This is one actual
 ordinary store mutation under consuming disposition, not general/repeated
 mutations, installed current()/login, restart, power-loss or full T4 acceptance.
+
+## Original ordinary lease scope successor (source; VM pending)
+
+The next developer-feature cut consumes the same completed engine into the
+ordinary coordinator's existing migration-lease scope. Its original
+`MigrationLock` is installed once in a pre-reserved `Arc<OnceLock<_>>`; borrowers
+retain that same object, not a cloned/reopened flock. The already installed
+holder keeps the authenticated backup, lower ledger, singleton and original
+boundaries. No occupied slot is taken and reinserted around fallible work.
+The transaction destination is occupied before its first post-transfer check,
+including refusal. The former completion consultation is consumed and cannot
+serve as a frozen-Off exception after current store/settings changes.
+
+Every ordinary lease entry requires the original named migration lease, current
+Rust marker generation, no pending transaction, and the same held singleton
+lock/socket/parent. Shared in-process scope reservation excludes a simultaneous
+borrow from this same flock. Scope contention is transient Busy; identity,
+marker or pending drift permanently denies the origin and revokes the engine.
+Unwind releases the scope bit but irreversibly clears availability, without
+unlocking or dropping its original graph. Restoring a pathname or marker cannot
+revive that context. Ordinary parsers, scheduler/revision/replay, preflight and
+effect implementations remain the consumers; there is no writer API for each
+operation. Default acquisition and startup policies are unchanged.
+
+The local controls separately exercise the real lease's held/named checks,
+marker/pending refusal and restoration, one-object pointer/drop/unwind custody,
+same-scope Busy, and the actual engine singleton post-disposition drift gate.
+These are owned local filesystem tests, not issuers of real manager authority.
+The descriptor role ceiling is unchanged: OnceLock/Arc/scope storage adds no
+persistent descriptor or imported FD role. Existing cooperative same-UID
+pathname-race and nonfatal-process availability limits still apply.
+
+NEW fixed scenario26 has four independently selected ignored phases, with
+original exit0 required before the next phase: real-owner MIXED producer, new
+authenticated rollback, consuming disposition with repeated **ordinary**
+onboarding/settings changes plus Replay/NoChange and current status/store, then
+independently admitted normal bind/initialize and another Off settings change.
+The final process does not decode history or reconstruct a completion grant.
+Normal singleton binding adjudicates the preceding process's stale private
+endpoint under its unchanged exclusive owner-lock policy; real manager units
+and native host inventory are checked first. No transition-observer socket
+absence predicate is relaxed. Each phase reserves/retains its reported graph
+and uses its own 90-second sampled whole budget. Source helpers keep the prior
+scenario25's fixed paths and phase markers unchanged.
+
+At the source15a freeze, scenario26 was unexecuted. Its positive scope is
+isolated fixture initialization/repeated mutation/restart, not installed
+application-store/login/current() admission, late power-loss reconciliation,
+arbitrary hostile same-UID races, default registration or full T4 acceptance.
+
+### Exact actual26 ordinary scope
+
+ROOT selected frozen `15a06b79cb4666bc6883810d64941802f793e58e` on disposable
+BOOT `6ec9b83f-29c7-4034-9401-c0e83e9243ed`, positively observed `84061e`.
+The current gate's only change was BOOT (normalized complete AST `f5c8f5`);
+13 pure packet controls passed `79c6e5`. Source PRIMARY and independent affected
+reviews preceded selection. Real normal VM services were inactive (`a48700`).
+Four public uploads and complete held/named nine-field metadata/hash/no-xattr
+admission passed before sole test-image chmod500; fixture prepare `0902b8`
+completed0. ROOT then selected each original separately:
+
+- producer `7f5cb9`, observer `6e1fb4`: stdout272 bytes SHA256
+  `0703d7bf2dca9923a601be813053500c293b9d55cc790482e22b94021bc1a894`;
+- authenticated rollback `a647e7`, observer `5bb7b4`: stdout282 bytes SHA256
+  `abf81184f908d5bc526a880a630ead124b74a619e10c3485280d067518b626d3`;
+- consuming original lease/repeated ordinary mutations `29703` → `c986e4`,
+  observer `6b292b`: stdout288 bytes SHA256
+  `5e422c589c1be7d22168983de3c9abbdabf6b656f5a5e875dc79669a88945adb`;
+- independent normal initialize/restart `dae09c`, observer `4c7ce1`: stdout288
+  bytes SHA256
+  `73e37fbcef2a23eef470e42b2c22bb0f0c805e86221fb6cc7d65af3b3e720e64`.
+
+Every original SSH/test completed0; every separate fixed-file projection had
+one exact marker and one successful harness, empty stderr and no refusal label.
+This is isolated private-fixture ordinary mutation and independent initialization
+evidence, not current()/login/registered dispatcher or whole T4 acceptance.
+No installed current store, private profiles, network/core or service state was
+changed. Source26's earlier source-only status above belongs to that frozen
+head; this successor records later evidence, not a retroactive rewrite.
+
+## Registered fixture RPC successor (source; actual pending)
+
+One NEW process after all four exact26 original0 results uses the unchanged
+normal `RuntimeServer::bind`, `ProductionNativeOwner::initialize`, registration,
+credential/frame/dispatcher and client paths against that private persistent
+pair. It does not borrow former FDs, decode history, call current(), fabricate
+loginReady or weaken package/user-manager invocation rules. The normal binder
+owns stale private endpoint adjudication; no source test repairs an old epoch.
+
+The seven fixed RPCs are status, profiles list, onboarding NoChange, its Replay,
+capabilities, deliberate startup.configure refusal, then status. The fixture
+already has onboardingComplete true: this is real harmless **NoChange** RPC
+admission, not a claimed changed store effect. Store bytes remain equal.
+startup.configure must stay absent from advertised methods and return
+capability_unavailable because the independently initialized owner is not an
+installed-login issuer. Real mutation effects were proved separately in26.
+
+A fixed preinstalled test graph holds the server, reported owner, seven accepts
+and one original client-thread handle. Positive accepts are retained before
+postchecks. After successful handler/frame completion, its same stream's write
+direction is positively shut down to supply normal response EOF while retaining
+the descriptor; failure admits no next request. Replies are inspected only after
+that terminal original thread is
+joined. Invalid/missing/expired/full entry refuses before a client is started.
+Any error/unwind retains reported objects without server cleanup, retry or a
+new dependent RPC; fatal process loss means unavailable. Normal backend
+unreported-acquisition guarantees are not broadened. RLIMIT32 is necessary only,
+not a global free-FD assertion. Each whole test uses a sampled90s budget and the
+existing bounded client/handler IO contracts, not hard cancellation.
+
+Local source controls verify refusal ordering, closed result expectations and
+the real local Unix credential/frame/handle path with a read-only server. That
+last control does not mint native ownership. Installed current/login remains a
+separate genuine normal-unit/disposable-store gate; this test cannot satisfy
+login_activation's fixed installed-executable and actual manager-epoch checks.
+
+### Exact actual27 registered-fixture scope
+
+ROOT selected the reviewed `36b4456ccd091dcd44fd1c762e08c16e3c5e0c15` and its
+sealed 24,877,048-byte ELF SHA256
+`3461d8872766ab091e09a1a74035ccfd75cbb31af7d8788bb73b0fb8b3b985e1`.
+The fresh BOOT was `665f4bbe-daa2-48ce-8a2a-5b413d332b21`, positively observed
+by original SSH `e46653`. The current gate's only change was BOOT; its SHA256
+was `3ec66415a7d285cc17eaa7068c8b2bc75ad12ab82558672da625a0e5ceda8379`.
+PRIMARY packet/source and independent affected source/packet reviews preceded
+selection (`8750bb` / `2ef020` independent packet review).
+
+Complete public payload admission `b82b0c` completed0; all payloads were400
+before sole test-image chmod500. Prepare `81f3ef` completed0: persistent26 data
+was reread without modification, only the absent volatile tree was recreated,
+and no former receipt or lease authority was copied across administrative reboot.
+Original registered RPC `ac0708` completed SSH/test0. The separately selected
+fixed-file observer `5e6917` completed0 and reported stdout287 bytes SHA256
+`a7568c05aad4edf7cedeb6b4ba26095f6d2c4daa1aa7446a65e5552948994364`,
+one exact marker, one successful harness and no refusal labels; stderr was empty.
+
+The seven genuine private-endpoint RPC assertions passed: normal initialized
+ownership/status/list, onboarding NoChange and its same-operation replay path,
+capabilities, deliberate startup.configure unavailability and final status.
+This does not add a distinct wire replay attestation or claim a changed store
+effect; current store bytes were asserted unchanged. It is not current()/login,
+installed application-store, late crash/power-loss or whole T4 acceptance.
+No normal registration/default was changed by the source test, and ROOT alone
+performed the disposable-VM actions. This documentation successor changes no
+tested Rust byte or ELF and does not retroactively rewrite the frozen head.
+
+### Exact014 CI failure and test-only source-retention correction
+
+The Test job for `014598903876f7043a31884c7faad2d80f11f778` failed in
+[run37476210839/job112312159738](https://github.com/k-kostin/omavless/actions/runs/37476210839/job/112312159738):
+`disposition_policy_static_caller_matrix_keeps_existing_presence_fences` expected
+the old direct predicate spelling around `fresh_observation`. The runtime suite
+reported 1205 passed, one failed, 46 ignored and one filtered; both native package
+jobs succeeded. This negative belongs to that exact head and is preserved.
+
+The current test-only correction follows the existing delegation from ordinary
+readiness through `with_created_stage(None)` to the common predicate helper,
+requires its before/after observation guards, and retains the conservative
+`None` fallback. Negative source controls remove each delegation, each guard or
+that fallback and require refusal. These are source-retention checks, not a
+parser, new runtime admission or behavioral proof. No runtime, fence, feature or
+packaging source changes. The separately sealed exact014 ordinary ELF/package
+and earlier actual26/27 evidence remain unchanged; this correction does not
+claim a new complete CI result or installed current/login/Restore acceptance.
+Local correction checks passed: the exact former failing test (one), all eight
+`proposed_policy` tests, default all-target strict Clippy and workspace fmt.
