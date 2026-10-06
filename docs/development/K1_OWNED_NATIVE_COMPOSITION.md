@@ -579,3 +579,41 @@ library Clippy, scoped formatting and diff checks passed. The first test compile
 refused an ambiguous diagnostic-module import; the explicit module path fixed
 that test-only error before the final gates. No VM invocation or release/native
 ELF rebuild is included in this SOURCE checkpoint.
+
+### Development VM prerequisites before network-preparation admission
+
+The disposable VM's ordinary prerequisites must be verified **before** selecting
+the fixed network-preparation recipe, not discovered through repeated effecting
+wrappers. A fresh boot alone does not imply these prerequisites are ready:
+
+- Confirm the exact newly admitted boot, inactive normal runtime, absent fixed
+  TUN/link/netns/recipe scope paths, and the unchanged pinned service image.
+- Confirm `/sys/module/tun` is the admitted root-owned directory and
+  `/sys/kernel/btf/tun` the admitted root-owned regular BTF file, neither writable
+  by group/others. If absent, the VM operator may separately authorize the fixed
+  ordinary `modprobe tun` action, then verify both paths. Never substitute a
+  missing BTF file or weaken the module/type/ownership checks.
+- Confirm the normal user login-prepare unit completed successfully for this
+  boot and its genuine `/run/user/1000/omavless-login.receipt` exists with the
+  required user ownership, single-link0600 shape and bounded size. Do not copy
+  an old receipt or manufacture a current one. Preparation's metadata check is
+  readiness only: the normal Rust constructor still checks the original startup
+  receipt, ownership generation and pending fences.
+
+In the fixed recipe, module/BTF checks precede service-image and receipt checks;
+receipt absence alone cannot explain a refusal when the earlier module checks
+also fail. A known original exit2 at `PREFLIGHT`, with `attempted=false`, proves
+the wrapper did not enter its `NETWORK_COMMAND`/spawn path. It does **not** alone
+prove no filesystem publication: the scope mkdir immediately precedes that
+phase assignment. A separately admitted bounded scope/link/netns absence check,
+the unchanged no-cleanup source and no intervening removal premise are required
+before classifying an exact refusal as pre-effect and admitting a new ordinary
+preparation. Read-only builder descriptors may have existed; do not claim all
+descriptor custody from this classification.
+
+This does not permit retrying a parked native original, compensate an uncertain
+effect, adopt old durable/kernel state or declare native completion. Preserve
+each refused preparation and its original result separately from a later newly
+admitted preparation, and require the latter's original zero before selecting
+the one retained foreground native run. Native effect selection remains solely
+with the VM operator; preparation never executes the native root through SSH.
