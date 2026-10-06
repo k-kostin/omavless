@@ -16,6 +16,12 @@ use zeroize::Zeroizing;
 
 #[path = "restore_first_execution.rs"]
 mod first_execution;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use first_execution::FirstError as NativeFirstError;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(super) use first_execution::HeldExecutionSlot;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use first_execution::NativeSessionOrigin;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RestoreAdmissionError {
@@ -116,6 +122,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         source: &Path,
         passphrase: &[u8],
     ) -> Result<PreparedRestorePair, RestorePrepareError> {
+        if self.retained_restore_busy() {
+            return Err(RestorePrepareError::Owner(
+                RestoreAdmissionError::RecoveryRequired,
+            ));
+        }
         let incoming = open_existing(source, self.transaction.uid(), passphrase)
             .map_err(RestorePrepareError::Backup)?;
         let lock = self.transaction.acquire_lock().map_err(|error| {
@@ -136,6 +147,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         source: &Path,
         passphrase: &[u8],
     ) -> Result<(), RestoreStageError> {
+        if self.retained_restore_busy() {
+            return Err(RestoreStageError::Prepare(RestorePrepareError::Owner(
+                RestoreAdmissionError::RecoveryRequired,
+            )));
+        }
         let incoming = open_existing(source, self.transaction.uid(), passphrase)
             .map_err(|error| RestoreStageError::Prepare(RestorePrepareError::Backup(error)))?;
         let lock = self.transaction.acquire_lock().map_err(|error| {
@@ -163,6 +179,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         incoming: OpenedBackup,
         lock: &MigrationLock,
     ) -> Result<PreparedRestorePair, RestorePrepareError> {
+        let (original, restore_store, readiness) = self.prepare_restore_parts(&incoming, lock)?;
+        Ok(PreparedRestorePair {
+            original,
+            incoming,
+            restore_store,
+            readiness,
+        })
+    }
+
+    fn prepare_restore_parts(
+        &mut self,
+        incoming: &OpenedBackup,
+        lock: &MigrationLock,
+    ) -> Result<(PrivateSourcePair, Zeroizing<Vec<u8>>, RestoreReadiness), RestorePrepareError>
+    {
         let restore_store = incoming
             .restore_store_off()
             .map_err(|_| RestorePrepareError::ImportedStartup)?;
@@ -196,12 +227,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 RestoreAdmissionError::ObservationUnavailable,
             ));
         }
-        Ok(PreparedRestorePair {
-            original,
-            incoming,
-            restore_store,
-            readiness,
-        })
+        Ok((original, restore_store, readiness))
     }
 
     /// No IPC, UI, CLI, file mutation or VPN effect. A connected or uncertain
@@ -211,6 +237,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn restore_readiness_candidate(
         &mut self,
     ) -> Result<RestoreReadiness, RestoreAdmissionError> {
+        if self.retained_restore_busy() {
+            return Err(RestoreAdmissionError::RecoveryRequired);
+        }
         let lock = self
             .transaction
             .acquire_lock()
@@ -235,6 +264,28 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         lock: &MigrationLock,
         created: Option<&crate::restore_staging_candidate::CreatedStage>,
     ) -> Result<RestoreReadiness, RestoreAdmissionError> {
+        self.restore_readiness_with_pending_check(lock, created.is_some(), |paths, uid| {
+            first_execution::pending_allowed(paths, uid, created)
+        })
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn restore_readiness_with_native_stage(
+        &mut self,
+        lock: &MigrationLock,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+    ) -> Result<RestoreReadiness, RestoreAdmissionError> {
+        self.restore_readiness_with_pending_check(lock, view.stage_present(), |paths, uid| {
+            view.pending_allowed(paths, uid)
+        })
+    }
+
+    fn restore_readiness_with_pending_check(
+        &mut self,
+        lock: &MigrationLock,
+        owned_pending: bool,
+        pending_allowed: impl Fn(&DesiredPaths, u32) -> bool,
+    ) -> Result<RestoreReadiness, RestoreAdmissionError> {
         let fence = self
             .required_ownership
             .filter(|fence| fence.phase == OwnershipPhase::Rust)
@@ -248,7 +299,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::OwnershipUnavailable);
         }
-        if (if created.is_some() {
+        if (if owned_pending {
             self.transaction.independently_blocked()
         } else {
             self.transaction.blocked()
@@ -271,8 +322,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::Busy);
         }
-        if !first_execution::pending_allowed(self.transaction.desired_paths(), self.uid(), created)
-        {
+        if !pending_allowed(self.transaction.desired_paths(), self.uid()) {
             return Err(RestoreAdmissionError::RecoveryRequired);
         }
         let desired =
@@ -303,8 +353,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::OwnershipUnavailable);
         }
-        if !first_execution::pending_allowed(self.transaction.desired_paths(), self.uid(), created)
-        {
+        if !pending_allowed(self.transaction.desired_paths(), self.uid()) {
             return Err(RestoreAdmissionError::RecoveryRequired);
         }
         Ok(RestoreReadiness {

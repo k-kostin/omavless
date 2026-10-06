@@ -25,6 +25,11 @@ use std::mem::MaybeUninit;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::time::Instant;
 
+#[path = "manager_actor_stage/native.rs"]
+mod native;
+pub(crate) use native::NativeStep;
+pub(crate) use native::{NativeEngine, NativeStageView};
+
 const TRANSACTION: &str = "authenticated-transaction";
 const LIVE: [(Slot, &str); 2] = [
     (Slot::OldStore, "profiles.json"),

@@ -13,6 +13,8 @@ mod retained_io;
 mod stage;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
+pub(crate) use stage::NativeStep;
+pub(crate) use stage::{NativeEngine, NativeStageView};
 pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;
 pub(crate) const CANONICAL_COMMIT_ORIGIN_FENCES: usize = stage::COMMIT_ORIGIN_FENCES;
 pub(crate) const CANONICAL_INSPECT_ORIGIN_FENCES: usize = stage::INSPECT_ORIGIN_FENCES;

@@ -270,3 +270,81 @@ is outside Git and has safe ancestors; no existing runtime entry is queried or
 modified. Earlier full-suite HOME/Git/socket and inherited-umask failures stay
 NONPASS, separate from the focused 77 service/51 canonical controls and this
 ROOT-operated VM result. Complete source-suite receipts remain exact-head gates.
+
+## Private native-owner retained continuation
+
+The developer-only `t4-manager-actor-service` successor now composes the retained
+pair engine **in process** under the genuine existing native `Session`. It has
+no command, socket dispatch, startup registration or public issuer. It does not
+change the canonical actor's root-owned `/run` hierarchy or inactive-unit policy.
+The separate native origin takes fixed product paths, UID, ownership generation,
+revision and batch-instance expectation only from the continuously borrowed
+actual coordinator, authenticated pair and original boundary. Effective and
+real IDs must agree. No serialized Session, recreated readiness grant or
+imported `CreatedStage` supplies admission.
+
+One private coordinator slot is installed before lease acquisition and retains
+the actual `MigrationLock`, reported boundary originals, authenticated prepared
+bytes and lower engine. Local Arc clones refer to this **same installed slot**;
+the slot is never taken out around an effect. Reported final directory probes
+are inserted in the boundary before their postchecks; only completely positive
+probes are released. Constructor-internal/unreported handles and fatal process
+loss remain the unchanged backend/trusted-administrator boundary, not a new
+generic ownership guarantee.
+
+Each reached engine fence borrows the same live Session. It rechecks the held
+lease and original ownership/Desired/login/path bindings, current disconnected
+host observation, queue/auxiliary exclusion, original revision/generation and
+instance. The borrowed native Stage view accepts only this engine's positively
+held directory and files; it is not the historical Stage-name grant. Directory
+membership is captured before effects, bounded to 128 names of at most 255 bytes
+for each config/state directory, and repeated with only the engine's explicit
+owned additions. Other baseline names confer no content or mutation authority.
+The original five-member stage catalogue is exact, including intermediate
+creation prefixes. Held/named identities, xattr absence, bounded bytes and
+digests are checked around each Session consultation. Completed probe release
+does not promise custody of that already-positive probe after a later refusal.
+
+The engine uses the original FileIo ledger and same ordered two replacement
+writes then two descriptor-relative renames. Normal native replacement names
+are exclusive; preexisting OLD/NEW slots refuse before staging. ORIGINAL OLD
+Files remain held after their own unlink. Only the exact positive own-rename
+step advances expected link count/ctime; it does not exempt unrelated drift.
+Intent, StageIdentity, exclusive Committed terminal, exact NEW/readback and the
+existing DecisionChain/LivePairClass rules precede the final native fence.
+The successful result remains `CommittedStillFenced`; no stale-store ordinary
+operation can resume. There is no automatic rollback, cleanup or retirement.
+
+The lower engine reserves its unchanged 36 roles. A conservative native slot
+envelope is 48 reported roles: those 36, two lease Files, eight boundary
+originals, one acquisition-prefix slot and one original-directory probe slot.
+The selected completed path uses 19 lower originals plus those eight boundary
+originals, two lease Files and at most one probe (30). This is accounting for
+this private execution, **not** a whole native process FD-table/RLIMIT proof or
+the canonical actor's 8,320 ceiling. Fixed catalogue storage is reserved before
+effects; prepared private bytes retain their existing bounds and zeroizing
+ownership. There is one sampled 45-second engine budget and no failed-operation
+deadline restart.
+
+Occupied-slot guards run before ordinary admission/replay/scheduling, startup
+reconciliation, batch lease/initialization/progress/cancellation/completion,
+promotion, backup/staging/retirement entry and owned host/store projections.
+The feature-only `host_mut` gate refuses before returning a mutable reference.
+Err and caught unwind keep the slot occupied; poisoned mutexes have no fallback
+or reset. Losing this owning slot deliberately retains its same Arc graph for
+the process lifetime rather than silently releasing the uncertain nonfatal
+lease/prefix. No recovery API can retrieve or adopt that graph; process death
+means unavailable, never descriptor survival.
+
+New local filesystem controls execute the genuine coordinator's authenticated
+store/template preparation and retained engine. They cover successful real-file
+Commit while still fenced; Err/unwind after the original lease and each ready,
+Intent, replacement, rename and terminal boundary; same-byte named replacement,
+staged-content corruption, stage-directory replacement, optional-login appearance
+and config/state/stage membership drift. They verify no compensation, re-entry
+or ordinary host/store projection and that the original lease remains busy,
+including owning-slot Drop. These tests use an explicitly synthetic idle host;
+they are not normal installed-service or VM acceptance. The previous exact
+`5f91ca50` synthetic rollback receipt remains separate and is not inherited by
+this native-owner source successor. Independent custody/Drop/mutation-entry
+review and a separately selected real native-owner gate remain required.

@@ -28,6 +28,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         destination: &Path,
         passphrase: &[u8],
     ) -> Result<(), BackupCreateError> {
+        if self.retained_restore_busy() {
+            return Err(BackupCreateError::RecoveryRequired);
+        }
         let fence = self
             .required_ownership
             .filter(|fence| fence.phase == OwnershipPhase::Rust)

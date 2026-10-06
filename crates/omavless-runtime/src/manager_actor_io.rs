@@ -199,6 +199,52 @@ pub(super) struct ChildPlan {
 }
 
 impl FileIo {
+    pub(super) fn native_entropy(
+        &mut self,
+        gate: impl FnMut() -> Result<(), Unavailable>,
+    ) -> Result<(), Unavailable> {
+        self.ledger.acquire(
+            Slot::Scratch7,
+            gate,
+            || {
+                open(
+                    "/dev/urandom",
+                    OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )
+                .map(File::from)
+                .map_err(|_| Unavailable)
+            },
+            |_| Ok(()),
+        )
+    }
+    pub(super) fn clone_original(
+        &mut self,
+        slot: Slot,
+        source: &File,
+        gate: impl FnMut() -> Result<(), Unavailable>,
+    ) -> Result<(), Unavailable> {
+        self.ledger.acquire(
+            slot,
+            gate,
+            || source.try_clone().map_err(|_| Unavailable),
+            |_| Ok(()),
+        )
+    }
+    pub(super) fn native_admit(&mut self) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            self.revoke();
+            return Err(Unavailable);
+        }
+        self.ledger.state = State::Live;
+        Ok(())
+    }
+    pub(super) fn original(&self, slot: Slot) -> Result<&File, Unavailable> {
+        if self.ledger.state != State::Live {
+            return Err(Unavailable);
+        }
+        self.ledger.slots[slot as usize].as_ref().ok_or(Unavailable)
+    }
     #[cfg(test)]
     pub(super) fn local_files(files: Vec<(Slot, File)>) -> Self {
         // Real locally owned originals only. This test adapter supplies no

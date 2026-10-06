@@ -36,6 +36,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn publish_restore_completion_candidate(
         &mut self,
     ) -> Result<ClosurePublicationResult, RestoreFinalizeError> {
+        if self.retained_restore_busy() {
+            return Err(RestoreFinalizeError::Owner(
+                RestoreAdmissionError::RecoveryRequired,
+            ));
+        }
         let lock = self.transaction.acquire_lock().map_err(|error| {
             RestoreFinalizeError::Owner(match error {
                 ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,
@@ -87,6 +92,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn finalize_terminal_restore_candidate(
         &mut self,
     ) -> Result<FinalizeResult, RestoreFinalizeError> {
+        if self.retained_restore_busy() {
+            return Err(RestoreFinalizeError::Owner(
+                RestoreAdmissionError::RecoveryRequired,
+            ));
+        }
         let lock = self.transaction.acquire_lock().map_err(|error| {
             RestoreFinalizeError::Owner(match error {
                 ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,
@@ -149,6 +159,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn retire_terminal_restore_candidate(
         &mut self,
     ) -> Result<CleanupResult, RestoreRetireError> {
+        if self.retained_restore_busy() {
+            return Err(RestoreRetireError::Owner(
+                RestoreAdmissionError::RecoveryRequired,
+            ));
+        }
         let lock = self.transaction.acquire_lock().map_err(|error| {
             RestoreRetireError::Owner(match error {
                 ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,

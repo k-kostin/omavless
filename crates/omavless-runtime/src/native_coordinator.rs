@@ -26,6 +26,10 @@ mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::NativeSessionOrigin;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeFirstError, PreparedRestorePair};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -384,6 +388,8 @@ pub struct OfflineNativeCoordinator<H> {
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
     connection_close: connection_close::CloseState,
+    #[cfg(feature = "t4-manager-actor-service")]
+    held_restore_execution: restore_candidate::HeldExecutionSlot,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -411,6 +417,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
             connection_close: connection_close::CloseState::default(),
+            #[cfg(feature = "t4-manager-actor-service")]
+            held_restore_execution: restore_candidate::HeldExecutionSlot::default(),
         }
     }
 
@@ -500,6 +508,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// shared lock. A rollback, later attempt, malformed marker, or generation
     /// gap makes this candidate permanently stale at the caller.
     pub(crate) fn try_promote_candidate(&mut self) -> Result<CandidatePromotion, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let Some(fence) = self.required_ownership else {
             return Ok(CandidatePromotion::Stale);
         };
@@ -554,7 +565,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub fn host_mut(&mut self) -> &mut H {
+        // This developer-only occupied slot is irreversible. Do not yield a
+        // mutable host reference after an uncertain/StillFenced execution.
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(
+            !self.held_restore_execution.occupied(),
+            "restore_execution_unavailable"
+        );
         self.transaction.host_mut()
+    }
+
+    pub(super) fn retained_restore_busy(&self) -> bool {
+        #[cfg(feature = "t4-manager-actor-service")]
+        {
+            self.held_restore_execution.occupied()
+        }
+        #[cfg(not(feature = "t4-manager-actor-service"))]
+        {
+            false
+        }
     }
 
     /// Validate a network-backed subscription request before the caller
@@ -702,6 +731,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         project: impl FnOnce(&mut Self) -> Result<T, NativeOwnerError>,
     ) -> Result<T, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let _lock = self
             .transaction
             .acquire_lock()
@@ -1182,6 +1214,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.retained_restore_busy() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.invalidate_connection_close();
         self.transaction.reconcile_startup()
     }
@@ -1190,6 +1225,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.retained_restore_busy() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.invalidate_connection_close();
         self.transaction.reconcile_startup_locked(lock)
     }
@@ -1199,6 +1237,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         lock: &MigrationLock,
         admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.retained_restore_busy() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.invalidate_connection_close();
         self.transaction.reconcile_startup_admitted(lock, admission)
     }
@@ -1210,6 +1251,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         self.invalidate_close_for_new_operation(operation_id);
         if let Some(fence) = self.required_ownership {
             let lock = self
@@ -1241,6 +1285,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         // Historical typed alternatives share this scheduler without ordinary
         // admit. They must revoke prior close authority before publication too.
         // Ordinary admit additionally retains its earlier pre-lease revocation.
@@ -1278,6 +1325,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         token: MutationToken,
         family: fn(ConnectionTransactionError) -> NativeTransactionError,
     ) -> Result<LockAdmission, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         match self.transaction.acquire_lock() {
             Ok(lock) => {
                 // A durable interrupted preset must also fence the effect

@@ -130,6 +130,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// Bind once to the actual runtime instance, never a request-provided ID.
     /// Live registration remains absent; production must use the gated owner.
     pub fn initialize_batch_operations(&mut self, instance: &str) -> Result<(), NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         if self.batch.is_some() {
             return Err(NativeOwnerError::Invariant);
         }
@@ -162,6 +165,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(super) fn batch_lock(&self) -> Result<MigrationLock, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let lock = self
             .transaction
             .acquire_lock()
@@ -213,6 +219,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         request: &Value,
         admission: &mut super::batch_admission::BatchAdmission<'_>,
     ) -> Result<Option<NativeSubscriptionBatch>, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         if !self.mutation_operation_known(request) {
             self.invalidate_connection_close();
         }
@@ -328,6 +337,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub fn cancel_subscription_batch(&mut self, request: &Value) -> Result<bool, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let request = parse_operation_cancel(request)?;
         let state = self
             .batch
@@ -352,6 +364,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         job: &NativeSubscriptionBatch,
     ) -> Result<(), NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let state = self
             .batch
             .as_mut()
@@ -390,6 +405,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         ticket: NativeBatchTicket,
     ) -> Result<(), NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let revision = self.revision();
         let state = self
             .batch
@@ -422,6 +440,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// Revoke outstanding work before shutdown/ownership withdrawal. A later
     /// completion cannot write, even if its fetch returns successfully.
     pub fn stop_batch_operations(&mut self) -> Result<(), NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         self.invalidate_connection_close();
         let revision = self.revision();
         let Some(state) = self.batch.as_mut() else {
@@ -511,6 +532,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             u64,
         ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
     {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let mut state = self
             .batch
             .take()

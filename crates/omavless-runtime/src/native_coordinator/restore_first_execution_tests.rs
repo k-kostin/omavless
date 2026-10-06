@@ -10,6 +10,246 @@ use std::sync::Arc;
 const PASSWORD: &[u8] = b"synthetic fixture passphrase";
 const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
 
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_retained_execution_keeps_real_lease_and_denies_mutable_host_after_result() {
+    let mut f = Fixture::new();
+    let result = f.owner.execute_first_restore_retained(&f.backup, PASSWORD);
+    assert_eq!(result, Ok(FirstOutcome::CommittedStillFenced));
+    assert!(f.owner.held_restore_execution.occupied());
+    assert!(
+        f.owner
+            .held_restore_execution
+            .original_lease_held(f.owner.transaction.cutover_paths(), f.owner.uid())
+    );
+    assert!(MigrationLock::acquire(f.owner.transaction.cutover_paths(), f.owner.uid()).is_err());
+    let calls = f.owner.host().observations;
+    let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = f.owner.host_mut();
+    }));
+    assert!(rejected.is_err());
+    assert_eq!(f.owner.host().observations, calls);
+    assert!(f.owner.initialize_batch_operations("new-instance").is_err());
+    assert!(
+        f.owner
+            .admit(
+                crate::mutation::MutationKind::Other,
+                Some("held-no-replay"),
+                Some(f.owner.revision()),
+                MutationDigest::from_semantic_bytes(b"held")
+            )
+            .is_err()
+    );
+    assert!(
+        f.owner
+            .schedule(
+                crate::mutation::MutationKind::Other,
+                Some("held-no-replay"),
+                Some(f.owner.revision()),
+                MutationDigest::from_semantic_bytes(b"held")
+            )
+            .is_err()
+    );
+    assert!(f.owner.stop_batch_operations().is_err());
+    assert!(f.owner.try_promote_candidate().is_err());
+    assert!(f.owner.reconcile_startup().is_err());
+    assert!(
+        f.owner
+            .execute_first_restore_retained(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(
+        f.owner
+            .held_restore_execution
+            .original_lease_held(f.owner.transaction.cutover_paths(), f.owner.uid())
+    );
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_retained_error_unwind_and_owner_drop_never_free_original_lease() {
+    for unwind in [false, true] {
+        let mut f = Fixture::new();
+        let paths = f.owner.transaction.cutover_paths().clone();
+        let uid = f.owner.uid();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f.owner
+                .retained_test_after_lease(&f.backup, PASSWORD, unwind)
+        }));
+        if unwind {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap(), Err(FirstError::StillFenced));
+        }
+        assert!(f.owner.held_restore_execution.occupied());
+        assert!(MigrationLock::acquire(&paths, uid).is_err());
+        let observations = f.owner.host().observations;
+        assert!(f.owner.initialize_batch_operations("replacement").is_err());
+        assert!(f.owner.batch_lock().is_err());
+        assert!(
+            f.owner
+                .with_owned_read::<()>(|_| panic!("occupied slot reached a host/store projection"))
+                .is_err()
+        );
+        assert!(f.owner.stop_batch_operations().is_err());
+        assert!(f.owner.reconcile_startup().is_err());
+        assert!(
+            f.owner
+                .execute_first_restore_retained(&f.backup, PASSWORD)
+                .is_err()
+        );
+        let host = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = f.owner.host_mut();
+        }));
+        assert!(host.is_err());
+        assert_eq!(f.owner.host().observations, observations);
+        // Exercise the exact owning-slot destructor used by coordinator Drop.
+        // The test-only take is not a production reset/re-entry API.
+        let original_slot = std::mem::take(&mut f.owner.held_restore_execution);
+        drop(original_slot);
+        assert!(MigrationLock::acquire(&paths, uid).is_err());
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_retained_every_real_pair_effect_cut_keeps_lease_and_never_compensates() {
+    use crate::manager_actor_service::NativeStep;
+    let steps = [
+        NativeStep::StageReady,
+        NativeStep::Intent,
+        NativeStep::Replacement(0),
+        NativeStep::Replacement(1),
+        NativeStep::Renamed(0),
+        NativeStep::Renamed(1),
+        NativeStep::Terminal,
+    ];
+    for step in steps {
+        for unwind in [false, true] {
+            let mut f = Fixture::new();
+            let old = fs::read(&f.store).unwrap();
+            let state = f.state();
+            let paths = f.owner.transaction.cutover_paths().clone();
+            let uid = f.owner.uid();
+            let mut reached = false;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                f.owner
+                    .retained_test_at_step(&f.backup, PASSWORD, |current| {
+                        if current == step {
+                            reached = true;
+                            if unwind {
+                                panic!("fixed_native_effect_cut");
+                            }
+                            return Err(FirstError::StillFenced);
+                        }
+                        Ok(())
+                    })
+            }));
+            assert!(reached, "{step:?}");
+            if unwind {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(result.unwrap(), Err(FirstError::StillFenced));
+            }
+            assert!(f.owner.held_restore_execution.occupied());
+            assert!(MigrationLock::acquire(&paths, uid).is_err());
+            assert!(
+                f.owner
+                    .execute_first_restore_retained(&f.backup, PASSWORD)
+                    .is_err()
+            );
+            assert!(f.owner.batch_lock().is_err());
+            assert!(
+                f.owner
+                    .stage_restore_candidate(&f.backup, PASSWORD)
+                    .is_err()
+            );
+            assert!(f.owner.publish_restore_completion_candidate().is_err());
+            assert!(f.owner.finalize_terminal_restore_candidate().is_err());
+            assert!(f.owner.retire_terminal_restore_candidate().is_err());
+            // The writer never runs Abort/cleanup after an uncertain cut.
+            assert!(f.stage().is_dir());
+            if step == NativeStep::StageReady {
+                assert!(!state.join("restore-decision.intent").exists());
+            }
+            if matches!(step, NativeStep::Renamed(_) | NativeStep::Terminal) {
+                assert_ne!(fs::read(&f.store).unwrap(), old);
+            } else {
+                assert_eq!(fs::read(&f.store).unwrap(), old);
+            }
+            if step == NativeStep::Terminal {
+                let terminal = crate::restore_decision_candidate::DecisionRecord::decode(
+                    &fs::read(state.join("restore-decision.terminal")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    terminal.phase(),
+                    crate::restore_decision_candidate::DecisionPhase::Committed
+                );
+            } else {
+                assert!(!state.join("restore-decision.terminal").exists());
+            }
+        }
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_retained_fences_reject_real_stage_name_content_absence_and_catalogue_drift() {
+    use crate::manager_actor_service::NativeStep;
+    for case in 0..7 {
+        let mut f = Fixture::new();
+        let stage = f.stage();
+        let state = f.state();
+        let config = f.store.parent().unwrap().to_owned();
+        let login = f
+            .owner
+            .transaction
+            .cutover_paths()
+            .runtime_base
+            .join("omavless-login.receipt");
+        let paths = f.owner.transaction.cutover_paths().clone();
+        let uid = f.owner.uid();
+        let mut reached = false;
+        let result = f.owner.retained_test_at_step(&f.backup, PASSWORD, |step| {
+            if step != NativeStep::StageReady {
+                return Ok(());
+            }
+            assert!(!reached);
+            reached = true;
+            match case {
+                0 => private(
+                    &stage.join(crate::restore_staging_candidate::MEMBERS[0]),
+                    b"corrupt",
+                ),
+                1 => private(&stage.join("unexpected"), b"unknown"),
+                2 => {
+                    let name = stage.join(crate::restore_staging_candidate::MEMBERS[0]);
+                    let same = fs::read(&name).unwrap();
+                    fs::rename(&name, stage.join("held-old-name")).unwrap();
+                    private(&name, &same);
+                    fs::remove_file(stage.join("held-old-name")).unwrap();
+                }
+                3 => {
+                    fs::rename(&stage, state.join("held-stage")).unwrap();
+                    fs::create_dir(&stage).unwrap();
+                    fs::set_permissions(&stage, fs::Permissions::from_mode(0o700)).unwrap();
+                }
+                4 => private(&login, b"formerly absent"),
+                5 => private(&config.join("unexpected"), b"unknown"),
+                6 => private(&state.join("unexpected"), b"unknown"),
+                _ => unreachable!(),
+            }
+            Ok(())
+        });
+        assert!(reached);
+        assert_eq!(result, Err(FirstError::StillFenced), "case {case}");
+        assert!(f.owner.held_restore_execution.occupied());
+        assert!(MigrationLock::acquire(&paths, uid).is_err());
+        assert!(!state.join("restore-decision.intent").exists());
+    }
+}
+
 struct OffHost {
     idle: bool,
     observations: usize,
