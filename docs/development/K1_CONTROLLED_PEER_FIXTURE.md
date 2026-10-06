@@ -197,3 +197,38 @@ DNS broker's fixed UNIX SEQPACKET connect. No runtime core, TLS peer, packet
 matrix, coverage issuance, Arm or native lifecycle acceptance follows from it.
 All raw captures, fixture identity/keys/config and observation tools remain
 private outside Git. Production coverage issuance is still closed.
+
+## Numeric runtime attempt and managed-device prerequisite
+
+The later Numeric10 collector
+`a6709b18591f984b717c8c583d9d16aab9e835555188f3809d4db6dbeac82c2b`
+and its separate load verifier
+`62467e8526f48cb7603211133ec45740e3a7e1b0741f38651ffdccd7feeece49`
+passed only the original passive load gate (`19a15a`, original0). The real
+Numeric10 runtime selection remained **NONPASS**: it stopped at
+`TUN_CONTROLLER_AVAILABILITY`, before the route query and numeric request.
+No successful TLS exchange, socket-mark census, original core/peer reaps or
+cleanup is claimed for that selection. Its uncertain original graph and private
+captures were retained; a later observer is not authority to retry it.
+
+Public-source inspection found a concrete mismatch: the canonical protected
+renderer selects `omavless0`, while the installed managed Go DNS adapter and
+Rust TUN verifier require `Meta`. Successful `-t` parsing does not exercise the
+listener's device-policy check. The development-only source prerequisite in
+#684 at `08194a275d315db7ca502e50f960c80af6dc163b` introduces a closed,
+build-selected `omavless0` flavor and distinct enrollment policy; legacy `Meta`
+selection and consent remain unchanged. Focused Rust and both Go device-flavor
+tests passed, but this is **not** a qualified package, installed TUN check or
+coverage-issuer acceptance. Its distinct package family and live integration
+must be checked before another real runtime selection.
+
+A separately scoped read of Numeric10's bounded private captures also anchored
+three unrecognized observer lines to the exact public collector location,
+source excerpt and underline. The warning is `Return value discarded.` at
+the `delete(@birth, $sk)` statement, not evidence that deletion actually failed.
+The frozen successor collector
+`f2bab830ee7f786041ed3e9bdf73fce2b71ee0ef3cdc0f2af920797260c416ed`
+consumes the deletion result: success emits the original birth's `free` event;
+failure emits a bounded, refusing `bad` event. The parser is unchanged and
+26 pure controls pass. Compilation/load and real runtime evidence for this
+successor remain pending; Numeric10's outcome is not rewritten as success.
