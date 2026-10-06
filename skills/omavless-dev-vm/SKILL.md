@@ -51,6 +51,21 @@ is administrative recovery, never proof of product rollback.
 
 ## Handoff and retention
 
+For firewall or routing experiments, establish a private bidirectional serial
+console and bounded private capture **before** changing guest networking. SSH
+may be blocked by the protection being tested. Prefer a Unix-socket QEMU
+chardev on the reviewed launcher, with restrictive permissions and no host
+network exposure. Authenticate through the guest's normal console; do not
+widen firewall rules merely to recover the test transport.
+
+If a running reviewed VM has only a file serial sink, QMP `chardev-change` can
+replace that transport after exact process/image/socket selection and capture
+preservation. Read back the selected chardev and permissions. Its
+`frontend-open` may remain false until the console client connects: confirm
+the actual console and boot, rather than repeatedly issuing the change. This
+administrative channel supplies observation, not product recovery or proof
+that the interrupted network operation completed.
+
 Pass exact image/boot/source/artifact identities, current network/service
 state, live sessions, failed scopes and the next executable gate. Release VM
 ownership explicitly before another agent performs visual or live checks.
