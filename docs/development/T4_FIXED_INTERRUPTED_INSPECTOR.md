@@ -551,6 +551,16 @@ catalogues retain their entries and mark only those known own removals; duplicat
 unknown or reintroduced names refuse. Durable closure/readback precedes the last
 pending receipt unlink; current OLD and final SAME origin are verified last.
 
+The stage-pending predicate admits a completion name only when it belongs to
+this engine's retained receipt/closure role. The enclosing engine gate still
+checks its original bytes, full held/named binding and catalogues before and
+after the origin consultation. The reached-view filesystem control exercises
+that same predicate at every retirement gate, including the receipt post-write
+while the stage exists, and rejects unowned receipt/closure and unrelated
+completion names. It does not replace the real manager/host admission gate.
+The earlier `e8038317` source proposal was unselected after review found its
+unconditional receipt-absence check would refuse its own receipt post-write.
+
 NativeCompletedOff is a private nonescaping loan of the SAME origin/engine/lease,
 not a snapshot, boolean pending exception or counterfeit historical actor bundle.
 Its feature-only StartupAdmission variant binds exact paths/UID/lease identity,

@@ -272,10 +272,25 @@ impl NativeGate for NativeRecoveryOrigin<'_> {
 #[test]
 fn native_retirement_real_files_keep_originals_and_closure_fence() {
     use std::fs;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-    struct LocalFilesOnly;
-    impl NativeGate for LocalFilesOnly {
-        fn check(&mut self, _: NativeStageView<'_>) -> Result<(), FirstError> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::net::UnixListener;
+    struct ReachedPendingView {
+        paths: crate::desired::DesiredPaths,
+        uid: u32,
+        saw_owned_receipt_with_stage: bool,
+    }
+    impl NativeGate for ReachedPendingView {
+        fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
+            // Exercise the exact pending predicate called by the real recovery
+            // origin, without claiming its real manager/host authority.
+            if view.stage_present() {
+                if !view.pending_allowed(&self.paths, self.uid) {
+                    return Err(FirstError::Admission);
+                }
+                self.saw_owned_receipt_with_stage |=
+                    view.own_completion_member(crate::restore_retirement_candidate::RECEIPT_MEMBER);
+            }
             Ok(())
         }
     }
@@ -287,6 +302,32 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     for path in [&config, &state, &run] {
         fs::DirBuilder::new().mode(0o700).create(path).unwrap();
     }
+    let singleton = run.join("omavless");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&singleton)
+        .unwrap();
+    let singleton_lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(singleton.join(crate::OWNER_LOCK_NAME))
+        .unwrap();
+    let run_original = File::open(&run).unwrap();
+    // Address only this owned directory through its original descriptor to
+    // avoid a long TMPDIR exceeding the kernel Unix-address length bound.
+    let socket = UnixListener::bind(format!(
+        "/proc/self/fd/{}/omavless/{}",
+        run_original.as_raw_fd(),
+        crate::SOCKET_NAME
+    ))
+    .unwrap();
+    fs::set_permissions(
+        singleton.join(crate::SOCKET_NAME),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
     let stage = state.join(PENDING_DIRECTORY);
     fs::DirBuilder::new().mode(0o700).create(&stage).unwrap();
     let members: [&[u8]; 4] = [b"OLD store", b"OLD template", b"NEW store", b"NEW template"];
@@ -370,17 +411,48 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
         .scan_catalogue(Slot::State, Some(1), &[], until)
         .unwrap();
     engine.catalogues_captured = true;
+    let paths = crate::desired::DesiredPaths {
+        directory: state.clone(),
+        file: state.join("desired.json"),
+    };
+    let uid = nix::unistd::getuid().as_raw();
+    assert!(
+        !engine
+            .view()
+            .own_completion_member(crate::restore_retirement_candidate::RECEIPT_MEMBER)
+    );
+    assert!(engine.view().pending_allowed(&paths, uid));
+    // A mere named receipt is never admitted: it must be an actual retained
+    // member of this engine. This remains true for every unrelated fence.
+    for name in [
+        crate::restore_retirement_candidate::RECEIPT_MEMBER,
+        crate::restore_closure_model::CLOSURE_MEMBER,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+    ] {
+        let path = state.join(name);
+        write(&path, b"unowned");
+        assert!(!engine.view().pending_allowed(&paths, uid));
+        fs::remove_file(path).unwrap();
+    }
     // Test-only local origin; enable retained receipt digest roles, but no
     // singleton/manager assertion is inferred from these synthetic controls.
+    engine.recovery = true;
+    engine.capture_recovery_singleton(until).unwrap();
+    let mut local_gate = ReachedPendingView {
+        paths,
+        uid,
+        saw_owned_receipt_with_stage: false,
+    };
     engine
         .retire_native_aborted(
-            &mut LocalFilesOnly,
+            &mut local_gate,
             members,
             &intent.encode(),
             &terminal.encode(),
             until,
         )
         .unwrap();
+    assert!(local_gate.saw_owned_receipt_with_stage);
     assert!(engine.completed);
     assert!(
         engine.unlinked[Slot::StageDirectory as usize]
@@ -408,6 +480,7 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     assert!(crate::pending_private_transaction::pending_at(&state)); // closure is NOT ordinary permission
     assert!(fs::symlink_metadata(state.join(PENDING_DIRECTORY)).is_err());
     drop(engine);
+    drop((socket, singleton_lock, run_original));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -622,7 +695,7 @@ impl NativeStageView<'_> {
             crate::restore_disposition_ticket_model::TICKET_MEMBER,
             crate::restore_disposition_complete_model::COMPLETE_MEMBER,
             crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
-        ].iter().all(|name| matches!(std::fs::symlink_metadata(paths.directory.join(name)), Err(error) if error.kind() == std::io::ErrorKind::NotFound))
+        ].iter().all(|name| self.own_completion_member(name) || matches!(std::fs::symlink_metadata(paths.directory.join(name)), Err(error) if error.kind() == std::io::ErrorKind::NotFound))
     }
 }
 impl NativeEngine {
