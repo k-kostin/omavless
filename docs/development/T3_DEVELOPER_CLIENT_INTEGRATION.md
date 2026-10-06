@@ -130,3 +130,37 @@ terminal interactions with synthetic closed replies—not a live socket PASS or
 installed product acceptance. Graphical Foot/focus/resize review remains separate.
 Old21d and original101 are preserved; a new exact artifact/fresh namespace and
 original whole result are required for the corrected client integration.
+
+## Exact corrected Workspace/socket gate
+
+Tested implementation `b29a665555f8559f97baa35c1a721670447d650d`.
+Incremental release compilation returned original0. Exact image22,008,024 bytes,
+SHA7419ca64e039f0e8b1513dceaec7a9e61600aebeb854b635889cb5bb41f669b5.
+Primary/independent affected review and eight pure delivery controls preceded
+ROOT's fresh isolated namespace selection; the already confirmed developer pair
+was not reprovisioned. New namespace/guest delivery scope did not reopen the old
+failed review1 captures or change normal installed runtime/profile/network state.
+
+ROOT's selected actual scenario `ad2379`/session40656 returned originalSSH0.
+Separately selected two-file observer `11fcd0` also returned original0, complete
+exact one-test success grammar: stdout224 bytes SHA
+42392602a5be6776dde8b56e1636565f851535e675b0d59faf2f9f2e49bbf04d,
+stderr empty. The actual source asserts original Workspace→same coordinator/
+socket/developer permit, cancel/resize/genuine expiry with both streams alive,
+selected B closure/A echo, genuinely lost confirm reply resolved solely by the
+original receipt call, exact read repeat, one confirmation and unchanged desired
+bytes. No synthetic effect permit or guessed raw-ID/public-row join was used.
+
+This closes that scoped developer client-function/socket gate, NOT a normal
+installed CLI/Foot path, released-pair/default adoption, ARM64 or whole T3/C1.
+Disposable namespace-init containment and ordinary trusted tooling limits are
+unchanged; successful teardown is not product recovery/unknown-child custody.
+
+ROOT also inspected actual Foot on b29's CLOSED synthetic ENclosed demo:
+selected B/full target readable, Enter→Closed. Prior21d RUunknown Foot returned
+originalSSH0 after Unknown, resize1110×1198→560×330, a visible70×24 requirement
+and wrapped readable receipt-only footer, then q. ENempty correctly had no x/
+Enter action. Private captures remain outsideGit. These observations exposed
+phantom row/confirmation hints in Empty/Closed footers, recorded for a separate
+UI-only successor; they do not retroactively correct b29's presentation or prove
+live socket behavior through the ordinary executable/terminal path.
