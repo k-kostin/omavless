@@ -95,7 +95,11 @@ available. This first cut supports explicit subsequent operations on the SAME
 original core incarnation after Closed or proven before-effect retirement, not
 reconnect/upgrade adoption. Actual sequential-session evidence is still pending.
 
-An explicit new Snapshot request may now take the old SAME snapshot/session into
+The following baseline paragraphs describe exact617's historical live-session
+retirement, not the current SOURCE A terminal-only path below. Its installed
+successes and failed GUI scopes retain their original behavior and results.
+
+At exact617 an explicit new Snapshot request could take the old SAME snapshot/session into
 an owner-installed Retiring slot. No worker/discovery may be active; old pending
 confirmation/rows are consumed. Normal context and same saved session identity
 are checked before transfer. Finish/fresh image/controller/qualified pair checks
@@ -111,7 +115,7 @@ again after owner/context checks before active-clear and new capture. A delayed
 positive result cannot borrow the five-second snapshot window after its original
 three-second budget expired; failure leaves Retiring poisoned/occupied.
 
-The owner rechecks that exact Retiring identity, old context/revision and original
+The exact617 owner rechecked that Retiring identity, old context/revision and original
 expiry before consuming the result. Unknown/lost/late/Busy/drift results keep the
 slot occupied and cannot renew. On a positive result only the SAME explicit
 Snapshot request may proceed to a NEW guarded capture; old rows/tickets do not
@@ -121,7 +125,9 @@ receipt/token/lifetime history remains nonevicting; exact replay never resends.
 
 Current capture refuses Busy BEFORE invalidation for an active product epoch;
 Snapshot Drop does not positively Finish the provider and cannot grant renewal.
-Expired/revoked snapshots remain unavailable, not recreated to Finish.
+At exact617 expired/revoked snapshots remained unavailable, not recreated to Finish.
+SOURCE A instead permits clock-only expired no-effect termination using its
+distinct terminal deadline; poison and old effect authority never renew.
 Three-second snapshot,
 five-second confirmation and existing effect budgets/cancellation/per-chunk/final
 proofs are not widened or bypassed.
