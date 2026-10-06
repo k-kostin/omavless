@@ -28,6 +28,8 @@ impl HeldExecution {
 #[derive(Default)]
 pub(crate) struct HeldExecutionSlot {
     original: Option<Arc<Mutex<HeldExecution>>>,
+    #[cfg(test)]
+    reservation: Option<Arc<Mutex<HeldExecution>>>,
 }
 impl HeldExecutionSlot {
     pub(crate) fn occupied(&self) -> bool {
@@ -37,6 +39,12 @@ impl HeldExecutionSlot {
         if self.original.is_some() {
             return Err(FirstError::StillFenced);
         }
+        #[cfg(test)]
+        let original = self
+            .reservation
+            .take()
+            .unwrap_or_else(|| Arc::new(Mutex::new(HeldExecution::reserve())));
+        #[cfg(not(test))]
         let original = Arc::new(Mutex::new(HeldExecution::reserve()));
         self.original = Some(Arc::clone(&original)); // BEFORE acquisition/effects
         Ok(original)
@@ -133,7 +141,44 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 }
 
 #[cfg(test)]
+#[test]
+fn native_vm_reservation_installs_same_original_once() {
+    let mut slot = HeldExecutionSlot::reserve_vm().unwrap();
+    assert!(slot.vm_reserved() && !slot.occupied());
+    let original = Arc::clone(slot.reservation.as_ref().unwrap());
+    let installed = slot.install().unwrap();
+    assert!(Arc::ptr_eq(&original, &installed));
+    assert!(Arc::ptr_eq(slot.original.as_ref().unwrap(), &installed));
+    assert!(slot.occupied() && !slot.vm_reserved() && slot.reservation.is_none());
+    assert!(slot.install().is_err());
+}
+
+#[cfg(test)]
 impl HeldExecutionSlot {
+    pub(crate) fn reserve_vm() -> Result<Self, FirstError> {
+        let mut held = HeldExecution::reserve();
+        held.boundary = Some(Boundary::reserve_installed()?);
+        Ok(Self {
+            original: None,
+            reservation: Some(Arc::new(Mutex::new(held))),
+        })
+    }
+    pub(crate) fn vm_reserved(&self) -> bool {
+        self.original.is_none()
+            && self.reservation.as_ref().is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    held.lock.is_none()
+                        && held.authenticated.is_none()
+                        && held.prepared.is_none()
+                        && held.boundary.as_ref().is_some_and(|boundary| {
+                            boundary.directories.capacity() >= 3
+                                && boundary.members.capacity() >= 3
+                                && boundary.live.capacity() >= 2
+                                && boundary.capture_prefix.capacity() >= 1
+                        })
+                })
+            })
+    }
     pub(super) fn original_lease_held(
         &self,
         paths: &crate::cutover::CutoverPaths,
@@ -153,6 +198,59 @@ impl HeldExecutionSlot {
 
 #[cfg(test)]
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn retained_vm_install_reservation(
+        &mut self,
+        reserved: HeldExecutionSlot,
+    ) -> Result<(), FirstError> {
+        if self.held_restore_execution.occupied()
+            || self.held_restore_execution.reservation.is_some()
+            || !reserved.vm_reserved()
+        {
+            return Err(FirstError::StillFenced);
+        }
+        self.held_restore_execution = reserved;
+        Ok(())
+    }
+    pub(crate) fn retained_vm_fault(&mut self, source: &Path, passphrase: &[u8], case: u8) -> bool {
+        if case > 2 {
+            return false;
+        }
+        let reached = std::cell::Cell::new(false);
+        let result = self.execute_first_restore_retained_gated(
+            source,
+            passphrase,
+            || {
+                if case == 0 {
+                    reached.set(true);
+                    Err(FirstError::StillFenced)
+                } else {
+                    Ok(())
+                }
+            },
+            |step| {
+                if matches!(
+                    (case, step),
+                    (1, crate::manager_actor_service::NativeStep::Intent)
+                        | (2, crate::manager_actor_service::NativeStep::Renamed(0))
+                ) {
+                    reached.set(true);
+                    return Err(FirstError::StillFenced);
+                }
+                Ok(())
+            },
+        );
+        reached.get() && result == Err(FirstError::StillFenced)
+    }
+    pub(crate) fn retained_vm_ordinary_and_recovery_denied(&mut self) -> bool {
+        self.retained_restore_busy()
+            && self
+                .initialize_batch_operations("fixed-held-denial")
+                .is_err()
+            && self.reconcile_startup().is_err()
+            && self.publish_restore_completion_candidate().is_err()
+            && self.finalize_terminal_restore_candidate().is_err()
+            && self.retire_terminal_restore_candidate().is_err()
+    }
     pub(crate) fn retained_vm_execute(&mut self, source: &Path, passphrase: &[u8]) -> bool {
         self.execute_first_restore_retained(source, passphrase)
             == Ok(FirstOutcome::CommittedStillFenced)

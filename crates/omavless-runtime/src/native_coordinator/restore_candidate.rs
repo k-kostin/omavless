@@ -19,7 +19,7 @@ mod first_execution;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::FirstError as NativeFirstError;
 #[cfg(feature = "t4-manager-actor-service")]
-pub(super) use first_execution::HeldExecutionSlot;
+pub(crate) use first_execution::HeldExecutionSlot;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::NativeSessionOrigin;
 

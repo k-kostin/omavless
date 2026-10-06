@@ -15,6 +15,8 @@ mod stage;
 mod transfer;
 pub(crate) use stage::NativeStep;
 pub(crate) use stage::{NativeEngine, NativeStageView};
+#[cfg(test)]
+pub(crate) const NATIVE_VM_LOWER_SLOTS: usize = retained_io::IO_SLOTS;
 pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;
 pub(crate) const CANONICAL_COMMIT_ORIGIN_FENCES: usize = stage::COMMIT_ORIGIN_FENCES;
 pub(crate) const CANONICAL_INSPECT_ORIGIN_FENCES: usize = stage::INSPECT_ORIGIN_FENCES;

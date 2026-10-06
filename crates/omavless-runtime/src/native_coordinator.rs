@@ -21,6 +21,8 @@ mod probe;
 mod profile_admission;
 mod provider;
 mod restore_candidate;
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+pub(crate) use restore_candidate::HeldExecutionSlot as NativeVmReservation;
 mod restore_retirement_candidate;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};

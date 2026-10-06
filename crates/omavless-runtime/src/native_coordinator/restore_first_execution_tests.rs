@@ -12,6 +12,47 @@ const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activ
 
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
+fn native_retained_vm_fault_bridge_executes_actual_original_lease_intent_and_mixed_cuts() {
+    let reservations = [
+        HeldExecutionSlot::reserve_vm().unwrap(),
+        HeldExecutionSlot::reserve_vm().unwrap(),
+        HeldExecutionSlot::reserve_vm().unwrap(),
+    ];
+    for (case, reservation) in reservations.into_iter().enumerate() {
+        let mut f = Fixture::new();
+        f.owner
+            .retained_vm_install_reservation(reservation)
+            .unwrap();
+        assert!(
+            f.owner
+                .retained_vm_install_reservation(HeldExecutionSlot::reserve_vm().unwrap())
+                .is_err()
+        );
+        let original = fs::read(&f.store).unwrap();
+        assert!(f.owner.retained_vm_fault(&f.backup, PASSWORD, case as u8));
+        assert!(f.owner.retained_vm_custody());
+        assert!(f.owner.retained_vm_ordinary_and_recovery_denied());
+        assert!(
+            MigrationLock::acquire(f.owner.transaction.cutover_paths(), f.owner.uid()).is_err()
+        );
+        assert!(!f.state().join("restore-decision.terminal").exists());
+        if case == 0 {
+            assert!(!f.stage().exists());
+            assert!(!f.state().join("restore-decision.intent").exists());
+        } else {
+            assert!(f.stage().is_dir());
+            assert!(f.state().join("restore-decision.intent").is_file());
+        }
+        if case == 2 {
+            assert_ne!(fs::read(&f.store).unwrap(), original);
+        } else {
+            assert_eq!(fs::read(&f.store).unwrap(), original);
+        }
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
 fn native_retained_execution_keeps_real_lease_and_denies_mutable_host_after_result() {
     let mut f = Fixture::new();
     let result = f.owner.execute_first_restore_retained(&f.backup, PASSWORD);

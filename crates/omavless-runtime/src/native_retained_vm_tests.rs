@@ -17,6 +17,9 @@ const OPT_IN: &str = "OMAVLESS_TEST_T4_NATIVE_RETAINED_VM";
 const PASSWORD: &[u8] = b"public isolated native-owner fixture passphrase";
 const PUBLIC_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
 
+#[path = "native_retained_fault_vm_tests.rs"]
+mod fault_matrix;
+
 #[test]
 fn fixed_native_vm_public_archive_fixture_roundtrip_and_optional_export() {
     use std::io::Write;

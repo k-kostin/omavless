@@ -409,3 +409,42 @@ no five-bit value or cause is inferred from that null. This is not current()
 installed-login identity, application/private-store acceptance, rollback or whole
 T4 closure. Source fault/reconciliation matrix and fresh-context recovery
 classification remain necessary; old19/20 failures are retained unchanged.
+
+## Fixed real-owner fault/reconciliation continuation
+
+Fresh review22 reserves a three-case aggregate before acquiring any singleton
+or lease: the three native48-role envelopes plus two singleton originals each
+(150 conservative reported roles, not a process-wide descriptor limit). The
+count derives from the actual lower 36-role array plus Boundary directories3,
+members3, live2, acquisition prefix1/probe1, migration lease2 and singleton2.
+The fixed three-case array, three original NativeEngine/Arc holders and all
+Boundary vector capacities are reserved before the first owner/singleton
+acquisition. A necessary RLIMIT_NOFILE ceiling check precedes reservation;
+this is not an assertion of ambient free descriptors or unreported constructor
+internals. Reservation refusal cannot reach fixture acquisition. Each still
+empty reservation transfers once into its actual coordinator and first install
+uses that same original Arc; occupied holders cannot be replaced. Each
+case has a separate fixed public config/state/runtime namespace. There is no
+eviction, reuse of an uncertain owner, recovery grant or installed-profile path.
+Original case holders retain their actual server/owner even on unwind or return.
+
+The real issuer/host cases withdraw after the original lease before pair effects,
+after durable Intent, and after the positive first rename. They require the exact
+expected cut, same occupied execution/lease, refusal of ordinary and startup/
+completion/finalization/retirement entries, and bounded original-file factual
+OLD/no-stage, OLD/Intent-only or MIXED/Intent-only readback.
+The factual bounded reader retains the original File through pre/post fstat and
+named full metadata/GID continuity; its bytes are observations, never grants.
+No automatic Abort, cleanup or later effect belongs to these fault controls. Passing this matrix is
+fault-custody evidence, not a successful transaction or rollback result.
+
+After positively known original matrix completion and process exit, a distinct
+new authenticated context must independently acquire its own original lease and
+current real-manager/inventory proof. Persistent stage/Intent/live/Desired/origin
+bindings determine its exact recovery decision; prior observations or expected
+transaction IDs cannot supply authority. Pending state must never construct an
+ordinary startup-ready owner. The next effect-bearing reconciliation uses the
+retained lower ledger and explicit fixed rollback/readback/Aborted transition,
+not the older path-recapturing ordinary executor. Unknown original completion,
+live old lease, drift or late consultation seals/refuses without adoption or
+cleanup. These new-context implementation/VM gates remain pending.

@@ -187,6 +187,33 @@ struct Boundary {
 }
 
 impl Boundary {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn reserve_installed() -> Result<Self, FirstError> {
+        let mut boundary = Self {
+            directories: Vec::new(),
+            members: Vec::new(),
+            live: Vec::new(),
+            capture_prefix: Vec::new(),
+            probe: std::cell::RefCell::new(None),
+        };
+        boundary
+            .directories
+            .try_reserve_exact(3)
+            .map_err(|_| FirstError::Admission)?;
+        boundary
+            .members
+            .try_reserve_exact(3)
+            .map_err(|_| FirstError::Admission)?;
+        boundary
+            .live
+            .try_reserve_exact(2)
+            .map_err(|_| FirstError::Admission)?;
+        boundary
+            .capture_prefix
+            .try_reserve_exact(1)
+            .map_err(|_| FirstError::Admission)?;
+        Ok(boundary)
+    }
     fn member(&self, directory: usize, name: &std::ffi::OsStr) -> Result<PinnedMember, FirstError> {
         let held = match openat(
             &self.directories[directory].1,
@@ -273,31 +300,22 @@ impl Boundary {
         {
             return Err(FirstError::Admission);
         }
-        let mut boundary = Self {
-            directories: Vec::new(),
-            members: Vec::new(),
-            live: Vec::new(),
-            capture_prefix: Vec::new(),
-            probe: std::cell::RefCell::new(None),
-        };
-        boundary
-            .directories
-            .try_reserve_exact(3)
-            .map_err(|_| FirstError::Admission)?;
-        boundary
-            .members
-            .try_reserve_exact(3)
-            .map_err(|_| FirstError::Admission)?;
-        boundary
-            .live
-            .try_reserve_exact(2)
-            .map_err(|_| FirstError::Admission)?;
-        boundary
-            .capture_prefix
-            .try_reserve_exact(1)
-            .map_err(|_| FirstError::Admission)?;
-        *installed = Some(boundary); // before each reported final directory/member
+        if installed.is_none() {
+            *installed = Some(Self::reserve_installed()?);
+        }
         let this = installed.as_mut().ok_or(FirstError::Admission)?;
+        if !this.directories.is_empty()
+            || !this.members.is_empty()
+            || !this.live.is_empty()
+            || !this.capture_prefix.is_empty()
+            || this.probe.borrow().is_some()
+            || this.directories.capacity() < 3
+            || this.members.capacity() < 3
+            || this.live.capacity() < 2
+            || this.capture_prefix.capacity() < 1
+        {
+            return Err(FirstError::Admission);
+        }
         for path in [config, &paths.state_directory, &paths.runtime_base] {
             let file =
                 open_private_directory(path, owner.uid()).map_err(|_| FirstError::Admission)?;
