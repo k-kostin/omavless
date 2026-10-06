@@ -305,7 +305,11 @@ fn isolated_installed_host_native_retained_pair_commit() {
         .is_err();
     let original_lease_busy = MigrationLock::acquire(&cutover, UID).is_err();
     let completed = result && held && denied && original_lease_busy && Instant::now() < until;
-    // Existing original results only: no resampling, new probe or permission.
+    // Keep the actual server singleton, owner and held execution through the
+    // harness's original terminal return; never cleanup a refused prefix.
+    std::mem::forget((owner, server));
+    // Existing original results only. Retain first: stdout failure cannot Drop
+    // the original owner/singleton graph before the final assertion.
     println!(
         "T4_NATIVE_CUTS admitted={} result={} held={} denied={} original_lease_busy={}",
         u8::from(admitted),
@@ -314,9 +318,6 @@ fn isolated_installed_host_native_retained_pair_commit() {
         u8::from(denied),
         u8::from(original_lease_busy)
     );
-    // Keep the actual server singleton, owner and held execution through the
-    // harness's original terminal return; never cleanup a refused prefix.
-    std::mem::forget((owner, server));
     assert!(completed, "fixed_native_vm_continuation_refused");
     println!("T4_NATIVE_ISOLATED_OWNER_COMMITTED_STILL_FENCED");
     assert!(Instant::now() < until, "fixed_native_vm_deadline_refused");
