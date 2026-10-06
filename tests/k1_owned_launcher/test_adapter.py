@@ -27,6 +27,19 @@ def pinned_original(name, raw):
         'kernel_observer.rs': 'ffb0e395607c8e21c25e1e2f5a89f929689bd5ba0fe5252ca852479ee6a8b4f7',
         'kernel_inventory.rs': '6665ffc491c0e4efd5e03bc3b07e236289c3f354d205ab93d890678da1cbbc10',
     }
+    # 358756d3 added only these three closed diagnostic marks to this file.
+    # Admit its complete bytes first, then verify the exact prior successor
+    # before applying the existing historical projection below.
+    if name == 'launch_acquisition.rs' and hashlib.sha256(raw).hexdigest() == \
+            '033e9f826fa8522a360a972c109f986e221fe0986505b704b2eedc2cfb4f2d72':
+        for mark in (b'        service_cut!(VerifierBefore);\n',
+                     b'        service_cut!(Creator);\n',
+                     b'        service_cut!(VerifierAfter);\n'):
+            if raw.count(mark) != 1:
+                raise ValueError('fixed_diagnostic_mark')
+            raw = raw.replace(mark, b'')
+        if hashlib.sha256(raw).hexdigest() != successors[name]:
+            raise ValueError('fixed_pre_diagnostic_pin')
     if name in successors and hashlib.sha256(raw).hexdigest() == successors[name]:
         if name == 'authority_composition.rs':
             raw = raw.replace((b'//! Default-build inactive lifetime composition. The opt-in service provider\n'
@@ -111,6 +124,28 @@ class Controls(unittest.TestCase):
             del changed[name]
             with self.assertRaises(ValueError): a.adapt(changed)
         with self.assertRaises(ValueError): a.adapt({**self.sources, 'extra.rs': b''})
+
+    def test_diagnostic_successor_requires_complete_exact_source(self):
+        name = 'launch_acquisition.rs'
+        raw = (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         '033e9f826fa8522a360a972c109f986e221fe0986505b704b2eedc2cfb4f2d72')
+        prior = raw
+        for label in (b'VerifierBefore', b'Creator', b'VerifierAfter'):
+            mark = b'        service_cut!(' + label + b');\n'
+            self.assertEqual(raw.count(mark), 1)
+            prior = prior.replace(mark, b'')
+            for changed in (raw.replace(mark, b''),
+                            raw.replace(mark, mark + mark),
+                            raw.replace(mark, mark.replace(label, b'Unreviewed')),
+                            raw.replace(mark, b' ' + mark)):
+                with self.assertRaises(ValueError):
+                    pinned_original(name, changed)
+        self.assertEqual(hashlib.sha256(prior).hexdigest(),
+                         '794cbcaef7ade340cc2e78f1dc966e4e300aa430beb853ab5d646a08e07ce9ea')
+        self.assertEqual(pinned_original(name, prior), self.sources[name])
+        self.assertEqual(hashlib.sha256(pinned_original(name, raw)).hexdigest(),
+                         a.PINS[name])
 
     def test_actual_creator_borrow_and_no_second_socket_owner(self):
         raw = self.adapted['launch_acquisition.rs'].decode()
