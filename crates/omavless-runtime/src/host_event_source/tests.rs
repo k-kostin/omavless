@@ -191,6 +191,9 @@ impl Drop for PrivateBus {
             // rather than retrying signals or invoking TempDir cleanup. This
             // test process cannot claim custody survives its fatal exit.
             let _original = Box::leak(Box::new((self.child.take(), self.directory.take())));
+            if !std::thread::panicking() {
+                panic!("original private fixture completion unknown; resources retained");
+            }
         }
     }
 }

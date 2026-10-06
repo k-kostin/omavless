@@ -9,6 +9,8 @@ Earlier #697 evidence belongs to that head, not this new transport boundary.
 The first source checkpoint `e73b4177` is execution HOLD from review, not a
 runtime failure or acceptance result. Its successor corrects fixture supervision,
 final original-transport sampling and exact typed-body/unique-name validation.
+The `e8518f3a` correction is also source HOLD until unknown teardown is reported
+as failure by the selected test itself, not only by later fixture acquisition.
 
 ## Boundary and interfaces
 
@@ -142,7 +144,9 @@ idempotent: bounded try_wait proves completion; an unknown signal/wait result
 permanently blocks another cleanup attempt or later fixture acquisition. Drop
 retains that original handle and owned directory in-process on unknown, rather
 than deleting evidence or retrying signals. No custody after fatal process exit
-is claimed; completed rebuildable fixture cleanup remains ordinary test-only work.
+is claimed. After retention, unknown completion categorically fails a normally
+returning test; an already unwinding test avoids a double panic. Neither path
+retries cleanup. Completed rebuildable fixture cleanup remains ordinary test-only work.
 
 Complete primary and independent code/dependency review must precede any new
 fixture execution. Genuine fixed-system-bus and kernel delivery, original-owner
