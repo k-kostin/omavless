@@ -56,6 +56,8 @@ mod tests {
     include!("connection_close_cap_image.rs");
     #[cfg(feature = "developer-image-witness")]
     include!("connection_close_image_witness.rs");
+    #[cfg(feature = "developer-image-witness")]
+    include!("connection_close_image_flight_tests.rs");
     #[cfg(feature = "developer-conditional-close")]
     #[test]
     #[ignore = "ROOT-reviewed fresh normal-package-path qualification namespace only"]
@@ -72,7 +74,44 @@ mod tests {
             false,
             false,
             true,
+            false,
         );
+    }
+    #[cfg(feature = "developer-image-witness")]
+    #[test]
+    #[ignore = "ROOT-reviewed original helper/cap-child qualified owner namespace only"]
+    fn actual_owner_qualified_cap_image_close_with_witness_in_dev_vm() {
+        assert_eq!(
+            std::env::var("OMAVLESS_IMAGE_SESSION_VM").as_deref(),
+            Ok("1")
+        );
+        assert_eq!(nix::unistd::getuid().as_raw(), 1000);
+        assert_eq!(nix::unistd::getgid().as_raw(), 1000);
+        assert_eq!(nix::unistd::getppid().as_raw(), 1);
+        assert!(nix::unistd::getpid().as_raw() > 1);
+        assert_eq!(
+            std::env::current_exe().unwrap(),
+            Path::new("/usr/lib/omavless-image/development-runtime-tests")
+        );
+        let parent =
+            original_cap_image_status(u32::try_from(nix::unistd::getpid().as_raw()).unwrap())
+                .unwrap();
+        assert_eq!(parent.uids, [1000; 4]);
+        assert_eq!(
+            (parent.permitted, parent.effective, parent.no_new_privs),
+            (0, 0, false)
+        );
+        composed_core_selected_close_with_client(
+            PathBuf::from(crate::managed_pair::RELEASE_CORE),
+            true,
+            false,
+            true,
+            false,
+            false,
+            true,
+            true,
+        );
+        eprintln!("image_session_original_owner_selected_closed");
     }
     #[test]
     fn qualified_selector_is_written_before_first_adoption_observation() {
@@ -1820,9 +1859,11 @@ while True:
             false,
             false,
             false,
+            false,
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn composed_core_selected_close_with_client(
         executable: PathBuf,
         developer_pair: bool,
@@ -1831,6 +1872,7 @@ while True:
         client_workspace: bool,
         real_cli: bool,
         qualified_pair: bool,
+        image_witness: bool,
     ) {
         use sha2::{Digest, Sha256};
         use std::io::{Read, Write};
@@ -1997,6 +2039,32 @@ while True:
         let mut core =
             OwnedCore::spawn(&executable, &runtime, &config.join("config.yaml"), &socket).unwrap();
         core.wait_ready(Duration::from_secs(10)).unwrap();
+        if image_witness {
+            assert!(
+                qualified_pair
+                    && developer_pair
+                    && socket_workspace
+                    && !real_cli
+                    && !client_workspace
+                    && !rebind
+            );
+            #[cfg(feature = "developer-image-witness")]
+            {
+                assert_eq!(core.running(), Ok(true));
+                let parent = u32::try_from(nix::unistd::getpid().as_raw()).unwrap();
+                let status = original_cap_image_status(core.pid().unwrap()).unwrap();
+                assert_eq!(status.uids, [1000; 4]);
+                assert_eq!(status.parent, parent);
+                assert_eq!(
+                    (status.permitted, status.effective, status.no_new_privs),
+                    (0x3400, 0x3400, false)
+                );
+                assert_eq!(core.running(), Ok(true));
+                eprintln!("image_session_original_cap_child_verified");
+            }
+            #[cfg(not(feature = "developer-image-witness"))]
+            panic!("image witness requires its explicit developer feature");
+        }
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
         let loaded = Instant::now() + Duration::from_secs(5);
         loop {
@@ -2032,6 +2100,19 @@ while True:
                 .host_mut()
                 .install_owned_close_fixture(core)
                 .unwrap();
+        }
+        if image_witness {
+            #[cfg(feature = "developer-image-witness")]
+            {
+                // Test constructor is not yet shared/published and owns no
+                // coordinator or migration lease. Prepare exactly ONE session.
+                let desired = fixture.owner.desired().unwrap();
+                fixture
+                    .owner
+                    .host_mut()
+                    .prepare_image_witness_close_fixture(&desired)
+                    .unwrap();
+            }
         }
         fixture
             .owner
@@ -2079,13 +2160,15 @@ while True:
                 assert!(developer_pair && !rebind);
                 // Passive owned host has no fixture permit. Its development
                 // authority is instead the separately admitted exact pair.
-                let observation = fixture
-                    .owner
-                    .host_mut()
-                    .capture_connection_close(&desired)
-                    .unwrap();
-                assert!(observation.fixture_permit().is_none());
-                drop(observation);
+                if !image_witness {
+                    let observation = fixture
+                        .owner
+                        .host_mut()
+                        .capture_connection_close(&desired)
+                        .unwrap();
+                    assert!(observation.fixture_permit().is_none());
+                    drop(observation);
+                }
                 let fixture = SocketFixture::from_fixture(fixture);
                 let before = fixture.desired_bytes();
                 if real_cli {

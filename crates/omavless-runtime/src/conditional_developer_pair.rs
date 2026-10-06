@@ -2,7 +2,7 @@
 //! Fixed x86_64 developer pair, not released package attestation.
 //! Trusts administrator-provisioned exact objects; never installs or repairs.
 
-use super::super::{ExecutableEvidence, FileIdentity, Session};
+use super::super::{CurrentImage, ExecutableEvidence, FileIdentity, Session};
 use super::{Objects, Refusal, Result, elf_architecture, member, read_receipt};
 use serde::Deserialize;
 use std::cell::Cell;
@@ -105,7 +105,10 @@ impl Evidence {
         self.session.matches(session)
     }
     pub(in crate::conditional_close_candidate) fn capture(session: &mut Session) -> Result<Self> {
-        session.check().map_err(|_| Refusal::Child)?;
+        let flight = session.image_proof_flight().map_err(|_| Refusal::Child)?;
+        session
+            .check_with_flight(&flight)
+            .map_err(|_| Refusal::Child)?;
         let until = Instant::now() + BUDGET;
         let mut objects = Objects::open_at(Path::new(DIRECTORY))?;
         let raw = read_receipt(&mut objects.receipt, objects.receipt_identity)?;
@@ -136,8 +139,11 @@ impl Evidence {
             &session.identity,
             session.executable.as_ref().ok_or(Refusal::Child)?,
             session.binding.pid,
+            flight.current.as_ref(),
         )?;
-        session.check().map_err(|_| Refusal::Child)?;
+        session
+            .check_with_flight(&flight)
+            .map_err(|_| Refusal::Child)?;
         if Instant::now() >= until {
             return Err(Refusal::Expired);
         }
@@ -149,15 +155,22 @@ impl Evidence {
         session: &Arc<()>,
         image: &ExecutableEvidence,
         pid: u32,
+        current: Option<&CurrentImage>,
     ) -> Result<()> {
-        let result = self.check_inner(session, image, pid);
+        let result = self.check_inner(session, image, pid, current);
         if result.is_err() {
             self.session.refuse();
         }
         result
     }
 
-    fn check_inner(&self, session: &Arc<()>, image: &ExecutableEvidence, pid: u32) -> Result<()> {
+    fn check_inner(
+        &self,
+        session: &Arc<()>,
+        image: &ExecutableEvidence,
+        pid: u32,
+        current: Option<&CurrentImage>,
+    ) -> Result<()> {
         if !self.belongs_to(session) {
             return Err(Refusal::Child);
         }
@@ -172,7 +185,7 @@ impl Evidence {
             || image.source_path != Path::new(DIRECTORY).join("mihomo")
             || !self.objects.core_identity.matches(&image.image)
             || !self.objects.core_identity.matches(&image.source)
-            || !image.check(pid)
+            || !image.check_current(pid, session, current)
         {
             return Err(Refusal::Child);
         }

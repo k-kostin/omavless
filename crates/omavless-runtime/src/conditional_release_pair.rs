@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Close-qualified normal package paths; opt-in candidate, not distribution proof.
 //! No developer receipt conversion, repair, installer or exported authority.
-use super::super::{ExecutableEvidence, FileIdentity, Session};
+use super::super::{CurrentImage, ExecutableEvidence, FileIdentity, Session};
 use super::{Refusal, Result, elf_architecture};
 use crate::managed_pair::{RELEASE_CORE, RELEASE_RECEIPT, SELECTION_BYTES, SELECTOR};
 use nix::fcntl::{AtFlags, OFlag, open, openat};
@@ -265,7 +265,10 @@ impl Evidence {
         session: &mut Session,
         config: &Path,
     ) -> Result<Option<Self>> {
-        session.check().map_err(|_| Refusal::Child)?;
+        let flight = session.image_proof_flight().map_err(|_| Refusal::Child)?;
+        session
+            .check_with_flight(&flight)
+            .map_err(|_| Refusal::Child)?;
         let until = session
             .deadline
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(3));
@@ -350,8 +353,11 @@ impl Evidence {
             &session.identity,
             session.executable.as_ref().ok_or(Refusal::Child)?,
             session.binding.pid,
+            flight.current.as_ref(),
         )?;
-        session.check().map_err(|_| Refusal::Child)?;
+        session
+            .check_with_flight(&flight)
+            .map_err(|_| Refusal::Child)?;
         if Instant::now() >= until {
             return Err(Refusal::Expired);
         }
@@ -362,6 +368,7 @@ impl Evidence {
         original: &Arc<()>,
         image: &ExecutableEvidence,
         pid: u32,
+        current: Option<&CurrentImage>,
     ) -> Result<()> {
         let result = (|| {
             self.original.check(original)?;
@@ -377,7 +384,7 @@ impl Evidence {
                 || image.source_identity != self.core.identity
                 || !self.core.identity.matches(&image.image)
                 || !self.core.identity.matches(&image.source)
-                || !image.check(pid)
+                || !image.check_current(pid, original, current)
                 || image.image.metadata().map_err(|_| Refusal::Child)?.gid() != self.core.gid
                 || image.source.metadata().map_err(|_| Refusal::Child)?.gid() != self.core.gid
             {

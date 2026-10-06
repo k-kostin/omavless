@@ -55,6 +55,25 @@ pub(crate) struct CloseFacts {
 enum CloseFixture {
     OwnedLoopback,
     PassiveOwnedLoopback,
+    #[cfg(feature = "developer-image-witness")]
+    PreparedImage,
+}
+#[cfg(all(test, feature = "developer-image-witness"))]
+struct PreparedImageObservation {
+    observation: CloseObservation,
+    desired: DesiredState,
+    config: String,
+    store: String,
+    core_path: PathBuf,
+    config_path: PathBuf,
+    store_path: PathBuf,
+    controller: PathBuf,
+    uid: u32,
+}
+enum CloseImageCapture {
+    Direct,
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    Witness,
 }
 
 impl CloseObservation {
@@ -77,6 +96,8 @@ impl CloseObservation {
                 Some(crate::conditional_close_candidate::CandidateEffectPermit::owned_fixture())
             }
             Some(CloseFixture::PassiveOwnedLoopback) | None => None,
+            #[cfg(feature = "developer-image-witness")]
+            Some(CloseFixture::PreparedImage) => None,
         }
     }
 
@@ -348,6 +369,10 @@ pub struct NativeLifecycleHost {
     tun_identity: Option<(String, u64)>,
     #[cfg(test)]
     close_fixture: Option<CloseFixture>,
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    prepared_image: Option<PreparedImageObservation>,
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    image_fixture_attempted: bool,
 }
 
 impl NativeLifecycleHost {
@@ -402,7 +427,144 @@ impl NativeLifecycleHost {
         if self.close_fixture.is_none() {
             return Err(HostStepError::Observation);
         }
+        #[cfg(feature = "developer-image-witness")]
+        if matches!(self.close_fixture, Some(CloseFixture::PreparedImage)) {
+            let Some(mut prepared) = self.prepared_image.take() else {
+                self.revoke_prepared_image();
+                return Err(HostStepError::Observation);
+            };
+            if self
+                .validate_prepared_image(desired, &mut prepared)
+                .is_err()
+            {
+                self.revoke_prepared_image();
+                prepared.observation.session.revoke_prepared_witness();
+                return Err(HostStepError::Observation);
+            }
+            self.prepared_image = Some(prepared);
+            return Ok(());
+        }
         self.capture_connection_close(desired)?.observe()
+    }
+
+    /// Fixed test-only ONE session, prepared before exposing this owner to
+    /// concurrent callers. Caller holds no owner mutex or migration lease.
+    /// No copied catalog/row, implicit reconnect or fixture permit is retained.
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn prepare_image_witness_close_fixture(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<(), HostStepError> {
+        if self.image_fixture_attempted
+            || !matches!(self.close_fixture, Some(CloseFixture::PassiveOwnedLoopback))
+        {
+            self.revoke_prepared_image();
+            return Err(HostStepError::Observation);
+        }
+        self.image_fixture_attempted = true;
+        self.close_fixture = Some(CloseFixture::PreparedImage);
+        let result = (|| {
+            let config_path = self.paths.config_directory.join("config.yaml");
+            let config = read_private_utf8(&config_path, self.uid)
+                .map_err(|_| HostStepError::Observation)?;
+            let store = read_private_utf8(&self.paths.store, self.uid)
+                .map_err(|_| HostStepError::Observation)?;
+            let mut observation =
+                self.capture_original_close(desired, CloseImageCapture::Witness)?;
+            observation.observe()?;
+            if observation.fixture_permit().is_some() {
+                return Err(HostStepError::Observation);
+            }
+            let mut prepared = PreparedImageObservation {
+                observation,
+                desired: desired.clone(),
+                config,
+                store,
+                core_path: self.paths.core.clone(),
+                config_path,
+                store_path: self.paths.store.clone(),
+                controller: self.paths.controller_socket.clone(),
+                uid: self.uid,
+            };
+            self.validate_prepared_image(desired, &mut prepared)?;
+            self.prepared_image = Some(prepared);
+            Ok(())
+        })();
+        if result.is_err() {
+            self.revoke_prepared_image();
+        }
+        result
+    }
+
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    fn validate_prepared_image(
+        &mut self,
+        desired: &DesiredState,
+        prepared: &mut PreparedImageObservation,
+    ) -> Result<(), HostStepError> {
+        if &prepared.desired != desired
+            || !desired.connected
+            || self.uid != prepared.uid
+            || self.paths.core != prepared.core_path
+            || self.paths.controller_socket != prepared.controller
+            || self.paths.config_directory.join("config.yaml") != prepared.config_path
+            || self.paths.store != prepared.store_path
+            || self.profile_id.as_deref() != Some(desired.profile_id.as_str())
+            || !self
+                .readiness
+                .as_ref()
+                .is_some_and(|r| r.mode == desired.mode)
+            || read_private_utf8(&prepared.config_path, self.uid)
+                .ok()
+                .as_ref()
+                != Some(&prepared.config)
+            || read_private_utf8(&self.paths.store, self.uid).ok().as_ref() != Some(&prepared.store)
+            || !self
+                .core
+                .as_mut()
+                .is_some_and(|core| prepared.observation.session.prepared_witness_origin(core))
+        {
+            return Err(HostStepError::Observation);
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    fn revoke_prepared_image(&mut self) {
+        if matches!(self.close_fixture, Some(CloseFixture::PreparedImage)) {
+            if let Some(core) = self.core.as_mut()
+                && let Ok(lifetime) = core.conditional_lifetime()
+            {
+                lifetime.revoke();
+            }
+            if let Some(prepared) = self.prepared_image.take() {
+                prepared.observation.session.revoke_prepared_witness();
+            }
+        }
+    }
+
+    /// Deliberately invalid preparation for a field-presence refusal control.
+    /// This never creates helper provenance or qualified package evidence.
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn install_invalid_prepared_image_for_test(
+        &mut self,
+        desired: &DesiredState,
+        observation: CloseObservation,
+    ) {
+        let config_path = self.paths.config_directory.join("config.yaml");
+        self.prepared_image = Some(PreparedImageObservation {
+            observation,
+            desired: desired.clone(),
+            config: read_private_utf8(&config_path, self.uid).unwrap(),
+            store: read_private_utf8(&self.paths.store, self.uid).unwrap(),
+            core_path: self.paths.core.clone(),
+            config_path,
+            store_path: self.paths.store.clone(),
+            controller: self.paths.controller_socket.clone(),
+            uid: self.uid,
+        });
+        self.image_fixture_attempted = true;
+        self.close_fixture = Some(CloseFixture::PreparedImage);
     }
 
     #[cfg(test)]
@@ -469,6 +631,10 @@ impl NativeLifecycleHost {
             tun_identity: None,
             #[cfg(test)]
             close_fixture: None,
+            #[cfg(all(test, feature = "developer-image-witness"))]
+            prepared_image: None,
+            #[cfg(all(test, feature = "developer-image-witness"))]
+            image_fixture_attempted: false,
         })
     }
 
@@ -480,6 +646,30 @@ impl NativeLifecycleHost {
     pub(crate) fn capture_connection_close(
         &mut self,
         desired: &DesiredState,
+    ) -> Result<CloseObservation, HostStepError> {
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        if matches!(self.close_fixture, Some(CloseFixture::PreparedImage)) {
+            let Some(mut prepared) = self.prepared_image.take() else {
+                self.revoke_prepared_image();
+                return Err(HostStepError::Observation);
+            };
+            if self
+                .validate_prepared_image(desired, &mut prepared)
+                .is_err()
+            {
+                self.revoke_prepared_image();
+                prepared.observation.session.revoke_prepared_witness();
+                return Err(HostStepError::Observation);
+            }
+            return Ok(prepared.observation);
+        }
+        self.capture_original_close(desired, CloseImageCapture::Direct)
+    }
+
+    fn capture_original_close(
+        &mut self,
+        desired: &DesiredState,
+        image: CloseImageCapture,
     ) -> Result<CloseObservation, HostStepError> {
         if !desired.connected || self.profile_id.as_deref() != Some(desired.profile_id.as_str()) {
             return Err(HostStepError::Observation);
@@ -494,9 +684,12 @@ impl NativeLifecycleHost {
         let pid = core.pid().ok_or(HostStepError::Observation)?;
         let mut session = crate::conditional_close_candidate::Session::bind(core, self.uid)
             .map_err(|_| HostStepError::Observation)?;
-        session
-            .capture_executable(&self.paths.core)
-            .map_err(|_| HostStepError::Observation)?;
+        match image {
+            CloseImageCapture::Direct => session.capture_executable(&self.paths.core),
+            #[cfg(all(test, feature = "developer-image-witness"))]
+            CloseImageCapture::Witness => session.capture_executable_via_witness(&self.paths.core),
+        }
+        .map_err(|_| HostStepError::Observation)?;
         Ok(CloseObservation {
             session,
             facts: CloseFacts {
@@ -970,6 +1163,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        self.revoke_prepared_image();
         self.connection_preflight()?;
         if let Some(pair) = &self.paths.managed_pair {
             pair.verify()?;
@@ -1036,6 +1231,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn start_prepared(&mut self) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        self.revoke_prepared_image();
         if !self.auxiliary.mutation_safe() {
             return Err(HostStepError::Start);
         }
@@ -1088,6 +1285,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn commit_prepared(&mut self) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        self.revoke_prepared_image();
         if self.core.is_none() || self.profile_id.is_none() {
             return Err(HostStepError::Commit);
         }
@@ -1106,6 +1305,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn stop_owned(&mut self) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        self.revoke_prepared_image();
         if !self.auxiliary.mutation_safe() {
             return Err(HostStepError::Stop);
         }
@@ -1129,6 +1330,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn discard_prepared(&mut self) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        self.revoke_prepared_image();
         remove_owned_file(&self.paths.staged_config, self.uid, false)?;
         if self.active_install_attempted {
             self.restore_previous_config()?;

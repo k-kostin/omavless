@@ -247,6 +247,29 @@ struct ExecutableEvidence {
     source_path: PathBuf,
     digests: Option<([u8; 32], [u8; 32])>,
 }
+/// A single current-image observation owned by one original proof flight.
+/// No Clone/Debug, stored permission bit, wire constructor or cross-flight reuse.
+struct CurrentImage {
+    file: File,
+    original: Arc<()>,
+    pid: u32,
+}
+#[cfg(feature = "developer-image-witness")]
+enum ImageWitness {
+    Pending(Option<std::os::fd::OwnedFd>),
+    Bound(omavless_image_witness::Client),
+    Refused,
+}
+#[cfg(feature = "developer-image-witness")]
+struct PendingExecutable {
+    source: File,
+    identity: FileIdentity,
+    path: PathBuf,
+}
+#[cfg(all(test, feature = "developer-image-witness"))]
+type ImageProbe = Box<dyn FnMut(Instant) -> Result<File, Outcome> + Send>;
+#[cfg(all(test, feature = "developer-image-witness"))]
+type ImageFinishProbe = Box<dyn FnMut(Instant) -> Result<(), Outcome> + Send>;
 impl ExecutableEvidence {
     fn image(pid: u32) -> Option<File> {
         // Follow this kernel-owned exe link only for the retained Live child.
@@ -259,15 +282,31 @@ impl ExecutableEvidence {
         .ok()
         .map(File::from)
     }
-    fn check(&self, pid: u32) -> bool {
+    fn check_held(&self) -> bool {
         self.image_identity.matches(&self.image)
             && self.source_identity.matches(&self.source)
-            && Self::image(pid).is_some_and(|image| self.image_identity.matches(&image))
             && fs::symlink_metadata(&self.source_path)
                 .ok()
                 .filter(|metadata| !metadata.file_type().is_symlink())
                 .and_then(|metadata| FileIdentity::capture(&metadata))
                 == Some(self.source_identity)
+    }
+    fn check(&self, pid: u32) -> bool {
+        self.check_held()
+            && Self::image(pid).is_some_and(|image| self.image_identity.matches(&image))
+    }
+    fn check_current(&self, pid: u32, original: &Arc<()>, current: Option<&CurrentImage>) -> bool {
+        match current {
+            Some(current) => {
+                current.pid == pid
+                    && Arc::ptr_eq(&current.original, original)
+                    && self.check_held()
+                    && self.image_identity.matches(&current.file)
+                    && current.file.metadata().ok().map(|m| m.gid())
+                        == self.image.metadata().ok().map(|m| m.gid())
+            }
+            None => self.check(pid),
+        }
     }
     fn hash(file: &mut File, identity: FileIdentity, deadline: Instant) -> Option<[u8; 32]> {
         use sha2::{Digest, Sha256};
@@ -444,9 +483,12 @@ impl Cancellation {
 struct ProofFlight {
     lifetime: Arc<Lifetime>,
     identity: Arc<()>,
+    current: Option<CurrentImage>,
 }
 impl Drop for ProofFlight {
     fn drop(&mut self) {
+        // The observation is gone before cancellation sees the flight drained.
+        drop(self.current.take());
         let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(r) = &mut gate.reservation
             && Arc::ptr_eq(&r.identity, &self.identity)
@@ -480,6 +522,14 @@ pub(crate) struct Session {
     effect_proof: Option<crate::native_coordinator::connection_close::EffectProof>,
     confirmation_expiry: Option<Instant>,
     executable: Option<ExecutableEvidence>,
+    #[cfg(feature = "developer-image-witness")]
+    image_witness: Option<ImageWitness>,
+    #[cfg(feature = "developer-image-witness")]
+    pending_executable: Option<PendingExecutable>,
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    image_probe: Option<ImageProbe>,
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    image_finish_probe: Option<ImageFinishProbe>,
     #[cfg(feature = "developer-conditional-close")]
     developer_pair: Option<package_evidence::developer_pair::Evidence>,
     #[cfg(feature = "developer-conditional-close")]
@@ -550,6 +600,14 @@ impl Session {
             effect_proof: None,
             confirmation_expiry: None,
             executable: None,
+            #[cfg(feature = "developer-image-witness")]
+            image_witness: None,
+            #[cfg(feature = "developer-image-witness")]
+            pending_executable: None,
+            #[cfg(all(test, feature = "developer-image-witness"))]
+            image_probe: None,
+            #[cfg(all(test, feature = "developer-image-witness"))]
+            image_finish_probe: None,
             #[cfg(feature = "developer-conditional-close")]
             developer_pair: None,
             #[cfg(feature = "developer-conditional-close")]
@@ -593,15 +651,16 @@ impl Session {
     }
 
     fn check(&mut self) -> Result<(), Outcome> {
+        #[cfg(feature = "developer-image-witness")]
+        if self.image_witness_selected() {
+            let flight = self.image_proof_flight()?;
+            return self.check_with_flight(&flight);
+        }
         #[cfg(feature = "developer-conditional-close")]
-        let _pair_flight = if self.developer_pair.is_some() || self.qualified_pair.is_some() {
+        if self.developer_pair.is_some() || self.qualified_pair.is_some() {
             let flight = self.begin_proof_flight()?;
-            self.check_developer_pair()?;
-            self.check_qualified_pair()?;
-            Some(flight)
-        } else {
-            None
-        };
+            return self.check_with_flight(&flight);
+        }
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime
             .gate
@@ -628,18 +687,192 @@ impl Session {
         Ok(ProofFlight {
             lifetime: Arc::clone(&self.lifetime),
             identity: Arc::clone(&self.identity),
+            current: None,
         })
     }
 
+    fn revoke_image(&self) {
+        self.lifetime
+            .gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .revoke();
+    }
+
+    fn image_witness_selected(&self) -> bool {
+        #[cfg(feature = "developer-image-witness")]
+        if self.image_witness.is_some() {
+            return true;
+        }
+        #[cfg(all(test, feature = "developer-image-witness"))]
+        if self.image_probe.is_some() {
+            return true;
+        }
+        false
+    }
+
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn install_image_probe_for_test(&mut self, probe: ImageProbe) {
+        assert!(self.image_witness.is_none() && self.image_probe.is_none());
+        self.image_probe = Some(probe);
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn original_image_for_test(&self) -> File {
+        self.executable.as_ref().unwrap().image.try_clone().unwrap()
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn capture_probe_image_for_test(&mut self) {
+        let path = fs::read_link(format!("/proc/{}/exe", self.binding.pid)).unwrap();
+        self.capture_executable(&path).unwrap();
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn image_gate_available_for_test(&self) -> bool {
+        self.lifetime.gate.try_lock().is_ok()
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn image_gate_checker_for_test(&self) -> impl Fn() -> (bool, bool) + Send + 'static {
+        let lifetime = Arc::clone(&self.lifetime);
+        move || match lifetime.gate.try_lock() {
+            Ok(gate) => (
+                true,
+                gate.reservation
+                    .as_ref()
+                    .is_some_and(|r| matches!(r.phase, Phase::EffectAttempted)),
+            ),
+            Err(_) => (false, false),
+        }
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn image_deadline_for_test(&mut self, until: Instant) {
+        self.deadline = Some(until);
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn pause_before_finish(&mut self, barrier: Arc<std::sync::Barrier>) {
+        self.before_finish = Some(barrier);
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn install_image_finish_probe_for_test(&mut self, probe: ImageFinishProbe) {
+        self.image_finish_probe = Some(probe);
+    }
+
+    /// Existing counted flight starts before RPC. No owner/gate/migration lease
+    /// spans the original private channel. A late valid FD never wins cancel.
+    fn image_proof_flight(&mut self) -> Result<ProofFlight, Outcome> {
+        #[allow(unused_mut)]
+        let mut flight = self.begin_proof_flight()?;
+        #[cfg(feature = "developer-image-witness")]
+        if self.image_witness_selected() {
+            let deadline = *self.deadline.get_or_insert_with(|| Instant::now() + BUDGET);
+            let result = (|| {
+                remaining(deadline)?;
+                #[cfg(test)]
+                let file = if let Some(probe) = self.image_probe.as_mut() {
+                    Some(probe(deadline)?)
+                } else {
+                    None
+                };
+                #[cfg(not(test))]
+                let file: Option<File> = None;
+                let file = if let Some(file) = file {
+                    file
+                } else {
+                    if let Some(ImageWitness::Pending(child)) = &mut self.image_witness {
+                        let original = child.take().ok_or(Outcome::RefusedBeforeWrite)?;
+                        // Consume before constructor effects; no failed bind is retried.
+                        self.image_witness = Some(ImageWitness::Refused);
+                        let client =
+                            omavless_image_witness::Client::bind_original(original, deadline)
+                                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                        self.image_witness = Some(ImageWitness::Bound(client));
+                    }
+                    let Some(ImageWitness::Bound(client)) = &mut self.image_witness else {
+                        return Err(Outcome::RefusedBeforeWrite);
+                    };
+                    client
+                        .observe(deadline)
+                        .map_err(|_| Outcome::RefusedBeforeWrite)?
+                };
+                flight.current = Some(CurrentImage {
+                    file,
+                    original: Arc::clone(&self.identity),
+                    pid: self.binding.pid,
+                });
+                let current = flight.current.as_ref().ok_or(Outcome::RefusedBeforeWrite)?;
+                if let Some(pending) = &self.pending_executable {
+                    if !pending.identity.matches(&pending.source)
+                        || !pending.identity.matches(&current.file)
+                        || fs::symlink_metadata(&pending.path)
+                            .ok()
+                            .and_then(|m| FileIdentity::capture(&m))
+                            != Some(pending.identity)
+                    {
+                        return Err(Outcome::RefusedBeforeWrite);
+                    }
+                } else if !self.executable.as_ref().is_some_and(|image| {
+                    image.check_current(self.binding.pid, &self.identity, Some(current))
+                }) {
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
+                remaining(deadline)?;
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_locked(&mut gate)
+            })();
+            if result.is_err() {
+                self.revoke_image();
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+        }
+        Ok(flight)
+    }
+
+    fn check_with_flight(&self, flight: &ProofFlight) -> Result<(), Outcome> {
+        #[cfg(feature = "developer-conditional-close")]
+        self.check_developer_pair(flight.current.as_ref())?;
+        #[cfg(feature = "developer-conditional-close")]
+        self.check_qualified_pair(flight.current.as_ref())?;
+        let mut gate = self
+            .lifetime
+            .gate
+            .lock()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        self.check_locked_current(&mut gate, flight.current.as_ref())
+    }
+
+    fn check_locked_current(
+        &self,
+        gate: &mut Gate,
+        current: Option<&CurrentImage>,
+    ) -> Result<(), Outcome> {
+        self.check_locked(gate)?;
+        #[cfg(feature = "developer-image-witness")]
+        if self.image_witness_selected()
+            && (!current.is_some_and(|c| {
+                c.pid == self.binding.pid && Arc::ptr_eq(&c.original, &self.identity)
+            }) || self.executable.as_ref().is_some_and(|image| {
+                !image.check_current(self.binding.pid, &self.identity, current)
+            }))
+        {
+            gate.revoke();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        #[cfg(not(feature = "developer-image-witness"))]
+        let _ = current;
+        Ok(())
+    }
+
     #[cfg(feature = "developer-conditional-close")]
-    fn check_developer_pair(&self) -> Result<(), Outcome> {
+    fn check_developer_pair(&self, current: Option<&CurrentImage>) -> Result<(), Outcome> {
         let Some(pair) = &self.developer_pair else {
             return Ok(());
         };
-        let valid = self
-            .executable
-            .as_ref()
-            .is_some_and(|image| pair.check(&self.identity, image, self.binding.pid).is_ok());
+        let valid = self.executable.as_ref().is_some_and(|image| {
+            pair.check(&self.identity, image, self.binding.pid, current)
+                .is_ok()
+        });
         if !valid {
             self.lifetime
                 .gate
@@ -651,20 +884,70 @@ impl Session {
         Ok(())
     }
 
-    fn effect_lease(&mut self) -> Result<Option<EffectLease>, Outcome> {
-        let Some(proof) = self.effect_proof.as_ref() else {
+    fn effect_lease(&mut self, finalizing: bool) -> Result<Option<EffectLease>, Outcome> {
+        if self.effect_proof.is_none() {
+            #[cfg(feature = "developer-image-witness")]
+            if self.image_witness_selected() {
+                self.revoke_image();
+                return Err(Outcome::RefusedBeforeWrite);
+            }
             return Ok(None);
-        };
-        let flight = self.begin_proof_flight()?;
+        }
+        let flight = self.image_proof_flight()?;
         // New developer-object pathname/descriptor work uses this same flight,
         // outside the urgent revoke gate, before EVERY effect chunk/finish.
         #[cfg(feature = "developer-conditional-close")]
-        self.check_developer_pair()?;
+        self.check_developer_pair(flight.current.as_ref())?;
         #[cfg(feature = "developer-conditional-close")]
-        self.check_qualified_pair()?;
+        self.check_qualified_pair(flight.current.as_ref())?;
+        #[cfg(feature = "developer-image-witness")]
+        if finalizing && self.image_witness_selected() {
+            let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
+            #[cfg(test)]
+            let result = if let Some(probe) = &mut self.image_finish_probe {
+                probe(deadline)
+            } else if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
+                client
+                    .finish(deadline)
+                    .map_err(|_| Outcome::RefusedBeforeWrite)
+            } else {
+                Ok(())
+            };
+            #[cfg(not(test))]
+            let result = if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
+                client
+                    .finish(deadline)
+                    .map_err(|_| Outcome::RefusedBeforeWrite)
+            } else {
+                Err(Outcome::RefusedBeforeWrite)
+            };
+            if result.is_err() {
+                self.revoke_image();
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+        }
+        #[cfg(not(feature = "developer-image-witness"))]
+        let _ = finalizing;
+        // RPC/Finish completion may have lost cancellation or expiry. Never
+        // acquire even a durable lease for that late positive observation.
+        #[cfg(feature = "developer-image-witness")]
+        if self.image_witness_selected() {
+            remaining(self.deadline.ok_or(Outcome::RefusedBeforeWrite)?)?;
+            let mut gate = self
+                .lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            self.check_locked_current(&mut gate, flight.current.as_ref())?;
+        }
         // Disk reads and try-lock are OUTSIDE the lifetime gate. On error,
         // proof.lease drops its own acquired lease before `flight` unwinds.
-        let lease = proof.lease().map_err(|_| Outcome::RefusedBeforeWrite)?;
+        let lease = self
+            .effect_proof
+            .as_ref()
+            .ok_or(Outcome::RefusedBeforeWrite)?
+            .lease()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
         let guarded = EffectLease {
             lease: Some(lease),
             flight: Some(flight),
@@ -725,11 +1008,30 @@ impl Session {
                 return Err(refuse);
             }
         }
-        if self
-            .executable
-            .as_ref()
-            .is_some_and(|evidence| !evidence.check(self.binding.pid))
-        {
+        #[allow(unused_mut)]
+        let mut current_needed = true;
+        #[cfg(feature = "developer-image-witness")]
+        if self.image_witness_selected() {
+            current_needed = false;
+            if self.pending_executable.as_ref().is_some_and(|pending| {
+                !pending.identity.matches(&pending.source)
+                    || fs::symlink_metadata(&pending.path)
+                        .ok()
+                        .filter(|m| !m.file_type().is_symlink())
+                        .and_then(|m| FileIdentity::capture(&m))
+                        != Some(pending.identity)
+            }) {
+                gate.revoke();
+                return Err(refuse);
+            }
+        }
+        if self.executable.as_ref().is_some_and(|evidence| {
+            if current_needed {
+                !evidence.check(self.binding.pid)
+            } else {
+                !evidence.check_held()
+            }
+        }) {
             gate.revoke();
             return Err(refuse);
         }
@@ -819,10 +1121,28 @@ impl Session {
             // Durable proof is rechecked outside the child gate for EVERY
             // chunk. Retain a nonblocking migration lease for exactly one
             // syscall, never a readiness wait or owner callback.
-            let effect_lease = if effect { self.effect_lease()? } else { None };
+            let effect_lease = if effect {
+                self.effect_lease(false)?
+            } else {
+                #[cfg(feature = "developer-image-witness")]
+                if self.image_witness_selected() {
+                    self.check()?;
+                }
+                None
+            };
             let result = {
                 let mut gate = self.lifetime.gate.lock().map_err(|_| Outcome::Unknown)?;
-                self.check_locked(&mut gate)?;
+                if effect {
+                    self.check_locked_current(
+                        &mut gate,
+                        effect_lease
+                            .as_ref()
+                            .and_then(|lease| lease.flight.as_ref())
+                            .and_then(|flight| flight.current.as_ref()),
+                    )?;
+                } else {
+                    self.check_locked(&mut gate)?;
+                }
                 remaining(deadline)?;
                 if effect
                     && self
@@ -918,11 +1238,17 @@ impl Session {
         let effect_lease = if matches!(candidate, Outcome::Unknown | Outcome::RefusedBeforeWrite) {
             Ok(None)
         } else {
-            self.effect_lease()
+            self.effect_lease(true)
         };
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
-        let proved = self.check_locked(&mut gate).is_ok()
+        let current = effect_lease
+            .as_ref()
+            .ok()
+            .and_then(|lease| lease.as_ref())
+            .and_then(|lease| lease.flight.as_ref())
+            .and_then(|flight| flight.current.as_ref());
+        let proved = self.check_locked_current(&mut gate, current).is_ok()
             && effect_lease.is_ok()
             && self
                 .deadline
@@ -1043,9 +1369,123 @@ impl Session {
         self.check_locked(&mut gate)
     }
 
+    /// Explicit fixed developer capture only. Keep original source/child handle
+    /// while under owner admission; Bind/Observe are deferred to detached work.
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn capture_executable_via_witness(
+        &mut self,
+        source_path: &Path,
+    ) -> Result<(), Outcome> {
+        let result = (|| {
+            if source_path != Path::new(crate::managed_pair::RELEASE_CORE)
+                || self.image_witness.is_some()
+                || self.executable.is_some()
+            {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            let mut gate = self
+                .lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            self.check_locked(&mut gate)?;
+            let source = File::from(
+                open(
+                    source_path,
+                    OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC | OFlag::O_NONBLOCK,
+                    Mode::empty(),
+                )
+                .map_err(|_| Outcome::RefusedBeforeWrite)?,
+            );
+            let m = source.metadata().map_err(|_| Outcome::RefusedBeforeWrite)?;
+            let identity = FileIdentity::capture(&m).ok_or(Outcome::RefusedBeforeWrite)?;
+            if m.uid() != 0 || m.gid() != 0 || m.mode() & 0o7777 != 0o755 {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            let pid = rustix::process::Pid::from_raw(
+                i32::try_from(self.binding.pid).map_err(|_| Outcome::RefusedBeforeWrite)?,
+            )
+            .ok_or(Outcome::RefusedBeforeWrite)?;
+            let child = rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::NONBLOCK)
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            self.check_locked(&mut gate)?;
+            self.pending_executable = Some(PendingExecutable {
+                source,
+                identity,
+                path: source_path.to_owned(),
+            });
+            self.image_witness = Some(ImageWitness::Pending(Some(child)));
+            Ok(())
+        })();
+        if result.is_err() {
+            self.revoke_image();
+        }
+        result
+    }
+
+    #[cfg(feature = "developer-image-witness")]
+    fn prepare_witness_image(&mut self) -> Result<(), Outcome> {
+        if self.pending_executable.is_none() {
+            return Ok(());
+        }
+        let result = (|| {
+            let flight = self.image_proof_flight()?;
+            let current = flight.current.as_ref().ok_or(Outcome::RefusedBeforeWrite)?;
+            let image = current
+                .file
+                .try_clone()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            let pending = self
+                .pending_executable
+                .take()
+                .ok_or(Outcome::RefusedBeforeWrite)?;
+            self.executable = Some(ExecutableEvidence {
+                image,
+                source: pending.source,
+                image_identity: pending.identity,
+                source_identity: pending.identity,
+                source_path: pending.path,
+                digests: None,
+            });
+            self.check_with_flight(&flight)
+        })();
+        if result.is_err() {
+            self.revoke_image();
+        }
+        result
+    }
+
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn revoke_prepared_witness(&self) {
+        self.revoke_image();
+    }
+
+    /// Initial developer adoption only, NOT operation/current-catalog proof.
+    /// Full fresh observation preceded preparation and will run again detached.
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn prepared_witness_origin(&self, core: &mut OwnedCore) -> bool {
+        matches!(self.image_witness, Some(ImageWitness::Bound(_)))
+            && self.pending_executable.is_none()
+            && self.executable.is_some()
+            && self
+                .qualified_pair
+                .as_ref()
+                .is_some_and(|pair| pair.belongs_to(&self.identity))
+            && self
+                .deadline
+                .is_some_and(|deadline| Instant::now() < deadline)
+            && core.pid() == Some(self.binding.pid)
+            && core
+                .conditional_lifetime()
+                .is_ok_and(|original| Arc::ptr_eq(&original, &self.lifetime))
+            && self.proves_live_for_scheduling()
+    }
+
     /// Passive only. Hash actual retained bytes OUTSIDE owner/child gates;
     /// neither these digests nor ABI readiness mint package authority.
     pub(crate) fn prepare_executable(&mut self) -> Result<(), Outcome> {
+        #[cfg(feature = "developer-image-witness")]
+        self.prepare_witness_image()?;
         self.check()?;
         let deadline = *self.deadline.get_or_insert_with(|| Instant::now() + BUDGET);
         remaining(deadline)?;
@@ -1123,15 +1563,14 @@ impl Session {
         self.check()
     }
     #[cfg(feature = "developer-conditional-close")]
-    fn check_qualified_pair(&self) -> Result<(), Outcome> {
+    fn check_qualified_pair(&self, current: Option<&CurrentImage>) -> Result<(), Outcome> {
         let Some(pair) = &self.qualified_pair else {
             return Ok(());
         };
-        if self
-            .executable
-            .as_ref()
-            .is_none_or(|image| pair.check(&self.identity, image, self.binding.pid).is_err())
-        {
+        if self.executable.as_ref().is_none_or(|image| {
+            pair.check(&self.identity, image, self.binding.pid, current)
+                .is_err()
+        }) {
             self.lifetime
                 .gate
                 .lock()

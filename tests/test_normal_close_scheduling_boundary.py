@@ -9,7 +9,7 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
-    def test_current_image_helper_is_separate_default_off_and_passive_only(self):
+    def test_current_image_helper_is_separate_default_off_and_passive_gate_unpromoted(self):
         manifest=tomllib.loads((SRC.parent/"Cargo.toml").read_text())
         self.assertEqual(manifest["features"]["developer-image-witness"],
             ["developer-conditional-close","dep:omavless-image-witness","omavless-image-witness/developer-helper","dep:rustix"])
@@ -27,11 +27,51 @@ class NormalSchedulingBoundary(unittest.TestCase):
         self.assertNotIn("confirm_connection_close(",passive)
         self.assertIn("getppid().as_raw(), 1",passive)
 
+    def test_current_image_rpc_is_off_gate_before_lease_and_held_through_effect(self):
+        session=(SRC/"conditional_close_candidate.rs").read_text()
+        local=session.split("    fn check_locked(&self",1)[1].split("    fn connected(",1)[0]
+        self.assertNotIn("client.observe(",local)
+        self.assertNotIn("Client::bind_original(",local)
+        flight=session.split("    fn image_proof_flight(",1)[1].split("    fn check_with_flight(",1)[0]
+        self.assertLess(flight.index("self.begin_proof_flight()?"),flight.index("Client::bind_original("))
+        effect=session.split("    fn effect_lease(",1)[1].split("pub(crate) fn pause_proof_after(",1)[0]
+        self.assertLess(effect.index("self.image_proof_flight()?"),effect.index(".lease()"))
+        exchange=session.split("    fn exchange_request(",1)[1].split("    fn pause(",1)[0]
+        self.assertLess(exchange.index("self.effect_lease(false)?"),exchange.index("stream.write(pending)"))
+        self.assertLess(exchange.index("stream.write(pending)"),exchange.index("drop(effect_lease)"))
+        terminal=session.split("    fn finish(&mut self",1)[1].split("    pub(crate) fn discover(",1)[0]
+        self.assertLess(terminal.index("self.effect_lease(true)"),terminal.index("r.phase = Phase::Finished"))
+
+    def test_image_flight_releases_current_fd_before_drain_and_no_fallback(self):
+        session=(SRC/"conditional_close_candidate.rs").read_text()
+        drop=session.split("impl Drop for ProofFlight",1)[1].split("struct EffectLease",1)[0]
+        self.assertLess(drop.index("drop(self.current.take())"),drop.index("r.proofs ="))
+        refresh=session.split("    fn image_proof_flight(",1)[1].split("    fn check_with_flight(",1)[0]
+        self.assertNotIn("ExecutableEvidence::image(",refresh)
+        self.assertIn("self.revoke_image()",refresh)
+        for leaf in ("conditional_developer_pair.rs","conditional_release_pair.rs"):
+            pair=(SRC/leaf).read_text()
+            self.assertIn("check_current(",pair)
+            self.assertIn("flight.current.as_ref()",pair)
+            self.assertNotIn("image.check(pid)",pair)
+
+    def test_prepared_helper_session_is_test_only_one_shot_not_recreated(self):
+        host=(SRC/"native_host.rs").read_text()
+        self.assertRegex(host,r'#\[cfg\(all\(test, feature = "developer-image-witness"\)\)\]\s*pub\(crate\) fn prepare_image_witness_close_fixture')
+        constructor=host.split("    pub(crate) fn prepare_image_witness_close_fixture(",1)[1].split("    fn validate_prepared_image(",1)[0]
+        self.assertLess(constructor.index("self.image_fixture_attempted = true"),constructor.index("self.capture_original_close("))
+        self.assertLess(constructor.index("observation.observe()?"),constructor.index("self.prepared_image = Some(prepared)"))
+        self.assertIn("observation.fixture_permit().is_some()",constructor)
+        self.assertIn("prepared.desired != desired",host)
+        self.assertIn("self.paths.store != prepared.store_path",host)
+        self.assertIn("self.prepared_image.take()",host)
+        self.assertGreaterEqual(host.count("self.revoke_prepared_image();"),9)
+
     def test_qualified_package_is_same_session_private_and_nondefault_not_boolean_promotion(self):
         session=(SRC/"conditional_close_candidate.rs").read_text()
         self.assertRegex(session,r'#\[cfg\(feature = "developer-conditional-close"\)\]\s*pub\(crate\) fn qualified_pair_permit')
         self.assertIn("qualification_attempted = true",session)
-        self.assertIn("self.check_qualified_pair()?",session.split("fn effect_lease",1)[1].split("#[cfg(test)]",1)[0])
+        self.assertIn("self.check_qualified_pair(flight.current.as_ref())?",session.split("fn effect_lease",1)[1].split("#[cfg(test)]",1)[0])
         qualification=(SRC/"conditional_release_pair.rs").read_text()
         self.assertNotIn("CandidateEffectPermit",qualification)
         self.assertIn("image.image_identity != self.core.identity",qualification)
