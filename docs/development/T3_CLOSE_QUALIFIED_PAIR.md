@@ -156,9 +156,19 @@ TestSystemDNSDeviceFlavorExclusive run/pass/package-pass receipt as well as the
 unchanged broader DNS tests and seven conditional primitive receipts. A
 successful zero-case command cannot qualify it.
 
-This four-family SOURCE candidate has not been built/staged/run in a VM.
-Next: separately reviewed frozen native producer, exact artifacts and normal
-package-path original-Session/socket gate, then the distinct genuine managed
+The four-family source4d4747af47d60956b370e588469a3b9472ed42a1 was
+subsequently built by ROOT with originalEXIT0 (7c1898) and explicitly staged
+with0 (17f457). Actual identities: core61,083,808 bytes/SHA256
+897ada648fe975718ac1b7318702def5b826a9901797a0d13cdd333a012b9fcb;
+broker5,124,568 bytes/SHA256
+4bbba825bc39209cd821af18f7a776825bf762c46a05e43f4354aca283009c70;
+receipt2,152 bytes/SHA256
+c6e283d9c8b4c2fa59163e6a363b93788a36b210f33d5d9dee2d8b5eec5bd8f2;
+source archive SHA256
+fc958cff638a86c6ed91496688e85510ba758ec2bdec786985b4eb0fe140e723.
+The same reviewed native Go version above and required original Go JSON cases
+passed. This does not claim an actual fourth-family VM result.
+Next: exact normal-package-path original-Session/socket gate, then distinct managed
 TUN/broker/lifecycle gate. The three-family result below is not four-family,
 installed native-owner, DNS-ready or K1 protection evidence. Default package,
 public close-method exposure, release assembler and distribution stay unchanged.
@@ -178,6 +188,44 @@ the separate short-HOME-TMPDIR run passed without changing that fixture.
 An initial Rust command named a nonexistent TUI feature and refused before
 compilation; the corrected existing developer feature gates above passed.
 Full combined CI and native producer/device/VM gates remain separate.
+
+## Separate cap-enabled image compatibility/refusal gate
+
+The new explicitly ignored feature-only
+`actual_owner_qualified_cap_image_refusal_in_dev_vm` is a separate test, not a
+replacement for the capless positive gate or a new production image verifier.
+ROOT must independently admit a fresh private mount/PID/net namespace with no
+user namespace, an exact sealed four-family core with Linux v2 filecaps
+bind-service/net-admin/net-raw (`0x3400` effective+permitted), a read-only suid
+bind mount and original UID/GID1000 parent with zero effective/permitted caps
+and NoNewPrivs0. The test never sets caps, mounts, grants parent privilege,
+invokes broker/TUN/DNS or runs privileged queries.
+
+After original OwnedCore.wait_ready and BEFORE first adoption, it derives the
+PID solely from that retained Child, checks original running via WNOWAIT,
+holds one original proc directory, checks held/current named dev+inode before
+and after one bounded status read (16,384 bytes plus overflow-detection byte),
+and rechecks the same owned child. Strict unique required Pid/PPid/Uid/CapPrm/
+CapEff/NoNewPrivs fields must prove UID quadruple1000, this parentPID1 and
+exact0x3400 gain. No census, guessed PID, raw status/errno output or replaced
+image proof is used. Four fixed phase literals are the only test diagnostics.
+
+Only then does the SAME passive owner attempt original adoption ONCE. The
+expected result is existing HostStepError::Observation refusal; any success or
+different failure is a failing gate. No retry, synthetic effect permit, fallback
+or close follows. This is gained-capability compatibility/refusal evidence,
+not proof of a specific kernel errno or that /proc-exe caused that result.
+The capless synthetic predecessor and ordinary OwnedCore/Fixture Drop plus
+namespace containment are explicit test semantics, not preserved UNKNOWN
+custody, native recovery or cleanup receipts. Native positive filecap ownership
+remains a genuine missing product guarantee, not something this test relaxes.
+
+The parser's pure controls reject each missing/duplicate required field,
+decimal overflow/noncanonical identity, wrong UID-field cardinality, nonhex or
+short capability fields, invalid NNP, missing terminal LF, CRLF and oversized
+input. These controls do not run the ignored capability experiment. Compile/
+strict feature Clippy and default absence are SOURCE gates only; an actual
+gain/refusal outcome still requires ROOT's fresh reviewed namespace selection.
 
 SOURCE checkpoint gates returned original0: strict receipt2; retained local
 objects/Arc3; managed-pair compatibility4; package mode/producer receipt2;

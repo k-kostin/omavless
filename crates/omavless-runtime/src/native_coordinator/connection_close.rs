@@ -53,6 +53,8 @@ mod tests {
 
     static FIXTURES: Mutex<()> = Mutex::new(());
     #[cfg(feature = "developer-conditional-close")]
+    include!("connection_close_cap_image.rs");
+    #[cfg(feature = "developer-conditional-close")]
     #[test]
     #[ignore = "ROOT-reviewed fresh normal-package-path qualification namespace only"]
     fn actual_owner_qualified_package_socket_close_in_dev_vm() {
