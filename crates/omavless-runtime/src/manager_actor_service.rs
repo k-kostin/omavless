@@ -1038,7 +1038,10 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
         return Err(Unavailable);
     }
     let mut context = Context::new(challenge.nonce)?;
-    let mut canonical = Canonical::reserve_role(role.observer())?; // BEFORE READY/proc/query
+    let mut canonical = match role {
+        ActorRole::Normal => Canonical::reserve(),
+        ActorRole::MixedWriter | ActorRole::Inspector => Canonical::reserve_role(role.observer()),
+    }?; // BEFORE READY/proc/query; normal constructor remains unchanged
     let mut transfer = transfer::Transfer::new()?; // finite private slot BEFORE READY
     let mut stage = stage::Stage::reserve_canonical(); // all36 lower roles BEFORE READY
     io_frame(
