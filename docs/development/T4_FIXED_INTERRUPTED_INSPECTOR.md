@@ -804,3 +804,33 @@ the real local Unix credential/frame/handle path with a read-only server. That
 last control does not mint native ownership. Installed current/login remains a
 separate genuine normal-unit/disposable-store gate; this test cannot satisfy
 login_activation's fixed installed-executable and actual manager-epoch checks.
+
+### Exact actual27 registered-fixture scope
+
+ROOT selected the reviewed `36b4456ccd091dcd44fd1c762e08c16e3c5e0c15` and its
+sealed 24,877,048-byte ELF SHA256
+`3461d8872766ab091e09a1a74035ccfd75cbb31af7d8788bb73b0fb8b3b985e1`.
+The fresh BOOT was `665f4bbe-daa2-48ce-8a2a-5b413d332b21`, positively observed
+by original SSH `e46653`. The current gate's only change was BOOT; its SHA256
+was `3ec66415a7d285cc17eaa7068c8b2bc75ad12ab82558672da625a0e5ceda8379`.
+PRIMARY packet/source and independent affected source/packet reviews preceded
+selection (`8750bb` / `2ef020` independent packet review).
+
+Complete public payload admission `b82b0c` completed0; all payloads were400
+before sole test-image chmod500. Prepare `81f3ef` completed0: persistent26 data
+was reread without modification, only the absent volatile tree was recreated,
+and no former receipt or lease authority was copied across administrative reboot.
+Original registered RPC `ac0708` completed SSH/test0. The separately selected
+fixed-file observer `5e6917` completed0 and reported stdout287 bytes SHA256
+`a7568c05aad4edf7cedeb6b4ba26095f6d2c4daa1aa7446a65e5552948994364`,
+one exact marker, one successful harness and no refusal labels; stderr was empty.
+
+The seven genuine private-endpoint RPC assertions passed: normal initialized
+ownership/status/list, onboarding NoChange and its same-operation replay path,
+capabilities, deliberate startup.configure unavailability and final status.
+This does not add a distinct wire replay attestation or claim a changed store
+effect; current store bytes were asserted unchanged. It is not current()/login,
+installed application-store, late crash/power-loss or whole T4 acceptance.
+No normal registration/default was changed by the source test, and ROOT alone
+performed the disposable-VM actions. This documentation successor changes no
+tested Rust byte or ELF and does not retroactively rewrite the frozen head.
