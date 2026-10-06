@@ -136,9 +136,10 @@ source retention/default-feature5; strict feature all-target Clippy; default
 and headless-feature checks; compile-only ignored entries; explicit include/
 workspace formatter, patch identity and documentation navigation. Initial
 ordinary source failures (test-module ordering and helper arity) were corrected;
-neither was a native/VM failure. No new ignored test, Go/compiler-core build,
-package action or actual installation ran. Full combined CI and new pair
-construction/VM acceptance are separate, not silently borrowed from96.
+neither was a native/VM failure. Those author gates did not run the ignored
+native test, Go/core builder or installation. The later ROOT-selected
+construction and namespace gate below are separate evidence, not silently
+borrowed from96.
 
 The ordinary qualified producer successor fixes Cargo jobs4 in its sanitized
 environment and passes one validated existing short private HOME-child TMPDIR
@@ -151,3 +152,47 @@ marked. This projection is not a memory/all-I/O or preemptive syscall bound.
 Compiler/Go-JSON files stay in private source scratch, never runtime/profile
 logs. Four mode/receipt/temp/diagnostic pure controls returned0; actual pair
 construction remains ROOT-selected and records its actual native tool version.
+
+## Exact three-family construction and namespace outcome
+
+ROOT built frozen producer dff1e0bf56c9bf850c94a411378acfc597e6e563
+with original EXIT0 (b1dcd3), enforcing offline DNS tests and all seven
+conditional primitive cases. Explicit close-qualified staging returned0
+(e12cfd). The actual native tool was `/usr/lib/go/bin/go`,
+`go1.27.0-X:nodwarf5`, CGO0/vendor/with_gvisor. Exact output identities were:
+
+- core:61,083,808 bytes, SHA256
+  3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544;
+- broker:5,124,576 bytes, SHA256
+  6126e5b159eb7996cbf8ac6bdb212be3d7b4b12b1809e09e74c19dbc1394001e;
+- receipt SHA256
+  b149a63b7f3819c8505f682d546d0abdb9a77fa1eb50a8d294e06fd3c2b9e14b;
+- source archive SHA256
+  51b1f7cb9b4e3e58ace3c9c16e6fa23b97d3f82656c31c4d6ffd1e497434363f.
+
+The first dff namespace invocation returned originalSSH101 (ffcb33), not
+PASS. Its bounded stdout was813 bytes/SHA256
+b3097385bceab1b209553aeb7058da28d005e068553acd42fb5679adb8bd6869,
+stderr empty. Source review established a fixture-order defect: initial
+owner adoption attempted qualified observation before the fixture wrote its
+selector. No production qualification predicate was relaxed. Test-only
+e452dfeb75e85098c2aa00424346ab6f9dcf14bf writes the same fixed selector
+before adoption and adds a source-order regression.
+
+The fresh reviewed namespace used that exact runtime source and test image
+21,459,568 bytes/SHA256
+de47f7edf77fe37bf95672651a44a5887446b7996b8bf8c1f5bcec41d4d53bc1,
+with the unchanged dff pair. Upload525ab9 and preparecc219e returned0;
+original run247d1c returnedSSH0. Separately selected fixed observation9d4c22
+returned0, complete success grammar, stdout226 bytes/SHA256
+5fcfe54672979bac547ec4425dbc3e6ed53f9e398b63f4d5f32f9bc4045322ca,
+stderr empty. This verifies UID/GID1000/PID1 in a fresh private mount/PID/net
+namespace, sealed capless root package-path objects, the SAME original
+owner/core/Session/private IPC, selected EOF, other-stream echo, exact receipt
+replay and unchanged desired bytes without a fixture effect permit.
+
+It does not verify broker serving, TUN/DNS effects, installed/capability-enabled
+startup, distribution or whole T3/C1 acceptance. Ordinary fixture Drop and
+namespace containment are not cleanup/recovery receipts. The original101
+remains NONPASS; neither the fourth family nor a successor head inherits this
+actual result.
