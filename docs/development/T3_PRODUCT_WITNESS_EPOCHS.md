@@ -351,10 +351,11 @@ the corrected flow14,721 bytes/SHA256
 `432f85791406fb93b4ddad26c1e4503232248df3fdbb2106570af3da4ab6f664`.
 All29 pure flow/supervisor/binding controls passed before actual selection.
 
-The old Product enrollment WHOLE directory was separately preserved by reviewed
-ADMIN no-replace rename, with original bytes retained; this was an upgrade
-baseline, not completion of old epoch77754. ROOT then normally installed617 and
-earned genuine NEW image enrollment/login, with original Meta DNS consent.
+ROOT normally installed617 (e1e801) BEFORE the old Product enrollment WHOLE
+directory was preserved by reviewed ADMIN no-replace rename (bcce77), with
+original bytes retained; this was an upgrade baseline, not completion of old
+epoch77754. Genuine NEW image enrollment followed (0a32aa), then login, with
+original Meta DNS consent.
 No enrollment/receipt copy, record editing, alternate HOME/PID/user/net or fake
 PID1 was used. Helper3206 was observed single-threaded under the fixed unit.
 Only a private mount of public synthetic config preserved the exact real private
@@ -369,7 +370,8 @@ and helper: close B→known Worker terminal, explicit fresh snapshot→close C, 
 continues echo, exact completed replay and stale handle/ticket refusal, unchanged
 On desired bytes while closing. Original daemon/flow WNOWAIT0 and positive reap0,
 genuine final disconnect/Off/Meta absence, original core/proc/namespace/image,
-helper64/native256 bounds and terminal FD plateau, config underlay/login/ownership,
+helper NOFILE64/native256 diagnostic FD envelope (not a native kernel-global
+ceiling) and terminal FD plateau, config underlay/login/ownership,
 helper/broker invocation and foreign-nft stability all passed the frozen harness.
 
 Separately selected `cancel_then_close`, original60735/resultbb547d, also returned
