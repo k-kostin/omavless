@@ -320,3 +320,36 @@ cleanup. The subsequent boot is
 inactive with zero manager FD-store count. Saved private application profiles
 were not reset, exported or committed. Production coverage issuance remains
 closed.
+
+## Control-socket observation correction and Numeric18
+
+The Numeric16 successor reached the controller/listener and route prerequisites,
+but refused before spawning its numeric trigger: bpftrace reported `EFAULT`
+reading the ioctl's interface name. Source inspection distinguishes a user
+pointer from an already copied BPF-stack character array. The Numeric18
+collector reads the original fixed `ifreq` address with `str(uptr(args.arg),16)`;
+the command/data-pointer checks and strict UDP-control policy remain unchanged.
+Collector SHA256 is
+`6ec13a5d865911638af7151ff42e50337cebc017ea5f726e46d1641f9e0ffaf3`;
+parser SHA256 is
+`231b054847f375738ab8e8156935dc6bb66b274a08da1b79af6cb0575e2bb79f`.
+Numeric16 is not retroactively accepted.
+
+At fresh VM boot `6850a242-f30f-4ab0-b8a8-1ee1c5638cf4`, the separate
+Numeric18 passive-load selection returned originalSSH0, as did public-source
+staging and network preparation. Its real runtime reached the exact HTTP
+response, peer HTTP-sent marker, normal core stop and observer finalization,
+but remained **NONPASS** at `CENSUS_PARSE`. The original supervisor retains its
+graph; no original reaps, packet postchecks or cleanup are claimed.
+
+The separately bounded read-only observation found empty core/observer stderr,
+zero `bad` events, and one paired successful control ioctl, marked outer TCP
+connection and inner accept. Its private 15,268-byte trace SHA256 is
+`995607f175c54574a56465b99467f377324bf229ba44b8cd6ce7343dad0ba890`.
+The exact pinned pure parser stopped at its unsupported-family assertion
+(public source line 96). A separate bounded projection found one classless
+family-zero allocation, subsequently retired, with no correlated request,
+mark or network event. Its positive allocation provenance must be established;
+this is not permission to admit arbitrary family-zero sockets. Neither a
+successful request nor zero `bad` events substitutes for
+the complete census, DNS case, negative packet matrix or production issuer.
