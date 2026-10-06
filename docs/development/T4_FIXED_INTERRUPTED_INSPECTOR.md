@@ -379,3 +379,14 @@ changed or wrapped. It also projects only the SAME original observer constructor
 or verification error into a closed stage+enum label before refusal. No extra
 probe, retry, acceptance change, bus symlink or installed-store access is added.
 Fresh exact source/helper/build reviews and actual selection remain separate.
+
+ROOT's immutable review20 preparation completed zero, followed by original
+test101 and only `continuation_refused`; native effects are not retrospectively
+classified. Source inspection found that the preparer copied the destination
+ciphertext as0400, while the unchanged real private-backup reader requires0600
+before authentication. Review21 changes only that fresh fixture destination to
+0600; the public sealed upload artifact stays0400 and the reader is not weakened.
+A local real-reader regression proves0400 refusal and0600 authenticated success.
+The selector additionally prints exactly its five already-computed original
+admitted/result/held/denied/lease-busy bits before final refusal/completion, never
+resampling or granting authority. Old20 files/modes/captures are not touched.

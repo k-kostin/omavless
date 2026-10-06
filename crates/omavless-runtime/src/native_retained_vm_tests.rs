@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 const UID: u32 = 1000;
 const HOME: &str = "/home/kdk_vm";
-const ROOT: &str = "/home/kdk_vm/.cache/t4-native-retained-owner-review20";
-const RUNTIME: &str = "/run/user/1000/t4n20";
+const ROOT: &str = "/home/kdk_vm/.cache/t4-native-retained-owner-review21";
+const RUNTIME: &str = "/run/user/1000/t4n21";
 const CORE: &str = "/usr/lib/omavless-dns/mihomo";
 const OPT_IN: &str = "OMAVLESS_TEST_T4_NATIVE_RETAINED_VM";
 const PASSWORD: &[u8] = b"public isolated native-owner fixture passphrase";
@@ -49,6 +49,29 @@ fn fixed_native_vm_public_archive_fixture_roundtrip_and_optional_export() {
             .unwrap();
         assert!(fs::read(&path).unwrap() == bytes);
     }
+}
+
+#[test]
+fn fixed_native_vm_real_reader_refuses_sealed_artifact_mode_but_accepts_private_input_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_temp::directory_under(
+        Path::new(&std::env::var_os("HOME").unwrap()),
+        "t4-vm-input-mode",
+    )
+    .unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let file = root.join("input.ovb");
+    let template = include_bytes!("../../../templates/default.yaml");
+    let raw = omavless_domain::private_backup::seal(PUBLIC_STORE, template, PASSWORD).unwrap();
+    fs::write(&file, raw).unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o400)).unwrap();
+    let uid = Uid::current().as_raw();
+    assert!(crate::backup_destination_candidate::open_existing(&file, uid, PASSWORD).is_err());
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    let opened = crate::backup_destination_candidate::open_existing(&file, uid, PASSWORD).unwrap();
+    assert!(opened.store() == PUBLIC_STORE && opened.template() == template);
+    fs::remove_file(file).unwrap();
+    fs::remove_dir(root).unwrap();
 }
 
 fn identity(uid: u32, effective: u32, home: Option<&std::ffi::OsStr>, opt: Option<&str>) -> bool {
@@ -282,6 +305,15 @@ fn isolated_installed_host_native_retained_pair_commit() {
         .is_err();
     let original_lease_busy = MigrationLock::acquire(&cutover, UID).is_err();
     let completed = result && held && denied && original_lease_busy && Instant::now() < until;
+    // Existing original results only: no resampling, new probe or permission.
+    println!(
+        "T4_NATIVE_CUTS admitted={} result={} held={} denied={} original_lease_busy={}",
+        u8::from(admitted),
+        u8::from(result),
+        u8::from(held),
+        u8::from(denied),
+        u8::from(original_lease_busy)
+    );
     // Keep the actual server singleton, owner and held execution through the
     // harness's original terminal return; never cleanup a refused prefix.
     std::mem::forget((owner, server));
