@@ -19,6 +19,10 @@ pub mod staged;
 pub mod takeover;
 pub mod transaction;
 
+// Separately scoped executable research, never a global App proxy adapter.
+#[cfg(test)]
+mod child_scope;
+
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

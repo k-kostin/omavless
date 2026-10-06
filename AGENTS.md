@@ -8,6 +8,8 @@ not replaced by this short entry point.
 1. Fetch/prune remote metadata; compare main, current branch, open PRs and local
    changes. Preserve other agents' work; one branch has one active writer.
 2. Read the [detailed agent guide](docs/development/AGENT_GUIDE.md) completely.
+   Also read the durable [execution policy](docs/development/EXECUTION_POLICY.md)
+   for failure classification, risk-based review and agent/VM coordination.
 3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
    [current status](docs/roadmap/CURRENT_STATUS.md),
    [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and
