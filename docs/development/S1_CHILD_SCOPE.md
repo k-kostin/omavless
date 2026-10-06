@@ -164,17 +164,24 @@ confidentiality or hostile-code isolation. Trusted helpers and the separately
 frozen mode0500 test program remain outside a hostile root/owner threat model.
 
 The fixed config enables only HTTP127.0.0.1:18080 and explicitly disables other
-listeners, TUN/route automation, DNS/upstreams/system-hosts, controllers/UI,
+listeners, TUN/route automation, DNS listeners/external upstreams/system-hosts,
+controllers/UI,
 NTP, iptables, providers/subscriptions, profile persistence and geodata/remote
 downloads. Actual v1.19.32 defaults/startup/application were inspected at
 upstream `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`; omission is not treated as
-disablement. A held numeric origin requires no DNS/external network. The origin
+disablement. The parser unconditionally requires a nonempty default-nameserver;
+the sole `127.0.0.1` placeholder is inert with DNS disabled and a numeric origin.
+No external DNS resolver or DNS listener is configured. The origin
 checks an established TCP connection to the real proxy during the proxied GET,
 and absence during the clean direct baseline, before returning distinct bodies.
 
 One original core Child and fixed ureq children stay inside the original
 namespace supervisor. No PID search/adoption or production custody API exists.
-Nonblocking concurrent pipe capture is capped at64KiB each; sampled outer/inner
+Each owned child's two pipes are sampled nonblockingly and capped at64KiB each.
+Core pipes are drained during readiness/completion; client pipes are drained
+while awaiting the origin connection/completion. Core output is not
+continuously drained while the client/origin exchange runs.
+Sampled outer/inner
 lifetimes are30/20 seconds, readiness5 seconds and client requests8 seconds.
 Only known original children are cancelled/reaped; failed ownership/completion
 observations retain originals without retry or cleanup claims. Private bounded

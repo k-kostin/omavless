@@ -68,7 +68,8 @@ dns:
   use-hosts: false
   use-system-hosts: false
   nameserver: []
-  default-nameserver: []
+  # Parser-required numeric placeholder; DNS disabled, origin already numeric.
+  default-nameserver: ['127.0.0.1']
   fallback: []
   proxy-server-nameserver: []
   direct-nameserver: []
