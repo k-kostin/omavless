@@ -1,5 +1,10 @@
 # Experimental core DNS ownership adapter — not a normal dependency
 
+The separate [K1 device overlay](mihomo-k1-device.patch) is source-only. Its
+explicit `omavless_k1_device` Go build tag selects only `omavless0`; without the
+tag the existing `Meta` policy remains. It does not replace either historical
+patch or qualify a package. See the [owning contract](../../docs/development/K1_MANAGED_DEVICE_CONTRACT.md).
+
 This directory retains the **unpublished, review-only** Mihomo patches needed
 to test DNS-0 for #270. They are not applied by the ordinary installer, release,
 plugin or CI package. An explicitly staged experimental core using the full

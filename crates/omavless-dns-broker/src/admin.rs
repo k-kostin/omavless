@@ -16,6 +16,10 @@ const ENROLLMENT: &str = "release-enrollment.json";
 #[cfg(not(feature = "release-package"))]
 const ENROLLMENT: &str = "enrollment.json";
 const STAGING: &str = ".enrollment.pending";
+#[cfg(feature = "k1-managed-device")]
+const MANAGED_TUN: &str = "/sys/class/net/omavless0";
+#[cfg(not(feature = "k1-managed-device"))]
+const MANAGED_TUN: &str = "/sys/class/net/Meta";
 #[cfg(feature = "release-package")]
 const GUARD: &str = "/usr/lib/omavless-dns/package-guard";
 #[cfg(not(feature = "release-package"))]
@@ -72,7 +76,7 @@ pub fn run(action: Action) -> Result<(), Error> {
     };
     run_at(action, Path::new(DIRECTORY), 0, guard, || {
         matches!(
-            fs::symlink_metadata("/sys/class/net/Meta"),
+            fs::symlink_metadata(MANAGED_TUN),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound
         )
     })

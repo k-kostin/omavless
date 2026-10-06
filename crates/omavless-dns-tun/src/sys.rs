@@ -1,5 +1,5 @@
 //! Audited two-ioctl Linux leaf; no caller-selected opcode or pointer API.
-use super::{DEVICE, Error, InterfaceInfo, Kernel, NamespaceId};
+use super::{Device, Error, InterfaceInfo, Kernel, NamespaceId};
 use rustix::fs::{FileType, fstat, major, minor};
 use rustix::net::{AddressFamily, SocketFlags, SocketType};
 use std::fs::File;
@@ -49,8 +49,8 @@ impl Kernel for Linux {
         .map_err(|_| Error::KernelUnavailable)
     }
 
-    fn index(&self, socket: &OwnedFd) -> Result<u32, Error> {
-        rustix::net::netdevice::name_to_index(socket, DEVICE).map_err(|_| Error::Changed)
+    fn index(&self, socket: &OwnedFd, device: Device) -> Result<u32, Error> {
+        rustix::net::netdevice::name_to_index(socket, device.name()).map_err(|_| Error::Changed)
     }
 }
 
