@@ -17,13 +17,13 @@ const NATIVE_RESERVED: usize =
     crate::manager_actor_service::NATIVE_VM_LOWER_SLOTS + 3 + 3 + 2 + 1 + 1 + 2;
 const AGGREGATE_RESERVED: usize = 3 * (NATIVE_RESERVED + 2); // singleton originals too
 
-struct OriginalCase {
-    owner: Option<ProductionNativeOwner>,
+pub(super) struct OriginalCase {
+    pub(super) owner: Option<ProductionNativeOwner>,
     singleton: Option<crate::RuntimeServer>,
     reservation: Option<crate::native_coordinator::NativeVmReservation>,
 }
 
-fn reserve_aggregate(
+pub(super) fn reserve_aggregate(
     limit: u64,
     mut reserve: impl FnMut() -> Result<crate::native_coordinator::NativeVmReservation, ()>,
 ) -> Result<[OriginalCase; 3], ()> {
@@ -51,7 +51,7 @@ impl Drop for OriginalCase {
     }
 }
 
-fn metadata_bound_read(path: &Path, limit: usize) -> Option<Vec<u8>> {
+pub(super) fn metadata_bound_read(path: &Path, limit: usize) -> Option<Vec<u8>> {
     use std::io::Read;
     use std::os::unix::fs::OpenOptionsExt;
     let before = fs::symlink_metadata(path).ok()?;
@@ -91,7 +91,7 @@ fn metadata_bound_read(path: &Path, limit: usize) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-fn pending_readback(
+pub(super) fn pending_readback(
     root: &Path,
     case: usize,
     old: [&[u8]; 2],
@@ -166,7 +166,7 @@ fn pending_readback(
         ) == RecoveryReview::OldRollbackCandidate
 }
 
-fn construct(
+pub(super) fn construct(
     slot: &mut OriginalCase,
     root: &Path,
     runtime_base: &Path,
