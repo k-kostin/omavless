@@ -30,6 +30,9 @@ const DIRECT_BODY: &[u8] = b"child-scope-direct";
 const PROXY_BODY: &[u8] = b"child-scope-proxied";
 const LIMIT: usize = 4096;
 
+#[cfg(target_os = "linux")]
+mod isolated_core;
+
 fn fixture_address(listener: &TcpListener) -> Result<SocketAddr> {
     let address = listener.local_addr().map_err(|_| Error::Unavailable)?;
     if address.ip() != std::net::Ipv4Addr::LOCALHOST || address.port() == 0 {
@@ -89,6 +92,10 @@ fn fixture_response(proxy: bool) -> Vec<u8> {
 }
 
 fn child_receipt(output: &[u8], error: &[u8]) -> bool {
+    fixed_case_receipt(output, error, CONSUMER)
+}
+
+fn fixed_case_receipt(output: &[u8], error: &[u8], selected: &str) -> bool {
     if output.len() > LIMIT || !error.is_empty() {
         return false;
     }
@@ -98,7 +105,7 @@ fn child_receipt(output: &[u8], error: &[u8]) -> bool {
     let lines: Vec<_> = text.lines().filter(|line| !line.is_empty()).collect();
     if lines.len() != 3
         || lines[0] != "running 1 test"
-        || lines[1] != format!("test {CONSUMER} ... ok")
+        || lines[1] != format!("test {selected} ... ok")
     {
         return false;
     }
@@ -578,7 +585,7 @@ mod tests {
 
     #[test]
     #[ignore = "fixed child entry, only launched by the separately selected parent fixture"]
-    fn fixed_consumer() {
+    pub(super) fn fixed_consumer() {
         let mode = std::env::var(MODE).unwrap_or_else(|_| panic!("fixed child selector missing"));
         if mode == "baseline" {
             assert!(KEYS.into_iter().all(|key| std::env::var_os(key).is_none()));

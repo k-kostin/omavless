@@ -132,6 +132,68 @@ result without borrowing it as new runtime acceptance.
 
 ## Remaining product decision and gates
 
+### Prepared isolated-core successor — no core execution yet
+
+The optional test-only `child_scope/isolated_core.rs` candidate adds ignored
+namespace/core exchange and supervisor-loss entries. It is source preparation;
+primary and independent review of the exact head must precede any core launch.
+The earlier pinned-client result remains tied to its original exact code.
+
+The sole core specimen is root-owned `/usr/bin/mihomo`, package1.19.32-1,
+size62054520, SHA256
+`316eddc4eafde7aef1c77d7d00e3cd56f493e99478f60c6a25ce17dfbe4f4a5f`.
+Verified bytes are copied to a memfd with WRITE/GROW/SHRINK/SEAL seals and
+passed as child FD0 to bwrap's mode0500 read-only data bind. The mutable core
+pathname and PATH/user-local core are never executed. Fixed trusted helpers
+are `/usr/bin/bwrap`0.12.0, size84464, SHA256
+`7c44fa8e7326e62e81ab3f70ff682bfc0eb3b447b39cf9fbb779a31948364762`,
+and `/usr/bin/getcap`, size14352, SHA256
+`3d8bc2191227c1ee2fad5d83c025e8b62e283338673a1630babe6b81ee232814`.
+All specimens require regular root-owned single-link mode0755 files and a
+bounded fixed metadata probe with no file capabilities. Changed/missing
+prerequisites refuse without installation, privilege grants or host fallback.
+
+Before core execution the fixed inner test must be PID1 in fresh user/net/PID/
+mount/IPC/UTS namespaces, with all six identities different from the parent.
+It checks NoNewPrivs1, zero capability sets, loopback-only interfaces, read-only
+root/core mounts, exact core bytes/mode, empty masked `/run` and no TUN device.
+Fresh0700 HOME-cache scratch backs logical `/tmp`. HOME is preserved verbatim;
+all other ambient selectors are removed, including core shell/controller
+overrides. Trusted host files remain read-only visible: this is not private-file
+confidentiality or hostile-code isolation. Trusted helpers and the separately
+frozen mode0500 test program remain outside a hostile root/owner threat model.
+
+The fixed config enables only HTTP127.0.0.1:18080 and explicitly disables other
+listeners, TUN/route automation, DNS/upstreams/system-hosts, controllers/UI,
+NTP, iptables, providers/subscriptions, profile persistence and geodata/remote
+downloads. Actual v1.19.32 defaults/startup/application were inspected at
+upstream `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`; omission is not treated as
+disablement. A held numeric origin requires no DNS/external network. The origin
+checks an established TCP connection to the real proxy during the proxied GET,
+and absence during the clean direct baseline, before returning distinct bodies.
+
+One original core Child and fixed ureq children stay inside the original
+namespace supervisor. No PID search/adoption or production custody API exists.
+Nonblocking concurrent pipe capture is capped at64KiB each; sampled outer/inner
+lifetimes are30/20 seconds, readiness5 seconds and client requests8 seconds.
+Only known original children are cancelled/reaped; failed ownership/completion
+observations retain originals without retry or cleanup claims. Private bounded
+synthetic diagnostics remain in the dedicated HOME-backed scratch.
+
+The mandatory loss entry deliberately bypasses Drop by exiting the verified
+PID1 while its original core is freshly observed running. Proposed evidence
+requires kernel PID-namespace descendant teardown, original bwrap completion,
+one fixed readiness marker and EOF on both pipe writers inherited by the core.
+It has not run. Ordinary completion instead requires original core cancellation
+and terminal observation; `--die-with-parent` also bounds outer owner loss.
+No post-death descriptor custody, application-wide/global proxy safety, core
+product lifecycle or recovery is promised by this developer experiment.
+
+Source inspection: [defaults/parser](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/config/config.go),
+[startup/environment](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/main.go),
+[application](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/hub/executor/executor.go),
+[bubblewrap0.12](https://github.com/containers/bubblewrap/blob/v0.12.0/bubblewrap.c).
+
 Before exposure, the owner must approve the explicitly named per-application
 scope. It is not a fourth Full VPN/Routing/Direct policy and cannot promise to
 repair already-running apps or D-Bus/single-instance forwarding. Real owned
