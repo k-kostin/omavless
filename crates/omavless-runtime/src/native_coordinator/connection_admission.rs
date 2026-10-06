@@ -12,14 +12,14 @@ pub(crate) enum ConnectionAdmission<'a, 'b> {
     Historical(&'a mut HistoricalConnection<'b>),
 }
 pub(super) struct ConnectionLease<'a> {
-    owned: Option<MigrationLock>,
+    owned: Option<crate::connection_transaction::MigrationLease>,
     retained: Option<&'a MigrationLock>,
 }
 impl std::ops::Deref for ConnectionLease<'_> {
     type Target = MigrationLock;
     fn deref(&self) -> &Self::Target {
         self.owned
-            .as_ref()
+            .as_deref()
             .or(self.retained)
             .expect("connection preflight retains a lease")
     }

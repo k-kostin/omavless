@@ -83,7 +83,7 @@ impl BatchAdmission<'_> {
     pub(super) fn lock<H: LifecycleHost>(
         &mut self,
         owner: &mut OfflineNativeCoordinator<H>,
-    ) -> Result<MigrationLock, NativeOwnerError> {
+    ) -> Result<crate::connection_transaction::MigrationLease, NativeOwnerError> {
         match self {
             Self::Ordinary(_) => owner.batch_lock(),
             #[cfg(test)]

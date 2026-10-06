@@ -26,7 +26,8 @@ pub(crate) use first_execution::HeldExecutionSlot;
 pub(crate) use first_execution::NativeSessionOrigin;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::{
-    NativeCompletedOff, NativeMutationLease, NativeRecoveryOrigin, NativeSteadyCompletion,
+    NativeCompletedOff, NativeLeaseError, NativeMigrationBorrow, NativeMutationLease,
+    NativeOrdinaryLease, NativeRecoveryOrigin, NativeSteadyCompletion,
 };
 
 #[derive(Debug, PartialEq, Eq)]

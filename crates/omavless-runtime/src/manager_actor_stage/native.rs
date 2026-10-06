@@ -584,6 +584,25 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     );
     assert_eq!(fs::read(config.join(LIVE[0].1)).unwrap(), next);
     assert!(engine.begin_store_inner(&mut local_gate, until).is_err());
+    engine.consume_into_ordinary_lease().unwrap();
+    assert!(!engine.disposition_ready()); // old completion cannot revive
+    engine.check_ordinary_lease_prefix().unwrap();
+    let lock_path = singleton.join(crate::OWNER_LOCK_NAME);
+    let displaced = singleton.join("displaced-original-lock");
+    fs::rename(&lock_path, &displaced).unwrap();
+    write(&lock_path, b"");
+    assert!(engine.check_ordinary_lease_prefix().is_err());
+    assert!(engine.sealed && !engine.ordinary_lease_held());
+    fs::remove_file(&lock_path).unwrap();
+    fs::rename(displaced, &lock_path).unwrap();
+    assert!(engine.check_ordinary_lease_prefix().is_err()); // restoring names cannot revive
+    assert!(
+        rustix::fs::flock(
+            &singleton_lock,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive
+        )
+        .is_err()
+    );
     drop(engine);
     drop((socket, singleton_lock, run_original));
     fs::remove_dir_all(root).unwrap();
@@ -742,6 +761,7 @@ pub(crate) struct NativeEngine {
     disposition_done: bool,
     store_attempted: bool,
     current_store: bool,
+    ordinary_handoff: bool,
 }
 #[derive(Clone, Copy)]
 pub(crate) struct NativeStageView<'a> {
@@ -905,6 +925,7 @@ impl NativeEngine {
             disposition_done: false,
             store_attempted: false,
             current_store: false,
+            ordinary_handoff: false,
         }
     }
     pub(crate) fn disposition_ready(&self) -> bool {
@@ -914,6 +935,33 @@ impl NativeEngine {
             && !self.sealed
             && self.recovery
             && self.singleton_locked
+            && !self.ordinary_handoff
+    }
+    pub(crate) fn consume_into_ordinary_lease(&mut self) -> Result<(), ()> {
+        if !self.disposition_ready() {
+            return Err(());
+        }
+        self.ordinary_handoff = true;
+        Ok(())
+    }
+    pub(crate) fn ordinary_lease_held(&self) -> bool {
+        self.ordinary_handoff
+            && self.completed
+            && self.disposition_done
+            && !self.sealed
+            && self.recovery
+            && self.singleton_locked
+    }
+    pub(crate) fn check_ordinary_lease_prefix(&mut self) -> Result<(), ()> {
+        if !self.ordinary_lease_held() {
+            return Err(());
+        }
+        let result =
+            self.check_recovery_singleton(Instant::now() + std::time::Duration::from_secs(2));
+        if result.is_err() {
+            self.revoke_native();
+        }
+        result.map_err(|_| ())
     }
     pub(crate) fn revoke_native(&mut self) {
         self.sealed = true;
@@ -1992,7 +2040,12 @@ impl NativeEngine {
         origin: &mut NativeRecoveryOrigin<'_>,
         until: Instant,
     ) -> Result<(), FirstError> {
-        if !self.completed || self.sealed || !self.recovery || !self.singleton_locked {
+        if !self.completed
+            || self.sealed
+            || !self.recovery
+            || !self.singleton_locked
+            || self.ordinary_handoff
+        {
             return Err(FirstError::StillFenced);
         }
         let receipt = crate::restore_retirement_candidate::RECEIPT_MEMBER;

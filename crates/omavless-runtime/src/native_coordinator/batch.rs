@@ -164,7 +164,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         Ok(())
     }
 
-    pub(super) fn batch_lock(&self) -> Result<MigrationLock, NativeOwnerError> {
+    pub(super) fn batch_lock(
+        &self,
+    ) -> Result<crate::connection_transaction::MigrationLease, NativeOwnerError> {
         if self.retained_restore_busy() {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }

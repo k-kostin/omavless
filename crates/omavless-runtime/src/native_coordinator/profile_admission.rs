@@ -18,14 +18,14 @@ pub(super) enum ProfileAdmission<'a, 'b> {
 }
 
 pub(super) struct ProfileLease<'a> {
-    owned: Option<MigrationLock>,
+    owned: Option<crate::connection_transaction::MigrationLease>,
     retained: Option<&'a MigrationLock>,
 }
 impl std::ops::Deref for ProfileLease<'_> {
     type Target = MigrationLock;
     fn deref(&self) -> &Self::Target {
         self.owned
-            .as_ref()
+            .as_deref()
             .or(self.retained)
             .expect("profile preflight always retains one lease")
     }

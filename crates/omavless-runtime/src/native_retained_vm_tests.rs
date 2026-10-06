@@ -23,6 +23,8 @@ mod disposition;
 mod fault_matrix;
 #[path = "native_retained_recovery_vm_tests.rs"]
 mod fresh_recovery;
+#[path = "native_retained_ordinary_vm_tests.rs"]
+mod ordinary;
 
 #[test]
 fn fixed_native_vm_public_archive_fixture_roundtrip_and_optional_export() {

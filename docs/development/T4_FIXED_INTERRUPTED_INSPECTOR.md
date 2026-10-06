@@ -689,3 +689,52 @@ absent pending fences and still-held original lease. No installed application
 store, private profiles, services or network were changed. This is one actual
 ordinary store mutation under consuming disposition, not general/repeated
 mutations, installed current()/login, restart, power-loss or full T4 acceptance.
+
+## Original ordinary lease scope successor (source; VM pending)
+
+The next developer-feature cut consumes the same completed engine into the
+ordinary coordinator's existing migration-lease scope. Its original
+`MigrationLock` is installed once in a pre-reserved `Arc<OnceLock<_>>`; borrowers
+retain that same object, not a cloned/reopened flock. The already installed
+holder keeps the authenticated backup, lower ledger, singleton and original
+boundaries. No occupied slot is taken and reinserted around fallible work.
+The transaction destination is occupied before its first post-transfer check,
+including refusal. The former completion consultation is consumed and cannot
+serve as a frozen-Off exception after current store/settings changes.
+
+Every ordinary lease entry requires the original named migration lease, current
+Rust marker generation, no pending transaction, and the same held singleton
+lock/socket/parent. Shared in-process scope reservation excludes a simultaneous
+borrow from this same flock. Scope contention is transient Busy; identity,
+marker or pending drift permanently denies the origin and revokes the engine.
+Unwind releases the scope bit but irreversibly clears availability, without
+unlocking or dropping its original graph. Restoring a pathname or marker cannot
+revive that context. Ordinary parsers, scheduler/revision/replay, preflight and
+effect implementations remain the consumers; there is no writer API for each
+operation. Default acquisition and startup policies are unchanged.
+
+The local controls separately exercise the real lease's held/named checks,
+marker/pending refusal and restoration, one-object pointer/drop/unwind custody,
+same-scope Busy, and the actual engine singleton post-disposition drift gate.
+These are owned local filesystem tests, not issuers of real manager authority.
+The descriptor role ceiling is unchanged: OnceLock/Arc/scope storage adds no
+persistent descriptor or imported FD role. Existing cooperative same-UID
+pathname-race and nonfatal-process availability limits still apply.
+
+NEW fixed scenario26 has four independently selected ignored phases, with
+original exit0 required before the next phase: real-owner MIXED producer, new
+authenticated rollback, consuming disposition with repeated **ordinary**
+onboarding/settings changes plus Replay/NoChange and current status/store, then
+independently admitted normal bind/initialize and another Off settings change.
+The final process does not decode history or reconstruct a completion grant.
+Normal singleton binding adjudicates the preceding process's stale private
+endpoint under its unchanged exclusive owner-lock policy; real manager units
+and native host inventory are checked first. No transition-observer socket
+absence predicate is relaxed. Each phase reserves/retains its reported graph
+and uses its own 90-second sampled whole budget. Source helpers keep the prior
+scenario25's fixed paths and phase markers unchanged.
+
+Scenario26 is unexecuted here. Even a future positive result would establish
+isolated fixture initialization/repeated mutation/restart, not installed
+application-store/login/current() admission, late power-loss reconciliation,
+arbitrary hostile same-UID races, default registration or full T4 acceptance.
