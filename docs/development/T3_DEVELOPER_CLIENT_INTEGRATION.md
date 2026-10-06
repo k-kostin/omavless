@@ -136,7 +136,7 @@ original whole result are required for the corrected client integration.
 Tested implementation `b29a665555f8559f97baa35c1a721670447d650d`.
 Incremental release compilation returned original0. Exact image22,008,024 bytes,
 SHA7419ca64e039f0e8b1513dceaec7a9e61600aebeb854b635889cb5bb41f669b5.
-Primary/independent affected review and eight pure delivery controls preceded
+ROOT's full affected review and eight pure delivery controls preceded
 ROOT's fresh isolated namespace selection; the already confirmed developer pair
 was not reprovisioned. New namespace/guest delivery scope did not reopen the old
 failed review1 captures or change normal installed runtime/profile/network state.
