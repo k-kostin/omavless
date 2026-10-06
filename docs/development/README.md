@@ -15,6 +15,9 @@ branch; they are not hidden only in a permanent develop/rc branch.
 - [Architecture/roadmap index](../roadmap/README.md): feature contracts and status.
 - [Development workflow](../roadmap/DEVELOPMENT_WORKFLOW.md): canonical branch,
   review and acceptance process. Its existing path is retained for continuity.
+- [Offline fixture procedure](OFFLINE_FIXTURE_TESTS.md) and
+  [project skill](../../skills/omavless-offline-fixtures/SKILL.md): source-only
+  HOME-backed short-path tests, not installed or VM acceptance.
 - [Execution policy](EXECUTION_POLICY.md): failure classification, bounded
   diagnostics, review depth, T4 service fault boundary and agent/VM allocation.
 - [Acceptance policy](../roadmap/ACCEPTANCE_ENVIRONMENTS.md) and
