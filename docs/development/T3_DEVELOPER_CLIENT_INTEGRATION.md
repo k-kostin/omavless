@@ -175,3 +175,88 @@ are unchanged. New EN/RU TestBackend/state/no-hidden-refresh control passed;
 full TUI162, protocol6, strict feature Clippy/default/headless, catalogue330,
 format/navigation/diff passed. This source correction is not retroactive b29
 rendering acceptance; actual updated frontend/Foot remains pending.
+
+## Separately ignored real primary CLI + Foot gate
+
+`actual_owner_developer_pair_real_cli_foot_in_dev_vm` adds a separate mode to
+the SAME composed-core/SocketFixture helper. Old scenarios keep their dynamic
+ports/timing. ROOT must select a fresh reviewed disposable PID/mount/network
+namespace, exact developer pair and UID/GID1000; the driver is its PID1. Two
+private-netns synthetic echo destinations are A:19180/B:19181, not raw-ID/public
+row joins. The actual `omavless tui --developer-conditional-close` communicates
+with that original RuntimeServer/socket. No CLOSED callback, CLI fixture API,
+second coordinator, installed service or new effect authority is used.
+
+The primary CLI is a separately byte-pinned8,571,248-byte artifact, SHA
+75263631e03f8b99bc8d1dd511901148cb7798fa5ad35b71797e9efdbed1a304,
+compiled from the UI-footer successor. Its fixed guest path is
+`/home/kdk_vm/.cache/t3-live-ui-r1/omavless`: UID/GID1000, single regular inode,
+mode500, nofollow original File retained after exact hash/metadata/named checks.
+The library-test image needs a separate exact build/hash and reviewed delivery;
+the CLI hash does not identify or authorize that driver image. Neither is run by
+the author. The private fixture is exactly one mode700 direct child of the
+fixed `t3-live-ui-r1/tmp` parent; no caller-selected runtime/socket is admitted.
+
+One original `/usr/bin/foot` runs one explicitly ignored library-test TTY helper,
+which spawns and waits the one original primary CLI Child. Foot uses only the
+normal UID1000 Wayland endpoint, no server/no-wait mode, `/dev/null` configuration
+and fixed `OmaVLESS-T3-Live` app-id/title. `/usr/bin/env` replaces ONLY its child
+runtime path with the original private fixture, and passes the original PID
+namespace dev/inode for a same-namespace check. The helper checks UID/GID1000,
+EN/RU and the pinned CLI, clears the CLI environment, then provides that private
+runtime path. Normal installed runtime, desktop config, VPN intent and services
+are not changed. ROOT selects one locale and inspects/types the actual window.
+
+Completion requires **both** original Foot wait0 and the strict exclusive
+`cli-original-zero` receipt from the helper's original CLI wait0, then actual
+B termination/A echo/unchanged desired bytes. Foot's ordinary trusted delegated
+child-status contract is explicit: upstream [foot(1) EXIT STATUS](https://codeberg.org/dnkl/foot/src/branch/master/doc/foot.1.scd),
+`main.c` shutdown callback/return and `terminal.c` original slave WEXITSTATUS.
+This is a trusted administrator-installed terminal/backend assumption, not
+toolchain attestation or imported runtime authority. The helper returns0 only
+after exclusive mode600 single regular UID/GID1000 receipt write/sync/held+named
+identity/size and sampled-deadline checks. The admitted CLI File and named
+binding are checked again after original CLI wait0. Parent reads the exact31 bytes
+under its own five-second sampled budget and rechecks both held and named inode.
+A physical partial/late receipt can remain after ordinary I/O failure: it is
+**not accepted**, because the helper parks rather than returning0. No marker is
+attempted after nonzero/timeout/late original CLI wait. No marker alone, Foot0
+alone, screen or guessed child PID is sufficient evidence.
+
+Each original UI wait has a900-second sampled pre/post gate and20ms polling,
+not a five-second whole-scenario limit or a preemptive kernel timeout. The row
+lease remains five seconds: fresh snapshot/review is explicit, no automatic
+renewal. The new echo peer idle timeout is900 seconds; on an idle-timeout error
+the peer remains parked, not dropped. Old five/twenty-second modes are unchanged.
+On Result refusal the helper retains original CLI/binary/reported marker, and
+the outer driver retains original Foot/reported completion File plus the SAME
+server/core/clients. No kill, second wait,
+restart, resend or cleanup is selected on refusal; ROOT may separately
+administer this disposable unavailable scope. Positive completion retains the
+existing fixture teardown and namespace-init containment. Other ordinary socket
+errors, partial spawn internals, panic/fatal loss, Foot's own abnormal PTY
+shutdown and process-wide backend FD custody remain excluded—not product
+rollback/recovery or fatal-FD survival claims.
+
+Finite extra live roles are one Foot, one TTY helper, one CLI Child, the retained
+public CLI File and one completion File, on top of the existing single server/
+core, two destination listeners/peers/clients and private fixture. Existing
+ordinary stdio/Wayland/font/config-free terminal backend resources are trusted,
+not an invented global memory/FD ceiling. Pure wait controls cover positive,
+pending→positive, nonzero, error, pre-expiry and positive-return/late-postgate
+without callbacks after refusal. Real path/receipt predicates reject other
+runtime roots, malformed leaf shapes and nonexact marker bodies. Fixed-artifact
+controls and compilation do not
+execute any UI/socket/actor. Actual original whole/terminal/closure evidence and
+fresh delivery are pending ROOT plus independent affected review. Default/
+released-pair adoption, installed package/frontend and ARM64 still remain open.
+
+SOURCE checkpoint: three new real-UI wait/path/receipt controls, six canonical
+development protocol tests, the full162-test feature TUI suite, four static
+feature guards, strict feature all-target Clippy, default/headless feature
+checks, catalogue330/navigation and explicit included-source/workspace format
+checks returned original0. Initial compile-only attempts found a missing Digest
+trait and an ambiguous Read/Write.by_ref call; both ordinary SOURCE failures
+were corrected, not labeled native/VM failures. The two new actual entries
+remain ignored; no real Foot, CLI child, controller/socket or VM was executed
+by the author. Final private image/delivery and actual evidence remain separate.

@@ -31,15 +31,17 @@ cargo check --locked -p omavless-runtime --features tui
 cargo test --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
 cargo clippy --locked -p omavless-runtime --features tui --all-targets -- -D warnings
 # The opt-in client is not in default packages. These filters run only memory/
-# parser/TestBackend controls; both new resource/terminal gates remain ignored.
+# parser/TestBackend controls; resource/terminal gates remain ignored.
 rustfmt --edition 2024 --check \
   crates/omavless-runtime/src/native_coordinator/connection_close_client_integration.rs \
-  crates/omavless-runtime/src/native_coordinator/connection_close_client_terminal.rs
+  crates/omavless-runtime/src/native_coordinator/connection_close_client_terminal.rs \
+  crates/omavless-runtime/src/native_coordinator/connection_close_real_cli_foot.rs
 cargo test --locked -p omavless-tui --features developer-conditional-close
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib developer_connection_close::tests
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib \
   native_coordinator::connection_close::tests::terminal_demo_is_closed_and_original_operation_cannot_be_replaced_or_resent -- --exact
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib \
   native_coordinator::connection_close::tests::client_reply_diagnostic_discards_private_values_and_reports_only_closed_enums -- --exact
+cargo test --locked -p omavless-runtime --features developer-conditional-close --lib real_ui_
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json

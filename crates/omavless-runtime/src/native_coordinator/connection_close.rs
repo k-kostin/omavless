@@ -56,6 +56,8 @@ mod tests {
     include!("connection_close_client_integration.rs");
     #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
     include!("connection_close_client_terminal.rs");
+    #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
+    include!("connection_close_real_cli_foot.rs");
     const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
     // Fixed owned subprocess/private Unix controller. No public listener,
     // provider, TUN, DNS, service, shell effect or injected owner facts.
@@ -1778,6 +1780,7 @@ while True:
             rebind,
             socket_workspace,
             false,
+            false,
         );
     }
 
@@ -1787,6 +1790,7 @@ while True:
         rebind: bool,
         socket_workspace: bool,
         client_workspace: bool,
+        real_cli: bool,
     ) {
         use sha2::{Digest, Sha256};
         use std::io::{Read, Write};
@@ -1830,11 +1834,25 @@ while True:
         fixture.owner.host_mut().stop_owned().unwrap();
         let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
         let mixed = reservation.local_addr().unwrap().port();
-        let mut listeners = vec![TcpListener::bind("127.0.0.1:0").unwrap()];
+        let mut listeners = vec![
+            TcpListener::bind(if real_cli {
+                "127.0.0.1:19180"
+            } else {
+                "127.0.0.1:0"
+            })
+            .unwrap(),
+        ];
         let target = listeners[0].local_addr().unwrap().port();
-        if client_workspace {
+        if client_workspace || real_cli {
             assert!(developer_pair && socket_workspace && !rebind);
-            listeners.push(TcpListener::bind("127.0.0.1:0").unwrap());
+            listeners.push(
+                TcpListener::bind(if real_cli {
+                    "127.0.0.1:19181"
+                } else {
+                    "127.0.0.1:0"
+                })
+                .unwrap(),
+            );
         }
         let targets = [
             target,
@@ -1855,14 +1873,34 @@ while True:
                     };
                     assert!(peers.len() < 2);
                     peers.push(std::thread::spawn(move || {
-                        peer.set_read_timeout(Some(Duration::from_secs(if client_workspace {
+                        peer.set_read_timeout(Some(Duration::from_secs(if real_cli {
+                            900
+                        } else if client_workspace {
                             20
                         } else {
                             5
                         })))
                         .unwrap();
                         let mut bytes = [0; 256];
-                        while let Ok(count) = peer.read(&mut bytes) {
+                        loop {
+                            let count = match peer.read(&mut bytes) {
+                                Ok(count) => count,
+                                Err(error)
+                                    if real_cli
+                                        && matches!(
+                                            error.kind(),
+                                            std::io::ErrorKind::TimedOut
+                                                | std::io::ErrorKind::WouldBlock
+                                        ) =>
+                                {
+                                    // Interactive timeout is unavailable, not
+                                    // permission to release this original peer.
+                                    loop {
+                                        std::thread::sleep(Duration::from_secs(60));
+                                    }
+                                }
+                                Err(_) => break,
+                            };
                             if count == 0 || peer.write_all(&bytes[..count]).is_err() {
                                 break;
                             }
@@ -1942,7 +1980,7 @@ while True:
             client
                 .set_read_timeout(Some(Duration::from_secs(1)))
                 .unwrap();
-            if client_workspace {
+            if client_workspace || real_cli {
                 client
                     .set_write_timeout(Some(Duration::from_secs(1)))
                     .unwrap();
@@ -1985,6 +2023,37 @@ while True:
                 drop(observation);
                 let fixture = SocketFixture::from_fixture(fixture);
                 let before = fixture.desired_bytes();
+                if real_cli {
+                    #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
+                    {
+                        let mut original_foot = None;
+                        let mut completion_file = None;
+                        // Failure keeps the SAME original server/core/streams.
+                        // No kill/retry/Drop cleanup; ROOT may administer this
+                        // disposable unavailable scope separately.
+                        if exercise_real_cli_foot(
+                            &fixture,
+                            &mut clients,
+                            targets,
+                            &mut original_foot,
+                            &mut completion_file,
+                        )
+                        .is_err()
+                        {
+                            eprintln!("T3_REAL_CLI_FOOT_UNAVAILABLE");
+                            loop {
+                                std::thread::sleep(Duration::from_secs(60));
+                            }
+                        }
+                        assert!(fixture.desired_bytes() == before);
+                        drop(clients);
+                        drop(fixture);
+                        echo.join().unwrap();
+                        return;
+                    }
+                    #[cfg(not(all(feature = "developer-conditional-close", feature = "tui")))]
+                    panic!("real CLI requires both explicit features");
+                }
                 if client_workspace {
                     #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
                     {
