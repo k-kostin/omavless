@@ -29,6 +29,12 @@ fn same(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
     )
 }
 
+fn prepare_journal_root(root: &std::path::Path) {
+    let journal_root = root.join("journal");
+    std::fs::create_dir(&journal_root).unwrap();
+    std::fs::set_permissions(&journal_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
 fn terminal(status: WaitStatus, pid: Pid) -> Result<Option<WaitStatus>, &'static str> {
     match status {
         WaitStatus::StillAlive => Ok(None),
@@ -48,6 +54,9 @@ pub(super) fn run() {
         .unwrap()
         .keep();
     std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    // Declared child-directory creation legitimately changes parent nlink on
+    // filesystems that count subdirectories. Finish it BEFORE the strict pin.
+    prepare_journal_root(&root);
     let directory = open_directory(&root, rustix::process::geteuid().as_raw(), true).unwrap();
     let original = std::fs::symlink_metadata(&root).unwrap();
     let executable = File::open("/proc/self/exe").unwrap();
@@ -136,9 +145,14 @@ fn singleton_worker() {
     );
     let root = std::path::PathBuf::from(std::env::var_os(ROOT_ENV).unwrap());
     let journal_root = root.join("journal");
-    std::fs::create_dir(&journal_root).unwrap();
-    std::fs::set_permissions(&journal_root, std::fs::Permissions::from_mode(0o700)).unwrap();
     let owner = rustix::process::geteuid().as_raw();
+    let existing = std::fs::symlink_metadata(&journal_root).unwrap();
+    assert!(
+        existing.is_dir()
+            && existing.uid() == owner
+            && existing.gid() == rustix::process::getegid().as_raw()
+            && existing.mode() & 0o7777 == 0o700
+    );
     let open = || Journal::open_at(&journal_root, BOOT.to_owned(), owner);
     let journal = open().unwrap();
     assert_eq!(open().unwrap_err(), Error::Refused);
@@ -162,6 +176,27 @@ fn singleton_worker() {
         reopened.is_ok(),
         "singleton lifecycle failed; typed diagnostic retained"
     );
+}
+
+#[test]
+fn predeclared_child_directory_keeps_strict_parent_pin_through_journal_use() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    prepare_journal_root(root.path());
+    let original = std::fs::symlink_metadata(root.path()).unwrap();
+    let directory = open_directory(root.path(), rustix::process::geteuid().as_raw(), true).unwrap();
+    let journal = Journal::open_at(
+        &root.path().join("journal"),
+        BOOT.to_owned(),
+        rustix::process::geteuid().as_raw(),
+    )
+    .unwrap();
+    drop(journal);
+    assert!(same(
+        &original,
+        &std::fs::symlink_metadata(root.path()).unwrap()
+    ));
+    assert_eq!(fs::fstat(&directory).unwrap().st_ino, original.ino());
 }
 
 #[test]
