@@ -50,6 +50,7 @@ struct Frame {
 /// stream, and trusted receiver boot/instance. PID is not process-lifetime proof
 /// and this does not establish logind/NetworkManager/netlink authenticity.
 pub(crate) struct Source {
+    identity: std::sync::Arc<()>,
     reader: BufReader<UnixStream>,
     boot: [u8; 16],
     instance: [u8; 16],
@@ -58,8 +59,26 @@ pub(crate) struct Source {
     #[cfg(test)]
     after_newline_pause: Duration,
 }
+pub(crate) struct SourceOrigin(std::sync::Weak<()>);
 
 impl Source {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "first-use source capture exists only in the test-only fresh constructor"
+        )
+    )]
+    pub(crate) fn origin(&self) -> SourceOrigin {
+        SourceOrigin(std::sync::Arc::downgrade(&self.identity))
+    }
+    pub(crate) fn same_origin(&self, origin: &SourceOrigin) -> bool {
+        !self.lost
+            && origin
+                .0
+                .upgrade()
+                .is_some_and(|original| std::sync::Arc::ptr_eq(&original, &self.identity))
+    }
     pub(crate) fn readable(&mut self) -> Result<bool, Refused> {
         if self.lost {
             return Err(Refused);
@@ -128,6 +147,7 @@ impl Source {
             .set_read_timeout(Some(Duration::from_millis(100)))
             .map_err(|_| Refused)?;
         Ok(Self {
+            identity: std::sync::Arc::new(()),
             reader: BufReader::new(stream),
             boot: context.fence.boot,
             instance: context.fence.owner_instance,
@@ -139,12 +159,22 @@ impl Source {
     }
 
     fn next(&mut self) -> Result<Option<Kind>, Refused> {
+        self.next_bounded(false, None)
+    }
+
+    fn next_bounded(
+        &mut self,
+        enrollment: bool,
+        outer: Option<Instant>,
+    ) -> Result<Option<Kind>, Refused> {
         if self.lost {
             return Err(Refused);
         }
         let result = (|| {
             let mut bytes = Vec::new();
-            let deadline = Instant::now() + Duration::from_millis(100);
+            let deadline = outer.map_or(Instant::now() + Duration::from_millis(100), |end| {
+                end.min(Instant::now() + Duration::from_millis(100))
+            });
             loop {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() || bytes.len() == 256 {
@@ -176,6 +206,11 @@ impl Source {
             if frame.sequence == 0 {
                 return Err(Refused);
             }
+            // Enrollment may consume only NetworkChanged bookkeeping. Even a
+            // duplicated/reordered Suspend or Resume must revoke its candidate.
+            if enrollment && frame.kind != Kind::NetworkChanged {
+                return Err(Refused);
+            }
             // A duplicate or reordered reply is discarded, not a newer epoch.
             if frame.sequence <= self.sequence {
                 return Ok(None);
@@ -191,12 +226,29 @@ impl Source {
         }
         result
     }
+
+    pub(crate) fn drain_for_enrollment(&mut self) -> Result<(), Refused> {
+        let end = Instant::now() + Duration::from_millis(400);
+        for _ in 0..4 {
+            if Instant::now() >= end {
+                self.lost = true;
+                return Err(Refused);
+            }
+            if !self.readable()? {
+                return self.quiescent();
+            }
+            self.next_bounded(true, Some(end))?;
+        }
+        // Backlog is refusal, never an indefinite lock-held drain or skipped Suspend.
+        self.quiescent()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Status {
     Idle,
+    AwaitingConnect,
     Paused,
     Checking,
     Cancelled,
@@ -239,10 +291,19 @@ pub(crate) struct RecoveryBarrier {
 
 pub(crate) enum BarrierSlot {
     Absent,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "fresh setup authority is test-only; feature alone cannot enroll first use"
+        )
+    )]
+    AwaitingConnect(Box<crate::native_coordinator::network_enrollment::AwaitingConnect>),
     Installed(Box<RecoveryBarrier>),
     /// Extraction never leaves Absent. Unwinding retains this permanent refusal.
     InFlight,
     Blocked,
+    Cancelled,
 }
 impl BarrierSlot {
     pub(crate) fn installed(&self) -> bool {
