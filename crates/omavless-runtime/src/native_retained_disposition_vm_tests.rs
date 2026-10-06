@@ -83,7 +83,8 @@ fn isolated_native_disposition_mixed_producer() {
             .unwrap();
     let new_store = archive.restore_store_off().unwrap();
     assert!(
-        old_store != new_store && old_template.as_slice() != archive.template(),
+        old_store.as_slice() != new_store.as_slice()
+            && old_template.as_slice() != archive.template(),
         "fixed_native_vm_disposition_fixture_refused"
     );
     let owner = aggregate[0].owner.as_mut().unwrap();
