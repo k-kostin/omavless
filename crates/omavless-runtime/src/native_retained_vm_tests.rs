@@ -25,6 +25,8 @@ mod fault_matrix;
 mod fresh_recovery;
 #[path = "native_retained_ordinary_vm_tests.rs"]
 mod ordinary;
+#[path = "native_registered_fixture_rpc_vm_tests.rs"]
+mod registered_rpc;
 
 #[test]
 fn fixed_native_vm_public_archive_fixture_roundtrip_and_optional_export() {

@@ -734,7 +734,73 @@ absence predicate is relaxed. Each phase reserves/retains its reported graph
 and uses its own 90-second sampled whole budget. Source helpers keep the prior
 scenario25's fixed paths and phase markers unchanged.
 
-Scenario26 is unexecuted here. Even a future positive result would establish
+At the source15a freeze, scenario26 was unexecuted. Its positive scope is
 isolated fixture initialization/repeated mutation/restart, not installed
 application-store/login/current() admission, late power-loss reconciliation,
 arbitrary hostile same-UID races, default registration or full T4 acceptance.
+
+### Exact actual26 ordinary scope
+
+ROOT selected frozen `15a06b79cb4666bc6883810d64941802f793e58e` on disposable
+BOOT `6ec9b83f-29c7-4034-9401-c0e83e9243ed`, positively observed `84061e`.
+The current gate's only change was BOOT (normalized complete AST `f5c8f5`);
+13 pure packet controls passed `79c6e5`. Source PRIMARY and independent affected
+reviews preceded selection. Real normal VM services were inactive (`a48700`).
+Four public uploads and complete held/named nine-field metadata/hash/no-xattr
+admission passed before sole test-image chmod500; fixture prepare `0902b8`
+completed0. ROOT then selected each original separately:
+
+- producer `7f5cb9`, observer `6e1fb4`: stdout272 bytes SHA256
+  `0703d7bf2dca9923a601be813053500c293b9d55cc790482e22b94021bc1a894`;
+- authenticated rollback `a647e7`, observer `5bb7b4`: stdout282 bytes SHA256
+  `abf81184f908d5bc526a880a630ead124b74a619e10c3485280d067518b626d3`;
+- consuming original lease/repeated ordinary mutations `29703` → `c986e4`,
+  observer `6b292b`: stdout288 bytes SHA256
+  `5e422c589c1be7d22168983de3c9abbdabf6b656f5a5e875dc79669a88945adb`;
+- independent normal initialize/restart `dae09c`, observer `4c7ce1`: stdout288
+  bytes SHA256
+  `73e37fbcef2a23eef470e42b2c22bb0f0c805e86221fb6cc7d65af3b3e720e64`.
+
+Every original SSH/test completed0; every separate fixed-file projection had
+one exact marker and one successful harness, empty stderr and no refusal label.
+This is isolated private-fixture ordinary mutation and independent initialization
+evidence, not current()/login/registered dispatcher or whole T4 acceptance.
+No installed current store, private profiles, network/core or service state was
+changed. Source26's earlier source-only status above belongs to that frozen
+head; this successor records later evidence, not a retroactive rewrite.
+
+## Registered fixture RPC successor (source; actual pending)
+
+One NEW process after all four exact26 original0 results uses the unchanged
+normal `RuntimeServer::bind`, `ProductionNativeOwner::initialize`, registration,
+credential/frame/dispatcher and client paths against that private persistent
+pair. It does not borrow former FDs, decode history, call current(), fabricate
+loginReady or weaken package/user-manager invocation rules. The normal binder
+owns stale private endpoint adjudication; no source test repairs an old epoch.
+
+The seven fixed RPCs are status, profiles list, onboarding NoChange, its Replay,
+capabilities, deliberate startup.configure refusal, then status. The fixture
+already has onboardingComplete true: this is real harmless **NoChange** RPC
+admission, not a claimed changed store effect. Store bytes remain equal.
+startup.configure must stay absent from advertised methods and return
+capability_unavailable because the independently initialized owner is not an
+installed-login issuer. Real mutation effects were proved separately in26.
+
+A fixed preinstalled test graph holds the server, reported owner, seven accepts
+and one original client-thread handle. Positive accepts are retained before
+postchecks. After successful handler/frame completion, its same stream's write
+direction is positively shut down to supply normal response EOF while retaining
+the descriptor; failure admits no next request. Replies are inspected only after
+that terminal original thread is
+joined. Invalid/missing/expired/full entry refuses before a client is started.
+Any error/unwind retains reported objects without server cleanup, retry or a
+new dependent RPC; fatal process loss means unavailable. Normal backend
+unreported-acquisition guarantees are not broadened. RLIMIT32 is necessary only,
+not a global free-FD assertion. Each whole test uses a sampled90s budget and the
+existing bounded client/handler IO contracts, not hard cancellation.
+
+Local source controls verify refusal ordering, closed result expectations and
+the real local Unix credential/frame/handle path with a read-only server. That
+last control does not mint native ownership. Installed current/login remains a
+separate genuine normal-unit/disposable-store gate; this test cannot satisfy
+login_activation's fixed installed-executable and actual manager-epoch checks.
