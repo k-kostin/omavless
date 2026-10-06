@@ -8,8 +8,12 @@ The source component at `3cf053e9dee5b30602d85ed91246712f8223dd8f` passed its
 fifteen reviewed private-protocol fixtures. The completed-Connect component at
 `92e227773c107ab6808fcfd5c7b966f97411929f` passed eight reviewed original-owner
 fixtures. Those results belong to those exact component heads. The combined
-backend adaptation and three new real-private-bus/control-socket scenarios are
-compiled but not executed until their own primary and independent review.
+backend adaptation received primary and independent review at
+`7394c480375d01027e875d2390870d668c2b1033`. Its three new
+real-private-bus/control-socket scenarios passed once: Connect-to-Ready and one
+sleep/resume recovery; owner replacement without recovery/rearm; and source loss
+while awaiting, preserving explicit Connect without granting Ready. Exact final
+combined/full/CI results belong to the integration PR, not the component pins.
 
 ## Completion matrix
 
