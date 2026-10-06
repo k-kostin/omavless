@@ -191,11 +191,15 @@ impl ConfigReadiness {
             ReadOnlyEndpoint::Rules => {
                 #[cfg(feature = "netguard-runtime-candidate")]
                 if self.protected {
+                    // Pinned Mihomo's getRules indexes each row; NetworkType
+                    // Payload returns NetWork.String() ("udp"), not the input
+                    // rule's uppercase "UDP" spelling. Admit only that exact
+                    // canonical API value, never case-fold arbitrary replies.
                     return payload["rules"].as_array().is_some_and(|rules| {
                         rules.len() == 2
                             && rules
                                 .iter()
-                                .zip([("Network", "UDP", "REJECT"), ("Match", "", "PROXY")])
+                                .zip([("Network", "udp", "REJECT"), ("Match", "", "PROXY")])
                                 .enumerate()
                                 .all(|(index, (rule, (kind, value, proxy)))| {
                                     rule["index"].as_u64() == Some(index as u64)
@@ -356,7 +360,7 @@ mod tests {
                     "omavless-dns-broker":true,"disable-system-dns":true,"omavless-dns-ready":true}})
             }
             ReadOnlyEndpoint::Rules => {
-                json!({"rules":[{"index":0,"type":"Network","payload":"UDP","proxy":"REJECT"},{"index":1,"type":"Match","payload":"","proxy":"PROXY"}]})
+                json!({"rules":[{"index":0,"type":"Network","payload":"udp","proxy":"REJECT"},{"index":1,"type":"Match","payload":"","proxy":"PROXY"}]})
             }
             ReadOnlyEndpoint::RuleProviders => json!({"providers":{}}),
             ReadOnlyEndpoint::Proxies => proxies(),
@@ -675,7 +679,7 @@ mod tests {
             }
         }
         let good = json!({"rules":[
-            {"index":0,"type":"Network","payload":"UDP","proxy":"REJECT","extra":{"disabled":false}},
+            {"index":0,"type":"Network","payload":"udp","proxy":"REJECT","extra":{"disabled":false}},
             {"index":1,"type":"Match","payload":"","proxy":"PROXY","extra":{"disabled":false}}
         ]});
         assert!(expected.matches(ReadOnlyEndpoint::Rules, &good));
@@ -719,6 +723,53 @@ mod tests {
         absent["proxies"].as_object_mut().unwrap().remove("PROXY");
         assert!(!expected.matches(ReadOnlyEndpoint::Proxies, &absent));
         assert!(!expected.matches(ReadOnlyEndpoint::Configs, &json!({"mode":"global"})));
+    }
+
+    #[cfg(feature = "netguard-runtime-candidate")]
+    #[test]
+    fn protected_network_api_payload_is_exact_canonical_udp_not_input_spelling() {
+        let expected = ConfigReadiness::protected_full("Synthetic".into());
+        // Pinned getRules -> NetworkType.Payload -> NetWork.String. Size and
+        // wrapper telemetry are not rule decisions; enabled state still is.
+        let api = json!({"rules":[
+            {"index":0,"type":"Network","payload":"udp","proxy":"REJECT","size":-1,
+                "extra":{"disabled":false,"hitCount":0,"missCount":0}},
+            {"index":1,"type":"Match","payload":"","proxy":"PROXY","size":-1,
+                "extra":{"disabled":false,"hitCount":0,"missCount":0}}
+        ]});
+        assert!(expected.matches(ReadOnlyEndpoint::Rules, &api));
+        for payload in [
+            json!("UDP"),
+            json!("Udp"),
+            json!("uDp"),
+            json!("tcp"),
+            json!("TCP"),
+            json!("udp "),
+            json!(" udp"),
+            json!(""),
+            Value::Null,
+            json!(false),
+            json!(["udp"]),
+            json!({"network":"udp"}),
+        ] {
+            let mut wrong = api.clone();
+            wrong["rules"][0]["payload"] = payload;
+            assert!(!expected.matches(ReadOnlyEndpoint::Rules, &wrong));
+        }
+        for (row, index) in [
+            (0, Value::Null),
+            (0, json!("0")),
+            (0, json!(false)),
+            (0, json!(0.0)),
+            (1, json!(0)),
+        ] {
+            let mut wrong = api.clone();
+            wrong["rules"][row]["index"] = index;
+            assert!(!expected.matches(ReadOnlyEndpoint::Rules, &wrong));
+        }
+        let mut absent = api.clone();
+        absent["rules"][0].as_object_mut().unwrap().remove("index");
+        assert!(!expected.matches(ReadOnlyEndpoint::Rules, &absent));
     }
 
     #[cfg(feature = "netguard-runtime-candidate")]
