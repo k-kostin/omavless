@@ -72,19 +72,24 @@ class NormalSchedulingBoundary(unittest.TestCase):
     def test_detached_retirement_is_original_offlock_and_drain_precedes_marker(self):
         source = (SRC / "conditional_close_candidate.rs").read_text()
         retire = source.split("pub(crate) fn retire_before_effect(", 1)[1].split("pub(crate) fn refuse_retirement(", 1)[0]
-        self.assertLess(retire.index("r.proofs == 0"), retire.index("self.image_proof_flight()?"))
-        self.assertLess(retire.index("self.finish_image_witness(deadline)?"), retire.index("drop(flight)"))
-        self.assertLess(retire.index("drop(flight)"), retire.index("drop(self)"))
+        self.assertLess(retire.index("r.proofs == 0"), retire.index("phase = Phase::Retiring"))
+        self.assertLess(retire.index("phase = Phase::Retiring"), retire.index("self.finish_image_witness(deadline)?"))
+        self.assertLess(retire.index("self.finish_image_witness(deadline)?"), retire.index("drop(self)"))
         self.assertLess(retire.index("drop(self)"), retire.index("Ok(CloseEpochRetirement"))
         after_drop = retire.split("drop(self);", 1)[1]
         self.assertLess(after_drop.index("remaining(deadline)"), after_drop.index("Ok(CloseEpochRetirement"))
-        self.assertIn("self.check_with_flight(&flight)?", retire)
+        self.assertIn("self.check_retirement_locked(&mut gate)?", retire)
+        self.assertNotIn("self.image_proof_flight", retire)
+        self.assertNotIn("self.deadline =", retire)
+        self.assertIn("Instant::now() + budget", retire)
+        self.assertIn("RETIREMENT_BUDGET", retire)
         self.assertNotIn("Instant::now() + BUDGET", retire)
         close = (SRC / "native_coordinator/connection_close.rs").read_text()
         admit = close.split("pub(crate) fn admit_connection_close_snapshot(", 1)[1].split("pub(crate) fn complete_connection_close_retirement(", 1)[0]
         self.assertLess(admit.index("retiring = Some"), admit.index(".snapshot\n            .take()"))
         complete = close.split("pub(crate) fn complete_connection_close_retirement(", 1)[1].split("pub(super) fn invalidate_connection_close(", 1)[0]
-        self.assertGreaterEqual(complete.count("retired.original.original_deadline()"), 3)
+        self.assertGreaterEqual(complete.count("retired.original.retirement_deadline()"), 3)
+        self.assertNotIn("retired.expiry", complete)
         self.assertLess(complete.index("close_context_matches"), complete.index("complete_close_retirement"))
         self.assertLess(complete.index("Instant::now() < deadline"), complete.index("retiring = None"))
         self.assertNotIn(".finish(", admit)

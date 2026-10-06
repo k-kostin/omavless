@@ -30,6 +30,8 @@ pub(crate) const MAX_ROWS: usize = 128;
 const MAX_SNAPSHOT: usize = 256 * 1024;
 const MAX_REPLY: usize = 16 * 1024;
 const BUDGET: Duration = Duration::from_secs(3);
+#[cfg(feature = "product-image-witness")]
+const RETIREMENT_BUDGET: Duration = Duration::from_secs(3);
 const PROOF_DRAIN_BUDGET: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -355,7 +357,19 @@ fn remaining(deadline: Instant) -> Result<Duration, Outcome> {
 enum Phase {
     BeforeEffect,
     EffectAttempted,
+    #[cfg(feature = "product-image-witness")]
+    Retiring,
     Finished(Outcome),
+}
+impl Phase {
+    fn accepts_proof(self) -> bool {
+        match self {
+            Self::BeforeEffect | Self::EffectAttempted => true,
+            Self::Finished(_) => false,
+            #[cfg(feature = "product-image-witness")]
+            Self::Retiring => false,
+        }
+    }
 }
 struct Reservation {
     identity: Arc<()>,
@@ -552,6 +566,8 @@ pub(crate) struct Session {
     image_probe: Option<ImageProbe>,
     #[cfg(all(test, feature = "developer-image-witness"))]
     image_finish_probe: Option<ImageFinishProbe>,
+    #[cfg(all(test, feature = "product-image-witness"))]
+    retirement_budget: Option<Duration>,
     #[cfg(feature = "developer-conditional-close")]
     developer_pair: Option<package_evidence::developer_pair::Evidence>,
     #[cfg(feature = "developer-conditional-close")]
@@ -632,6 +648,8 @@ impl Session {
             image_probe: None,
             #[cfg(all(test, feature = "developer-image-witness"))]
             image_finish_probe: None,
+            #[cfg(all(test, feature = "product-image-witness"))]
+            retirement_budget: None,
             #[cfg(feature = "developer-conditional-close")]
             developer_pair: None,
             #[cfg(feature = "developer-conditional-close")]
@@ -769,6 +787,11 @@ impl Session {
     #[cfg(all(test, feature = "developer-image-witness"))]
     pub(crate) fn image_deadline_for_test(&mut self, until: Instant) {
         self.deadline = Some(until);
+    }
+    #[cfg(all(test, feature = "product-image-witness"))]
+    pub(crate) fn retirement_budget_for_test(&mut self, budget: Duration) {
+        assert!(budget <= RETIREMENT_BUDGET);
+        self.retirement_budget = Some(budget);
     }
     #[cfg(all(test, feature = "developer-image-witness"))]
     pub(crate) fn pause_before_finish(&mut self, barrier: Arc<std::sync::Barrier>) {
@@ -1007,13 +1030,18 @@ impl Session {
         if self.lifetime.pid != self.binding.pid
             || !self.lifetime.running(gate)
             || !gate.reservation.as_ref().is_some_and(|r| {
-                Arc::ptr_eq(&r.identity, &self.identity)
-                    && !r.cancelled
-                    && !matches!(r.phase, Phase::Finished(_))
+                Arc::ptr_eq(&r.identity, &self.identity) && !r.cancelled && r.phase.accepts_proof()
             })
         {
             return Err(refuse);
         }
+        self.check_original_files(gate)
+    }
+
+    // Local original checks shared by proof and terminal-only retirement. No
+    // helper RPC/current-image capture, effect permission or deadline renewal.
+    fn check_original_files(&self, gate: &mut Gate) -> Result<(), Outcome> {
+        let refuse = Outcome::RefusedBeforeWrite;
         let path = &self.path;
         let parent = path.parent().ok_or(refuse)?;
         for metadata in [self.directory.metadata(), fs::symlink_metadata(parent)] {
@@ -1276,16 +1304,26 @@ impl Session {
         }
     }
 
-    /// Detached explicit snapshot cancellation only. It cannot retire a
-    /// revoked/expired, effect-authorized, attempted or concurrent-flight context.
+    /// Detached terminal-only completion of this SAME before-effect session.
+    /// Clock expiry alone may be retired; poison/cancel/authorization/attempt
+    /// may not. The old mutation deadline is never changed or used as authority.
     /// No owner/migration lock may be held by the caller.
     #[cfg(feature = "product-image-witness")]
     pub(crate) fn retire_before_effect(mut self) -> Result<CloseEpochRetirement, Outcome> {
         let original = self.cancellation();
+        let budget = RETIREMENT_BUDGET;
+        #[cfg(test)]
+        let budget = self.retirement_budget.unwrap_or(budget);
+        let deadline = Instant::now() + budget;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if self.effect_proof.is_some() || !self.image_witness_selected() {
+            if self.effect_proof.is_some()
+                || !self.image_witness_selected()
+                || self.deadline.is_none()
+                || self.executable.is_none()
+            {
                 return Err(Outcome::RefusedBeforeWrite);
             }
+            remaining(deadline)?;
             {
                 let mut gate = self
                     .lifetime
@@ -1300,47 +1338,36 @@ impl Session {
                 {
                     return Err(Outcome::RefusedBeforeWrite);
                 }
+                gate.reservation.as_mut().unwrap().phase = Phase::Retiring;
             }
-            let flight = self.image_proof_flight()?;
-            self.check_with_flight(&flight)?;
+            // Consume before the fallible terminal RPC. No ordinary proof,
+            // authorization or effect method accepts Retiring.
+            remaining(deadline)?;
             {
                 let mut gate = self
                     .lifetime
                     .gate
                     .lock()
                     .map_err(|_| Outcome::RefusedBeforeWrite)?;
-                self.check_locked_current(&mut gate, flight.current.as_ref())?;
-                let reservation = gate
-                    .reservation
-                    .as_ref()
-                    .ok_or(Outcome::RefusedBeforeWrite)?;
-                if !matches!(reservation.phase, Phase::BeforeEffect) || reservation.proofs != 1 {
-                    return Err(Outcome::RefusedBeforeWrite);
-                }
+                self.check_retirement_locked(&mut gate)?;
             }
-            let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
             self.finish_image_witness(deadline)?;
             remaining(deadline)?;
-            self.check_with_flight(&flight)?;
             {
                 let mut gate = self
                     .lifetime
                     .gate
                     .lock()
                     .map_err(|_| Outcome::RefusedBeforeWrite)?;
-                self.check_locked_current(&mut gate, flight.current.as_ref())?;
+                self.check_retirement_locked(&mut gate)?;
                 let reservation = gate
                     .reservation
                     .as_mut()
                     .ok_or(Outcome::RefusedBeforeWrite)?;
-                if !matches!(reservation.phase, Phase::BeforeEffect) || reservation.proofs != 1 {
-                    return Err(Outcome::RefusedBeforeWrite);
-                }
                 reservation.cancelled = true;
                 reservation.phase = Phase::Finished(Outcome::RefusedBeforeWrite);
                 reservation.stream = None;
             }
-            drop(flight); // current FD and real count are gone before publication
             let gate = self
                 .lifetime
                 .gate
@@ -1362,13 +1389,28 @@ impl Session {
             self.revoke_image();
             return Err(Outcome::RefusedBeforeWrite);
         }
-        let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
         drop(self); // ALL original session/channel/source fields, not ACK alone
         if remaining(deadline).is_err() {
             original.lifetime.revoke();
             return Err(Outcome::RefusedBeforeWrite);
         }
         Ok(CloseEpochRetirement { original, deadline })
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    fn check_retirement_locked(&self, gate: &mut Gate) -> Result<(), Outcome> {
+        if self.lifetime.pid != self.binding.pid
+            || !self.lifetime.running(gate)
+            || !gate.reservation.as_ref().is_some_and(|r| {
+                Arc::ptr_eq(&r.identity, &self.identity)
+                    && matches!(r.phase, Phase::Retiring)
+                    && !r.cancelled
+                    && r.proofs == 0
+            })
+        {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        self.check_original_files(gate)
     }
 
     #[cfg(feature = "product-image-witness")]
@@ -1930,7 +1972,7 @@ impl CloseEpochRetirement {
                 gate.live && gate.reservation.is_none() && remaining(self.deadline).is_ok()
             })
     }
-    pub(crate) fn original_deadline(&self) -> Instant {
+    pub(crate) fn retirement_deadline(&self) -> Instant {
         self.deadline
     }
 }

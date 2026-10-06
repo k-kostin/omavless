@@ -2658,7 +2658,6 @@ pub(crate) struct CloseRetirement {
 pub(crate) struct CloseRetired {
     identity: Arc<()>,
     context: Context,
-    expiry: Instant,
     original: crate::conditional_close_candidate::CloseEpochRetirement,
 }
 #[cfg(feature = "product-image-witness")]
@@ -2670,23 +2669,10 @@ pub(crate) enum CloseSnapshotAdmission {
 impl CloseRetirement {
     /// Only one owner-installed task owns this SAME old snapshot. Errors revoke
     /// its original lifetime; they never yield a new-session or retry permit.
-    pub(crate) fn retire(mut self) -> Result<CloseRetired, NativeOwnerError> {
-        let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if Instant::now() >= self.snapshot.expiry {
-                return Err(NativeOwnerError::OwnershipUnavailable);
-            }
-            self.snapshot
-                .observation
-                .observe()
-                .map_err(|_| NativeOwnerError::OwnershipUnavailable)
-        }));
-        if !matches!(checked, Ok(Ok(()))) {
-            self.snapshot.observation.session_mut().refuse_retirement();
-            return Err(NativeOwnerError::OwnershipUnavailable);
-        }
+    pub(crate) fn retire(self) -> Result<CloseRetired, NativeOwnerError> {
         let Snapshot {
             context,
-            expiry,
+            expiry: _,
             observation,
             rows,
         } = self.snapshot;
@@ -2698,7 +2684,6 @@ impl CloseRetirement {
         Ok(CloseRetired {
             identity: self.identity,
             context,
-            expiry,
             original,
         })
     }
@@ -2794,21 +2779,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .retiring
                 .as_ref()
                 .is_some_and(|identity| Arc::ptr_eq(identity, &retired.identity))
-                || Instant::now() >= retired.expiry
-                || Instant::now() >= retired.original.original_deadline()
+                || Instant::now() >= retired.original.retirement_deadline()
             {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             let _lease = self.batch_lock()?;
             self.close_context_matches(&retired.context)?;
-            if Instant::now() >= retired.original.original_deadline() {
+            if Instant::now() >= retired.original.retirement_deadline() {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             self.host_mut().complete_close_retirement(&retired.original);
             if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Ready {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
-            Ok(retired.original.original_deadline())
+            Ok(retired.original.retirement_deadline())
         })();
         match result {
             Ok(deadline) if Instant::now() < deadline => (),

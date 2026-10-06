@@ -71,15 +71,24 @@ fn product_retirement_before_effect_is_detached_one_shot_and_next_capture_is_fre
 
 #[cfg(feature = "product-image-witness")]
 #[test]
-fn product_retirement_finish_error_expiry_and_late_cancellation_keep_original_slot_sealed() {
+fn product_retirement_finish_error_late_finish_and_cancellation_keep_original_slot_sealed() {
     use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
     let _fixtures = FIXTURES.lock().unwrap();
-    for cut in ["finish_error", "expired", "cancelled", "panic"] {
+    for cut in [
+        "finish_error",
+        "late_finish",
+        "cancelled",
+        "panic",
+        "already_cancelled",
+        "already_poisoned",
+        "controller_drift",
+    ] {
         let mut fixture = fixture("ok");
         let mut discovery = image_probe_discovery(&mut fixture);
         let session = discovery.observation.session_mut();
         let original = session.cancellation();
         let cancel = original.clone();
+        let prior_cancel = cancel.clone();
         let image = session.original_image_for_test();
         session.install_image_probe_for_test(Box::new(move |_| Ok(image.try_clone().unwrap())));
         session.install_image_finish_probe_for_test(Box::new(move |_| match cut {
@@ -89,6 +98,10 @@ fn product_retirement_finish_error_expiry_and_late_cancellation_keep_original_sl
                 Ok(())
             }
             "panic" => panic!("fixed_synthetic_retirement_failure"),
+            "late_finish" => {
+                std::thread::sleep(Duration::from_millis(30));
+                Ok(())
+            }
             _ => Ok(()),
         }));
         fixture
@@ -97,7 +110,7 @@ fn product_retirement_finish_error_expiry_and_late_cancellation_keep_original_sl
             .install_product_epoch_from_fixture_session(original);
         let discovered = discovery.observe().unwrap();
         fixture.owner.retain_connection_close(discovered).unwrap();
-        if cut == "expired" {
+        if cut == "late_finish" {
             fixture
                 .owner
                 .connection_close
@@ -106,12 +119,22 @@ fn product_retirement_finish_error_expiry_and_late_cancellation_keep_original_sl
                 .unwrap()
                 .observation
                 .session_mut()
-                .image_deadline_for_test(Instant::now() - Duration::from_millis(1));
+                .retirement_budget_for_test(Duration::from_millis(20));
         }
         let task = match fixture.owner.admit_connection_close_snapshot().unwrap() {
             CloseSnapshotAdmission::Retire(task) => task,
             _ => panic!("old_original_snapshot_must_retire_first"),
         };
+        match cut {
+            "already_cancelled" => prior_cancel.cancel(),
+            "already_poisoned" => task.snapshot.observation.session().refuse_retirement(),
+            "controller_drift" => fs::set_permissions(
+                fixture.root.join("r/mihomo.sock"),
+                fs::Permissions::from_mode(0o644),
+            )
+            .unwrap(),
+            _ => (),
+        }
         let result = task.retire();
         assert!(result.is_err());
         assert!(
@@ -125,6 +148,13 @@ fn product_retirement_finish_error_expiry_and_late_cancellation_keep_original_sl
         assert_eq!(fixture.owner.host().product_history_for_test(), (1, 1));
         assert!(fixture.owner.admit_connection_close_snapshot().is_err());
         assert!(!fixture.root.join("r/effects").exists());
+        if cut == "controller_drift" {
+            fs::set_permissions(
+                fixture.root.join("r/mihomo.sock"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -228,7 +258,7 @@ fn product_retirement_observed_context_drift_is_sticky_before_and_after_detached
 
 #[cfg(feature = "product-image-witness")]
 #[test]
-fn product_retirement_delayed_original_result_cannot_borrow_future_snapshot_expiry() {
+fn product_retirement_delayed_result_cannot_borrow_future_snapshot_expiry() {
     use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
     let _fixtures = FIXTURES.lock().unwrap();
     let mut fixture = fixture("ok");
@@ -245,6 +275,7 @@ fn product_retirement_delayed_original_result_cannot_borrow_future_snapshot_expi
     let discovered = discovery.observe().unwrap();
     fixture.owner.retain_connection_close(discovered).unwrap();
     let deadline = Instant::now() + Duration::from_millis(400);
+    let expiry = fixture.owner.connection_close.snapshot.as_ref().unwrap().expiry;
     fixture
         .owner
         .connection_close
@@ -254,17 +285,27 @@ fn product_retirement_delayed_original_result_cannot_borrow_future_snapshot_expi
         .observation
         .session_mut()
         .image_deadline_for_test(deadline); // shorten, never extend the original3s
+    fixture
+        .owner
+        .connection_close
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .observation
+        .session_mut()
+        .retirement_budget_for_test(Duration::from_millis(200));
     let task = match fixture.owner.admit_connection_close_snapshot().unwrap() {
         CloseSnapshotAdmission::Retire(task) => task,
         _ => panic!("same_original_snapshot_required"),
     };
     let retired = task.retire().unwrap();
-    assert_eq!(retired.original.original_deadline(), deadline);
-    while Instant::now() < deadline {
+    let retirement_deadline = retired.original.retirement_deadline();
+    assert!(retirement_deadline < deadline);
+    while Instant::now() < retirement_deadline {
         std::thread::sleep(Duration::from_millis(1));
     }
     assert!(
-        Instant::now() < retired.expiry,
+        Instant::now() < expiry,
         "snapshot5s_is_still_future"
     );
     assert!(
@@ -277,6 +318,56 @@ fn product_retirement_delayed_original_result_cannot_borrow_future_snapshot_expi
     assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Refused);
     assert_eq!(fixture.owner.host().product_history_for_test(), (1, 1));
     assert!(!fixture.root.join("r/effects").exists());
+}
+
+#[cfg(feature = "product-image-witness")]
+#[test]
+fn product_clock_expired_snapshot_retires_without_renewing_or_observing_old_authority() {
+    use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = fixture("ok");
+    let mut discovery = image_probe_discovery(&mut fixture);
+    let session = discovery.observation.session_mut();
+    let original = session.cancellation();
+    let image = session.original_image_for_test();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let read_count = Arc::clone(&reads);
+    session.install_image_probe_for_test(Box::new(move |_| {
+        read_count.fetch_add(1, Ordering::SeqCst);
+        Ok(image.try_clone().unwrap())
+    }));
+    let finished = Arc::new(AtomicUsize::new(0));
+    let finish_count = Arc::clone(&finished);
+    let checker = session.image_gate_checker_for_test();
+    session.install_image_finish_probe_for_test(Box::new(move |_| {
+        assert!(checker().0, "terminal_finish_is_off_gate");
+        finish_count.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }));
+    fixture.owner.host_mut().install_product_epoch_from_fixture_session(original);
+    let discovered = discovery.observe().unwrap();
+    fixture.owner.retain_connection_close(discovered).unwrap();
+    let snapshot = fixture.owner.connection_close.snapshot.as_mut().unwrap();
+    snapshot.expiry = Instant::now() - Duration::from_millis(1);
+    snapshot.observation.session_mut().image_deadline_for_test(
+        Instant::now() - Duration::from_millis(1),
+    );
+    let old_reads = reads.load(Ordering::SeqCst);
+    let task = match fixture.owner.admit_connection_close_snapshot().unwrap() {
+        CloseSnapshotAdmission::Retire(task) => task,
+        _ => panic!("same_original_terminal_retirement_required"),
+    };
+    let retired = task.retire().unwrap();
+    assert_eq!(reads.load(Ordering::SeqCst), old_reads, "no_expired_observe_or_new_image_flight");
+    assert_eq!(finished.load(Ordering::SeqCst), 1);
+    assert!(Instant::now() < retired.original.retirement_deadline());
+    assert!(!fixture.root.join("r/effects").exists());
+    // Only a genuinely NEW guarded package capture follows. This synthetic
+    // fixture still cannot promote itself to the root close-qualified package.
+    assert!(fixture.owner.complete_connection_close_retirement(Ok(retired)).is_err());
+    assert_eq!(fixture.owner.host().product_history_for_test(), (2, 1));
+    assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Refused);
 }
 
 #[cfg(feature = "product-image-witness")]

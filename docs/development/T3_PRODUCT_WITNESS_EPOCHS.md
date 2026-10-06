@@ -137,6 +137,43 @@ enrollment and ARM/Nix activation remain OFF/pending.
 
 ## Explicit opt-in package / enrollment boundary
 
+### Source-only terminal retirement successor A
+
+The installed617 GUI exposed a real lifetime gap: reading its rows longer than
+the native three-second mutation budget and then requesting refresh tried to
+re-observe that expired Session, permanently refusing the Product epoch. The
+old GUI run remains UNKNOWN/NONPASS; its rendering/read observation is not a
+close or retirement receipt. The exact617 two-epoch command gates remain their
+separate bounded successes, not acceptance of this successor.
+
+This SOURCE-only cut distinguishes terminal drain from mutation authority.
+Clock-expired rows/session may retire only while the SAME original is live,
+unpoisoned, uncancelled, BeforeEffect, has no effect authorization and has zero
+counted flights. The owner consumes rows/pending handles into its same Retiring
+slot. Detached Session retirement latches a distinct Retiring phase before
+fallible work; all ordinary proof/effect admission refuses that phase, while
+concurrent cancellation is still observed. Local original source/controller/
+child guards and the SAME helper Client Finish run under a separate absolute
+three-second retirement-only budget. No old native Observe/current-image proof
+flight is reacquired; helper Finish still independently checks its original
+binding/current executable. Helper expiry/EOF/error is not reconnect permission.
+
+The old Session mutation deadline is never overwritten. Positive original
+Finish plus zero flights precedes whole Session/channel/source FD Drop; only
+then may a noncloneable same-identity retirement receipt be published. Its new
+terminal deadline is checked after Drop and again after owner/context checks
+before clearing the slot or allowing a genuinely fresh guarded capture. Prior
+I/O/proof/drift/cancellation/authorization/attempt, late Finish/return, panic or
+changed owner context keeps the factory refused and the slot unavailable.
+Nonevicting capacity/history, mutation/effect three-second budget, confirmation
+five-second budget, default registration and helper protocol are unchanged.
+
+A does not solve the remaining human confirmation race by itself. The next
+separately reviewed B cut must publish inert preview data after immediate
+positive retirement, then at final confirmation acquire a fresh same-owner
+Session and exactly revalidate the selected generation/tuple/context/package.
+No speed-only GUI acceptance or reuse of old row authority is claimed here.
+
 The helper's `--enroll-product UID` is root administration only: actual UID/EUID
 and GID/EGID must be0. One canonical nonroot UID is explicit input, never inferred
 from the caller. No path/hash/profile/receipt input is accepted. It holds and
