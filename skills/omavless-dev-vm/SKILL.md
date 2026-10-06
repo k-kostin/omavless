@@ -58,6 +58,14 @@ chardev on the reviewed launcher, with restrictive permissions and no host
 network exposure. Authenticate through the guest's normal console; do not
 widen firewall rules merely to recover the test transport.
 
+Terminal negotiation can inject cursor/size escape replies into a freshly
+attached console's login input. Wait for a clean login prompt, enter the known
+guest username, and observe its password prompt before supplying a secret.
+If the username is contaminated or unknown, cancel that login or let the
+normal getty reset; never send a password to an unidentified prompt. A raw,
+non-echoing local console client avoids local echo and forwards guest control
+keys, but a password still belongs only at the verified guest prompt.
+
 If a running reviewed VM has only a file serial sink, QMP `chardev-change` can
 replace that transport after exact process/image/socket selection and capture
 preservation. Read back the selected chardev and permissions. Its
