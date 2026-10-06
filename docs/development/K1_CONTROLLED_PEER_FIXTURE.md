@@ -384,3 +384,21 @@ collector20 field-expression compile failure remains NONPASS.
 This establishes compiler/kernel-hook compatibility only. Fresh real runtime
 field observations, complete numeric census, the DNS case and packet/fault
 matrix remain separate gates; no production coverage authority is issued.
+
+The fresh Numeric21 real request reached the exact HTTP response, normal core
+stop and observer finalization, then remained **NONPASS** under the broad
+`CENSUS_PARSE` phase label. A separately reviewed read-only diagnostic (`d1ab01`)
+ran the unchanged strict parser over its exact private trace, SHA256
+`478709ceb2e56293706fe047a00b3411ef4ae0e43a928090d403bfbcf3857b95`.
+It returned a complete census: 48 socket generations, one positively bound TUN
+queue, one broker peer, one UDP control, one marked outer connection and one
+accepted inner connection. This does not retroactively accept the stopped run.
+
+The same fixed-capture diagnostic localized the remaining refusal to packet
+postconditions, not socket classification: `outer_ok` advanced8, `inner_ok`5,
+`inner_return`5, but `wrong_peer`4. The original foreign INPUT structure remained
+equal and the exact admitted INPUT rule advanced5 packets/325 bytes. The
+origin/type of those four denied packets is not yet established. They must not
+be ignored or attributed to the managed core without evidence. No original
+reaps, held-input postchecks, cleanup, coverage issuance or whole-run PASS are
+claimed for Numeric21.
