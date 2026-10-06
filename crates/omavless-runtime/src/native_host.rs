@@ -475,7 +475,7 @@ impl NativeLifecycleHost {
         let readiness = self
             .readiness
             .as_ref()
-            .filter(|expected| expected.mode == desired.mode)
+            .filter(|expected| expected.matches_intent(desired.mode))
             .ok_or(HostStepError::Observation)?
             .clone();
         let core = self.core.as_mut().ok_or(HostStepError::Observation)?;
@@ -853,7 +853,7 @@ impl LifecycleHost for NativeLifecycleHost {
             && self.profile_id.as_deref() == Some(desired.profile_id.as_str());
         let verified = profile_matches
             && self.readiness.as_ref().is_some_and(|expected| {
-                expected.mode == desired.mode
+                expected.matches_intent(desired.mode)
                     && pid.is_some_and(|pid| {
                         expected.ready_for_pid(
                             &self.paths.controller_socket,
@@ -937,7 +937,7 @@ impl LifecycleHost for NativeLifecycleHost {
                 let running = core.running().map_err(|_| HostStepError::Observation)?;
                 let ready = if running {
                     self.readiness.as_ref().is_some_and(|expected| {
-                        expected.mode == desired.mode
+                        expected.matches_intent(desired.mode)
                             && core.configured_ready(OBSERVATION_TIMEOUT, expected)
                     })
                 } else {

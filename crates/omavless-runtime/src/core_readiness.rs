@@ -20,6 +20,16 @@ pub(crate) struct ConfigReadiness {
 }
 
 impl ConfigReadiness {
+    /// Desired Full intent and protected core Rule policy are distinct. This
+    /// private mapping does not alter ordinary mode matching or infer readiness.
+    pub(crate) fn matches_intent(&self, mode: RoutingMode) -> bool {
+        #[cfg(feature = "netguard-runtime-candidate")]
+        if self.protected {
+            return mode == RoutingMode::Global && self.mode == RoutingMode::Rule;
+        }
+        self.mode == mode
+    }
+
     pub(crate) fn restore_selection(&self, socket: &Path, pid: u32, deadline: Instant) -> bool {
         self.mode == RoutingMode::Global
             && crate::core_selector::restore_global(socket, pid, &self.profile_name, deadline)
@@ -483,6 +493,15 @@ mod tests {
     #[test]
     fn protected_rules_are_ordered_enabled_and_have_no_provider_or_selector_escape() {
         let expected = ConfigReadiness::protected_full("Synthetic".into());
+        assert!(expected.matches_intent(RoutingMode::Global));
+        assert!(!expected.matches_intent(RoutingMode::Rule));
+        assert!(!expected.matches_intent(RoutingMode::Direct));
+        for mode in [RoutingMode::Global, RoutingMode::Rule, RoutingMode::Direct] {
+            let ordinary = ConfigReadiness::new(mode, "Synthetic".into());
+            for intent in [RoutingMode::Global, RoutingMode::Rule, RoutingMode::Direct] {
+                assert_eq!(ordinary.matches_intent(intent), mode == intent);
+            }
+        }
         let good = json!({"rules":[
             {"index":0,"type":"Network","payload":"UDP","proxy":"REJECT","extra":{"disabled":false}},
             {"index":1,"type":"Match","payload":"","proxy":"PROXY","extra":{"disabled":false}}

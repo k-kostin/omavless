@@ -346,3 +346,9 @@ positive inner probe delivery plus no corresponding outer socket/packet; a
 missing packet or fake echo alone cannot certify rejection. Preserve all old
 Global matrix evidence under its original hashes. Native Arm/observation/stop,
 leak/crash and repeated-cycle acceptance remain separate required work.
+
+The private readiness expectation distinguishes desired Full/Global intent from
+actual protected core Rule mode. All three existing NativeLifecycleHost intent
+checks (close capture, fresh observation and lifecycle observation) use that
+mapping; ordinary readiness still requires literal mode equality. Mode matching
+alone never grants controller/TUN readiness or coverage.
