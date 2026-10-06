@@ -587,3 +587,50 @@ The subsequent one-way typed lease/singleton disposition must preserve original
 exclusivity without duplicating Flock wrappers (whose Drop can unlock a shared
 OFD), then prove the actual mutating and fresh restart seams. No default dispatch
 registration, cleanup waiver, automatic resume or full T4 acceptance is inferred.
+
+### Consuming disposition and first ordinary store borrow (source)
+
+The native feature continuation reserves an empty destination before original
+acquisition. It publishes the existing exact Ticket and CompleteRecord using
+unused Scratch0/1, while holding the actual completed closure and lease. Known
+Closure/Ticket removal precedes a NOREPLACE rename of the SAME retained Complete
+file to fixed `restore-disposition.history`; parent fsync, held/named bytes,
+catalogue and final current origin checks follow. The history name is diagnostic
+terminal evidence, never a decoder grant. Collision refuses without overwrite;
+another completion requires a separately defined history disposition. A failure
+before that final transition retains the pending members/whole actual graph.
+Crash interpretation before/after the rename is distinct from observed fsync
+completion and is not power-loss acceptance.
+
+The installed normal owner receives a preinstalled destination, then the whole
+RecoveryHeld payload moves once without callback, allocation, Flock Drop,
+unlock/reacquire or cloned lock wrapper. Source consumption invalidates its old
+holder; failures permanently revoke the shared availability latch while keeping
+either actual retaining slot. A nonescaping reference to the destination's ONE
+MigrationLock guards the first explicit ordinary onboarding transaction. This is
+not the broader Arc/OnceLock general lease-scope proposal or default dispatch.
+
+That transaction uses the normal parser, scheduler, revision/operation semantics
+and shared compensated store-only commit implementation. It validates current
+Rust ownership, original lease/path binding, actual Off/disconnected and absence
+of all pending evidence, not historical Off as a permanent exemption. Only a
+reported positive atomic replacement advances the previous current store to
+held0links; NEW current bytes are captured/bound in unused native role24. The
+originals, template, completed history and all other current bindings remain
+checked. Error/unknown does not guess a new descriptor or resume/retry the writer.
+The default onboarding path, common pending fence and default registration stay
+unchanged. Constructor/backend-internal unreported resources are not newly claimed.
+
+This first source scope permits one harmless explicit onboarding mutation under
+that borrow, followed by current owner status/store readback; it is not general
+mutation eligibility, actual installed current()/login/restart or full T4 proof.
+The fresh VM scenario must use NEW fixed fixture originals, never repeat the
+completed case22. Producer's original positive exit must precede newly authenticated
+recovery/retirement/disposition; later restart needs independent ordinary current
+admission and may not consume history as authority. Live cases, late durable cuts,
+endpoint/owner-lock handoff and product registration remain separately gated.
+
+Local filesystem controls exercise the SAME retirement/disposition/known-current
+replacement checks and original flock move/borrow ending. They do not supply real
+manager or startup authority. Exact source/build/VM receipts belong to their
+selected heads; this new source has no ignored-test/VM acceptance yet.

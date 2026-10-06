@@ -6,6 +6,13 @@ use crate::lifecycle::LifecycleHost;
 use crate::native_coordinator::{NativeFirstError as FirstError, PreparedRestorePair};
 use crate::native_coordinator::{NativeRecoveryOrigin, NativeSessionOrigin};
 use std::fs::File;
+// Terminal audit bytes are not an admission token. A collision always refuses;
+// repeated disposition needs a separately reviewed history policy.
+const NATIVE_HISTORY: &str = "restore-disposition.history";
+// This role is unused in the native issuer, which never captures actor-manager
+// libraries. Reserve it for one reported current-store replacement, not a
+// recycled original or imported manager/image proof.
+const NATIVE_CURRENT_STORE: Slot = Slot::ManagerLib;
 const NATIVE_REPLACEMENTS: [(Slot, &str); 2] = [
     (
         Slot::ReplacementStore,
@@ -479,6 +486,104 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     assert_eq!(fs::read(config.join(LIVE[1].1)).unwrap(), members[1]);
     assert!(crate::pending_private_transaction::pending_at(&state)); // closure is NOT ordinary permission
     assert!(fs::symlink_metadata(state.join(PENDING_DIRECTORY)).is_err());
+    // SAME retained lower graph, not a decoded closure authority grant.
+    engine
+        .dispose_completed_inner(&mut local_gate, uid, 2, desired, until)
+        .unwrap();
+    assert!(engine.disposition_ready());
+    assert!(!crate::pending_private_transaction::pending_at(&state));
+    assert_eq!(fs::read(config.join(LIVE[0].1)).unwrap(), members[0]);
+    assert_eq!(fs::read(config.join(LIVE[1].1)).unwrap(), members[1]);
+    assert_eq!(
+        engine
+            .lower
+            .io
+            .original(Slot::Scratch3)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .nlink(),
+        0
+    );
+    assert_eq!(
+        engine
+            .lower
+            .io
+            .original(Slot::Scratch0)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .nlink(),
+        0
+    );
+    assert_eq!(
+        engine
+            .lower
+            .io
+            .original(Slot::Scratch1)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .nlink(),
+        1
+    );
+    let ticket = crate::restore_disposition_ticket_model::Ticket::decode(&{
+        let mut bytes = [0; crate::restore_disposition_ticket_model::TICKET_BYTES];
+        engine
+            .lower
+            .io
+            .original(Slot::Scratch0)
+            .unwrap()
+            .read_exact_at(&mut bytes, 0)
+            .unwrap();
+        bytes
+    })
+    .unwrap();
+    assert!(
+        crate::restore_disposition_complete_model::CompleteRecord::decode(
+            &fs::read(state.join(NATIVE_HISTORY)).unwrap()
+        )
+        .unwrap()
+        .matches_ticket(&ticket)
+    );
+    assert!(
+        engine
+            .dispose_completed_inner(&mut local_gate, uid, 2, desired, until)
+            .is_err()
+    );
+    engine.begin_store_inner(&mut local_gate, until).unwrap();
+    let next = b"public onboarded OLD store";
+    let replacement = config.join("local-native-store-replacement");
+    write(&replacement, next);
+    fs::rename(replacement, config.join(LIVE[0].1)).unwrap(); // known local positive writer
+    engine
+        .finish_store_inner(&mut local_gate, next, true, until)
+        .unwrap();
+    assert!(engine.current_store && engine.disposition_ready());
+    assert_eq!(
+        engine
+            .lower
+            .io
+            .original(Slot::OldStore)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .nlink(),
+        0
+    );
+    assert_eq!(
+        engine
+            .lower
+            .io
+            .original(NATIVE_CURRENT_STORE)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .nlink(),
+        1
+    );
+    assert_eq!(fs::read(config.join(LIVE[0].1)).unwrap(), next);
+    assert!(engine.begin_store_inner(&mut local_gate, until).is_err());
     drop(engine);
     drop((socket, singleton_lock, run_original));
     fs::remove_dir_all(root).unwrap();
@@ -565,6 +670,11 @@ pub(crate) struct NativeEngine {
     unlinked: [bool; IO_SLOTS],
     completed: bool,
     retirement: bool,
+    disposition: bool,
+    history: bool,
+    disposition_done: bool,
+    store_attempted: bool,
+    current_store: bool,
 }
 #[derive(Clone, Copy)]
 pub(crate) struct NativeStageView<'a> {
@@ -575,7 +685,7 @@ impl NativeStageView<'_> {
         self.engine.stage_name.is_some() && !self.engine.unlinked[Slot::StageDirectory as usize]
     }
     pub(crate) fn live_changed(self) -> bool {
-        self.engine.lower.live.contains(&LiveRole::Renamed)
+        self.engine.lower.live.contains(&LiveRole::Renamed) || self.engine.current_store
     }
     pub(crate) fn recovery_exclusive(self) -> bool {
         self.engine.recovery
@@ -589,6 +699,15 @@ impl NativeStageView<'_> {
             Slot::Scratch2
         } else if name == crate::restore_closure_model::CLOSURE_MEMBER {
             Slot::Scratch3
+        } else if self.engine.disposition
+            && name == crate::restore_disposition_ticket_model::TICKET_MEMBER
+        {
+            Slot::Scratch0
+        } else if self.engine.disposition
+            && name == crate::restore_disposition_complete_model::COMPLETE_MEMBER
+            && !self.engine.history
+        {
+            Slot::Scratch1
         } else {
             return false;
         };
@@ -714,7 +833,136 @@ impl NativeEngine {
             unlinked: [false; IO_SLOTS],
             completed: false,
             retirement: false,
+            disposition: false,
+            history: false,
+            disposition_done: false,
+            store_attempted: false,
+            current_store: false,
         }
+    }
+    pub(crate) fn disposition_ready(&self) -> bool {
+        self.completed
+            && self.disposition_done
+            && self.history
+            && !self.sealed
+            && self.recovery
+            && self.singleton_locked
+    }
+    pub(crate) fn revoke_native(&mut self) {
+        self.sealed = true;
+        self.lower.revoke();
+    }
+    pub(crate) fn begin_native_store_mutation(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let result = self.begin_store_inner(origin, until);
+        if result.is_err() {
+            self.revoke_native();
+        }
+        result
+    }
+    fn begin_store_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.gate(origin, until)?;
+        if !self.disposition_ready()
+            || self.store_attempted
+            || self.lower.original[NATIVE_CURRENT_STORE as usize].is_some()
+        {
+            return Err(FirstError::StillFenced);
+        }
+        self.store_attempted = true; // consumes before the ordinary writer effect
+        Ok(())
+    }
+    pub(crate) fn finish_native_store_mutation(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        expected: &[u8],
+        changed: bool,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.finish_store_inner(origin, expected, changed, until)
+    }
+    fn finish_store_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        expected: &[u8],
+        changed: bool,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let result = (|| {
+            if !self.store_attempted || !self.disposition_ready() {
+                return Err(FirstError::StillFenced);
+            }
+            if changed {
+                // Only a positive ordinary commit can advance this exact OLD
+                // original's known link/ctime transition. On Err do not guess.
+                let previous = if self.lower.live[0] == LiveRole::Renamed {
+                    NATIVE_ROLLBACKS[0].0
+                } else {
+                    Slot::OldStore
+                };
+                self.lower
+                    .io
+                    .perform(
+                        previous,
+                        || tick(until),
+                        |file| {
+                            let before = self.lower.original[previous as usize]
+                                .as_ref()
+                                .ok_or(Unavailable)?;
+                            let after = file.metadata().map_err(|_| Unavailable)?;
+                            if !same_after_own_rename(before, &after, 0) {
+                                return Err(Unavailable);
+                            }
+                            self.lower.original[previous as usize] = Some(after);
+                            Ok(())
+                        },
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                self.lower
+                    .io
+                    .child(
+                        ChildPlan {
+                            parent: Slot::Config,
+                            slot: NATIVE_CURRENT_STORE,
+                            name: LIVE[0].1,
+                            flags: OFlag::O_RDONLY | OFlag::O_NONBLOCK,
+                            mode: Mode::empty(),
+                        },
+                        || tick(until),
+                        |_| Ok(()),
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                self.shape(NATIVE_CURRENT_STORE, false, until)
+                    .map_err(|_| FirstError::StillFenced)?;
+                self.lower
+                    .verify_member(
+                        Slot::Config,
+                        NATIVE_CURRENT_STORE,
+                        LIVE[0].1,
+                        expected,
+                        until,
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                self.expected[NATIVE_CURRENT_STORE as usize] =
+                    Some((expected.len(), Sha256::digest(expected).into()));
+                self.current_store = true; // only full retained current-byte proof
+            } else {
+                self.lower
+                    .verify_member(Slot::Config, Slot::OldStore, LIVE[0].1, expected, until)
+                    .map_err(|_| FirstError::StillFenced)?;
+            }
+            self.gate(origin, until)
+        })();
+        if result.is_err() {
+            self.revoke_native();
+        }
+        result
     }
     #[cfg(test)]
     pub(crate) fn recovery_held(&self) -> bool {
@@ -871,7 +1119,25 @@ impl NativeEngine {
         }
         for index in 0..2 {
             let (old, name) = LIVE[index];
-            if self.lower.live[index] == LiveRole::Renamed {
+            if index == 0 && self.current_store {
+                let before = self.lower.original[old as usize]
+                    .as_ref()
+                    .ok_or(Unavailable)?;
+                let after = self
+                    .lower
+                    .io
+                    .original(old)?
+                    .metadata()
+                    .map_err(|_| Unavailable)?;
+                if before.nlink() != 0
+                    || !same_member(before, &after)
+                    || before.gid() != after.gid()
+                {
+                    return Err(Unavailable);
+                }
+                self.lower
+                    .binding(Slot::Config, NATIVE_CURRENT_STORE, name, false, until)?;
+            } else if self.lower.live[index] == LiveRole::Renamed {
                 let original = self.lower.original[old as usize]
                     .as_ref()
                     .ok_or(Unavailable)?;
@@ -987,6 +1253,18 @@ impl NativeEngine {
                 crate::restore_retirement_candidate::RECEIPT_MEMBER,
             ),
             (Slot::Scratch3, crate::restore_closure_model::CLOSURE_MEMBER),
+            (
+                Slot::Scratch0,
+                crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            ),
+            (
+                Slot::Scratch1,
+                if self.history {
+                    NATIVE_HISTORY
+                } else {
+                    crate::restore_disposition_complete_model::COMPLETE_MEMBER
+                },
+            ),
         ] {
             if self.lower.original[slot as usize].is_some() && !self.unlinked[slot as usize] {
                 self.lower.binding(Slot::State, slot, name, false, until)?;
@@ -1032,6 +1310,11 @@ impl NativeEngine {
                 n if n == Slot::Scratch5 as usize && self.recovery => Slot::Scratch5,
                 n if n == Slot::Scratch2 as usize && self.retirement => Slot::Scratch2,
                 n if n == Slot::Scratch3 as usize && self.retirement => Slot::Scratch3,
+                n if n == Slot::Scratch0 as usize && self.disposition => Slot::Scratch0,
+                n if n == Slot::Scratch1 as usize && self.disposition => Slot::Scratch1,
+                n if n == NATIVE_CURRENT_STORE as usize && self.current_store => {
+                    NATIVE_CURRENT_STORE
+                }
                 _ => return Err(FirstError::StillFenced),
             };
             let file = self
@@ -1657,12 +1940,219 @@ impl NativeEngine {
             }
         }
         if !self.unlinked[Slot::Scratch2 as usize]
-            || self.unlinked[Slot::Scratch3 as usize]
+            || self.unlinked[Slot::Scratch3 as usize] != self.disposition_done
             || self.expected[Slot::Scratch3 as usize].is_none()
         {
             return Err(FirstError::StillFenced);
         }
         self.gate(origin, until)
+    }
+
+    /// Consumes only this engine's positive completion, never decoded history.
+    /// The exact existing original lease and current origin stay borrowed.
+    pub(crate) fn dispose_native_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+    ) -> Result<(), FirstError> {
+        let until = Instant::now() + std::time::Duration::from_secs(15);
+        let uid = origin.uid();
+        let generation = origin.generation();
+        let mut desired = zeroize::Zeroizing::new(Vec::new());
+        desired
+            .try_reserve_exact(origin.desired_bytes().len())
+            .map_err(|_| FirstError::StillFenced)?;
+        desired.extend_from_slice(origin.desired_bytes());
+        let result = self.dispose_completed_inner(origin, uid, generation, &desired, until);
+        if result.is_err() {
+            self.sealed = true;
+            self.lower.revoke();
+        }
+        result
+    }
+
+    fn dispose_completed_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        use crate::restore_disposition_complete_model::{COMPLETE_MEMBER, CompleteRecord};
+        use crate::restore_disposition_ticket_model::{TICKET_MEMBER, Ticket};
+        if !self.completed
+            || self.sealed
+            || !self.recovery
+            || !self.singleton_locked
+            || self.disposition
+            || self.unlinked[Slot::Scratch3 as usize]
+            || self.uid != Some(uid)
+        {
+            return Err(FirstError::StillFenced);
+        }
+        self.disposition = true; // one attempt consumed before first publisher effect
+        self.gate(origin, until)?;
+        let state = self
+            .lower
+            .io
+            .original(Slot::State)
+            .map_err(|_| FirstError::StillFenced)?;
+        for name in [TICKET_MEMBER, COMPLETE_MEMBER, NATIVE_HISTORY] {
+            if !matches!(
+                fstatat(state, name, AtFlags::AT_SYMLINK_NOFOLLOW),
+                Err(nix::errno::Errno::ENOENT)
+            ) {
+                return Err(FirstError::StillFenced);
+            }
+        }
+        let size = crate::restore_closure_model::RECORD_BYTES;
+        let mut raw = [0; crate::restore_closure_model::RECORD_BYTES];
+        let closure_file = self
+            .lower
+            .io
+            .original(Slot::Scratch3)
+            .map_err(|_| FirstError::StillFenced)?;
+        tick(until).map_err(|_| FirstError::StillFenced)?;
+        closure_file
+            .read_exact_at(&mut raw, 0)
+            .map_err(|_| FirstError::StillFenced)?;
+        tick(until).map_err(|_| FirstError::StillFenced)?;
+        let closure = crate::restore_closure_model::ClosureRecord::decode(&raw)
+            .map_err(|_| FirstError::StillFenced)?;
+        if self.expected[Slot::Scratch3 as usize] != Some((size, Sha256::digest(raw).into())) {
+            return Err(FirstError::StillFenced);
+        }
+        // These pure records are consistency data, not producers of authority.
+        let ticket = Ticket::from_bound_closure(&closure, uid, generation, Some(desired))
+            .ok_or(FirstError::StillFenced)?;
+        let complete = CompleteRecord::from_ticket(&ticket).ok_or(FirstError::StillFenced)?;
+        self.write(
+            Slot::State,
+            Slot::Scratch0,
+            TICKET_MEMBER,
+            &ticket.encode(),
+            origin,
+            until,
+        )?;
+        self.write(
+            Slot::State,
+            Slot::Scratch1,
+            COMPLETE_MEMBER,
+            &complete.encode(),
+            origin,
+            until,
+        )?;
+        self.own_unlink(
+            Slot::State,
+            Slot::Scratch3,
+            crate::restore_closure_model::CLOSURE_MEMBER,
+            false,
+            origin,
+            until,
+        )?;
+        self.own_unlink(
+            Slot::State,
+            Slot::Scratch0,
+            TICKET_MEMBER,
+            false,
+            origin,
+            until,
+        )?;
+        self.gate(origin, until)?;
+        self.lower
+            .binding(Slot::State, Slot::Scratch1, COMPLETE_MEMBER, false, until)
+            .map_err(|_| FirstError::StillFenced)?;
+        self.lower
+            .io
+            .perform(
+                Slot::State,
+                || tick(until),
+                |state| {
+                    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+                    {
+                        nix::fcntl::renameat2(
+                            state,
+                            COMPLETE_MEMBER,
+                            state,
+                            NATIVE_HISTORY,
+                            nix::fcntl::RenameFlags::RENAME_NOREPLACE,
+                        )
+                        .map_err(|_| Unavailable)?;
+                        self.history = true; // positive original rename BEFORE sampled postcheck
+                        Ok(())
+                    }
+                    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+                    {
+                        let _ = state;
+                        Err(Unavailable)
+                    }
+                },
+            )
+            .map_err(|_| FirstError::StillFenced)?;
+        self.lower
+            .io
+            .perform(
+                Slot::Scratch1,
+                || tick(until),
+                |file| {
+                    let before = self.lower.original[Slot::Scratch1 as usize]
+                        .as_ref()
+                        .ok_or(Unavailable)?;
+                    let after = file.metadata().map_err(|_| Unavailable)?;
+                    if !same_after_own_rename(before, &after, 1) {
+                        return Err(Unavailable);
+                    }
+                    self.lower.original[Slot::Scratch1 as usize] = Some(after);
+                    Ok(())
+                },
+            )
+            .map_err(|_| FirstError::StillFenced)?;
+        self.lower
+            .io
+            .perform(
+                Slot::State,
+                || tick(until),
+                |file| file.sync_all().map_err(|_| Unavailable),
+            )
+            .map_err(|_| FirstError::StillFenced)?;
+        self.lower
+            .verify_member(
+                Slot::State,
+                Slot::Scratch1,
+                NATIVE_HISTORY,
+                &complete.encode(),
+                until,
+            )
+            .map_err(|_| FirstError::StillFenced)?;
+        let state = self
+            .lower
+            .io
+            .original(Slot::State)
+            .map_err(|_| FirstError::StillFenced)?;
+        for name in [
+            "routing-preset.pending.json",
+            PENDING_DIRECTORY,
+            INTENT,
+            TERMINAL,
+            crate::restore_retirement_candidate::RECEIPT_MEMBER,
+            crate::restore_closure_model::CLOSURE_MEMBER,
+            crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+            TICKET_MEMBER,
+            COMPLETE_MEMBER,
+            crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+        ] {
+            tick(until).map_err(|_| FirstError::StillFenced)?;
+            if !matches!(
+                fstatat(state, name, AtFlags::AT_SYMLINK_NOFOLLOW),
+                Err(nix::errno::Errno::ENOENT)
+            ) {
+                return Err(FirstError::StillFenced);
+            }
+            tick(until).map_err(|_| FirstError::StillFenced)?;
+        }
+        self.gate(origin, until)?;
+        self.disposition_done = true;
+        Ok(())
     }
     fn recover_native(
         &mut self,

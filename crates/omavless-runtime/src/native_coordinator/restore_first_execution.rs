@@ -26,7 +26,7 @@ mod native_recovery;
 pub(crate) use native_recovery::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use native_recovery::{
-    NativeCompletedOff, NativeRecoveryOrigin, NativeSteadyCompletion,
+    NativeCompletedOff, NativeMutationLease, NativeRecoveryOrigin, NativeSteadyCompletion,
 };
 
 #[cfg(feature = "t4-manager-actor-service")]

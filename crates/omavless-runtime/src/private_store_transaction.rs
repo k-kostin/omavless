@@ -94,6 +94,14 @@ impl PreparedPointerMutation {
 }
 
 impl PreparedPrivateStoreWrite {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn planned_output(&self) -> &[u8] {
+        if self.changed {
+            &self.candidate
+        } else {
+            &self.original
+        }
+    }
     #[cfg(test)]
     pub(crate) fn research_matches_candidate(&self, bytes: &[u8]) -> bool {
         bytes

@@ -33,11 +33,11 @@ pub(crate) use restore_candidate::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::NativeSessionOrigin;
 #[cfg(feature = "t4-manager-actor-service")]
-pub(crate) use restore_candidate::NativeSteadyCompletion;
-#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeFirstError, PreparedRestorePair};
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeMutationLease, NativeSteadyCompletion};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -403,6 +403,24 @@ pub struct OfflineNativeCoordinator<H> {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn transfer_native_completion(
+        &mut self,
+        source: &NativeSteadyCompletion,
+        target: NativeSteadyCompletion,
+    ) -> Result<(), NativeOwnerError> {
+        if !self
+            .native_completed_origin
+            .as_ref()
+            .is_some_and(|held| held.same_original(source))
+            || source.same_original(&target)
+            || self.retained_restore_busy()
+        {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        self.native_completed_origin = Some(target);
+        Ok(())
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn install_native_completed(
         &mut self,

@@ -18,7 +18,8 @@ fn native_fresh_recovery_reserves_one_original_and_retains_after_handle_loss() {
     assert!(FreshRecovery::reserve().is_err());
     drop(recovery);
     let retained = original.upgrade().unwrap();
-    let held = retained.lock().unwrap();
+    let slot = retained.lock().unwrap();
+    let held = slot.as_ref().unwrap();
     assert!(held.lock.is_none() && held.authenticated.is_none() && held.host.is_none());
     assert!(
         held.boundary
@@ -39,6 +40,52 @@ struct RecoveryHeld {
     engine: crate::manager_actor_service::NativeEngine,
     facts: Option<OriginFacts>,
 }
+fn move_prechecked_original(
+    source: &mut Option<RecoveryHeld>,
+    destination: &mut Option<RecoveryHeld>,
+) {
+    // The caller checked both under their original mutexes and installed the
+    // destination. Only a move: no user callback, allocation or Flock Drop.
+    *destination = source.take();
+}
+
+#[cfg(test)]
+#[test]
+fn native_completion_move_and_borrow_drop_keep_the_one_original_flock() {
+    use std::fs;
+    use std::os::unix::fs::DirBuilderExt;
+    let root = std::env::temp_dir().join(format!("nl-{:x}", std::process::id()));
+    fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+    let paths = CutoverPaths::below(&root, &root, nix::unistd::getuid().as_raw());
+    let uid = nix::unistd::getuid().as_raw();
+    let lock = MigrationLock::acquire(&paths, uid).unwrap();
+    let mut source = Some(RecoveryHeld {
+        lock: Some(lock),
+        boundary: None,
+        authenticated: None,
+        host: None,
+        engine: crate::manager_actor_service::NativeEngine::reserve(),
+        facts: None,
+    });
+    let mut destination = None;
+    assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    move_prechecked_original(&mut source, &mut destination);
+    assert!(source.is_none());
+    {
+        // The actual production borrower uses a nonescaping reference, not an
+        // owned Flock wrapper. Letting that reference end cannot unlock it.
+        let original = destination.as_ref().unwrap().lock.as_ref().unwrap();
+        assert!(original.authorizes(&paths, uid));
+        assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    }
+    assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    drop(source);
+    assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    drop(destination); // only this fully positive local fixture, no uncertain owner
+    drop(MigrationLock::acquire_existing(&paths, uid).unwrap());
+    fs::remove_file(paths.operation_lock).unwrap();
+    fs::remove_dir(root).unwrap();
+}
 struct OriginFacts {
     paths: CutoverPaths,
     desired_paths: DesiredPaths,
@@ -55,7 +102,12 @@ struct OriginFacts {
 /// Fatal process loss only means unavailable. No reset/retry or ordinary owner.
 #[allow(dead_code)]
 pub(crate) struct FreshRecovery {
-    original: Arc<Mutex<RecoveryHeld>>,
+    original: Arc<Mutex<Option<RecoveryHeld>>>,
+    // Empty destination reserved before any original acquisition. Moving the
+    // payload here never duplicates a MigrationLock/Flock or its authority.
+    destination: Arc<Mutex<Option<RecoveryHeld>>>,
+    available: Arc<AtomicBool>,
+    disposition_attempted: bool,
     attempted: bool,
     normal_owner: Option<
         crate::production_owner::ProductionNativeOwner<crate::native_host::NativeLifecycleHost>,
@@ -63,11 +115,65 @@ pub(crate) struct FreshRecovery {
 }
 #[derive(Clone)]
 pub(crate) struct NativeSteadyCompletion {
-    original: Arc<Mutex<RecoveryHeld>>,
+    original: Arc<Mutex<Option<RecoveryHeld>>>,
+    available: Arc<AtomicBool>,
+}
+
+/// Private loan minted only from the moved original holder under its mutex.
+pub(crate) struct NativeMutationLease<'a, 'b> {
+    origin: &'a mut NativeRecoveryOrigin<'b>,
+    engine: &'a mut crate::manager_actor_service::NativeEngine,
+    until: std::time::Instant,
+}
+impl NativeMutationLease<'_, '_> {
+    pub(crate) fn lock(&self) -> &MigrationLock {
+        self.origin.lock
+    }
+    pub(crate) fn bind(&mut self, paths: &CutoverPaths, uid: u32) -> Result<(), ()> {
+        if paths != self.origin.paths || uid != self.origin.uid || !self.engine.disposition_ready()
+        {
+            return Err(());
+        }
+        self.check()
+    }
+    pub(crate) fn check(&mut self) -> Result<(), ()> {
+        self.engine
+            .check_native_completed(self.origin, self.until)
+            .map_err(|_| ())
+    }
+    pub(crate) fn begin_store(&mut self) -> Result<(), ()> {
+        self.engine
+            .begin_native_store_mutation(self.origin, self.until)
+            .map_err(|_| ())
+    }
+    pub(crate) fn reported_store(&mut self, expected: &[u8], changed: bool) -> Result<(), ()> {
+        self.engine
+            .finish_native_store_mutation(self.origin, expected, changed, self.until)
+            .map_err(|_| ())
+    }
+    pub(crate) fn refuse(&mut self) {
+        self.engine.revoke_native();
+    }
 }
 impl NativeSteadyCompletion {
-    fn checked<T>(&self, read: impl FnOnce(&OriginFacts) -> T) -> Result<T, ()> {
-        let mut held = self.original.lock().map_err(|_| ())?;
+    pub(crate) fn with_mutation<T>(
+        &self,
+        operation: impl FnOnce(&mut NativeMutationLease<'_, '_>) -> Result<T, ()>,
+    ) -> Result<T, ()> {
+        if !self.available.load(Ordering::Acquire) {
+            return Err(());
+        }
+        let result = self.with_mutation_inner(operation);
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+        }
+        result
+    }
+    fn with_mutation_inner<T>(
+        &self,
+        operation: impl FnOnce(&mut NativeMutationLease<'_, '_>) -> Result<T, ()>,
+    ) -> Result<T, ()> {
+        let mut slot = self.original.lock().map_err(|_| ())?;
         let RecoveryHeld {
             lock,
             boundary,
@@ -75,7 +181,63 @@ impl NativeSteadyCompletion {
             engine,
             facts,
             ..
-        } = &mut *held;
+        } = slot.as_mut().ok_or(())?;
+        let facts = facts.as_ref().ok_or(())?;
+        if !engine.disposition_ready() {
+            return Err(());
+        }
+        let mut origin = NativeRecoveryOrigin {
+            lock: lock.as_ref().ok_or(())?,
+            boundary: boundary.as_ref().ok_or(())?,
+            host: host.as_mut().ok_or(())?,
+            paths: &facts.paths,
+            desired_paths: &facts.desired_paths,
+            marker: facts.marker.clone(),
+            desired: facts.desired.clone(),
+            marker_bytes: facts.marker_bytes.clone(),
+            desired_bytes: facts.desired_bytes.clone(),
+            login_bytes: facts.login_bytes.clone(),
+            uid: facts.uid,
+        };
+        let mut loan = NativeMutationLease {
+            origin: &mut origin,
+            engine,
+            until: std::time::Instant::now() + std::time::Duration::from_secs(15),
+        };
+        loan.check()?;
+        let result = operation(&mut loan);
+        if result.is_err() {
+            loan.refuse();
+            return result;
+        }
+        loan.check()?;
+        result
+    }
+    pub(crate) fn same_original(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.original, &other.original)
+            && Arc::ptr_eq(&self.available, &other.available)
+    }
+    fn checked<T>(&self, read: impl FnOnce(&OriginFacts) -> T) -> Result<T, ()> {
+        if !self.available.load(Ordering::Acquire) {
+            return Err(());
+        }
+        let result = self.checked_inner(read);
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+        }
+        result
+    }
+    fn checked_inner<T>(&self, read: impl FnOnce(&OriginFacts) -> T) -> Result<T, ()> {
+        let mut slot = self.original.lock().map_err(|_| ())?;
+        let held = slot.as_mut().ok_or(())?;
+        let RecoveryHeld {
+            lock,
+            boundary,
+            host,
+            engine,
+            facts,
+            ..
+        } = held;
         let facts = facts.as_ref().ok_or(())?;
         let mut origin = NativeRecoveryOrigin {
             lock: lock.as_ref().ok_or(())?,
@@ -122,6 +284,7 @@ impl Drop for FreshRecovery {
     fn drop(&mut self) {
         std::mem::forget(self.normal_owner.take());
         std::mem::forget(Arc::clone(&self.original));
+        std::mem::forget(Arc::clone(&self.destination));
     }
 }
 
@@ -339,6 +502,90 @@ impl NativeRecoveryOrigin<'_> {
 
 #[allow(dead_code)]
 impl FreshRecovery {
+    pub(crate) fn completed_owner_onboarding(
+        &mut self,
+        request: &serde_json::Value,
+    ) -> Result<crate::native_coordinator::NativeOwnerExecution, FirstError> {
+        self.normal_owner
+            .as_mut()
+            .ok_or(FirstError::StillFenced)?
+            .dispatch_native_completed_onboarding(request)
+            .map_err(|_| FirstError::StillFenced)
+    }
+    /// Developer-only consuming disposition. The destination is already
+    /// reserved and the actual normal owner already installed. No mutable
+    /// caller receives an authority snapshot or a newly acquired lease.
+    pub(crate) fn dispose_and_transfer_completed(&mut self) -> Result<(), FirstError> {
+        if self.disposition_attempted {
+            return Err(FirstError::StillFenced);
+        }
+        self.disposition_attempted = true;
+        let result = self.dispose_and_transfer_inner();
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+        }
+        result
+    }
+    fn dispose_and_transfer_inner(&mut self) -> Result<(), FirstError> {
+        let source = NativeSteadyCompletion {
+            original: Arc::clone(&self.original),
+            available: Arc::clone(&self.available),
+        };
+        source.recheck().map_err(|_| FirstError::StillFenced)?;
+        {
+            let mut slot = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+            let RecoveryHeld {
+                lock,
+                boundary,
+                host,
+                engine,
+                facts,
+                ..
+            } = slot.as_mut().ok_or(FirstError::StillFenced)?;
+            let facts = facts.as_ref().ok_or(FirstError::StillFenced)?;
+            let mut origin = NativeRecoveryOrigin {
+                lock: lock.as_ref().ok_or(FirstError::StillFenced)?,
+                boundary: boundary.as_ref().ok_or(FirstError::StillFenced)?,
+                host: host.as_mut().ok_or(FirstError::StillFenced)?,
+                paths: &facts.paths,
+                desired_paths: &facts.desired_paths,
+                marker: facts.marker.clone(),
+                desired: facts.desired.clone(),
+                marker_bytes: facts.marker_bytes.clone(),
+                desired_bytes: facts.desired_bytes.clone(),
+                login_bytes: facts.login_bytes.clone(),
+                uid: facts.uid,
+            };
+            engine.dispose_native_completed(&mut origin)?;
+        }
+        source.recheck().map_err(|_| FirstError::StillFenced)?;
+        let mut original = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+        let mut destination = self
+            .destination
+            .lock()
+            .map_err(|_| FirstError::StillFenced)?;
+        if destination.is_some()
+            || !original
+                .as_ref()
+                .is_some_and(|held| held.engine.disposition_ready())
+        {
+            return Err(FirstError::StillFenced);
+        }
+        let target = NativeSteadyCompletion {
+            original: Arc::clone(&self.destination),
+            available: Arc::clone(&self.available),
+        };
+        self.normal_owner
+            .as_mut()
+            .ok_or(FirstError::StillFenced)?
+            .transfer_native_completion(&source, target)
+            .map_err(|_| FirstError::StillFenced)?;
+        // Destination is installed BEFORE this single nonfallible move. No
+        // callbacks, assertions, allocation, unlock, Drop or later fallible
+        // operation interposes between source consumption and destination.
+        move_prechecked_original(&mut original, &mut destination);
+        Ok(())
+    }
     pub(crate) fn completed_status(&mut self) -> Result<serde_json::Value, FirstError> {
         self.dispatch_completed_read(crate::production_owner::NativeCompletedRead::Status)
     }
@@ -358,7 +605,10 @@ impl FreshRecovery {
     #[cfg(test)]
     pub(crate) fn original_leases_held(&self, paths: &CutoverPaths, uid: u32) -> bool {
         self.attempted
-            && self.original.lock().is_ok_and(|held| {
+            && self.original.lock().is_ok_and(|slot| {
+                let Some(held) = slot.as_ref() else {
+                    return false;
+                };
                 held.lock
                     .as_ref()
                     .is_some_and(|lock| lock.authorizes(paths, uid))
@@ -377,14 +627,17 @@ impl FreshRecovery {
             return Err(FirstError::Admission);
         }
         Ok(Self {
-            original: Arc::new(Mutex::new(RecoveryHeld {
+            original: Arc::new(Mutex::new(Some(RecoveryHeld {
                 lock: None,
                 boundary: Some(Boundary::reserve_installed()?),
                 authenticated: None,
                 host: None,
                 engine: crate::manager_actor_service::NativeEngine::reserve(),
                 facts: None,
-            })),
+            }))),
+            destination: Arc::new(Mutex::new(None)),
+            available: Arc::new(AtomicBool::new(true)),
+            disposition_attempted: false,
             attempted: false,
             normal_owner: None,
         })
@@ -472,7 +725,8 @@ impl FreshRecovery {
             return Err(FirstError::StillFenced);
         }
         self.attempted = true; // before authentication/lease/capture; no reuse
-        let mut held = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+        let mut slot = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+        let held = slot.as_mut().ok_or(FirstError::StillFenced)?;
         held.authenticated =
             Some(open_existing(source, uid, passphrase).map_err(|_| FirstError::Prepare)?);
         if nix::unistd::getuid().as_raw() != uid
@@ -524,7 +778,7 @@ impl FreshRecovery {
             host,
             engine,
             facts,
-        } = &mut *held;
+        } = held;
         let boundary = boundary.as_ref().ok_or(FirstError::Admission)?;
         let original_member = |index: usize, maximum| {
             boundary
@@ -589,6 +843,7 @@ impl FreshRecovery {
                 .ok_or(FirstError::StillFenced)?
                 .install_native_completion(NativeSteadyCompletion {
                     original: Arc::clone(&self.original),
+                    available: Arc::clone(&self.available),
                 })
                 .map_err(|_| FirstError::StillFenced)?;
             Ok(())

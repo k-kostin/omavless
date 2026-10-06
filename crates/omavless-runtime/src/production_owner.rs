@@ -162,6 +162,18 @@ pub(crate) enum NativeCompletedRead {
 }
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn dispatch_native_completed_onboarding(
+        &mut self,
+        request: &serde_json::Value,
+    ) -> Result<crate::native_coordinator::NativeOwnerExecution, ProductionOwnerError> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        self.coordinator
+            .execute_onboarding_native_completed(request)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
     /// Explicit inactive developer dispatch: concrete SAME-holder rechecks,
     /// actual owner status/list accessors, no network/mutation/listener grant.
     #[cfg(feature = "t4-manager-actor-service")]
@@ -624,6 +636,20 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             origin_preparing_generation: None,
         };
         Ok(())
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn transfer_native_completion(
+        &mut self,
+        source: &crate::native_coordinator::NativeSteadyCompletion,
+        target: crate::native_coordinator::NativeSteadyCompletion,
+    ) -> Result<(), ProductionOwnerError> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        self.coordinator
+            .transfer_native_completion(source, target)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
     }
 
     pub(crate) fn rust_ownership_available(&mut self) -> bool {
