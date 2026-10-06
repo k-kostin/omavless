@@ -174,7 +174,8 @@ operation. Backend/API, tokens, permit, ordinary/default TUI and desired state
 are unchanged. New EN/RU TestBackend/state/no-hidden-refresh control passed;
 full TUI162, protocol6, strict feature Clippy/default/headless, catalogue330,
 format/navigation/diff passed. This source correction is not retroactive b29
-rendering acceptance; actual updated frontend/Foot remains pending.
+rendering acceptance. Updated live frontend/Foot was pending at that SOURCE
+checkpoint; exact96 evidence is recorded below.
 
 ## Separately ignored real primary CLI + Foot gate
 
@@ -247,8 +248,9 @@ pending→positive, nonzero, error, pre-expiry and positive-return/late-postgate
 without callbacks after refusal. Real path/receipt predicates reject other
 runtime roots, malformed leaf shapes and nonexact marker bodies. Fixed-artifact
 controls and compilation do not
-execute any UI/socket/actor. Actual original whole/terminal/closure evidence and
-fresh delivery are pending ROOT plus independent affected review. Default/
+execute any UI/socket/actor. At SOURCE freeze, actual original whole/terminal/
+closure evidence and fresh delivery were pending ROOT plus independent affected
+review; the completed exact96 cut below does not promote default/
 released-pair adoption, installed package/frontend and ARM64 still remain open.
 
 SOURCE checkpoint: three new real-UI wait/path/receipt controls, six canonical
@@ -260,3 +262,40 @@ trait and an ambiguous Read/Write.by_ref call; both ordinary SOURCE failures
 were corrected, not labeled native/VM failures. The two new actual entries
 remain ignored; no real Foot, CLI child, controller/socket or VM was executed
 by the author. Final private image/delivery and actual evidence remain separate.
+
+## Exact96 real primary CLI / Foot / original socket outcome
+
+Tested implementation `96b072890362e7cf70d458923e6b8e1aa750a12d`, not this
+later documentation successor. Primary CLI8,571,248 bytes SHA
+75263631e03f8b99bc8d1dd511901148cb7798fa5ad35b71797e9efdbed1a304;
+library-test image22,177,256 bytes SHA
+e4b980dbfe4991a637a37d6bc6d349d2c4ff99d8031a2b8508f869b3bdd864cd.
+ROOT complete affected review and independent source clearance preceded the
+fixed new delivery/namespace selection; its eight inert controls passed. ROOT
+remained the sole VM operator. The developer pair was not reprovisioned.
+
+ROOT's actual original SSH run `a5ba31` returned0. Separately selected fixed
+two-file observer `12d8c6` returned0: stdout226 bytes SHA
+fffc1ccb2d356a7947dba7b63fc9e965160650b1fd04ec3c94015e5a3e5a00b4,
+complete exact one-test success grammar/1165 filtered, stderr empty. Whole0
+includes the original Foot wait0, independent original CLI wait0 completion
+File checks, selected B termination, A echo and unchanged desired bytes. This
+uses the ordinary trusted Foot/helper/backend completion boundary stated above;
+it is not inferred from a screenshot or Foot0 alone.
+
+ROOT privately inspected actual EN Foot: Initial, explicit r, safe genuine
+expiry, fresh explicit r, rows A:19180/B:19181, j/x/full visible B target, one
+Enter, Pending, explicit u/original receipt Closed/spent, then r/x/Return/u
+without visible reentry and q. The actual primary CLI used the SAME original
+server/coordinator/core private socket, not CLOSED synthetic replies. Pending
+presentation alone does not prove a deliberately dropped transport reply; the
+separate b29 Workspace gate contains that explicit lost-reply control. Exact96
+establishes this actual frontend/receipt-only completion cut, not a new network
+fault attestation. Captures remain private outside Git. ROOT's separate normal
+installed native/netguard check `37b731` remained inactive0/noTUN.
+
+RU live, live resize, default normal client/adoption, released package/pair,
+installed frontend and ARM64 are not claimed by this result. Earlier synthetic
+EN/RU/resize evidence remains separate. Old21d original101 and b29's accepted
+Workspace/socket result are preserved. No main merge, release, replay of the
+spent window, cleanup/reset grant or whole T3/C1 closure follows.
