@@ -46,5 +46,12 @@ cargo test --locked -p omavless-runtime \
 cargo clippy --locked -p omavless-runtime \
   --features 'system-event-source,network-resume-fixture,developer-subscription-schedule' \
   --all-targets -- -D warnings
+# Fixed source adapter is dormant. Its explicit private-bus/metadata fixtures
+# stay ignored in generic parallel suites and execute here once, serially.
+# Neither this feature nor its fixtures call the production system constructor.
+cargo check --locked -p omavless-runtime --features system-event-source --all-targets
+cargo test --locked -p omavless-runtime --features system-event-source --lib \
+  host_event_source::tests:: -- --ignored --test-threads=1
+cargo clippy --locked -p omavless-runtime --features system-event-source --all-targets -- -D warnings
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json
