@@ -193,9 +193,22 @@ fn native_positive_pause_lost_response_publication_seals_same_original_slot() {
         ),
         &mut producer,
         0,
-        |revision| f.owner.refuse_unpublished_intent_pause(revision),
+        |revision| {
+            assert!(f.owner.refuse_unpublished_intent_pause(revision));
+            struct Full;
+            impl std::io::Write for Full {
+                fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                    Err(std::io::ErrorKind::StorageFull.into())
+                }
+                fn flush(&mut self) -> std::io::Result<()> {
+                    panic!("no diagnostic flush")
+                }
+            }
+            crate::developer_current_restore::write_publication_sealed_diagnostic(&mut Full);
+        },
     );
-    assert!(publication.is_err());
+    assert_eq!(publication, Err(crate::RuntimeError::Io));
+    assert!(!f.owner.refuse_unpublished_intent_pause(0)); // never a second diagnostic
     assert!(!f.owner.current_intent_paused());
     assert!(f.owner.retained_restore_busy());
     assert!(f.owner.transaction.independently_blocked());
@@ -210,6 +223,25 @@ fn native_positive_pause_lost_response_publication_seals_same_original_slot() {
             .is_err()
     );
     assert_eq!(fs::read(&f.store).unwrap(), old);
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn publication_seal_diagnostic_requires_original_positive_pause_and_exact_revision() {
+    let mut f = Fixture::new();
+    assert!(!f.owner.refuse_unpublished_intent_pause(0));
+    assert!(!f.owner.held_restore_execution.occupied());
+    f.owner
+        .pause_current_restore_intent(&f.backup, PASSWORD)
+        .unwrap();
+    assert!(!f.owner.refuse_unpublished_intent_pause(1));
+    assert!(f.owner.current_intent_paused());
+    assert!(!f.owner.transaction.independently_blocked());
+    assert!(f.owner.refuse_unpublished_intent_pause(0));
+    assert!(!f.owner.current_intent_paused());
+    assert!(f.owner.transaction.independently_blocked());
+    assert!(f.owner.abort_current_restore_intent().is_err());
+    assert!(!f.owner.refuse_unpublished_intent_pause(0));
 }
 
 #[cfg(feature = "t4-manager-actor-service")]

@@ -374,7 +374,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn abort_current_restore_intent(&mut self) -> Result<(), FirstError> {
         self.abort_current_restore_intent_cut(&mut |_| Ok(()))
     }
-    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) {
+    /// Factual diagnostic only: true means this SAME pause was consumed,
+    /// original engine revoked/unavailable and transaction independently blocked.
+    /// It cannot enable a continuation or mint any caller permission.
+    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
+        let mut sealed = false;
         if self.revision() == revision && self.current_intent_paused() {
             if let Some(original) = &self.held_restore_execution.original
                 && let Ok(mut held) = original.lock()
@@ -383,9 +387,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 held.pause_revision = None;
                 held.pause_instance = None;
                 held.refuse_ordinary();
+                sealed = true; // all nonfallible SAME-held seal actions completed
             }
             self.transaction.block();
         }
+        sealed && self.transaction.independently_blocked()
     }
     pub(super) fn abort_current_restore_intent_cut(
         &mut self,

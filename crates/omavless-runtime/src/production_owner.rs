@@ -169,8 +169,8 @@ pub(crate) enum NativeCompletedRead {
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[cfg(feature = "t4-manager-actor-service")]
-    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) {
-        self.coordinator.refuse_unpublished_intent_pause(revision);
+    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
+        self.coordinator.refuse_unpublished_intent_pause(revision)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn developer_current_pause(

@@ -19,6 +19,11 @@ pub(crate) fn private_method(method: &str) -> bool {
     matches!(method, METHOD | BACKUP_METHOD | PAUSE_METHOD | ABORT_METHOD)
 }
 pub(crate) const MAX_INPUT: usize = 32768;
+/// Fixed best-effort observation only. Never replaces the original publication
+/// failure with a stderr error/unwind, and never flushes/retries caller data.
+pub(crate) fn write_publication_sealed_diagnostic(writer: &mut impl std::io::Write) {
+    let _ = writer.write_all(b"T4_CURRENT_INTENT_PUBLICATION_SEALED\n");
+}
 /// Only the positive private pause response. The caller holds the SAME owner
 /// mutex through this function, including its original failure callback.
 pub(crate) fn publish_positive_pause_response(
@@ -315,6 +320,39 @@ pub fn from_private_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn diagnostic_write_failure_is_ignored_without_flush_or_unwind() {
+        struct Failing;
+        impl std::io::Write for Failing {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                panic!("diagnostic must not flush")
+            }
+        }
+        write_publication_sealed_diagnostic(&mut Failing);
+        let mut output = Vec::new();
+        write_publication_sealed_diagnostic(&mut output);
+        assert_eq!(output, b"T4_CURRENT_INTENT_PUBLICATION_SEALED\n");
+    }
+    #[test]
+    fn positive_pause_write_never_calls_seal_diagnostic_on_success() {
+        let (mut producer, _consumer) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert!(
+            publish_positive_pause_response(
+                omavless_control_protocol::success_response(
+                    "public",
+                    0,
+                    serde_json::json!({"intentPaused":true})
+                ),
+                &mut producer,
+                0,
+                |_| panic!("positive write must not seal or report loss")
+            )
+            .is_ok()
+        );
+    }
     #[test]
     fn intent_resume_is_closed_context_only_and_pause_is_not_completion() {
         let good = serde_json::json!({"schema":1,"confirmation":ABORT_CONFIRM,

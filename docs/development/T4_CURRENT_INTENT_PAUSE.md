@@ -59,6 +59,21 @@ The source test for lost publication uses the production private response
 encoder/unary writer and same holder failure callback on a real failed Unix
 stream. It does not forge a current factory or claim an installed daemon result.
 
+The later diagnostic-only source successor emits the single feature-only stderr
+literal `T4_CURRENT_INTENT_PUBLICATION_SEALED` only when that existing callback
+actually consumed the SAME positive pause, revoked its engine/made it unavailable and
+independently blocked the transaction at the exact revision. No new state reads,
+RPC or continuation permission is added; only the fixed stderr diagnostic write.
+That write is best-effort/nonpanicking: stderr failure cannot replace the
+original publication error or unwind/poison the SAME owner mutex after sealing.
+A nonmatching revision,
+missing/poisoned holder, nonpaused request or repeated callback cannot emit it.
+This new-image publication-loss scenario is **not yet VM accepted**; Current36
+at immutable6fe remains only its controlled positive publication/Abort proof.
+Client loss, unavailable hello and Intent presence alone cannot distinguish an
+ordinary resumable pause from this sealed state. Without the exact source-closed
+consequence, the result remains UNKNOWN with no Abort/forward/retry.
+
 No descriptor role or file-capacity envelope is added. The one bounded holder
 adds an opaque Arc identity, one fixed-size original Intent record, and the
 original scheduler revision/instance. It cannot hold a second pause or admit

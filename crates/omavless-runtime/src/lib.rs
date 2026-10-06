@@ -390,7 +390,7 @@ enum RuntimeDispatcher {
 
 trait NativeRuntimeOwner: Send {
     #[cfg(feature = "t4-manager-actor-service")]
-    fn refuse_unpublished_intent_pause(&mut self, revision: u64);
+    fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool;
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_pause(
         &mut self,
@@ -720,8 +720,8 @@ where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
     #[cfg(feature = "t4-manager-actor-service")]
-    fn refuse_unpublished_intent_pause(&mut self, revision: u64) {
-        self.owner.refuse_unpublished_intent_pause(revision);
+    fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
+        self.owner.refuse_unpublished_intent_pause(revision)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_pause(
@@ -1548,7 +1548,15 @@ impl RuntimeServer {
                                 success_response(id, revision, json!({"intentPaused":true})),
                                 stream,
                                 input.revision(),
-                                |revision| owner.refuse_unpublished_intent_pause(revision),
+                                |revision| {
+                                    if owner.refuse_unpublished_intent_pause(revision) {
+                                        // Fixed feature-only observation AFTER the original
+                                        // seal/revoke/block. No input, resampling or authority.
+                                        developer_current_restore::write_publication_sealed_diagnostic(
+                                            &mut std::io::stderr().lock(),
+                                        );
+                                    }
+                                },
                             );
                         } else {
                             error_response(
