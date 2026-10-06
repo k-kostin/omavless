@@ -1326,6 +1326,29 @@ impl RuntimeServer {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn wake_developer_subscription_schedule(&self) {
+        // Same admission barrier as unary mutations. In particular, an idle
+        // wakeup must not queue behind the owner while Full Quit holds the
+        // write gate, then create a first batch after Quit has sealed admission.
+        let Ok(gate) = self.quit_gate.try_read() else {
+            return;
+        };
+        if *gate || self.quit_requested.load(Ordering::Acquire) {
+            return;
+        }
+        if let Some(schedule) = &self.developer_schedule
+            && schedule.take_wakeup()
+        {
+            let _ = self.batch_scheduler.wake_automatic(
+                &self.instance_id,
+                &self.dispatcher,
+                &self.remote_fetches,
+                Arc::clone(&schedule.clock),
+            );
+        }
+    }
+
     fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
     where
         H: lifecycle::LifecycleHost + Send + 'static,
@@ -1404,16 +1427,7 @@ impl RuntimeServer {
         thread::scope(|scope| {
             while !stop.load(Ordering::Relaxed) && !self.quit_requested.load(Ordering::Acquire) {
                 #[cfg(any(test, feature = "developer-subscription-schedule"))]
-                if let Some(schedule) = &self.developer_schedule
-                    && schedule.take_wakeup()
-                {
-                    let _ = self.batch_scheduler.wake_automatic(
-                        &self.instance_id,
-                        &self.dispatcher,
-                        &self.remote_fetches,
-                        Arc::clone(&schedule.clock),
-                    );
-                }
+                self.wake_developer_subscription_schedule();
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
                         if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
