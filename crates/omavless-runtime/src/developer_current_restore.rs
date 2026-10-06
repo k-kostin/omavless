@@ -9,6 +9,8 @@ use zeroize::Zeroizing;
 
 pub(crate) const METHOD: &str = "developer.restore_current";
 const CONFIRM: &str = "replace-current-private-pair";
+pub(crate) const BACKUP_METHOD: &str = "developer.backup_current";
+const BACKUP_CONFIRM: &str = "export-current-private-pair";
 pub(crate) const MAX_INPUT: usize = 32768;
 struct PrivateText(Zeroizing<String>);
 impl<'de> Deserialize<'de> for PrivateText {
@@ -74,7 +76,7 @@ impl Request {
     }
     fn valid(&self) -> bool {
         valid_private(self.schema, &self.archive.0, &self.passphrase.0)
-            && self.confirmation == CONFIRM
+            && matches!(self.confirmation.as_str(), CONFIRM | BACKUP_CONFIRM)
             && !self.instance_id.is_empty()
             && self.instance_id.len() <= 128
             && self.expected_revision <= omavless_control_protocol::MAX_REVISION
@@ -91,9 +93,15 @@ impl Request {
     pub(crate) fn passphrase(&self) -> &[u8] {
         self.passphrase.0.as_bytes()
     }
+    pub(crate) fn matches_method(&self, method: &str) -> bool {
+        matches!(
+            (method, self.confirmation.as_str()),
+            (METHOD, CONFIRM) | (BACKUP_METHOD, BACKUP_CONFIRM)
+        )
+    }
 }
 pub(crate) fn wipe_request(request: &mut Value) {
-    if request["method"] == METHOD
+    if matches!(request["method"].as_str(), Some(METHOD | BACKUP_METHOD))
         && let Some(params) = request["params"].as_object_mut()
         && let Some(Value::String(secret)) = params.remove("passphrase")
     {
@@ -102,9 +110,21 @@ pub(crate) fn wipe_request(request: &mut Value) {
 }
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     arguments == ["developer", "restore-current", "--confirm-private-pair"]
+        || arguments == ["developer", "backup-current", "--confirm-private-export"]
 }
 /// A lost reply is UNKNOWN, never an automatic retry. No request data is echoed.
-pub fn from_private_input(input: impl Read) -> Result<(), &'static str> {
+pub fn from_private_input(
+    arguments: &[OsString],
+    input: impl Read,
+) -> Result<&'static str, &'static str> {
+    if !arguments_admitted(arguments) {
+        return Err("developer_current_arguments_refused");
+    }
+    let (method, confirmation, marker) = if arguments[1] == "backup-current" {
+        (BACKUP_METHOD, BACKUP_CONFIRM, "t4_current_backup_created")
+    } else {
+        (METHOD, CONFIRM, "t4_current_pair_completed")
+    };
     let uid = nix::unistd::Uid::current();
     if uid.is_root() || uid != nix::unistd::Uid::effective() {
         return Err("developer_current_restore_refused");
@@ -137,14 +157,14 @@ pub fn from_private_input(input: impl Read) -> Result<(), &'static str> {
     let revision = status["revision"]
         .as_u64()
         .ok_or("developer_current_restore_refused")?;
-    let params = serde_json::json!({"schema":1,"confirmation":CONFIRM,"archive":request.archive.0.as_str(),"passphrase":request.passphrase.0.as_str(),"instanceId":instance,"expectedRevision":revision});
+    let params = serde_json::json!({"schema":1,"confirmation":confirmation,"archive":request.archive.0.as_str(),"passphrase":request.passphrase.0.as_str(),"instanceId":instance,"expectedRevision":revision});
     let response =
-        crate::call_with_timeout(&paths, METHOD, params, std::time::Duration::from_secs(120))
+        crate::call_with_timeout(&paths, method, params, std::time::Duration::from_secs(120))
             .map_err(|_| "developer_current_restore_outcome_unknown")?;
     if response["ok"] != true || response["result"]["completed"] != true {
         return Err("developer_current_restore_refused");
     }
-    Ok(())
+    Ok(marker)
 }
 
 #[cfg(test)]
@@ -155,7 +175,11 @@ mod tests {
             return Err(());
         }
         let value = crate::decode_request(frame).map_err(|_| ())?;
-        Request::parse(&value["params"]).map(|_| ())
+        let request = Request::parse(&value["params"])?;
+        if !request.matches_method(value["method"].as_str().unwrap_or("")) {
+            return Err(());
+        }
+        Ok(())
     }
     fn wire() -> String {
         let mut raw: String = r#"{"api":"omavless.control","version":1,"id":"public","method":"developer.restore_current","params":{"schema":1,"archive":"/public/input.ovb","passphrase":"synthetic password","confirmation":"replace-current-private-pair","instanceId":"public-instance","expectedRevision":0}}"#.into();
@@ -217,5 +241,25 @@ mod tests {
         }
         assert!(parse_input(&[0xff]).is_err());
         assert!(parse_input(&vec![b' '; MAX_INPUT + 1]).is_err());
+    }
+    #[test]
+    fn private_backup_and_restore_confirmations_are_not_interchangeable() {
+        let restore = wire();
+        let backup = restore
+            .replace(METHOD, BACKUP_METHOD)
+            .replace(CONFIRM, BACKUP_CONFIRM);
+        assert!(checked(backup.as_bytes()).is_ok());
+        assert!(checked(restore.replace(CONFIRM, BACKUP_CONFIRM).as_bytes()).is_err());
+        assert!(checked(restore.replace(METHOD, BACKUP_METHOD).as_bytes()).is_err());
+        assert!(arguments_admitted(&[
+            "developer".into(),
+            "backup-current".into(),
+            "--confirm-private-export".into()
+        ]));
+        assert!(!arguments_admitted(&[
+            "developer".into(),
+            "backup-current".into(),
+            "--confirm-private-pair".into()
+        ]));
     }
 }

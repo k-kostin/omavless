@@ -164,3 +164,26 @@ stale revision, occupied dispatcher and default absence. They do not construct
 a genuine installed current owner. Actual installed same-image normal-login
 RPC, subsequent status/list/onboarding+replay and independently admitted normal
 restart require PRIMARY/independent review and separate ROOT VM selection.
+
+The minimal accepted-source archive supplier is the same feature-only private
+adapter: exact `developer backup-current --confirm-private-export`, fixed hidden
+`developer.backup_current`, and method-specific confirmation. It invokes the
+existing `create_backup_candidate` on that SAME current-qualified owner under
+its mutex/original lease, not a copied constructor or raw external live reader.
+Only ciphertext is exclusively published at the absent private destination;
+the existing publisher uses an unnamed private temporary plus non-overwriting
+link, sync and readback. It never edits the live store/template or invents an
+epoch/receipt. The same grammar, instance/revision/peer/quit/Busy restrictions,
+secret handling and default/capability absence apply. Crossed export/replace
+confirmations refuse. Ambiguous publication is preserved, not cleaned/retried.
+
+The normal VM sequence is therefore real normal login/current daemon → export
+its actual pair to a new private encrypted archive → restore that authenticated
+pair through NEW/Committed completion → existing status/list and harmless
+onboarding+historical replay → explicit ordinary daemon stop/restart → fresh
+normal current admission and readback. Source profiles are never arbitrarily
+edited to manufacture the archive. Startup-off portable normalization belongs
+to the existing backup/restore contract; private original/portable profile and
+template equality checks may remain private, with only booleans published.
+Onboarding already true must be recorded NoChange, not a fabricated Changed
+effect. Installed positive/restart evidence remains pending ROOT selection.

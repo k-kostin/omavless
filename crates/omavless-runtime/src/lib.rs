@@ -394,6 +394,11 @@ trait NativeRuntimeOwner: Send {
         &mut self,
         request: &developer_current_restore::Request,
     ) -> std::result::Result<(), ()>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_backup(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), ()>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -702,6 +707,13 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_backup(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), ()> {
+        self.owner.developer_current_backup(request).map_err(|_| ())
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_restore(
         &mut self,
@@ -1391,8 +1403,10 @@ impl RuntimeServer {
             let frame = zeroize::Zeroizing::new(frame);
             let request = decode_request(&frame)?;
             #[cfg(feature = "t4-manager-actor-service")]
-            if request["method"] == developer_current_restore::METHOD
-                && frame.len() > developer_current_restore::MAX_INPUT
+            if matches!(
+                request["method"].as_str(),
+                Some(developer_current_restore::METHOD | developer_current_restore::BACKUP_METHOD)
+            ) && frame.len() > developer_current_restore::MAX_INPUT
             {
                 return Err(omavless_control_protocol::ProtocolError::new(
                     StableErrorCode::InvalidArgument,
@@ -1449,7 +1463,10 @@ impl RuntimeServer {
             );
         }
         #[cfg(feature = "t4-manager-actor-service")]
-        if request["method"] == developer_current_restore::METHOD {
+        if matches!(
+            request["method"].as_str(),
+            Some(developer_current_restore::METHOD | developer_current_restore::BACKUP_METHOD)
+        ) {
             return self.dispatch_developer_current_restore(request);
         }
         self.dispatch_admitted(request)
@@ -1464,6 +1481,10 @@ impl RuntimeServer {
             Ok(input) => input,
             Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
         };
+        let method = request["method"].as_str().unwrap_or("");
+        if !input.matches_method(method) {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        }
         if input.instance() != self.instance_id {
             return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
         }
@@ -1483,7 +1504,12 @@ impl RuntimeServer {
         if input.revision() != owner.revision() {
             return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
         }
-        match owner.developer_current_restore(&input) {
+        let result = if method == developer_current_restore::BACKUP_METHOD {
+            owner.developer_current_backup(&input)
+        } else {
+            owner.developer_current_restore(&input)
+        };
+        match result {
             Ok(()) => success_response(id, owner.revision(), json!({"completed":true})),
             Err(()) => error_response(
                 id,
@@ -3090,6 +3116,15 @@ mod tests {
         assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::METHOD));
         let response = server.dispatch(&request).unwrap();
         assert_eq!(response["ok"], false); // initialize is NEVER a current issuer
+        let mut backup = request.clone();
+        backup["method"] = developer_current_restore::BACKUP_METHOD.into();
+        assert_eq!(
+            server.dispatch(&backup).unwrap()["error"]["code"],
+            "invalid_argument"
+        );
+        backup["params"]["confirmation"] = "export-current-private-pair".into();
+        assert_eq!(server.dispatch(&backup).unwrap()["ok"], false); // same current issuer requirement
+        assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::BACKUP_METHOD));
         let mut changed = request.clone();
         changed["params"]["instanceId"] = "other".into();
         assert_eq!(
@@ -3171,6 +3206,12 @@ mod tests {
             "unknown_method"
         );
         assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.restore_current"));
+        let backup = make_request("absent", "developer.backup_current", json!({})).unwrap();
+        assert_eq!(
+            server.dispatch(&backup).unwrap()["error"]["code"],
+            "unknown_method"
+        );
+        assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.backup_current"));
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }

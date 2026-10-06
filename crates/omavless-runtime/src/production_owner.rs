@@ -173,6 +173,26 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &crate::developer_current_restore::Request,
     ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .execute_first_restore_completed(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_backup(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .create_backup_candidate(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn require_developer_current(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
         let original = self
             .current_origin
             .as_ref()
@@ -183,9 +203,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
-        self.coordinator
-            .execute_first_restore_completed(request.archive(), request.passphrase())
-            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+        Ok(())
     }
     #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn activate_native_ordinary_lease(&mut self) -> Result<(), ProductionOwnerError> {

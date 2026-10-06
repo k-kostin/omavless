@@ -81,9 +81,12 @@ fn run() -> Result<(), CliError> {
         if std::io::IsTerminal::is_terminal(&io::stdin()) {
             return Err("developer_current_restore_private_stdin_required".into());
         }
-        omavless_runtime::developer_current_restore::from_private_input(io::stdin().lock())
-            .map_err(CliError::from)?;
-        println!("t4_current_pair_completed");
+        let marker = omavless_runtime::developer_current_restore::from_private_input(
+            &arguments,
+            io::stdin().lock(),
+        )
+        .map_err(CliError::from)?;
+        println!("{marker}");
         return Ok(());
     }
     if arguments
