@@ -99,6 +99,37 @@ not use an actual HTTP client's environment selection. This proves only the
 narrow synthetic HTTP/child behavior,
 not real core, GTK/GIO/application or global proxy restoration acceptance.
 
+## Exact pinned-client result, 2026-10-06
+
+Code `72ca24e074d574425baaf88a17e16645e864d59b` replaces the manual consumer
+with pinned ureq 3.4.0. Fresh locked/offline compile-only, the combined affected
+`app_proxy::` suite (99 passed, two actual entries ignored, 683 filtered),
+format and strict no-default-feature library/test Clippy pass. The independent
+HOME-backed source gate passed 326 Python tests with two skipped and the
+existing JS/QML contracts; its reviewed launcher SHA256 is
+`a011ea0efc8c1a811420e6866900d90c25a67e7e621d1732479bc6a20c8bffe6`.
+That launcher executes only `tests/run.sh`, not the separate Rust gates.
+
+After ROOT primary and independent Astra boundary reviews, the exact parent
+exchange ran once with original exit zero: one passed, zero failed, 783
+filtered, 0.02 seconds. Both strict child receipts passed. The pinned client
+selected the proxy from the child's environment, its CONNECT and tunneled GET
+were observed and forwarded to the held origin, the clean baseline reached
+the origin directly, distinct bodies were verified and no extra connections
+were pending at either listener after successful original child completion.
+The parent's ten-field absent/empty/value snapshot remained privately equal.
+
+Frozen mode0500/single-link executable SHA256:
+`85d8ea643863d51d8249b151e55e15d872014e18b7d35c6a8d6cffc3ced540d9`.
+Private stdout196B SHA256:
+`f9dac38b0baa9b93a9647003f1594848f8ce9073367be4392130ea55ba45134b`;
+stderr was empty. Frozen artifacts and original logs remain outside Git under
+HOME cache; the earlier executable and its evidence are preserved separately.
+This is local x86_64 source/loopback evidence. It does not establish installed,
+hardware, HTTPS, SOCKS, GIO, Mihomo, provider, application-wide or global proxy
+restoration behavior. Later documentation-only heads record this exact code
+result without borrowing it as new runtime acceptance.
+
 ## Remaining product decision and gates
 
 Before exposure, the owner must approve the explicitly named per-application
