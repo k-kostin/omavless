@@ -54,8 +54,15 @@ authority still requires the existing root-provisioned receipt with
   An exact terminal receipt may resolve transport ambiguity. A verified terminal
   Unknown remains sticky; subsequent data cannot promote it into success.
 - Closed, Missing and other terminal non-Unknown outcomes remain distinct.
-  They clear the spent snapshot; another user action requires a NEW explicit
-  refresh. An action reply is not VPN/network-health evidence.
+  The footer successor makes this developer window one-shot after a verified
+  non-Unknown terminal receipt: clear the spent snapshot, disable hidden r/x/u/
+  Enter/navigation and leave only q/Ctrl+C. Another operation requires a NEW
+  developer window; reopening never resends the earlier request. This is stricter
+  client admission, not a backend/API or product-lifetime change. An action reply
+  is not VPN/network-health evidence. Pending/Unknown stay receipt-read-only.
+- Initial/Empty show only refresh/exit, not phantom selection/confirmation.
+  Actionable rows show navigation/review; prepared target shows Enter/Esc; an
+  in-flight original request has wait/exit hints. Labels remain EN/RU and private.
 - `q`, Ctrl+C, signal/terminal loss close only the client. They cannot cancel or
   compensate a submitted operation or change VPN desired state. Runtime-owned
   receipts remain subject to #666's existing capacity/non-eviction contract.

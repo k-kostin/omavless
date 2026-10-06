@@ -83,6 +83,7 @@ pub struct Workspace {
     prepared: bool,
     submitted: bool,
     unknown: bool,
+    terminal: bool,
     notice: &'static str,
 }
 
@@ -162,6 +163,7 @@ impl Workspace {
             prepared: false,
             submitted: false,
             unknown: false,
+            terminal: false,
             notice: "tui.dev_close_refresh",
         }
     }
@@ -193,6 +195,9 @@ impl Workspace {
         if key.kind != KeyEventKind::Press {
             return Input::None;
         }
+        if self.terminal {
+            return Input::None;
+        }
         self.expire(now);
         if self.phase.is_some() {
             return Input::None;
@@ -220,6 +225,7 @@ impl Workspace {
             self.prepared = false;
             self.enabled = false;
             self.started = Some(now);
+            self.notice = "tui.dev_close_loading";
             let hello = crate::client::Read::Hello;
             return Input::Send(self.call(Phase::Hello, hello.method(), hello.params()));
         }
@@ -285,6 +291,7 @@ impl Workspace {
                         _ => "tui.dev_close_refused",
                     };
                     self.submitted = false;
+                    self.terminal = true;
                     self.pending = None;
                     self.rows.clear();
                     self.enabled = false;
@@ -410,7 +417,11 @@ impl Workspace {
         self.revision = revision;
         self.selected = 0;
         self.enabled = true;
-        self.notice = "tui.dev_close_select";
+        self.notice = if self.rows.is_empty() {
+            "tui.dev_close_empty"
+        } else {
+            "tui.dev_close_select"
+        };
         true
     }
     fn prepare(&mut self, value: &Value) -> bool {
@@ -570,6 +581,14 @@ impl Workspace {
                 }),
                 tr(if self.submitted {
                     "tui.dev_close_receipt_keys"
+                } else if self.terminal {
+                    "tui.dev_close_terminal_keys"
+                } else if self.phase.is_some() {
+                    "tui.dev_close_wait_keys"
+                } else if self.prepared && !expired {
+                    "tui.dev_close_confirm_keys"
+                } else if expired || !self.enabled || self.rows.is_empty() {
+                    "tui.dev_close_refresh_keys"
                 } else {
                     "tui.dev_close_keys"
                 }),
@@ -1014,6 +1033,64 @@ mod tests {
             .collect();
         assert!(!text.contains(workspace.locale.text("tui.dev_close_empty")));
         assert!(text.contains(workspace.locale.text("tui.dev_close_not_health")));
+    }
+
+    #[test]
+    fn initial_empty_and_terminal_footers_have_no_phantom_actions_or_hidden_refresh() {
+        fn render(workspace: &Workspace, now: Instant) -> String {
+            let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+            terminal.draw(|f| workspace.draw(f, now)).unwrap();
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect()
+        }
+        for locale in [Locale::En, Locale::Ru] {
+            let now = Instant::now();
+            let mut workspace = Workspace::new(locale);
+            let initial = render(&workspace, now);
+            assert!(initial.contains(locale.text("tui.dev_close_refresh_keys")));
+            assert!(
+                !initial.contains("j/k:") && !initial.contains("x:") && !initial.contains("Enter:")
+            );
+            ready(&mut workspace, now);
+            workspace.phase = Some(Phase::Snapshot);
+            let mut empty = snapshot();
+            empty["rows"] = json!([]);
+            workspace.accept(ok(empty), now);
+            let text = render(&workspace, now);
+            assert!(text.contains(locale.text("tui.dev_close_empty")));
+            assert!(!text.contains(locale.text("tui.dev_close_select")));
+            assert!(!text.contains("j/k:") && !text.contains("x:") && !text.contains("Enter:"));
+            ready(&mut workspace, now);
+            prepared(&mut workspace, now);
+            send(workspace.input(key(KeyCode::Enter), now, true));
+            workspace.accept(ok(receipt(&workspace, Some("closed"))), now);
+            assert!(workspace.terminal && !workspace.submitted);
+            for code in [
+                KeyCode::Char('r'),
+                KeyCode::Char('x'),
+                KeyCode::Char('u'),
+                KeyCode::Down,
+                KeyCode::Enter,
+            ] {
+                assert!(matches!(workspace.input(key(code), now, true), Input::None));
+            }
+            assert!(matches!(
+                workspace.input(key(KeyCode::Char('q')), now, true),
+                Input::Close
+            ));
+            let text = render(&workspace, now);
+            assert!(
+                !text.contains("j/k:")
+                    && !text.contains("x:")
+                    && !text.contains("Enter:")
+                    && !text.contains("r:")
+            );
+        }
     }
 
     #[test]

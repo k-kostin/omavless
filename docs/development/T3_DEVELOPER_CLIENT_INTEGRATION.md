@@ -164,3 +164,14 @@ Enter action. Private captures remain outsideGit. These observations exposed
 phantom row/confirmation hints in Empty/Closed footers, recorded for a separate
 UI-only successor; they do not retroactively correct b29's presentation or prove
 live socket behavior through the ordinary executable/terminal path.
+
+The later UI-only footer successor addresses these observed gaps: Initial/
+Empty advertise only r+exit, actionable rows navigation/review, prepared target
+Enter/Esc, in-flight wait/exit and Pending/Unknown receipt-read-only. A verified
+non-Unknown terminal receipt now permanently spends this developer window:
+q/Ctrl+C only, including hidden r refusal. A new window is required for a new
+operation. Backend/API, tokens, permit, ordinary/default TUI and desired state
+are unchanged. New EN/RU TestBackend/state/no-hidden-refresh control passed;
+full TUI162, protocol6, strict feature Clippy/default/headless, catalogue330,
+format/navigation/diff passed. This source correction is not retroactive b29
+rendering acceptance; actual updated frontend/Foot remains pending.
