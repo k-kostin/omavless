@@ -434,3 +434,71 @@ startup/DNS/TUN/broker serving, both host-family release gates and whole T3/C1
 closure remain open. Prior capless/CLI/Foot evidence belongs to its own exact
 heads; these two new gates neither replace it nor borrow its broader claims.
 Raw captures/private packets stayed outside Git. All scopes3/4/5 stay NONPASS.
+
+## Explicit installed-development class — new SOURCE, actual gate pending
+
+This successor does not borrow the c9 test-ELF acceptance. With the same
+non-default developer-image-witness feature, only exact
+`omavless daemon --developer-image-witness` selects this provider. Ordinary
+`daemon` still uses DirectProc; default builds do not recognize the new flag.
+The SAME ordinary ProductionNativeOwner path retains its committed Rust marker,
+login/startup receipts, migration lease, startup reconciliation and actual
+parent-owned core. No synthetic fixture, copied context or second coordinator
+is used. Construction performs no helper RPC or service/enrollment action.
+
+The separate helper invocation is exactly `--development-runtime-service`.
+It has fixed endpoint `/run/omavless-image-runtime/control.sock`, root-only
+writable parent and the same exact named UID1000 ACL. Enrollment is only
+root0600/single bounded
+`/var/lib/omavless-image/development-runtime-enrollment-v1` with complete contents:
+
+```text
+omavless-development-installed-runtime-current-image-v1
+1000
+<exact lowercase nonzero core SHA256>
+<exact lowercase nonzero /usr/bin/omavless SHA256>
+```
+
+There is one terminal LF and no extensions. Runtime and old test classes have
+distinct schema, enrollment, fixed client object and endpoint. Neither an old
+test enrollment nor a caller path, PID, UID, mode boolean or matching bytes in
+another inode can cross-admit the installed class. The same protected original
+root-file/hash/source and authenticated peer/child pidfd/proc/namespace checks
+remain. Class selection is data-acquisition routing, never an effect permit.
+The client retains its immutable class for every later named node/ACL recheck.
+Helper privileges, one-channel/64-FD/2048-observation limits,5s startup/30s idle/
+2s request bounds, frame version and ancillary discipline are unchanged.
+
+NativeHost permits one installed-development capture attempt per daemon epoch.
+It consumes its typed Available state BEFORE local original capture, then the
+SAME Session records the original source and child pidfd under local admission.
+Bind/Observe occur only later in existing detached discovery/ProofFlight paths,
+outside the owner, scheduler and migration gates. No prepared-test object,
+cached image/catalogue, helper reconnect, direct fallback or automatic epoch
+renewal exists. The ordinary TUN/readiness/process/package predicates remain;
+production's no-TUN refusal is NOT replaced with a test exception. Effect chunks,
+definitive finish, cancellation/expiry, sticky refusal and exact receipt replay
+use the unchanged original flight and qualified-pair graph.
+
+The next attended gate uses ROOT's independently reviewed isolated PID/mount/net
+namespace/private HOME and actual installed runtime/core/broker binaries,
+fixed enrollment and helper privilege. It must construct the ordinary native
+owner, observe genuine owned TUN/broker facts, then exercise the real CLI/TUI's
+single selected close, other-stream echo, exact receipt and unchanged desired
+bytes. Original helper/runtime/client statuses and fresh source-drift/refusal
+checks remain necessary. No global unit activation is needed or authorized by
+this source; no unit/install/enrollment writer or default grant is shipped here.
+An unavailable helper or spent epoch requires explicit developer administration,
+not an implicit restart or proof reconstruction. Installed acceptance and default
+release exposure remain pending until the new exact-head boundaries are reviewed
+and separately operated by ROOT.
+
+Focused SOURCE controls returned original0: ten helper tests (including distinct
+fixed class/enrollment rejection), two installed-host admission/consumed-epoch
+tests, six existing late/cancel/wrong-image/partial-effect/final-refresh controls,
+and ten scheduling/default/class retention guards. Feature/headless and default
+runtime checks, strict helper all-target and runtime feature/default all-target
+Clippy, formatting and whitespace checks passed. These controls did not execute
+a privileged helper, grant enrollment, install/activate a service, or perform
+the pending installed-development scenario. The earlier c9 actual result stays
+bound to its unchanged compiled images, not this source successor.

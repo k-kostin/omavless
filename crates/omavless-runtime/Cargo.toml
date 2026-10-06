@@ -12,7 +12,8 @@ default = ["tui"]
 tui = ["dep:omavless-tui"]
 # Development VM only; same-UID semantic close IPC is absent in default builds.
 developer-conditional-close = ["omavless-tui?/developer-conditional-close"]
-# Separate default-off passive current-image helper; no close activation.
+# Separate default-off current-image helper and explicit development daemon mode.
+# No service/enrollment activation or default close registration.
 developer-image-witness = ["developer-conditional-close", "dep:omavless-image-witness", "omavless-image-witness/developer-helper", "dep:rustix"]
 
 [dependencies]

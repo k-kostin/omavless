@@ -479,6 +479,15 @@ fn run() -> Result<(), CliError> {
         }
     };
     let paths = RuntimePaths::current().map_err(|error| admission_error(error.to_string()))?;
+    #[cfg(feature = "developer-image-witness")]
+    if arguments == ["daemon", "--developer-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_development_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
     if arguments == ["daemon"] {
         let stop = Arc::new(AtomicBool::new(false));
         flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;

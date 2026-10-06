@@ -74,6 +74,21 @@ enum CloseImageCapture {
     Direct,
     #[cfg(all(test, feature = "developer-image-witness"))]
     Witness,
+    #[cfg(feature = "developer-image-witness")]
+    InstalledRuntimeWitness,
+}
+
+pub(crate) enum CloseImageSelection {
+    Direct,
+    #[cfg(feature = "developer-image-witness")]
+    InstalledDevelopment,
+}
+
+#[cfg(feature = "developer-image-witness")]
+enum DevelopmentImageState {
+    Disabled,
+    Available,
+    Consumed,
 }
 
 impl CloseObservation {
@@ -373,6 +388,8 @@ pub struct NativeLifecycleHost {
     prepared_image: Option<PreparedImageObservation>,
     #[cfg(all(test, feature = "developer-image-witness"))]
     image_fixture_attempted: bool,
+    #[cfg(feature = "developer-image-witness")]
+    development_image: DevelopmentImageState,
 }
 
 impl NativeLifecycleHost {
@@ -635,7 +652,40 @@ impl NativeLifecycleHost {
             prepared_image: None,
             #[cfg(all(test, feature = "developer-image-witness"))]
             image_fixture_attempted: false,
+            #[cfg(feature = "developer-image-witness")]
+            development_image: DevelopmentImageState::Disabled,
         })
+    }
+
+    /// Select data acquisition for ONE installed-development close epoch.
+    /// A mode value does not qualify a package, grant a permit, or make RPCs.
+    #[cfg(feature = "developer-image-witness")]
+    pub(crate) fn new_development_image(
+        paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<Self, HostStepError> {
+        if uid != 1000
+            || paths.core != Path::new(crate::managed_pair::RELEASE_CORE)
+            || !paths.require_managed_pair
+            || paths.managed_pair.is_none()
+        {
+            return Err(HostStepError::Prepare);
+        }
+        let mut host = Self::new(paths, uid)?;
+        host.development_image = DevelopmentImageState::Available;
+        Ok(host)
+    }
+
+    pub(crate) fn new_with_image_selection(
+        paths: NativeHostPaths,
+        uid: u32,
+        selection: CloseImageSelection,
+    ) -> Result<Self, HostStepError> {
+        match selection {
+            CloseImageSelection::Direct => Self::new(paths, uid),
+            #[cfg(feature = "developer-image-witness")]
+            CloseImageSelection::InstalledDevelopment => Self::new_development_image(paths, uid),
+        }
     }
 
     #[must_use]
@@ -663,6 +713,18 @@ impl NativeLifecycleHost {
             }
             return Ok(prepared.observation);
         }
+        #[cfg(feature = "developer-image-witness")]
+        match self.development_image {
+            DevelopmentImageState::Available => {
+                // Consume BEFORE originals/constructor effects; failed or
+                // cancelled discovery never silently reconnects or falls back.
+                self.development_image = DevelopmentImageState::Consumed;
+                return self
+                    .capture_original_close(desired, CloseImageCapture::InstalledRuntimeWitness);
+            }
+            DevelopmentImageState::Consumed => return Err(HostStepError::Observation),
+            DevelopmentImageState::Disabled => (),
+        }
         self.capture_original_close(desired, CloseImageCapture::Direct)
     }
 
@@ -688,6 +750,10 @@ impl NativeLifecycleHost {
             CloseImageCapture::Direct => session.capture_executable(&self.paths.core),
             #[cfg(all(test, feature = "developer-image-witness"))]
             CloseImageCapture::Witness => session.capture_executable_via_witness(&self.paths.core),
+            #[cfg(feature = "developer-image-witness")]
+            CloseImageCapture::InstalledRuntimeWitness => {
+                session.capture_executable_via_runtime_witness(&self.paths.core)
+            }
         }
         .map_err(|_| HostStepError::Observation)?;
         Ok(CloseObservation {
@@ -1414,6 +1480,67 @@ mod tests {
         );
         let host = NativeLifecycleHost::new(paths, uid).unwrap();
         (root, host)
+    }
+
+    #[cfg(feature = "developer-image-witness")]
+    #[test]
+    fn installed_image_selection_is_not_proof_and_failure_spends_the_epoch() {
+        let (root, mut host) = observation_fixture();
+        assert!(matches!(
+            host.development_image,
+            DevelopmentImageState::Disabled
+        ));
+        host.development_image = DevelopmentImageState::Available;
+        // No original child/package exists. Selection cannot adopt one or
+        // mint a permit, and a failed first capture cannot use DirectProc.
+        assert!(
+            host.capture_connection_close(&DesiredState::default())
+                .is_err()
+        );
+        assert!(matches!(
+            host.development_image,
+            DevelopmentImageState::Consumed
+        ));
+        assert!(
+            host.capture_connection_close(&DesiredState::default())
+                .is_err()
+        );
+        assert!(host.core.is_none());
+        assert!(!host.paths.staged_config.exists());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "developer-image-witness")]
+    #[test]
+    fn installed_image_constructor_refuses_unqualified_caller_paths_and_uid() {
+        let (root, host) = observation_fixture();
+        let paths = NativeHostPaths::new(
+            host.paths.core.clone(),
+            host.paths.data_directory.clone(),
+            host.paths.config_directory.clone(),
+            host.paths.runtime_directory.clone(),
+            host.paths.proc_root.clone(),
+            host.paths.sys_class_net.clone(),
+        );
+        assert!(matches!(
+            NativeLifecycleHost::new_development_image(paths, 1000),
+            Err(HostStepError::Prepare)
+        ));
+        let paths = NativeHostPaths::new(
+            PathBuf::from(crate::managed_pair::RELEASE_CORE),
+            host.paths.data_directory.clone(),
+            host.paths.config_directory.clone(),
+            host.paths.runtime_directory.clone(),
+            host.paths.proc_root.clone(),
+            host.paths.sys_class_net.clone(),
+        );
+        assert!(matches!(
+            NativeLifecycleHost::new_development_image(paths, 1001),
+            Err(HostStepError::Prepare)
+        ));
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

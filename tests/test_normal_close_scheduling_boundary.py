@@ -19,13 +19,31 @@ class NormalSchedulingBoundary(unittest.TestCase):
         self.assertEqual(spec["features"]["default"],[])
         self.assertEqual(spec["bin"][0]["required-features"],["developer-helper"])
         source=(helper/"src/kernel.rs").read_text()
-        self.assertIn('"/usr/lib/omavless-image/development-runtime-tests"',source)
+        classes=(helper/"src/class.rs").read_text()
+        self.assertIn('"/usr/lib/omavless-image/development-runtime-tests"',classes)
         self.assertIn("PIDFS",source)
         passive=(SRC/"native_coordinator/connection_close_image_witness.rs").read_text()
         self.assertNotIn("adopt_owned_close_fixture(",passive)
         self.assertNotIn("CandidateEffectPermit",passive)
         self.assertNotIn("confirm_connection_close(",passive)
         self.assertIn("getppid().as_raw(), 1",passive)
+
+    def test_installed_development_class_is_fixed_explicit_and_same_owner(self):
+        helper=SRC.parent.parent/"omavless-image-witness"
+        classes=(helper/"src/class.rs").read_text()
+        for value in ('"/usr/bin/omavless"','"/run/omavless-image-runtime/control.sock"','"/var/lib/omavless-image/development-runtime-enrollment-v1"','"omavless-development-installed-runtime-current-image-v1"'):
+            self.assertIn(value,classes)
+        main=(SRC/"main.rs").read_text()
+        self.assertRegex(main,r'#\[cfg\(feature = "developer-image-witness"\)\]\s*if arguments == \["daemon", "--developer-image-witness"\]')
+        owner=(SRC/"production_owner.rs").read_text()
+        self.assertIn("Self::current_with_image(runtime_paths, CloseImageSelection::Direct)",owner)
+        self.assertIn("Self::current_with_image(runtime_paths, CloseImageSelection::InstalledDevelopment)",owner)
+        host=(SRC/"native_host.rs").read_text()
+        method=host.split("    pub(crate) fn capture_connection_close(",1)[1].split("    fn capture_original_close(",1)[0]
+        self.assertLess(method.index("self.development_image = DevelopmentImageState::Consumed"),method.index("CloseImageCapture::InstalledRuntimeWitness"))
+        self.assertIn("DevelopmentImageState::Consumed => return Err",method)
+        self.assertNotIn("bind_original",method)
+        self.assertNotIn(".observe(",method)
 
     def test_current_image_rpc_is_off_gate_before_lease_and_held_through_effect(self):
         session=(SRC/"conditional_close_candidate.rs").read_text()

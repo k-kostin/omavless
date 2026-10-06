@@ -1290,6 +1290,16 @@ impl RuntimeServer {
         })
     }
 
+    /// Default-off installed-development image provider through the SAME native
+    /// owner. No helper/service/enrollment activation or fixture permit.
+    #[cfg(feature = "developer-image-witness")]
+    pub fn bind_current_development_image(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(
+            paths,
+            production_owner::ProductionNativeOwner::current_development_image,
+        )
+    }
+
     fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
     where
         H: lifecycle::LifecycleHost + Send + 'static,

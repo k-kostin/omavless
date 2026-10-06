@@ -3,6 +3,7 @@
 use crate::{
     Error, Result,
     channel::Endpoint,
+    class::Class,
     kernel,
     protocol::{self, Kind, Sequence},
 };
@@ -20,8 +21,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SOCKET: &str = "/run/omavless-image/control.sock";
-const DIRECTORY: &str = "/run/omavless-image";
 const REQUEST_BUDGET: Duration = Duration::from_secs(2);
 const IDLE_BUDGET: Duration = Duration::from_secs(30);
 fn until(caller: Instant) -> Instant {
@@ -34,11 +33,11 @@ fn protected(path: &str) -> Result<()> {
     }
     Ok(())
 }
-fn node(mode: u32) -> Result<(u64, u64)> {
-    for p in ["/", "/run", DIRECTORY] {
+fn node(class: Class, mode: u32) -> Result<(u64, u64)> {
+    for p in ["/", "/run", class.directory()] {
         protected(p)?;
     }
-    let m = std::fs::symlink_metadata(SOCKET).map_err(|_| Error::Unavailable)?;
+    let m = std::fs::symlink_metadata(class.socket()).map_err(|_| Error::Unavailable)?;
     if !m.file_type().is_socket() || m.uid() != 0 || m.nlink() != 1 || m.mode() & 0o7777 != mode {
         return Err(Error::Refused);
     }
@@ -64,14 +63,14 @@ fn acl(uid: u32) -> [u8; 44] {
     }
     output
 }
-fn access(uid: u32, id: (u64, u64)) -> Result<()> {
-    if uid == 0 || uid == u32::MAX || node(0o660)? != id {
+fn access(class: Class, uid: u32, id: (u64, u64)) -> Result<()> {
+    if uid == 0 || uid == u32::MAX || node(class, 0o660)? != id {
         return Err(Error::Refused);
     }
     let mut actual = [0; 44];
-    let n = fs::lgetxattr(SOCKET, "system.posix_acl_access", &mut actual[..])
+    let n = fs::lgetxattr(class.socket(), "system.posix_acl_access", &mut actual[..])
         .map_err(|_| Error::Unavailable)?;
-    if n != 44 || actual != acl(uid) || node(0o660)? != id {
+    if n != 44 || actual != acl(uid) || node(class, 0o660)? != id {
         return Err(Error::Refused);
     }
     Ok(())
@@ -124,6 +123,14 @@ fn listener_wait(fd: &OwnedFd, until: Instant) -> Result<()> {
 /// Explicit root-selected development service only. Does not mkdir, enroll,
 /// install a unit, gain caps, remove a socket or restart after any refusal.
 pub fn serve_development() -> Result<()> {
+    serve(Class::Tests)
+}
+/// Separate fixed installed-runtime development class. No enrollment/install,
+/// unit activation, arbitrary client path or product effect permission.
+pub fn serve_development_runtime() -> Result<()> {
+    serve(Class::InstalledRuntime)
+}
+fn serve(class: Class) -> Result<()> {
     privilege()?;
     // Read-only observed resources may be dropped on error; no effect/Bundle
     // custody or hidden-library allocation guarantee is being asserted.
@@ -135,11 +142,11 @@ pub fn serve_development() -> Result<()> {
         },
     )
     .map_err(|_| Error::Unavailable)?;
-    let roots = kernel::Roots::capture(Instant::now() + Duration::from_secs(5))?;
-    for p in ["/", "/run", DIRECTORY] {
+    let roots = kernel::Roots::capture(class, Instant::now() + Duration::from_secs(5))?;
+    for p in ["/", "/run", class.directory()] {
         protected(p)?;
     }
-    match std::fs::symlink_metadata(SOCKET) {
+    match std::fs::symlink_metadata(class.socket()) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         _ => return Err(Error::Refused),
     }
@@ -150,31 +157,34 @@ pub fn serve_development() -> Result<()> {
         None,
     )
     .map_err(|_| Error::Unavailable)?;
-    let address = SocketAddrUnix::new(SOCKET).map_err(|_| Error::Refused)?;
+    let address = SocketAddrUnix::new(class.socket()).map_err(|_| Error::Refused)?;
     // Create with owner-only initial access, then exact named-UID ACL under
     // root-only writable ancestors (socket descriptor itself is sockfs).
     rustix::process::umask(fs::Mode::RWXG | fs::Mode::RWXO);
     net::bind(&fd, &address).map_err(|_| Error::Unavailable)?;
-    let id = node(0o700)?;
-    std::fs::set_permissions(SOCKET, std::os::unix::fs::PermissionsExt::from_mode(0o600))
-        .map_err(|_| Error::Unavailable)?;
-    if node(0o600)? != id {
+    let id = node(class, 0o700)?;
+    std::fs::set_permissions(
+        class.socket(),
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .map_err(|_| Error::Unavailable)?;
+    if node(class, 0o600)? != id {
         return Err(Error::Refused);
     }
     fs::lsetxattr(
-        SOCKET,
+        class.socket(),
         "system.posix_acl_access",
         &acl(roots.uid),
         XattrFlags::empty(),
     )
     .map_err(|_| Error::Unavailable)?;
-    access(roots.uid, id)?;
+    access(class, roots.uid, id)?;
     net::listen(&fd, 1).map_err(|_| Error::Unavailable)?;
     eprintln!("image_witness_listener_ready");
     listener_wait(&fd, Instant::now() + IDLE_BUDGET)?;
     let accepted = net::accept_with(&fd, SocketFlags::CLOEXEC | SocketFlags::NONBLOCK)
         .map_err(|_| Error::Unavailable)?;
-    access(roots.uid, id)?;
+    access(class, roots.uid, id)?;
     let deadline = Instant::now() + REQUEST_BUDGET;
     let endpoint = Endpoint::new(accepted, roots.uid, deadline)?;
     let (raw, child) = endpoint.receive(true, deadline)?;
@@ -202,7 +212,7 @@ pub fn serve_development() -> Result<()> {
         let (raw, rights) = endpoint.receive(false, deadline)?;
         let (kind, seq) = protocol::decode(raw)?;
         sequence.consume(kind, seq, rights.is_some())?;
-        access(1000, id)?;
+        access(class, 1000, id)?;
         endpoint.check(deadline)?;
         match kind {
             Kind::Observe => {
@@ -236,17 +246,26 @@ pub struct Client {
     node: (u64, u64),
     next: u32,
     terminal: bool,
+    class: Class,
 }
 impl Client {
     pub fn bind_original(child: OwnedFd, caller: Instant) -> Result<Self> {
+        Self::bind_class(child, caller, Class::Tests)
+    }
+    /// Bind only the distinct root-enrolled /usr/bin/omavless development class.
+    /// The child is still the original kernel pidfd, never a scalar PID/path.
+    pub fn bind_original_runtime(child: OwnedFd, caller: Instant) -> Result<Self> {
+        Self::bind_class(child, caller, Class::InstalledRuntime)
+    }
+    fn bind_class(child: OwnedFd, caller: Instant, class: Class) -> Result<Self> {
         let deadline = until(caller);
         kernel::tick(deadline)?;
         let uid = rustix::process::getuid().as_raw();
         if uid != 1000 || rustix::process::geteuid().as_raw() != uid {
             return Err(Error::Refused);
         }
-        let id = node(0o660)?;
-        access(uid, id)?;
+        let id = node(class, 0o660)?;
+        access(class, uid, id)?;
         let fd = net::socket_with(
             AddressFamily::UNIX,
             SocketType::SEQPACKET,
@@ -256,7 +275,7 @@ impl Client {
         .map_err(|_| Error::Unavailable)?;
         net::connect(
             &fd,
-            &SocketAddrUnix::new(SOCKET).map_err(|_| Error::Refused)?,
+            &SocketAddrUnix::new(class.socket()).map_err(|_| Error::Refused)?,
         )
         .map_err(|_| Error::ChannelLost)?;
         let endpoint = Endpoint::new(fd, 0, deadline)?;
@@ -271,7 +290,7 @@ impl Client {
             return Err(Error::Refused);
         }
         endpoint.check(deadline)?;
-        access(uid, id)?;
+        access(class, uid, id)?;
         kernel::tick(deadline)?;
         kernel::alive(&child, deadline)?;
         Ok(Self {
@@ -280,6 +299,7 @@ impl Client {
             node: id,
             next: 1,
             terminal: false,
+            class,
         })
     }
     pub fn observe(&mut self, caller: Instant) -> Result<File> {
@@ -293,7 +313,7 @@ impl Client {
                 return Err(Error::Refused);
             }
             kernel::alive(&self.child, deadline)?;
-            access(1000, self.node)?;
+            access(self.class, 1000, self.node)?;
             self.endpoint.check(deadline)?;
             self.endpoint
                 .send(&protocol::frame(Kind::Observe, self.next), None, deadline)?;
@@ -312,7 +332,7 @@ impl Client {
                 return Err(Error::Refused);
             }
             self.endpoint.check(deadline)?;
-            access(1000, self.node)?;
+            access(self.class, 1000, self.node)?;
             kernel::tick(deadline)?;
             kernel::alive(&self.child, deadline)?;
             self.next = self.next.checked_add(1).ok_or(Error::Refused)?;
@@ -331,7 +351,7 @@ impl Client {
         self.terminal = true;
         let deadline = until(caller);
         self.endpoint.check(deadline)?;
-        access(1000, self.node)?;
+        access(self.class, 1000, self.node)?;
         self.endpoint
             .send(&protocol::frame(Kind::Finish, self.next), None, deadline)?;
         let (raw, fd) = self.endpoint.receive(false, deadline)?;

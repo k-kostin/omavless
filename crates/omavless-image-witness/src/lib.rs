@@ -4,11 +4,12 @@
 #![cfg(all(target_os = "linux", feature = "developer-helper"))]
 
 mod channel;
+mod class;
 mod kernel;
 mod protocol;
 mod service;
 mod status;
-pub use service::{Client, serve_development};
+pub use service::{Client, serve_development, serve_development_runtime};
 
 use std::fmt;
 

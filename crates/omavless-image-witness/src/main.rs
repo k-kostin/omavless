@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 fn main() {
-    if std::env::args().collect::<Vec<_>>()
-        != [
-            std::env::args().next().unwrap_or_default(),
-            "--development-service".into(),
-        ]
-    {
-        eprintln!("Development image witness invocation refused.");
-        std::process::exit(2);
-    }
-    match omavless_image_witness::serve_development() {
+    let arguments: Vec<_> = std::env::args().skip(1).collect();
+    let serve = match arguments.as_slice() {
+        [flag] if flag == "--development-service" => omavless_image_witness::serve_development,
+        [flag] if flag == "--development-runtime-service" => {
+            omavless_image_witness::serve_development_runtime
+        }
+        _ => {
+            eprintln!("Development image witness invocation refused.");
+            std::process::exit(2);
+        }
+    };
+    match serve() {
         Ok(()) => (),
         Err(error) => {
             eprintln!("{error}");

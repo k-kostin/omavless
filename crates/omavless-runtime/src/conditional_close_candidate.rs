@@ -255,8 +255,18 @@ struct CurrentImage {
     pid: u32,
 }
 #[cfg(feature = "developer-image-witness")]
+#[derive(Clone, Copy)]
+enum WitnessClass {
+    #[cfg(test)]
+    Tests,
+    InstalledRuntime,
+}
+#[cfg(feature = "developer-image-witness")]
 enum ImageWitness {
-    Pending(Option<std::os::fd::OwnedFd>),
+    Pending {
+        child: Option<std::os::fd::OwnedFd>,
+        class: WitnessClass,
+    },
     Bound(omavless_image_witness::Client),
     Refused,
 }
@@ -776,13 +786,23 @@ impl Session {
                 let file = if let Some(file) = file {
                     file
                 } else {
-                    if let Some(ImageWitness::Pending(child)) = &mut self.image_witness {
+                    if let Some(ImageWitness::Pending { child, class }) = &mut self.image_witness {
                         let original = child.take().ok_or(Outcome::RefusedBeforeWrite)?;
+                        let class = *class;
                         // Consume before constructor effects; no failed bind is retried.
                         self.image_witness = Some(ImageWitness::Refused);
-                        let client =
-                            omavless_image_witness::Client::bind_original(original, deadline)
-                                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                        let client = match class {
+                            #[cfg(test)]
+                            WitnessClass::Tests => {
+                                omavless_image_witness::Client::bind_original(original, deadline)
+                            }
+                            WitnessClass::InstalledRuntime => {
+                                omavless_image_witness::Client::bind_original_runtime(
+                                    original, deadline,
+                                )
+                            }
+                        }
+                        .map_err(|_| Outcome::RefusedBeforeWrite)?;
                         self.image_witness = Some(ImageWitness::Bound(client));
                     }
                     let Some(ImageWitness::Bound(client)) = &mut self.image_witness else {
@@ -1376,6 +1396,25 @@ impl Session {
         &mut self,
         source_path: &Path,
     ) -> Result<(), Outcome> {
+        self.capture_executable_via_class(source_path, WitnessClass::Tests)
+    }
+
+    /// Explicit installed-development selection only; no direct fallback.
+    /// This captures local originals. Bind/Observe stay in detached flights.
+    #[cfg(feature = "developer-image-witness")]
+    pub(crate) fn capture_executable_via_runtime_witness(
+        &mut self,
+        source_path: &Path,
+    ) -> Result<(), Outcome> {
+        self.capture_executable_via_class(source_path, WitnessClass::InstalledRuntime)
+    }
+
+    #[cfg(feature = "developer-image-witness")]
+    fn capture_executable_via_class(
+        &mut self,
+        source_path: &Path,
+        class: WitnessClass,
+    ) -> Result<(), Outcome> {
         let result = (|| {
             if source_path != Path::new(crate::managed_pair::RELEASE_CORE)
                 || self.image_witness.is_some()
@@ -1414,7 +1453,10 @@ impl Session {
                 identity,
                 path: source_path.to_owned(),
             });
-            self.image_witness = Some(ImageWitness::Pending(Some(child)));
+            self.image_witness = Some(ImageWitness::Pending {
+                child: Some(child),
+                class,
+            });
             Ok(())
         })();
         if result.is_err() {

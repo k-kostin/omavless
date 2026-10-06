@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! Fixed kernel/object admission. No PID/path from a frame, no signal/getfd.
-use crate::{Error, Result, status};
+use crate::{Error, Result, class::Class, status};
 use rustix::{
     event::{PollFd, PollFlags, Timespec, poll},
     fs::{self, AtFlags, Mode, OFlags},
@@ -18,8 +18,6 @@ use std::{
 };
 
 pub(crate) const CORE: &str = "/usr/lib/omavless-dns/mihomo";
-pub(crate) const CLIENT: &str = "/usr/lib/omavless-image/development-runtime-tests";
-const ENROLLMENT: &str = "/var/lib/omavless-image/development-enrollment-v1";
 const PIDFS: i64 = 0x50494446;
 const PROCFS: i64 = 0x9fa0;
 const NSFS: i64 = 0x6e736673;
@@ -246,21 +244,13 @@ pub(crate) struct Roots {
     pub uid: u32,
 }
 impl Roots {
-    pub(crate) fn capture(until: Instant) -> Result<Self> {
-        let enrollment = Fixed::open(ENROLLMENT, 0o600, 512, until)?;
+    pub(crate) fn capture(class: Class, until: Instant) -> Result<Self> {
+        let enrollment = Fixed::open(class.enrollment(), 0o600, 512, until)?;
         let raw = bytes(&enrollment.file, 512, until)?;
-        let text = std::str::from_utf8(&raw).map_err(|_| Error::Refused)?;
-        let fields: Vec<_> = text.split('\n').collect();
-        if fields.len() != 5
-            || fields[0] != "omavless-development-current-image-v1"
-            || fields[1] != "1000"
-            || !fields[4].is_empty()
-        {
-            return Err(Error::Refused);
-        }
+        let (core_hash, client_hash) = enrollment_hashes(&raw, class)?;
         let mut core = Fixed::open(CORE, 0o755, 128 * 1024 * 1024, until)?;
-        let mut client = Fixed::open(CLIENT, 0o755, 128 * 1024 * 1024, until)?;
-        if core.hash(until)? != hex(fields[2])? || client.hash(until)? != hex(fields[3])? {
+        let mut client = Fixed::open(class.client(), 0o755, 128 * 1024 * 1024, until)?;
+        if core.hash(until)? != core_hash || client.hash(until)? != client_hash {
             return Err(Error::Refused);
         }
         let result = Self {
@@ -277,6 +267,21 @@ impl Roots {
         self.client.check(until)?;
         self.enrollment.check(until)
     }
+}
+fn enrollment_hashes(raw: &[u8], class: Class) -> Result<([u8; 32], [u8; 32])> {
+    if raw.len() > 512 {
+        return Err(Error::Refused);
+    }
+    let text = std::str::from_utf8(raw).map_err(|_| Error::Refused)?;
+    let fields: Vec<_> = text.split('\n').collect();
+    if fields.len() != 5
+        || fields[0] != class.schema()
+        || fields[1] != "1000"
+        || !fields[4].is_empty()
+    {
+        return Err(Error::Refused);
+    }
+    Ok((hex(fields[2])?, hex(fields[3])?))
 }
 fn unready(count: usize, flags: PollFlags) -> bool {
     count == 0 && flags.is_empty()
@@ -534,6 +539,40 @@ impl Binding {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn development_enrollment_is_exact_and_cannot_cross_classes() {
+        for class in [Class::Tests, Class::InstalledRuntime] {
+            let raw = format!(
+                "{}\n1000\n{}\n{}\n",
+                class.schema(),
+                "11".repeat(32),
+                "22".repeat(32)
+            );
+            assert_eq!(
+                enrollment_hashes(raw.as_bytes(), class).unwrap(),
+                ([0x11; 32], [0x22; 32])
+            );
+            let other = if class == Class::Tests {
+                Class::InstalledRuntime
+            } else {
+                Class::Tests
+            };
+            assert!(enrollment_hashes(raw.as_bytes(), other).is_err());
+            for changed in [
+                raw.replace("\n1000\n", "\n1001\n"),
+                raw.replace("\n1000\n", "\n01000\n"),
+                raw.replace(&"11".repeat(32), &"00".repeat(32)),
+                raw.replace(&"22".repeat(32), "/caller/path"),
+                format!("{raw}\n"),
+                raw.trim_end().into(),
+                raw.replace('\n', "\r\n"),
+            ] {
+                assert!(enrollment_hashes(changed.as_bytes(), class).is_err());
+            }
+            assert!(enrollment_hashes(&[b'x'; 513], class).is_err());
+        }
+    }
     #[test]
     fn original_parent_and_all_four_uids_are_not_copied_authority() {
         let peer = status::Status {

@@ -25,7 +25,7 @@ use crate::native_dispatch::{
     respond_to_fetched_subscription_refresh, respond_to_native_mutation,
     respond_to_subscription_edit_input,
 };
-use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
+use crate::native_host::{CloseImageSelection, NativeHostPaths, NativeLifecycleHost};
 use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use nix::unistd::Uid;
 use omavless_control_protocol::ProtocolError;
@@ -833,6 +833,22 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
     /// owner. A legacy, preparing, rollback, missing, malformed, or unsafe
     /// marker fails closed before reconciliation can touch lifecycle state.
     pub fn current(runtime_paths: &RuntimePaths) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::Direct)
+    }
+
+    /// Explicit development selection; SAME ordinary marker/startup/migration
+    /// owner construction. This does not create enrollment or make helper RPCs.
+    #[cfg(feature = "developer-image-witness")]
+    pub(crate) fn current_development_image(
+        runtime_paths: &RuntimePaths,
+    ) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::InstalledDevelopment)
+    }
+
+    fn current_with_image(
+        runtime_paths: &RuntimePaths,
+        image: CloseImageSelection,
+    ) -> Result<Self, ProductionOwnerError> {
         let uid = Uid::current().as_raw();
         let desired_paths =
             DesiredPaths::current().map_err(|_| ProductionOwnerError::HostUnavailable)?;
@@ -857,7 +873,7 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         let host_paths = NativeHostPaths::current(&runtime_paths.directory)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let store_path = host_paths.store.clone();
-        let host = NativeLifecycleHost::new(host_paths, uid)
+        let host = NativeLifecycleHost::new_with_image_selection(host_paths, uid, image)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         host.cleanup_probe_orphans()
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
