@@ -121,8 +121,11 @@ impl<C: CanonicalCreator> AcquiredCreator<C> {
             creator_socket: originals.creator_socket.as_fd(),
             _same_thread: PhantomData,
         };
+        service_cut!(VerifierBefore);
         originals.verifier.recheck(borrow())?;
+        service_cut!(Creator);
         let value = callback(creator)?;
+        service_cut!(VerifierAfter);
         originals.verifier.recheck(borrow())?;
         self.sealed = false;
         Ok(value)

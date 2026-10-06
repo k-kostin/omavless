@@ -489,3 +489,24 @@ change or authority input is introduced. Like the earlier labels, this is the
 last operation entered, not necessarily its exact failed predicate. The
 earlier attempt remains NONPASS; a separately admitted exact successor and
 original completion are still required.
+
+### Post-startup service refusal localization
+
+The next exact developer interval passed client endpoint/peer checks and wrote
+its first request, but stopped at `read_prefix` without any core exec. READY is
+only startup evidence: every original idle/accept/exchange boundary still
+rechecks retained manager/package/namespace authority, and refusal parks the
+whole service with its listener retained. Neither transport timeout nor an open
+socket proves a particular failed predicate or allows resending the request.
+
+The explicit default-off `netguard-service-diagnostics` successor retains only
+thread-local closed source-stage labels and the first already-computed origin
+failure frame after startup. Marking introduces no I/O, new manager/kernel
+query or authority input. Immediately before the existing terminal park it
+writes one finite stage/reason frame and, if present, that finite origin frame.
+There is no per-idle output; repeated terminal reporting is suppressed before
+the first write. Failed or partial output parks without retry/unwind/teardown.
+Existing guards, latches, budgets, listener and recovery semantics are unchanged.
+The original failed interval remains NONPASS. A separately admitted exact
+service/native successor must establish the actual failure and any later fix;
+these diagnostics are not themselves K1 acceptance.

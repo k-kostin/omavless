@@ -158,6 +158,7 @@ impl<K: EffectPort> SessionOwner<K> {
         &mut self,
         accept: impl FnOnce(&UnixListener) -> io::Result<UnixStream>,
     ) -> SessionProgress {
+        service_cut!(BeforeAccept);
         if self.authority_lost
             || self
                 .kernel
@@ -167,19 +168,23 @@ impl<K: EffectPort> SessionOwner<K> {
             self.authority_lost = true;
             return SessionProgress::AuthorityLost;
         }
+        service_cut!(ListenerValidate);
         if self.listener_lost || self.listener.validate().is_err() {
             self.listener_lost = true;
             return SessionProgress::ListenerLost;
         }
+        service_cut!(EnrollmentValidate);
         if self.authority_lost || !self.state.enrollment_current() {
             self.authority_lost = true;
             return SessionProgress::AuthorityLost;
         }
+        service_cut!(Accept);
         let stream = match accept(self.listener.listener()) {
             Ok(stream) => stream,
             Err(error) if error.kind() == ErrorKind::WouldBlock => return SessionProgress::Idle,
             Err(_) => return SessionProgress::AcceptUnavailable,
         };
+        service_cut!(AfterAccept);
         if self
             .kernel
             .exchange_boundary(ExchangeBoundary::AfterAccept)
@@ -188,13 +193,16 @@ impl<K: EffectPort> SessionOwner<K> {
             self.authority_lost = true;
             return SessionProgress::AuthorityLost;
         }
+        service_cut!(AcceptedListener);
         if self.listener.validate().is_err() {
             self.listener_lost = true;
             return SessionProgress::ListenerLost;
         }
+        service_cut!(StreamBlocking);
         if stream.set_nonblocking(false).is_err() {
             return SessionProgress::Refused(ExchangeError::Receive(TransportError::Unavailable));
         }
+        service_cut!(Exchange);
         match self
             .state
             .exchange_once(stream, self.namespace, &mut self.kernel)

@@ -19,6 +19,7 @@ serde_json = "1.0"
 netguard-service-core = ["dep:nix-netguard", "dep:zbus", "nix/dir"]
 netguard-client-candidate = ["nix/poll"]
 netguard-client-diagnostics = ["netguard-client-candidate"]
+netguard-service-diagnostics = ["netguard-service-core"]
 
 [[bin]]
 name = "omavless-netguard"

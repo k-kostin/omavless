@@ -3,6 +3,13 @@
 //! The service feature adds fixed private retained-owner effects, not accepted
 //! product/host protection or cold-orphan recovery.
 
+macro_rules! service_cut {
+    ($cut:ident) => {
+        #[cfg(feature = "netguard-service-diagnostics")]
+        crate::service_diagnostic::mark(crate::service_diagnostic::Stage::$cut);
+    };
+}
+
 #[allow(dead_code)] // Inactive composition; no canonical provider or product caller.
 mod authority_composition;
 #[cfg(feature = "netguard-client-candidate")]
@@ -34,6 +41,8 @@ mod manager_config_reference_fixture;
 mod manager_version_reference_fixture;
 #[cfg(feature = "netguard-service-core")]
 pub mod service_core;
+#[cfg(feature = "netguard-service-diagnostics")]
+mod service_diagnostic;
 #[cfg(feature = "netguard-service-core")]
 mod startup_trace;
 

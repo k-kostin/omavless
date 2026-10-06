@@ -172,6 +172,25 @@ fn park() -> ! {
     }
 }
 
+#[cfg(feature = "netguard-service-diagnostics")]
+fn progress_refusal(progress: SessionProgress) {
+    use crate::locked_state::ExchangeError;
+    use crate::service_diagnostic::{Reason, emit_refusal};
+    let reason = match progress {
+        SessionProgress::Refused(ExchangeError::NoEnrollment) => Reason::NoEnrollment,
+        SessionProgress::Refused(ExchangeError::AuthorityUnavailable) => {
+            Reason::AuthorityUnavailable
+        }
+        SessionProgress::Refused(ExchangeError::Receive(_)) => Reason::Receive,
+        SessionProgress::Refused(ExchangeError::ReplyDeliveryUnknown(_)) => Reason::ReplyUnknown,
+        SessionProgress::AcceptUnavailable => Reason::AcceptUnavailable,
+        SessionProgress::AuthorityLost => Reason::AuthorityLost,
+        SessionProgress::ListenerLost => Reason::ListenerLost,
+        SessionProgress::Idle | SessionProgress::Served => return,
+    };
+    emit_refusal(reason);
+}
+
 fn serve() -> Result<()> {
     let creator = acquire_fixed_service().map_err(|_| ())?;
     let mut state = ManuallyDrop::new(trace::step(Phase::StateOpen, || {
@@ -191,16 +210,42 @@ fn serve() -> Result<()> {
     })?);
     trace::finish();
     loop {
-        if let Some(stream) = recovery.accept_one()? {
-            if session.recover_one(stream) != SessionProgress::Served {
+        service_cut!(RecoveryAccept);
+        let accepted = recovery.accept_one();
+        #[cfg(feature = "netguard-service-diagnostics")]
+        if accepted.is_err() {
+            crate::service_diagnostic::emit_refusal(
+                crate::service_diagnostic::Reason::RecoveryAccept,
+            );
+        }
+        if let Some(stream) = accepted? {
+            service_cut!(RecoveryOperation);
+            let progress = session.recover_one(stream);
+            if progress != SessionProgress::Served {
+                #[cfg(feature = "netguard-service-diagnostics")]
+                progress_refusal(progress);
                 park();
             }
-            recovery.validate()?;
+            service_cut!(RecoveryValidate);
+            let valid = recovery.validate();
+            #[cfg(feature = "netguard-service-diagnostics")]
+            if valid.is_err() {
+                crate::service_diagnostic::emit_refusal(
+                    crate::service_diagnostic::Reason::RecoveryValidate,
+                );
+            }
+            valid?;
         }
         match session.poll_one() {
             SessionProgress::Idle => std::thread::sleep(Duration::from_millis(250)),
             SessionProgress::Served => (),
-            _ => park(),
+            progress => {
+                #[cfg(feature = "netguard-service-diagnostics")]
+                progress_refusal(progress);
+                #[cfg(not(feature = "netguard-service-diagnostics"))]
+                let _ = progress;
+                park();
+            }
         }
     }
 }
@@ -262,6 +307,8 @@ pub fn entry() -> i32 {
     trace::start();
     let _ = std::panic::catch_unwind(serve);
     trace::emit(Phase::Enter, Event::Refused, None);
+    #[cfg(feature = "netguard-service-diagnostics")]
+    crate::service_diagnostic::emit_refusal(crate::service_diagnostic::Reason::EntryOrUnwind);
     park()
 }
 
