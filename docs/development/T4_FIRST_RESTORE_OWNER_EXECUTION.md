@@ -128,7 +128,7 @@ is unregistered; an installed exact-feature `current()` selector and independent
 normal restart remain separate acceptance. No VM or default Restore activation
 is claimed by this source successor.
 
-### Private installed-current selector (feature source; VM pending)
+### Private installed-current selector (feature-only; scoped VM checkpoint)
 
 The next feature-only entry has exact argv
 `developer restore-current --confirm-private-pair`. It refuses terminal stdin;
@@ -164,6 +164,8 @@ stale revision, occupied dispatcher and default absence. They do not construct
 a genuine installed current owner. Actual installed same-image normal-login
 RPC, subsequent status/list/onboarding+replay and independently admitted normal
 restart require PRIMARY/independent review and separate ROOT VM selection.
+The exact `9b7f33d9` Current34/35 checkpoint is now recorded below; local
+synthetic controls alone are not its evidence.
 
 The minimal accepted-source archive supplier is the same feature-only private
 adapter: exact `developer backup-current --confirm-private-export`, fixed hidden
@@ -191,4 +193,24 @@ edited to manufacture the archive. Startup-off portable normalization belongs
 to the existing backup/restore contract; private original/portable profile and
 template equality checks may remain private, with only booleans published.
 Onboarding already true must be recorded NoChange, not a fabricated Changed
-effect. Installed positive/restart evidence remains pending ROOT selection.
+effect. Installed positive/restart evidence for the exact developer-feature
+composition is recorded in the [2026-10-06 VM checkpoint](../testing/T4_INSTALLED_CURRENT_VM_2026-10-06.md).
+
+### Exact installed-current developer checkpoint
+
+On source `9b7f33d9fee64a6a4715c55adb3f5aff77275c15`, ROOT selected genuine
+normal installed-current export, authenticated NEW/Committed completion,
+ordinary Off/status/profile readback, onboarding NoChange/planned replay and
+an independent normal user-manager daemon restart. Every application original
+completed0 and the final corrected wire/readback projections passed. The old
+onboarding observer's wrong canonical `accepted` assumption remains NONPASS;
+a fresh read-only adjudicator verified the actual plugin `applied` wire without
+resending onboarding or erasing STOP. Private profiles/templates/archives stay
+outside Git. ROOT deliberately selected a normal default preset before export
+after preserving the prior private pair; this is not that prior pair's acceptance.
+
+This closes the scoped agent-attended developer VM happy path, not default
+Restore registration, human/physical-host acceptance or whole T4. Current-origin
+fault/reboot recovery, repeated Restore/history policy and product private UX
+remain explicit in the linked closure matrix. Earlier fixture evidence is not
+relabeled as genuine-current acceptance; fatal process loss remains unavailable.

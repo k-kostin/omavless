@@ -7,11 +7,20 @@ continues Draft #658; the first real scenario is a fixed PID1 observation,
 not backup/restore admission. This does not accept or relax the historical
 caller-local Bundle contract or change this product's activation gates.
 
-Status: security/product design with an inactive Rust envelope primitive, **not
-approved for activation**. There is no backup command, IPC method, picker,
-scheduler, file publisher or first-Restore authority; the development-only
-first-Abort recovery command is scoped separately below. A backup file contains reusable
+Status: ordinary product activation remains **not approved**. The historical
+inactive envelope/transaction foundations below are now supplemented by the
+explicit developer-feature checkpoint, not default Backup/Restore registration,
+picker, scheduler or normal Restore UX. The development-only first-Abort
+recovery command is scoped separately below. A backup file contains reusable
 VPN credentials and subscription bearer URLs; it is not a support report.
+
+Developer-only installed follow-up: the exact `9b7f33d9` genuine normal-current
+export→NEW/Committed completion→ordinary replay/readback→normal daemon restart
+passed the [agent-attended VM gate](../testing/T4_INSTALLED_CURRENT_VM_2026-10-06.md).
+That report preserves the earlier refusals and harness correction and lists the
+remaining current-origin recovery, repeated-cycle and product-activation gates.
+It does not activate default/public Backup or Restore or close T4 as a whole;
+the older inactive sections below retain their own historical scope.
 
 Development-only follow-up: the [explicit first-Abort CLI slice](../development/T4_FIRST_ABORT_CLI.md)
 adds a normal command for the already authenticated, first-cycle rollback path,
