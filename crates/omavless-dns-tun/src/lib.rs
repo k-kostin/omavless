@@ -14,7 +14,35 @@ use std::os::fd::OwnedFd;
 ))]
 mod sys;
 
-const DEVICE: &str = "Meta";
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Device {
+    #[cfg(any(test, not(feature = "k1-managed-device")))]
+    Meta,
+    #[cfg(any(test, feature = "k1-managed-device"))]
+    K1,
+}
+
+impl Device {
+    const fn selected() -> Self {
+        #[cfg(feature = "k1-managed-device")]
+        {
+            Self::K1
+        }
+        #[cfg(not(feature = "k1-managed-device"))]
+        {
+            Self::Meta
+        }
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            #[cfg(any(test, not(feature = "k1-managed-device")))]
+            Self::Meta => "Meta",
+            #[cfg(any(test, feature = "k1-managed-device"))]
+            Self::K1 => "omavless0",
+        }
+    }
+}
 const FORBIDDEN_FLAGS: u16 = 0x0100 | 0x0200 | 0x0400 | 0x0800;
 
 /// Credential-free fixed classifications; kernel text and descriptor values are
@@ -55,13 +83,13 @@ struct InterfaceInfo {
     flags: u16,
 }
 
-fn validate_info(info: &InterfaceInfo) -> Result<(), Error> {
+fn validate_info(info: &InterfaceInfo, device: Device) -> Result<(), Error> {
     let end = info
         .name
         .iter()
         .position(|byte| *byte == 0)
         .ok_or(Error::InvalidTun)?;
-    if &info.name[..end] != DEVICE.as_bytes()
+    if &info.name[..end] != device.name().as_bytes()
         || info.flags & 0x000f != 1
         || info.flags & FORBIDDEN_FLAGS != 0
     {
@@ -78,12 +106,13 @@ trait Kernel {
     fn info(&self, fd: &OwnedFd) -> Result<InterfaceInfo, Error>;
     fn device_namespace(&self, fd: &OwnedFd) -> Result<OwnedFd, Error>;
     fn query_socket(&self) -> Result<OwnedFd, Error>;
-    fn index(&self, socket: &OwnedFd) -> Result<u32, Error>;
+    fn index(&self, socket: &OwnedFd, device: Device) -> Result<u32, Error>;
 }
 
 /// Retains the received object and its original namespace. No raw descriptor,
 /// namespace, interface name or caller-selected target is exposed.
 pub struct HeldTun {
+    device: Device,
     descriptor: OwnedFd,
     namespace: OwnedFd,
     query_socket: OwnedFd,
@@ -118,21 +147,30 @@ impl HeldTun {
     }
 
     fn admit_with(descriptor: OwnedFd, kernel: &impl Kernel) -> Result<Self, Error> {
+        Self::admit_selected(descriptor, kernel, Device::selected())
+    }
+
+    fn admit_selected(
+        descriptor: OwnedFd,
+        kernel: &impl Kernel,
+        device: Device,
+    ) -> Result<Self, Error> {
         // Gate device type/major/minor BEFORE issuing any driver ioctl.
         kernel.device(&descriptor)?;
         let namespace = kernel.current_namespace()?;
-        validate_info(&kernel.info(&descriptor)?)?;
+        validate_info(&kernel.info(&descriptor)?, device)?;
         let device_namespace = kernel.device_namespace(&descriptor)?;
         if kernel.namespace_id(&device_namespace)? != kernel.namespace_id(&namespace)? {
             return Err(Error::NamespaceMismatch);
         }
         drop(device_namespace);
         let query_socket = kernel.query_socket()?;
-        let index = kernel.index(&query_socket)?;
+        let index = kernel.index(&query_socket, device)?;
         if index == 0 || index > i32::MAX as u32 {
             return Err(Error::InvalidTun);
         }
         let held = Self {
+            device,
             descriptor,
             namespace,
             query_socket,
@@ -166,12 +204,12 @@ impl HeldTun {
         if kernel.namespace_id(&current)? != expected {
             return Err(Error::NamespaceMismatch);
         }
-        validate_info(&kernel.info(&self.descriptor)?)?;
+        validate_info(&kernel.info(&self.descriptor)?, self.device)?;
         let actual = kernel.device_namespace(&self.descriptor)?;
         if kernel.namespace_id(&actual)? != expected {
             return Err(Error::NamespaceMismatch);
         }
-        if kernel.index(&self.query_socket)? != self.index {
+        if kernel.index(&self.query_socket, self.device)? != self.index {
             return Err(Error::Changed);
         }
         Ok(())
