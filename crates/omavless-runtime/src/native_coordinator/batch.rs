@@ -523,6 +523,30 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             u64,
         ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
     {
+        self.complete_subscription_batch_with_guard(job, now_millis, commit, |_| Ok(()))
+    }
+
+    /// An additional fixed owner policy runs under the SAME migration lease as
+    /// the final revision/member checks and store publication. Manual batches
+    /// retain their existing behavior through the no-op guard above.
+    pub(super) fn complete_subscription_batch_with_guard<N, F, P>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        now_millis: N,
+        commit: F,
+        policy: P,
+    ) -> Result<(), NativeOwnerError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(
+            &Path,
+            u32,
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+            u64,
+        ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+        P: FnOnce(&Self) -> Result<(), NativeOwnerError>,
+    {
         let mut state = self
             .batch
             .take()
@@ -535,7 +559,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .registry
                 .advance(token, completed)
                 .map_err(NativeOwnerError::LongOperation)?;
-            let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis, commit);
+            let outcome =
+                self.commit_subscription_batch_work(&mut state, job, now_millis, commit, policy);
             state.active = None;
             match outcome {
                 Ok(true) => state
@@ -556,12 +581,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         result
     }
 
-    fn commit_subscription_batch_work<N, F>(
+    fn commit_subscription_batch_work<N, F, P>(
         &mut self,
         state: &mut BatchOwnerState,
         job: NativeSubscriptionBatch,
         now_millis: N,
         commit: F,
+        policy: P,
     ) -> Result<bool, NativeOwnerError>
     where
         N: FnOnce() -> u64,
@@ -572,12 +598,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             Vec<SubscriptionRefreshBatchEntries>,
             u64,
         ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+        P: FnOnce(&Self) -> Result<(), NativeOwnerError>,
     {
         if let Some(error) = job.failure {
             return Err(batch_work_error(error));
         }
         let prepared = job.work.into_prepared().map_err(batch_work_error)?;
         let _lock = self.batch_lock()?;
+        policy(self)?;
         if self.revision() != job.base_revision {
             return Err(NativeOwnerError::Coordinator(
                 CoordinatorError::RevisionConflict,

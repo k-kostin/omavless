@@ -146,6 +146,27 @@ pub fn set_preference(
     expected_revision: u64,
     schedule: RefreshSchedule,
 ) -> Result<PreferenceSnapshot, PreferenceError> {
+    set_preference_with_writer(
+        paths,
+        uid,
+        expected_generation,
+        expected_revision,
+        schedule,
+        atomic_replace_private,
+    )
+}
+
+fn set_preference_with_writer<F>(
+    paths: &CutoverPaths,
+    uid: u32,
+    expected_generation: u64,
+    expected_revision: u64,
+    schedule: RefreshSchedule,
+    publish: F,
+) -> Result<PreferenceSnapshot, PreferenceError>
+where
+    F: FnOnce(&std::path::Path, &[u8], u32) -> Result<(), omavless_store::StoreIoError>,
+{
     schedule.validate().map_err(|error| match error {
         ScheduleError::IntervalOutOfRange => PreferenceError::IntervalOutOfRange,
         ScheduleError::InvalidAttemptHistory => PreferenceError::InvalidState,
@@ -188,10 +209,11 @@ pub fn set_preference(
     // A post-rename sync failure may have published the new bytes without
     // proving durability. Do not claim a confirmed preference or invite a
     // blind retry with the old revision after any write failure.
-    if atomic_replace_private(&path, &payload, uid).is_err() {
+    if publish(&path, &payload, uid).is_err() {
         return Err(PreferenceError::WriteUncertain);
     }
-    let actual = read_locked(paths, uid, expected_generation)?;
+    let actual = read_locked(paths, uid, expected_generation)
+        .map_err(|_| PreferenceError::WriteUncertain)?;
     if actual.owner_generation != expected_generation
         || actual.revision != revision
         || actual.schedule != schedule
@@ -199,6 +221,31 @@ pub fn set_preference(
         return Err(PreferenceError::WriteUncertain);
     }
     Ok(actual)
+}
+
+/// Test-only post-publication observation fault; production always uses the
+/// fixed atomic writer. Does not expose a caller-selected IPC/file operation.
+#[cfg(test)]
+pub(crate) fn set_preference_with_publication_fault<F: FnOnce()>(
+    paths: &CutoverPaths,
+    uid: u32,
+    expected_generation: u64,
+    expected_revision: u64,
+    schedule: RefreshSchedule,
+    fault: F,
+) -> Result<PreferenceSnapshot, PreferenceError> {
+    set_preference_with_writer(
+        paths,
+        uid,
+        expected_generation,
+        expected_revision,
+        schedule,
+        |path, payload, uid| {
+            atomic_replace_private(path, payload, uid)?;
+            fault();
+            Ok(())
+        },
+    )
 }
 
 #[cfg(test)]

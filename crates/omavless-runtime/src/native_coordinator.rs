@@ -14,12 +14,16 @@ mod batch;
 mod onboarding;
 mod probe;
 mod provider;
+mod schedule;
 mod startup;
 pub use batch::{
     NativeBatchCompletionReceipt, NativeBatchOutcome, NativeBatchTicket, NativeSubscriptionBatch,
 };
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
+#[cfg(test)]
+pub(crate) use schedule::AcknowledgementFault;
+pub use schedule::{AutomaticRefreshError, AutomaticRefreshStart, AutomaticSubscriptionBatch};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -374,6 +378,7 @@ pub struct OfflineNativeCoordinator<H> {
     batch: Option<batch::BatchOwnerState>,
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
+    automatic_refresh: schedule::AutomaticRefreshState,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -398,6 +403,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             batch: None,
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
+            automatic_refresh: schedule::AutomaticRefreshState::default(),
         }
     }
 
@@ -1270,6 +1276,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             LockAdmission::Locked(lock) => lock,
             LockAdmission::Uncached(outcome) => return Ok(outcome),
         };
+        // An admitted explicit Disconnect wins over automatic maintenance even
+        // when the already-disconnected lifecycle returns NoChange/revision 0.
+        // Cancellation changes no host policy and never affects manual batches.
+        if matches!(action, OwnerAction::Disconnect) {
+            let _ = self.cancel_automatic_subscription_refresh();
+        }
         let completion = match action {
             OwnerAction::Connect { profile_id, mode } => {
                 self.transaction.connect(&lock, profile_id, mode)
