@@ -341,32 +341,93 @@ mod tests {
         for source in [restore, execution] {
             assert!(!source.contains("restore_disposition_model"));
         }
-        let ordinary = restore
-            .split("fn restore_readiness_locked(")
-            .nth(1)
-            .unwrap()
-            .split("fn restore_readiness_with_created_stage(")
+        assert!(static_ordinary_presence_chain(restore, execution));
+    }
+
+    // Source retention only, not a parser or behavioral admission proof. The
+    // common readiness helper now receives the typed writer's predicate; its
+    // ordinary None path must still reach the conservative existence fence.
+    fn static_ordinary_presence_chain(restore: &str, execution: &str) -> bool {
+        let compact = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let restore = compact(restore);
+        let execution = compact(execution);
+        let Some(ordinary) = restore.split("fnrestore_readiness_locked(").nth(1) else {
+            return false;
+        };
+        let ordinary = ordinary
+            .split("fnrestore_readiness_with_created_stage(")
             .next()
             .unwrap();
-        assert!(ordinary.contains("self.restore_readiness_with_created_stage(lock, None)"));
-        let readiness = restore
-            .split("fn restore_readiness_with_created_stage(")
+        if !ordinary.contains("self.restore_readiness_with_created_stage(lock,None)") {
+            return false;
+        }
+        let Some(created) = restore
+            .split("fnrestore_readiness_with_created_stage(")
             .nth(1)
-            .unwrap();
-        let guard = "!first_execution::pending_allowed(self.transaction.desired_paths(), self.uid(), created)";
-        let observation = readiness.find(".fresh_observation(&desired)").unwrap();
-        assert!(readiness[..observation].contains(guard));
-        assert!(readiness[observation..].contains(guard));
-        let pending = execution
-            .split("fn pending_allowed(")
-            .nth(1)
-            .unwrap()
-            .split("struct PinnedMember")
+        else {
+            return false;
+        };
+        let created = created
+            .split("fnrestore_readiness_with_native_stage(")
             .next()
             .unwrap();
-        let compact: String = pending.chars().filter(|c| !c.is_whitespace()).collect();
-        assert!(compact.contains(
-            "letSome(created)=createdelse{return!crate::pending_private_transaction::pending(paths);};"
+        if !created.contains("self.restore_readiness_with_pending_check(lock,created.is_some(),|paths,uid|{first_execution::pending_allowed(paths,uid,created)})") { return false; }
+        let Some(readiness) = restore
+            .split("fnrestore_readiness_with_pending_check(")
+            .nth(1)
+        else {
+            return false;
+        };
+        let Some(observation) = readiness.find(".fresh_observation(&desired)") else {
+            return false;
+        };
+        let guard = "!pending_allowed(self.transaction.desired_paths(),self.uid())";
+        if !readiness[..observation].contains(guard) || !readiness[observation..].contains(guard) {
+            return false;
+        }
+        let Some(pending) = execution.split("fnpending_allowed(").nth(1) else {
+            return false;
+        };
+        let pending = pending.split("structPinnedMember").next().unwrap();
+        pending.contains("letSome(created)=createdelse{return!crate::pending_private_transaction::pending(paths);};")
+    }
+
+    #[test]
+    fn disposition_policy_static_detector_rejects_each_missing_link_or_guard() {
+        let restore: String = include_str!("native_coordinator/restore_candidate.rs")
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        let execution: String = include_str!("native_coordinator/restore_first_execution.rs")
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert!(static_ordinary_presence_chain(&restore, &execution));
+        for link in [
+            "self.restore_readiness_with_created_stage(lock,None)",
+            "first_execution::pending_allowed(paths,uid,created)",
+        ] {
+            assert!(restore.contains(link));
+            assert!(!static_ordinary_presence_chain(
+                &restore.replacen(link, "omitted", 1),
+                &execution
+            ));
+        }
+        let guard = "!pending_allowed(self.transaction.desired_paths(),self.uid())";
+        assert_eq!(restore.matches(guard).count(), 2);
+        assert!(!static_ordinary_presence_chain(
+            &restore.replacen(guard, "omitted", 1),
+            &execution
+        ));
+        let last = restore.rfind(guard).unwrap();
+        let mut after = restore.clone();
+        after.replace_range(last..last + guard.len(), "omitted");
+        assert!(!static_ordinary_presence_chain(&after, &execution));
+        let fallback = "letSome(created)=createdelse{return!crate::pending_private_transaction::pending(paths);};";
+        assert!(execution.contains(fallback));
+        assert!(!static_ordinary_presence_chain(
+            &restore,
+            &execution.replacen(fallback, "omitted", 1)
         ));
     }
 

@@ -834,3 +834,24 @@ installed application-store, late crash/power-loss or whole T4 acceptance.
 No normal registration/default was changed by the source test, and ROOT alone
 performed the disposable-VM actions. This documentation successor changes no
 tested Rust byte or ELF and does not retroactively rewrite the frozen head.
+
+### Exact014 CI failure and test-only source-retention correction
+
+The Test job for `014598903876f7043a31884c7faad2d80f11f778` failed in
+[run37476210839/job112312159738](https://github.com/k-kostin/omavless/actions/runs/37476210839/job/112312159738):
+`disposition_policy_static_caller_matrix_keeps_existing_presence_fences` expected
+the old direct predicate spelling around `fresh_observation`. The runtime suite
+reported 1205 passed, one failed, 46 ignored and one filtered; both native package
+jobs succeeded. This negative belongs to that exact head and is preserved.
+
+The current test-only correction follows the existing delegation from ordinary
+readiness through `with_created_stage(None)` to the common predicate helper,
+requires its before/after observation guards, and retains the conservative
+`None` fallback. Negative source controls remove each delegation, each guard or
+that fallback and require refusal. These are source-retention checks, not a
+parser, new runtime admission or behavioral proof. No runtime, fence, feature or
+packaging source changes. The separately sealed exact014 ordinary ELF/package
+and earlier actual26/27 evidence remain unchanged; this correction does not
+claim a new complete CI result or installed current/login/Restore acceptance.
+Local correction checks passed: the exact former failing test (one), all eight
+`proposed_policy` tests, default all-target strict Clippy and workspace fmt.
