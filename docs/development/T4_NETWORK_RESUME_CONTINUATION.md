@@ -231,6 +231,11 @@ and deadline successor; its changed code needs its own checks and review.
 
 ## Required activation decisions
 
+The separate [fixed system-event source checkpoint](T4_SYSTEM_EVENT_SOURCE.md)
+prepares a dormant original-transport logind/rtnetlink adapter. Its new source
+boundary is compile/review-only until explicitly approved fixture execution;
+it does not activate this owner, provision Ready or supply binding safety.
+
 Production activation must independently review authentic host source identity,
 boot/owner lifetime provenance, loss/replacement handling and per-host behavior.
 logind, NetworkManager and netlink notifications are observation hints, never

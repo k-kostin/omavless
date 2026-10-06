@@ -1194,7 +1194,10 @@ dependencies = [
 name = "omavless-runtime"
 version = "0.9.7-rc.1"
 dependencies = [
+ "async-io",
+ "async-trait",
  "base64 0.22.1",
+ "futures-lite",
  "nix",
  "omavless-control-protocol",
  "omavless-domain",
@@ -1209,6 +1212,7 @@ dependencies = [
  "tempfile",
  "ureq",
  "url",
+ "zbus",
 ]
 
 [[package]]
