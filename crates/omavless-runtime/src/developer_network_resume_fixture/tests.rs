@@ -61,6 +61,52 @@ fn bounded_backlog_retains_queued_suspend_before_any_recovery() {
 }
 
 #[test]
+fn claimed_rpc_slot_defers_source_drain_until_release_then_runs_one_original_attempt() {
+    let (mut fixture, now) = controlled();
+    fixture.facts.lock().unwrap().observed = empty();
+    fixture.hint("Resume");
+    let server = fixture.server.as_ref().unwrap();
+    let get = || {
+        server
+            .dispatch(
+                &make_request("get", METHOD, json!({"instanceId":server.instance_id})).unwrap(),
+            )
+            .unwrap()
+    };
+    let observations = fixture.facts.lock().unwrap().observations;
+    let active = AtomicUsize::new(0);
+    // Same claim/Drop type and lifetime that brackets serve_until's workers;
+    // the claimed worker has not dispatched or acquired quit_gate yet.
+    let claimed = claim_slot(&active, MAX_CONCURRENT_CLIENTS).unwrap();
+    server.wake_network_resume_when_idle(&active);
+    assert_eq!(get()["result"]["state"], "observe_only");
+    assert_eq!(fixture.facts.lock().unwrap().observations, observations);
+    assert!(fixture.facts.lock().unwrap().calls.is_empty());
+    let receipt = fixture
+        .desired
+        .directory
+        .join("network-resume-receipt.json");
+    let ready = fs::read(&receipt).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Receipt>(&ready).unwrap().phase,
+        Phase::Ready
+    );
+    drop(claimed);
+    server.wake_network_resume_when_idle(&active);
+    assert_eq!(get()["result"]["state"], "checking"); // formerly queued frame was unread
+    assert_eq!(fs::read(&receipt).unwrap(), ready);
+    now.store(3, Ordering::Release);
+    server.wake_network_resume_when_idle(&active);
+    assert_eq!(get()["result"]["state"], "recovered");
+    assert_eq!(
+        fixture.facts.lock().unwrap().calls,
+        ["prepare", "start", "commit"]
+    );
+    server.wake_network_resume_when_idle(&active);
+    assert_eq!(fixture.facts.lock().unwrap().calls.len(), 3);
+}
+
+#[test]
 fn observer_panic_keeps_original_inflight_barrier_terminal() {
     let (mut fixture, now) = controlled();
     fixture.start();
@@ -125,6 +171,78 @@ fn quit_accepted_before_or_after_effect_seals_the_same_owner_event_context() {
             usize::from(after)
         );
     }
+}
+
+#[test]
+fn real_claimed_quit_worker_gets_idle_window_before_dispatch_and_seals_due_resume() {
+    let (mut fixture, now) = controlled();
+    let latch = Arc::new(crate::developer_network_resume::QuitDispatchLatch::default());
+    struct ReleaseOnDrop(Arc<crate::developer_network_resume::QuitDispatchLatch>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.release.store(true, Ordering::Release);
+        }
+    }
+    let _release_on_failure = ReleaseOnDrop(Arc::clone(&latch));
+    let server = fixture.server.as_mut().unwrap();
+    server.quit_dispatch_latch = Some(Arc::clone(&latch));
+    let dispatcher = Arc::clone(&server.dispatcher);
+    fixture.start();
+    fixture.facts.lock().unwrap().observed = empty();
+    fixture.hint("Resume");
+    fixture.wait("checking");
+    let observations = fixture.facts.lock().unwrap().observations;
+    let receipt = fixture
+        .desired
+        .directory
+        .join("network-resume-receipt.json");
+    let ready = fs::read(&receipt).unwrap();
+    let paths = fixture.paths.clone();
+    let instance = fixture.instance.clone();
+    let quit = thread::spawn(move || {
+        call(
+            &paths,
+            "runtime.quit",
+            json!({"instanceId":instance,"expectedRevision":0,"operationId":"fixed-latched-quit"}),
+        )
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !latch.claimed.load(Ordering::Acquire) {
+        assert!(std::time::Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(1));
+    }
+    // Due recovery would be effect-capable, but the real RPC slot is held
+    // BEFORE dispatch has acquired quit_gate or changed durable desired state.
+    now.store(3, Ordering::Release);
+    let first = latch.suppressed_wakes.load(Ordering::Acquire);
+    while latch.suppressed_wakes.load(Ordering::Acquire) < first + 3 {
+        assert!(std::time::Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(1));
+    }
+    let state = {
+        let guard = dispatcher.lock().unwrap();
+        let RuntimeDispatcher::Native(owner) = &*guard else {
+            unreachable!()
+        };
+        owner.network_get().unwrap()
+    }; // No owner/gate lock is retained across release or join.
+    assert_eq!(state["state"], "checking");
+    assert_eq!(fixture.facts.lock().unwrap().observations, observations);
+    assert!(fixture.facts.lock().unwrap().calls.is_empty());
+    assert_eq!(fs::read(&receipt).unwrap(), ready);
+    latch.release.store(true, Ordering::Release);
+    let result = quit.join().unwrap().unwrap();
+    assert_eq!(result["ok"], true, "fixed latched quit: {result}");
+    now.store(10, Ordering::Release);
+    fixture.shutdown();
+    assert!(fixture.joined);
+    assert!(
+        !crate::desired::read_desired(&fixture.desired, fixture.uid)
+            .unwrap()
+            .connected
+    );
+    assert!(!fixture.facts.lock().unwrap().calls.contains(&"start"));
+    assert_eq!(fs::read(receipt).unwrap(), ready);
 }
 
 struct Feed {

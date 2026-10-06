@@ -286,6 +286,8 @@ pub struct RuntimeServer {
     // remote completion, before disconnecting and sealing new admission.
     quit_gate: RwLock<bool>,
     quit_requested: AtomicBool,
+    #[cfg(test)]
+    quit_dispatch_latch: Option<Arc<developer_network_resume::QuitDispatchLatch>>,
     _owner: OwnerLock,
 }
 
@@ -1378,6 +1380,25 @@ where
 
 impl RuntimeServer {
     #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn wake_network_resume_when_idle(&self, active: &AtomicUsize) {
+        // A claimed worker needs a quiet scheduling window before dispatch can
+        // acquire quit_gate. Repeated idle reads must not starve that worker.
+        // This count is only a scheduling hint; the original gate, dispatcher
+        // and migration lease below still authorize every observation/effect.
+        if active.load(Ordering::Acquire) == 0 {
+            self.wake_network_resume();
+        } else {
+            #[cfg(test)]
+            if let Some(latch) = &self.quit_dispatch_latch
+                && latch.claimed.load(Ordering::Acquire)
+                && !latch.release.load(Ordering::Acquire)
+            {
+                latch.suppressed_wakes.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
     fn wake_network_resume(&self) {
         let Ok(gate) = self.quit_gate.try_read() else {
             return;
@@ -1470,6 +1491,8 @@ impl RuntimeServer {
             ping_read: Mutex::new(()),
             quit_gate: RwLock::new(false),
             quit_requested: AtomicBool::new(false),
+            #[cfg(test)]
+            quit_dispatch_latch: None,
             _owner: owner,
         })
     }
@@ -1615,7 +1638,7 @@ impl RuntimeServer {
                 #[cfg(any(test, feature = "developer-subscription-schedule"))]
                 self.wake_developer_subscription_schedule();
                 #[cfg(any(test, feature = "network-resume-fixture"))]
-                self.wake_network_resume();
+                self.wake_network_resume_when_idle(&active);
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
                         if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
@@ -1658,7 +1681,18 @@ impl RuntimeServer {
         let response = match read_unary_frame(stream, FrameKind::Request)
             .and_then(|frame| decode_request(&frame))
         {
-            Ok(request) => self.dispatch(&request),
+            Ok(request) => {
+                #[cfg(test)]
+                if request["method"] == "runtime.quit"
+                    && self
+                        .quit_dispatch_latch
+                        .as_ref()
+                        .is_some_and(|latch| !latch.wait())
+                {
+                    return Err(RuntimeError::Io);
+                }
+                self.dispatch(&request)
+            }
             Err(error) => error_response(
                 "invalid",
                 0,

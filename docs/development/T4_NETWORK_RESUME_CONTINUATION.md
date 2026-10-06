@@ -16,7 +16,7 @@ narrow; real sleep/NIC acceptance is not inferred from deterministic tests.
 | One attempt | Existing exact Ready is reserved durably before coordinator invocation; failure/unknown completion never rearms | Real private files, pre/post publication errors, inherited process-death fixture |
 | Shared startup/event barrier | One owner-installed admission and terminal eligibility; legacy startup paths refuse enrollment; both trigger orders recover at most once | Dormant original-coordinator/private-file fixtures; production enrollment remains unavailable |
 | Restart | New owner instance refuses old Ready/Reserved/Finished; missing/lost receipt never initializes Ready | Both dormant trigger paths share refusal; no production identity/provisioning claim |
-| Registered developer service | One original registered owner, private control socket and owned event pair; accepted Disconnect/Quit wins; automatic metadata commit invalidates old resume; ACK cannot clear its guard | Thirteen deterministic constructor/control/event/fault tests run by default; fixed monotonic feature example, not a host subscriber |
+| Registered developer service | One original registered owner, private control socket and owned event pair; accepted Disconnect/Quit wins; automatic metadata commit invalidates old resume; ACK cannot clear its guard | Fifteen deterministic constructor/control/event/fault tests enabled by default, including claimed RPC fairness; exact-head execution in integration PR; fixed monotonic feature example, not a host subscriber |
 | Real integration | Canonical daemon source subscription, authenticated host event delivery and actual binding proof | Pending; no host bus, service, core or network was contacted |
 | Hardware | Real suspend/resume and physical NIC transition | Pending separate bare-metal gate; VM evidence cannot close it |
 
@@ -181,6 +181,23 @@ I/O loss. Its twelve-case matrix and no-argument monotonic example passed. The
 thirteen promoted tests additionally prove that normal factory registration
 does not infer enrollment from an existing fixture Ready. Exact final-head
 combined/workspace/CI results belong to the integration PR, not these earlier pins.
+
+The initial hosted feature-filtered suite at `219ab84b` passed 46 cases but the
+Quit caller exhausted that same two-second Busy bound. Local full gates and both
+package jobs had passed; they did not supersede the hosted failure. The successor
+defers dormant network wakes while any original bounded RPC worker slot is
+claimed, giving a not-yet-dispatched Quit worker a quiet window. Slot count is a
+scheduling hint only, never admission authority; quit gate, original dispatcher,
+lease and all stale/source fences are unchanged. Deferral cannot clear a lost
+context; slow clients may delay automatic work, not authorize it. A deterministic
+claim-before-wake regression checks that the source stays unread and Ready/effects
+unchanged until original slot release, then one ordinary quiet-budget recovery.
+A fixed test-only two-second Quit-dispatch latch additionally holds the real
+authenticated, claimed RPC worker before dispatch, verifies three real suppressed
+loop iterations with a due recovery and unchanged Ready/observations/effects,
+then releases that same worker and proves accepted Quit seals the context. No
+callback or IPC can install it, normal construction leaves it absent, failure
+releases it before fixture join, and it is not compiled into the feature example.
 
 ## Fixed developer entry
 

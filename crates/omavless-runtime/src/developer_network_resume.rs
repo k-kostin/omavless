@@ -13,6 +13,32 @@ use std::time::Instant;
 pub(crate) const METHOD: &str = "developer.network_resume.get";
 pub(crate) const MAX_FRAMES_PER_WAKE: usize = 4;
 
+/// Fixed test-only pause after an authenticated Quit frame has been decoded,
+/// while its original RPC slot is claimed but before dispatch/admission.
+/// No callback, IPC choice or production constructor can install this latch.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct QuitDispatchLatch {
+    pub(crate) claimed: std::sync::atomic::AtomicBool,
+    pub(crate) release: std::sync::atomic::AtomicBool,
+    pub(crate) suppressed_wakes: std::sync::atomic::AtomicUsize,
+}
+#[cfg(test)]
+impl QuitDispatchLatch {
+    pub(crate) fn wait(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.claimed.store(true, Ordering::Release);
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        while !self.release.load(Ordering::Acquire) {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        true
+    }
+}
+
 pub(crate) struct Enrollment {
     pub(crate) boot: [u8; 16],
     pub(crate) instance: [u8; 16],
