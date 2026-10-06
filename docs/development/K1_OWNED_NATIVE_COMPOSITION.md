@@ -62,6 +62,35 @@ new final-Status test transcript lacked its last event and a mock branch was
 temporarily placed in the wrong test type; both source-only failures were
 corrected before the passing gates. No coverage issuer was enabled.
 
+### Exact four-family validator evidence
+
+ROOT selected the separately reviewed fixed `-t` gate on boot
+`682f9d46-d8f0-425f-a9f4-308475bef0b5`. Exact core
+`897ada648fe975718ac1b7318702def5b826a9901797a0d13cdd333a012b9fcb`, broker
+`4bbba825bc39209cd821af18f7a776825bf762c46a05e43f4354aca283009c70` and receipt
+`c6e283d9c8b4c2fa59163e6a363b93788a36b210f33d5d9dee2d8b5eec5bd8f2` were
+held/pinned, with actual core file capabilities unchanged. The SAME canonical
+Rust-rendered config was held unchanged; only a separate fresh exclusive
+`/run/omavless-k1-four-data24` was created by the file-only administrative stage.
+Existing runtime cache and T4 scopes were not repaired or removed.
+
+Stage `dace83e6`, validator `18c9a740` and unchanged observer `f4f9d506` completed
+the original-owned validation gate: ROOT run `5a892d` / completion `f378b1`
+returned original SSH0 and `K1_VALIDATOR_ORIGINAL_ZERO_NO_SOCKET_EVENTS 10`.
+The strict parser, held-input/empty-data postchecks, original observer0 and
+core0 statuses and reaps preceded that marker. Separate bounded observation
+`8e04e3` reported one exec, four thread creations and five exits; no socket,
+network or mark events, with both stderr captures empty. Trace386 bytes SHA256
+`88dacbfb68934df3b4dd20f883e1bd4d523f747e74f5de750addb1d8f08acdb0`;
+private core stdout485 bytes SHA256
+`7de65fb28946303065606b47ebccdafce2f3bc1eef94a36bf0151d0b47d25857`.
+The snapshot's two unrecognized lines were the exact allowed blank finalizer
+trailer, not unknown events accepted by the parser.
+
+This accepts only that bounded exact-core/config/fresh-data validation case.
+It does not execute the native owner candidate, establish runtime failure-path
+coverage, authorize Arm, or open the private coverage issuer.
+
 ## Owning contract
 
 The private sealed ProtectedHost trait adds a move-only associated admission;
