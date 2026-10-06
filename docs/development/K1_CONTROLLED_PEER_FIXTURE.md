@@ -353,3 +353,34 @@ mark or network event. Its positive allocation provenance must be established;
 this is not permission to admit arbitrary family-zero sockets. Neither a
 successful request nor zero `bad` events substitutes for
 the complete census, DNS case, negative packet matrix or production issuer.
+
+## Explicit internal-socket lineage and passive-load gate
+
+A further fixed-capture projection of that same Numeric18 trace identified
+exactly two classless generations: family zero and family one. Each retired
+once, without a correlated socket syscall, mark or network event. The proposed
+collector does not waive either class. It requires positive original-file
+TUN-open and successful fixed-device TUNSETIFF lineage for the family-zero
+queue, and original UNIX-connect/reciprocal-peer lineage for the broker's
+family-one accepted peer. Both original generations must retire. These
+internal classes cannot satisfy an outbound connect, send or mark admission.
+
+Numeric18's available private evidence was archived before an explicit VM
+administrator reboot. Its old SSH ending255 is not product cleanup or recovery.
+The fresh boot is `152f3fc6-6538-46e1-aeb0-4c711660595d`.
+
+The separately reviewed collector21 uses the first-member identity of
+`struct tun_file::sk`, preserving typed field reads and all parser requirements.
+Its collector SHA256 is
+`8ff24ec0267dddb7f38f4787a05f8c47b94082b1be98b1663e5099d6d2eba972`;
+parser SHA256 is
+`40b1004325a97bc04e70dc119e15838bcb40bc4055d95f4c3ee34617434d0ce3`.
+Thirteen pure binding/lineage controls passed. Actual target-zero passive
+compilation and loading returned original bpftrace/SSH0 (`3e85e7`), with empty
+stdout and no compiler warning/error in the complete public-source diagnostic.
+The observer includes the four actual TUN-module hooks. The preceding
+collector20 field-expression compile failure remains NONPASS.
+
+This establishes compiler/kernel-hook compatibility only. Fresh real runtime
+field observations, complete numeric census, the DNS case and packet/fault
+matrix remain separate gates; no production coverage authority is issued.
