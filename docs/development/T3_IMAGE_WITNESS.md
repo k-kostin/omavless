@@ -174,3 +174,57 @@ Pid/dup/socket API spellings, and strict lint found three local formatting/
 parser style defects; each was corrected before this checkpoint. None executed
 the helper, a real socket or the ignored test. These source controls do not
 substitute for the fresh original helper/native-child VM statuses and matrix.
+
+## Exact passive VM checkpoint (ROOT-operated)
+
+Tested production source is `400c648b61d266a84c6732022aa19ffd9eec2ba3`,
+not this documentation successor. The immutable helper was570,592 bytes/SHA256
+`6c646467e572437ba98b64ba248e2b944745ca06d4bc9eec11784bc600db304b`;
+native test ELF21,678,480 bytes/SHA256
+`fb61ea171e531f51d5645d0fe45f75a77adecb5a5166077049af956d89148477`.
+The exact four-family core remained61,083,808 bytes/SHA256
+`897ada648fe975718ac1b7318702def5b826a9901797a0d13cdd333a012b9fcb`.
+Primary and independent full source/packet reviews preceded selection.
+
+The first recipe retained writable copied-executable descriptors. Its run
+`873207`/session97929 reached HELPER_START refusal and stayed parked; no test
+spawn or passive PASS is asserted. Initial fixed-file observer `233300` was
+originalSSH1 on an absent test capture. Separately approved projections
+`7f83e6` and `10a9cd` returned originalSSH0: helper stderr88 bytes/SHA256
+`7b969c0c52dcc0c093c8bb6084dfc2e32d1a5bdc1c694776364bd06403bed57e`
+matched the exact closed `text_file_busy` category. This concrete recipe error
+was corrected ONLY in a fresh packet: verify full copied bytes and retained
+read-only same-inode handle, then positively release its writable handle before
+exec. Failed scope1 was not retried, reaped, signalled, queried or cleaned up.
+
+Fresh scope2 kept the same compiled source/artifacts. ROOT admitted only the
+known-positive global empty mount anchors through exact read-only identity,
+owner/mode/no-xattr/emptiness checks; no old private namespace/resource was
+adopted. Seventeen pure packet controls passed before both affected reviews.
+ROOT upload `80998c` and preparation `c35d23` returned original0. Positive run
+`76b7e1` returned originalSSH0 after exact ORIGINAL helper0/native0 and complete
+output/identity grammar checks. Separate observer `5e0abf` returned original0:
+helper stderr232 bytes/SHA256
+`c4f72de75067b7d2bcc4156163778f87f8275ab3050e37c8488e7af729724c93`
+contained seven fixed phases with exactly three fresh image sends; stdout was
+empty. Native stderr127 bytes/SHA256
+`3950f4560b615e8cb849639adc59f0945a8c43668e934851116174e45707606a3`
+matched the positive phases; stdout222 bytes/SHA256
+`c3860517d8eb8f054aba99e9b9a6a0e0ae890d260b9f9e7c58b1fcf5fa08bb87`
+matched the complete single-test success grammar, without a panic.
+
+Wrong-parent run `523c38` and original-dead-child run `ad2a6906` independently
+returned originalSSH0 after expected ORIGINAL helper2/native0, exact bind-refused
+phases and native success grammar. Their separate observers `9f2425`/`722d6e`
+returned original0. Both helper stderr131 bytes/SHA256
+`dc98b3bd954d42750ae6536d8d9fcf820761ffadc7f2fb34591f316469d1cfa7`
+and native stderr90 bytes/SHA256
+`e2db968bd74639162132566d747f87b156662cf36495e7a624acaa42afb423d3`
+matched the exact negative grammar. These are specific bind-refusal controls,
+not generic-error or kernel-errno inference. Native test stdout222 bytes/SHA256
+`cf4b5c79a024fc5e934590c686fb7b41c9d106caf7cb97731391cf01e3424282`.
+
+This proves the bounded passive same-original cap-child image samples and two
+negative controls only. Actual image/source drift, NativeOwner/Session fresh
+per-flight integration, effect-bearing close, default exposure and distribution
+remain pending. No source/packet author operated the VM or read raw captures.
