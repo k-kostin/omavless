@@ -83,6 +83,25 @@ fn coverage_issuer_has_no_accepted_digest_or_native_spawn() {
 }
 
 #[test]
+fn same_host_full_intent_maps_to_rule_without_inventing_core_readiness() {
+    let (_root, mut host, desired) = fixture();
+    host.profile_id = Some(desired.profile_id.clone());
+    host.readiness = Some(ConfigReadiness::protected_full(PROFILE.to_owned()));
+    let expected = host.readiness.as_ref().unwrap();
+    assert_eq!(expected.mode, RoutingMode::Rule);
+    assert!(expected.matches_intent(desired.mode));
+    assert!(!expected.matches_intent(RoutingMode::Rule));
+    // The same actual host still refuses a close session and does not report
+    // running/controller health without an original core. No fake TUN/core.
+    assert!(host.capture_connection_close(&desired).is_err());
+    let observed = host.fresh_observation(&desired).unwrap();
+    assert!(!observed.owned_core_running);
+    assert!(!observed.owned_controller_config_verified);
+    let observed = host.observe(&desired).unwrap();
+    assert!(!observed.controller_ready);
+}
+
+#[test]
 fn validation_data_directory_replacement_is_not_an_equivalent_input() {
     let (root, mut host, desired) = fixture();
     stage(&mut host, &desired).unwrap();
@@ -103,7 +122,12 @@ fn validation_data_directory_replacement_is_not_an_equivalent_input() {
 fn canonical_policy_is_fixed_and_has_no_external_resource_dependencies() {
     let bytes = rendered(URI).unwrap();
     let config: Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(config["mode"] == "global");
+    assert!(config["mode"] == "rule");
+    assert_eq!(
+        config["rules"],
+        json!(["NETWORK,UDP,REJECT", "MATCH,PROXY"])
+    );
+    assert_eq!(config["tun"]["disable-icmp-forwarding"], json!(true));
     assert!(config["routing-mark"] == omavless_netguard::nft::CORE_MARK);
     assert!(config["tun"]["device"] == omavless_netguard::nft::TUN);
     assert!(config["tun"]["auto-redirect"] == false);

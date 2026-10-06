@@ -8,9 +8,12 @@ use std::os::fd::AsRawFd;
 
 const INPUT_DIRECTORY: &str = "/run/omavless-k1-peer";
 const IDENTITY: &str = "/run/omavless-k1-peer/identity.bin";
-const OUTPUT_DIRECTORY: &str = "/run/omavless-k1-rendered";
-const OUTPUT: &str = "/run/omavless-k1-rendered/generated.json";
-const CONTROLLER: &str = "/run/omavless-k1-rendered/controller.sock";
+// A distinct one-shot publication preserves the old Global-policy matrix.
+// This ignored test still calls the production renderer; it does not recreate
+// configuration JSON or grant coverage/Arm authority.
+const OUTPUT_DIRECTORY: &str = "/run/omavless-k1-rule-rendered";
+const OUTPUT: &str = "/run/omavless-k1-rule-rendered/generated.json";
+const CONTROLLER: &str = "/run/omavless-k1-rule-rendered/controller.sock";
 
 fn canonical_peer(identity: &[u8; 16]) -> Result<Vec<u8>, PreparationError> {
     let mut uuid = String::with_capacity(36);
@@ -111,6 +114,9 @@ fn fixed_peer_uses_production_canonical_renderer() {
     assert_eq!(value["proxies"][0]["port"], 24443);
     assert_eq!(value["proxies"][0]["servername"], "peer.k1.invalid");
     assert_eq!(value["proxies"][0]["udp"], false);
+    assert_eq!(value["mode"], "rule");
+    assert_eq!(value["rules"], json!(["NETWORK,UDP,REJECT", "MATCH,PROXY"]));
+    assert_eq!(value["tun"]["disable-icmp-forwarding"], true);
     assert_eq!(value["routing-mark"], omavless_netguard::nft::CORE_MARK);
     assert_eq!(value["dns"]["nameserver"][0], RESOLVER);
     assert_eq!(value["external-controller-unix"], CONTROLLER);

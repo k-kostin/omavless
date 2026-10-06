@@ -259,8 +259,9 @@ fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, Prepa
         return Err(PreparationError::Unsupported);
     }
     object.insert("name".into(), json!(PROFILE));
-    // First scope intentionally declines UDP proxying. TLS verification remains
-    // enabled; no test-only insecure credential path is generated.
+    // UDP=false alone does not prevent VLESS packet forwarding in global mode.
+    // The fixed first NETWORK rule below rejects non-hijacked UDP instead.
+    // TLS verification remains enabled.
     object.insert("udp".into(), json!(false));
     let controller = controller
         .to_str()
@@ -269,7 +270,7 @@ fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, Prepa
     // JSON is canonical YAML input to Mihomo; no string replacement, merge keys,
     // inherited provider/geodata paths, cached selection or bootstrap hostname.
     let value = json!({
-        "mode": "global", "log-level": "silent", "ipv6": false,
+        "mode": "rule", "log-level": "silent", "ipv6": false,
         "port": 0, "socks-port": 0, "mixed-port": 0, "redir-port": 0, "tproxy-port": 0,
         "allow-lan": false, "find-process-mode": "off",
         "external-controller-unix": controller,
@@ -277,6 +278,7 @@ fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, Prepa
         "tun": {"enable": true, "stack": "system", "device": omavless_netguard::nft::TUN,
             "auto-route": true, "auto-detect-interface": true, "strict-route": true,
             "auto-redirect": false, "dns-hijack": ["any:53"],
+            "disable-icmp-forwarding": true,
             "disable-system-dns": true, "omavless-dns-broker": true},
         "dns": {"enable": true, "ipv6": false, "use-hosts": false, "use-system-hosts": false,
             "enhanced-mode": "redir-host", "default-nameserver": ["1.1.1.1"],
@@ -285,7 +287,7 @@ fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, Prepa
         "proxies": [proxy],
         "proxy-groups": [{"name": "PROXY", "type": "select", "proxies": [PROFILE]},
             {"name": "GLOBAL", "type": "select", "proxies": ["PROXY"], "default-selected": "PROXY"}],
-        "rules": ["MATCH,PROXY"]
+        "rules": ["NETWORK,UDP,REJECT", "MATCH,PROXY"]
     });
     let bytes = serde_json::to_vec(&value).map_err(|_| PreparationError::Refused)?;
     if bytes.len() as u64 > MAX_CONFIG {

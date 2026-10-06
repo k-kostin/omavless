@@ -303,3 +303,52 @@ Initial test failures were the old prepare/restored expectation and missing new
 pre-Arm admission event; both assertions were updated to the intentional stronger
 uncertainty contract and rerun successfully. Source review must precede any
 accepted issuer or actual native execution.
+
+## Protected Rule policy successor (source only)
+
+The old Global-mode transport matrix does not establish a TCP-only policy:
+the qualified core's VLESS constructor enables XUDP for empty packet encoding,
+and Global UDP dispatch does not enforce the proxy's `udp: false` option.
+The protected renderer now emits Rule mode, first `NETWORK,UDP,REJECT`, then
+`MATCH,PROXY`, and `tun.disable-icmp-forwarding: true`. The desired Full intent,
+fixed mark/device and same-owner lifecycle are unchanged. The coverage issuer
+is still closed; no receipt or matrix result is imported as permission.
+
+The exact four-family corresponding source supplies these bounded path facts:
+
+- `listener/listener.go::ReCreateTun` calls `sing_tun.New` without additions;
+  its default additions set an empty SpecialRules and no SpecialProxy. The
+  ordinary TUN TCP/UDP handlers construct fresh metadata. No arbitrary inbound
+  or tunnel listener is present in the closed generated configuration.
+- `listener/sing_tun/dns.go` intercepts matching port 53 before the ordinary
+  packet handler. The fixed numeric DoH `#PROXY` resolver is an intentional
+  separate internal SpecialProxy path, not permission for TUN UDP to bypass
+  the Network rule. Ordinary UDP reaches `tunnel.match`; Network matching does
+  not resolve a hostname. REJECT supports UDP but its packet connection is
+  in-memory, not a socket dial. The following Match rule selects sole PROXY
+  for ordinary TCP. No provider, rematch or user rule is generated.
+- `listener/sing_tun/prepare.go` returns before `ping.ConnectDestination` when
+  the ICMP-disable flag is set. In the selected system stack,
+  `stack_system.go::processIPv4ICMP/processIPv6ICMP` discard non-echo/code-nonzero
+  input; echo can receive a locally synthesized response after that nil route.
+  A local echo reply is explicitly not a remote reachability result.
+- Controller readiness reads actual Rule mode, exact ordered enabled Network
+  and Match rows, empty rule providers, sole currently selected PROXY member,
+  managed DNS ready and explicit ICMP-disable true. This remains a read-only
+  readiness assertion, not a permanent lock against controller mutation and
+  not socket coverage or Arm authority.
+
+Before an issuer decision, separately render using the existing ignored Rust
+peer renderer from this exact successor (never reconstruct JSON in the fixture),
+validate with the held original core, then observe fresh DNS/TCP success,
+non-DNS UDP rejection and ICMP no-network cases. Each rejection case needs
+positive inner probe delivery plus no corresponding outer socket/packet; a
+missing packet or fake echo alone cannot certify rejection. Preserve all old
+Global matrix evidence under its original hashes. Native Arm/observation/stop,
+leak/crash and repeated-cycle acceptance remain separate required work.
+
+The private readiness expectation distinguishes desired Full/Global intent from
+actual protected core Rule mode. All three existing NativeLifecycleHost intent
+checks (close capture, fresh observation and lifecycle observation) use that
+mapping; ordinary readiness still requires literal mode equality. Mode matching
+alone never grants controller/TUN readiness or coverage.

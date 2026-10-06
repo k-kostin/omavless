@@ -25,13 +25,28 @@ fingerprint, ALPN or other emitted transport extensions. An exact structured
 renderer-key allowlist refuses future canonical renderer extensions too.
 
 The generated JSON (Mihomo YAML-compatible input, not yet actual-core validated)
-has fixed profile/selector names, Full/global mode, `omavless0`, socket mark
-`0x4f4d4101`, managed-DNS flags and auto-route without auto-redirect. UDP proxying
-and IPv6 are disabled for this first source scope. No user template, custom rule,
+has fixed profile/selector names, Full desired intent with core **Rule** mode,
+`omavless0`, socket mark `0x4f4d4101`, managed-DNS flags and auto-route without
+auto-redirect. Its exact ordered rules are `NETWORK,UDP,REJECT` then
+`MATCH,PROXY`; `tun.disable-icmp-forwarding` is explicitly true. `udp: false`
+alone is not a TCP-only enforcement mechanism in the pinned core's Global mode:
+VLESS can still enter its packet path. The fixed rule rejects non-hijacked UDP;
+port-53 DNS is intercepted earlier and uses the fixed resolver. ICMP forwarding
+is disabled, but the system stack can synthesize local echo replies: these are
+not evidence of remote reachability. IPv6 remains disabled. No user template, custom rule,
 provider/geodata dependency, inherited listener, cached selector, host-file
 resolver or caller-selected bypass mark is incorporated. Ordinary templates and
 probe mark `524288` are unchanged. JSON string encoding prevents profile/controller
 text from becoming additional configuration syntax.
+
+Protected readiness separately requires Rule mode, the explicit ICMP-disable
+flag, exactly those two ordered enabled rule rows, no rule providers, and a
+single-member PROXY selector currently selecting the fixed VLESS profile.
+Ordinary readiness and templates retain their existing behavior. This source
+successor does not retroactively change the old Global-mode matrix's scope;
+fresh exact-renderer DNS/TCP success, non-DNS UDP rejection and ICMP no-network
+observations are required before a separate issuer decision. The issuer remains
+`Unsupported`.
 
 DNS selects numeric `https://1.1.1.1/dns-query#PROXY` and a numeric default
 resolver. Numeric proxy and DoH endpoints eliminate required hostname bootstrap
