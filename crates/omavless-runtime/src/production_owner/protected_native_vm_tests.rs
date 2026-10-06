@@ -173,6 +173,12 @@ fn installed_current_owner_protected_roundtrip() {
                 );
                 let (site, ordinal) = crate::protected_native_diagnostic::origin();
                 eprintln!("K1_NATIVE_ORIGIN_DIAGNOSTIC {} {}", site.token(), ordinal);
+                let (reason, io) = crate::login_transaction::diagnostic::last();
+                eprintln!(
+                    "K1_NATIVE_LOGIN_DIAGNOSTIC {} {}",
+                    reason.token(),
+                    io.token()
+                );
             });
             // Never turn a failed constructor/roundtrip into a retry, cleanup,
             // original-child completion or guessed ownership. ROOT may choose

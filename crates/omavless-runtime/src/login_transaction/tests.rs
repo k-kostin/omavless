@@ -1,6 +1,70 @@
 // SPDX-License-Identifier: MIT
 use super::*;
 
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn startup_diagnostic_observes_actual_receipt_and_original_fences() {
+    use super::diagnostic::{Io, Reason};
+    let fixture = Fixture::new(false);
+    fixture.run(&mut Host::default()).unwrap();
+    let original = fs::read(&fixture.paths.receipt).unwrap();
+    let lock = MigrationLock::acquire(&fixture.paths.cutover, fixture.paths.uid).unwrap();
+    let check = |generation, expected: Reason| {
+        let result =
+            check_startup_receipt(&fixture.paths.cutover, fixture.paths.uid, &lock, generation);
+        assert_eq!(result.is_ok(), expected == Reason::NoFailure);
+        assert_eq!(diagnostic::last(), (expected, Io::None));
+    };
+    check(Some(2), Reason::NoFailure);
+    // Desired generations are deliberately not ownership receipt generations.
+    let changed = DesiredState {
+        generation: 81,
+        ..DesiredState::default()
+    };
+    crate::desired::write_desired(&fixture.paths.desired, fixture.paths.uid, &changed).unwrap();
+    check(Some(2), Reason::NoFailure);
+    assert_eq!(fs::read(&fixture.paths.receipt).unwrap(), original);
+    check(Some(3), Reason::Identity);
+    check(None, Reason::Identity);
+    let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    value["phase"] = serde_json::json!("pending");
+    fixture.put(&fixture.paths.receipt, &serde_json::to_vec(&value).unwrap());
+    check(Some(2), Reason::Identity);
+    fixture.put(&fixture.paths.receipt, b"{");
+    check(Some(2), Reason::Decode);
+    value["schemaVersion"] = serde_json::json!(2);
+    fixture.put(&fixture.paths.receipt, &serde_json::to_vec(&value).unwrap());
+    check(Some(2), Reason::Schema);
+    fixture.put(&fixture.paths.receipt, &[0xff]);
+    check(Some(2), Reason::StoreUtf8);
+    fixture.put(&fixture.paths.receipt, &original);
+    fs::set_permissions(&fixture.paths.receipt, fs::Permissions::from_mode(0o644)).unwrap();
+    check(Some(2), Reason::MetadataUnsafe);
+    let pending = fixture
+        .paths
+        .cutover
+        .state_directory
+        .join("restore-decision.intent");
+    fixture.put(&pending, b"synthetic");
+    // Existing short circuit: pending wins over the still-invalid receipt mode.
+    check(Some(2), Reason::Pending);
+    assert!(
+        check_startup_receipt(
+            &fixture.paths.cutover,
+            fixture.paths.uid + 1,
+            &lock,
+            Some(2)
+        )
+        .is_err()
+    );
+    assert_eq!(diagnostic::last(), (Reason::StartupLock, Io::None));
+    fs::remove_file(pending).unwrap();
+    fs::set_permissions(&fixture.paths.receipt, fs::Permissions::from_mode(0o600)).unwrap();
+    check(Some(2), Reason::NoFailure);
+    fs::remove_file(&fixture.paths.receipt).unwrap();
+    check(Some(2), Reason::NoFailure); // Preserve the original startup semantics.
+}
+
 #[test]
 fn production_receipt_requires_current_epoch_and_preserves_manual_disconnect() {
     let fixture = Fixture::new(false);

@@ -107,6 +107,7 @@ pub(crate) fn origin() -> (Site, u8) {
 pub(crate) fn mark(cut: Cut) {
     if cut == Cut::NotEntered {
         ORIGIN.set((Site::Initial, 0));
+        crate::login_transaction::diagnostic::reset();
     }
     LAST.set(cut);
 }

@@ -541,3 +541,41 @@ formatting and diff checks passed. The new actual mock-candidate call-sequence
 control checks the above ordinals through connect, interval and explicit close.
 An initial redundant match fallback produced a compiler warning; it was removed
 before the final strict gates. These are SOURCE controls, not real native effects.
+
+### Nested startup-receipt diagnostic (SOURCE only)
+
+Native51 remains NONPASS/unknown. Its closed `origin_login`, `local`, ordinal10
+labels reach the startup-receipt check before owned-core start. A later fixed
+read-only projection found a consumed receipt matching the Rust ownership
+generation and absent pending members; that does not reconstruct the original
+failed read or prove process descriptor exhaustion. Desired/NetGuard generation
+advances are distinct from ownership generation; this checker has no clock or
+user-manager epoch query.
+
+The successor observes failure branches of the existing startup checker and
+its original receipt reader, only in the native test executable. It performs no
+additional read, query, retry or guard evaluation. An invocation-scoped
+thread-local observation resets at checker entry, records only the first closed
+failure class, and deactivates on return/unwind. Other login calls cannot replace
+that record. The existing four diagnostic lines remain; a fifth fixed line,
+`K1_NATIVE_LOGIN_DIAGNOSTIC <reason> <io-class>`, is emitted only inside the
+existing post-retention catch-unwind. `no_failure` means no recorded branch,
+not a successful operation receipt. Phase/generation mismatch is deliberately
+one class, preserving the original combined short-circuit predicate.
+
+Existing metadata errors can expose finite errno classes without another
+syscall. The store reader erases open/read errno into its existing `Io` error;
+`store_io_opaque` explicitly preserves that uncertainty, never claims EMFILE.
+No raw error, path, receipt field, epoch or generation is printed. Default and
+non-test builds have neither observation state nor output. Real filesystem
+controls invoke the actual startup checker for consumed/absent receipts,
+Desired-only advancement, ownership mismatch, pending phase, malformed/schema/
+UTF-8/mode failures and pending-before-receipt short circuit. They are local
+SOURCE controls, not native admission or recovery of an earlier VM attempt.
+
+Focused serial gates passed21 login controls and59 protected controls with three
+VM selectors ignored. Strict headless-scenario all-target and ordinary-default
+library Clippy, scoped formatting and diff checks passed. The first test compile
+refused an ambiguous diagnostic-module import; the explicit module path fixed
+that test-only error before the final gates. No VM invocation or release/native
+ELF rebuild is included in this SOURCE checkpoint.
