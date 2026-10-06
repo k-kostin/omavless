@@ -16,6 +16,31 @@ use zbus::{
     zvariant::OwnedValue,
 };
 
+fn exact_data<T>(
+    data: &zbus::zvariant::serialized::Data<'_, '_>,
+    signature: &zbus::zvariant::Signature,
+) -> Result<T, Lost>
+where
+    T: for<'a> zbus::zvariant::DynamicDeserialize<'a> + zbus::zvariant::Type,
+{
+    if signature != T::SIGNATURE || data.len() > MAX_WIRE_BYTES {
+        return Err(Lost::InvalidFrame);
+    }
+    let (value, used) = data
+        .deserialize_for_dynamic_signature(signature)
+        .map_err(|_| Lost::InvalidFrame)?;
+    if used != data.len() {
+        return Err(Lost::InvalidFrame);
+    }
+    Ok(value)
+}
+fn exact_body<T>(body: &zbus::message::Body) -> Result<T, Lost>
+where
+    T: for<'a> zbus::zvariant::DynamicDeserialize<'a> + zbus::zvariant::Type,
+{
+    exact_data(body.data(), body.signature())
+}
+
 const SYSTEM_SOCKET: &str = "/run/dbus/system_bus_socket";
 const DBUS: &str = "org.freedesktop.DBus";
 const DBUS_PATH: &str = "/org/freedesktop/DBus";
@@ -161,14 +186,12 @@ impl Logind {
         let reply = self
             .call(DBUS, DBUS_PATH, DBUS, "GetNameOwner", &(LOGIN,), deadline)
             .await?;
-        let name: String = reply.body().deserialize().map_err(|_| Lost::InvalidFrame)?;
-        if !name.starts_with(':') || name.len() > 255 {
-            return Err(Lost::Authentication);
-        }
+        let name: String = exact_body(&reply.body())?;
+        zbus::names::UniqueName::try_from(name.as_str()).map_err(|_| Lost::Authentication)?;
         Ok(name)
     }
     async fn credentials(&self, owner: &str, deadline: Instant) -> Result<(u32, u32), Lost> {
-        let uid = self
+        let uid_reply = self
             .call(
                 DBUS,
                 DBUS_PATH,
@@ -177,11 +200,9 @@ impl Logind {
                 &(owner,),
                 deadline,
             )
-            .await?
-            .body()
-            .deserialize::<u32>()
-            .map_err(|_| Lost::InvalidFrame)?;
-        let pid = self
+            .await?;
+        let uid: u32 = exact_body(&uid_reply.body())?;
+        let pid_reply = self
             .call(
                 DBUS,
                 DBUS_PATH,
@@ -190,10 +211,8 @@ impl Logind {
                 &(owner,),
                 deadline,
             )
-            .await?
-            .body()
-            .deserialize::<u32>()
-            .map_err(|_| Lost::InvalidFrame)?;
+            .await?;
+        let pid: u32 = exact_body(&pid_reply.body())?;
         if uid != self.uid || pid == 0 {
             return Err(Lost::Authentication);
         }
@@ -201,8 +220,10 @@ impl Logind {
     }
     async fn initialize(&mut self, deadline: Instant) -> Result<(), Lost> {
         for rule in [OWNER_MATCH, SLEEP_MATCH] {
-            self.call(DBUS, DBUS_PATH, DBUS, "AddMatch", &(rule,), deadline)
+            let reply = self
+                .call(DBUS, DBUS_PATH, DBUS, "AddMatch", &(rule,), deadline)
                 .await?;
+            exact_body::<()>(&reply.body())?;
         }
         self.owner = self.owner_now(deadline).await?;
         let (_, pid) = self.credentials(&self.owner, deadline).await?;
@@ -217,7 +238,7 @@ impl Logind {
                 deadline,
             )
             .await?;
-        let value: OwnedValue = reply.body().deserialize().map_err(|_| Lost::InvalidFrame)?;
+        let value: OwnedValue = exact_body(&reply.body())?;
         self.sleeping = bool::try_from(value).map_err(|_| Lost::InvalidFrame)?;
         self.verify_owner(deadline).await?;
         self.drain(deadline, true).await?;
@@ -282,8 +303,7 @@ impl Logind {
             if h.sender().map(|s| s.as_str()) != Some(DBUS) {
                 return Err(Lost::Authentication);
             }
-            let (name, old, new): (String, String, String) =
-                msg.body().deserialize().map_err(|_| Lost::InvalidFrame)?;
+            let (name, old, new): (String, String, String) = exact_body(&msg.body())?;
             if name == LOGIN && old != new {
                 return Err(if initializing {
                     Lost::InitializationRace
@@ -300,7 +320,7 @@ impl Logind {
             if h.sender().map(|s| s.as_str()) != Some(self.owner.as_str()) {
                 return Err(Lost::Authentication);
             }
-            let sleeping: bool = msg.body().deserialize().map_err(|_| Lost::InvalidFrame)?;
+            let sleeping: bool = exact_body(&msg.body())?;
             if initializing {
                 return Err(Lost::InitializationRace);
             }
@@ -386,6 +406,18 @@ impl Logind {
             .reset_after_drain(MAX_POLL_BYTES / 2)?;
         Ok(events) // caller retains them; an event is not source loss or quiescence.
     }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_exact_bool(
+    bytes: Vec<u8>,
+    signature: &zbus::zvariant::Signature,
+) -> Result<bool, Lost> {
+    let data = zbus::zvariant::serialized::Data::new(
+        bytes,
+        zbus::zvariant::serialized::Context::new_dbus(zbus::zvariant::Endian::Little, 0),
+    );
+    exact_data(&data, signature)
 }
 impl Drop for Logind {
     fn drop(&mut self) {

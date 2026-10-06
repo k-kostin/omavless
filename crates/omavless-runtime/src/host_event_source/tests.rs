@@ -11,6 +11,22 @@ use std::sync::{
 };
 use zbus::{Connection, connection::Builder};
 
+async fn fixture_bound<T>(future: impl std::future::Future<Output = zbus::Result<T>>) -> T {
+    within(Instant::now() + Duration::from_secs(2), async {
+        future.await.map_err(|_| Lost::Unavailable)
+    })
+    .await
+    .expect("bounded private fixture operation")
+}
+static FIXTURE_UNKNOWN: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shutdown {
+    Active,
+    Completed,
+    Unknown,
+}
+
 struct Login {
     sleeping: Arc<AtomicBool>,
     race: bool,
@@ -24,28 +40,32 @@ impl Login {
             async_io::Timer::after(Duration::from_secs(3)).await;
         }
         if self.race {
-            connection
-                .emit_signal(
-                    None::<&str>,
-                    "/org/freedesktop/login1",
-                    "org.freedesktop.login1.Manager",
-                    "PrepareForSleep",
-                    &true,
-                )
-                .await
-                .unwrap();
+            fixture_bound(connection.emit_signal(
+                None::<&str>,
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "PrepareForSleep",
+                &true,
+            ))
+            .await;
         }
         self.sleeping.load(Ordering::Acquire)
     }
 }
 
 struct PrivateBus {
-    directory: tempfile::TempDir,
+    directory: Option<tempfile::TempDir>,
     socket: PathBuf,
-    child: Child,
+    child: Option<Child>,
+    shutdown: Shutdown,
 }
 impl PrivateBus {
     fn new() -> Self {
+        assert!(
+            !FIXTURE_UNKNOWN.load(Ordering::Acquire),
+            "unresolved original fixture stops later acquisition"
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
         let directory = tempfile::Builder::new()
             .prefix("ov-events-")
             .tempdir()
@@ -65,6 +85,7 @@ impl PrivateBus {
         )
         .unwrap();
         let child = Command::new("/usr/bin/dbus-daemon")
+            .env_clear()
             .arg("--nofork")
             .arg("--nopidfile")
             .arg("--config-file")
@@ -75,11 +96,11 @@ impl PrivateBus {
             .spawn()
             .unwrap();
         let bus = Self {
-            directory,
+            directory: Some(directory),
             socket,
-            child,
+            child: Some(child),
+            shutdown: Shutdown::Active,
         };
-        let deadline = Instant::now() + Duration::from_secs(2);
         while !fs::symlink_metadata(&bus.socket).is_ok_and(|m| m.file_type().is_socket()) {
             assert!(Instant::now() < deadline, "owned private bus unavailable");
             std::thread::sleep(Duration::from_millis(2));
@@ -88,53 +109,99 @@ impl PrivateBus {
     }
     fn connection(&self) -> Connection {
         async_io::block_on(async {
-            Builder::address(format!("unix:path={}", self.socket.display()).as_str())
-                .unwrap()
-                .build()
-                .await
-                .unwrap()
+            fixture_bound(
+                Builder::address(format!("unix:path={}", self.socket.display()).as_str())
+                    .unwrap()
+                    .build(),
+            )
+            .await
         })
     }
     fn login(&self, sleeping: bool, race: bool, stall: bool) -> Connection {
         async_io::block_on(async {
-            Builder::address(format!("unix:path={}", self.socket.display()).as_str())
-                .unwrap()
-                .name("org.freedesktop.login1")
-                .unwrap()
-                .serve_at(
-                    "/org/freedesktop/login1",
-                    Login {
-                        sleeping: Arc::new(AtomicBool::new(sleeping)),
-                        race,
-                        stall,
-                    },
-                )
-                .unwrap()
-                .build()
-                .await
-                .unwrap()
+            fixture_bound(
+                Builder::address(format!("unix:path={}", self.socket.display()).as_str())
+                    .unwrap()
+                    .name("org.freedesktop.login1")
+                    .unwrap()
+                    .serve_at(
+                        "/org/freedesktop/login1",
+                        Login {
+                            sleeping: Arc::new(AtomicBool::new(sleeping)),
+                            race,
+                            stall,
+                        },
+                    )
+                    .unwrap()
+                    .build(),
+            )
+            .await
         })
     }
-    fn stop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+    fn stop(&mut self) -> Result<(), Shutdown> {
+        match self.shutdown {
+            Shutdown::Completed => return Ok(()),
+            Shutdown::Unknown => return Err(Shutdown::Unknown),
+            Shutdown::Active => {}
+        }
+        // Consume cleanup eligibility before the first operation that can fail.
+        // Any unknown result forbids another kill/reap attempt on Drop.
+        self.shutdown = Shutdown::Unknown;
+        let child = self.child.as_mut().unwrap();
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                self.shutdown = Shutdown::Completed;
+                return Ok(());
+            }
+            Ok(None) => {}
+            Err(_) => {
+                FIXTURE_UNKNOWN.store(true, Ordering::Release);
+                return Err(Shutdown::Unknown);
+            }
+        }
+        if child.kill().is_err() {
+            FIXTURE_UNKNOWN.store(true, Ordering::Release);
+            return Err(Shutdown::Unknown);
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    self.shutdown = Shutdown::Completed;
+                    return Ok(());
+                }
+                Err(_) => {
+                    FIXTURE_UNKNOWN.store(true, Ordering::Release);
+                    return Err(Shutdown::Unknown);
+                }
+                Ok(None) => {}
+            }
+            if Instant::now() >= deadline {
+                FIXTURE_UNKNOWN.store(true, Ordering::Release);
+                return Err(Shutdown::Unknown);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
     }
 }
 impl Drop for PrivateBus {
     fn drop(&mut self) {
-        self.stop();
-        let _ = self.directory.path();
+        if self.stop().is_err() {
+            // Retain the ORIGINAL handle together with its owned directory,
+            // rather than retrying signals or invoking TempDir cleanup. This
+            // test process cannot claim custody survives its fatal exit.
+            let _original = Box::leak(Box::new((self.child.take(), self.directory.take())));
+        }
     }
 }
 fn signal(connection: &Connection, sleeping: bool) {
-    async_io::block_on(connection.emit_signal(
+    async_io::block_on(fixture_bound(connection.emit_signal(
         None::<&str>,
         "/org/freedesktop/login1",
         "org.freedesktop.login1.Manager",
         "PrepareForSleep",
         &sleeping,
-    ))
-    .unwrap();
+    )));
 }
 fn next(source: &mut HostEventSource) -> Result<Emission, Lost> {
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -200,11 +267,11 @@ fn owner_replacement_and_bus_loss_are_terminal_without_reconnect() {
         let login = bus.login(false, false, false);
         let mut source = HostEventSource::fixture(&bus.socket).unwrap();
         if replacement {
-            async_io::block_on(login.release_name("org.freedesktop.login1")).unwrap();
+            async_io::block_on(fixture_bound(login.release_name("org.freedesktop.login1")));
             let _new = bus.login(false, false, false);
             assert!(source.quiescent().is_err());
         } else {
-            bus.stop();
+            bus.stop().unwrap();
             assert!(source.quiescent().is_err());
         }
         assert!(source.readable().is_err());
@@ -240,14 +307,13 @@ fn original_queue_stress_and_bad_signal_body_terminalize_without_public_payload(
         let login = bus.login(false, false, false);
         let mut source = HostEventSource::fixture(&bus.socket).unwrap();
         if malformed {
-            async_io::block_on(login.emit_signal(
+            async_io::block_on(fixture_bound(login.emit_signal(
                 None::<&str>,
                 "/org/freedesktop/login1",
                 "org.freedesktop.login1.Manager",
                 "PrepareForSleep",
                 &"not-a-boolean",
-            ))
-            .unwrap();
+            )));
         } else {
             for n in 0..64 {
                 signal(&login, n % 2 == 0);
@@ -339,6 +405,35 @@ fn frame_accounting_does_not_reset_while_partial_or_undrained() {
     clean.reset_after_drain(MAX_POLL_BYTES).unwrap();
     assert!(!clean.pending());
 }
+
+#[test]
+#[ignore = "new source boundary: primary and independent review before execution"]
+fn exact_signature_and_complete_typed_body_refuse_trailing_wire_bytes() {
+    use zbus::zvariant::Signature;
+    assert_eq!(
+        logind::fixture_exact_bool(vec![1, 0, 0, 0], &Signature::Bool),
+        Ok(true)
+    );
+    assert_eq!(
+        logind::fixture_exact_bool(vec![1, 0, 0, 0, 0, 0, 0, 0], &Signature::Bool),
+        Err(Lost::InvalidFrame)
+    );
+    assert_eq!(
+        logind::fixture_exact_bool(vec![1, 0, 0, 0], &Signature::U32),
+        Err(Lost::InvalidFrame)
+    );
+    assert!(zbus::names::UniqueName::try_from(":not-a-unique-name").is_err());
+}
+
+#[test]
+#[ignore = "new source boundary: primary and independent review before execution"]
+fn completed_original_bus_shutdown_is_idempotent_without_another_signal() {
+    let mut bus = PrivateBus::new();
+    bus.stop().unwrap();
+    assert_eq!(bus.shutdown, Shutdown::Completed);
+    bus.stop().unwrap();
+    assert_eq!(bus.shutdown, Shutdown::Completed);
+}
 #[test]
 #[ignore = "new source boundary: primary and independent review before execution"]
 fn unexpected_owned_descriptors_are_closed_during_auth_and_binary_partial_read() {
@@ -365,7 +460,16 @@ fn unexpected_owned_descriptors_are_closed_during_auth_and_binary_partial_read()
         .unwrap();
         let mut split = socket.split();
         let mut byte = [0; 16];
-        assert!(async_io::block_on(split.read_mut().recvmsg(&mut byte)).is_err());
+        assert!(
+            async_io::block_on(within(Instant::now() + Duration::from_secs(2), async {
+                split
+                    .read_mut()
+                    .recvmsg(&mut byte)
+                    .await
+                    .map_err(|_| Lost::Unavailable)
+            }))
+            .is_err()
+        );
         assert_eq!(
             monitor.state().unwrap().loss(),
             Err(Lost::UnexpectedDescriptors)

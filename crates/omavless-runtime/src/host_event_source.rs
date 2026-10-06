@@ -204,6 +204,12 @@ impl HostEventSource {
         if let Err(error) = result {
             return self.fail(error).map_err(NotCurrent::Lost);
         }
+        // Final SAMPLED check after the bus drain and route poll. Do not drain
+        // again here: newly readable/partial/queued traffic refuses this witness
+        // and remains for the original adapter's next bounded poll.
+        if self.readable().map_err(NotCurrent::Lost)? {
+            return Err(NotCurrent::Pending);
+        }
         if !self.pending.is_empty() {
             return Err(NotCurrent::Pending);
         }

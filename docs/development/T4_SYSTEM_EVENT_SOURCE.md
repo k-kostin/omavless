@@ -6,6 +6,9 @@ owner, receipt or lifecycle path activates this adapter. No host bus, host
 netlink, service, network setting or VM has been contacted. New fixtures remain
 ignored until complete primary and independent boundary review permits execution.
 Earlier #697 evidence belongs to that head, not this new transport boundary.
+The first source checkpoint `e73b4177` is execution HOLD from review, not a
+runtime failure or acceptance result. Its successor corrects fixture supervision,
+final original-transport sampling and exact typed-body/unique-name validation.
 
 ## Boundary and interfaces
 
@@ -60,9 +63,12 @@ in filtered stream creation. Fixed NameOwnerChanged and PrepareForSleep rules
 precede initial PreparingForSleep sampling. The unique owner and UID/PID are
 rechecked after sampling; any relevant initialization signal/race refuses the
 constructor. Runtime owner replacement, bus EOF, spoofed relevant sender,
-malformed body, unexpected descriptors, timeout or overflow terminalizes this
+malformed/trailing body, unexpected descriptors, timeout or overflow terminalizes this
 same adapter without reconnect. Sender/path/interface/member/body are checked;
 same UID alone cannot impersonate the pinned unique login1 owner.
+Fixed reply/signal signatures must match the selected type exactly, and parsed
+byte count must consume the entire bounded body. Unique names use the pinned
+name parser, not only a colon-prefix check.
 
 The original connection uses `internal_executor(false)`. Its reader tasks make
 progress only when this mutable adapter drives the same executor inside the
@@ -71,6 +77,9 @@ not mistaken for drop/overflow detection: undrained framing accounting, bounded
 work/bytes and a whole-operation deadline also constrain it. Quiescence checks
 framing partials, accepted-but-undrained frames, original socket readability and
 bounded same-connection owner readback. Queue capacity alone is not currentness.
+After bus drain then route poll, one final sampled readability check covers BOTH
+original transports (including framing partials/queues/EOF). Newly pending data
+refuses the witness without another drain after the fresh observation.
 
 ## Wire and aggregate bounds
 
@@ -127,6 +136,13 @@ retained initial suspend, bounded queues, malformed signals, little/big-endian
 header admission, BEGIN fragments, auth bounds, descriptor rejection, partial
 framing, payload PID/sequence irrelevance, invalid-after-valid datagrams and
 network coalescing without hint gaps. They are compiled, not run or accepted yet.
+The fixed daemon launch clears inherited environment. Fixture builders, emission
+and release futures have whole two-second budgets. Original-child shutdown is
+idempotent: bounded try_wait proves completion; an unknown signal/wait result
+permanently blocks another cleanup attempt or later fixture acquisition. Drop
+retains that original handle and owned directory in-process on unknown, rather
+than deleting evidence or retrying signals. No custody after fatal process exit
+is claimed; completed rebuildable fixture cleanup remains ordinary test-only work.
 
 Complete primary and independent code/dependency review must precede any new
 fixture execution. Genuine fixed-system-bus and kernel delivery, original-owner
