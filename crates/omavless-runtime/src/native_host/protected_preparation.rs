@@ -13,6 +13,7 @@ use std::fs::{File, Metadata, OpenOptions};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::os::unix::fs::{FileExt, OpenOptionsExt};
+mod interval;
 mod validation;
 
 const STAGING: &str = ".config.k1.candidate.json";
@@ -510,12 +511,78 @@ impl NativeLifecycleHost {
         if pair.core_path() != self.paths.core {
             return Err(HostStepError::Prepare);
         }
-        pair.verify()
+        pair.verify_protected()
     }
 }
 
 impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHost {
     type Admission = ArmAdmission;
+    type Interval = interval::Interval;
+    fn begin_interval(&mut self, desired: &DesiredState) -> Result<Self::Interval, HostStepError> {
+        self.recheck_interval(desired)?;
+        interval::Interval::begin(&self.paths.config_directory, self.uid)
+            .map_err(|_| HostStepError::Observation)
+    }
+    fn complete_interval(&mut self, interval: &mut Self::Interval) -> Result<(), HostStepError> {
+        interval.complete().map_err(|_| HostStepError::Observation)
+    }
+    fn recheck_interval(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        let preparation = self
+            .protected_preparation
+            .as_ref()
+            .ok_or(HostStepError::Observation)?;
+        let bound = preparation
+            .bound
+            .as_ref()
+            .ok_or(HostStepError::Observation)?;
+        if !preparation.admitted
+            || !preparation.started
+            || &bound.desired != desired
+            || self.core.is_none()
+            || self.tun_identity.is_none()
+            || !private_directory(&self.paths.config_directory, self.uid)
+            || !self.auxiliary.mutation_safe()
+        {
+            return Err(HostStepError::Observation);
+        }
+        self.paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Observation)?
+            .verify_protected()?;
+        let store = read_private_utf8(&self.paths.store, self.uid)
+            .map_err(|_| HostStepError::Observation)?;
+        if <[u8; 32]>::from(Sha256::digest(store.as_bytes())) != bound.store_digest {
+            return Err(HostStepError::Observation);
+        }
+        bound
+            .core
+            .recheck(&self.paths.core)
+            .map_err(|_| HostStepError::Observation)?;
+        bound
+            .config
+            .recheck(&self.paths.config_directory.join(STAGING))
+            .map_err(|_| HostStepError::Observation)?;
+        // Runtime may legitimately create its cache. Retain original directory
+        // identity/ownership, not pre-start size or timestamps as a fake proof.
+        for current in [
+            bound.data.file.metadata(),
+            fs::symlink_metadata(&self.paths.data_directory),
+        ] {
+            let current = current.map_err(|_| HostStepError::Observation)?;
+            let original = &bound.data.metadata;
+            if current.dev() != original.dev()
+                || current.ino() != original.ino()
+                || current.mode() != original.mode()
+                || current.uid() != original.uid()
+                || current.gid() != original.gid()
+                || current.nlink() != original.nlink()
+            {
+                return Err(HostStepError::Observation);
+            }
+        }
+        Ok(())
+    }
     fn prepare_admitted(&mut self, desired: &DesiredState) -> Result<ArmAdmission, HostStepError> {
         self.prepare_protected_candidate(desired)
             .map_err(|_| HostStepError::Prepare)?;
@@ -529,7 +596,7 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
             .managed_pair
             .as_ref()
             .ok_or(HostStepError::Prepare)?
-            .verify()?;
+            .verify_protected()?;
         if self
             .paths
             .managed_pair

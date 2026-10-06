@@ -4,7 +4,7 @@ SOURCE only, unregistered. Composes fixed-client source `24b91bb4` and preparati
 source `8608857b` into the existing LifecycleExecutor/NativeLifecycleHost. The
 actual #676 client/service boundary result does not accept this new native path.
 
-`netguard-native-scenario` exposes the explicit library function
+Historical #679 `netguard-native-scenario` exposed the explicit library function
 `lifecycle::developer_protected_roundtrip(existing_executor, profile_id)`. It
 consumes an existing native executor, constructs one lazy FixedClient, connects
 and explicitly disconnects on success. It never disconnects as error cleanup.
@@ -12,7 +12,84 @@ There is no CLI registration, ordinary factory replacement, service installer,
 root launcher, package change or default-feature activation. The caller must
 already own the ordinary runtime lifetime/desired-store authority; the function
 does not acquire a new daemon lock or permit parallel owners. A future executable
-driver must prove that custody before calling this function.
+driver must prove that custody before calling this function. The source
+continuation below removes that bare-executor entry in favor of whole-owner
+custody; it is not an additional parallel factory.
+
+## Same-owner qualification continuation
+
+The private `managed_pair::qualified_receipt` decoder derives from exact T3
+`4d4747af47d60956b370e588469a3b9472ed42a1`, with a typed family result added.
+Strict three-patch close/Meta and four-patch close/omavless0 schemas retain their
+exact patch/tag/feature/device/enrollment vocabulary; legacy two-patch parsing
+is unchanged. All three families may receive ordinary package compatibility
+checks, but protected eligibility and its immediate pre-Arm recheck require
+the distinct four-patch family. `ProtectedPairIdentity` still binds the exact
+receipt/core/broker digest triple. Neither family recognition nor a decoded
+receipt is socket coverage. `issue_coverage` remains unconditionally Unsupported.
+
+`ProductionNativeOwner::protected_developer_roundtrip` is private, feature-only
+and unregistered. It consumes an already constructed real owner and its real
+unregistered singleton, installs a whole-graph custody guard before acquiring
+the original MigrationLock, and requires committed Rust ownership, idle empty
+mutation scheduling, no batch, disconnected state and safe auxiliary custody.
+The existing executor stays inside its original transaction: ProtectedCandidate
+borrows it for the entire sequence, never extracts or replaces it. No ordinary
+executor or host is returned. The coordinator is permanently blocked before
+entering the private sequence. Named/held singleton socket and owner-lock facts,
+the same migration lease, exact ownership generation, login receipt and pending
+transaction absence are checked before each local operation/exchange.
+
+Error/unwind retains the whole original owner, singleton and migration lease;
+the protected candidate retains its original fixed client and admission too.
+Only positive Closed after stop/empty/Disarm and a distinct final healthy Status
+with the same closed generation may retire the graph normally. That final Status
+is reached only after known successful Disarm, never after uncertainty.
+Fatal process loss is unavailable, not descriptor survival or recovery. There
+is no ignored executable selector, normal constructor registration, traffic
+callback, privileged helper, cleanup or issuer override in this continuation.
+Current qualification may reach fixed Status, but the closed issuer still
+prevents validator execution and Arm. Real same-owner validation/start/readiness,
+protected traffic, stop/Disarm and failure integration remain unexecuted.
+
+Continuation checks: seven receipt/package cases passed; the protected filter
+passed 35 cases with the existing ROOT-only renderer case ignored. Strict
+all-target Clippy passed for the explicit scenario feature, headless defaults
+and ordinary defaults, plus package formatter/diff checks. Tests use inert
+package bytes and mock lifecycle/port effects; none executed a native core,
+NetGuard exchange, broker, namespace, BPF program or VM action. The initial
+new final-Status test transcript lacked its last event and a mock branch was
+temporarily placed in the wrong test type; both source-only failures were
+corrected before the passing gates. No coverage issuer was enabled.
+
+### Exact four-family validator evidence
+
+ROOT selected the separately reviewed fixed `-t` gate on boot
+`682f9d46-d8f0-425f-a9f4-308475bef0b5`. Exact core
+`897ada648fe975718ac1b7318702def5b826a9901797a0d13cdd333a012b9fcb`, broker
+`4bbba825bc39209cd821af18f7a776825bf762c46a05e43f4354aca283009c70` and receipt
+`c6e283d9c8b4c2fa59163e6a363b93788a36b210f33d5d9dee2d8b5eec5bd8f2` were
+held/pinned, with actual core file capabilities unchanged. The SAME canonical
+Rust-rendered config was held unchanged; only a separate fresh exclusive
+`/run/omavless-k1-four-data24` was created by the file-only administrative stage.
+Existing runtime cache and T4 scopes were not repaired or removed.
+
+Stage `dace83e6`, validator `18c9a740` and unchanged observer `f4f9d506` completed
+the original-owned validation gate: ROOT run `5a892d` / completion `f378b1`
+returned original SSH0 and `K1_VALIDATOR_ORIGINAL_ZERO_NO_SOCKET_EVENTS 10`.
+The strict parser, held-input/empty-data postchecks, original observer0 and
+core0 statuses and reaps preceded that marker. Separate bounded observation
+`8e04e3` reported one exec, four thread creations and five exits; no socket,
+network or mark events, with both stderr captures empty. Trace386 bytes SHA256
+`88dacbfb68934df3b4dd20f883e1bd4d523f747e74f5de750addb1d8f08acdb0`;
+private core stdout485 bytes SHA256
+`7de65fb28946303065606b47ebccdafce2f3bc1eef94a36bf0151d0b47d25857`.
+The snapshot's two unrecognized lines were the exact allowed blank finalizer
+trailer, not unknown events accepted by the parser.
+
+This accepts only that bounded exact-core/config/fresh-data validation case.
+It does not execute the native owner candidate, establish runtime failure-path
+coverage, authorize Arm, or open the private coverage issuer.
 
 ## Owning contract
 
@@ -133,6 +210,87 @@ NIC/suspend/boot, production ownership/factory registration and release acceptan
 remain separate; this plan neither executes nor grants those effects.
 
 ## Source gates
+
+### Fixed native observation interval candidate (issuer still closed)
+
+The private same-owner roundtrip now places one move-only traffic interval
+between protected readiness/commit and explicit disconnect. This is not a new
+owner, service, public callback, observation receipt or caller-provided approval.
+`issue_coverage` still returns `Unsupported`, so this source cannot reach Arm or
+execute the interval through the native driver. ROOT must separately approve
+exact-core qualification and review an issuer change before activation.
+
+The interval uses only the ROOT-approved VM-only, root-owned `0755` test ELF
+`/usr/lib/omavless-netguard/development-native-tests`. Its fixed ignored Rust
+selector has no path/URI/command input: after one stdin release byte it issues
+one A/IN query for `probe.k1.invalid` from `198.18.0.1:40531` to
+`192.0.2.53:53`, requires the exact zero-TTL `192.0.2.80` answer, and sends the
+fixed HTTP request to `192.0.2.80:80`. No mark or bypass is assigned. The helper
+exists only in the test binary, not a product CLI or package registration.
+ROOT will independently admit the exact ELF bytes when provisioning that VM
+artifact; a root-owned arbitrary executable is not package qualification.
+
+Before releasing traffic the native parent retains the original `Child`, actual
+child executable FD, original source ELF and private captures, and checks the
+actual image identity, original parent/UID and zero permitted/effective/ambient
+capabilities. The child waits on its original stdin barrier. The 30-second parent
+deadline and 20-second fixed traffic deadline are finite, without retries. The
+child sets its file-size limit to 4096 bytes before traffic; parent capture reads
+also enforce that bound. Whole stdout/stderr grammar is checked only after
+original zero WNOWAIT, then source/capture ownership and original reap are
+required. Live polling reads only bounded metadata, not a falsely stable live
+byte snapshot.
+
+There is one interval slot, never take/reinsert/retry. Before acquisition a
+private capacity record counts the current WHOLE process FD inventory (including
+its temporary directory iterator) and reserves 24 additional FD roles within a
+fixed aggregate 256 and the existing `RLIMIT_NOFILE` soft limit. This includes
+the already held native owner/core/receipt/singleton/lease/runtime graph, rather
+than pretending the interval starts in an empty process. The 24-role allowance
+covers the six persistent roles below, temporary proc-status reads, output
+clones and overlapping stdin/exec-error/spawn plumbing; no limit is raised.
+The exclusive idle-owner/auxiliary fences precede this admission. Repeated
+inventory/rlimit checks refuse growth beyond that reserved ceiling; this is a
+software role reservation, not an atomic reservation of future Linux FD numbers
+or a promise that allocation cannot fail. Allocation failure retains the
+reported original prefix and never evicts an uncertain graph to make capacity.
+
+Persistent interval FD
+roles are source ELF, capture directory, stdout, stderr, current executable and
+stdin write barrier (six); proc-status reads and standard-library spawn pipe/
+duplication descriptors are temporary, so six is not a peak-descriptor claim.
+The original child is retained immediately after spawn, before proc/image reads.
+On timeout, unknown/nonzero status, acquisition failure after an original prefix,
+source/capture drift or unwind, the interval holder retains its owned prefix and
+the existing outer guard retains the WHOLE armed native owner, singleton and
+migration lease. No automatic stop, signal, kill, compensation or reconnect is
+introduced. Fatal process death remains unavailable, not descriptor survival.
+
+After positive original traffic zero/reap, the same candidate rechecks current
+desired generation/profile/mode, managed pair, held core/config/store and data
+directory identity, actual configured core/TUN and original owner/singleton/lease
+before its existing explicit stop, empty-TUN, Disarm and distinct final Status.
+Runtime data cache creation is allowed without treating directory timestamps as
+immutable; directory inode/ownership/mode/link identity remains bound.
+
+ROOT separately owns the original BPF observer and packet census. Native code
+does not receive its PID, result, receipt or boolean and cannot turn it into Arm
+authority. A native positive traffic interval alone is not whole acceptance:
+ROOT additionally requires its original observer zero, complete strict socket
+and mark-before-connect/send census, packet/leak checks and all declared finite
+fault cases. Ordinary constructors/defaults and the unsupported issuer remain
+unchanged. No ignored selector, real child, network or VM was executed by the
+source writer.
+
+Interval SOURCE gates: the complete `protected_` filter passed 43 tests with two
+ignored selectors; eight of the passing controls directly cover interval
+ordering, post-traffic refusal, one-use, original-prefix Drop/unwind, fixed DNS
+bytes, child privilege/parent, capture replacement/overflow and aggregate
+capacity boundaries. Feature all-target strict Clippy, default check, scoped
+format and diff checks passed. An initial exact-name filter selected zero tests;
+it was not counted as evidence. The first protocol test used an incorrect literal
+header length and failed before any traffic; the exact-length assertion was
+corrected and all affected controls rerun. No ignored test or VM was selected.
 
 Locked/offline targeted protected tests: 30 passed, zero failed/ignored (mock
 validation and lifecycle plus inert private-file preparation). The broader

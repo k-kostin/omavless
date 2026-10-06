@@ -12,6 +12,13 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+mod qualified_receipt;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PackageFamily {
+    LegacyMeta,
+    Qualified(qualified_receipt::Family),
+}
 
 const RELEASE_CORE: &str = "/usr/lib/omavless-dns/mihomo";
 const RELEASE_BROKER: &str = "/usr/lib/omavless-dns/omavless-dns-broker";
@@ -38,6 +45,7 @@ struct Receipt {
 }
 
 pub(crate) struct ManagedPair {
+    family: PackageFamily,
     selector_path: PathBuf,
     selector_owner: u32,
     core_path: PathBuf,
@@ -50,6 +58,7 @@ pub(crate) struct ManagedPair {
 }
 
 struct PackageHashes {
+    family: PackageFamily,
     receipt: [u8; 32],
     core: [u8; 32],
     broker: [u8; 32],
@@ -146,6 +155,16 @@ fn decoded_sha(raw: &str) -> Result<[u8; 32], HostStepError> {
 }
 
 impl ManagedPair {
+    /// Exact four-patch/device qualification, not coverage issuance. Legacy
+    /// Meta and three-patch close families can never satisfy protected policy.
+    #[cfg(feature = "netguard-runtime-candidate")]
+    pub(crate) fn verify_protected(&self) -> Result<(), HostStepError> {
+        self.verify()?;
+        if self.family != PackageFamily::Qualified(qualified_receipt::Family::CloseOmavless0) {
+            return Err(HostStepError::Prepare);
+        }
+        Ok(())
+    }
     #[cfg(feature = "netguard-runtime-candidate")]
     pub(crate) fn protected_identity(&self) -> ProtectedPairIdentity {
         ProtectedPairIdentity {
@@ -183,6 +202,7 @@ impl ManagedPair {
         }
         let hashes = Self::validate_package_at(core, broker, receipt, package_owner)?;
         let selection = Self {
+            family: hashes.family,
             selector_path: selector.to_path_buf(),
             selector_owner: uid,
             core_path: core.to_path_buf(),
@@ -204,6 +224,21 @@ impl ManagedPair {
         package_owner: u32,
     ) -> Result<PackageHashes, HostStepError> {
         let bytes = bounded_bytes(receipt, package_owner, 0o644, 8192)?;
+        // Reuse the exact T3 strict receipt vocabulary, but keep this module's
+        // K1 identity and qualification separate from any close permit.
+        if let Ok(hashes) = qualified_receipt::decode(&bytes, std::env::consts::ARCH) {
+            if sha256_file(core, package_owner, 128 * 1024 * 1024)? != hashes.core
+                || sha256_file(broker, package_owner, 32 * 1024 * 1024)? != hashes.broker
+            {
+                return Err(HostStepError::Prepare);
+            }
+            return Ok(PackageHashes {
+                family: PackageFamily::Qualified(hashes.family),
+                receipt: Sha256::digest(&bytes).into(),
+                core: hashes.core,
+                broker: hashes.broker,
+            });
+        }
         let value: Receipt = serde_json::from_slice(&bytes).map_err(|_| HostStepError::Prepare)?;
         if value.schema != 1
             || value.architecture != std::env::consts::ARCH
@@ -240,6 +275,7 @@ impl ManagedPair {
             return Err(HostStepError::Prepare);
         }
         Ok(PackageHashes {
+            family: PackageFamily::LegacyMeta,
             receipt: Sha256::digest(&bytes).into(),
             core: core_sha,
             broker: broker_sha,
@@ -272,7 +308,10 @@ impl ManagedPair {
         }
         // Refuse a replaced receipt even if the old binaries remain present.
         let bytes = bounded_bytes(&self.receipt_path, self.owner, 0o644, 8192)?;
-        if <[u8; 32]>::from(Sha256::digest(&bytes)) != self.receipt_sha {
+        let family = qualified_receipt::decode(&bytes, std::env::consts::ARCH)
+            .map(|h| PackageFamily::Qualified(h.family))
+            .unwrap_or(PackageFamily::LegacyMeta);
+        if <[u8; 32]>::from(Sha256::digest(&bytes)) != self.receipt_sha || family != self.family {
             return Err(HostStepError::Prepare);
         }
         Ok(())
@@ -288,6 +327,54 @@ mod tests {
     fn write_mode(path: &Path, bytes: &[u8], mode: u32) {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[cfg(feature = "netguard-runtime-candidate")]
+    #[test]
+    fn only_exact_four_family_is_protected_eligible_and_rechecked() {
+        let root = tempfile::tempdir().unwrap();
+        let selector = root.path().join(SELECTOR);
+        let core = root.path().join("core");
+        let broker = root.path().join("broker");
+        let receipt = root.path().join("receipt");
+        let uid = nix::unistd::getuid().as_raw();
+        write_mode(&selector, SELECTION_BYTES, 0o600);
+        write_mode(&core, b"synthetic core", 0o755);
+        write_mode(&broker, b"synthetic broker", 0o755);
+        let mut three = qualified_receipt::fixture(std::env::consts::ARCH);
+        three["sha256"]["mihomo"] = json!(format!("{:x}", Sha256::digest(b"synthetic core")));
+        three["sha256"]["omavless-dns-broker"] =
+            json!(format!("{:x}", Sha256::digest(b"synthetic broker")));
+        let mut four = three.clone();
+        four["schema"] = json!(qualified_receipt::K1_SCHEMA);
+        four["package_flavor"] = json!("release-close-k1");
+        four["broker_feature"] = json!("k1-managed-device");
+        four["go_build_tags"] = json!("with_gvisor,omavless_k1_device");
+        four["patch_sha256"]["mihomo-k1-device.patch"] = json!(qualified_receipt::K1_PATCH);
+        four["managed_device"] = json!("omavless0");
+        four["enrollment_policy"] = json!("omavless0-ipv4-development-v1");
+        four["managed_device_source"] = json!("08194a275d315db7ca502e50f960c80af6dc163b");
+        write_mode(&receipt, &serde_json::to_vec(&three).unwrap(), 0o644);
+        let pair = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid)
+            .unwrap()
+            .unwrap();
+        assert!(pair.verify().is_ok());
+        assert!(pair.verify_protected().is_err());
+        write_mode(&receipt, &serde_json::to_vec(&four).unwrap(), 0o644);
+        assert!(pair.verify().is_err()); // no in-place family promotion
+        let pair = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid)
+            .unwrap()
+            .unwrap();
+        assert!(pair.verify_protected().is_ok());
+        let original = pair.protected_identity();
+        write_mode(&broker, b"changed broker", 0o755);
+        assert!(pair.verify_protected().is_err());
+        assert!(pair.protected_identity() == original); // snapshot never grants
+        write_mode(&broker, b"synthetic broker", 0o755);
+        four["managed_device"] = json!("Meta");
+        write_mode(&receipt, &serde_json::to_vec(&four).unwrap(), 0o644);
+        assert!(pair.verify_protected().is_err());
+        assert!(ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid).is_err());
     }
 
     #[test]

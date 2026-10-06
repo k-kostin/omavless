@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
-netguard-runtime-candidate = ["dep:omavless-netguard", "omavless-netguard/netguard-client-candidate"]
+netguard-runtime-candidate = ["dep:omavless-netguard", "omavless-netguard/netguard-client-candidate", "nix/resource"]
 netguard-native-scenario = ["netguard-runtime-candidate"]
 
 [dependencies]
