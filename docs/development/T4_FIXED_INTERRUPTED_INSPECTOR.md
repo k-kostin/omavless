@@ -96,3 +96,23 @@ The controlled OLD members are valid public fixture bytes distinct from both
 authenticated NEW members, so one rename really produces Mixed. This does not
 change earlier Stage/Commit fixture bytes or pretend rename count alone proves
 the live class. The inspector independently checks this actual byte class.
+
+## Observer-role source successor
+
+ROOT selected original `08b771eb` on its admitted fresh developer boot. Whole
+SSH completed nonzero (`6bcee5`, exit 2). The separately pre-scoped file observer
+completed zero (`1288e9`) and projected supervisor 64 bytes/two frames, last
+`t4_service_mixed_writer_ready`, and actor 74 bytes/two frames, last
+`t4_actor_before_canonical_observer`. No successful interruption or inspector
+execution is claimed, and the captures alone do not prove absence of effects.
+
+That immutable source binds self command-line observation only to
+`--actor-canonical`, while its fixed writer and inspector use different worker
+arguments. Those declared arguments cannot pass that gate. The source successor
+stores a closed expected role selected one-to-one by the actual worker entry
+before READY/capture, and admits only that role's exact argument. It does not
+allow all three arguments generically. Default canonical behavior, executable,
+UID/namespace, inventory, origin fences, budgets and transaction rules remain
+unchanged. Wrong-role/noncanonical/short/extra argument controls are pure source
+tests; fresh critical review, build identity and actual selection remain
+separate. The stopped `08b771eb` scope is not queried, retried or reclassified.

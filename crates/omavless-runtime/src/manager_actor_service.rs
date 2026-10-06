@@ -18,7 +18,7 @@ pub(crate) const CANONICAL_COMMIT_ORIGIN_FENCES: usize = stage::COMMIT_ORIGIN_FE
 pub(crate) const CANONICAL_INSPECT_ORIGIN_FENCES: usize = stage::INSPECT_ORIGIN_FENCES;
 pub(crate) const CANONICAL_MIXED_ORIGIN_FENCES: usize = stage::MIXED_ORIGIN_FENCES;
 
-use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical};
+use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical, ObserverRole};
 use crate::restore_abort_cli::stopped_owner::actor_capture::Retained;
 use nix::fcntl::{OFlag, open};
 use nix::sys::resource::{Resource, getrlimit, setrlimit};
@@ -995,6 +995,15 @@ enum ActorRole {
     MixedWriter,
     Inspector,
 }
+impl ActorRole {
+    fn observer(self) -> ObserverRole {
+        match self {
+            Self::Normal => ObserverRole::Canonical,
+            Self::MixedWriter => ObserverRole::MixedWriter,
+            Self::Inspector => ObserverRole::Inspector,
+        }
+    }
+}
 fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
     startup()?;
     epoch()?;
@@ -1029,7 +1038,7 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
         return Err(Unavailable);
     }
     let mut context = Context::new(challenge.nonce)?;
-    let mut canonical = Canonical::reserve()?; // before READY or any proc/query
+    let mut canonical = Canonical::reserve_role(role.observer())?; // BEFORE READY/proc/query
     let mut transfer = transfer::Transfer::new()?; // finite private slot BEFORE READY
     let mut stage = stage::Stage::reserve_canonical(); // all36 lower roles BEFORE READY
     io_frame(
@@ -1469,6 +1478,13 @@ fn actor_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_entry_role_binds_only_its_own_observer_expectation() {
+        assert!(ActorRole::Normal.observer() == ObserverRole::Canonical);
+        assert!(ActorRole::MixedWriter.observer() == ObserverRole::MixedWriter);
+        assert!(ActorRole::Inspector.observer() == ObserverRole::Inspector);
+        assert!(!include_str!("main.rs").contains("--actor-inspector"));
+    }
 
     #[test]
     fn planned_original_86_is_classified_before_reap_and_all_late_cuts_stop() {
