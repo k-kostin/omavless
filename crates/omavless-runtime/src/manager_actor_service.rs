@@ -126,6 +126,57 @@ enum RequestShape {
     Partial,
 }
 
+fn read_expectation<T: Read>(stream: &mut T, until: Instant) -> Result<[u8; 16], Unavailable> {
+    read_expectation_gated(stream, || tick(until))
+}
+fn read_expectation_gated<T: Read>(
+    stream: &mut T,
+    mut gate: impl FnMut() -> Result<(), Unavailable>,
+) -> Result<[u8; 16], Unavailable> {
+    let mut transaction = [0; 16];
+    let mut done = 0;
+    while done < transaction.len() {
+        gate()?;
+        match stream.read(&mut transaction[done..]) {
+            Ok(0) => return Err(Unavailable),
+            Ok(size) => done += size,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+            Err(_) => return Err(Unavailable),
+        }
+        gate()?;
+    }
+    Ok(transaction)
+}
+fn write_expectation<T: Write>(
+    stream: &mut T,
+    transaction: &[u8; 16],
+    until: Instant,
+) -> Result<(), Unavailable> {
+    write_expectation_gated(stream, transaction, || tick(until))
+}
+fn write_expectation_gated<T: Write>(
+    stream: &mut T,
+    transaction: &[u8; 16],
+    mut gate: impl FnMut() -> Result<(), Unavailable>,
+) -> Result<(), Unavailable> {
+    let mut done = 0;
+    while done < transaction.len() {
+        gate()?;
+        match stream.write(&transaction[done..]) {
+            Ok(0) => return Err(Unavailable),
+            Ok(size) => done += size,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+            Err(_) => return Err(Unavailable),
+        }
+        gate()?;
+    }
+    Ok(())
+}
+
 // A failed exchange consumes the ORIGINAL outstanding capability, including
 // decode/EOF/deadline/short I/O. Reentry consults Context before any next write.
 fn exchange<T: Read + Write>(
@@ -951,19 +1002,7 @@ fn interrupted_inspection_scenario() -> Result<(), Unavailable> {
     let transaction: [u8; 16] = sha2::Sha256::digest(nonces[0])[..16]
         .try_into()
         .map_err(|_| Unavailable)?;
-    let mut done = 0;
-    while done < transaction.len() {
-        tick(until)?;
-        match stream.write(&transaction[done..]) {
-            Ok(0) => return Err(Unavailable),
-            Ok(size) => done += size,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(1))
-            }
-            Err(_) => return Err(Unavailable),
-        }
-        tick(until)?;
-    }
+    write_expectation(stream, &transaction, until)?;
     inspector.completed(receive(stream, until)?, Kind::InterruptedInspected)?;
     alive(owner.pidfds[1].as_ref().ok_or(Unavailable)?)?;
     emit(b"t4_service_intent_mixed_candidate_inspected\n", until)?;
@@ -1157,20 +1196,7 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
                     std::process::exit(86);
                 }
                 Kind::InspectInterrupted => {
-                    let mut transaction = [0; 16];
-                    let mut done = 0;
-                    while done < transaction.len() {
-                        tick(until)?;
-                        match channel.read(&mut transaction[done..]) {
-                            Ok(0) => return Err(Unavailable),
-                            Ok(size) => done += size,
-                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                std::thread::sleep(Duration::from_millis(1))
-                            }
-                            Err(_) => return Err(Unavailable),
-                        }
-                        tick(until)?;
-                    }
+                    let transaction = read_expectation(&mut channel, until)?;
                     emit_actor(stage::INSPECTION_PHASES[0], until)?;
                     transfer.with_restore_pair(until, |new_store, new_template| {
                         let result = stage.inspect_canonical(
@@ -1481,6 +1507,87 @@ fn actor_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_expectation_body_rejects_every_prefix_and_keeps_next_frame_unread() {
+        use std::io::Cursor;
+        let until = Instant::now() + Duration::from_secs(1);
+        for length in 0..16 {
+            assert!(read_expectation(&mut Cursor::new(vec![7; length]), until).is_err());
+        }
+        let mut input = Cursor::new([vec![7; 16], vec![9; FRAME_BYTES]].concat());
+        assert_eq!(read_expectation(&mut input, until).unwrap(), [7; 16]);
+        assert_eq!(input.position(), 16);
+        let mut output = Vec::new();
+        write_expectation(&mut output, &[7; 16], until).unwrap();
+        assert_eq!(output, [7; 16]);
+        // Zero is framing-valid but cannot construct an admitted Intent.
+        let plan = crate::restore_staging_candidate::planned_stage_identity([
+            b"old",
+            b"template",
+            b"new",
+            b"new-template",
+        ])
+        .unwrap();
+        let zero = read_expectation(&mut Cursor::new([0; 16]), until).unwrap();
+        assert!(
+            crate::restore_decision_candidate::DecisionRecord::intent(1, None, &plan, zero)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn expectation_short_throw_and_late_io_have_no_following_continuation() {
+        for cut in 0..16 {
+            let mut memory = Memory {
+                input: vec![7; 16],
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            assert!(
+                read_expectation(&mut memory, Instant::now() + Duration::from_secs(1)).is_err()
+            );
+            let mut memory = Memory {
+                input: Vec::new(),
+                output: Vec::new(),
+                position: 0,
+                fail_at: cut,
+            };
+            assert!(
+                write_expectation(
+                    &mut memory,
+                    &[7; 16],
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_err()
+            );
+            assert_eq!(memory.output.len(), cut);
+        }
+        let mut input = std::io::Cursor::new([7; 16]);
+        let mut gates = 0;
+        assert!(
+            read_expectation_gated(&mut input, || {
+                gates += 1;
+                if gates == 2 { Err(Unavailable) } else { Ok(()) }
+            })
+            .is_err()
+        );
+        assert_eq!((gates, input.position()), (2, 16));
+        let mut output = Vec::new();
+        let mut gates = 0;
+        assert!(
+            write_expectation_gated(&mut output, &[7; 16], || {
+                gates += 1;
+                if gates == 2 { Err(Unavailable) } else { Ok(()) }
+            })
+            .is_err()
+        );
+        assert_eq!((gates, output.len()), (2, 16));
+        let mut input = std::io::Cursor::new([7; 16]);
+        assert!(read_expectation(&mut input, Instant::now() - Duration::from_secs(1)).is_err());
+        assert_eq!(input.position(), 0);
+    }
     #[test]
     fn worker_entry_role_binds_only_its_own_observer_expectation() {
         assert!(ActorRole::Normal.observer() == ObserverRole::Canonical);

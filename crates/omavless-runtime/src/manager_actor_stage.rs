@@ -2255,3 +2255,7 @@ mod tests {
         assert_eq!(EPOCH_MEMBERS.len() + 1 + 2 + 1, 9); // max nexts including EOF
     }
 }
+
+#[cfg(test)]
+#[path = "manager_actor_stage/filesystem_controls.rs"]
+mod filesystem_controls;

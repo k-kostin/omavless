@@ -83,10 +83,9 @@ admission, source-shaped capture bounds, strict new kind/reply binding and
 original terminal classification/reap ordering with late/throw cuts. Inherited
 lower-ledger controls cover generic reported acquisition/postcheck retention,
 and inherited stream/transfer controls cover their existing prefix cuts.
-These are not whole-inspector filesystem coverage: optional-absence drift,
-complete capture/identity changes, the new 16-byte expectation-body prefixes and
-the actual process-interruption/re-entry scenario remain unexecuted integration
-cases. Source inspection of those paths is not a claim that their tests ran.
+These inherited controls are not whole-inspector filesystem coverage. The
+additional controls below exercise local held-file helpers and the exact
+16-byte expectation body, not full canonical capture or namespace admission.
 Pure controls and compile-only artifacts are distinct from the ROOT-operated
 interruption/re-entry gate. PRIMARY and independent critical review precede
 that gate; ROOT is the sole VM operator. Genuine ProductOwner/lease/Desired/
@@ -116,3 +115,51 @@ UID/namespace, inventory, origin fences, budgets and transaction rules remain
 unchanged. Wrong-role/noncanonical/short/extra argument controls are pure source
 tests; fresh critical review, build identity and actual selection remain
 separate. The stopped `08b771eb` scope is not queried, retried or reclassified.
+
+## Exact role-bound developer checkpoint
+
+ROOT completed the fixed positive interruption/re-entry scenario at exact
+source `75378da6fc41fabeac0937b18373fd7e5dd929b0`, after PRIMARY and independent
+critical review and 24 pure packet/transport controls. The actor was 2,085,448
+bytes, SHA256
+`2573a3eb46a6c2b16e2ad7a3fa5dec98f322097771f5384843987e88eecc84d4`.
+Whole run `41284` → `79fd9a` and separately pre-scoped observer `37853` →
+`41f89e` each completed original exit zero on the fresh admitted VM baseline.
+This includes the exactly classified/reaped original writer exit 86, permanent
+old-context revocation, fresh inspector, factual Intent/MIXED classification,
+normal Halt and original inspector exit zero.
+
+- Actor: 7,852 bytes/223 closed frames, last
+  `t4_actor_fixture_intent_mixed_inspected`, SHA256
+  `b12a5d4b1897ea4d369ebb7688434d2a0c44fdc5e157593d1a683407c08aaf3f`.
+- Supervisor: 222 bytes/six frames, last
+  `t4_service_interrupted_inspection_completed`, SHA256
+  `75866bc3462ae16ecb87fd7aaaf81e67aad4f6b76e16671117bdc179b26111a2`.
+
+No later source or documentation head inherits that actor execution. This is
+not SIGKILL/power-cut evidence, product rollback, real-pair restoration, startup
+permission or whole T4 acceptance; `08b771eb` remains NONPASS.
+
+## Local fault-control successor
+
+The separate successor extracts the existing body-read/write loops without
+changing their exact 16-byte bound, pre/post sampled gates, WouldBlock handling
+or refusal semantics. Pure controls cover every truncated/throwing prefix,
+no read of a following frame, deadline cuts before first I/O and after a
+reported full return, and the fact that a zero body cannot construct Intent.
+
+Five tests use exclusively owned temporary local files and the actual retained
+binding, byte/digest, record and catalogue helpers. Passing baselines precede
+optional-terminal/replacement appearance, unknown inventory, each same-byte
+staged inode replacement, held-live byte/mode/link drift and fixed-component
+directory replacement. Exact record reads cover stale expected transactions,
+changed/corrupt/truncated Intent and crossed terminal binding. Actual held live
+digests classify Mixed into a plain `OldRollbackCandidate` observation, without
+any mutation method or terminal write.
+
+The test-only local ledger constructor is absent from production and supplies
+no Canonical, manager, namespace or lease proof. These are helper-level local
+filesystem regressions, not whole-inspector capture/identity fault acceptance.
+The source successor has not executed an actor or VM scenario. Its selected
+service suite passed 71 tests and canonical suite passed 50 tests; the previous
+positive VM evidence remains attached only to exact `75378da6`.

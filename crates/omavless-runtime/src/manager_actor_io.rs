@@ -199,6 +199,22 @@ pub(super) struct ChildPlan {
 }
 
 impl FileIo {
+    #[cfg(test)]
+    pub(super) fn local_files(files: Vec<(Slot, File)>) -> Self {
+        // Real locally owned originals only. This test adapter supplies no
+        // Canonical/manager/lease admission and is absent from production.
+        let mut slots: [Option<File>; IO_SLOTS] = std::array::from_fn(|_| None);
+        for (slot, file) in files {
+            assert!(slots[slot as usize].is_none());
+            slots[slot as usize] = Some(file);
+        }
+        Self {
+            ledger: Ledger {
+                slots,
+                state: State::Live,
+            },
+        }
+    }
     pub fn revoke(&mut self) {
         self.ledger.state = State::Revoked;
     }
