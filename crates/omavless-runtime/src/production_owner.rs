@@ -42,6 +42,10 @@ mod final_restore_review;
 #[path = "restore_first_abort_owner.rs"]
 mod first_abort;
 
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+#[path = "native_retained_vm_tests.rs"]
+mod native_retained_vm_tests;
+
 pub(crate) fn abort_first_restore_current(
     source: &Path,
     passphrase: &[u8],

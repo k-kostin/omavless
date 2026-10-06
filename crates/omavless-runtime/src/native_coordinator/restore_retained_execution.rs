@@ -153,6 +153,16 @@ impl HeldExecutionSlot {
 
 #[cfg(test)]
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn retained_vm_execute(&mut self, source: &Path, passphrase: &[u8]) -> bool {
+        self.execute_first_restore_retained(source, passphrase)
+            == Ok(FirstOutcome::CommittedStillFenced)
+    }
+    pub(crate) fn retained_vm_custody(&self) -> bool {
+        self.held_restore_execution.occupied()
+            && self
+                .held_restore_execution
+                .original_lease_held(self.transaction.cutover_paths(), self.uid())
+    }
     pub(super) fn retained_test_after_lease(
         &mut self,
         source: &Path,

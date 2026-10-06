@@ -348,3 +348,17 @@ they are not normal installed-service or VM acceptance. The previous exact
 `5f91ca50` synthetic rollback receipt remains separate and is not inherited by
 this native-owner source successor. Independent custody/Drop/mutation-entry
 review and a separately selected real native-owner gate remain required.
+
+The separately opt-in ignored selector constructs a real RuntimeServer singleton
+and `ProductionNativeOwner::initialize` with `NativeLifecycleHost`, the fixed
+installed core and real proc/sys inventory, but **only a fresh isolated public
+OLD pair/config/state/runtime fixture**. Its exact account/environment/private
+path, Off, unit/inventory and no-orphan preconditions precede owner construction.
+It does not call orphan cleanup or serve/register a dispatcher. The real owner,
+singleton and installed execution stay held through its terminal result; refused
+prefixes are not cleaned up. Two ordinary pure controls validate identity and
+the public encrypted input producer; they do not select the ignored gate.
+This deliberately does not invoke `current()`'s installed-login/package-image
+identity constructor and is not acceptance of the existing application store,
+private profiles, normal login, rollback or recovery. Its ROOT-operated result
+and exact test ELF/helper review remain pending separately from this source.

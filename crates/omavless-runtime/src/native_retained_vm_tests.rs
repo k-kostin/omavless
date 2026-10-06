@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: MIT
+//! Explicit isolated real-host owner composition. No installed-store mutation,
+//! current() login/package claim, dispatcher registration or orphan cleanup.
+use super::*;
+use crate::desired::read_desired_snapshot;
+use crate::production_observation::{ProductionObservationPaths, ProductionOwnershipObserver};
+use std::fs;
+use std::os::unix::fs::MetadataExt;
+use std::time::{Duration, Instant};
+
+const UID: u32 = 1000;
+const HOME: &str = "/home/kdk_vm";
+const ROOT: &str = "/home/kdk_vm/.cache/t4-native-retained-owner-review19";
+const RUNTIME: &str = "/run/user/1000/t4n19";
+const CORE: &str = "/usr/lib/omavless-dns/mihomo";
+const OPT_IN: &str = "OMAVLESS_TEST_T4_NATIVE_RETAINED_VM";
+const PASSWORD: &[u8] = b"public isolated native-owner fixture passphrase";
+const PUBLIC_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+
+#[test]
+fn fixed_native_vm_public_archive_fixture_roundtrip_and_optional_export() {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let template = include_bytes!("../../../templates/default.yaml");
+    let bytes = omavless_domain::private_backup::seal(PUBLIC_STORE, template, PASSWORD).unwrap();
+    let opened = omavless_domain::private_backup::open(&bytes, PASSWORD).unwrap();
+    assert!(opened.store() == PUBLIC_STORE && opened.template() == template);
+    // Only public data. Explicit developer artifact output is separate from
+    // the ignored VM's effect-bearing owner construction and cannot select it.
+    if let Some(path) = std::env::var_os("OMAVLESS_TEST_T4_PUBLIC_ARCHIVE") {
+        let path = std::path::PathBuf::from(path);
+        assert!(path.is_absolute() && path.file_name() == Some("input.ovb".as_ref()));
+        let parent = path.parent().unwrap();
+        let metadata = fs::symlink_metadata(parent).unwrap();
+        assert!(
+            metadata.is_dir()
+                && metadata.uid() == Uid::current().as_raw()
+                && metadata.mode() & 0o7777 == 0o700
+        );
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        file.write_all(&bytes).unwrap();
+        file.sync_all().unwrap();
+        file.set_permissions(fs::Permissions::from_mode(0o400))
+            .unwrap();
+        assert!(fs::read(&path).unwrap() == bytes);
+    }
+}
+
+fn identity(uid: u32, effective: u32, home: Option<&std::ffi::OsStr>, opt: Option<&str>) -> bool {
+    uid == UID && effective == UID && home == Some(std::ffi::OsStr::new(HOME)) && opt == Some("1")
+}
+fn private_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .is_ok_and(|m| m.is_dir() && m.uid() == UID && m.mode() & 0o7777 == 0o700)
+        && fs::canonicalize(path).ok().as_deref() == Some(path)
+}
+fn absent(path: &Path) -> bool {
+    matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+}
+fn no_orphans(parent: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(parent) else {
+        return false;
+    };
+    let mut count = 0;
+    for entry in entries {
+        count += 1;
+        if count > 128 {
+            return false;
+        }
+        let Ok(entry) = entry else {
+            return false;
+        };
+        if entry.file_name().as_encoded_bytes().starts_with(b"probe-") {
+            return false;
+        }
+    }
+    true
+}
+fn empty(facts: crate::lifecycle::NativeLocalObservation) -> bool {
+    !facts.owned_core_running
+        && facts.visible_mihomo_count == 0
+        && facts.owned_auxiliary_mihomo_count == 0
+        && facts.visible_tun_count == 0
+        && facts.managed_tun_count == 0
+        && !facts.owned_controller_config_verified
+        && !facts.desired_profile_matches_owned
+}
+
+#[test]
+fn fixed_native_vm_identity_is_not_an_ambient_opt_in() {
+    let h = Some(std::ffi::OsStr::new(HOME));
+    assert!(identity(UID, UID, h, Some("1")));
+    for (u, e, home, flag) in [
+        (0, UID, h, Some("1")),
+        (UID, 0, h, Some("1")),
+        (UID, UID, None, Some("1")),
+        (UID, UID, h, None),
+        (UID, UID, h, Some("01")),
+    ] {
+        assert!(!identity(u, e, home, flag));
+    }
+}
+
+#[test]
+#[ignore = "ROOT-only fresh isolated fixture; real NativeLifecycleHost/private pair effects"]
+fn isolated_installed_host_native_retained_pair_commit() {
+    assert!(
+        identity(
+            Uid::current().as_raw(),
+            nix::unistd::geteuid().as_raw(),
+            std::env::var_os("HOME").as_deref(),
+            std::env::var(OPT_IN).ok().as_deref()
+        ),
+        "fixed_native_vm_identity_refused"
+    );
+    assert!(
+        std::env::var_os("OMAVLESS_HOME").is_none(),
+        "fixed_native_vm_environment_refused"
+    );
+    let until = Instant::now() + Duration::from_secs(90);
+    let root = Path::new(ROOT);
+    let fixture_home = root.join("home");
+    let state_base = root.join("state");
+    let config = fixture_home.join(".config/omavless");
+    let runtime = RuntimePaths::current().expect("fixed_native_vm_runtime_refused");
+    let expected_runtime = RuntimePaths::below(Path::new(RUNTIME));
+    let desired = DesiredPaths::current().expect("fixed_native_vm_desired_refused");
+    let cutover = CutoverPaths::current(UID).expect("fixed_native_vm_cutover_refused");
+    assert!(
+        runtime == expected_runtime,
+        "fixed_native_vm_runtime_binding_refused"
+    );
+    assert!(
+        desired == DesiredPaths::below(&state_base),
+        "fixed_native_vm_state_binding_refused"
+    );
+    let expected_cutover = CutoverPaths::below(Path::new(RUNTIME), &state_base, UID);
+    assert!(
+        cutover.runtime_base == expected_cutover.runtime_base
+            && cutover.operation_lock == expected_cutover.operation_lock
+            && cutover.ownership_marker == expected_cutover.ownership_marker
+            && cutover.state_directory == expected_cutover.state_directory,
+        "fixed_native_vm_cutover_binding_refused"
+    );
+    assert!(
+        [
+            root,
+            fixture_home.as_path(),
+            fixture_home.join(".config").as_path(),
+            config.as_path(),
+            state_base.as_path(),
+            desired.directory.as_path(),
+            Path::new(RUNTIME),
+            runtime.directory.as_path()
+        ]
+        .into_iter()
+        .all(private_directory),
+        "fixed_native_vm_private_paths_refused"
+    );
+    assert!(
+        absent(&runtime.socket)
+            && absent(&runtime.owner_lock)
+            && no_orphans(Path::new(RUNTIME))
+            && no_orphans(&runtime.directory),
+        "fixed_native_vm_existing_runtime_refused"
+    );
+    let saved_desired = read_desired_snapshot(&desired, UID).expect("fixed_native_vm_off_refused");
+    assert!(
+        !saved_desired.connected && saved_desired.profile_id.is_empty(),
+        "fixed_native_vm_off_refused"
+    );
+    let observed = ProductionObservationPaths::below(
+        Path::new("/usr/bin/systemctl").to_owned(),
+        &fixture_home,
+        Path::new(RUNTIME),
+        Path::new("/proc").to_owned(),
+        Path::new("/sys/class/net").to_owned(),
+        UID,
+    );
+    assert!(
+        ProductionOwnershipObserver::new(observed, UID)
+            .and_then(|o| o.verify_native_empty())
+            .is_ok(),
+        "fixed_native_vm_inventory_refused"
+    );
+    let core = fs::symlink_metadata(CORE).expect("fixed_native_vm_installed_core_refused");
+    assert!(
+        core.is_file()
+            && core.uid() == 0
+            && core.mode() & 0o022 == 0
+            && core.mode() & 0o111 != 0
+            && core.nlink() == 1,
+        "fixed_native_vm_installed_core_refused"
+    );
+    let paths = NativeHostPaths::new(
+        Path::new(CORE).to_owned(),
+        config.clone(),
+        config.clone(),
+        runtime.directory.clone(),
+        Path::new("/proc").to_owned(),
+        Path::new("/sys/class/net").to_owned(),
+    );
+    let mut host = NativeLifecycleHost::new(paths, UID).expect("fixed_native_vm_real_host_refused");
+    assert!(
+        host.fresh_observation(&saved_desired).is_ok_and(empty),
+        "fixed_native_vm_real_host_not_empty"
+    );
+    assert!(Instant::now() < until, "fixed_native_vm_deadline_refused");
+    // Only this fresh fixture's actual singleton. No registration/serve loop.
+    let server = crate::RuntimeServer::bind(runtime).expect("fixed_native_vm_singleton_refused");
+    let owner = ProductionNativeOwner::initialize(
+        host,
+        desired,
+        &config.join("profiles.json"),
+        cutover.clone(),
+        UID,
+    );
+    let mut owner = match owner {
+        Ok(owner) => owner,
+        Err(_) => {
+            std::mem::forget(server);
+            panic!("fixed_native_vm_owner_refused");
+        }
+    };
+    let admitted = owner.actual() == ActualState::Disconnected
+        && !owner.startup_outcome().changed
+        && Instant::now() < until;
+    let result = admitted
+        && owner
+            .coordinator
+            .retained_vm_execute(&root.join("input.ovb"), PASSWORD);
+    let held = owner.coordinator.retained_vm_custody();
+    let denied = owner
+        .coordinator
+        .initialize_batch_operations("blocked-native-vm-entry")
+        .is_err();
+    let original_lease_busy = MigrationLock::acquire(&cutover, UID).is_err();
+    let completed = result && held && denied && original_lease_busy && Instant::now() < until;
+    // Keep the actual server singleton, owner and held execution through the
+    // harness's original terminal return; never cleanup a refused prefix.
+    std::mem::forget((owner, server));
+    assert!(completed, "fixed_native_vm_continuation_refused");
+    println!("T4_NATIVE_ISOLATED_OWNER_COMMITTED_STILL_FENCED");
+    assert!(Instant::now() < until, "fixed_native_vm_deadline_refused");
+}
