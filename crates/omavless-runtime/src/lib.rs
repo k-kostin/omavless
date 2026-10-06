@@ -2483,18 +2483,21 @@ mod tests {
         }
     }
 
-    fn temporary_base(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = env::temp_dir().join(format!(
-            "omavless-runtime-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        let mut builder = fs::DirBuilder::new();
-        builder.mode(0o700).create(&base).unwrap();
-        base
+    fn temporary_base(_label: &str) -> PathBuf {
+        // Scenario names belong in the test report, not the Unix-socket path.
+        // Reuse the exclusive private allocator rather than descriptive names
+        // plus a wall-clock timestamp that exhaust SUN_LEN under HOME TMPDIR.
+        crate::test_temp::directory("rt").unwrap()
+    }
+
+    #[test]
+    fn fixture_roots_leave_room_for_nested_control_sockets() {
+        let base = temporary_base("long-scenario-description-that-must-not-be-a-socket-path");
+        let runtime = base.join("runtime/omavless");
+        fs::create_dir_all(&runtime).unwrap();
+        let listener = UnixListener::bind(runtime.join("control.sock")).unwrap();
+        drop(listener);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

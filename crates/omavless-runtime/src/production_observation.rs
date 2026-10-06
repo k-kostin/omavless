@@ -718,19 +718,9 @@ mod tests {
         Arc,
         atomic::{AtomicU8, Ordering},
     };
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn root(label: &str) -> (PathBuf, u32) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = env::temp_dir().join(format!(
-            "omavless-production-observe-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    fn root(_label: &str) -> (PathBuf, u32) {
+        // Leave room for the fixed nested control socket with HOME fixtures.
+        let root = crate::test_temp::directory("obs").unwrap();
         let uid = fs::metadata(&root).unwrap().uid();
         (root, uid)
     }

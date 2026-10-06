@@ -161,6 +161,14 @@ An admitted explicit Disconnect also cancels automatic work when an already
 disconnected lifecycle returns NoChange without advancing the owner revision.
 Manual batches retain their existing behavior.
 
+The test-only runtime and production-observation fixtures use the shared short,
+exclusive 0700 allocator. Descriptive scenario labels are not socket-path
+components; a regression binds the actual nested `runtime/omavless/control.sock`.
+This changes no runtime path or product behavior and weakens no assertions.
+Compiler/fixture storage remains HOME-backed. Source gates may use the reviewed
+offline namespace launcher to avoid unrelated HOME Git ancestry; they do not
+establish installed timer or VM acceptance.
+
 The preference writer now classifies every failed post-publication readback as
 WriteUncertain. The automatic owner latches that uncertainty and cancels its
 exact current worker, so a later apparently valid read or Off/re-enable cannot
