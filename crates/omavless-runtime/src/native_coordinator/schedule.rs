@@ -78,6 +78,10 @@ pub struct AutomaticSubscriptionBatch {
 }
 
 impl AutomaticSubscriptionBatch {
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn supervisor_ticket(&self) -> NativeBatchTicket {
+        self.job.supervisor_ticket()
+    }
     pub(crate) fn step<T, G>(
         &mut self,
         transport: &T,
@@ -93,6 +97,32 @@ impl AutomaticSubscriptionBatch {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_subscription_snapshot(
+        &self,
+        instance: &str,
+    ) -> Result<(PreferenceSnapshot, Option<AttemptSnapshot>, bool), AutomaticRefreshError> {
+        let generation = self.automatic_generation()?;
+        let preference = read_preference(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            generation,
+        )?;
+        let mut attempt = read_attempt(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            generation,
+            instance,
+        )?;
+        let registered = self.automatic_refresh.active.is_some();
+        if !registered
+            && let Some(attempt) = &mut attempt
+            && attempt.state == AttemptState::StartedInCurrentInstance
+        {
+            attempt.state = AttemptState::UncertainFromPreviousInstance;
+        }
+        Ok((preference, attempt, registered))
+    }
     fn automatic_generation(&self) -> Result<u64, AutomaticRefreshError> {
         self.required_ownership
             .filter(|fence| fence.phase == OwnershipPhase::Rust && fence.generation != 0)
@@ -438,6 +468,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// slot may be reclaimed, but the durable Started journal remains blocked.
     pub(crate) fn lose_automatic_subscription_worker(&mut self, work: AutomaticSubscriptionBatch) {
         let ticket = work.job.supervisor_ticket();
+        self.lose_automatic_subscription_ticket(ticket);
+    }
+
+    pub(crate) fn lose_automatic_subscription_ticket(&mut self, ticket: NativeBatchTicket) {
         if self
             .automatic_refresh
             .active

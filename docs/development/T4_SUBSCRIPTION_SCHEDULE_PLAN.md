@@ -189,3 +189,38 @@ from owner-approved policy commit
 procedure only; it does not weaken subscription/store guarantees or adopt the
 separate T4 retained-manager actor implementation. The automatic maintenance
 feature remains incomplete and unexposed until its own pending gates pass.
+
+## Dormant RuntimeServer composition
+
+The next checkpoint adds the non-default Cargo feature
+`developer-subscription-schedule`. A trusted embedding must explicitly register
+clock and wakeup callbacks on an already initialized RuntimeServer. Normal
+bind/current/CLI startup never registers them: it adds no timer, worker or
+socket capability, including in a binary compiled with the developer feature.
+The serving loop consumes only that injected wakeup; IPC cannot supply time,
+force a wakeup, choose a provider or change runtime paths.
+
+Explicit dormant registration enables only
+`developer.subscription_schedule.get/set`. Requests carry the exact daemon
+instance; Set additionally accepts the expected preference revision and bounded
+whole-second interval (zero means Off). Their projection contains only fixed
+schedule/attempt states, timestamps, counters and whether the exact worker is
+registered. These methods reuse the authenticated private socket and serialized
+ProductionNativeOwner. They are not ordinary product/CLI/UI methods.
+
+The production wrapper delegates to its existing native coordinator. Automatic
+work uses the same BatchScheduler worker handle, supervisor and global fetch
+pool as manual batches, probes and provider refresh; no second coordinator or
+registry is constructed. Confirmed durable admission still precedes spawning.
+Off and explicit Disconnect cooperatively cancel the exact automatic token.
+Shutdown cancels before registry revocation, drains/joins the same supervised
+worker, and terminalizes only its original typed receipt. Spawn/panic/lost-worker
+paths preserve an unfinished journal and block automatic replay.
+
+The early executable gate uses the real private control socket and production
+HTTP transport against a synthetic loopback listener: enable, injected wakeup,
+durable Started observed on GET, responsive concurrent status, exact store
+commit and terminal journal publication. The lifecycle host is deterministic;
+this is not installed core, provider, VM or product-timer acceptance. Cancellation
+and fault coverage, full exact-head gates, primary/independent review and the
+explicit interrupted-attempt disposition remain separate requirements.

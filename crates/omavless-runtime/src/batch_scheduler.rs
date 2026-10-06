@@ -23,6 +23,13 @@ pub(super) const METHODS: &[&str] = &[
 ];
 
 pub(super) enum BatchWork {
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    Automatic {
+        job: native_coordinator::AutomaticSubscriptionBatch,
+        clock: developer_subscription_schedule::Clock,
+        transport: SharedSubscriptionTransport,
+        record_ids: RecordIdGenerator,
+    },
     Probe {
         job: native_coordinator::NativeSubscriptionProbe,
         lease: auxiliary_core::AuxiliaryLease,
@@ -42,10 +49,20 @@ pub(super) enum BatchWork {
 impl BatchWork {
     fn ticket(&self) -> NativeBatchTicket {
         match self {
+            #[cfg(any(test, feature = "developer-subscription-schedule"))]
+            Self::Automatic { job, .. } => job.supervisor_ticket(),
             Self::Subscription { job, .. } => job.supervisor_ticket(),
             Self::Provider { job, .. } => job.supervisor_ticket(),
             Self::Probe { job, .. } => job.supervisor_ticket(),
         }
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic(&self) -> bool {
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        if matches!(self, Self::Automatic { .. }) {
+            return true;
+        }
+        false
     }
 }
 
@@ -62,6 +79,8 @@ pub(super) struct BatchScheduler {
 struct Supervisor {
     dispatcher: Arc<Mutex<RuntimeDispatcher>>,
     ticket: Option<NativeBatchTicket>,
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    automatic: bool,
 }
 impl Drop for Supervisor {
     fn drop(&mut self) {
@@ -69,12 +88,68 @@ impl Drop for Supervisor {
             && let Ok(mut dispatcher) = self.dispatcher.lock()
             && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
         {
+            #[cfg(any(test, feature = "developer-subscription-schedule"))]
+            if self.automatic {
+                owner.automatic_lost(ticket);
+                return;
+            }
             owner.batch_abort(ticket);
         }
     }
 }
 
 impl BatchScheduler {
+    fn start_work(
+        &self,
+        work: BatchWork,
+        worker: &mut Option<thread::JoinHandle<()>>,
+        dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
+        pool: &remote_fetch::RemoteFetchPool,
+    ) -> io::Result<()> {
+        if let Some(previous) = worker.take() {
+            let _ = previous.join();
+        }
+        let supervisor = Supervisor {
+            dispatcher: Arc::clone(dispatcher),
+            ticket: Some(work.ticket()),
+            #[cfg(any(test, feature = "developer-subscription-schedule"))]
+            automatic: work.automatic(),
+        };
+        let stopping = Arc::clone(&self.stopping);
+        let pool = pool.clone();
+        *worker = Some(self.spawn(move || run(work, supervisor, &stopping, &pool))?);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(super) fn wake_automatic(
+        &self,
+        instance: &str,
+        dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
+        pool: &remote_fetch::RemoteFetchPool,
+        clock: developer_subscription_schedule::Clock,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError> {
+        let mut worker = self
+            .worker
+            .lock()
+            .map_err(|_| native_coordinator::AutomaticRefreshError::WorkerLost)?;
+        let mut guard = dispatcher
+            .lock()
+            .map_err(|_| native_coordinator::AutomaticRefreshError::WorkerLost)?;
+        let RuntimeDispatcher::Native(owner) = &mut *guard else {
+            return Err(developer_subscription_schedule::unavailable());
+        };
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(developer_subscription_schedule::unavailable());
+        }
+        let work = owner.automatic_start(instance, clock)?;
+        drop(guard);
+        if let Some(work) = work {
+            self.start_work(work, &mut worker, dispatcher, pool)
+                .map_err(|_| native_coordinator::AutomaticRefreshError::WorkerLost)?;
+        }
+        Ok(())
+    }
     fn spawn(&self, work: impl FnOnce() + Send + 'static) -> io::Result<thread::JoinHandle<()>> {
         #[cfg(test)]
         if self.fail_next_spawn.swap(false, Ordering::AcqRel) {
@@ -263,19 +338,8 @@ impl BatchScheduler {
         if let Some(work) = work {
             // A new job can only be admitted after its predecessor terminalized
             // under the owner mutex. The predecessor has no remaining I/O.
-            if let Some(previous) = worker.take() {
-                let _ = previous.join();
-            }
-            let supervisor = Supervisor {
-                dispatcher: Arc::clone(dispatcher),
-                ticket: Some(work.ticket()),
-            };
-            let stopping = Arc::clone(&self.stopping);
-            let pool = pool.clone();
-            match self.spawn(move || {
-                run(work, supervisor, &stopping, &pool);
-            }) {
-                Ok(handle) => *worker = Some(handle),
+            match self.start_work(work, &mut worker, dispatcher, pool) {
+                Ok(()) => {}
                 // Failed spawn drops the captured supervisor, terminalizing the
                 // admitted operation without a detached/lost private payload.
                 Err(_) => {
@@ -335,6 +399,16 @@ fn run(
     }
     loop {
         if stopping.load(Ordering::Acquire) {
+            #[cfg(any(test, feature = "developer-subscription-schedule"))]
+            if let BatchWork::Automatic { job, clock, .. } = work {
+                if let Ok(mut dispatcher) = supervisor.dispatcher.lock()
+                    && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
+                {
+                    let _ = owner.automatic_finish(job, clock());
+                    supervisor.ticket = None;
+                }
+                return;
+            }
             return;
         }
         {
@@ -345,15 +419,31 @@ fn run(
                 return;
             };
             let valid = match &work {
+                #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                BatchWork::Automatic { job, .. } => owner.automatic_progress(job),
                 BatchWork::Subscription { job, .. } => owner.batch_progress(job),
                 BatchWork::Provider { job, .. } => owner.provider_progress(job),
                 BatchWork::Probe { .. } => unreachable!("probe dispatched before loop"),
             };
             if !valid {
+                #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                if let BatchWork::Automatic { job, clock, .. } = work {
+                    let _ = owner.automatic_finish(job, clock());
+                    supervisor.ticket = None;
+                }
                 return;
             }
         }
         let step = match &mut work {
+            #[cfg(any(test, feature = "developer-subscription-schedule"))]
+            BatchWork::Automatic {
+                job,
+                transport,
+                record_ids,
+                ..
+            } => job
+                .step(transport, pool, &mut || record_ids.next())
+                .map_err(|_| ()),
             BatchWork::Subscription {
                 job,
                 transport,
@@ -385,6 +475,10 @@ fn run(
                     owner.batch_stop();
                 }
                 match work {
+                    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                    BatchWork::Automatic { job, clock, .. } => {
+                        let _ = owner.automatic_finish(job, clock());
+                    }
                     BatchWork::Subscription { job, .. } => {
                         if let Err(error) = owner.batch_finish(job) {
                             // The exact operation remains queryable through the
