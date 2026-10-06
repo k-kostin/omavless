@@ -230,5 +230,15 @@ The frozen successor collector
 `f2bab830ee7f786041ed3e9bdf73fce2b71ee0ef3cdc0f2af920797260c416ed`
 consumes the deletion result: success emits the original birth's `free` event;
 failure emits a bounded, refusing `bad` event. The parser is unchanged and
-26 pure controls pass. Compilation/load and real runtime evidence for this
-successor remain pending; Numeric10's outcome is not rewritten as success.
+26 pure controls pass. Its separate load verifier
+`e401d5786c0a6fbef3912fe65fb4176cc1b13638bc6cb7c7a28b237176a58053`
+then returned originalSSH0 in the disposable VM at boot
+`bd49e220-7200-4610-9f6e-d84d59672b71` (`4f4f68`). The original verifier
+observed its successful exit and reap; stdout was empty, and its bounded private
+stderr was 1,281 bytes with SHA256
+`6a5f57a5fe32c595106928f45d84c93ac022cb82e9babc2052668b05b447b0b6`.
+The discarded-return warning is gone. This closes only the successor's actual
+compilation/passive-load gate: no runtime core, peer, TUN, packet request,
+socket-mark census or cleanup followed from it. Numeric10's outcome is not
+rewritten as success. The reviewed default/K1 Go device tests and a distinct
+four-patch package build remain separate from the next real protected run.
