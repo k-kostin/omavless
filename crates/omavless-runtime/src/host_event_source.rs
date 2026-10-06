@@ -15,7 +15,7 @@ mod bounded_bus;
 mod logind;
 mod route;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 const MAX_WIRE_BYTES: usize = 8 * 1024;
 const MAX_QUEUED_FRAMES: usize = 32;
@@ -152,8 +152,14 @@ impl HostEventSource {
         }
     }
     pub(crate) fn poll(&mut self) -> Result<(), Lost> {
+        self.poll_until(Instant::now() + POLL_BUDGET)
+    }
+    fn poll_until(&mut self, deadline: Instant) -> Result<(), Lost> {
         self.check()?;
-        let deadline = Instant::now() + POLL_BUDGET;
+        let deadline = deadline.min(Instant::now() + POLL_BUDGET);
+        if Instant::now() >= deadline {
+            return self.fail(Lost::Deadline);
+        }
         let result = (|| {
             let events = async_io::block_on(within(deadline, self.logind.poll(deadline)))?;
             for event in events {
@@ -177,14 +183,25 @@ impl HostEventSource {
     }
     pub(crate) fn next(&mut self) -> Result<Option<Emission>, Lost> {
         self.check()?;
-        // Classify original upstream loss/replacement before releasing older
-        // queued hints; the downstream queue is never an authenticity boundary.
         self.poll()?;
         Ok(self.pending.pop_front())
     }
+    pub(crate) fn next_until(&mut self, deadline: Instant) -> Result<Option<Emission>, Lost> {
+        self.check()?;
+        // Classify original upstream loss/replacement before releasing older
+        // queued hints; the downstream queue is never an authenticity boundary.
+        self.poll_until(deadline)?;
+        Ok(self.pending.pop_front())
+    }
     fn check_quiescent(&mut self) -> Result<(), NotCurrent> {
+        self.check_quiescent_until(Instant::now() + POLL_BUDGET)
+    }
+    fn check_quiescent_until(&mut self, deadline: Instant) -> Result<(), NotCurrent> {
         self.check().map_err(NotCurrent::Lost)?;
-        let deadline = Instant::now() + POLL_BUDGET;
+        let deadline = deadline.min(Instant::now() + POLL_BUDGET);
+        if Instant::now() >= deadline {
+            return self.fail(Lost::Deadline).map_err(NotCurrent::Lost);
+        }
         let result = (|| {
             let events = async_io::block_on(within(deadline, self.logind.quiescent(deadline)))?;
             for event in events {
@@ -221,7 +238,13 @@ impl HostEventSource {
     /// Momentary CURRENT original transports, not atomic event exclusion or a
     /// recovery permit. Checks retained pause and same-connection owner readback.
     pub(crate) fn quiescent(&mut self) -> Result<SourceContinuity<'_>, NotCurrent> {
-        self.check_quiescent()?;
+        self.quiescent_until(Instant::now() + POLL_BUDGET)
+    }
+    pub(crate) fn quiescent_until(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<SourceContinuity<'_>, NotCurrent> {
+        self.check_quiescent_until(deadline)?;
         let sequence = self.sequence;
         Ok(SourceContinuity {
             source: self,

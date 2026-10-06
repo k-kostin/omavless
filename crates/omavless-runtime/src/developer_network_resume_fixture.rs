@@ -441,4 +441,6 @@ pub(crate) fn run() -> Value {
 #[cfg(test)]
 pub(crate) mod connect_enrollment;
 #[cfg(test)]
+mod os_event_enrollment;
+#[cfg(test)]
 mod tests;

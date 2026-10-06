@@ -21,7 +21,7 @@ async fn fixture_bound<T>(future: impl std::future::Future<Output = zbus::Result
 static FIXTURE_UNKNOWN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Shutdown {
+pub(crate) enum Shutdown {
     Active,
     Completed,
     Unknown,
@@ -53,14 +53,14 @@ impl Login {
     }
 }
 
-struct PrivateBus {
+pub(crate) struct PrivateBus {
     directory: Option<tempfile::TempDir>,
-    socket: PathBuf,
+    pub(crate) socket: PathBuf,
     child: Option<Child>,
     shutdown: Shutdown,
 }
 impl PrivateBus {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         assert!(
             !FIXTURE_UNKNOWN.load(Ordering::Acquire),
             "unresolved original fixture stops later acquisition"
@@ -117,7 +117,7 @@ impl PrivateBus {
             .await
         })
     }
-    fn login(&self, sleeping: bool, race: bool, stall: bool) -> Connection {
+    pub(crate) fn login(&self, sleeping: bool, race: bool, stall: bool) -> Connection {
         async_io::block_on(async {
             fixture_bound(
                 Builder::address(format!("unix:path={}", self.socket.display()).as_str())
@@ -138,7 +138,7 @@ impl PrivateBus {
             .await
         })
     }
-    fn stop(&mut self) -> Result<(), Shutdown> {
+    pub(crate) fn stop(&mut self) -> Result<(), Shutdown> {
         match self.shutdown {
             Shutdown::Completed => return Ok(()),
             Shutdown::Unknown => return Err(Shutdown::Unknown),
@@ -197,7 +197,7 @@ impl Drop for PrivateBus {
         }
     }
 }
-fn signal(connection: &Connection, sleeping: bool) {
+pub(crate) fn signal(connection: &Connection, sleeping: bool) {
     async_io::block_on(fixture_bound(connection.emit_signal(
         None::<&str>,
         "/org/freedesktop/login1",

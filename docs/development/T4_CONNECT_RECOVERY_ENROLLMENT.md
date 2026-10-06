@@ -75,8 +75,9 @@ The fixed completion hook drains at most four NetworkChanged-only frames,
 100-ms per-frame bound). Any Suspend or Resume, including duplicates, refuses.
 It then takes a fresh complete healthy-owned observation plus the separate
 binding proof under the same lease and exact context. A final strict quiescence
-check follows; nothing drains after that fresh observation. Newly pending data
-refuses instead of publishing against earlier facts.
+check follows; no enrollment drain discards hints after that fresh observation.
+The actual host backend may classify transport data to detect a new hint, but
+retains it and refuses instead of publishing against earlier facts.
 
 The durable anchor is consumed, Ready is created atomically without replacing
 any existing entry, and bounded exact readback/context/source checks precede
