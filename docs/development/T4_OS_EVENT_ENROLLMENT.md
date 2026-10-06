@@ -34,6 +34,20 @@ rebuildable target storage. Later documentation-only component handoff imports
 do not transfer a changed implementation's acceptance. Final hosted checks are
 recorded on the integration Draft PR.
 
+The initial hosted checkpoint `9a185ecb` did not pass all gates: the normal Rust
+suite reported Busy instead of capability_unavailable at the final revoked-owner
+read in an existing route fixture (827 other cases passed). Its precise hosted
+contention source is unproved. The test-only successor `acf2eeaa` retains every
+terminal/privacy assertion, deliberately verifies original-dispatcher contention
+as Busy with no result/host calls, and retries only that fixed host's read-only
+Busy refusals. It uses original stop/join supervision rather than a fixed request
+count. The two-second Busy-retry budget is additional to existing bounded unary
+I/O, not a hard wall-clock deadline. Primary and independent review preceded the
+actual affected case, which passed once; normal runtime code is unchanged.
+The separate native DNS-pair x86 build on the old head also failed while hydrating
+public Go dependencies with HTTP stream errors, before package build/staging.
+Those failed results are retained; successor checks are separate exact-head gates.
+
 ## Completion matrix
 
 | Boundary | Required outcome | Evidence target |
