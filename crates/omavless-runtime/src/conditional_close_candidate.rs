@@ -482,6 +482,10 @@ pub(crate) struct Session {
     executable: Option<ExecutableEvidence>,
     #[cfg(feature = "developer-conditional-close")]
     developer_pair: Option<package_evidence::developer_pair::Evidence>,
+    #[cfg(feature = "developer-conditional-close")]
+    qualified_pair: Option<package_evidence::release_pair::Evidence>,
+    #[cfg(feature = "developer-conditional-close")]
+    qualification_attempted: bool,
     owned_observation: Option<crate::native_host::CloseFacts>,
     expected_display: Option<serde_json::Value>,
     #[cfg(test)]
@@ -548,6 +552,10 @@ impl Session {
             executable: None,
             #[cfg(feature = "developer-conditional-close")]
             developer_pair: None,
+            #[cfg(feature = "developer-conditional-close")]
+            qualified_pair: None,
+            #[cfg(feature = "developer-conditional-close")]
+            qualification_attempted: false,
             owned_observation: None,
             expected_display: None,
             #[cfg(test)]
@@ -586,9 +594,10 @@ impl Session {
 
     fn check(&mut self) -> Result<(), Outcome> {
         #[cfg(feature = "developer-conditional-close")]
-        let _pair_flight = if self.developer_pair.is_some() {
+        let _pair_flight = if self.developer_pair.is_some() || self.qualified_pair.is_some() {
             let flight = self.begin_proof_flight()?;
             self.check_developer_pair()?;
+            self.check_qualified_pair()?;
             Some(flight)
         } else {
             None
@@ -651,6 +660,8 @@ impl Session {
         // outside the urgent revoke gate, before EVERY effect chunk/finish.
         #[cfg(feature = "developer-conditional-close")]
         self.check_developer_pair()?;
+        #[cfg(feature = "developer-conditional-close")]
+        self.check_qualified_pair()?;
         // Disk reads and try-lock are OUTSIDE the lifetime gate. On error,
         // proof.lease drops its own acquired lease before `flight` unwinds.
         let lease = proof.lease().map_err(|_| Outcome::RefusedBeforeWrite)?;
@@ -724,6 +735,13 @@ impl Session {
         }
         #[cfg(feature = "developer-conditional-close")]
         if let Some(pair) = &self.developer_pair
+            && !pair.belongs_to(&self.identity)
+        {
+            gate.revoke();
+            return Err(refuse);
+        }
+        #[cfg(feature = "developer-conditional-close")]
+        if let Some(pair) = &self.qualified_pair
             && !pair.belongs_to(&self.identity)
         {
             gate.revoke();
@@ -1077,6 +1095,68 @@ impl Session {
         let mut gate = self.lifetime.gate.lock().ok()?;
         self.check_locked(&mut gate).ok()?;
         Some(CandidateEffectPermit { _private: () })
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn prepare_qualified_pair(&mut self, config: &Path) -> Result<(), Outcome> {
+        if self
+            .executable
+            .as_ref()
+            .is_none_or(|image| image.source_path != Path::new(crate::managed_pair::RELEASE_CORE))
+        {
+            return Ok(());
+        }
+        if !self.qualification_attempted {
+            self.qualification_attempted = true; // no restore/retry of failed original qualification
+            match package_evidence::release_pair::Evidence::capture(self, config) {
+                Ok(evidence) => self.qualified_pair = evidence,
+                Err(_) => {
+                    self.lifetime
+                        .gate
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .revoke();
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
+            }
+        }
+        self.check()
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    fn check_qualified_pair(&self) -> Result<(), Outcome> {
+        let Some(pair) = &self.qualified_pair else {
+            return Ok(());
+        };
+        if self
+            .executable
+            .as_ref()
+            .is_none_or(|image| pair.check(&self.identity, image, self.binding.pid).is_err())
+        {
+            self.lifetime
+                .gate
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .revoke();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        Ok(())
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn qualified_pair_permit(
+        &mut self,
+    ) -> Result<Option<CandidateEffectPermit>, Outcome> {
+        if self.qualified_pair.is_none() {
+            return Ok(None);
+        }
+        // No package I/O or fresh constructor in the scheduler lease. The
+        // SAME worker ProofFlight checks originals before every write/finish.
+        let mut gate = self
+            .lifetime
+            .gate
+            .lock()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        self.check_locked(&mut gate)?;
+        Ok(Some(CandidateEffectPermit { _private: () }))
     }
 
     pub(crate) fn read_fixed(

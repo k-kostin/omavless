@@ -299,3 +299,7 @@ installed frontend and ARM64 are not claimed by this result. Earlier synthetic
 EN/RU/resize evidence remains separate. Old21d original101 and b29's accepted
 Workspace/socket result are preserved. No main merge, release, replay of the
 spent window, cleanup/reset grant or whole T3/C1 closure follows.
+
+The next [integrated close-qualified package/Session candidate](T3_CLOSE_QUALIFIED_PAIR.md)
+extends explicit offline packaging and the same original scheduler admission;
+it does not extend96's actual evidence or activate default close.

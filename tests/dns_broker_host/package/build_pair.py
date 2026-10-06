@@ -27,6 +27,55 @@ PATCH_SHA = {
 }
 MAX_ARCHIVE = 128 * 1024 * 1024
 GO_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
+CONDITIONAL_TESTS = {
+    "github.com/metacubex/mihomo/hub/route": {
+        "TestConditionalCloseExplicitReadiness", "TestConditionalCloseStrictRequest"},
+    "github.com/metacubex/mihomo/tunnel/statistic": {
+        "TestConditionalCloseReusedID", "TestConditionalCloseCannotReenroll",
+        "TestConditionalCloseDelayedLeave", "TestConditionalCloseConcurrentConfirm",
+        "TestConditionalCloseExhaustionAndFailure"},
+}
+
+
+def conditional_tests_completed(raw):
+    if not raw or len(raw) > 1024 * 1024 or not raw.endswith(b"\n"):
+        raise stage.Refused("Conditional test receipt is incomplete.")
+    runs, passed, packages, started = set(), set(), set(), set()
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line, object_pairs_hook=stage.no_duplicate_keys)
+        except (ValueError, UnicodeError) as error:
+            raise stage.Refused("Conditional test receipt is invalid.") from error
+        if not isinstance(event, dict) or event.get("Package") not in CONDITIONAL_TESTS:
+            raise stage.Refused("Conditional test package is unexpected.")
+        action, package, test = event.get("Action"), event["Package"], event.get("Test")
+        if package in packages:
+            raise stage.Refused("Conditional output followed package completion.")
+        if action not in ("start", "run", "output", "pass"):
+            raise stage.Refused("Conditional tests failed or skipped.")
+        if test is not None and test not in CONDITIONAL_TESTS[package]:
+            raise stage.Refused("Conditional test case is unexpected.")
+        key = (package, test)
+        if action == "start":
+            if test is not None or package in started:
+                raise stage.Refused("Conditional package start is invalid.")
+            started.add(package)
+        elif package not in started:
+            raise stage.Refused("Conditional package did not start.")
+        elif action == "run":
+            if test is None or key in runs:
+                raise stage.Refused("Conditional test invocation is invalid.")
+            runs.add(key)
+        elif action == "pass":
+            target, member = (passed, key) if test is not None else (packages, package)
+            if member in target or (test is not None and key not in runs):
+                raise stage.Refused("Conditional test completion is invalid.")
+            if test is None and {name for pkg, name in passed if pkg == package} != CONDITIONAL_TESTS[package]:
+                raise stage.Refused("Conditional package passed before its cases.")
+            target.add(member)
+    expected = {(package, name) for package, names in CONDITIONAL_TESTS.items() for name in names}
+    if runs != expected or passed != expected or packages != set(CONDITIONAL_TESTS):
+        raise stage.Refused("Every conditional primitive must actually pass.")
 
 
 def digest(path):
@@ -103,15 +152,15 @@ def reviewed_go(go, architecture):
 
 
 def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experimental"):
-    if flavor not in ("experimental", "release"):
-        raise stage.Refused("A supported package flavor is required.")
+    _, schema, patches = stage.pair_policy(flavor)
+    close = flavor == "release-close"
     output = stage.outside_git_destination(output)
     host = os.uname()
     go_arch = reviewed_target(architecture, host.sysname, host.machine)
     revision = git_value(REPO, "rev-parse", "HEAD")
     if len(revision) != 40 or git_value(REPO, "status", "--porcelain", "--untracked-files=no"):
         raise stage.Refused("The OmaVLESS source checkout must be committed and clean.")
-    for filename, expected in PATCH_SHA.items():
+    for filename, expected in patches.items():
         if digest(PATCHES / filename) != expected:
             raise stage.Refused("Reviewed patch identity changed.")
     go_version = reviewed_go(go, architecture)
@@ -122,8 +171,11 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         export_git(mihomo_git, MIHOMO, sources / "mihomo")
         export_git(sing_tun_git, SING_TUN, sources / "sing-tun")
         export_git(REPO, revision, sources / "omavless")
-        for name, directory in (("mihomo-dns-broker.patch", "mihomo"),
-                                ("sing-tun-descriptor.patch", "sing-tun")):
+        plan = [("mihomo-dns-broker.patch", "mihomo"),
+                ("sing-tun-descriptor.patch", "sing-tun")]
+        if close:
+            plan.append(("mihomo-conditional-close.patch", "mihomo"))
+        for name, directory in plan:
             patch = PATCHES / name
             git_env = {"PATH": "/usr/bin:/bin", "LC_ALL": "C",
                        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
@@ -135,20 +187,35 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
                   "GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local",
                   "GOWORK": "off",
                   "GOOS": "linux", "GOARCH": go_arch, "CGO_ENABLED": "0"}
+        if close:
+            go_env.update(GOENV="off", GOMAXPROCS="4")
         command([go, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"],
                 cwd=sources / "mihomo", env=go_env)
+        if close:
+            command([go, "mod", "verify"], cwd=sources / "mihomo", env=go_env)
         command([go, "mod", "vendor"], cwd=sources / "mihomo", env=go_env)
         if not (sources / "mihomo/vendor/modules.txt").is_file():
             raise stage.Refused("Offline vendored dependency source is incomplete.")
         command([go, "test", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
                  "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=1"],
                 cwd=sources / "mihomo", env=go_env)
+        if close:
+            # Actual existing seven conditional primitives, not zero-test ABI
+            # metadata. No race-instrumentation claim with this CGO0 build.
+            receipt_path = work / "conditional-tests.json"
+            command([go, "test", "-json", "-mod=vendor", "-tags=with_gvisor", "./tunnel/statistic",
+                     "./hub/route", "-run", "^TestConditionalClose", "-count=1"],
+                    cwd=sources / "mihomo", env=go_env, output=receipt_path)
+            with receipt_path.open("rb") as result:
+                conditional_tests_completed(result.read(1024 * 1024 + 1))
         package = work / "payload"
         package.mkdir()
         package.chmod(0o700)
         core = package / "mihomo"
-        command([go, "build", "-mod=vendor", "-tags=with_gvisor", "-trimpath",
-                 "-ldflags=-s -w", "-o", str(core), "."],
+        core_command = [go, "build", "-mod=vendor", "-tags=with_gvisor", "-trimpath"]
+        if close:
+            core_command.append("-buildvcs=false")
+        command(core_command + ["-ldflags=-s -w", "-o", str(core), "."],
                 cwd=sources / "mihomo", env=go_env)
         info = subprocess.run([go, "version", "-m", str(core)],
                               stdin=subprocess.DEVNULL, capture_output=True,
@@ -162,7 +229,7 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
                      "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": str(work / "cargo-target")}
         cargo_command = ["/usr/bin/cargo", "build", "--release", "--locked", "--offline",
                          "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"]
-        if flavor == "release":
+        if flavor in ("release", "release-close"):
             cargo_command.extend(("--features", "release-package"))
         command(cargo_command,
                 cwd=sources / "omavless", env=cargo_env)
@@ -178,10 +245,10 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
             shutil.copy2(sources / name / "LICENSE", package / (name + ".LICENSE"))
         shutil.copy2(sources / "omavless/LICENSE", package / "omavless.LICENSE")
         receipt = {
-            "schema": 1, "architecture": architecture, "omavless_commit": revision,
+            "schema": schema, "architecture": architecture, "omavless_commit": revision,
             "mihomo_commit": MIHOMO, "mihomo_tag": "v1.19.31",
             "sing_tun_commit": SING_TUN, "sing_tun_tag": "v0.4.24",
-            "patch_sha256": PATCH_SHA, "go_version": go_version,
+            "patch_sha256": patches, "go_version": go_version,
             "go_build_tags": "with_gvisor", "go_dependency_mode": "vendor",
             "go_binary_sha256": digest(Path(go)),
             "rustc_version": subprocess.run(
@@ -195,9 +262,11 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
                        ("mihomo", "omavless-dns-broker", "corresponding-source.tar.xz",
                         "mihomo.LICENSE", "sing-tun.LICENSE", "omavless.LICENSE")},
         }
-        if flavor == "release":
-            receipt["package_flavor"] = "release"
+        if flavor in ("release", "release-close"):
+            receipt["package_flavor"] = flavor
             receipt["broker_feature"] = "release-package"
+        if close:
+            receipt.update(conditional_close_abi=1, go_cgo=False, go_buildvcs=False)
         (package / "source-receipt.json").write_text(
             json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         if output.exists() or output.is_symlink():
@@ -211,7 +280,7 @@ def main():
     for name in ("mihomo-git", "sing-tun-git", "go", "output"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--arch", choices=tuple(GO_ARCH), required=True)
-    parser.add_argument("--flavor", choices=("experimental", "release"), default="experimental")
+    parser.add_argument("--flavor", choices=("experimental", "release", "release-close"), default="experimental")
     args = parser.parse_args()
     try:
         receipt = build(args.mihomo_git, args.sing_tun_git, args.go,

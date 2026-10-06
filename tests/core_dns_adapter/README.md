@@ -1,5 +1,16 @@
 # Experimental core DNS ownership adapter — not a normal dependency
 
+The separate explicit `release-close` source candidate also retains
+`mihomo-conditional-close.patch`, copied byte-for-byte from OmaVLESS public
+source `8d6877c49d400aa723e01032c62a95d6559fecc3`,
+`tests/core_connections_adapter/mihomo-conditional-close.patch`, SHA256
+`0858827e1af00c3ed3196f021b0dbc76ce34a8de7aa7130d7085614d149acc8f`.
+This modifies GPL-3.0 Mihomo source, not MIT runtime code. The corresponding
+source archive and Mihomo license remain mandatory. Its manager-lifetime token
+and atomic ID/token close compare require the distinct three-patch/ABI receipt
+and original Session qualification; neither old DNS patches nor an ABI boolean
+grant close authority. Default build/staging and release activation are unchanged.
+
 This directory retains the **unpublished, review-only** Mihomo patches needed
 to test DNS-0 for #270. They are not applied by the ordinary installer, release,
 plugin or CI package. An explicitly staged experimental core using the full

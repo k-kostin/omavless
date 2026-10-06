@@ -96,6 +96,10 @@ impl CloseFacts {
         session
             .prepare_developer_pair()
             .map_err(|_| HostStepError::Observation)?;
+        #[cfg(feature = "developer-conditional-close")]
+        session
+            .prepare_qualified_pair(&self.config_directory)
+            .map_err(|_| HostStepError::Observation)?;
         if !session.proves_live() {
             return Err(HostStepError::Observation);
         }

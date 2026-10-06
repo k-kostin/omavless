@@ -31,6 +31,63 @@ EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFile
 
 
 class PackageTests(unittest.TestCase):
+    def test_distinct_close_pair_mode_never_promotes_legacy_dns_receipt(self):
+        path = self.pair / "source-receipt.json"
+        receipt = json.loads(path.read_text())
+        receipt.update(package_flavor="release", broker_feature="release-package")
+        path.write_text(json.dumps(receipt))
+        with mock.patch.object(stage, "outside_git_destination", side_effect=lambda p: Path(p)):
+            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-release")
+            with self.assertRaises(stage.Refused):
+                release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-close", "close-qualified")
+            receipt.update(schema=stage.CLOSE_SCHEMA, package_flavor="release-close",
+                           patch_sha256=stage.CLOSE_PATCHES, conditional_close_abi=1,
+                           go_cgo=False, go_buildvcs=False)
+            # Source-presence fixture only, not actual compilation/attestation.
+            source_path=self.pair/"corresponding-source.tar.xz"
+            rebuilt=io.BytesIO()
+            with tarfile.open(source_path,"r:xz") as old, tarfile.open(fileobj=rebuilt,mode="w:xz") as new:
+                for member in old:
+                    new.addfile(member,old.extractfile(member) if member.isfile() else None)
+                for name in ("hub/route/connections.go","hub/route/conditional_close_test.go",
+                             "tunnel/statistic/manager.go","tunnel/statistic/tracker.go",
+                             "tunnel/statistic/conditional_close_test.go"):
+                    member=tarfile.TarInfo("mihomo/"+name);body=b"public source fixture";member.size=len(body)
+                    new.addfile(member,io.BytesIO(body))
+            source_path.write_bytes(rebuilt.getvalue())
+            receipt["sha256"]["corresponding-source.tar.xz"]=hashlib.sha256(rebuilt.getvalue()).hexdigest()
+            path.write_text(json.dumps(receipt))
+            with self.assertRaises(stage.Refused):
+                release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "implicit-close")
+            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "qualified", "close-qualified")
+        for key, bad in (("conditional_close_abi", True), ("conditional_close_abi", 2),
+                         ("go_cgo", True), ("go_buildvcs", True), ("production_adoption", True)):
+            altered = dict(receipt); altered[key] = bad
+            path.write_text(json.dumps(altered))
+            with self.assertRaises(stage.Refused):
+                stage.reviewed_pair(self.pair, "aarch64", "a" * 40, "release-close")
+        self.assertEqual(build_pair.digest(build_pair.PATCHES / "mihomo-conditional-close.patch"), stage.CLOSE_PATCH)
+        self.assertEqual(len(build_pair.PATCH_SHA), 2)
+
+    def test_conditional_production_test_receipt_requires_every_original_case(self):
+        events = []
+        for package, names in build_pair.CONDITIONAL_TESTS.items():
+            events.append({"Action": "start", "Package": package})
+            for name in sorted(names):
+                events.extend([{"Action": "run", "Package": package, "Test": name},
+                               {"Action": "pass", "Package": package, "Test": name}])
+            events.append({"Action": "pass", "Package": package})
+        wire = lambda xs: b"".join(json.dumps(x).encode()+b"\n" for x in xs)
+        build_pair.conditional_tests_completed(wire(events))
+        for cut in range(len(events)):
+            with self.assertRaises(stage.Refused):
+                build_pair.conditional_tests_completed(wire(events[:cut]+events[cut+1:]))
+        for action in ("skip", "fail"):
+            changed = [dict(e) for e in events]; changed[2]["Action"] = action
+            with self.assertRaises(stage.Refused): build_pair.conditional_tests_completed(wire(changed))
+        for bad in ([], events+events, events[:-1], events[1:], list(reversed(events))):
+            with self.assertRaises(stage.Refused): build_pair.conditional_tests_completed(wire(bad))
+
     def test_native_ci_emits_the_reviewed_package_extension_on_both_arches(self):
         script_path = ROOT / "build-ci.sh"
         script = script_path.read_text()

@@ -9,6 +9,24 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
+    def test_qualified_package_is_same_session_private_and_nondefault_not_boolean_promotion(self):
+        session=(SRC/"conditional_close_candidate.rs").read_text()
+        self.assertRegex(session,r'#\[cfg\(feature = "developer-conditional-close"\)\]\s*pub\(crate\) fn qualified_pair_permit')
+        self.assertIn("qualification_attempted = true",session)
+        self.assertIn("self.check_qualified_pair()?",session.split("fn effect_lease",1)[1].split("#[cfg(test)]",1)[0])
+        qualification=(SRC/"conditional_release_pair.rs").read_text()
+        self.assertNotIn("CandidateEffectPermit",qualification)
+        self.assertIn("image.image_identity != self.core.identity",qualification)
+        self.assertIn("image.source_identity != self.core.identity",qualification)
+        self.assertIn("SELECTION_BYTES",qualification)
+        self.assertIn("self.original.refuse()",qualification)
+        self.assertIn("return Ok(None)",qualification)
+        receipt=(SRC/"managed_close_receipt.rs").read_text()
+        self.assertIn('"omavless-managed-dns-close-pair-v1"',receipt)
+        self.assertIn("deny_unknown_fields",receipt)
+        self.assertIn("r.conditional_close_abi != 1",receipt)
+        self.assertIn("r.patch_sha256.close != CLOSE_PATCH",receipt)
+
     def test_shared_transition_is_normal_compiled_private_and_permit_bound(self):
         text = (SRC / "native_coordinator/connection_close.rs").read_text()
         name = "schedule_permitted_connection_close"

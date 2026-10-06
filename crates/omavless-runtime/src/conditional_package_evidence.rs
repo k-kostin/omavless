@@ -35,6 +35,9 @@ const TUN_PATCH: &str = "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581
 #[cfg(feature = "developer-conditional-close")]
 #[path = "conditional_developer_pair.rs"]
 pub(super) mod developer_pair;
+#[cfg(feature = "developer-conditional-close")]
+#[path = "conditional_release_pair.rs"]
+pub(super) mod release_pair;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Refusal {

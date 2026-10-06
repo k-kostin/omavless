@@ -7,6 +7,7 @@
 
 mod backup_destination_candidate;
 mod backup_source_candidate;
+mod managed_close_receipt;
 mod pending_private_transaction;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;

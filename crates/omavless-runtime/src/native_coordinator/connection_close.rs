@@ -52,6 +52,24 @@ mod tests {
     use std::sync::Mutex;
 
     static FIXTURES: Mutex<()> = Mutex::new(());
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    #[ignore = "ROOT-reviewed fresh normal-package-path qualification namespace only"]
+    fn actual_owner_qualified_package_socket_close_in_dev_vm() {
+        assert!(std::env::var("OMAVLESS_CLOSE_QUALIFIED_PAIR_VM").as_deref() == Ok("1"));
+        assert_eq!(nix::unistd::getuid().as_raw(), 1000);
+        assert_eq!(nix::unistd::getgid().as_raw(), 1000);
+        assert_eq!(nix::unistd::getpid().as_raw(), 1);
+        composed_core_selected_close_with_client(
+            PathBuf::from(crate::managed_pair::RELEASE_CORE),
+            true,
+            false,
+            true,
+            false,
+            false,
+            true,
+        );
+    }
     #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
     include!("connection_close_client_integration.rs");
     #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
@@ -1781,6 +1799,7 @@ while True:
             socket_workspace,
             false,
             false,
+            false,
         );
     }
 
@@ -1791,6 +1810,7 @@ while True:
         socket_workspace: bool,
         client_workspace: bool,
         real_cli: bool,
+        qualified_pair: bool,
     ) {
         use sha2::{Digest, Sha256};
         use std::io::{Read, Write};
@@ -1800,9 +1820,22 @@ while True:
         assert!(metadata.is_file() && !metadata.file_type().is_symlink());
         assert_eq!(metadata.nlink(), 1);
         assert_eq!(metadata.mode() & 0o022, 0);
+        let expected = if qualified_pair {
+            assert_eq!(executable, Path::new(crate::managed_pair::RELEASE_CORE));
+            let expected = std::env::var("OMAVLESS_CLOSE_QUALIFIED_CORE_SHA").unwrap();
+            assert!(
+                expected.len() == 64
+                    && expected
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            );
+            expected
+        } else {
+            "3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544".to_owned()
+        };
         assert_eq!(
             format!("{:x}", Sha256::digest(fs::read(&executable).unwrap())),
-            "3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544"
+            expected
         );
         let after = fs::symlink_metadata(&executable).unwrap();
         assert_eq!(
@@ -2008,6 +2041,18 @@ while True:
             clients.push(client);
         }
         let desired = fixture.owner.desired().unwrap();
+        if qualified_pair {
+            assert!(
+                developer_pair && socket_workspace && !rebind && !client_workspace && !real_cli
+            );
+            // Only a fixed USER selection in this private fixture. Root package
+            // provisioning/build/admission remains outside the executable.
+            write(
+                &config.join(crate::managed_pair::SELECTOR),
+                crate::managed_pair::SELECTION_BYTES,
+                0o600,
+            );
+        }
         if socket_workspace {
             #[cfg(feature = "developer-conditional-close")]
             {
@@ -2797,6 +2842,18 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .ok_or(NativeOwnerError::RecordNotFound)?;
         // The opt-in development pair is a distinct root-admin object policy,
         // not an adoption of the old passive source receipt or released pair.
+        // The distinct close-qualified package evidence is independently
+        // retained by this SAME original Session; an error cannot fall back.
+        #[cfg(feature = "developer-conditional-close")]
+        if let Some(permit) = snapshot
+            .observation
+            .session_mut()
+            .qualified_pair_permit()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?
+        {
+            return self
+                .schedule_permitted_connection_close(snapshot, selected, token, permit, &_lease);
+        }
         #[cfg(feature = "developer-conditional-close")]
         if let Some(permit) = snapshot.observation.session_mut().developer_pair_permit() {
             return self

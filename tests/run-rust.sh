@@ -43,5 +43,8 @@ cargo test --locked -p omavless-runtime --features developer-conditional-close -
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib \
   native_coordinator::connection_close::tests::client_reply_diagnostic_discards_private_values_and_reports_only_closed_enums -- --exact
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib real_ui_
+cargo test --locked -p omavless-runtime --lib managed_close_receipt::tests
+cargo test --locked -p omavless-runtime --features developer-conditional-close --lib release_pair::tests
+cargo test --locked -p omavless-runtime --lib managed_pair::tests
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json
