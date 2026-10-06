@@ -2,12 +2,12 @@
 
 //! Explicit child-scope research only. No manager/desktop reads or writes,
 //! no real core, no generic executable/path/endpoint input, no IPC registration.
-//! A continuously held listener serves one fixed HTTP fixture. It is NOT
+//! Continuously held origin/proxy listeners serve one pinned HTTP client. It is NOT
 //! kernel peer authentication or a ready/owned Mihomo capability.
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -25,10 +25,68 @@ const KEYS: [&str; 10] = [
 ];
 const CONSUMER: &str = "app_proxy::child_scope::tests::fixed_consumer";
 const MODE: &str = "OMAVLESS_TEST_CHILD_PROXY_SCOPE";
-const REQUEST: &[u8] = b"GET http://fixture.invalid/child-scope HTTP/1.1\r\nHost: fixture.invalid\r\nConnection: close\r\n\r\n";
-const RESPONSE: &[u8] =
-    b"HTTP/1.1 200 OK\r\nContent-Length: 14\r\nConnection: close\r\n\r\nchild-scope-ok";
+const ORIGIN: &str = "OMAVLESS_TEST_CHILD_PROXY_ORIGIN";
+const DIRECT_BODY: &[u8] = b"child-scope-direct";
+const PROXY_BODY: &[u8] = b"child-scope-proxied";
 const LIMIT: usize = 4096;
+
+fn fixture_address(listener: &TcpListener) -> Result<SocketAddr> {
+    let address = listener.local_addr().map_err(|_| Error::Unavailable)?;
+    if address.ip() != std::net::Ipv4Addr::LOCALHOST || address.port() == 0 {
+        return Err(Error::Unavailable);
+    }
+    Ok(address)
+}
+
+// Header order/casing is incidental, but the method, target and complete
+// allowlisted field set must describe exactly the one fixed request.
+fn request_matches(raw: &[u8], address: SocketAddr, connect: bool) -> bool {
+    let Ok(text) = std::str::from_utf8(raw) else {
+        return false;
+    };
+    let Some(text) = text.strip_suffix("\r\n\r\n") else {
+        return false;
+    };
+    let mut lines = text.split("\r\n");
+    let first = if connect {
+        format!("CONNECT {address} HTTP/1.1")
+    } else {
+        "GET /child-scope HTTP/1.1".to_owned()
+    };
+    if lines.next() != Some(first.as_str()) {
+        return false;
+    }
+    let authority = address.to_string();
+    let mut host = false;
+    let mut policy = false;
+    for line in lines {
+        let Some((name, value)) = line.split_once(": ") else {
+            return false;
+        };
+        if name.eq_ignore_ascii_case("host") && value == authority && !host {
+            host = true;
+        } else if !policy
+            && ((connect && name.eq_ignore_ascii_case("proxy-connection") && value == "Keep-Alive")
+                || (!connect && name.eq_ignore_ascii_case("connection") && value == "close"))
+        {
+            policy = true;
+        } else {
+            return false;
+        }
+    }
+    host && policy
+}
+
+fn fixture_response(proxy: bool) -> Vec<u8> {
+    let body = if proxy { PROXY_BODY } else { DIRECT_BODY };
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(body);
+    response
+}
 
 fn child_receipt(output: &[u8], error: &[u8]) -> bool {
     if output.len() > LIMIT || !error.is_empty() {
@@ -116,6 +174,7 @@ fn read_header(stream: &mut TcpStream, end: Instant) -> Result<Vec<u8>> {
         if raw.len() >= LIMIT {
             return Err(Error::InvalidFrame);
         }
+        socket_deadline(stream, end)?;
         let mut byte = [0];
         if stream.read(&mut byte).map_err(|_| Error::Unavailable)? != 1 {
             return Err(Error::InvalidFrame);
@@ -128,12 +187,31 @@ fn read_header(stream: &mut TcpStream, end: Instant) -> Result<Vec<u8>> {
     }
 }
 
+fn read_response(stream: &mut TcpStream, end: Instant) -> Result<Vec<u8>> {
+    let mut raw = Vec::new();
+    loop {
+        socket_deadline(stream, end)?;
+        let mut byte = [0];
+        let length = stream.read(&mut byte).map_err(|_| Error::Unavailable)?;
+        gate(end)?;
+        if length == 0 {
+            return Ok(raw);
+        }
+        if raw.len() >= LIMIT {
+            return Err(Error::InvalidFrame);
+        }
+        raw.push(byte[0]);
+    }
+}
+
 struct OwnedFixtureProxy {
     listener: Option<TcpListener>,
+    origin: Option<TcpListener>,
     child: Option<Child>,
     end: Instant,
     attempted: bool,
     observed_request: bool,
+    observed_origin: bool,
     completion_unknown: bool,
 }
 
@@ -144,13 +222,19 @@ impl OwnedFixtureProxy {
         listener
             .set_nonblocking(true)
             .map_err(|_| Error::Unavailable)?;
+        let origin = TcpListener::bind(("127.0.0.1", 0)).map_err(|_| Error::Unavailable)?;
+        origin
+            .set_nonblocking(true)
+            .map_err(|_| Error::Unavailable)?;
         gate(end)?;
         Ok(Self {
             listener: Some(listener),
+            origin: Some(origin),
             child: None,
             end,
             attempted: false,
             observed_request: false,
+            observed_origin: false,
             completion_unknown: false,
         })
     }
@@ -168,18 +252,12 @@ impl OwnedFixtureProxy {
             command.env_remove(key);
         }
         command.env(MODE, if proxy { "http" } else { "baseline" });
+        let origin = fixture_address(self.origin.as_ref().ok_or(Error::Unavailable)?)?;
+        command.env(ORIGIN, origin.to_string());
         if proxy {
             // The original listener remains bound before, during and after
             // this descriptive endpoint lookup; no reserve/drop/rebind gap.
-            let address = self
-                .listener
-                .as_ref()
-                .ok_or(Error::Unavailable)?
-                .local_addr()
-                .map_err(|_| Error::Unavailable)?;
-            if !address.ip().is_loopback() || address.port() == 0 {
-                return Err(Error::Unavailable);
-            }
+            let address = fixture_address(self.listener.as_ref().ok_or(Error::Unavailable)?)?;
             let endpoint = format!("http://{address}");
             command
                 .env("http_proxy", &endpoint)
@@ -193,10 +271,10 @@ impl OwnedFixtureProxy {
         Ok(command)
     }
 
-    fn serve_one(&mut self) -> Result<()> {
-        let mut stream = loop {
+    fn accept(&self, listener: &TcpListener) -> Result<TcpStream> {
+        let stream = loop {
             gate(self.end)?;
-            match self.listener.as_ref().ok_or(Error::Unavailable)?.accept() {
+            match listener.accept() {
                 Ok((stream, _)) => break stream,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(5));
@@ -205,11 +283,74 @@ impl OwnedFixtureProxy {
             }
         };
         socket_deadline(&stream, self.end)?;
-        if read_header(&mut stream, self.end)? != REQUEST {
+        gate(self.end)?;
+        Ok(stream)
+    }
+
+    fn serve_origin(&mut self, proxy: bool) -> Result<()> {
+        let listener = self.origin.as_ref().ok_or(Error::Unavailable)?;
+        let address = fixture_address(listener)?;
+        let mut stream = self.accept(listener)?;
+        if !request_matches(&read_header(&mut stream, self.end)?, address, false) {
+            return Err(Error::InvalidFrame);
+        }
+        self.observed_origin = true;
+        socket_deadline(&stream, self.end)?;
+        stream
+            .write_all(&fixture_response(proxy))
+            .map_err(|_| Error::Unavailable)?;
+        gate(self.end)
+    }
+
+    fn serve_one(&mut self, proxy: bool) -> Result<()> {
+        if !proxy {
+            return self.serve_origin(false);
+        }
+        let origin = fixture_address(self.origin.as_ref().ok_or(Error::Unavailable)?)?;
+        let mut child = self.accept(self.listener.as_ref().ok_or(Error::Unavailable)?)?;
+        // Pinned ureq 3.4.0 uses CONNECT even for plain HTTP. A successful
+        // CONNECT alone is insufficient: observe the actual GET in its tunnel.
+        if !request_matches(&read_header(&mut child, self.end)?, origin, true) {
+            return Err(Error::InvalidFrame);
+        }
+        socket_deadline(&child, self.end)?;
+        child
+            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            .map_err(|_| Error::Unavailable)?;
+        gate(self.end)?;
+        let request = read_header(&mut child, self.end)?;
+        if !request_matches(&request, origin, false) {
             return Err(Error::InvalidFrame);
         }
         self.observed_request = true;
-        stream.write_all(RESPONSE).map_err(|_| Error::Unavailable)?;
+        // The proxy forwards only that validated request to its own still-held
+        // origin; CONNECT cannot select another destination or become a relay API.
+        let remaining = self.end.saturating_duration_since(Instant::now());
+        gate(self.end)?;
+        let mut upstream =
+            TcpStream::connect_timeout(&origin, remaining.min(Duration::from_secs(2)))
+                .map_err(|_| Error::Unavailable)?;
+        socket_deadline(&upstream, self.end)?;
+        upstream
+            .write_all(&request)
+            .map_err(|_| Error::Unavailable)?;
+        self.serve_origin(true)?;
+        let response = read_response(&mut upstream, self.end)?;
+        if response != fixture_response(true) {
+            return Err(Error::InvalidFrame);
+        }
+        socket_deadline(&child, self.end)?;
+        child.write_all(&response).map_err(|_| Error::Unavailable)?;
+        gate(self.end)
+    }
+
+    fn no_extra_connections(&self) -> Result<()> {
+        for listener in [&self.listener, &self.origin] {
+            match listener.as_ref().ok_or(Error::Unavailable)?.accept() {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                _ => return Err(Error::InvalidFrame),
+            }
+        }
         gate(self.end)
     }
 
@@ -273,8 +414,10 @@ impl OwnedFixtureProxy {
             .map_err(|_| Error::Unavailable)?;
         self.child = Some(child);
         gate(self.end)?;
-        let result =
-            if proxy { self.serve_one() } else { Ok(()) }.and_then(|()| self.settled_child());
+        let result = self
+            .serve_one(proxy)
+            .and_then(|()| self.settled_child())
+            .and_then(|()| self.no_extra_connections());
         if !parent.unchanged() {
             return Err(Error::ParentChanged);
         }
@@ -283,13 +426,16 @@ impl OwnedFixtureProxy {
 
     fn retain_unknown(&mut self) {
         // No reconstruction, follow-up wait or retry. This fixed experiment
-        // has at most one child and one bound listener; retain their returned
+        // has at most one child and two bound listeners; retain their returned
         // originals until this dedicated test process exits, not across death.
         if let Some(child) = self.child.take() {
             std::mem::forget(child);
         }
         if let Some(listener) = self.listener.take() {
             std::mem::forget(listener);
+        }
+        if let Some(origin) = self.origin.take() {
+            std::mem::forget(origin);
         }
     }
 }
@@ -321,6 +467,33 @@ impl Drop for OwnedFixtureProxy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_headers_admit_only_fixed_origin_and_connect() {
+        let address: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let get = "GET /child-scope HTTP/1.1\r\nhost: 127.0.0.1:12345\r\nconnection: close\r\n\r\n";
+        let connect = "CONNECT 127.0.0.1:12345 HTTP/1.1\r\nHost: 127.0.0.1:12345\r\nProxy-Connection: Keep-Alive\r\n\r\n";
+        assert!(request_matches(get.as_bytes(), address, false));
+        assert!(request_matches(connect.as_bytes(), address, true));
+        assert!(!request_matches(get.as_bytes(), address, true));
+        assert!(!request_matches(connect.as_bytes(), address, false));
+        for wrong in [
+            get.replace("GET ", "POST "),
+            get.replace("/child-scope", "/other"),
+            get.replace("127.0.0.1:12345", "127.0.0.1:12346"),
+            get.replace("host: ", "host: 127.0.0.1:12345\r\nhost: "),
+            get.replace(
+                "connection: close",
+                "connection: close\r\nauthorization: synthetic",
+            ),
+            get.replace("\r\n", "\n"),
+            format!("{get}extra"),
+        ] {
+            assert!(!request_matches(wrong.as_bytes(), address, false));
+        }
+        assert!(!request_matches(&[255], address, false));
+        assert_ne!(fixture_response(false), fixture_response(true));
+    }
 
     #[test]
     fn child_receipt_requires_exact_one_case_and_never_echoes_private_bytes() {
@@ -391,6 +564,7 @@ mod tests {
             .run_once(true)
             .expect("bounded original proxy exchange");
         assert!(proxy.observed_request);
+        assert!(proxy.observed_origin);
         assert!(proxy.child.is_none());
         assert_eq!(proxy.run_once(true), Err(Error::Consumed));
         let mut baseline = OwnedFixtureProxy::bind().expect("independent fixture listener");
@@ -398,6 +572,7 @@ mod tests {
             .run_once(false)
             .expect("independent baseline child");
         assert!(!baseline.observed_request);
+        assert!(baseline.observed_origin);
         assert!(parent.unchanged(), "parent proxy environment changed");
     }
 
@@ -407,32 +582,48 @@ mod tests {
         let mode = std::env::var(MODE).unwrap_or_else(|_| panic!("fixed child selector missing"));
         if mode == "baseline" {
             assert!(KEYS.into_iter().all(|key| std::env::var_os(key).is_none()));
-            return;
+        } else {
+            assert!(mode == "http", "unknown fixed child selector");
         }
-        assert!(mode == "http", "unknown fixed child selector");
-        let endpoint =
-            std::env::var("http_proxy").unwrap_or_else(|_| panic!("fixed child proxy absent"));
-        let address = endpoint
-            .strip_prefix("http://")
-            .expect("fixed child scheme");
-        let address: std::net::SocketAddr = address.parse().expect("fixed child endpoint");
-        assert!(address.ip().is_loopback() && address.port() != 0);
-        for key in ["HTTP_PROXY", "https_proxy", "HTTPS_PROXY"] {
-            if std::env::var(key).ok().as_deref() != Some(endpoint.as_str()) {
-                panic!("fixed child proxy fields disagree");
-            }
-        }
+        let origin = std::env::var(ORIGIN).expect("fixed child origin absent");
+        let address: SocketAddr = origin.parse().expect("fixed child origin");
+        assert!(address.ip() == std::net::Ipv4Addr::LOCALHOST && address.port() != 0);
+        assert!(
+            origin == address.to_string(),
+            "noncanonical fixed child origin"
+        );
         let end = Instant::now() + Duration::from_secs(8);
-        let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
-            .expect("owned loopback proxy connection");
-        socket_deadline(&stream, end).expect("owned consumer socket deadline");
-        stream.write_all(REQUEST).expect("fixed consumer request");
-        let mut response = Vec::new();
-        stream
-            .take((LIMIT + 1) as u64)
-            .read_to_end(&mut response)
-            .expect("fixed consumer response");
-        assert!(response == RESPONSE, "fixed consumer response mismatch");
+        // Config::default discovers proxies from the CHILD environment itself.
+        // No manual proxy read, explicit Proxy value or custom connector exists.
+        // Production subscription transport's proxy(None) remains unchanged.
+        let agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(8)))
+            .timeout_connect(Some(Duration::from_secs(2)))
+            .max_redirects(0)
+            .max_response_header_size(LIMIT)
+            .user_agent("")
+            .accept("")
+            .accept_encoding("")
+            .build()
+            .new_agent();
+        let mut response = agent
+            .get(format!("http://{address}/child-scope"))
+            .header("Connection", "close")
+            .call()
+            .unwrap_or_else(|_| panic!("fixed client request failed"));
+        assert!(response.status() == 200, "fixed client status mismatch");
+        let body = response
+            .body_mut()
+            .with_config()
+            .limit(LIMIT as u64)
+            .read_to_vec()
+            .unwrap_or_else(|_| panic!("fixed client body failed"));
+        let expected = if mode == "http" {
+            PROXY_BODY
+        } else {
+            DIRECT_BODY
+        };
+        assert!(body == expected, "fixed client route body mismatch");
         gate(end).expect("fixed consumer deadline");
     }
 }

@@ -12,8 +12,9 @@ the system/user bus, GSettings, services, a provider or a real VPN core.
 
 ## Narrow executable outcome
 
-One Rust fixture owns an original TCP listener bound once to `127.0.0.1:0`.
-It derives a descriptive endpoint while keeping that listener bound. No
+One Rust fixture owns distinct original proxy and origin TCP listeners, each
+bound once to `127.0.0.1:0`. It derives descriptive endpoints while keeping
+both listeners bound. No
 reserve/drop/rebind, imported ready Boolean, caller PID/path/executable or
 shell command exists. TCP loopback does not authenticate the client process.
 
@@ -26,9 +27,25 @@ all ten fields absent. No parent/process-global environment setter is used;
 the parent's exact ten-field absent/empty/value snapshot is compared privately
 before/after without printing or serializing any original value.
 
-The HTTP consumer connects to the held loopback listener and sends one literal
-absolute-form request. The fixture observes those exact bytes, returns a fixed
-body, and the consumer verifies that body. A bounded real one-case Rust test
+The HTTP consumer uses the project's pinned `ureq` 3.4.0 dependency, whose
+default `Agent` configuration discovers the child's proxy environment. It
+does not read proxy values to select a socket or install an explicit proxy or
+custom connector. All supplied proxy fields agree; `ALL_PROXY` is absent and
+both bypass fields are empty. Inspection of the pinned implementation confirms
+that an empty bypass does not implicitly exempt loopback. This is one agreed
+environment configuration, not a matrix of scheme/case/precedence semantics.
+Production subscription transport still explicitly disables ambient proxies.
+
+The fixed client sends a GET to the held numeric origin. In the proxy child,
+the held proxy observes ureq's CONNECT to that exact origin and then the GET
+inside the tunnel. The fixture validates the complete fixed header set before
+forwarding the GET only to its own still-held origin. It serves a distinct
+proxied body and relays that bounded response back through the original proxy
+socket. The clean baseline client instead reaches the origin directly and
+receives the distinct direct body; the proxy has no pending connection.
+After each successful child completion both listeners must have no extra
+pending connections. TCP observations do not authenticate the child PID.
+A bounded real one-case Rust test
 receipt plus successful original child completion is required. A wrong/empty
 test selector, unexpected stderr, invalid frame or oversize output refuses.
 This is HTTP child-environment/TCP behavior, NOT an actual Mihomo/SOCKS/GIO
@@ -38,10 +55,10 @@ observation of unchanged manager state.
 
 ## Ownership, bounds and faults
 
-The parent owns one child and one listener, with one admission attempt and
+The parent owns one child and two listeners, with one admission attempt and
 ten seconds of sampled lifetime, bounded socket I/O and 4-KiB frames/captures.
 The fixed consumer has eight seconds and a two-second connect timeout. The
-listener remains bound until child completion/cleanup, preventing subsequent
+listeners remain bound until child completion/cleanup, preventing subsequent
 port reuse while this child is knowingly alive. These are ordinary dedicated
 fixture resources, not arbitrary GUI descendants or an installed authority.
 
@@ -55,7 +72,10 @@ be hard-cancellable or to expose all partial resources. No product recovery
 or successful cleanup is inferred from Drop or a later observation.
 
 Pure/constructor controls check child-only edits, absent inherited fields,
-empty bypass and consumed/expired admission. The actual exchange and its child
+empty bypass, strict fixed origin/CONNECT headers and consumed/expired admission.
+Socket deadlines are refreshed against the same monotonic end before each
+read/write; headers, relay responses and client bodies are bounded at 4 KiB.
+The client follows no redirects. The actual exchange and its child
 entry are ignored by default and must be separately selected after review.
 No actual result is claimed until recorded on the exact source head.
 
@@ -74,7 +94,9 @@ The tested copy was mode0500, single-link, outside Cargo output; its SHA256 is
 `9d73933e9692f003b40f2d1a667a6fb9e8698383baee1c74f140622b1e75bc1c`.
 Private parent stdout196B SHA256
 `2f7e339b21bffc8af1ae626b349af0d723f3dcaca4f77476ac13ab792d5fa702`;
-stderr was empty. This proves only the narrow synthetic HTTP/child behavior,
+stderr was empty. This earlier consumer generated HTTP bytes manually; it did
+not use an actual HTTP client's environment selection. This proves only the
+narrow synthetic HTTP/child behavior,
 not real core, GTK/GIO/application or global proxy restoration acceptance.
 
 ## Remaining product decision and gates
@@ -89,4 +111,7 @@ into a canonical runtime capability.
 
 References: Rust's [child-only environment API](https://doc.rust-lang.org/std/process/struct.Command.html#method.env),
 [owned Child lifetime](https://doc.rust-lang.org/std/process/struct.Child.html),
-and [listener binding](https://doc.rust-lang.org/std/net/struct.TcpListener.html#method.bind).
+and [listener binding](https://doc.rust-lang.org/std/net/struct.TcpListener.html#method.bind),
+plus pinned ureq's [default environment discovery](https://docs.rs/ureq/3.4.0/src/ureq/config.rs.html),
+[environment/bypass implementation](https://docs.rs/ureq/3.4.0/src/ureq/proxy.rs.html)
+and [CONNECT implementation](https://docs.rs/ureq/3.4.0/src/ureq/unversioned/transport/connect.rs.html).
