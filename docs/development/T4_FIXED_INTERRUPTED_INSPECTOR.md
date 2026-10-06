@@ -1,7 +1,8 @@
 # Fixed interrupted-transaction inspector
 
-Inactive source successor of exact Commit `21c7ff72`, documentation base
-`0947d554`. This is a read-only classification gate, not rollback, product
+Developer successor of exact Commit `21c7ff72`, documentation base
+`0947d554`. The first gate is read-only classification; the separately scoped
+fixed rollback successor below consumes its own fresh proof. Neither is product
 recovery, normal startup admission or continuity of the interrupted actor.
 
 ## One executable scenario
@@ -224,3 +225,48 @@ capture/descriptor accounting, strict source gates and compile-only artifacts
 remain separate from PRIMARY/independent review and a future ROOT-operated VM
 scenario. This is not ProductOwner, real-pair recovery, startup permission,
 power-cut acceptance, a caller-selected recovery API or whole T4 completion.
+
+## Exact fixed rollback developer checkpoint
+
+PRIMARY and independent affected-critical source/packet reviews preceded ROOT's
+selection of exact native code `5f91ca509c44ffc862de792867244063f28d7169`.
+The release actor was 2,097,928 bytes, SHA256
+`f6cd30f938799b9c33c6d544ca891ad053cce82a8ac769397e933cda62c427ec`.
+The new review18 packet's 24 definitions-only controls passed separately.
+
+The preceding review17 original SSH returned exit2. Its pre-scoped observer
+projected two supervisor frames and 30 actor frames, last canonical query
+original-zero; no rollback completion is claimed. ROOT's separate current
+unit query found the ordinary runtime active, which the unchanged strict
+stopped-unit parser rejects. The failed epoch was not retried or adopted.
+Private archival and a disposable-VM administrative reboot abandoned volatile
+state; neither supplies product recovery or transforms review17 into PASS.
+
+On the separately admitted fresh review18 boot, BOTH exact queried user units
+were inactive/dead with MainPID0/ControlPID0; root netguard was inactive and no
+TUN was present. ROOT reports upload `28a2d3`, prepare `8f4494` → `9fce06`,
+whole `1e05f2` → `1ef175` and separately pre-scoped observer `0deee9` →
+`0f74a1`, each original exit zero.
+
+- Actor: 7,854 bytes/223 closed frames, last
+  `t4_actor_fixture_intent_mixed_rolled_back`, SHA256
+  `75a62f9860ce632f175eebe3545df477793a8ecf9af8da3e871a444d1eab13a9`.
+- Supervisor: 218 bytes/six frames, last
+  `t4_service_interrupted_rollback_completed`, SHA256
+  `392b1adf641956771b0213580946b351e32abf475a7c99aee70d2c362d8ac7d8`.
+
+Original whole zero under the reviewed source binds the declared writer86,
+permanent old-context revocation, fresh role admission, exact OLD pair plus
+Aborted/readback, final canonical refresh, normal Halt and original child zero.
+It is a fixed synthetic transaction, not actual private-store recovery,
+genuine ProductOwner/lease admission, SIGKILL/power-cut acceptance or whole T4.
+Later documentation/test-only heads do not claim a newly executed actor.
+
+The test-only successor lets two inherited fixture modules select the explicit
+`OMAVLESS_TEST_ROOT` while retaining their original HOME fallback and every
+production Lineage/Parents predicate. Empty, relative and non-normalized
+overrides refuse before temp effects. The admitted short local fixture root
+is outside Git and has safe ancestors; no existing runtime entry is queried or
+modified. Earlier full-suite HOME/Git/socket and inherited-umask failures stay
+NONPASS, separate from the focused 77 service/51 canonical controls and this
+ROOT-operated VM result. Complete source-suite receipts remain exact-head gates.

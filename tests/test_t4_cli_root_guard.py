@@ -16,6 +16,33 @@ from tests.first_abort_cli import lineage
 from tests.first_abort_process import vm_guard as owned_core
 
 
+def fixture_parent():
+    # Test-only explicit root; complete production Parents checks still run.
+    value = os.environ.get('OMAVLESS_TEST_ROOT')
+    if value is None:
+        return Path.home()
+    root = Path(value)
+    if not root.is_absolute() or str(root) != value or root != Path(os.path.normpath(value)):
+        raise ValueError('invalid_test_root')
+    return root
+
+
+class FixtureParentTests(unittest.TestCase):
+    def test_explicit_root_default_and_invalid_aliases_have_no_temp_effect(self):
+        with patch.object(Path, 'home', return_value=Path('/fixed/default-home')):
+            with patch.dict(os.environ, {'OMAVLESS_TEST_ROOT': '/fixed/explicit-root'}):
+                self.assertEqual(fixture_parent(), Path('/fixed/explicit-root'))
+            with patch.dict(os.environ):
+                os.environ.pop('OMAVLESS_TEST_ROOT', None)
+                self.assertEqual(fixture_parent(), Path('/fixed/default-home'))
+            for value in ('', 'relative', '/fixed/../alias', '/fixed//alias', '/fixed/alias/'):
+                with patch.dict(os.environ, {'OMAVLESS_TEST_ROOT': value}), \
+                     patch.object(tempfile, 'mkdtemp') as create:
+                    with self.assertRaises(ValueError):
+                        tempfile.mkdtemp(dir=fixture_parent())
+                    create.assert_not_called()
+
+
 class GuardTests(unittest.TestCase):
     def test_fresh_generation_native_and_delivery_identity_is_consistent(self):
         # Source-only: no ignored fixture, native ELF, account or guest execution.
@@ -400,7 +427,7 @@ class GuardTests(unittest.TestCase):
         # No TemporaryDirectory/finally cleanup: an unknown child leaves this
         # bounded synthetic directory and descriptors retained, terminating the
         # test runner rather than allowing subsequent observations or retries.
-        directory = Path(tempfile.mkdtemp(prefix='ov-publish-', dir=Path.home()))
+        directory = Path(tempfile.mkdtemp(prefix='ov-publish-', dir=fixture_parent()))
         directory.chmod(0o700)
         path = directory / 'helper'
         raw = Path('/usr/bin/true').read_bytes()

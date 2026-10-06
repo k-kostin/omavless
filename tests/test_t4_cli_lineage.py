@@ -8,9 +8,37 @@ from unittest.mock import patch
 from tests.first_abort_cli import lineage
 
 
+def fixture_parent():
+    # Explicit developer-test location only; production ancestry guards remain
+    # unchanged. Default CI retains its original HOME fixture behavior.
+    value = os.environ.get('OMAVLESS_TEST_ROOT')
+    if value is None:
+        return Path.home()
+    root = Path(value)
+    if not root.is_absolute() or str(root) != value or root != Path(os.path.normpath(value)):
+        raise ValueError('invalid_test_root')
+    return root
+
+
+class FixtureParentTests(unittest.TestCase):
+    def test_explicit_root_default_and_invalid_aliases_have_no_temp_effect(self):
+        with patch.object(Path, 'home', return_value=Path('/fixed/default-home')):
+            with patch.dict(os.environ, {'OMAVLESS_TEST_ROOT': '/fixed/explicit-root'}):
+                self.assertEqual(fixture_parent(), Path('/fixed/explicit-root'))
+            with patch.dict(os.environ):
+                os.environ.pop('OMAVLESS_TEST_ROOT', None)
+                self.assertEqual(fixture_parent(), Path('/fixed/default-home'))
+            for value in ('', 'relative', '/fixed/../alias', '/fixed//alias', '/fixed/alias/'):
+                with patch.dict(os.environ, {'OMAVLESS_TEST_ROOT': value}), \
+                     patch.object(tempfile, 'TemporaryDirectory') as create:
+                    with self.assertRaises(ValueError):
+                        tempfile.TemporaryDirectory(dir=fixture_parent())
+                    create.assert_not_called()
+
+
 class LineageTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='.t4-lineage-', dir=Path.home())
+        self.temp = tempfile.TemporaryDirectory(prefix='.t4-lineage-', dir=fixture_parent())
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
         roots = {'HOME': self.home, 'CONFIG': self.home / 'config', 'STATE': self.home / 'state',
