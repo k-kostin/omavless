@@ -1544,14 +1544,12 @@ impl RuntimeServer {
                         let result = owner.developer_current_pause(input);
                         let revision = owner.revision();
                         if result.is_ok() {
-                            let publication = publish(
+                            return developer_current_restore::publish_positive_pause_response(
                                 success_response(id, revision, json!({"intentPaused":true})),
                                 stream,
+                                input.revision(),
+                                |revision| owner.refuse_unpublished_intent_pause(revision),
                             );
-                            if publication.is_err() {
-                                owner.refuse_unpublished_intent_pause(input.revision());
-                            }
-                            return publication;
                         } else {
                             error_response(
                                 id,

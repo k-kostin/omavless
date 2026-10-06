@@ -177,7 +177,6 @@ fn native_pause_first_publication_unknown_and_original_substitution_never_resume
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
 fn native_positive_pause_lost_response_publication_seals_same_original_slot() {
-    use std::io::Write;
     use std::os::unix::net::UnixStream;
     let mut f = Fixture::new();
     let old = fs::read(&f.store).unwrap();
@@ -186,11 +185,17 @@ fn native_positive_pause_lost_response_publication_seals_same_original_slot() {
         .unwrap();
     let (mut producer, consumer) = UnixStream::pair().unwrap();
     drop(consumer);
-    let publication = producer.write_all(b"public positive pause reply\n");
+    let publication = crate::developer_current_restore::publish_positive_pause_response(
+        omavless_control_protocol::success_response(
+            "public",
+            0,
+            serde_json::json!({"intentPaused":true}),
+        ),
+        &mut producer,
+        0,
+        |revision| f.owner.refuse_unpublished_intent_pause(revision),
+    );
     assert!(publication.is_err());
-    if publication.is_err() {
-        f.owner.refuse_unpublished_intent_pause(0);
-    }
     assert!(!f.owner.current_intent_paused());
     assert!(f.owner.retained_restore_busy());
     assert!(f.owner.transaction.independently_blocked());

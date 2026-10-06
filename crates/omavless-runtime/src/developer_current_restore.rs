@@ -19,6 +19,28 @@ pub(crate) fn private_method(method: &str) -> bool {
     matches!(method, METHOD | BACKUP_METHOD | PAUSE_METHOD | ABORT_METHOD)
 }
 pub(crate) const MAX_INPUT: usize = 32768;
+/// Only the positive private pause response. The caller holds the SAME owner
+/// mutex through this function, including its original failure callback.
+pub(crate) fn publish_positive_pause_response(
+    response: Result<Value, omavless_control_protocol::ProtocolError>,
+    stream: &mut std::os::unix::net::UnixStream,
+    revision: u64,
+    refuse: impl FnOnce(u64),
+) -> crate::Result<()> {
+    let publication = response
+        .map_err(|_| crate::RuntimeError::Protocol)
+        .and_then(|response| {
+            crate::encode_response(&response).map_err(|_| crate::RuntimeError::Protocol)
+        })
+        .and_then(|frame| {
+            crate::write_unary_frame(stream, &frame, crate::FrameKind::Response)
+                .map_err(|_| crate::RuntimeError::Io)
+        });
+    if publication.is_err() {
+        refuse(revision);
+    }
+    publication
+}
 #[derive(Debug, PartialEq, Eq)]
 enum ReplyDisposition {
     RefusedBeforeEffect,

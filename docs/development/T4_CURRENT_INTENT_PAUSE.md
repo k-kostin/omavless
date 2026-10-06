@@ -53,8 +53,9 @@ The private pause handler keeps that owner mutex through original response
 encoding/write. An encoding/write failure consumes and revokes the SAME pause,
 blocks the owner and retains its original graph. Successful write is not proof
 of client receipt; a client transport error is UNKNOWN and never auto-retries.
-The source test for lost publication uses a real failed Unix-stream write and
-the same holder refusal consumer; it is not an actual installed daemon result.
+The source test for lost publication uses the production private response
+encoder/unary writer and same holder failure callback on a real failed Unix
+stream. It does not forge a current factory or claim an installed daemon result.
 
 No descriptor role or file-capacity envelope is added. The one bounded holder
 adds an opaque Arc identity, one fixed-size original Intent record, and the
