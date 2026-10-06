@@ -9,6 +9,24 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
+    def test_current_image_helper_is_separate_default_off_and_passive_only(self):
+        manifest=tomllib.loads((SRC.parent/"Cargo.toml").read_text())
+        self.assertEqual(manifest["features"]["developer-image-witness"],
+            ["developer-conditional-close","dep:omavless-image-witness","omavless-image-witness/developer-helper","dep:rustix"])
+        self.assertNotIn("developer-image-witness",manifest["features"]["default"])
+        helper=SRC.parent.parent/"omavless-image-witness"
+        spec=tomllib.loads((helper/"Cargo.toml").read_text())
+        self.assertEqual(spec["features"]["default"],[])
+        self.assertEqual(spec["bin"][0]["required-features"],["developer-helper"])
+        source=(helper/"src/kernel.rs").read_text()
+        self.assertIn('"/usr/lib/omavless-image/development-runtime-tests"',source)
+        self.assertIn("PIDFS",source)
+        passive=(SRC/"native_coordinator/connection_close_image_witness.rs").read_text()
+        self.assertNotIn("adopt_owned_close_fixture(",passive)
+        self.assertNotIn("CandidateEffectPermit",passive)
+        self.assertNotIn("confirm_connection_close(",passive)
+        self.assertIn("getppid().as_raw(), 1",passive)
+
     def test_qualified_package_is_same_session_private_and_nondefault_not_boolean_promotion(self):
         session=(SRC/"conditional_close_candidate.rs").read_text()
         self.assertRegex(session,r'#\[cfg\(feature = "developer-conditional-close"\)\]\s*pub\(crate\) fn qualified_pair_permit')

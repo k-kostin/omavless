@@ -1246,6 +1246,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "omavless-image-witness"
+version = "0.9.7-rc.1"
+dependencies = [
+ "nix",
+ "rustix",
+ "sha2",
+]
+
+[[package]]
 name = "omavless-mihomo"
 version = "0.9.7-rc.1"
 dependencies = [
@@ -1294,10 +1303,12 @@ dependencies = [
  "nix",
  "omavless-control-protocol",
  "omavless-domain",
+ "omavless-image-witness",
  "omavless-mihomo",
  "omavless-profile",
  "omavless-store",
  "omavless-tui",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

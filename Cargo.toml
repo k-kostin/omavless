@@ -8,6 +8,7 @@ members = [
   "crates/omavless-dns-broker",
   "crates/omavless-dns-channel",
   "crates/omavless-dns-tun",
+  "crates/omavless-image-witness",
   "crates/omavless-mihomo",
   "crates/omavless-netguard",
   "crates/omavless-parity",

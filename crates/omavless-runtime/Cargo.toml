@@ -12,6 +12,8 @@ default = ["tui"]
 tui = ["dep:omavless-tui"]
 # Development VM only; same-UID semantic close IPC is absent in default builds.
 developer-conditional-close = ["omavless-tui?/developer-conditional-close"]
+# Separate default-off passive current-image helper; no close activation.
+developer-image-witness = ["developer-conditional-close", "dep:omavless-image-witness", "omavless-image-witness/developer-helper", "dep:rustix"]
 
 [dependencies]
 base64 = "0.22"
@@ -22,6 +24,8 @@ omavless-mihomo = { path = "../omavless-mihomo" }
 omavless-profile = { path = "../omavless-profile" }
 omavless-store = { path = "../omavless-store" }
 omavless-tui = { path = "../omavless-tui", optional = true }
+omavless-image-witness = { path = "../omavless-image-witness", optional = true }
+rustix = { version = "=1.1.5", features = ["process"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

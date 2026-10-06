@@ -242,6 +242,9 @@ The capless synthetic predecessor and ordinary OwnedCore/Fixture Drop plus
 namespace containment are explicit test semantics, not preserved UNKNOWN
 custody, native recovery or cleanup receipts. Native positive filecap ownership
 remains a genuine missing product guarantee, not something this test relaxes.
+The separate default-off [current-image witness](T3_IMAGE_WITNESS.md) now
+implements a passive helper/test candidate; its first actual gate and later
+same-Session integration remain required, not a replacement acceptance claim.
 
 The parser's pure controls reject each missing/duplicate required field,
 decimal overflow/noncanonical identity, wrong UID-field cardinality, nonhex or
