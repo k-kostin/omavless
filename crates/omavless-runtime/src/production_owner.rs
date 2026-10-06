@@ -125,6 +125,12 @@ pub struct ProductionNativeOwner<H = NativeLifecycleHost> {
     startup: ConnectionTransactionOutcome,
     ownership: ProductionOwnership,
     login_ready: bool,
+    #[cfg(feature = "t4-manager-actor-service")]
+    current_origin: Option<CurrentRestoreOrigin>,
+}
+#[cfg(feature = "t4-manager-actor-service")]
+struct CurrentRestoreOrigin {
+    generation: u64,
 }
 
 /// Contains the real constructed owner but cannot register, dispatch, mutate,
@@ -162,6 +168,25 @@ pub(crate) enum NativeCompletedRead {
 }
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_restore(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        let original = self
+            .current_origin
+            .as_ref()
+            .ok_or(ProductionOwnerError::OwnershipUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation == original.generation)
+            || request.revision() != self.revision()
+            || !self.rust_ownership_available()
+        {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        self.coordinator
+            .execute_first_restore_completed(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn activate_native_ordinary_lease(&mut self) -> Result<(), ProductionOwnerError> {
         if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
@@ -444,6 +469,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             coordinator,
             startup,
             login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
             ownership: ProductionOwnership::Committed {
                 rust_generation: marker.generation(),
                 origin_preparing_generation: None,
@@ -541,6 +568,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             coordinator,
             startup,
             login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
             ownership: ProductionOwnership::Candidate(bootstrap),
         })
     }
@@ -625,6 +654,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             },
             ownership: ProductionOwnership::Stale,
             login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
         });
         let owner = installed
             .as_mut()
@@ -978,6 +1009,12 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         let mut owner =
             Self::initialize_locked(host, desired_paths, &store_path, cutover_paths, uid, lock)?;
         owner.login_ready = crate::login_activation::startup_configuration_available();
+        #[cfg(feature = "t4-manager-actor-service")]
+        {
+            owner.current_origin = Some(CurrentRestoreOrigin {
+                generation: marker.generation(),
+            });
+        }
         Ok(owner)
     }
 

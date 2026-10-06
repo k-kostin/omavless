@@ -70,6 +70,22 @@ impl From<&str> for CliError {
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    #[cfg(feature = "t4-manager-actor-service")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "developer")
+    {
+        if !omavless_runtime::developer_current_restore::arguments_admitted(&arguments) {
+            return Err("developer_current_restore_arguments_refused".into());
+        }
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("developer_current_restore_private_stdin_required".into());
+        }
+        omavless_runtime::developer_current_restore::from_private_input(io::stdin().lock())
+            .map_err(CliError::from)?;
+        println!("t4_current_pair_completed");
+        return Ok(());
+    }
     if arguments
         .first()
         .is_some_and(|argument| argument == "restore")

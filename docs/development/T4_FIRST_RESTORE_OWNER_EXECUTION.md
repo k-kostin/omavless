@@ -127,3 +127,40 @@ controls are not power-loss or all-syscall custody proofs. The private operation
 is unregistered; an installed exact-feature `current()` selector and independent
 normal restart remain separate acceptance. No VM or default Restore activation
 is claimed by this source successor.
+
+### Private installed-current selector (feature source; VM pending)
+
+The next feature-only entry has exact argv
+`developer restore-current --confirm-private-pair`. It refuses terminal stdin;
+the private pipe/file input is UTF-8 JSON, at most 32 KiB, with exactly schema1,
+archive and passphrase. Archive is a normalized absolute path of at most4096
+bytes; passphrase is 12–1024 bytes. Duplicate, unknown, wrongly typed, invalid
+UTF-8, oversized and unconfirmed forms refuse. Owned input and passphrase
+buffers use Zeroizing; JSON-library temporaries are not universally guaranteed.
+No private input, path, error detail or credentials are printed or placed in argv.
+
+The flow is: normal hello/status → bound instance/revision → one fixed private
+`developer.restore_current` RPC → SAME daemon owner mutex → the combined
+retained completion above → normal public completed response. The daemon is
+already the genuine normal `bind_current()` owner: no second singleton,
+`initialize` substitute, injected receipt, off-research constructor or mount-
+namespace identity substitution is added. Only actual `current()` sets the
+sealed constructor-origin member after its unchanged receipt/host/startup
+checks; other constructors cannot qualify. Its generation and current owner
+checks are repeated before execution and the actual Session repeats its fences.
+
+Normal private endpoint permissions, connected peer credentials, request frame,
+quit gate and serialized owner remain. The existing shared raw decoder rejects
+duplicate keys/invalid UTF-8 before dispatch; the additional fixed developer
+grammar/size check retains that guarantee. The
+instance/revision must match; contention returns Busy without waiting or
+cancelling another operation. This method is absent from default dispatch and
+all ordinary capability advertisements. No shell/service/PID command or public
+normal Restore UX is granted. A 120s client response deadline covers the bounded
+native phases; lost replies remain UNKNOWN and never cause automatic retry.
+
+Local controls cover grammar/secret wiping, false constructor, stale instance,
+stale revision, occupied dispatcher and default absence. They do not construct
+a genuine installed current owner. Actual installed same-image normal-login
+RPC, subsequent status/list/onboarding+replay and independently admitted normal
+restart require PRIMARY/independent review and separate ROOT VM selection.

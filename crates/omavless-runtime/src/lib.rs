@@ -7,6 +7,8 @@
 
 mod backup_destination_candidate;
 mod backup_source_candidate;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod developer_current_restore;
 mod pending_private_transaction;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;
@@ -387,6 +389,11 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_restore(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), ()>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -695,6 +702,15 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_restore(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), ()> {
+        self.owner
+            .developer_current_restore(request)
+            .map_err(|_| ())
+    }
     fn usage_transport(&self) -> SharedSubscriptionTransport {
         self.transport.clone()
     }
@@ -1370,10 +1386,29 @@ impl RuntimeServer {
         if credentials.uid() != self.uid {
             return Err(RuntimeError::PermissionDenied);
         }
-        let response = match read_unary_frame(stream, FrameKind::Request)
-            .and_then(|frame| decode_request(&frame))
-        {
-            Ok(request) => self.dispatch(&request),
+        let response = match read_unary_frame(stream, FrameKind::Request).and_then(|frame| {
+            #[cfg(feature = "t4-manager-actor-service")]
+            let frame = zeroize::Zeroizing::new(frame);
+            let request = decode_request(&frame)?;
+            #[cfg(feature = "t4-manager-actor-service")]
+            if request["method"] == developer_current_restore::METHOD
+                && frame.len() > developer_current_restore::MAX_INPUT
+            {
+                return Err(omavless_control_protocol::ProtocolError::new(
+                    StableErrorCode::InvalidArgument,
+                ));
+            }
+            Ok(request)
+        }) {
+            Ok(request) => {
+                let result = self.dispatch(&request);
+                #[cfg(feature = "t4-manager-actor-service")]
+                {
+                    let mut request = request;
+                    developer_current_restore::wipe_request(&mut request);
+                }
+                result
+            }
             Err(error) => error_response(
                 "invalid",
                 0,
@@ -1413,7 +1448,51 @@ impl RuntimeServer {
                 None,
             );
         }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if request["method"] == developer_current_restore::METHOD {
+            return self.dispatch_developer_current_restore(request);
+        }
         self.dispatch_admitted(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_developer_current_restore(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let input = match developer_current_restore::Request::parse(&request["params"]) {
+            Ok(input) => input,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        if input.instance() != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        // Never start a second owner or wait behind an uncertain operation.
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(value) => value,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        if input.revision() != owner.revision() {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
+        }
+        match owner.developer_current_restore(&input) {
+            Ok(()) => success_response(id, owner.revision(), json!({"completed":true})),
+            Err(()) => error_response(
+                id,
+                owner.revision(),
+                StableErrorCode::ManualRecoveryRequired,
+                false,
+                None,
+            ),
+        }
     }
 
     fn dispatch_admitted(
@@ -2426,6 +2505,13 @@ fn call_stream_with_timeout(
     let id = format!("cli-{}", std::process::id());
     let request = make_request(&id, method, params).map_err(|_| RuntimeError::Protocol)?;
     let frame = encode_request(&request).map_err(|_| RuntimeError::Protocol)?;
+    #[cfg(feature = "t4-manager-actor-service")]
+    let frame = zeroize::Zeroizing::new(frame);
+    #[cfg(feature = "t4-manager-actor-service")]
+    {
+        let mut request = request;
+        developer_current_restore::wipe_request(&mut request);
+    }
     write_unary_frame(&mut stream, &frame, FrameKind::Request).map_err(|_| RuntimeError::Io)?;
     stream
         .shutdown(std::net::Shutdown::Write)
@@ -2977,6 +3063,116 @@ mod tests {
         Arc<AtomicUsize>,
     ) {
         owner_fixture(base, OwnershipPhase::Rust)
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn developer_current_restore_rpc_false_factory_stale_busy_and_frame_controls_have_no_effect() {
+        let base = temporary_base("current-restore-rpc");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before = calls.load(Ordering::Relaxed);
+        let request = make_request(
+            "current",
+            developer_current_restore::METHOD,
+            json!({
+                "schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password",
+                "confirmation":"replace-current-private-pair","instanceId":server.instance_id,
+                "expectedRevision":0,
+            }),
+        )
+        .unwrap();
+        assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::METHOD));
+        let response = server.dispatch(&request).unwrap();
+        assert_eq!(response["ok"], false); // initialize is NEVER a current issuer
+        let mut changed = request.clone();
+        changed["params"]["instanceId"] = "other".into();
+        assert_eq!(
+            server.dispatch(&changed).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        changed = request.clone();
+        changed["params"]["expectedRevision"] = 1.into();
+        assert_eq!(
+            server.dispatch(&changed).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let guard = server.dispatcher.lock().unwrap();
+        assert_eq!(server.dispatch(&request).unwrap()["error"]["code"], "busy");
+        drop(guard);
+        let capabilities = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let methods = server.dispatch(&capabilities).unwrap()["result"]["methods"].clone();
+        assert!(
+            !methods
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == developer_current_restore::METHOD)
+        );
+        // The unchanged shared decoder rejects duplicate fields recursively.
+        let frame = encode_request(&request).unwrap();
+        let mut oversized = frame[..frame.len() - 1].to_vec();
+        oversized.resize(developer_current_restore::MAX_INPUT, b' ');
+        oversized.push(b'\n');
+        assert!(decode_request(&oversized).is_ok()); // within ordinary 64KiB
+        let duplicate = String::from_utf8(frame)
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        assert!(decode_request(duplicate.as_bytes()).is_err());
+        // Reach the actual credential/frame/handle path, not just the parser.
+        for (raw, expected) in [
+            (duplicate.as_bytes(), "invalid_request"),
+            (oversized.as_slice(), "invalid_argument"),
+        ] {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming); // only this terminal local stream
+                    result
+                });
+                // Deliberately bypass the standard writer's already strict
+                // duplicate-key decoder to exercise server-side refusal.
+                std::io::Write::write_all(&mut client, raw).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let response =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(response["error"]["code"], expected);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
+        assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(not(feature = "t4-manager-actor-service"))]
+    #[test]
+    fn developer_current_restore_is_absent_in_default_dispatch() {
+        let base = temporary_base("no-current-restore");
+        let server = RuntimeServer::bind(RuntimePaths::below(&base)).unwrap();
+        let request = make_request("absent", "developer.restore_current", json!({})).unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "unknown_method"
+        );
+        assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.restore_current"));
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

@@ -14,6 +14,9 @@ const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activ
 #[test]
 fn native_committed_completion_retains_new_pair_and_one_original_ordinary_lease() {
     let mut f = Fixture::new();
+    let original = f.owner.transaction.acquire_lock().unwrap();
+    assert!(super::retained::completion_owns_lease(&original));
+    drop(original); // wholly positive, before any restore effects
     use crate::mutation::{
         BeginOutcome, MutationKind, MutationRequest, MutationResult, SubmitOutcome,
     };
@@ -42,6 +45,13 @@ fn native_committed_completion_retains_new_pair_and_one_original_ordinary_lease(
     assert!(f.owner.held_restore_execution.occupied());
     assert!(!f.owner.retained_restore_busy());
     assert!(!f.owner.transaction.original_lease_vacant());
+    let borrower = f.owner.transaction.acquire_lock().unwrap();
+    assert!(!super::retained::completion_owns_lease(&borrower));
+    assert!(matches!(
+        borrower,
+        crate::connection_transaction::MigrationLease::Original(_)
+    ));
+    drop(borrower); // non-owning guard cannot unlock the same original Flock
     assert!(
         MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
             .is_err()

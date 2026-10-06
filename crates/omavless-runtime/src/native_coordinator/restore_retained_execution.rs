@@ -4,6 +4,13 @@ use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+pub(super) fn completion_owns_lease(lease: &crate::connection_transaction::MigrationLease) -> bool {
+    matches!(
+        lease,
+        crate::connection_transaction::MigrationLease::Owned(_)
+    )
+}
+
 pub(crate) struct HeldExecution {
     // Each reported object is inserted before the next fallible operation.
     lock: Option<crate::connection_transaction::MigrationLease>,
@@ -110,7 +117,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// Private, one-shot SAME-owner NEW/Committed continuation. No dispatcher
     /// registration or default availability. Err retains/fences the graph.
     #[allow(dead_code)]
-    pub(super) fn execute_first_restore_completed(
+    pub(crate) fn execute_first_restore_completed(
         &mut self,
         source: &Path,
         passphrase: &[u8],
@@ -174,10 +181,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     .map_err(|_| FirstError::Admission)?,
             );
             if complete
-                && (!matches!(
-                    held.lock,
-                    Some(crate::connection_transaction::MigrationLease::Owned(_))
-                ) || !self.transaction.original_lease_vacant()
+                && (!held.lock.as_ref().is_some_and(completion_owns_lease)
+                    || !self.transaction.original_lease_vacant()
                     || held.ordinary_lock.get().is_some())
             {
                 return Err(FirstError::Admission);
