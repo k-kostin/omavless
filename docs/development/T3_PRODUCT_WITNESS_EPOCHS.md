@@ -1,10 +1,12 @@
 # T3 product witness epochs
 
-Status: default-off SOURCE candidate based on `5cfbf2fd`; no product activation,
-service/enrollment installation or VM evidence. The existing
+Status: default-off candidate based on `5cfbf2fd`, with the exact617 scoped
+installed Product two-epoch VM checkpoint below. Public/default activation,
+reboot/upgrade/host-family closure are not implied. The existing
 [original-image contract](T3_IMAGE_WITNESS.md) and its exact installed-development
-checkpoint remain authoritative for the unchanged path. No actual acceptance,
-K1 authority or schema1 DNS consent is promoted by this successor.
+checkpoint remain authoritative for the unchanged path. Earlier acceptance is
+not borrowed across the changed boundary; no K1 authority or schema1 DNS
+consent is promoted by this successor.
 
 ## First executable boundary
 
@@ -314,3 +316,96 @@ Fresh source/ELF/package/enrollment provenance and boot binding are required
 before a new two-epoch selection. Older scope5/c9 UI or worker evidence does not
 qualify this successor. Unchanged comprehensive suites are not rerun for this
 small serialization change; focused producer/harness/static/strict gates apply.
+
+## Exact617 installed Product two-epoch VM checkpoint
+
+Tested runtime SOURCE is `6174255dbe9875865e7b9c9c7ac4bfe903144634`, not a later
+documentation head. Actual release/runtime was8,732,344 bytes/SHA256
+`3e9805bf8ce7e93a1fc64206f429c2f40828becb096ed9e5f11c8bc40ef2a6d7`.
+The helper remains the exact432 compiled604,760-byte image/SHA256
+`43294cedccd858ea68402a33c0295581a45bd3a3e29d922e5f4f0471168ea877`.
+The packaged system unit is the separately reviewed43af TasksMax2 successor,
+1,280 bytes/SHA256 `1ecb7b12d674dbf4e44d45d4fa1d59fea3bc9efeb9530b3f429fc2c937b014fa`.
+Normal inert617 package was3,503,242 bytes/SHA256
+`8a88b874484fa804d69e933c354ad36a438e113177d4ad7389b0de9853e68a15`.
+Source, compilation, prebuilt helper and package/unit identities are distinct.
+
+The COMPLETE three-patch LegacyMeta companion remained producer
+`dff1e0bf56c9bf850c94a411378acfc597e6e563`, string close-qualified schema,
+release-package broker/Meta policy, ABI1. Core61,083,808 bytes/SHA256
+`3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544`;
+broker5,124,576 bytes/SHA256
+`6126e5b159eb7996cbf8ac6bdb212be3d7b4b12b1809e09e74c19dbc1394001e`;
+receipt SHA256 `b149a63b7f3819c8505f682d546d0abdb9a77fa1eb50a8d294e06fd3c2b9e14b`;
+corresponding GPL/MIT source/archive SHA256
+`51b1f7cb9b4e3e58ace3c9c16e6fa23b97d3f82656c31c4d6ffd1e497434363f`.
+Companion archive was37,558,093 bytes/SHA256
+`a2260df780096a659713ccbaa71732a53e1b5eda2b6d763ce561781672937efb`.
+No legacy two-patch receipt or K1 enrollment was promoted to close permission.
+
+ROOT alone operated the disposable VM. Fresh boot was
+`b7bfbc30-ddff-4bf1-aaba-b30637724600`. Primary and independent affected reviews
+preceded selection. The fixed supervisor was32,728 bytes/SHA256
+`6a706c5e788cf97a4b4888102e97fb761a9887e24246082a35129d5421c98523`;
+the corrected flow14,721 bytes/SHA256
+`432f85791406fb93b4ddad26c1e4503232248df3fdbb2106570af3da4ab6f664`.
+All29 pure flow/supervisor/binding controls passed before actual selection.
+
+The old Product enrollment WHOLE directory was separately preserved by reviewed
+ADMIN no-replace rename, with original bytes retained; this was an upgrade
+baseline, not completion of old epoch77754. ROOT then normally installed617 and
+earned genuine NEW image enrollment/login, with original Meta DNS consent.
+No enrollment/receipt copy, record editing, alternate HOME/PID/user/net or fake
+PID1 was used. Helper3206 was observed single-threaded under the fixed unit.
+Only a private mount of public synthetic config preserved the exact real private
+config underlay; normal HOME/state/ownership/login/manager and installed images
+remained genuine. Current Off and pending absence were earned/observed separately,
+not assumed from reboot or fabricated by an administrator file edit.
+
+First selected `two_closed` run, original84938/result381aa5, returned SSH0 with
+the exact `T3_PRODUCT_ORIGINAL_DAEMON_AND_FLOW_ZERO_TWO_EPOCHS_VERIFIED two_closed`
+literal. It used the SAME normal `daemon --product-image-witness`, original core
+and helper: close B→known Worker terminal, explicit fresh snapshot→close C, A
+continues echo, exact completed replay and stale handle/ticket refusal, unchanged
+On desired bytes while closing. Original daemon/flow WNOWAIT0 and positive reap0,
+genuine final disconnect/Off/Meta absence, original core/proc/namespace/image,
+helper64/native256 bounds and terminal FD plateau, config underlay/login/ownership,
+helper/broker invocation and foreign-nft stability all passed the frozen harness.
+
+Separately selected `cancel_then_close`, original60735/resultbb547d, also returned
+SSH0 with the exact `T3_PRODUCT_ORIGINAL_DAEMON_AND_FLOW_ZERO_TWO_EPOCHS_VERIFIED cancel_then_close`
+literal. Prepare B without Confirm→explicit fresh Snapshot retired the SAME
+before-effect Session under its unrenewed budget; old handle refused/fresh handles
+disjoint, all streams initially continued; C alone closed while A/B echoed.
+The same original-status, normal-disconnect and preservation gates passed. Its
+middle FD sample was active, not falsely called a completed plateau. No actor,
+helper RPC, Confirm or uncertain operation was automatically retried.
+
+This is scoped real installed opt-in Product/backend evidence. Helper idle/ACK
+was never native drain authority; its service remained the same live original
+invocation, not a fabricated helper0 completion. FD samples are not exhaustive
+hidden-backend custody, fatal survival or atomic no-exec-through-effect proof.
+Read-only diagnostic kernel child observations did not replace native-owned
+Child authority. Source roles/ordinary-backend and trusted fixed non-exec core
+assumptions remain explicit. Old233 and old77754/093 NONPASS remain preserved.
+Earlier8fdd installed-development/c9 gates and UI captures are not reassigned to
+this helper class. No wholeT3/C1, public default, EN/RU rendered UI, cold startup,
+image upgrade, ARM/Nix, K1 or release/publication acceptance is claimed.
+
+ROOT additionally selected the ordinary installed617 user unit WITHOUT the
+Product flag. Startae1095 returned SSH0. Filtered CLI capabilitiesf4930f returned0
+with runtime ownership true and close advertisement false; parsed status5e5d15
+returned0/ownedOff/actualOff. The unit was active3734/status0 with no Meta or
+omavless0. Normal stopb6cf17 returned0; post772bfc established inactive/dead/PID0,
+status0/FDstore0, runtime socket absent and no TUN. This is actual ordinary
+start-Off/no-advertise evidence, not a negative close RPC (none selected), full
+cold-boot activation, witness-context renewal or blanket default acceptance.
+No Product Session was created by that ordinary owner; a later explicitly
+selected Product owner is a new genuine operation after known ordinary stop.
+
+Next affected UI gate: actual installed617 semantic TUI EN/RU against the SAME
+genuine Product daemon, exact selected connection versus connected profile,
+Escape no effect, one confirmation/receipt-only resolution, next explicit window
+after known Closed, constrained rendering and normal UI exit without VPN change.
+Cold ordinary startup and root-attended image-upgrade/re-enrollment require
+their own actual boundaries; no repair or renewal of poisoned old epochs.
