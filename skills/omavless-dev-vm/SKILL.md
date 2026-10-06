@@ -74,6 +74,16 @@ the actual console and boot, rather than repeatedly issuing the change. This
 administrative channel supplies observation, not product recovery or proof
 that the interrupted network operation completed.
 
+For a virgl/SDL guest, QMP `screendump` may return `no surface` even while
+the visible VM works. Check the maintained VM application's capture guidance
+before trying extra display devices or reset. When permitted, identify the
+exact QEMU window by PID/title and capture only its visible unobscured region;
+exclude unrelated windows and host notification overlays. An independent guest
+TTY can supply observation while a retained original serial foreground is
+occupied. Observe its real login/password prompts before input; do not detach,
+signal or replace the original channel to make room. QMP input completion is
+delivery only: wait for the guest's rendered response before the next input.
+
 Pass exact image/boot/source/artifact identities, current network/service
 state, live sessions, failed scopes and the next executable gate. Release VM
 ownership explicitly before another agent performs visual or live checks.
