@@ -16,7 +16,7 @@ class LocalArchPackageContractTests(unittest.TestCase):
     def test_fixed_command_boundaries_and_reviewed_identity(self):
         script = (ROOT / "packaging/arch/build-local-package.sh").read_text()
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
-        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness ) ) && $EUID -ne 0 ]] || fail', code)
+        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail', code)
         self.assertIn('^[0-9a-f]{40}$', code)
         self.assertEqual(code.count('git -C "$repo_root" rev-parse HEAD'), 2)
         self.assertEqual(code.count('status --porcelain --untracked-files=normal'), 2)
@@ -110,6 +110,13 @@ class LocalArchPackageTests(unittest.TestCase):
         for flag, helper in [("--product-image-witness", link), ("--arbitrary", Path("/usr/bin/true"))]:
             result = subprocess.run(["bash", str(script), str(self.build), "/usr/bin/true", flag, str(helper)], capture_output=True)
             self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(any(self.build.iterdir()))
+
+    def test_explicit_product_empty_helper_refuses_stage_and_builder_without_writes(self):
+        for arguments in (["bash", str(self.repo / "packaging/arch/stage-payload.sh"), str(self.build), "/usr/bin/true", "--product-image-witness", ""],
+                          ["bash", str(self.repo / "packaging/arch/build-local-package.sh"), str(self.build), "/usr/bin/true", self.sha, "--product-image-witness", ""]):
+            result = subprocess.run(arguments, capture_output=True)
+            self.assertEqual(result.returncode, 2)
             self.assertFalse(any(self.build.iterdir()))
 
     def test_offline_product_makepkg_records_both_elf_hashes_without_hooks(self):

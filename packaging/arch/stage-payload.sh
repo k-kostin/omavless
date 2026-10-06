@@ -8,7 +8,7 @@ fail() {
   exit 2
 }
 
-if [[ $# -ne 2 && !( $# -eq 4 && $3 == --product-image-witness ) ]]; then
+if [[ $# -ne 2 && !( $# -eq 4 && $3 == --product-image-witness && -n $4 ) ]]; then
   echo "Usage: stage-payload.sh ABSOLUTE_DESTDIR ABSOLUTE_PREBUILT_BINARY" >&2
   exit 2
 fi

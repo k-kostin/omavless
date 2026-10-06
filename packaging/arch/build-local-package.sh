@@ -4,7 +4,7 @@
 set -euo pipefail
 export LC_ALL=C
 fail() { echo 'OmaVLESS local package build refused or failed.' >&2; exit 2; }
-[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness ) ) && $EUID -ne 0 ]] || fail
+[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail
 builddir=$1
 binary=$2
 expected_sha=$3
