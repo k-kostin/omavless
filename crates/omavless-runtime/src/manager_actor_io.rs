@@ -25,7 +25,7 @@ const NOFILE: usize = super::ACTOR_NOFILE as usize;
 // failure and remains charged even if a later check has no need for the handle.
 #[derive(Clone, Copy)]
 #[repr(usize)]
-#[allow(dead_code)] // named prospective slots; active fixture uses only sixteen
+#[allow(dead_code)] // fixed prospective roles; selected plans use bounded subsets
 pub(super) enum Slot {
     Root,
     Run,
@@ -49,8 +49,8 @@ pub(super) enum Slot {
     Terminal,
     ReplacementStore,
     ReplacementTemplate,
-    ManagerRoot,
-    ManagerUsr,
+    RollbackStore,
+    RollbackTemplate,
     ManagerLib,
     ManagerImage,
     ManagerChannel,
@@ -298,6 +298,22 @@ impl FileIo {
         }
         self.revoke();
         original.begin_mixed_interruption(until)?;
+        self.ledger.state = State::Live;
+        Ok(())
+    }
+
+    pub fn admit_canonical_rollback(
+        &mut self,
+        original: &mut crate::restore_abort_cli::stopped_owner::actor_canonical::Canonical,
+        until: std::time::Instant,
+    ) -> Result<(), Unavailable> {
+        if self.ledger.state != State::Reserved {
+            self.revoke();
+            original.revoke();
+            return Err(Unavailable);
+        }
+        self.revoke();
+        original.begin_fixed_rollback(until)?;
         self.ledger.state = State::Live;
         Ok(())
     }

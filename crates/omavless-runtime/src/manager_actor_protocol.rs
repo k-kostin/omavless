@@ -26,6 +26,8 @@ pub(super) enum Kind {
     InterruptMixed,
     InspectInterrupted,
     InterruptedInspected,
+    RollbackFixedMixed,
+    FixedMixedRolledBack,
 }
 
 impl Kind {
@@ -49,6 +51,8 @@ impl Kind {
             Self::InterruptMixed => 16,
             Self::InspectInterrupted => 17,
             Self::InterruptedInspected => 18,
+            Self::RollbackFixedMixed => 19,
+            Self::FixedMixedRolledBack => 20,
         }
     }
     fn from_byte(value: u8) -> Result<Self, Unavailable> {
@@ -71,6 +75,8 @@ impl Kind {
             16 => Ok(Self::InterruptMixed),
             17 => Ok(Self::InspectInterrupted),
             18 => Ok(Self::InterruptedInspected),
+            19 => Ok(Self::RollbackFixedMixed),
+            20 => Ok(Self::FixedMixedRolledBack),
             _ => Err(Unavailable),
         }
     }
@@ -84,6 +90,7 @@ impl Kind {
             Self::CommitAuthenticatedBackup => Ok(Self::PairCommitted),
             Self::InterruptMixed => Ok(Self::Rejected), // no completion: producer exits86
             Self::InspectInterrupted => Ok(Self::InterruptedInspected),
+            Self::RollbackFixedMixed => Ok(Self::FixedMixedRolledBack),
             _ => Err(Unavailable),
         }
     }
@@ -183,6 +190,7 @@ impl Context {
                 | (Some(Kind::ObserveStopped), Kind::StoppedObserved)
                 | (Some(Kind::CommitAuthenticatedBackup), Kind::PairCommitted)
                 | (Some(Kind::InspectInterrupted), Kind::InterruptedInspected)
+                | (Some(Kind::RollbackFixedMixed), Kind::FixedMixedRolledBack)
         ) {
             self.revoke();
             return Err(Unavailable);
@@ -216,6 +224,27 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rollback_reply_cannot_alias_readonly_observation_commit_or_closed() {
+        for kind in [
+            Kind::InterruptedInspected,
+            Kind::PairCommitted,
+            Kind::Completed,
+            Kind::Closed,
+            Kind::FixedMixedRolledBack,
+        ] {
+            let mut context = Context::new([1; 32]).unwrap();
+            context.ready(frame(Kind::Ready, 0)).unwrap();
+            context.begin(Kind::RollbackFixedMixed).unwrap();
+            assert_eq!(
+                context.completed(frame(kind, 1), kind).is_ok(),
+                kind == Kind::FixedMixedRolledBack
+            );
+            if kind != Kind::FixedMixedRolledBack {
+                assert!(context.begin(Kind::Halt).is_err());
+            }
+        }
+    }
     fn frame(kind: Kind, seq: u32) -> Frame {
         Frame {
             kind,
@@ -244,6 +273,8 @@ mod tests {
             Kind::InterruptMixed,
             Kind::InspectInterrupted,
             Kind::InterruptedInspected,
+            Kind::RollbackFixedMixed,
+            Kind::FixedMixedRolledBack,
         ] {
             let raw = frame(kind, 2).encode().unwrap();
             let decoded = Frame::decode(&raw).unwrap();

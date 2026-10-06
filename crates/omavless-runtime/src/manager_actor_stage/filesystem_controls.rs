@@ -22,6 +22,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_rollback(false)
+    }
+    fn with_rollback(rollback: bool) -> Self {
         let root = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
         let config = root.path().join("config");
         let state = root.path().join("state");
@@ -58,6 +61,20 @@ impl Fixture {
         fs::write(&ready, ready_bytes(PAIR)).unwrap();
         fs::set_permissions(&ready, Permissions::from_mode(0o600)).unwrap();
         names.push((Slot::StageReady, ready));
+        if rollback {
+            for (index, (slot, name)) in ROLLBACKS.into_iter().enumerate() {
+                let path = config.join(name);
+                fs::write(&path, PAIR[index]).unwrap();
+                fs::set_permissions(&path, Permissions::from_mode(0o600)).unwrap();
+                names.push((slot, path));
+            }
+            // The declared interrupted writer retains this unrenamed NEW
+            // temporary. OLD-copy roles must not evict or consume its File.
+            let path = config.join(REPLACEMENTS[1].1);
+            fs::write(&path, PAIR[3]).unwrap();
+            fs::set_permissions(&path, Permissions::from_mode(0o600)).unwrap();
+            names.push((REPLACEMENTS[1].0, path));
+        }
         let mut owner = Stage::reserve_canonical();
         let mut files = Vec::new();
         for (slot, path) in names {
@@ -66,6 +83,9 @@ impl Fixture {
             files.push((slot, file));
         }
         owner.io = FileIo::local_files(files);
+        if rollback {
+            owner.rollback = [LiveRole::ReplacementReady; 2];
+        }
         Self {
             _root: root,
             config,
@@ -82,6 +102,90 @@ impl Fixture {
         self.owner
             .catalogue(Slot::State, &[PENDING_DIRECTORY, INTENT], Self::until())
     }
+}
+
+#[test]
+fn real_owned_rollback_renames_keep_displaced_files_and_exact_old_replacements() {
+    let mut f = Fixture::with_rollback(true);
+    for index in 0..2 {
+        f.owner
+            .verify_member(
+                Slot::Config,
+                ROLLBACKS[index].0,
+                ROLLBACKS[index].1,
+                PAIR[index],
+                Fixture::until(),
+            )
+            .unwrap();
+        f.owner.rollback_rename(index, Fixture::until()).unwrap();
+        assert_eq!(
+            f.owner.original[LIVE[index].0 as usize]
+                .as_ref()
+                .unwrap()
+                .nlink(),
+            0
+        );
+        assert_eq!(
+            f.owner.original[ROLLBACKS[index].0 as usize]
+                .as_ref()
+                .unwrap()
+                .nlink(),
+            1
+        );
+        f.owner
+            .verify_unlinked_old(
+                LIVE[index].0,
+                PAIR[if index == 0 { 2 } else { 1 }],
+                Fixture::until(),
+            )
+            .unwrap();
+        f.owner
+            .verify_member(
+                Slot::Config,
+                ROLLBACKS[index].0,
+                LIVE[index].1,
+                PAIR[index],
+                Fixture::until(),
+            )
+            .unwrap();
+        assert!(!f.config.join(ROLLBACKS[index].1).exists());
+    }
+    assert_eq!(fs::read(f.config.join(LIVE[0].1)).unwrap(), PAIR[0]);
+    assert_eq!(fs::read(f.config.join(LIVE[1].1)).unwrap(), PAIR[1]);
+    f.owner
+        .verify_member(
+            Slot::Config,
+            REPLACEMENTS[1].0,
+            REPLACEMENTS[1].1,
+            PAIR[3],
+            Fixture::until(),
+        )
+        .unwrap();
+    assert!(!f.state.join(TERMINAL).exists()); // helper alone cannot publish Aborted
+    assert!(f.owner.rollback_rename(0, Fixture::until()).is_err());
+    assert!(f.owner.finish().is_err());
+}
+
+#[test]
+fn rollback_rename_expiry_keeps_names_and_replacement_drift_seals_own_return() {
+    let mut f = Fixture::with_rollback(true);
+    assert!(
+        f.owner
+            .rollback_rename(0, Instant::now() - std::time::Duration::from_secs(1))
+            .is_err()
+    );
+    assert_eq!(fs::read(f.config.join(LIVE[0].1)).unwrap(), PAIR[2]);
+    assert!(f.config.join(ROLLBACKS[0].1).exists());
+    let mut f = Fixture::with_rollback(true);
+    // Exercise post-rename metadata refusal at the actual retained helper.
+    // Production additionally verifies all bytes/bindings before the rename.
+    fs::set_permissions(f.config.join(ROLLBACKS[0].1), Permissions::from_mode(0o644)).unwrap();
+    assert!(f.owner.rollback_rename(0, Fixture::until()).is_err());
+    assert!(f.owner.rollback[0] == LiveRole::Renamed);
+    assert!(f.owner.rollback_rename(1, Fixture::until()).is_err());
+    assert_eq!(fs::read(f.config.join(LIVE[1].1)).unwrap(), PAIR[1]);
+    assert!(f.config.join(ROLLBACKS[1].1).exists());
+    assert!(!f.state.join(TERMINAL).exists());
 }
 
 #[test]

@@ -375,6 +375,7 @@ enum LowerPlan {
     Commit,
     Inspect,
     InterruptMixed,
+    FixedRollback,
 }
 const ORIGIN_FENCES: usize = crate::manager_actor_service::CANONICAL_STAGE_ORIGIN_FENCES;
 pub(crate) const STAGE_OWNER_PHASES: [&[u8]; 2] = [
@@ -389,6 +390,9 @@ impl StageAdmission {
             LowerPlan::Inspect => crate::manager_actor_service::CANONICAL_INSPECT_ORIGIN_FENCES,
             LowerPlan::InterruptMixed => {
                 crate::manager_actor_service::CANONICAL_MIXED_ORIGIN_FENCES
+            }
+            LowerPlan::FixedRollback => {
+                crate::manager_actor_service::CANONICAL_ROLLBACK_ORIGIN_FENCES
             }
         }
     }
@@ -444,11 +448,13 @@ mod commit_plan_tests {
             ObserverRole::Canonical,
             ObserverRole::MixedWriter,
             ObserverRole::Inspector,
+            ObserverRole::Rollback,
         ] {
             for argument in [
                 b"--actor-canonical".as_slice(),
                 b"--actor-mixed-writer",
                 b"--actor-inspector",
+                b"--actor-fixed-rollback",
                 b"--actor",
                 b"--observe-manager",
                 b"",
@@ -484,6 +490,30 @@ mod commit_plan_tests {
             }
             let result = result.and_then(|()| admission.final_check());
             assert_eq!(result.is_ok(), count == 34);
+            assert!(!admission.may_halt());
+            assert!(admission.admit(true).is_err());
+            assert!(admission.origin().is_err());
+        }
+    }
+    #[test]
+    fn fixed_rollback_requires_all_46_original_fences_before_final_whole_check() {
+        for count in [0, 36, 45, 46, 47] {
+            let mut admission = StageAdmission {
+                plan: LowerPlan::FixedRollback,
+                ..StageAdmission::default()
+            };
+            admission.admit(true).unwrap();
+            let mut result = Ok(());
+            for _ in 0..count {
+                result = admission.origin();
+                if result.is_err() {
+                    break;
+                }
+            }
+            assert_eq!(
+                result.and_then(|()| admission.final_check()).is_ok(),
+                count == 46
+            );
             assert!(!admission.may_halt());
             assert!(admission.admit(true).is_err());
             assert!(admission.origin().is_err());
@@ -808,6 +838,7 @@ pub(crate) enum ObserverRole {
     Canonical,
     MixedWriter,
     Inspector,
+    Rollback,
 }
 impl ObserverRole {
     fn argument(self) -> &'static [u8] {
@@ -815,6 +846,7 @@ impl ObserverRole {
             Self::Canonical => b"--actor-canonical",
             Self::MixedWriter => b"--actor-mixed-writer",
             Self::Inspector => b"--actor-inspector",
+            Self::Rollback => b"--actor-fixed-rollback",
         }
     }
     fn command_matches(self, args: &[&[u8]]) -> bool {
@@ -2232,6 +2264,12 @@ impl Canonical {
         until: Instant,
     ) -> std::result::Result<(), Unavailable> {
         self.begin_stage_plan(until, LowerPlan::InterruptMixed)
+    }
+    pub(crate) fn begin_fixed_rollback(
+        &mut self,
+        until: Instant,
+    ) -> std::result::Result<(), Unavailable> {
+        self.begin_stage_plan(until, LowerPlan::FixedRollback)
     }
     fn begin_stage_plan(
         &mut self,

@@ -16,6 +16,7 @@ mod transfer;
 pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;
 pub(crate) const CANONICAL_COMMIT_ORIGIN_FENCES: usize = stage::COMMIT_ORIGIN_FENCES;
 pub(crate) const CANONICAL_INSPECT_ORIGIN_FENCES: usize = stage::INSPECT_ORIGIN_FENCES;
+pub(crate) const CANONICAL_ROLLBACK_ORIGIN_FENCES: usize = stage::ROLLBACK_ORIGIN_FENCES;
 pub(crate) const CANONICAL_MIXED_ORIGIN_FENCES: usize = stage::MIXED_ORIGIN_FENCES;
 
 use crate::restore_abort_cli::stopped_owner::actor_canonical::{self, Canonical, ObserverRole};
@@ -302,6 +303,7 @@ pub enum DeveloperScenario {
     CanonicalStage,
     CanonicalCommit,
     CanonicalInterruptedInspection,
+    CanonicalFixedMixedRollback,
 }
 
 impl DeveloperScenario {
@@ -315,7 +317,7 @@ impl DeveloperScenario {
             | Self::CanonicalAuthenticate
             | Self::CanonicalStage
             | Self::CanonicalCommit => 0,
-            Self::CanonicalInterruptedInspection => 0,
+            Self::CanonicalInterruptedInspection | Self::CanonicalFixedMixedRollback => 0,
             _ => 1,
         }
     }
@@ -471,8 +473,12 @@ pub fn supervisor_entry() -> Result<(), Unavailable> {
 /// Same standalone/reaping prerequisites and SAME aggregate epoch reservation.
 /// Any uncertain scenario leaves the sentinel and original live actor alone.
 pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailable> {
-    if scenario == DeveloperScenario::CanonicalInterruptedInspection {
-        return interrupted_inspection_scenario();
+    if matches!(
+        scenario,
+        DeveloperScenario::CanonicalInterruptedInspection
+            | DeveloperScenario::CanonicalFixedMixedRollback
+    ) {
+        return interrupted_inspection_scenario(scenario);
     }
     let until = Instant::now() + Duration::from_secs(WHOLE_SECONDS);
     emit(b"t4_service_before_startup\n", until)?;
@@ -908,7 +914,7 @@ impl PairSupervisor {
     }
 }
 
-fn interrupted_inspection_scenario() -> Result<(), Unavailable> {
+fn interrupted_inspection_scenario(scenario: DeveloperScenario) -> Result<(), Unavailable> {
     const WHOLE: u64 = 45;
     const {
         assert!(2 * actor_canonical::NOFILE == 16640);
@@ -979,7 +985,16 @@ fn interrupted_inspection_scenario() -> Result<(), Unavailable> {
     owner.wait_original(0, 86, until)?;
     writer.revoke();
     emit(b"t4_service_original_writer_86_reaped\n", until)?;
-    owner.spawn(1, "--actor-inspector", until)?;
+    let rollback = scenario == DeveloperScenario::CanonicalFixedMixedRollback;
+    owner.spawn(
+        1,
+        if rollback {
+            "--actor-fixed-rollback"
+        } else {
+            "--actor-inspector"
+        },
+        until,
+    )?;
     let mut inspector = owner.ready(1, nonces[1], until)?;
     emit(b"t4_service_fresh_inspector_ready\n", until)?;
     let stream = owner.streams[1].as_mut().ok_or(Unavailable)?;
@@ -997,15 +1012,27 @@ fn interrupted_inspection_scenario() -> Result<(), Unavailable> {
         SYNTHETIC_PASSPHRASE,
         until,
     )?;
-    let request = inspector.begin(Kind::InspectInterrupted)?;
+    let (operation, reply) = if rollback {
+        (Kind::RollbackFixedMixed, Kind::FixedMixedRolledBack)
+    } else {
+        (Kind::InspectInterrupted, Kind::InterruptedInspected)
+    };
+    let request = inspector.begin(operation)?;
     io_frame(stream, Some(request), until)?;
     let transaction: [u8; 16] = sha2::Sha256::digest(nonces[0])[..16]
         .try_into()
         .map_err(|_| Unavailable)?;
     write_expectation(stream, &transaction, until)?;
-    inspector.completed(receive(stream, until)?, Kind::InterruptedInspected)?;
+    inspector.completed(receive(stream, until)?, reply)?;
     alive(owner.pidfds[1].as_ref().ok_or(Unavailable)?)?;
-    emit(b"t4_service_intent_mixed_candidate_inspected\n", until)?;
+    emit(
+        if rollback {
+            b"t4_service_fixed_mixed_rollback_completed\n"
+        } else {
+            b"t4_service_intent_mixed_candidate_inspected\n"
+        },
+        until,
+    )?;
     exchange(
         stream,
         &mut inspector,
@@ -1014,7 +1041,14 @@ fn interrupted_inspection_scenario() -> Result<(), Unavailable> {
         until,
     )?;
     owner.wait_original(1, 0, until)?;
-    emit(b"t4_service_interrupted_inspection_completed\n", until)
+    emit(
+        if rollback {
+            b"t4_service_interrupted_rollback_completed\n"
+        } else {
+            b"t4_service_interrupted_inspection_completed\n"
+        },
+        until,
+    )
 }
 
 /// Separate fixed-admin developer mode. Never selected by the classic actor
@@ -1028,11 +1062,15 @@ pub fn actor_mixed_writer_entry() -> Result<(), Unavailable> {
 pub fn actor_inspector_entry() -> Result<(), Unavailable> {
     canonical_actor(ActorRole::Inspector)
 }
+pub fn actor_fixed_rollback_entry() -> Result<(), Unavailable> {
+    canonical_actor(ActorRole::Rollback)
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ActorRole {
     Normal,
     MixedWriter,
     Inspector,
+    Rollback,
 }
 impl ActorRole {
     fn observer(self) -> ObserverRole {
@@ -1040,6 +1078,7 @@ impl ActorRole {
             Self::Normal => ObserverRole::Canonical,
             Self::MixedWriter => ObserverRole::MixedWriter,
             Self::Inspector => ObserverRole::Inspector,
+            Self::Rollback => ObserverRole::Rollback,
         }
     }
 }
@@ -1079,7 +1118,9 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
     let mut context = Context::new(challenge.nonce)?;
     let mut canonical = match role {
         ActorRole::Normal => Canonical::reserve(),
-        ActorRole::MixedWriter | ActorRole::Inspector => Canonical::reserve_role(role.observer()),
+        ActorRole::MixedWriter | ActorRole::Inspector | ActorRole::Rollback => {
+            Canonical::reserve_role(role.observer())
+        }
     }?; // BEFORE READY/proc/query; normal constructor remains unchanged
     let mut transfer = transfer::Transfer::new()?; // finite private slot BEFORE READY
     let mut stage = stage::Stage::reserve_canonical(); // all36 lower roles BEFORE READY
@@ -1104,7 +1145,10 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
             }
             match role {
                 ActorRole::Normal
-                    if matches!(kind, Kind::InterruptMixed | Kind::InspectInterrupted) =>
+                    if matches!(
+                        kind,
+                        Kind::InterruptMixed | Kind::InspectInterrupted | Kind::RollbackFixedMixed
+                    ) =>
                 {
                     return Err(Unavailable);
                 }
@@ -1122,6 +1166,17 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
                         Kind::ObserveStopped
                             | Kind::AuthenticateBackup
                             | Kind::InspectInterrupted
+                            | Kind::Halt
+                    ) =>
+                {
+                    return Err(Unavailable);
+                }
+                ActorRole::Rollback
+                    if !matches!(
+                        kind,
+                        Kind::ObserveStopped
+                            | Kind::AuthenticateBackup
+                            | Kind::RollbackFixedMixed
                             | Kind::Halt
                     ) =>
                 {
@@ -1195,28 +1250,49 @@ fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
                     // signal, Rust Drop cleanup or claim of fatal FD custody.
                     std::process::exit(86);
                 }
-                Kind::InspectInterrupted => {
+                Kind::InspectInterrupted | Kind::RollbackFixedMixed => {
                     let transaction = read_expectation(&mut channel, until)?;
                     emit_actor(stage::INSPECTION_PHASES[0], until)?;
                     transfer.with_restore_pair(until, |new_store, new_template| {
-                        let result = stage.inspect_canonical(
-                            [
-                                INTERRUPTED_OLD_STORE,
-                                INTERRUPTED_OLD_TEMPLATE,
-                                new_store,
-                                new_template,
-                            ],
-                            transaction,
-                            &mut canonical,
-                            until,
-                        )?;
-                        if !result.mixed_intent_candidate() {
-                            return Err(Unavailable);
+                        let members = [
+                            INTERRUPTED_OLD_STORE,
+                            INTERRUPTED_OLD_TEMPLATE,
+                            new_store,
+                            new_template,
+                        ];
+                        if kind == Kind::RollbackFixedMixed {
+                            stage.rollback_canonical(
+                                members,
+                                transaction,
+                                &mut canonical,
+                                until,
+                            )?;
+                        } else {
+                            let result = stage.inspect_canonical(
+                                members,
+                                transaction,
+                                &mut canonical,
+                                until,
+                            )?;
+                            if !result.mixed_intent_candidate() {
+                                return Err(Unavailable);
+                            }
                         }
                         Ok(())
                     })?;
-                    emit_actor(stage::INSPECTION_PHASES[1], until)?;
-                    Kind::InterruptedInspected
+                    emit_actor(
+                        if kind == Kind::RollbackFixedMixed {
+                            stage::ROLLED_BACK_PHASE
+                        } else {
+                            stage::INSPECTION_PHASES[1]
+                        },
+                        until,
+                    )?;
+                    if kind == Kind::RollbackFixedMixed {
+                        Kind::FixedMixedRolledBack
+                    } else {
+                        Kind::InterruptedInspected
+                    }
                 }
                 Kind::Halt => {
                     stage.finish()?;
@@ -1593,6 +1669,7 @@ mod tests {
         assert!(ActorRole::Normal.observer() == ObserverRole::Canonical);
         assert!(ActorRole::MixedWriter.observer() == ObserverRole::MixedWriter);
         assert!(ActorRole::Inspector.observer() == ObserverRole::Inspector);
+        assert!(ActorRole::Rollback.observer() == ObserverRole::Rollback);
         assert!(!include_str!("main.rs").contains("--actor-inspector"));
     }
 

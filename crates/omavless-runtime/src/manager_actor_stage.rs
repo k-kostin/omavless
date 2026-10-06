@@ -48,6 +48,8 @@ pub(super) const ORIGIN_FENCES: usize =
 pub(super) const COMMIT_ORIGIN_FENCES: usize = ORIGIN_FENCES + 8;
 pub(super) const INSPECT_ORIGIN_FENCES: usize = 18 * 2;
 pub(super) const MIXED_ORIGIN_FENCES: usize = COMMIT_ORIGIN_FENCES - 4;
+pub(super) const ROLLBACK_ORIGIN_FENCES: usize = INSPECT_ORIGIN_FENCES + 10;
+pub(super) const ROLLED_BACK_PHASE: &[u8] = b"t4_actor_fixture_intent_mixed_rolled_back\n";
 pub(super) const COMMITTED_PHASE: &[u8] = b"t4_actor_fixture_pair_committed\n";
 pub(super) const MIXED_PHASE: &[u8] = b"t4_actor_fixture_mixed_interruption_checked\n";
 pub(super) const INSPECTION_PHASES: [&[u8]; 2] = [
@@ -57,6 +59,10 @@ pub(super) const INSPECTION_PHASES: [&[u8]; 2] = [
 const REPLACEMENTS: [(Slot, &str); 2] = [
     (Slot::ReplacementStore, "restore-store.new"),
     (Slot::ReplacementTemplate, "restore-template.new"),
+];
+const ROLLBACKS: [(Slot, &str); 2] = [
+    (Slot::RollbackStore, "restore-store.old"),
+    (Slot::RollbackTemplate, "restore-template.old"),
 ];
 pub(super) const SUCCESS_PHASES: [&[u8]; 6] = [
     b"t4_actor_before_fixture_stage\n",
@@ -82,6 +88,7 @@ enum StageOwner<'a> {
     CanonicalCommit(&'a mut Canonical),
     CanonicalInspect(&'a mut Canonical),
     CanonicalMixed(&'a mut Canonical),
+    CanonicalRollback(&'a mut Canonical),
 }
 impl StageOwner<'_> {
     fn admit(&mut self, io: &mut FileIo, until: Instant) -> Result<(), Unavailable> {
@@ -91,6 +98,7 @@ impl StageOwner<'_> {
             Self::CanonicalCommit(owner) => io.admit_canonical_commit(owner, until),
             Self::CanonicalInspect(owner) => io.admit_canonical_inspection(owner, until),
             Self::CanonicalMixed(owner) => io.admit_canonical_mixed(owner, until),
+            Self::CanonicalRollback(owner) => io.admit_canonical_rollback(owner, until),
         }
     }
     fn fence(&mut self, until: Instant) -> Result<(), Unavailable> {
@@ -99,7 +107,8 @@ impl StageOwner<'_> {
             Self::Canonical(owner)
             | Self::CanonicalCommit(owner)
             | Self::CanonicalInspect(owner)
-            | Self::CanonicalMixed(owner) => owner.stage_origin(until),
+            | Self::CanonicalMixed(owner)
+            | Self::CanonicalRollback(owner) => owner.stage_origin(until),
         }
     }
     fn final_fence(&mut self, until: Instant) -> Result<(), Unavailable> {
@@ -108,7 +117,8 @@ impl StageOwner<'_> {
             Self::Canonical(owner)
             | Self::CanonicalCommit(owner)
             | Self::CanonicalInspect(owner)
-            | Self::CanonicalMixed(owner) => owner.complete_stage(until),
+            | Self::CanonicalMixed(owner)
+            | Self::CanonicalRollback(owner) => owner.complete_stage(until),
         }
     }
     fn revoke(&mut self) {
@@ -117,7 +127,8 @@ impl StageOwner<'_> {
             Self::Canonical(owner)
             | Self::CanonicalCommit(owner)
             | Self::CanonicalInspect(owner)
-            | Self::CanonicalMixed(owner) => owner.revoke(),
+            | Self::CanonicalMixed(owner)
+            | Self::CanonicalRollback(owner) => owner.revoke(),
         }
     }
     fn canonical(&self) -> bool {
@@ -128,6 +139,9 @@ impl StageOwner<'_> {
     }
     fn mixed(&self) -> bool {
         matches!(self, Self::CanonicalMixed(_))
+    }
+    fn rolls_back(&self) -> bool {
+        matches!(self, Self::CanonicalRollback(_))
     }
 }
 
@@ -184,6 +198,18 @@ fn mixed_steps(
         step(operation)?;
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RollbackStep {
+    Pair(CommitStep),
+    Terminal,
+}
+fn rollback_steps(
+    mut step: impl FnMut(RollbackStep) -> Result<(), Unavailable>,
+) -> Result<(), Unavailable> {
+    pair_steps(|operation| step(RollbackStep::Pair(operation)))?;
+    step(RollbackStep::Terminal)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -334,6 +360,7 @@ pub(super) struct Stage {
     completed: bool,
     diagnostic: Diagnostic,
     live: [LiveRole; 2],
+    rollback: [LiveRole; 2],
 }
 
 impl Stage {
@@ -346,6 +373,7 @@ impl Stage {
             completed: false,
             diagnostic: Diagnostic::default(),
             live: [LiveRole::Old; 2],
+            rollback: [LiveRole::Old; 2],
         })
     }
 
@@ -362,6 +390,7 @@ impl Stage {
                 first: None,
             },
             live: [LiveRole::Old; 2],
+            rollback: [LiveRole::Old; 2],
         }
     }
     pub fn revoke(&mut self) {
@@ -1410,10 +1439,308 @@ impl Stage {
                 until,
             )?;
         }
+        let inspection = inspection.ok_or(Unavailable)?;
+        if held.rolls_back() {
+            if terminal || !inspection.mixed_intent_candidate() {
+                return Err(Unavailable);
+            }
+            // The returned observation is NOT an effect capability. Only this
+            // still-active original operation can consume its own held proof.
+            self.rollback_pair(members, &expected_intent, temporary, held, until)?;
+        }
         self.hierarchy(until)?;
         let result = held.final_fence(until);
         self.cut(StageCut::FinalOwner, result, until)?;
-        inspection.ok_or(Unavailable)
+        Ok(inspection)
+    }
+
+    // Selected fixed writer orientation: current store NEW, template OLD.
+    // Every source and optional NEW original remains checked after each own
+    // effect. No rollback-target/path/class is supplied by the supervisor.
+    fn rollback_sources(
+        &mut self,
+        members: [&[u8]; 4],
+        intent: &[u8],
+        temporary: [bool; 2],
+        terminal: Option<&[u8; RECORD_BYTES]>,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        self.hierarchy(until)?;
+        for (index, name) in MEMBERS.into_iter().enumerate() {
+            self.verify_member(
+                Slot::StageDirectory,
+                STAGED[index],
+                name,
+                members[index],
+                until,
+            )?;
+        }
+        self.verify_member(
+            Slot::StageDirectory,
+            Slot::StageReady,
+            READY_MEMBER,
+            &ready_bytes(members),
+            until,
+        )?;
+        self.verify_member(Slot::State, Slot::Intent, INTENT, intent, until)?;
+        let original_live = [members[2], members[1]];
+        let mut names = [""; 6];
+        names[..2].copy_from_slice(&[LIVE[0].1, LIVE[1].1]);
+        let mut count = 2;
+        for index in 0..2 {
+            match self.rollback[index] {
+                LiveRole::Old | LiveRole::ReplacementReady => {
+                    self.verify_member(
+                        Slot::Config,
+                        LIVE[index].0,
+                        LIVE[index].1,
+                        original_live[index],
+                        until,
+                    )?;
+                    if self.rollback[index] == LiveRole::ReplacementReady {
+                        self.verify_member(
+                            Slot::Config,
+                            ROLLBACKS[index].0,
+                            ROLLBACKS[index].1,
+                            members[index],
+                            until,
+                        )?;
+                        names[count] = ROLLBACKS[index].1;
+                        count += 1;
+                    }
+                }
+                LiveRole::Renamed => {
+                    self.verify_unlinked_old(LIVE[index].0, original_live[index], until)?;
+                    self.verify_member(
+                        Slot::Config,
+                        ROLLBACKS[index].0,
+                        LIVE[index].1,
+                        members[index],
+                        until,
+                    )?;
+                }
+            }
+            if temporary[index] {
+                self.verify_member(
+                    Slot::Config,
+                    REPLACEMENTS[index].0,
+                    REPLACEMENTS[index].1,
+                    members[index + 2],
+                    until,
+                )?;
+                names[count] = REPLACEMENTS[index].1;
+                count += 1;
+            }
+        }
+        self.catalogue(Slot::Config, &names[..count], until)?;
+        self.catalogue(
+            Slot::StageDirectory,
+            &[MEMBERS[0], MEMBERS[1], MEMBERS[2], MEMBERS[3], READY_MEMBER],
+            until,
+        )?;
+        let (actual, final_record) = self.inspection_records(terminal.is_some(), until)?;
+        if actual.as_slice() != intent || final_record.as_ref() != terminal {
+            return Err(Unavailable);
+        }
+        let chain =
+            DecisionChain::decode(&actual, final_record.as_ref().map(|bytes| bytes.as_slice()))
+                .map_err(|_| Unavailable)?;
+        if let Some(bytes) = terminal {
+            self.verify_member(Slot::State, Slot::Terminal, TERMINAL, bytes, until)?;
+            if self.rollback != [LiveRole::Renamed; 2]
+                || chain.active().phase() != DecisionPhase::Aborted
+                || chain.active().review_inspection(
+                    1,
+                    None,
+                    &planned_stage_identity(members).map_err(|_| Unavailable)?,
+                    LivePairClass::Old,
+                ) != RecoveryReview::VerifyAbortedCandidate
+            {
+                return Err(Unavailable);
+            }
+        }
+        self.catalogue(
+            Slot::State,
+            if terminal.is_some() {
+                &[PENDING_DIRECTORY, INTENT, TERMINAL]
+            } else {
+                &[PENDING_DIRECTORY, INTENT]
+            },
+            until,
+        )?;
+        self.catalogue(Slot::Transaction, &["config", "state"], until)?;
+        self.catalogue(
+            Slot::Epoch,
+            &[
+                EPOCH_MEMBERS[0],
+                EPOCH_MEMBERS[1],
+                EPOCH_MEMBERS[2],
+                EPOCH_MEMBERS[3],
+                EPOCH_MEMBERS[4],
+                TRANSACTION,
+            ],
+            until,
+        )
+    }
+
+    fn rollback_pair(
+        &mut self,
+        members: [&[u8]; 4],
+        intent: &[u8],
+        temporary: [bool; 2],
+        held: &mut StageOwner<'_>,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        let result = (|| {
+            if !held.rolls_back() || self.rollback != [LiveRole::Old; 2] {
+                return Err(Unavailable);
+            }
+            // Refuse even another MIXED orientation before any effect.
+            self.rollback_sources(members, intent, temporary, None, until)?;
+            let mut terminal_written = None;
+            rollback_steps(|step| {
+                if step == RollbackStep::Terminal {
+                    if self.rollback != [LiveRole::Renamed; 2] {
+                        return Err(Unavailable);
+                    }
+                    self.rollback_sources(members, intent, temporary, None, until)?;
+                    let terminal = DecisionRecord::decode(intent)
+                        .map_err(|_| Unavailable)?
+                        .terminal(TerminalChoice::Abort)
+                        .map_err(|_| Unavailable)?
+                        .encode();
+                    self.write_member(
+                        Slot::State,
+                        Slot::Terminal,
+                        TERMINAL,
+                        &terminal,
+                        held,
+                        until,
+                    )?;
+                    terminal_written = Some(terminal); // reported original already in its ledger
+                    return self.rollback_sources(
+                        members,
+                        intent,
+                        temporary,
+                        terminal_written.as_ref(),
+                        until,
+                    );
+                }
+                let RollbackStep::Pair(operation) = step else {
+                    return Err(Unavailable);
+                };
+                let index = match operation {
+                    CommitStep::Write(index) | CommitStep::Rename(index) => index,
+                };
+                self.rollback_sources(members, intent, temporary, None, until)?;
+                if matches!(operation, CommitStep::Write(_)) {
+                    if self.rollback[index] != LiveRole::Old {
+                        return Err(Unavailable);
+                    }
+                    self.write_member(
+                        Slot::Config,
+                        ROLLBACKS[index].0,
+                        ROLLBACKS[index].1,
+                        members[index],
+                        held,
+                        until,
+                    )?;
+                    self.rollback[index] = LiveRole::ReplacementReady;
+                } else {
+                    let result = held.fence(until);
+                    self.cut(StageCut::Origin, result, until)?;
+                    self.rollback_sources(members, intent, temporary, None, until)?;
+                    if self.rollback[index] != LiveRole::ReplacementReady {
+                        return Err(Unavailable);
+                    }
+                    self.rollback_rename(index, until)?;
+                    self.rollback_sources(members, intent, temporary, None, until)?;
+                    let result = held.fence(until);
+                    self.cut(StageCut::Origin, result, until)?;
+                }
+                self.rollback_sources(members, intent, temporary, None, until)
+            })?;
+            if self.rollback != [LiveRole::Renamed; 2] {
+                return Err(Unavailable);
+            }
+            self.rollback_sources(
+                members,
+                intent,
+                temporary,
+                Some(terminal_written.as_ref().ok_or(Unavailable)?),
+                until,
+            )
+        })();
+        self.cut(StageCut::MemberWrite, result, until)
+    }
+
+    fn rollback_rename(&mut self, index: usize, until: Instant) -> Result<(), Unavailable> {
+        let result = (|| {
+            if self.rollback.get(index) != Some(&LiveRole::ReplacementReady) {
+                return Err(Unavailable);
+            }
+            self.io.perform(
+                Slot::Config,
+                || tick(until),
+                |directory| {
+                    renameat(directory, ROLLBACKS[index].1, directory, LIVE[index].1)
+                        .map_err(|_| Unavailable)?;
+                    self.rollback[index] = LiveRole::Renamed; // BEFORE post-return gate
+                    Ok(())
+                },
+            )?;
+            for (slot, links) in [(LIVE[index].0, 0), (ROLLBACKS[index].0, 1)] {
+                self.io.perform(
+                    slot,
+                    || tick(until),
+                    |file| {
+                        let after = file.metadata().map_err(|_| Unavailable)?;
+                        let before = self.original[slot as usize].as_ref().ok_or(Unavailable)?;
+                        if !same_after_own_rename(before, &after, links) {
+                            return Err(Unavailable);
+                        }
+                        self.original[slot as usize] = Some(after);
+                        Ok(())
+                    },
+                )?;
+            }
+            for slot in [ROLLBACKS[index].0, Slot::Config] {
+                self.io.perform(
+                    slot,
+                    || tick(until),
+                    |file| file.sync_all().map_err(|_| Unavailable),
+                )?;
+            }
+            Ok(())
+        })();
+        self.cut(StageCut::MemberWrite, result, until)
+    }
+
+    pub fn rollback_canonical(
+        &mut self,
+        members: [&[u8]; 4],
+        transaction: [u8; 16],
+        held: &mut Canonical,
+        until: Instant,
+    ) -> Result<(), Unavailable> {
+        if self.consumed || !self.diagnostic.enabled {
+            self.revoke();
+            held.revoke();
+            return Err(Unavailable);
+        }
+        self.consumed = true; // before capture or any effect
+        let mut original = StageOwner::CanonicalRollback(held);
+        let result = self
+            .inspect_inner(members, transaction, &mut original, until)
+            .map(|_| ());
+        if result.is_err() {
+            self.revoke();
+            original.revoke();
+        } else {
+            self.completed = true;
+        }
+        self.diagnostic
+            .result(result, |label| emit_actor(label, until))
     }
 
     pub fn inspect_canonical(
@@ -1704,6 +2031,105 @@ pub(super) fn test_failure_projection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_rollback_steps_cut_before_every_following_effect_or_terminal() {
+        let expected = [
+            RollbackStep::Pair(CommitStep::Write(0)),
+            RollbackStep::Pair(CommitStep::Write(1)),
+            RollbackStep::Pair(CommitStep::Rename(0)),
+            RollbackStep::Pair(CommitStep::Rename(1)),
+            RollbackStep::Terminal,
+        ];
+        for cut in 0..expected.len() {
+            let mut seen = Vec::new();
+            assert!(
+                rollback_steps(|step| {
+                    seen.push(step);
+                    if seen.len() == cut + 1 {
+                        Err(Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                })
+                .is_err()
+            );
+            assert_eq!(seen, expected[..=cut]);
+        }
+        let mut seen = Vec::new();
+        rollback_steps(|step| {
+            seen.push(step);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, expected);
+        assert_eq!(ROLLBACK_ORIGIN_FENCES, 46);
+        assert_eq!(IO_SLOTS, 36);
+        assert_eq!(Slot::RollbackStore as usize, 22);
+        assert_eq!(Slot::RollbackTemplate as usize, 23);
+        assert_eq!(8192 + 41 + IO_SLOTS + 8, 8277);
+    }
+
+    #[test]
+    fn rollback_trace_replaces_inspection_result_without_hidden_frames() {
+        let auth_owner =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::auth_success_trace_bytes()
+                + crate::restore_abort_cli::stopped_owner::actor_canonical::STAGE_OWNER_PHASES
+                    .iter()
+                    .map(|s| s.len())
+                    .sum::<usize>();
+        let writer = auth_owner
+            + SUCCESS_PHASES[..4].iter().map(|s| s.len()).sum::<usize>()
+            + MIXED_PHASE.len();
+        let rollback = auth_owner + INSPECTION_PHASES[0].len() + ROLLED_BACK_PHASE.len();
+        let (categories, longest) =
+            crate::restore_abort_cli::stopped_owner::actor_canonical::inventory_trace_limits();
+        let stage_longest = CUTS.iter().map(|s| s.label().len()).max().unwrap();
+        assert_eq!((writer, rollback), (3979, 3875));
+        assert_eq!(writer + rollback, 7854);
+        assert_eq!(writer + rollback + longest + stage_longest, 7936);
+        assert!(writer + rollback + longest + stage_longest <= 8192);
+        assert_eq!((106 + 4 + 1 + 2) + (106 + 2 + 2), 223);
+        assert_eq!(223 + 2, 225);
+        assert_eq!(17 + categories + 3 + 2 + 4 + 1 + 2 + CUTS.len(), 69);
+        assert_ne!(ROLLED_BACK_PHASE, INSPECTION_PHASES[1]);
+    }
+
+    #[test]
+    fn rollback_missing_owner_or_expiry_consumes_before_any_replacement() {
+        for until in [
+            Instant::now(),
+            Instant::now() - std::time::Duration::from_secs(1),
+        ] {
+            let mut stage = Stage::reserve_canonical();
+            let mut canonical = Canonical::reserve_role(
+                crate::restore_abort_cli::stopped_owner::actor_canonical::ObserverRole::Rollback,
+            )
+            .unwrap();
+            assert!(
+                stage
+                    .rollback_canonical(
+                        [b"old", b"old-template", b"new", b"new-template"],
+                        [7; 16],
+                        &mut canonical,
+                        until
+                    )
+                    .is_err()
+            );
+            assert!(stage.original.iter().all(Option::is_none));
+            assert!(stage.permit_request(Kind::Halt).is_err());
+            assert!(
+                stage
+                    .rollback_canonical(
+                        [b"old", b"old-template", b"new", b"new-template"],
+                        [7; 16],
+                        &mut canonical,
+                        Instant::now() + std::time::Duration::from_secs(1)
+                    )
+                    .is_err()
+            );
+        }
+    }
 
     #[test]
     fn mixed_cut_uses_only_the_real_write_write_rename_prefix() {
@@ -2120,6 +2546,8 @@ mod tests {
             Kind::InterruptMixed,
             Kind::InspectInterrupted,
             Kind::InterruptedInspected,
+            Kind::RollbackFixedMixed,
+            Kind::FixedMixedRolledBack,
         ] {
             let mut stage = Stage::reserve().unwrap();
             // Memory-only completed-mode fixture, no Files or real stage run.

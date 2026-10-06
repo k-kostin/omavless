@@ -163,3 +163,64 @@ filesystem regressions, not whole-inspector capture/identity fault acceptance.
 The source successor has not executed an actor or VM scenario. Its selected
 service suite passed 71 tests and canonical suite passed 50 tests; the previous
 positive VM evidence remains attached only to exact `75378da6`.
+
+## Fixed MIXED rollback source composition
+
+A separate developer successor selects only
+`--rollback-fixed-mixed-transaction`. Its producer is the same declared
+writer-exit-86 flow; only exact original exit/reap and permanent writer-context
+revocation allow the fresh `--actor-fixed-rollback` context. The existing
+read-only `--actor-inspector` remains separately role-bound and cannot accept
+the new rollback request. No role admits a generic phase, path or target.
+
+The fresh actor independently captures and authenticates under its current
+canonical owner. Two complete held-source passes must classify the exact
+expected Intent/MIXED transaction, with terminal absent. The supported fixed
+orientation is store NEW/template OLD, as produced by the declared writer;
+another MIXED orientation refuses before effects. Classification never leaves
+this operation as mutation authority. Its same active borrow repeats held live,
+staged OLD/NEW, ready, Intent, optional original NEW replacements, hierarchy and
+whole catalogues around all effects.
+
+Two unused prospective lower roles are now explicitly `RollbackStore` and
+`RollbackTemplate`, not imported owner or manager witnesses. Each obtains one
+fixed `O_EXCL`, nofollow, 0600 OLD-copy file in the same configuration directory.
+The fixed continuation is both copy writes/readbacks, then both own
+descriptor-relative renames. Each displaced current live File remains held at
+zero links; each OLD-copy original remains separately held and name-bound.
+Only immediately after its own positive rename may the expected ctime/link
+shape advance; bytes, identity, mode, UID/GID and mtime do not get rebaselined.
+Captured NEW temporary originals remain retained and verified, never reused
+as OLD copies or unlinked as cleanup.
+
+Exact held OLD readback and file/directory sync precede exclusive Aborted
+publication. Real DecisionChain must then report Aborted/OLD verification,
+and exact records, files and complete catalogues are repeated. The final
+canonical whole refresh is last, before the distinct completed-rollback reply
+and separately valid Halt. Any acquisition, write, rename, sync, record,
+postcheck or output uncertainty seals the original lower/canonical/transfer
+context, retains the owned uncertain prefix while alive and forbids retry,
+automatic Abort, compensation or cleanup. Fatal loss is unavailable, not FD
+survival or proven rollback.
+
+The closed plan has 46 silent origin fences: 36 capture fences plus four OLD
+write fences, four own-rename fences and two terminal-write fences. The final
+whole refresh is not an early read-only completion. Maximum lower originals
+are 20 within the unchanged 36 reserved slots; 8,277 conservative actor charges
+stay inside 8,320, and both actors' ceilings remain reserved before writer
+effects. Replacing the inspected result label with the rolled-back result label
+adds two bytes, not frames: 7,854 positive/7,936 conservative refusal bytes,
+223/225 frames and 69 selected literals inside the existing 8,192-byte capture.
+The fixed supervisor still emits six finite progress literals. The entire
+scenario keeps its original sampled 45-second budget.
+
+New deterministic cuts use the actual fixed write/write/rename/rename/terminal
+continuation and forbid every later step on error. Local exclusively owned
+filesystem tests exercise the production rename/metadata/sync helper, preserving
+displaced originals and OLD-copy originals, refusing expiry/reentry and sealing
+post-rename drift. These helper tests do not fabricate Canonical authority or
+execute the full actor. Exact 46-fence admission, kind/reply and role binding,
+capture/descriptor accounting, strict source gates and compile-only artifacts
+remain separate from PRIMARY/independent review and a future ROOT-operated VM
+scenario. This is not ProductOwner, real-pair recovery, startup permission,
+power-cut acceptance, a caller-selected recovery API or whole T4 completion.
