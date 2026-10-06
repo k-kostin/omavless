@@ -441,3 +441,33 @@ core, observer, peer and trigger stderr were empty. This closes the fixed
 numeric end-to-end gate, not the DNS/negative matrix, production coverage
 issuer, NetGuard Arm/Disarm or native protected lifecycle. Fixture firewall
 rules/interfaces remain; no cleanup or product recovery is inferred.
+
+## Complete DNS success gate — DNS23
+
+At fresh disposable-VM boot `682f9d46-d8f0-425f-a9f4-308475bef0b5`, the
+separately selected DNS23 success case returned original SSH0 (`d04fd0`).
+Primary and independent changed-boundary review passed; 19 protocol,
+source-closure, transport and boot-binding controls passed. The runtime source
+SHA256 is `740b679340d1edb03c230333cb23f2a4eb7e5e5d58073c792f80b024b2f7c314`.
+
+The client sent exactly one fixed UDP A/IN question through the managed TUN,
+received the exact expected DNS answer, then received the exact HTTP body.
+The controlled peer confirmed the inner TLS/DoH request before the HTTP
+request. No system resolver, public provider, private profile or weakened TLS
+verification supplies this result. The unchanged strict collector and bounded
+parser reported 49 socket generations/284 events, two marked outer TCP
+connections, one TUN queue, broker peer, UDP control and inner accepted stream.
+Packet deltas were `dns_query=1`, `outer_ok=20`, `inner_ok=5`,
+`inner_return=5`, `wrong_peer=0`, `other_drop=182`. The exact HTTP INPUT rule
+advanced five packets/331 bytes; the exact DNS reply and unchanged foreign
+INPUT structure passed their separate checks. Original core, peer, trigger
+and observer zero statuses, held-source/interface postchecks and all four
+original reaps completed before the success result was published.
+
+The separate bounded capture projection returned original SSH0 (`b1f236`);
+all four stderr captures were empty. The 16,521-byte trace SHA256 is
+`2aed08a4d807e9204b76e93bcee90bb0bdc1de53f7f5c2ed31deeb52e06e2f46`.
+This closes only the fixed DNS success gate. Malformed/closed DoH, wrong
+answer and outer/inner untrusted-certificate controls still require separate
+fresh selections. No production coverage issuer, protected NetGuard lifecycle,
+whole K1 closure or product cleanup is implied.
