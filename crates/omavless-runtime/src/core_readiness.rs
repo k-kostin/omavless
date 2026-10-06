@@ -40,7 +40,7 @@ impl ConfigReadiness {
     #[cfg(feature = "netguard-runtime-candidate")]
     pub(crate) fn protected_full(profile_name: String) -> Self {
         Self {
-            mode: RoutingMode::Global,
+            mode: RoutingMode::Rule,
             profile_name,
             managed_dns: true,
             protected: true,
@@ -118,6 +118,7 @@ impl ConfigReadiness {
                     && (tun["device"] != omavless_netguard::nft::TUN
                         || tun["auto-route"] != true
                         || tun["strict-route"] != true
+                        || tun["disable-icmp-forwarding"] != true
                         || !(tun.get("auto-redirect").is_none() || tun["auto-redirect"] == false))
                 {
                     return false;
@@ -144,6 +145,20 @@ impl ConfigReadiness {
                 let Some(proxies) = payload["proxies"].as_object() else {
                     return false;
                 };
+                #[cfg(feature = "netguard-runtime-candidate")]
+                if self.protected {
+                    return proxies
+                        .get(&self.profile_name)
+                        .is_some_and(|proxy| proxy["type"] == "Vless")
+                        && proxies.get("PROXY").is_some_and(|group| {
+                            group["type"] == "Selector"
+                                && group["now"].as_str() == Some(&self.profile_name)
+                                && group["all"].as_array().is_some_and(|members| {
+                                    members.len() == 1
+                                        && members[0].as_str() == Some(&self.profile_name)
+                                })
+                        });
+                }
                 let selector = |name: &str, target: &str| {
                     proxies.get(name).is_some_and(|group| {
                         group["type"] == "Selector"
@@ -160,11 +175,39 @@ impl ConfigReadiness {
                         || selector("PROXY", &self.profile_name))
                     && (self.mode != RoutingMode::Global || selector("GLOBAL", "PROXY"))
             }
-            // Empty rules/providers are legal for custom templates. Null is
-            // not a loaded collection. Never hard-code fixture row counts.
-            // Provider *availability* remains a separate diagnostic boundary.
-            ReadOnlyEndpoint::Rules => payload["rules"].is_array(),
-            ReadOnlyEndpoint::RuleProviders => payload["providers"].is_object(),
+            // Ordinary custom templates permit empty loaded collections. Only
+            // the protected generator has an exact closed rule topology.
+            // Provider availability remains a separate diagnostic boundary.
+            ReadOnlyEndpoint::Rules => {
+                #[cfg(feature = "netguard-runtime-candidate")]
+                if self.protected {
+                    return payload["rules"].as_array().is_some_and(|rules| {
+                        rules.len() == 2
+                            && rules
+                                .iter()
+                                .zip([("Network", "UDP", "REJECT"), ("Match", "", "PROXY")])
+                                .enumerate()
+                                .all(|(index, (rule, (kind, value, proxy)))| {
+                                    rule["index"].as_u64() == Some(index as u64)
+                                        && rule["type"] == kind
+                                        && rule["payload"] == value
+                                        && rule["proxy"] == proxy
+                                        && (rule.get("extra").is_none()
+                                            || rule["extra"]["disabled"] == false)
+                                })
+                    });
+                }
+                payload["rules"].is_array()
+            }
+            ReadOnlyEndpoint::RuleProviders => {
+                #[cfg(feature = "netguard-runtime-candidate")]
+                if self.protected {
+                    return payload["providers"]
+                        .as_object()
+                        .is_some_and(|providers| providers.is_empty());
+                }
+                payload["providers"].is_object()
+            }
             _ => false,
         }
     }
@@ -438,15 +481,70 @@ mod tests {
 
     #[cfg(feature = "netguard-runtime-candidate")]
     #[test]
+    fn protected_rules_are_ordered_enabled_and_have_no_provider_or_selector_escape() {
+        let expected = ConfigReadiness::protected_full("Synthetic".into());
+        let good = json!({"rules":[
+            {"index":0,"type":"Network","payload":"UDP","proxy":"REJECT","extra":{"disabled":false}},
+            {"index":1,"type":"Match","payload":"","proxy":"PROXY","extra":{"disabled":false}}
+        ]});
+        assert!(expected.matches(ReadOnlyEndpoint::Rules, &good));
+        for (row, field, value) in [
+            (0, "type", json!("Match")),
+            (0, "payload", json!("TCP")),
+            (0, "proxy", json!("PROXY")),
+            (1, "proxy", json!("DIRECT")),
+            (1, "index", json!(0)),
+            (1, "payload", json!("UDP")),
+            (0, "extra", json!({"disabled":true})),
+            (0, "extra", json!({"disabled":"false"})),
+            (0, "extra", Value::Null),
+        ] {
+            let mut bad = good.clone();
+            bad["rules"][row][field] = value;
+            assert!(!expected.matches(ReadOnlyEndpoint::Rules, &bad));
+        }
+        let mut swapped = good.clone();
+        swapped["rules"].as_array_mut().unwrap().swap(0, 1);
+        assert!(!expected.matches(ReadOnlyEndpoint::Rules, &swapped));
+        let mut extra = good.clone();
+        extra["rules"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"type":"Match"}));
+        assert!(!expected.matches(ReadOnlyEndpoint::Rules, &extra));
+        assert!(!expected.matches(ReadOnlyEndpoint::Rules, &json!({"rules":[]})));
+        assert!(expected.matches(ReadOnlyEndpoint::RuleProviders, &json!({"providers":{}})));
+        assert!(!expected.matches(
+            ReadOnlyEndpoint::RuleProviders,
+            &json!({"providers":{"extra":{}}})
+        ));
+        assert!(expected.matches(ReadOnlyEndpoint::Proxies, &proxies()));
+        for members in [json!([]), json!(["Synthetic", "DIRECT"])] {
+            let mut bad = proxies();
+            bad["proxies"]["PROXY"]["all"] = members;
+            assert!(!expected.matches(ReadOnlyEndpoint::Proxies, &bad));
+        }
+        let mut absent = proxies();
+        absent["proxies"].as_object_mut().unwrap().remove("PROXY");
+        assert!(!expected.matches(ReadOnlyEndpoint::Proxies, &absent));
+        assert!(!expected.matches(ReadOnlyEndpoint::Configs, &json!({"mode":"global"})));
+    }
+
+    #[cfg(feature = "netguard-runtime-candidate")]
+    #[test]
     fn protected_typed_readiness_requires_fixed_device_routes_and_dns() {
         let expected = ConfigReadiness::protected_full("Synthetic".into());
-        let good = json!({"mode":"global", "tun": {
+        let good = json!({"mode":"rule", "tun": {
             "enable":true, "device":"omavless0", "auto-route":true,
             "strict-route":true, "omavless-dns-broker":true,
-            "disable-system-dns":true, "omavless-dns-ready":true
+            "disable-system-dns":true, "omavless-dns-ready":true,
+            "disable-icmp-forwarding":true
         }});
         // Exact managed-core serializer omits auto-redirect when false.
         assert!(expected.matches(ReadOnlyEndpoint::Configs, &good));
+        let mut global = good.clone();
+        global["mode"] = json!("global");
+        assert!(!expected.matches(ReadOnlyEndpoint::Configs, &global));
         for (key, bad_value) in [
             ("device", json!("Meta")),
             ("auto-route", json!(false)),
@@ -457,6 +555,9 @@ mod tests {
             ("enable", json!(false)),
             ("omavless-dns-ready", json!(false)),
             ("omavless-dns-broker", json!(false)),
+            ("disable-icmp-forwarding", json!(false)),
+            ("disable-icmp-forwarding", json!(null)),
+            ("disable-icmp-forwarding", json!("true")),
         ] {
             let mut bad = good.clone();
             bad["tun"][key] = bad_value;

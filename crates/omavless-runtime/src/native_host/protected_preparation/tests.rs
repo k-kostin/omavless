@@ -103,7 +103,12 @@ fn validation_data_directory_replacement_is_not_an_equivalent_input() {
 fn canonical_policy_is_fixed_and_has_no_external_resource_dependencies() {
     let bytes = rendered(URI).unwrap();
     let config: Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(config["mode"] == "global");
+    assert!(config["mode"] == "rule");
+    assert_eq!(
+        config["rules"],
+        json!(["NETWORK,UDP,REJECT", "MATCH,PROXY"])
+    );
+    assert_eq!(config["tun"]["disable-icmp-forwarding"], json!(true));
     assert!(config["routing-mark"] == omavless_netguard::nft::CORE_MARK);
     assert!(config["tun"]["device"] == omavless_netguard::nft::TUN);
     assert!(config["tun"]["auto-redirect"] == false);

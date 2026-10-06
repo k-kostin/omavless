@@ -111,6 +111,9 @@ fn fixed_peer_uses_production_canonical_renderer() {
     assert_eq!(value["proxies"][0]["port"], 24443);
     assert_eq!(value["proxies"][0]["servername"], "peer.k1.invalid");
     assert_eq!(value["proxies"][0]["udp"], false);
+    assert_eq!(value["mode"], "rule");
+    assert_eq!(value["rules"], json!(["NETWORK,UDP,REJECT", "MATCH,PROXY"]));
+    assert_eq!(value["tun"]["disable-icmp-forwarding"], true);
     assert_eq!(value["routing-mark"], omavless_netguard::nft::CORE_MARK);
     assert_eq!(value["dns"]["nameserver"][0], RESOLVER);
     assert_eq!(value["external-controller-unix"], CONTROLLER);
