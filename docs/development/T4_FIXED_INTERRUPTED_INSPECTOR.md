@@ -14,7 +14,8 @@ interruption, not SIGKILL, power-cut or unknown-effect recovery evidence.
 
 The original supervisor must observe without reaping through its retained
 pidfd (`WNOWAIT`), classify exactly its original child's planned
-86, then permanently revoke that original context. Any other/late/unknown result
+86 and successfully reap that same expected exit, then permanently revoke that
+original context. Any other/late/unknown result
 stops before reaping: no fresh inspection launch, query, retry, compensation or cleanup. The
 next actor has a new authenticated channel context/nonce and READY; it receives
 only the bounded expected transaction ID, never the writer's Files, PID or live
@@ -23,8 +24,12 @@ stream/context cannot be reused. No arbitrary phase/path is caller-selected.
 
 Before writer effects, the scenario reserves accounting for both actor/ledger/
 channel owners. Each actual actor reserves its full lower ledger and private
-input buffers before READY/acquisition. The supervisor retains both original
-child graphs, never evicting an uncertain graph. The new scenario's explicit
+input buffers before READY/acquisition. While alive the supervisor's fixed slots
+hold its reported child/channel graph; there is no eviction/retry path. Parent
+failure/return can close parent handles: this is not a joint supervisor/actor
+graph-custody guarantee. The actor's refusal path separately parks its owned
+lower/inventory/transfer prefix while alive; supervisor or actor loss means
+unavailable, not fatal descriptor survival. The new scenario's explicit
 whole budget must cover both phases; no failed-context deadline is restarted.
 
 ## Read-only owning boundary
@@ -70,9 +75,16 @@ actor capture. Selected vocabulary is 69 literals; earlier scenarios remain
 separate. No caller can enlarge these bounds. The supervisor has six fixed
 progress literals and no diagnostic private-data output.
 
-Fault controls cover
-every reported acquisition/postcheck, optional absence drift, crossed records,
-wrong staged/live bytes, short/late IPC and every unexpected writer outcome.
+Executed new pure controls cover the actual three-step writer continuation,
+existing DecisionChain equivalence/crossed/torn records, expired inspector
+admission, source-shaped capture bounds, strict new kind/reply binding and
+original terminal classification/reap ordering with late/throw cuts. Inherited
+lower-ledger controls cover generic reported acquisition/postcheck retention,
+and inherited stream/transfer controls cover their existing prefix cuts.
+These are not whole-inspector filesystem coverage: optional-absence drift,
+complete capture/identity changes, the new 16-byte expectation-body prefixes and
+the actual process-interruption/re-entry scenario remain unexecuted integration
+cases. Source inspection of those paths is not a claim that their tests ran.
 Pure controls and compile-only artifacts are distinct from the ROOT-operated
 interruption/re-entry gate. PRIMARY and independent critical review precede
 that gate; ROOT is the sole VM operator. Genuine ProductOwner/lease/Desired/
