@@ -817,7 +817,15 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         Ok(())
     }
     fn start_admitted(&mut self, admission: ArmAdmission) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StartAdmission,
+        );
         self.recheck_admission(&admission)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StartTunAbsent,
+        );
         if !self.ping_slot.revoke() || self.managed_tuns()? != 0 {
             return Err(HostStepError::Start);
         }
@@ -829,6 +837,10 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         self.readiness = Some(ConfigReadiness::protected_full(PROFILE.to_owned()));
         self.tun_identity = None;
         self.remove_controller()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::CoreSpawn,
+        );
         let core = OwnedCore::spawn_protected(
             &self.paths.core,
             &self.paths.data_directory,
@@ -841,20 +853,43 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         let core = self.core.as_mut().ok_or(HostStepError::Start)?;
         self.core_diagnostics = Some(core.diagnostic_reader());
         let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::ConfiguredWait,
+        );
         core.wait_configured(expected.startup_timeout(), expected)
             .map_err(|_| HostStepError::Start)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::ConfiguredPid,
+        );
         let pid = core.pid().ok_or(HostStepError::Start)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::SecureOwned,
+        );
         if !crate::controller_permissions::secure_owned(
             &self.paths.controller_socket,
             pid,
             self.uid,
-        ) || !core.running().map_err(|_| HostStepError::Start)?
-        {
+        ) || !{
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::CoreRunning,
+            );
+            core.running().map_err(|_| HostStepError::Start)?
+        } {
             return Err(HostStepError::Start);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(crate::protected_native_diagnostic::Cut::TunCheck);
         if !self.verify_tun(pid)? {
             return Err(HostStepError::Start);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StartComplete,
+        );
         Ok(())
     }
     fn commit_protected(&mut self) -> Result<(), HostStepError> {

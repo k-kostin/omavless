@@ -28,6 +28,15 @@ pub(crate) enum Cut {
     BoundEligibility,
     ProfileParse,
     PolicyRender,
+    StartAdmission,
+    StartTunAbsent,
+    CoreSpawn,
+    ConfiguredWait,
+    ConfiguredPid,
+    SecureOwned,
+    CoreRunning,
+    TunCheck,
+    StartComplete,
 }
 
 impl Cut {
@@ -57,6 +66,15 @@ impl Cut {
             Self::BoundEligibility => "bound_eligibility",
             Self::ProfileParse => "profile_parse",
             Self::PolicyRender => "policy_render",
+            Self::StartAdmission => "start_admission",
+            Self::StartTunAbsent => "start_tun_absent",
+            Self::CoreSpawn => "core_spawn",
+            Self::ConfiguredWait => "configured_wait",
+            Self::ConfiguredPid => "configured_pid",
+            Self::SecureOwned => "secure_owned",
+            Self::CoreRunning => "core_running",
+            Self::TunCheck => "tun_check",
+            Self::StartComplete => "start_complete",
         }
     }
 }
@@ -64,6 +82,99 @@ impl Cut {
 thread_local! {
     static LAST: Cell<Cut> = const { Cell::new(Cut::NotEntered) };
     static ORIGIN: Cell<(Site, u8)> = const { Cell::new((Site::Initial, 0)) };
+    static READINESS: Cell<(Endpoint, ReadinessPhase, ControllerPhase)> = const { Cell::new((Endpoint::NotEntered, ReadinessPhase::NotEntered, ControllerPhase::NotEntered)) };
+    static READ_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Endpoint {
+    NotEntered,
+    Configs,
+    Rules,
+    Providers,
+    Proxies,
+}
+impl Endpoint {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::NotEntered => "not_entered",
+            Self::Configs => "configs",
+            Self::Rules => "rules",
+            Self::Providers => "providers",
+            Self::Proxies => "proxies",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ReadinessPhase {
+    NotEntered,
+    Deadline,
+    Read,
+    ReadUnavailable,
+    Policy,
+    PolicyRejected,
+    FinalDeadline,
+}
+impl ReadinessPhase {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::NotEntered => "not_entered",
+            Self::Deadline => "deadline",
+            Self::Read => "read",
+            Self::ReadUnavailable => "read_unavailable",
+            Self::Policy => "policy",
+            Self::PolicyRejected => "policy_rejected",
+            Self::FinalDeadline => "final_deadline",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ControllerPhase {
+    NotEntered,
+    ParentMetadata,
+    SocketMetadata,
+    MetadataPolicy,
+    Exchange,
+    Timeout,
+}
+impl ControllerPhase {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::NotEntered => "not_entered",
+            Self::ParentMetadata => "parent_metadata",
+            Self::SocketMetadata => "socket_metadata",
+            Self::MetadataPolicy => "metadata_policy",
+            Self::Exchange => "exchange",
+            Self::Timeout => "timeout",
+        }
+    }
+}
+pub(crate) struct ReadinessScope(bool);
+impl Drop for ReadinessScope {
+    fn drop(&mut self) {
+        READ_ACTIVE.set(self.0);
+    }
+}
+pub(crate) fn readiness_scope() -> ReadinessScope {
+    let old = READ_ACTIVE.replace(true);
+    ReadinessScope(old)
+}
+pub(crate) fn readiness_mark(endpoint: Endpoint, phase: ReadinessPhase) {
+    let controller = if phase == ReadinessPhase::Deadline {
+        ControllerPhase::NotEntered
+    } else {
+        READINESS.get().2
+    };
+    READINESS.set((endpoint, phase, controller));
+}
+pub(crate) fn controller_mark(phase: ControllerPhase) {
+    if READ_ACTIVE.get() {
+        let (e, p, _) = READINESS.get();
+        READINESS.set((e, p, phase));
+    }
+}
+pub(crate) fn readiness() -> (Endpoint, ReadinessPhase, ControllerPhase) {
+    READINESS.get()
 }
 
 /// Closed call class plus saturating source invocation ordinal, never a PID,
@@ -108,6 +219,11 @@ pub(crate) fn mark(cut: Cut) {
     if cut == Cut::NotEntered {
         ORIGIN.set((Site::Initial, 0));
         crate::login_transaction::diagnostic::reset();
+        READINESS.set((
+            Endpoint::NotEntered,
+            ReadinessPhase::NotEntered,
+            ControllerPhase::NotEntered,
+        ));
     }
     LAST.set(cut);
 }
@@ -224,4 +340,184 @@ fn original_origin_predicates_remain_once_in_short_circuit_order() {
     );
     assert_eq!(body.matches("singleton()?").count(), 1);
     assert_eq!(body.matches("enter_origin()").count(), 1);
+}
+
+#[test]
+fn readiness_catalogue_is_closed_scoped_resettable_and_thread_local() {
+    mark(Cut::NotEntered);
+    controller_mark(ControllerPhase::ParentMetadata);
+    assert_eq!(
+        readiness(),
+        (
+            Endpoint::NotEntered,
+            ReadinessPhase::NotEntered,
+            ControllerPhase::NotEntered
+        )
+    );
+    {
+        let _scope = readiness_scope();
+        readiness_mark(Endpoint::Configs, ReadinessPhase::Deadline);
+        readiness_mark(Endpoint::Configs, ReadinessPhase::Read);
+        controller_mark(ControllerPhase::SocketMetadata);
+        readiness_mark(Endpoint::Configs, ReadinessPhase::ReadUnavailable);
+        assert_eq!(
+            readiness(),
+            (
+                Endpoint::Configs,
+                ReadinessPhase::ReadUnavailable,
+                ControllerPhase::SocketMetadata
+            )
+        );
+    }
+    controller_mark(ControllerPhase::Timeout);
+    assert_eq!(readiness().2, ControllerPhase::SocketMetadata);
+    std::thread::spawn(|| {
+        assert_eq!(
+            readiness(),
+            (
+                Endpoint::NotEntered,
+                ReadinessPhase::NotEntered,
+                ControllerPhase::NotEntered
+            )
+        );
+        let _scope = readiness_scope();
+        controller_mark(ControllerPhase::Timeout);
+    })
+    .join()
+    .unwrap();
+    assert_eq!(readiness().2, ControllerPhase::SocketMetadata);
+    mark(Cut::NotEntered);
+    assert_eq!(readiness().0, Endpoint::NotEntered);
+    assert_eq!(
+        [
+            Cut::ConfiguredWait,
+            Cut::SecureOwned,
+            Cut::CoreRunning,
+            Cut::TunCheck
+        ]
+        .map(Cut::token),
+        [
+            "configured_wait",
+            "secure_owned",
+            "core_running",
+            "tun_check"
+        ]
+    );
+    assert_eq!(
+        [
+            Endpoint::Configs,
+            Endpoint::Rules,
+            Endpoint::Providers,
+            Endpoint::Proxies
+        ]
+        .map(Endpoint::token),
+        ["configs", "rules", "providers", "proxies"]
+    );
+    assert_eq!(
+        [
+            ControllerPhase::ParentMetadata,
+            ControllerPhase::SocketMetadata,
+            ControllerPhase::MetadataPolicy,
+            ControllerPhase::Exchange,
+            ControllerPhase::Timeout
+        ]
+        .map(ControllerPhase::token),
+        [
+            "parent_metadata",
+            "socket_metadata",
+            "metadata_policy",
+            "exchange",
+            "timeout"
+        ]
+    );
+}
+
+#[test]
+fn source_cuts_preserve_original_call_order_short_circuit_and_default_absence() {
+    let source = include_str!("native_host/protected_preparation.rs");
+    let body = source
+        .split("fn start_admitted(")
+        .nth(1)
+        .unwrap()
+        .split("fn commit_protected(")
+        .next()
+        .unwrap();
+    let calls = [
+        "self.recheck_admission(&admission)?",
+        "self.ping_slot.revoke()",
+        "self.managed_tuns()?",
+        "self.remove_controller()?",
+        "OwnedCore::spawn_protected(",
+        "self.core = Some(core)",
+        "core.wait_configured(",
+        "let pid = core.pid()",
+        "controller_permissions::secure_owned(",
+        "core.running()",
+        "self.verify_tun(pid)?",
+    ];
+    let mut position = 0;
+    for call in calls {
+        assert_eq!(body.matches(call).count(), 1);
+        let next = body.find(call).unwrap();
+        assert!(next >= position);
+        position = next;
+    }
+    let secure = body.find("controller_permissions::secure_owned(").unwrap();
+    let running = body.find("Cut::CoreRunning").unwrap();
+    assert!(body[secure..running].contains(") || !{"));
+    assert!(running < body.find("core.running()").unwrap());
+    let selectors = include_str!("core_selector.rs");
+    let exchange = selectors
+        .split("fn exchange(")
+        .nth(1)
+        .unwrap()
+        .split("fn selector")
+        .next()
+        .unwrap();
+    assert_eq!(
+        exchange.matches("symlink_metadata(path.parent()?)").count(),
+        1
+    );
+    assert_eq!(exchange.matches("symlink_metadata(path)").count(), 2);
+    assert_eq!(
+        exchange
+            .matches("checked_duration_since(Instant::now())")
+            .count(),
+        1
+    );
+    assert!(
+        exchange.find("ControllerPhase::ParentMetadata").unwrap()
+            < exchange.find("symlink_metadata(path.parent()?)").unwrap()
+    );
+    assert!(
+        exchange.find("ControllerPhase::MetadataPolicy").unwrap()
+            < exchange.find("if !directory.is_dir()").unwrap()
+    );
+    let library = include_str!("lib.rs");
+    assert!(library.contains("#[cfg(all(test, feature = \"netguard-native-scenario\"))]\nmod protected_native_diagnostic;"));
+    for text in [
+        include_str!("core_selector.rs"),
+        include_str!("core_readiness.rs"),
+        source,
+    ] {
+        let text = text.split("#[cfg(test)]\nmod tests").next().unwrap();
+        for prefix in text
+            .split("crate::protected_native_diagnostic::")
+            .take(text.matches("crate::protected_native_diagnostic::").count())
+        {
+            assert!(
+                prefix
+                    .rsplit("#[cfg(all(test, feature = \"netguard-native-scenario\"))]")
+                    .next()
+                    .unwrap()
+                    .len()
+                    < 2500
+            );
+        }
+    }
+    let output = include_str!("production_owner/protected_native_vm_tests.rs");
+    assert!(
+        output.find("std::panic::catch_unwind(||").unwrap()
+            < output.find("K1_NATIVE_READINESS_DIAGNOSTIC").unwrap()
+    );
 }

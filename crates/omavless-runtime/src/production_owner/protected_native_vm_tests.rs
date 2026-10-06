@@ -179,6 +179,14 @@ fn installed_current_owner_protected_roundtrip() {
                     reason.token(),
                     io.token()
                 );
+                let (endpoint, readiness, controller) =
+                    crate::protected_native_diagnostic::readiness();
+                eprintln!(
+                    "K1_NATIVE_READINESS_DIAGNOSTIC {} {} {}",
+                    endpoint.token(),
+                    readiness.token(),
+                    controller.token()
+                );
             });
             // Never turn a failed constructor/roundtrip into a retry, cleanup,
             // original-child completion or guessed ownership. ROOT may choose
