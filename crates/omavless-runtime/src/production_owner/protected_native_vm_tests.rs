@@ -76,6 +76,7 @@ fn selected() -> bool {
 }
 
 fn run() -> Result<LifecycleOutcome, Phase> {
+    crate::protected_native_diagnostic::mark(crate::protected_native_diagnostic::Cut::NotEntered);
     if !selected() {
         return Err(Phase::Selection);
     }
@@ -155,10 +156,18 @@ fn installed_current_owner_protected_roundtrip() {
                 Ok(Err(phase)) => phase,
                 _ => Phase::Unwind,
             };
-            eprintln!(
-                "K1_NATIVE_CURRENT_OWNER_REFUSED_OR_UNKNOWN {}",
-                phase.token()
-            );
+            // Only closed source labels, after run has returned and original
+            // graph custody is retained. A diagnostic failure cannot skip park.
+            let _ = std::panic::catch_unwind(|| {
+                eprintln!(
+                    "K1_NATIVE_CURRENT_OWNER_REFUSED_OR_UNKNOWN {}",
+                    phase.token()
+                );
+                eprintln!(
+                    "K1_NATIVE_DIAGNOSTIC {}",
+                    crate::protected_native_diagnostic::last().token()
+                );
+            });
             // Never turn a failed constructor/roundtrip into a retry, cleanup,
             // original-child completion or guessed ownership. ROOT may choose
             // separately reviewed observation/recovery or VM administration.

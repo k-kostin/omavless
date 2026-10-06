@@ -435,3 +435,30 @@ product registration is introduced. Native Arm/start/stop/Disarm, repeated-cycle
 and fault/leak acceptance are still required; neither this decision nor pure
 controls establish those results. Ordinary defaults and release behavior remain
 unchanged.
+
+### Installed-native refusal and diagnostic successor
+
+The first composed installed-native attempt used source
+`eaeac0fa3c5802c0c269b9c92dce5da0ef5b96c6` and test ELF SHA256
+`64019a7c110a34fdae649b7505642c56a43c4664e4bb305647822d59f56a64e9`.
+The genuine current-owner constructor completed, but its protected roundtrip
+refused before a core exec. No Arm/start/traffic/Disarm acceptance follows.
+The original supervisor retained the uncertain graph. Later shutdown was
+separate disposable-VM administration; the original SSH ended255, not a
+successful original completion, cleanup or product recovery.
+
+The successor adds only test-and-feature-gated, thread-local, closed source
+labels. Each label precedes an existing operation; there are no extra probes,
+callbacks, retries, authority inputs or altered custody/budgets. Failure prints
+one last-entered label only after whole-owner retention. It is not an exact
+failed-predicate diagnosis. A print panic cannot bypass the existing park.
+Default production builds do not contain this diagnostic module.
+
+Focused diagnostic controls passed56 tests, with three explicit VM selectors
+ignored, both with one and two test threads. Strict feature/test and default
+library Clippy and scoped formatting/diff checks passed. An earlier unrestricted
+parallel invocation had three existing preparation tests fail with Changed;
+that invocation remains NONPASS. Process-wide FD inventory can interfere across
+concurrent fixtures, but the failing predicate was not captured, so the cause is
+not claimed as established. Serial gates do not waive the unchanged production
+256-FD bound or count as a passing unrestricted parallel suite.

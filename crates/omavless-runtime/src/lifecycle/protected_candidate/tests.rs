@@ -323,6 +323,62 @@ struct Fixture {
     root: Rc<RefCell<Observation>>,
 }
 
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn diagnostic_distinguishes_origin_read_empty_eligibility_and_status_cuts() {
+    use crate::protected_native_diagnostic::{Cut, last, mark};
+
+    let f = Fixture::new(0, None);
+    let mut initial = f.candidate(None, None);
+    let (Executor::Owned(executor), port) = initial.owned.take().unwrap() else {
+        panic!("fixed owned fixture");
+    };
+    let mut origin = || {
+        mark(Cut::OriginEnvelope);
+        Err(LifecycleError::ManualRecoveryRequired)
+    };
+    let mut candidate = ProtectedCandidate {
+        owned: Some((Executor::Owned(executor), port)),
+        phase: Phase::Fresh,
+        admission: None,
+        interval: None,
+        origin: Some(&mut origin),
+    };
+    assert!(candidate.connect_full("fixture").is_err());
+    assert_eq!(last(), Cut::OriginEnvelope);
+    assert!(f.log.borrow().is_empty());
+    assert_eq!(candidate.phase, Phase::Poisoned);
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
+
+    let f = Fixture::new(0, None);
+    let mut candidate = f.candidate(None, None);
+    // A missing Desired file legitimately reads as the default Off intent.
+    // Malformed bytes, not absence, exercise the actual read-refusal boundary.
+    std::fs::write(&f.paths.file, b"{").unwrap();
+    assert!(candidate.connect_full("fixture").is_err());
+    assert_eq!(last(), Cut::DesiredRead);
+    assert!(f.log.borrow().is_empty());
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
+
+    for (host_cut, port_cut, expected) in [
+        (Some("empty"), None, Cut::EmptyObservation),
+        (Some("preflight"), None, Cut::ProtectedEligibility),
+        (None, Some("status_manual"), Cut::StatusInterpretation),
+    ] {
+        let f = Fixture::new(0, None);
+        let mut candidate = f.candidate(host_cut, port_cut);
+        assert!(candidate.connect_full("fixture").is_err());
+        assert_eq!(last(), expected);
+        assert!(!f.log.borrow().contains(&"prepare"));
+        assert!(!f.log.borrow().contains(&"arm"));
+        assert_eq!(candidate.phase, Phase::Poisoned);
+        drop(candidate);
+        assert_eq!(f.drops.get(), 0);
+    }
+}
+
 #[test]
 fn borrowed_same_executor_checks_original_fence_and_never_compensates() {
     for fail_at in 1..=48 {

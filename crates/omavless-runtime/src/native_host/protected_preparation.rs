@@ -399,6 +399,10 @@ impl NativeLifecycleHost {
         &mut self,
         desired: &DesiredState,
     ) -> Result<(), PreparationError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::PackageVerify,
+        );
         let pair = self
             .paths
             .managed_pair
@@ -408,6 +412,10 @@ impl NativeLifecycleHost {
         if pair.core_path() != self.paths.core {
             return Err(PreparationError::Changed);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::CoreCapture,
+        );
         let core = HeldFile::capture(&self.paths.core, 0, 0o755, MAX_CORE)?;
         pair.verify().map_err(|_| PreparationError::Changed)?;
         self.prepare_bound_candidate(desired, core)?;
@@ -434,6 +442,10 @@ impl NativeLifecycleHost {
         desired: &DesiredState,
         core: HeldFile,
     ) -> Result<(), PreparationError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::BoundEligibility,
+        );
         if self.protected_preparation.is_some()
             || self.core.is_some()
             || self.profile_id.is_some()
@@ -453,6 +465,10 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Refused);
         }
         let capacity = PreparationCapacity::reserve()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::ProfileParse,
+        );
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| PreparationError::Refused)?;
         let store_digest = Sha256::digest(store.as_bytes()).into();
@@ -464,6 +480,10 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Refused);
         }
         let (_, profile) = profiles.pop().ok_or(PreparationError::Refused)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::PolicyRender,
+        );
         let (bytes, policy) = render_bound(profile, &self.paths.controller_socket)?;
         let path = self.paths.config_directory.join(STAGING);
         // Consume before create/write/sync. Errors are not retry authorization.

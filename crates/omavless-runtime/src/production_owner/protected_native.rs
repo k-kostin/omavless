@@ -121,16 +121,28 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
             .original
             .as_mut()
             .ok_or(LifecycleError::ManualRecoveryRequired)?;
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::OwnerEligibility,
+        );
         if !matches!(owner.ownership, ProductionOwnership::Committed { .. })
             || owner.actual() != ActualState::Disconnected
         {
             return Err(LifecycleError::ManualRecoveryRequired);
         }
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::SingletonCapture,
+        );
         let singleton = Singleton::capture(
             server,
             owner.coordinator.protected_native_paths(),
             owner.coordinator.uid(),
         )?;
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::MigrationAcquire,
+        );
         *lease = Some(owner.coordinator.protected_native_lock()?);
         let lock = lease
             .as_ref()

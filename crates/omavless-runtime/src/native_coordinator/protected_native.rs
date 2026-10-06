@@ -20,10 +20,18 @@ impl OfflineNativeCoordinator<crate::native_host::NativeLifecycleHost> {
         singleton: &mut dyn FnMut() -> Result<(), LifecycleError>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let refuse = LifecycleError::ManualRecoveryRequired;
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::RequiredFence,
+        );
         let fence = self
             .required_ownership
             .filter(|f| f.phase == OwnershipPhase::Rust)
             .ok_or(refuse)?;
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::CoordinatorEligibility,
+        );
         if self.transaction.blocked()
             || self.auxiliary_recovery_required
             || self.coordinator.active()
@@ -42,7 +50,15 @@ impl OfflineNativeCoordinator<crate::native_host::NativeLifecycleHost> {
         let desired = self.transaction.desired_paths().clone();
         let uid = self.uid();
         let mut origin = || {
+            #[cfg(test)]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::SingletonCheck,
+            );
             singleton()?;
+            #[cfg(test)]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::OriginEnvelope,
+            );
             if !lock.authorizes(&paths, uid)
                 || !read_marker(&paths, uid)
                     .is_ok_and(|m| m.phase() == fence.phase && m.generation() == fence.generation)
