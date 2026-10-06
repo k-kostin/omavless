@@ -106,7 +106,8 @@ impl Singleton {
 
 impl ProductionNativeOwner<NativeLifecycleHost> {
     /// Only an explicit in-crate developer scenario may consume these originals.
-    /// The closed issuer means current code refuses before validation or Arm.
+    /// The private issuer requires qualified policy/package and original
+    /// validation; this entry cannot supply an external coverage token.
     #[allow(dead_code)]
     pub(crate) fn protected_developer_roundtrip(
         self,

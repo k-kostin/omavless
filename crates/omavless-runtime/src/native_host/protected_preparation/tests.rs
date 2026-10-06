@@ -63,16 +63,13 @@ fn stage(host: &mut NativeLifecycleHost, desired: &DesiredState) -> Result<(), P
 }
 
 #[test]
-fn coverage_issuer_has_no_accepted_digest_or_native_spawn() {
-    assert!(matches!(
-        approved_policy_decision(),
-        Err(PreparationError::Unsupported)
-    ));
+fn qualified_policy_decision_cannot_admit_an_unbound_package_or_spawn() {
+    assert_eq!(approved_policy_decision(), Ok(()));
     let (_root, mut host, desired) = fixture();
     stage(&mut host, &desired).unwrap();
     assert!(matches!(
         host.admit_prepared_protection(&desired),
-        Err(PreparationError::Unsupported)
+        Err(PreparationError::Refused)
     ));
     let preparation = host.protected_preparation.as_ref().unwrap();
     assert!(!preparation.admitted && !preparation.started);
@@ -244,7 +241,7 @@ fn source_preparation_is_not_an_arm_capability_or_ordinary_start() {
     assert!(host.recheck_protected_candidate(&desired).is_ok());
     assert!(matches!(
         host.admit_prepared_protection(&desired),
-        Err(PreparationError::Unsupported)
+        Err(PreparationError::Refused)
     ));
     assert!(host.start_prepared().is_err());
     assert!(host.core.is_none() && host.profile_id.is_none() && host.readiness.is_none());

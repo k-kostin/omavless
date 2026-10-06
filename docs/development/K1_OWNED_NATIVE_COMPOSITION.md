@@ -405,3 +405,33 @@ was not exercised with a real installed package; no core/validator, service,
 socket traffic, privileged operation or VM action was selected. The optional
 rustix dependency reuses the existing locked1.1.5 version; no new version or
 default feature is introduced.
+
+## Qualified development Rule decision (successor to the closed checkpoint)
+
+The private static decision now permits only the existing development feature's
+closed Rule policy, after independent qualification on the disposable x86_64 VM.
+Exact Rule renderer head: `f1f575d13e7a43a04f73dbc4bdfde20ad3c6a008`.
+The original success, non-DNS UDP rejection and ICMP no-network runs all exited
+zero with complete target socket census and original child completion. Every
+case included DNS/HTTPS success; rejection cases delivered exactly one inner
+probe with no corresponding forbidden outer packet. The unconditional
+wrong-peer DROP rule rejected six packets before each probe window, with no
+increment during the probe. This is not a zero-rejected-traffic or kernel-RST
+origin claim. Existing loopback and established SSH exceptions remain explicit.
+
+The earlier Rule41 refusal and old Global matrix retain their original outcomes
+and guarantees. Runtime observer output is qualification evidence, not an input,
+receipt, token or executable authority for the native issuer. The static
+decision introduces no flag or caller-controlled permission. The original
+ProtectedPackage still enforces the exact qualified core/broker/receipt triple,
+capabilities, retained file identities and package policy. Original validator
+zero/reaping and restored same-host Bound postchecks still precede private
+Coverage construction; a synthetic or absent package refuses before spawning.
+
+The ignored installed-native launcher uses a valid fixed UUID record ID, with
+`k1-native-fixed` only its fixture display name. A normal-store-parser regression
+prevents restoring the invalid old display-name-as-ID. No parser relaxation or
+product registration is introduced. Native Arm/start/stop/Disarm, repeated-cycle
+and fault/leak acceptance are still required; neither this decision nor pure
+controls establish those results. Ordinary defaults and release behavior remain
+unchanged.

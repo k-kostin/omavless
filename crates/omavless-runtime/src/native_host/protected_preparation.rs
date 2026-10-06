@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Private protected preparation/start on the original NativeLifecycleHost.
-//! Coverage issuance remains closed. Canonical source/validation/readiness are
+//! Coverage issuance is restricted to the qualified development Rule policy.
+//! Canonical source/validation/readiness are
 //! not socket-mark evidence; ordinary templates and staged paths stay separate.
 
 use super::*;
@@ -51,10 +52,13 @@ struct RenderedPolicy {
     version: PolicyVersion,
     config: [u8; 32],
 }
-// CLOSED, no flag or argument. Removing this requires the separate accepted
-// Rule-policy decision and review. No real validator/Arm is enabled here.
+// Static development-only decision, no flag, argument or imported receipt.
+// Rule42 qualified this exact policy/core/package; the retained package holder
+// below still enforces that closed identity. Native integration and product
+// acceptance remain separate. Coverage is created only AFTER original
+// validation and the same Bound's postchecks, never by this decision alone.
 fn approved_policy_decision() -> Result<(), PreparationError> {
-    Err(PreparationError::Unsupported)
+    Ok(())
 }
 /// Only constructed locally AFTER original Validation::complete and restored
 /// host-owned Bound postchecks; cannot escape or outlive those originals.
@@ -548,7 +552,8 @@ impl NativeLifecycleHost {
     }
 
     /// Private post-prepare / pre-reservation-and-Arm consuming seam. The
-    /// coverage issuer is CLOSED; exact package/config bytes alone never admit.
+    /// exact package/config bytes alone never admit: original validation and
+    /// same-owner postchecks still precede private coverage issuance.
     fn admit_prepared_protection(
         &mut self,
         desired: &DesiredState,

@@ -121,8 +121,5 @@ fn fixed_peer_uses_production_canonical_renderer() {
     assert_eq!(value["dns"]["nameserver"][0], RESOLVER);
     assert_eq!(value["external-controller-unix"], CONTROLLER);
     assert!(value["proxies"][0].get("skip-cert-verify").is_none());
-    assert!(matches!(
-        approved_policy_decision(),
-        Err(PreparationError::Unsupported)
-    ));
+    assert_eq!(approved_policy_decision(), Ok(()));
 }

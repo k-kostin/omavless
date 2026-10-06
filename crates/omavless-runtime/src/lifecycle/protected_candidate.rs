@@ -2,7 +2,8 @@
 //! Unregistered candidate owns the same executor, not another runtime owner.
 //! Explicit developer composition uses the fixed client; no product constructor
 //! is registered. Mock replies establish conformance, never kernel authority.
-//! Native coverage issuance remains closed before any real validation or Arm.
+//! Native coverage issuance requires the qualified private policy, original
+//! validation and same-owner postchecks before any Arm.
 use super::*;
 use omavless_netguard::protocol::{Health, Mode, POLICY_VERSION, Protection, Request, Response};
 

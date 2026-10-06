@@ -8,7 +8,7 @@ const UID: u32 = 1000;
 const HOME: &str = "/home/kdk_vm";
 const RUNTIME: &str = "/run/user/1000";
 const OPT_IN: &str = "OMAVLESS_NATIVE_K1_VM";
-const PROFILE: &str = "k1-native-fixed";
+const PROFILE: &str = "33333333-3333-4333-8333-333333333333";
 
 #[derive(Clone, Copy)]
 enum Phase {
@@ -130,7 +130,8 @@ fn run() -> Result<LifecycleOutcome, Phase> {
         }
     };
     // These exact originals now move into the already reviewed consuming guard.
-    // Its closed issuer still refuses pre-Arm; this entry cannot change that.
+    // The private qualified issuer still requires original package/validator
+    // custody; this entry supplies neither a coverage token nor an exemption.
     let outcome = owner
         .protected_developer_roundtrip(server, PROFILE)
         .map_err(|_| Phase::Roundtrip)?;
@@ -144,7 +145,7 @@ fn run() -> Result<LifecycleOutcome, Phase> {
 }
 
 #[test]
-#[ignore = "ROOT-only disposable VM actual native owner; issuer closed until separately reviewed qualification"]
+#[ignore = "ROOT-only disposable VM actual native owner; requires separately reviewed fixture and qualification"]
 fn installed_current_owner_protected_roundtrip() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
     match result {
@@ -205,4 +206,17 @@ fn native_launcher_selection_is_fixed_and_closed() {
     for token in [None, Some(OsStr::new("0")), Some(OsStr::new("true"))] {
         assert!(!fixed_identity(UID, UID, UID, UID, home, runtime, token));
     }
+}
+
+#[test]
+fn native_launcher_profile_id_passes_the_normal_private_store_parser() {
+    let store = serde_json::json!({
+        "version": 3,
+        "profiles": [{"id": PROFILE, "name": "k1-native-fixed", "protocol": "vless",
+            "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.2:443?type=tcp&security=tls&sni=fixture.invalid"}],
+        "subscriptions": [], "activeId": "", "lastId": "", "customRules": []
+    });
+    let parsed = omavless_domain::private_store::parse_private_store(&store.to_string()).unwrap();
+    let selected = parsed.into_profile_probe_profiles(Some(PROFILE)).unwrap();
+    assert_eq!(selected.len(), 1);
 }
