@@ -99,12 +99,18 @@ impl Driver {
 type Wake<H> = fn(&mut ProductionNativeOwner<H>, &mut Driver);
 type Get<H> = fn(&ProductionNativeOwner<H>, &Driver) -> Value;
 type Lost<H> = fn(&mut ProductionNativeOwner<H>, &mut Driver);
+type Connection<H> = fn(
+    &mut ProductionNativeOwner<H>,
+    &mut Driver,
+    &Value,
+) -> Result<Value, omavless_control_protocol::ProtocolError>;
 
 pub(crate) struct Registration<H> {
     pub(crate) driver: Driver,
     wake: Wake<H>,
     get: Get<H>,
     lost: Lost<H>,
+    connection: Connection<H>,
 }
 impl<H: LifecycleHost> Registration<H> {
     pub(crate) fn new(driver: Driver) -> Self
@@ -118,6 +124,7 @@ impl<H: LifecycleHost> Registration<H> {
             wake: wake::<H>,
             get: get::<H>,
             lost: lost::<H>,
+            connection: connection::<H>,
         }
     }
     pub(crate) fn wake(&mut self, owner: &mut ProductionNativeOwner<H>) {
@@ -129,6 +136,25 @@ impl<H: LifecycleHost> Registration<H> {
     pub(crate) fn lost(&mut self, owner: &mut ProductionNativeOwner<H>) {
         (self.lost)(owner, &mut self.driver);
     }
+    pub(crate) fn connection(
+        &mut self,
+        owner: &mut ProductionNativeOwner<H>,
+        request: &Value,
+    ) -> Result<Value, omavless_control_protocol::ProtocolError> {
+        (self.connection)(owner, &mut self.driver, request)
+    }
+}
+
+fn connection<H: ResumeBinding>(
+    owner: &mut ProductionNativeOwner<H>,
+    driver: &mut Driver,
+    request: &Value,
+) -> Result<Value, omavless_control_protocol::ProtocolError> {
+    let result = owner.respond_connection_with_source(request, &mut driver.source, &driver.clock);
+    if terminal(owner.network_resume_status()) {
+        driver.terminal = true;
+    }
+    result
 }
 
 fn lost<H: ResumeBinding>(owner: &mut ProductionNativeOwner<H>, driver: &mut Driver) {

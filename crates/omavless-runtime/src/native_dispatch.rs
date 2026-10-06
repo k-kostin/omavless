@@ -449,6 +449,32 @@ where
     }
 }
 
+#[cfg(any(test, feature = "network-resume-fixture"))]
+pub(crate) fn respond_to_connection_with_source<
+    H: crate::native_coordinator::network_resume::ResumeBinding,
+>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+    source: &mut crate::network_resume::Source,
+    clock: &crate::developer_network_resume::Clock,
+) -> Result<Value, ProtocolError> {
+    if let Err(error) = validate_request(request) {
+        return error_response("invalid", owner.revision(), error.code(), false, None);
+    }
+    let id = request["id"].as_str().unwrap_or("invalid");
+    let parsed = match parse_owner_request(request) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let code = error.stable_code();
+            return error_response(id, owner.revision(), code, retryable(code), None);
+        }
+    };
+    match owner.execute_connection_with_source(parsed, source, clock) {
+        Ok(execution) => execution_response(id, execution),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1284,6 +1284,14 @@ where
                 None,
             );
         }
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if matches!(
+            request["method"].as_str(),
+            Some("connection.connect" | "connection.disconnect" | "routing.set_mode")
+        ) && let Some(network) = &mut self.network
+        {
+            return network.connection(&mut self.owner, request);
+        }
         let owner = &mut self.owner;
         let transport = &self.transport;
         let record_ids = &mut self.record_ids;
@@ -1458,6 +1466,43 @@ impl RuntimeServer {
             network: Some(developer_network_resume::Registration::new(driver)),
         };
         server.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
+        Ok(server)
+    }
+
+    #[cfg(test)]
+    fn bind_connect_fixture<H, T>(
+        paths: RuntimePaths,
+        host: H,
+        inputs: developer_network_resume::OwnerInputs,
+        setup: native_coordinator::network_enrollment::FreshSetupAuthority,
+        mut driver: developer_network_resume::Driver,
+        transport: T,
+    ) -> Result<Self>
+    where
+        H: lifecycle::LifecycleHost
+            + native_coordinator::network_resume::ResumeBinding
+            + Send
+            + 'static,
+        T: NativeSubscriptionTransport + 'static,
+    {
+        let mut server = Self::bind(paths)?;
+        let owner = production_owner::ProductionNativeOwner::initialize_connect_fixture(
+            host,
+            inputs,
+            server.uid,
+            setup,
+            &mut driver,
+        )
+        .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        server.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(
+            RegisteredNativeOwner {
+                owner,
+                transport: SharedSubscriptionTransport(Arc::new(transport)),
+                record_ids: RecordIdGenerator::new(&server.instance_id),
+                batch_initialized: false,
+                network: Some(developer_network_resume::Registration::new(driver)),
+            },
+        ))));
         Ok(server)
     }
     pub fn bind(paths: RuntimePaths) -> Result<Self> {
