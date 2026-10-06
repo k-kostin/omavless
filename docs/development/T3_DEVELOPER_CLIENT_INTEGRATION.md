@@ -99,3 +99,34 @@ The first actual question is whether the real client-produced B confirmation can
 lose its reply and still resolve solely through the retained original receipt
 while A and desired intent survive. The terminal demonstration is a separate
 usability question; it cannot replace that operation gate.
+
+## Original21d actual outcomes and Hello successor
+
+ROOT's exact21d/SHA3acc16… real Workspace/socket scenario returned original
+SSH101, **NONPASS**. Separately selected file observer returned original0:
+stdout355 bytes SHA5376ac6625aa2cf7d36c68659efdc55a2c14064269f0c9cf991cf79506480041;
+stderr332 bytes SHA6062bf8336c87f1668af4defc2edf378f55f939b2d0bcaafb28caa5e3ea892c2.
+A separately admitted bounded projection returned original0 and identified
+public client_integration.rs50:13/success_reply_assertion. That capture does not
+contain the actual method/error code and does not prove no effect, current
+custody, recovery or a retry entitlement. No cleanup/retry was selected.
+
+Source inspection found a definite protocol defect: Workspace emitted empty
+system.hello params, but both canonical read/native dispatch require exactly
+versions:[1], otherwise InvalidArgument. The source therefore predicts refusal
+of the first Hello; this is a source-supported explanation, not a newly captured
+error code. The successor reuses existing Read::Hello.method/params rather than
+changing the server/parser/authority predicate. A real canonical-dispatch pure
+regression rejects the former empty shape and accepts the existing negotiator.
+The CLOSED demo now checks that same shape, and integration failures may emit
+only an allowlisted method/stable-error-code pair, never JSON/private details.
+
+All eight exact21d/SHA3acc16… synthetic actualPTY combinations returned original
+SSH0 on ROOT's80×24 terminal. Rows/closed/unknown exercised selection, explicit
+review/cancel, pending/receipt, q; RUunknown repeated r/x/Enter remained sticky
+and Ctrl+C exited only the client. Empty x/Enter had no action. A deliberately
+slow initial expiry refused before an explicit fresh snapshot. These are actual
+terminal interactions with synthetic closed replies—not a live socket PASS or
+installed product acceptance. Graphical Foot/focus/resize review remains separate.
+Old21d and original101 are preserved; a new exact artifact/fresh namespace and
+original whole result are required for the corrected client integration.

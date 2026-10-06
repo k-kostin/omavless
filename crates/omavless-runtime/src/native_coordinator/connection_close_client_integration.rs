@@ -16,6 +16,51 @@ fn actual_owner_developer_pair_tui_workspace_in_dev_vm() {
     );
 }
 
+fn closed_client_reply_failure(
+    method: &str,
+    value: &serde_json::Value,
+) -> (&'static str, &'static str) {
+    let method = match method {
+        "system.hello" => "system.hello",
+        "capabilities.get" => "capabilities.get",
+        "development.connections.snapshot" => "development.connections.snapshot",
+        "development.connections.prepare" => "development.connections.prepare",
+        "development.connections.confirm" => "development.connections.confirm",
+        "development.connections.receipt" => "development.connections.receipt",
+        _ => "unrecognized_method",
+    };
+    let code = value["error"]["code"]
+        .as_str()
+        .and_then(omavless_control_protocol::StableErrorCode::parse)
+        .map_or(
+            "unrecognized_error",
+            omavless_control_protocol::StableErrorCode::as_str,
+        );
+    (method, code)
+}
+fn assert_client_reply(method: &str, value: &serde_json::Value) {
+    if value["ok"] != true {
+        let (method, code) = closed_client_reply_failure(method, value);
+        panic!("client_reply_refused method={method} code={code}");
+    }
+}
+
+#[test]
+fn client_reply_diagnostic_discards_private_values_and_reports_only_closed_enums() {
+    let value = json!({"ok":false,"error":{"code":"invalid_argument","message":"private bearer", "details":{"secret":"private"}}});
+    assert_eq!(
+        closed_client_reply_failure("system.hello", &value),
+        ("system.hello", "invalid_argument")
+    );
+    assert_eq!(
+        closed_client_reply_failure(
+            "private command",
+            &json!({"error":{"code":"private bearer"}})
+        ),
+        ("unrecognized_method", "unrecognized_error")
+    );
+}
+
 fn exercise_actual_tui_workspace(
     fixture: &SocketFixture,
     clients: &mut [std::net::TcpStream],
@@ -47,7 +92,7 @@ fn exercise_actual_tui_workspace(
         loop {
             calls.push(call.method());
             let value = crate::call(&fixture.paths, call.method(), call.params()).unwrap();
-            assert!(value["ok"] == true);
+            assert_client_reply(call.method(), &value);
             if call.method() == "development.connections.snapshot" {
                 assert!(
                     value["result"]["rows"]
@@ -74,7 +119,7 @@ fn exercise_actual_tui_workspace(
             assert!(call.method() == "development.connections.prepare");
             calls.push(call.method());
             let value = crate::call(&fixture.paths, call.method(), call.params()).unwrap();
-            assert!(value["ok"] == true);
+            assert_client_reply(call.method(), &value);
             let is_b = value["result"]["display"]["port"] == target;
             assert!(workspace.accept(Ok(value), Instant::now()).is_none());
             if is_b {
@@ -211,7 +256,7 @@ fn exercise_actual_tui_workspace(
         calls.push(receipt_call.method());
         let response =
             crate::call(&fixture.paths, receipt_call.method(), receipt_call.params()).unwrap();
-        assert!(response["ok"] == true);
+        assert_client_reply(receipt_call.method(), &response);
         let complete = response["result"]["state"] == "finished";
         assert!(
             workspace

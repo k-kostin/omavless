@@ -46,7 +46,9 @@ impl TerminalDemo {
         let instance = "synthetic-terminal-owner";
         let scope = "development_owned_single_connection_close";
         let result = match method {
-            "system.hello" if exact(&[]) => {
+            "system.hello"
+                if exact(&["versions"]) && params == omavless_tui::client::Read::Hello.params() =>
+            {
                 json!({"version":1,"runtimeOwnership":true,"instanceId":instance})
             }
             "capabilities.get" if exact(&[]) => json!({"runtimeOwnership":true,"methods":methods}),
@@ -153,7 +155,12 @@ fn terminal_demo_is_closed_and_original_operation_cannot_be_replaced_or_resent()
     let instance = "synthetic-terminal-owner";
     for mode in ["rows", "closed", "unknown"] {
         let mut backend = TerminalDemo::new(mode);
-        assert!(backend.respond("system.hello", json!({})).is_ok());
+        assert!(
+            backend
+                .respond("system.hello", omavless_tui::client::Read::Hello.params())
+                .is_ok()
+        );
+        assert!(backend.respond("system.hello", json!({})).is_err());
         assert!(backend.respond("capabilities.get", json!({})).is_ok());
         assert!(
             backend

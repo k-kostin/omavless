@@ -220,7 +220,8 @@ impl Workspace {
             self.prepared = false;
             self.enabled = false;
             self.started = Some(now);
-            return Input::Send(self.call(Phase::Hello, "system.hello", json!({})));
+            let hello = crate::client::Read::Hello;
+            return Input::Send(self.call(Phase::Hello, hello.method(), hello.params()));
         }
         if key.code == KeyCode::Esc {
             self.pending = None;
@@ -710,10 +711,9 @@ mod tests {
             "rows":[row(&"1".repeat(64)),row(&"2".repeat(64))]})
     }
     fn ready(workspace: &mut Workspace, now: Instant) {
-        assert_eq!(
-            send(workspace.input(key(KeyCode::Char('r')), now, true)).method(),
-            "system.hello"
-        );
+        let hello = send(workspace.input(key(KeyCode::Char('r')), now, true));
+        assert_eq!(hello.method(), "system.hello");
+        assert_eq!(hello.params(), json!({"versions":[1]}));
         let call = workspace
             .accept(
                 ok(json!({"version":1,"runtimeOwnership":true,"instanceId":"owner"})),

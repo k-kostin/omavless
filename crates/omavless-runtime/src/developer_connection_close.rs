@@ -419,6 +419,29 @@ mod tests {
 
     #[cfg(feature = "tui")]
     #[test]
+    fn actual_client_hello_uses_canonical_dispatch_not_synthetic_empty_params() {
+        use omavless_tui::developer_close::{Input, KeyCode, KeyEvent, KeyModifiers, Workspace};
+        let mut workspace = Workspace::new(omavless_tui::i18n::Locale::En);
+        let Input::Send(call) = workspace.input(
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+            std::time::Instant::now(),
+            true,
+        ) else {
+            panic!("expected fixed hello");
+        };
+        let request = make_request("hello", call.method(), call.params()).unwrap();
+        let response = crate::dispatch_read_only(&request, "actual").unwrap();
+        assert!(response["ok"] == true && response["result"]["version"] == 1);
+        let bad = make_request("hello", call.method(), json!({})).unwrap();
+        let refused = crate::dispatch_read_only(&bad, "actual").unwrap();
+        assert!(refused["ok"] == false && refused["error"]["code"] == "invalid_argument");
+        // Read-only canonical dispatch does NOT mint native ownership. This is
+        // real grammar/negotiation regression, not a native-authority fixture.
+        assert!(response["result"]["runtimeOwnership"] == false);
+    }
+
+    #[cfg(feature = "tui")]
+    #[test]
     fn actual_tui_workspace_calls_match_the_canonical_development_parser() {
         use omavless_tui::developer_close::{
             Call, Input, KeyCode, KeyEvent, KeyModifiers, Workspace,
