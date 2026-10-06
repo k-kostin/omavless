@@ -124,6 +124,16 @@ impl Drop for Supervisor {
 }
 
 impl BatchScheduler {
+    #[cfg(test)]
+    pub(super) fn invalidate_original_drain_for_test(&self, dispatcher: bool) {
+        let mut slot = self.drained.lock().unwrap();
+        let proof = slot.as_mut().expect("actual original drain");
+        if dispatcher {
+            proof.dispatcher = std::sync::Weak::new();
+        } else {
+            proof.context = Arc::new(());
+        }
+    }
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     fn retain_drain(&self, ticket: NativeBatchTicket, dispatcher: &Arc<Mutex<RuntimeDispatcher>>) {
         let eligible=dispatcher.lock().ok().is_some_and(|mut owner| {

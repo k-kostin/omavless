@@ -650,6 +650,216 @@ fn developer_schedule_ack_live_worker_refuses_without_join_or_publication() {
     );
 }
 
+fn interrupted_never_spawned(
+    fault: Option<native_coordinator::AcknowledgementFault>,
+) -> (RuntimeServer, PathBuf, CutoverPaths) {
+    let base = temporary_base("automatic-ack-refusal");
+    let (mut owner, cutover, _) = native_owner_fixture(&base);
+    if let Some(fault) = fault {
+        owner.batch_coordinator().set_acknowledgement_fault(fault);
+    }
+    let store = base.join("config/profiles.json");
+    let mut document: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+    document["subscriptions"][0]["url"] = json!("http://127.0.0.1:9/synthetic-feed");
+    fs::write(&store, serde_json::to_vec(&document).unwrap()).unwrap();
+    let mut server = RuntimeServer::bind_with_owner_factory(
+        RuntimePaths::below(&base.join("runtime")),
+        move |_| Ok(owner),
+    )
+    .unwrap();
+    server
+        .register_developer_subscription_schedule(DeveloperSubscriptionSchedule::new(
+            || 100,
+            || true,
+        ))
+        .unwrap();
+    let request=make_request("enable","developer.subscription_schedule.set",json!({"instanceId":server.instance_id,"expectedPreferenceRevision":0,"intervalSecs":MIN_INTERVAL_SECS})).unwrap();
+    assert_eq!(server.dispatch(&request).unwrap()["ok"], true);
+    server
+        .batch_scheduler
+        .fail_next_spawn
+        .store(true, Ordering::Release);
+    server.wake_developer_subscription_schedule();
+    let off = make_request(
+        "off",
+        "developer.subscription_schedule.set",
+        json!({"instanceId":server.instance_id,"expectedPreferenceRevision":1,"intervalSecs":0}),
+    )
+    .unwrap();
+    assert_eq!(server.dispatch(&off).unwrap()["ok"], true);
+    (server, base, cutover)
+}
+
+fn direct_ack(server: &RuntimeServer) -> Value {
+    server
+        .dispatch(
+            &make_request(
+                "ack",
+                "developer.subscription_schedule.acknowledge",
+                json!({"instanceId":server.instance_id,
+        "attemptSequence":1,"expectedPreferenceRevision":2,"expectedRevision":0}),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+}
+
+#[test]
+fn developer_schedule_ack_manual_barrier_semantic_target_and_original_context_refuse() {
+    for scenario in [
+        "manual",
+        "missing-target",
+        "missing-journal",
+        "corrupt-journal",
+        "corrupt-store",
+        "owner",
+        "scheduler",
+        "dispatcher",
+    ] {
+        let (server, base, cutover) = interrupted_never_spawned(None);
+        let journal = cutover
+            .state_directory
+            .join("subscription-refresh-attempt.json");
+        let original = fs::read(&journal).unwrap();
+        match scenario {
+            "manual" => {
+                let mut dispatcher = server.dispatcher.lock().unwrap();
+                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                    panic!("missing original owner");
+                };
+                owner.auxiliary_failed();
+            }
+            "missing-target" => {
+                desired::write_desired(
+                    &DesiredPaths::below(&base.join("state")),
+                    Uid::current().as_raw(),
+                    &DesiredState {
+                        schema_version: 1,
+                        generation: 1,
+                        connected: true,
+                        profile_id: "00000000-0000-4000-8000-000000000099".to_owned(),
+                        mode: RoutingMode::Rule,
+                    },
+                )
+                .unwrap();
+            }
+            "missing-journal" => fs::remove_file(&journal).unwrap(),
+            "corrupt-journal" => fs::write(&journal, b"{}").unwrap(),
+            "corrupt-store" => fs::write(base.join("config/profiles.json"), b"{}").unwrap(),
+            "owner" => write_marker(&cutover, OwnershipPhase::Rust, 2),
+            "scheduler" => server
+                .batch_scheduler
+                .invalidate_original_drain_for_test(false),
+            "dispatcher" => server
+                .batch_scheduler
+                .invalidate_original_drain_for_test(true),
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            direct_ack(&server)["ok"],
+            false,
+            "unsafe acknowledgement accepted: {scenario}"
+        );
+        if !matches!(scenario, "missing-journal" | "corrupt-journal") {
+            assert_eq!(fs::read(&journal).unwrap(), original);
+        }
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
+fn developer_schedule_ack_publication_uncertainty_latches_retry_and_reenable_refusal() {
+    for fault in [
+        native_coordinator::AcknowledgementFault::Before,
+        native_coordinator::AcknowledgementFault::After,
+        native_coordinator::AcknowledgementFault::Readback,
+    ] {
+        let (server, base, cutover) = interrupted_never_spawned(Some(fault));
+        assert_eq!(
+            direct_ack(&server)["error"]["code"],
+            "manual_recovery_required"
+        );
+        let journal = cutover
+            .state_directory
+            .join("subscription-refresh-attempt.json");
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o600)).unwrap();
+        let after = fs::read(&journal).unwrap();
+        assert_eq!(
+            direct_ack(&server)["error"]["code"],
+            "manual_recovery_required"
+        );
+        let enable=make_request("reenable","developer.subscription_schedule.set",json!({"instanceId":server.instance_id,"expectedPreferenceRevision":2,"intervalSecs":MIN_INTERVAL_SECS})).unwrap();
+        assert_eq!(
+            server.dispatch(&enable).unwrap()["error"]["code"],
+            "manual_recovery_required"
+        );
+        server.wake_developer_subscription_schedule();
+        assert_eq!(fs::read(&journal).unwrap(), after);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
+fn developer_schedule_ack_restart_cannot_inherit_drain_or_rearm_permission() {
+    for acknowledged in [false, true] {
+        let (server, base, cutover) = interrupted_never_spawned(None);
+        if acknowledged {
+            assert_eq!(direct_ack(&server)["ok"], true);
+            let enable=make_request("enable","developer.subscription_schedule.set",json!({"instanceId":server.instance_id,"expectedPreferenceRevision":2,"intervalSecs":MIN_INTERVAL_SECS})).unwrap();
+            assert_eq!(server.dispatch(&enable).unwrap()["ok"], true);
+        }
+        let journal = cutover
+            .state_directory
+            .join("subscription-refresh-attempt.json");
+        let original = fs::read(&journal).unwrap();
+        drop(server);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let host = FakeHost {
+            auxiliary: None,
+            probe_paths: None,
+            lifecycle_effects: Arc::new(AtomicUsize::new(0)),
+            fresh_calls: Arc::new(AtomicUsize::new(0)),
+            fresh_result: Err(HostStepError::Observation),
+            on_fresh: None,
+            route_config: None,
+            calls,
+            observation: OwnedObservation {
+                service_active: false,
+                controller_ready: false,
+                core_count: 0,
+                tun_count: 0,
+                active_profile_matches: false,
+            },
+        };
+        let owner = production_owner::ProductionNativeOwner::initialize(
+            host,
+            DesiredPaths::below(&base.join("state")),
+            &base.join("config/profiles.json"),
+            cutover.clone(),
+            Uid::current().as_raw(),
+        )
+        .unwrap();
+        let mut successor = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        successor
+            .register_developer_subscription_schedule(DeveloperSubscriptionSchedule::new(
+                || 100000,
+                || true,
+            ))
+            .unwrap();
+        assert_eq!(direct_ack(&successor)["ok"], false);
+        successor.wake_developer_subscription_schedule();
+        assert_eq!(fs::read(&journal).unwrap(), original);
+        drop(successor);
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
 fn accept_http(listener: &TcpListener) -> std::net::TcpStream {
     listener.set_nonblocking(true).unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(4);

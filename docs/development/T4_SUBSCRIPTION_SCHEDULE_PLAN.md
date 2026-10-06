@@ -264,3 +264,11 @@ restart cannot inherit it, including after an unconfirmed acknowledgement
 write. Admission before that interval performs no new batch or GET. General
 prior-instance disposition still requires a separately admitted lifetime design
 and is not implemented by this candidate.
+
+The first independent source review refused the candidate because the batch
+lease alone did not cover `actual == ManualRecoveryRequired` or auxiliary
+recovery. The successor explicitly checks both under that lease. It also
+requires a connected desired target to exist and be non-missing in the validated
+current store; two separately valid but semantically inconsistent documents
+cannot mint rearm permission. The original refusal and code pin remain evidence,
+not acceptance borrowed by the successor.

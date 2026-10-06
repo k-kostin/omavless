@@ -107,7 +107,34 @@ pub(crate) fn acknowledge_attempt_locked(
     expected_sequence: u64,
     preference_revision: u64,
     now: u64,
+    #[cfg(test)] fault: Option<crate::native_coordinator::AcknowledgementFault>,
 ) -> Result<AttemptSnapshot, AttemptError> {
+    #[cfg(test)]
+    if let Some(fault) = fault {
+        return acknowledge_attempt_with_writer(
+            paths,
+            uid,
+            ticket,
+            expected_sequence,
+            preference_revision,
+            now,
+            |path, payload, uid| {
+                use crate::native_coordinator::AcknowledgementFault;
+                if matches!(fault, AcknowledgementFault::Before) {
+                    return Err(omavless_store::StoreIoError::Io);
+                }
+                atomic_replace_private(path, payload, uid)?;
+                if matches!(fault, AcknowledgementFault::After) {
+                    return Err(omavless_store::StoreIoError::Io);
+                }
+                if matches!(fault, AcknowledgementFault::Readback) {
+                    fs::set_permissions(path, fs::Permissions::from_mode(0o400))
+                        .map_err(|_| omavless_store::StoreIoError::Io)?;
+                }
+                Ok(())
+            },
+        );
+    }
     acknowledge_attempt_with_writer(
         paths,
         uid,
@@ -771,7 +798,15 @@ mod tests {
                 assert_eq!(snapshot.finished_at_secs, None);
                 assert_eq!(snapshot.consecutive_failures, 1);
                 assert_eq!(
-                    acknowledge_attempt_locked(&fixture.paths, fixture.uid, &ticket, 2, 2, 421),
+                    acknowledge_attempt_locked(
+                        &fixture.paths,
+                        fixture.uid,
+                        &ticket,
+                        2,
+                        2,
+                        421,
+                        None
+                    ),
                     Err(AttemptError::StaleTicket)
                 );
             } else {

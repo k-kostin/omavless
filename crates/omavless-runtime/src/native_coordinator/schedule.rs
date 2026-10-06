@@ -53,6 +53,8 @@ impl From<AttemptError> for AutomaticRefreshError {
 
 #[derive(Default)]
 pub(super) struct AutomaticRefreshState {
+    #[cfg(test)]
+    acknowledgement_fault: Option<AcknowledgementFault>,
     active: Option<AutomaticAttempt>,
     blocked: Option<AutomaticRefreshError>,
     interrupted: Option<(AutomaticAttempt, AutomaticRefreshError)>,
@@ -67,6 +69,14 @@ struct AutomaticAttempt {
     operation_id: String,
     preference_revision: u64,
     started_at_secs: u64,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(crate) enum AcknowledgementFault {
+    Before,
+    After,
+    Readback,
 }
 
 pub enum AutomaticRefreshStart {
@@ -100,6 +110,10 @@ impl AutomaticSubscriptionBatch {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(test)]
+    pub(crate) fn set_acknowledgement_fault(&mut self, fault: AcknowledgementFault) {
+        self.automatic_refresh.acknowledgement_fault = Some(fault);
+    }
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     pub(crate) fn automatic_subscription_snapshot(
         &self,
@@ -592,6 +606,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return Err(AttemptError::AttemptUncertain.into());
         }
         let _lock = self.batch_lock()?;
+        if self.actual() == ActualState::ManualRecoveryRequired || self.auxiliary_recovery_required
+        {
+            return Err(NativeOwnerError::ManualRecoveryRequired.into());
+        }
         if self.revision() != expected_revision
             || self.coordinator.active()
             || self.coordinator.queued() != 0
@@ -620,14 +638,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             self.transaction.uid(),
         )
         .map_err(|_| AutomaticRefreshError::Owner(NativeOwnerError::ManualRecoveryRequired))?;
-        omavless_domain::private_store::parse_private_store(&current)
+        let store = omavless_domain::private_store::parse_private_store(&current)
             .map_err(|_| AutomaticRefreshError::Owner(NativeOwnerError::ManualRecoveryRequired))?;
-        crate::desired::read_desired_snapshot(
+        let desired = crate::desired::read_desired_snapshot(
             self.transaction.desired_paths(),
             self.transaction.uid(),
         )
         .map_err(|_| AutomaticRefreshError::Owner(NativeOwnerError::ManualRecoveryRequired))?;
+        if desired.connected
+            && !store
+                .list_projection()
+                .profiles()
+                .iter()
+                .any(|profile| profile.id() == desired.profile_id && !profile.missing())
+        {
+            return Err(NativeOwnerError::ManualRecoveryRequired.into());
+        }
         let instance = active.batch.instance().to_owned();
+        #[cfg(test)]
+        let fault = self.automatic_refresh.acknowledgement_fault.take();
         let result = crate::subscription_schedule_attempt::acknowledge_attempt_locked(
             self.transaction.cutover_paths(),
             self.transaction.uid(),
@@ -635,6 +664,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             expected_sequence,
             preference.revision,
             now,
+            #[cfg(test)]
+            fault,
         );
         match result {
             Ok(snapshot) => {
@@ -661,6 +692,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         schedule
             .validate()
             .map_err(|_| AutomaticRefreshError::Preference(PreferenceError::IntervalOutOfRange))?;
+        if schedule != RefreshSchedule::Off {
+            if let Some(error) = self.automatic_refresh.blocked {
+                return Err(error);
+            }
+            if let Some((_, error)) = &self.automatic_refresh.interrupted {
+                return Err(*error);
+            }
+        }
         let generation = self.automatic_generation()?;
         if schedule != RefreshSchedule::Off
             && let Some((instance, sequence)) = &self.automatic_refresh.rearm
