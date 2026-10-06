@@ -230,6 +230,9 @@ impl Workspace {
             return Input::Send(self.call(Phase::Hello, hello.method(), hello.params()));
         }
         if key.code == KeyCode::Esc {
+            if self.prepared {
+                self.notice = "tui.dev_close_select";
+            }
             self.pending = None;
             self.prepared = false;
             return Input::None;
@@ -870,6 +873,41 @@ mod tests {
             workspace.accept(Ok(response), now);
             assert!(!workspace.prepared);
             assert!(workspace.rows.is_empty());
+        }
+    }
+    #[test]
+    fn cancelling_review_restores_row_notice_without_refresh_or_confirmation() {
+        for locale in [Locale::En, Locale::Ru] {
+            let now = Instant::now();
+            let mut workspace = Workspace::new(locale);
+            ready(&mut workspace, now);
+            prepared(&mut workspace, now);
+            let started = workspace.started;
+            let revision = workspace.revision;
+            assert!(matches!(
+                workspace.input(key(KeyCode::Esc), now, true),
+                Input::None
+            ));
+            assert!(!workspace.prepared && workspace.pending.is_none() && !workspace.submitted);
+            assert_eq!(workspace.started, started);
+            assert_eq!(workspace.revision, revision);
+            assert_eq!(workspace.rows.len(), 2);
+            assert_eq!(workspace.notice, "tui.dev_close_select");
+            let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+            terminal.draw(|f| workspace.draw(f, now)).unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect();
+            assert!(text.contains(locale.text("tui.dev_close_select")));
+            assert!(!text.contains(locale.text("tui.dev_close_confirm")));
+            assert!(matches!(
+                workspace.input(key(KeyCode::Enter), now, true),
+                Input::None
+            ));
         }
     }
     #[test]

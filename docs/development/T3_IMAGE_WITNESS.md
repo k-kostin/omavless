@@ -576,3 +576,13 @@ selected-close gate. Default helper distribution and enrollment, default public
 close registration, released-package/frontend acceptance, ARM64 and whole T3/C1
 remain separate. Cancellation also exposed a minor stale confirmation notice
 in the otherwise-correct row list; that UI follow-up is not hidden by acceptance.
+
+The subsequent UI-only source correction restores the localized row-selection
+notice after Esc cancels a prepared target. It does not refresh the snapshot,
+extend its lifetime, change revision or emit any request; initial, expired,
+pending and terminal behavior remains unchanged. A new EN/RU rendering/state
+regression failed on the previous notice and passed after the correction. The
+full feature TUI suite (163 tests), strict all-target feature Clippy, explicit
+formatting, documentation navigation and whitespace checks passed. These are
+source checks of the successor, not retroactive actual acceptance of a rebuilt
+executable; the original installed result above remains bound to `8fdd012f`.
