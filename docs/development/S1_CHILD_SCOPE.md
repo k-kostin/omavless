@@ -59,6 +59,24 @@ empty bypass and consumed/expired admission. The actual exchange and its child
 entry are ignored by default and must be separately selected after review.
 No actual result is claimed until recorded on the exact source head.
 
+## Exact first executable result, 2026-10-06
+
+Source `b5a3c5c13ee7a77ede4d10410cd8347ad892c982` passed a fresh compile-only
+gate, three focused constructor/receipt controls (two actual entry points
+ignored), and strict no-default-feature library/test Clippy. After primary and
+independent source review, ROOT explicitly selected the parent exchange once.
+Its exact original test completion was zero (`697eed`): one passed, no failed,
+782 filtered. Both fixed child receipts passed, proxy request bytes were
+observed on the continuously held listener, the independent baseline child
+received no proxy fields, and the parent snapshot remained equal.
+
+The tested copy was mode0500, single-link, outside Cargo output; its SHA256 is
+`9d73933e9692f003b40f2d1a667a6fb9e8698383baee1c74f140622b1e75bc1c`.
+Private parent stdout196B SHA256
+`2f7e339b21bffc8af1ae626b349af0d723f3dcaca4f77476ac13ab792d5fa702`;
+stderr was empty. This proves only the narrow synthetic HTTP/child behavior,
+not real core, GTK/GIO/application or global proxy restoration acceptance.
+
 ## Remaining product decision and gates
 
 Before exposure, the owner must approve the explicitly named per-application
