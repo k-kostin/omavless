@@ -62,6 +62,8 @@ pub mod doctor;
 pub mod fresh_setup;
 pub mod frontend_bridge;
 pub mod full_quit;
+#[cfg(any(test, feature = "system-event-source"))]
+mod host_event_source;
 pub mod import_read_protocol;
 pub mod isolated_validation;
 pub mod lifecycle;

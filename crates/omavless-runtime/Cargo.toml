@@ -12,10 +12,15 @@ default = ["tui"]
 tui = ["dep:omavless-tui"]
 developer-subscription-schedule = []
 network-resume-fixture = []
+system-event-source = ["dep:async-io", "dep:async-trait", "dep:futures-lite", "dep:zbus"]
 
 [dependencies]
 base64 = "0.22"
-nix = { version = "0.30", features = ["fs", "process", "signal", "socket", "user"] }
+nix = { version = "0.30", features = ["fs", "net", "process", "signal", "socket", "uio", "user"] }
+async-io = { version = "=2.6.0", optional = true }
+async-trait = { version = "=0.1.92", optional = true }
+futures-lite = { version = "=2.6.1", optional = true }
+zbus = { version = "=5.19.0", optional = true }
 omavless-control-protocol = { path = "../omavless-control-protocol" }
 omavless-domain = { path = "../omavless-domain" }
 omavless-mihomo = { path = "../omavless-mihomo" }
@@ -30,6 +35,10 @@ ureq = { version = "3.4", default-features = false, features = ["platform-verifi
 url = "2.5"
 
 [dev-dependencies]
+async-io = "=2.6.0"
+async-trait = "=0.1.92"
+futures-lite = "=2.6.1"
+zbus = "=5.19.0"
 tempfile = "=3.27.0"
 
 [lints]
