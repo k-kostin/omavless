@@ -1,8 +1,9 @@
 # First recovery permit after an original completed Connect
 
 Status: test-only first-use candidate on the dormant maintenance owner, based
-on `eb42ab9a45f027143ae48aa32092d547e7bb633c`. No new scenario has executed yet.
-The new tests are ignored pending primary and independent exact-head review.
+on `eb42ab9a45f027143ae48aa32092d547e7bb633c`. The exact owned-source execution
+below passed after primary and independent review. New tests remain ignored
+by default and require explicit selection.
 Normal factories and production behavior are unchanged; no production
 `ResumeBinding`, host-source activation or restart provisioner is added.
 
@@ -108,3 +109,40 @@ cross-boot provisioning and real suspend/NIC safety remain unavailable.
 See [owner continuation](T4_NETWORK_RESUME_CONTINUATION.md),
 [receipt protocol](T4_RECOVERY_ATTEMPT_RECEIPT.md) and
 [execution policy](EXECUTION_POLICY.md).
+
+## Exact owned-source execution, 2026-10-07
+
+Source `92e227773c107ab6808fcfd5c7b966f97411929f` received primary and independent
+full reached-boundary review before selecting the eight new ignored cases.
+Their original completion was zero: eight passed, zero failed, 837 filtered,
+1.29 seconds. The positive original-socket test began without Ready, accepted
+the changed Connect and its own queued NetworkChanged, published/read back
+Ready at revision1, then performed one guarded recovery and retained Finished.
+The other cases passed the optional publication/readback fault matrix,
+replay/NoChange refusal, accepted Off Disconnect/Quit, rejected/invalid caller
+non-effects, lost/missing anchor, unsafe binding and substituted-source checks.
+The actual host/bus backend was not selected; its integration remains separate.
+
+Frozen mode0500/single-link test ELF SHA256:
+`547fdb99a184ea5c68bc66cde6fa37f78c7d78389c560e0272e0262b1c839e9a`.
+Private first-matrix log1502B SHA256:
+`31df0b77da6c31d41364e64832b9e3420bcd37bcec13ff8bb363c14c536fedc9`.
+Frozen artifacts and original bounded logs remain outside Git under HOME.
+
+Affected feature network tests passed49 cases with eight opt-ins ignored.
+The full `tests/run-rust.sh` gate subsequently passed in a fresh shorter HOME
+temporary directory: workspace/default tests, terminal checks, strict default
+and feature Clippy/checks, existing network feature/monotonic example and parity.
+Its preceding gate under the longer HOME temporary path failed three existing
+Mihomo listener constructors at SUN_LEN (55 passed/three failed), before their
+socket effects. That original failure remains preserved, not changed to PASS;
+the shorter-path run is a distinct same-source environment result.
+
+The independently reviewed source-only namespace launcher
+`a011ea0efc8c1a811420e6866900d90c25a67e7e621d1732479bc6a20c8bffe6`
+executed this exact checkout's `tests/run.sh`: 499 Python tests passed with two
+skipped, plus JS/QML contracts. It did not run Cargo or installed-host tests.
+Normal no-default construction and the feature lib/test compile-only/lint gates
+also passed. These results do not accept installation/bootstrap/restart or
+real host-source, VPN, suspend/NIC, main or release behavior. Later documentation
+heads record this exact tested code without minting new execution evidence.
