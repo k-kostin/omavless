@@ -23,6 +23,8 @@ pub(crate) use first_execution::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::HeldExecutionSlot;
 #[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use first_execution::NativeCommittedDisposition;
+#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::NativeSessionOrigin;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::{
@@ -282,7 +284,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         lock: &MigrationLock,
         view: crate::manager_actor_service::NativeStageView<'_>,
     ) -> Result<RestoreReadiness, RestoreAdmissionError> {
-        self.restore_readiness_with_pending_check(lock, view.stage_present(), |paths, uid| {
+        self.restore_readiness_with_pending_check(lock, view.owns_pending_phase(), |paths, uid| {
             view.pending_allowed(paths, uid)
         })
     }

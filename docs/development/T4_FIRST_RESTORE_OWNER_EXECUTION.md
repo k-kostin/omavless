@@ -71,3 +71,59 @@ separately reviewed ordinary registration policy. Same-generation historical
 admission, missing/new-manager receipts and ownership rollover are not decided
 here. #586's real System mechanism and #588's late-epoch negatives retain their
 own exact-source evidence; this cut does not relabel either as product restore.
+
+## Developer SAME-owner NEW/Committed completion successor
+
+The `t4-manager-actor-service` feature adds one private combined continuation;
+the prior `CommittedStillFenced` entry and default runtime stay unchanged. This
+continuation uses the same authenticated plaintext, prepared pair, continuously
+borrowed actual Session, owner and installed custody slot. It accepts only an
+original `MigrationLease::Owned` before Stage effects: a previous ordinary lease
+borrow cannot be extracted, cloned or reopened as a new owned lock.
+
+The engine sets its Committed fact only after the final original commit gate.
+Completion rechecks its original Intent and Committed descriptors, exact stage
+identity and named NEW replacement roles. A distinct Committed receipt binds
+NEW; the existing Aborted receipt still binds OLD. Neither decoded record grants
+entry. The shared positive retirement sequence keeps the actual OLD, staged,
+Intent, terminal and replacement descriptors after their known unlink/rename
+transitions. Receipt precedes retirement, Closure precedes receipt removal,
+Ticket/Complete precede their known retirement, and the same held Complete is
+renamed NOREPLACE to the fixed audit-history name and synced/read back. History
+is non-authoritative; a collision refuses and repetition is not enabled.
+
+Current-created Stage, Intent, terminal and receipt can briefly coexist outside
+the initial state catalogue. The bound is four owned additions to the unchanged
+128-entry catalogue, at most 128+7 sampled directory steps including dots/EOF.
+The 36 ledger slots and all original named/held/byte checks remain. Retirement's
+own exact pending roles may be consulted only within the engine-bracketed
+Session gates; ordinary global pending detection remains unchanged.
+
+A destination OnceLock and same-holder availability/scope state are reserved
+before acquisitions. After the final disposition gate, the one actual owned
+MigrationLock moves once into that destination; no second Flock, unlock,
+reacquisition, vacant engine slot or take/reinsert around fallible work occurs.
+The installed ordinary keeper retains the entire same original engine graph.
+Its constructor/postcheck failure leaves that graph occupied and unavailable.
+The current serialized owner/RuntimeServer remains the singleton origin; this
+path never fabricates fresh-recovery singleton or Aborted authority.
+
+Before effects the scheduler checks the same revision, idle/empty queue, no
+unresolved external-close reservation and revision capacity. After original
+lease installation it consumes a nonescaping positive Committed-disposition
+result bound to this same Rust coordinator and revision, then advances revision
+once and invalidates close confirmation. Historical replay outcomes remain
+history; new stale requests refuse. No ExternalClose token is repurposed.
+Only complete success makes the retained slot available for normal current
+checks under the original lease; every error/unwind keeps it unavailable.
+Fatal process loss means unavailable, not descriptor survival.
+
+Local tests use the existing genuine Session/filesystem engine with a synthetic
+Off host, not installed current/login or a live core. They cover NEW/readback,
+the original lease, subsequent ordinary onboarding and replay, stale IDs,
+terminal/receipt replacement, late foreign fences, history collision and
+reported write/rename/terminal/retirement/disposition prefix refusals. These
+controls are not power-loss or all-syscall custody proofs. The private operation
+is unregistered; an installed exact-feature `current()` selector and independent
+normal restart remain separate acceptance. No VM or default Restore activation
+is claimed by this source successor.

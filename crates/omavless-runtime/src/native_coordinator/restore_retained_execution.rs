@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! One installed, nonescaping native restore custody slot. No dispatcher.
 use super::*;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) struct HeldExecution {
     // Each reported object is inserted before the next fallible operation.
@@ -11,6 +12,13 @@ pub(crate) struct HeldExecution {
     prepared: Option<PreparedRestorePair>,
     engine: crate::manager_actor_service::NativeEngine,
     fenced: bool,
+    // Reserved BEFORE any lease/source acquisition. Owns the ONE moved lock,
+    // never another Flock wrapper; the source holder/engine remains installed.
+    ordinary_lock: Arc<OnceLock<MigrationLock>>,
+    failed_lock: Option<MigrationLock>,
+    available: Arc<AtomicBool>,
+    scope: Arc<AtomicBool>,
+    activated: bool,
 }
 impl HeldExecution {
     fn reserve() -> Self {
@@ -21,7 +29,26 @@ impl HeldExecution {
             prepared: None,
             engine: crate::manager_actor_service::NativeEngine::reserve(),
             fenced: false,
+            ordinary_lock: Arc::new(OnceLock::new()),
+            failed_lock: None,
+            available: Arc::new(AtomicBool::new(true)),
+            scope: Arc::new(AtomicBool::new(false)),
+            activated: false,
         }
+    }
+    pub(super) fn refuse_ordinary(&mut self) {
+        self.available.store(false, Ordering::Release);
+        self.engine.revoke_native();
+    }
+    pub(super) fn check_ordinary(&mut self, lock: &Arc<OnceLock<MigrationLock>>) -> Result<(), ()> {
+        if !Arc::ptr_eq(lock, &self.ordinary_lock)
+            || self.failed_lock.is_some()
+            || self.lock.is_some()
+            || !self.engine.ordinary_lease_held()
+        {
+            return Err(());
+        }
+        self.engine.check_ordinary_lease_prefix()
     }
 }
 
@@ -32,8 +59,16 @@ pub(crate) struct HeldExecutionSlot {
     reservation: Option<Arc<Mutex<HeldExecution>>>,
 }
 impl HeldExecutionSlot {
+    #[cfg(test)]
     pub(crate) fn occupied(&self) -> bool {
         self.original.is_some()
+    }
+    pub(crate) fn unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original.lock().map_or(true, |held| {
+                !held.activated || !held.available.load(Ordering::Acquire)
+            })
+        })
     }
     fn install(&mut self) -> Result<Arc<Mutex<HeldExecution>>, FirstError> {
         if self.original.is_some() {
@@ -72,18 +107,62 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<FirstOutcome, FirstError> {
         self.execute_first_restore_retained_gated(source, passphrase, || Ok(()), |_| Ok(()))
     }
+    /// Private, one-shot SAME-owner NEW/Committed continuation. No dispatcher
+    /// registration or default availability. Err retains/fences the graph.
+    #[allow(dead_code)]
+    pub(super) fn execute_first_restore_completed(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode(source, passphrase, || Ok(()), |_| Ok(()), true)
+            .map(|_| ())
+    }
+    #[cfg(test)]
+    pub(super) fn execute_first_restore_completed_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode(source, passphrase, || Ok(()), cut, true)
+            .map(|_| ())
+    }
     fn execute_first_restore_retained_gated(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        acquired: impl FnMut() -> Result<(), FirstError>,
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<FirstOutcome, FirstError> {
+        self.execute_first_restore_mode(source, passphrase, acquired, cut, false)
+    }
+    fn execute_first_restore_mode(
         &mut self,
         source: &Path,
         passphrase: &[u8],
         mut acquired: impl FnMut() -> Result<(), FirstError>,
         mut cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+        complete: bool,
     ) -> Result<FirstOutcome, FirstError> {
         if self.retained_restore_busy() {
             return Err(FirstError::StillFenced);
         }
+        let revision = if complete {
+            Some(
+                self.coordinator
+                    .prepare_retained_restore()
+                    .map_err(|_| FirstError::Admission)?,
+            )
+        } else {
+            None
+        };
+        let mut disposition = None;
         let incoming =
             open_existing(source, self.uid(), passphrase).map_err(|_| FirstError::Prepare)?;
+        // Pre-effect plan data only. No marker/history decoder can grant entry.
+        let ordinary_paths = self.transaction.cutover_paths().clone();
+        let ordinary_uid = self.uid();
         let original = self.held_restore_execution.install()?;
         let result = (|| {
             // This is a clone of the SAME installed holder, not copied authority.
@@ -94,6 +173,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     .acquire_lock()
                     .map_err(|_| FirstError::Admission)?,
             );
+            if complete
+                && (!matches!(
+                    held.lock,
+                    Some(crate::connection_transaction::MigrationLease::Owned(_))
+                ) || !self.transaction.original_lease_vacant()
+                    || held.ordinary_lock.get().is_some())
+            {
+                return Err(FirstError::Admission);
+            }
             acquired()?; // internal fault withdrawal only, not a grant
             Boundary::capture_installed(self, &mut held.boundary)?;
             let (original_pair, restore_store, readiness) = self
@@ -130,10 +218,71 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             engine
                 .execute_native(&mut origin, prepared, &mut cut)
                 .map_err(|_| FirstError::StillFenced)?;
+            if complete {
+                disposition =
+                    Some(engine.complete_native_committed(&mut origin, prepared, &mut cut)?);
+                engine
+                    .consume_into_ordinary_lease()
+                    .map_err(|_| FirstError::StillFenced)?;
+            }
             held.fenced = true;
             Ok(FirstOutcome::CommittedStillFenced)
         })();
-        self.transaction.block();
+        let result = if complete && result.is_ok() {
+            (|| {
+                let mut held = original.lock().map_err(|_| FirstError::StillFenced)?;
+                let generation = held
+                    .prepared
+                    .as_ref()
+                    .ok_or(FirstError::StillFenced)?
+                    .readiness()
+                    .owner_generation;
+                let lock = match held.lock.take() {
+                    Some(crate::connection_transaction::MigrationLease::Owned(lock)) => lock,
+                    other => {
+                        held.lock = other;
+                        held.refuse_ordinary();
+                        return Err(FirstError::StillFenced);
+                    }
+                };
+                // Prechecked empty OnceLock. On even an impossible collision,
+                // retain the returned actual lock in its reserved failure slot.
+                if let Err(lock) = held.ordinary_lock.set(lock) {
+                    held.failed_lock = Some(lock);
+                    held.refuse_ordinary();
+                    return Err(FirstError::StillFenced);
+                }
+                let keeper = native_recovery::NativeOrdinaryLease::committed(
+                    Arc::clone(&original),
+                    Arc::clone(&held.ordinary_lock),
+                    Arc::clone(&held.available),
+                    Arc::clone(&held.scope),
+                    ordinary_paths,
+                    ordinary_uid,
+                    generation,
+                );
+                drop(held); // same graph remains installed; borrower locks it
+                self.transaction
+                    .install_original_lease(keeper)
+                    .map_err(|_| FirstError::StillFenced)?;
+                self.coordinator
+                    .finish_retained_restore(
+                        revision.ok_or(FirstError::StillFenced)?,
+                        disposition.ok_or(FirstError::StillFenced)?,
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                original
+                    .lock()
+                    .map_err(|_| FirstError::StillFenced)?
+                    .activated = true;
+                Ok(FirstOutcome::CompletedOrdinary)
+            })()
+        } else {
+            result
+        };
+        if !complete || result.is_err() {
+            self.transaction.block();
+        }
         self.invalidate_connection_close();
         // Never take/reinsert or clear the installed holder, even on success.
         result

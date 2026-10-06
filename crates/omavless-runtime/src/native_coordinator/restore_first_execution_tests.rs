@@ -12,6 +12,183 @@ const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activ
 
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
+fn native_committed_completion_retains_new_pair_and_one_original_ordinary_lease() {
+    let mut f = Fixture::new();
+    use crate::mutation::{
+        BeginOutcome, MutationKind, MutationRequest, MutationResult, SubmitOutcome,
+    };
+    let digest = MutationDigest::from_semantic_bytes(b"public previous operation");
+    let old = || {
+        MutationRequest::new(MutationKind::Other, Some("before-restore"), Some(0), digest).unwrap()
+    };
+    assert!(matches!(
+        f.owner.coordinator.submit(old()).unwrap(),
+        SubmitOutcome::Queued { .. }
+    ));
+    let BeginOutcome::Started(active) = f.owner.coordinator.begin_next().unwrap() else {
+        panic!("previous operation missing");
+    };
+    let previous = f
+        .owner
+        .coordinator
+        .finish(active.token, MutationResult::NoChange)
+        .unwrap();
+    let opened = open_existing(&f.backup, f.owner.uid(), PASSWORD).unwrap();
+    let incoming = opened.restore_store_off().unwrap();
+    assert_eq!(
+        f.owner.execute_first_restore_completed(&f.backup, PASSWORD),
+        Ok(())
+    );
+    assert!(f.owner.held_restore_execution.occupied());
+    assert!(!f.owner.retained_restore_busy());
+    assert!(!f.owner.transaction.original_lease_vacant());
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    assert!(!crate::pending_private_transaction::pending_at(&f.state()));
+    assert!(!f.stage().exists());
+    assert_eq!(fs::read(&f.store).unwrap(), incoming.as_slice());
+    assert_eq!(f.owner.revision(), 1);
+    assert_eq!(
+        f.owner.coordinator.submit(old()).unwrap(),
+        SubmitOutcome::Replay(previous)
+    );
+    assert!(
+        f.owner
+            .coordinator
+            .submit(
+                MutationRequest::new(MutationKind::Other, Some("new-stale"), Some(0), digest)
+                    .unwrap()
+            )
+            .is_err()
+    );
+    let request = crate::make_request(
+        "after-restore",
+        "onboarding.complete",
+        serde_json::json!({"operationId":"after-restore", "expectedRevision":1}),
+    )
+    .unwrap();
+    let result = f.owner.execute_onboarding(&request).unwrap();
+    assert!(matches!(
+        result,
+        NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+    ));
+    assert_eq!(f.owner.revision(), 2);
+    assert!(serde_json::from_slice::<serde_json::Value>(&fs::read(&f.store).unwrap()).unwrap()["onboardingComplete"].as_bool().unwrap());
+    assert!(matches!(
+        f.owner.execute_onboarding(&request).unwrap(),
+        NativeOwnerExecution::Replay(_)
+    ));
+    let history = crate::restore_disposition_complete_model::CompleteRecord::decode(
+        &fs::read(f.state().join("restore-disposition.history")).unwrap(),
+    )
+    .unwrap();
+    let _ = history; // decoded audit bytes are never reused as authority
+    assert!(
+        f.owner
+            .execute_first_restore_completed(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_committed_completion_late_terminal_source_history_and_effect_cuts_keep_originals() {
+    for case in [
+        "terminal-swap",
+        "late-fence",
+        "history-collision",
+        "known-write",
+        "known-rename",
+        "known-terminal",
+        "receipt-refusal",
+        "stage-retired-refusal",
+        "closure-refusal",
+        "complete-refusal",
+        "history-refusal",
+        "receipt-swap",
+        "history-late-fence",
+    ] {
+        let mut f = Fixture::new();
+        let state = f.state();
+        let terminal = state.join("restore-decision.terminal");
+        let result = f
+            .owner
+            .execute_first_restore_completed_cut(&f.backup, PASSWORD, |step| {
+                use crate::manager_actor_service::NativeStep;
+                match (case, step) {
+                    ("terminal-swap", NativeStep::Terminal) => {
+                        fs::rename(&terminal, state.join("displaced-terminal")).unwrap();
+                        private(
+                            &terminal,
+                            &fs::read(state.join("displaced-terminal")).unwrap(),
+                        );
+                    }
+                    ("late-fence", NativeStep::Terminal) => private(
+                        &state.join(crate::restore_closure_model::NEXT_CLOSURE_MEMBER),
+                        b"foreign",
+                    ),
+                    ("history-collision", NativeStep::Terminal) => private(
+                        &state.join("restore-disposition.history"),
+                        b"existing audit; never overwrite",
+                    ),
+                    ("known-write", NativeStep::Replacement(0))
+                    | ("known-rename", NativeStep::Renamed(0))
+                    | ("known-terminal", NativeStep::Terminal)
+                    | ("receipt-refusal", NativeStep::RetirementReceipt)
+                    | ("stage-retired-refusal", NativeStep::StageRetired)
+                    | ("closure-refusal", NativeStep::Closure)
+                    | ("complete-refusal", NativeStep::DispositionComplete)
+                    | ("history-refusal", NativeStep::History) => {
+                        return Err(FirstError::StillFenced);
+                    }
+                    ("receipt-swap", NativeStep::RetirementReceipt) => {
+                        let receipt =
+                            state.join(crate::restore_retirement_candidate::RECEIPT_MEMBER);
+                        fs::rename(&receipt, state.join("displaced-receipt")).unwrap();
+                        private(
+                            &receipt,
+                            &fs::read(state.join("displaced-receipt")).unwrap(),
+                        );
+                    }
+                    ("history-late-fence", NativeStep::History) => private(
+                        &state.join(crate::restore_closure_model::NEXT_CLOSURE_MEMBER),
+                        b"late foreign fence",
+                    ),
+                    _ => {}
+                }
+                Ok(())
+            });
+        assert!(result.is_err(), "{case}");
+        assert!(f.owner.held_restore_execution.occupied() && f.owner.retained_restore_busy());
+        assert!(f.owner.transaction.independently_blocked());
+        assert!(
+            MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+                .is_err()
+        );
+        assert!(
+            !f.owner.transaction.original_lease_vacant()
+                || f.owner
+                    .held_restore_execution
+                    .original_lease_held(f.owner.transaction.cutover_paths(), f.owner.uid())
+        );
+        assert!(f.owner.batch_lock().is_err());
+        if case == "history-collision" {
+            assert_eq!(
+                fs::read(state.join("restore-disposition.history")).unwrap(),
+                b"existing audit; never overwrite"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
 fn native_retained_vm_fault_bridge_executes_actual_original_lease_intent_and_mixed_cuts() {
     let reservations = [
         HeldExecutionSlot::reserve_vm().unwrap(),

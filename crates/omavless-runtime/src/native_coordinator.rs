@@ -31,6 +31,8 @@ pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefr
 #[cfg(all(test, feature = "t4-manager-actor-service"))]
 pub(crate) use restore_candidate::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::NativeCommittedDisposition;
+#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::NativeSessionOrigin;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
@@ -658,7 +660,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         // mutable host reference after an uncertain/StillFenced execution.
         #[cfg(feature = "t4-manager-actor-service")]
         assert!(
-            !self.held_restore_execution.occupied(),
+            !self.held_restore_execution.unavailable(),
             "restore_execution_unavailable"
         );
         self.transaction.host_mut()
@@ -667,7 +669,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(super) fn retained_restore_busy(&self) -> bool {
         #[cfg(feature = "t4-manager-actor-service")]
         {
-            self.held_restore_execution.occupied()
+            self.held_restore_execution.unavailable()
         }
         #[cfg(not(feature = "t4-manager-actor-service"))]
         {

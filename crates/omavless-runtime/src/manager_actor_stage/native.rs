@@ -700,6 +700,21 @@ pub(crate) enum NativeStep {
     Replacement(usize),
     Renamed(usize),
     Terminal,
+    RetirementReceipt,
+    StageRetired,
+    Closure,
+    DispositionComplete,
+    History,
+}
+enum NativeTerminalChoice {
+    OldAborted,
+    NewCommitted,
+}
+struct RetainedTerminal<'a> {
+    members: [&'a [u8]; 4],
+    intent: &'a [u8],
+    terminal: &'a [u8],
+    choice: NativeTerminalChoice,
 }
 struct NativeCatalogue {
     names: [[u8; 255]; CATALOGUE_LIMIT],
@@ -752,6 +767,8 @@ pub(crate) struct NativeEngine {
     catalogues: [NativeCatalogue; 2],
     catalogues_captured: bool,
     recovery: bool,
+    // Set only after SAME Session execute_native's final original gate.
+    committed: bool,
     singleton_locked: bool,
     unlinked: [bool; IO_SLOTS],
     completed: bool,
@@ -768,6 +785,16 @@ pub(crate) struct NativeStageView<'a> {
     engine: &'a NativeEngine,
 }
 impl NativeStageView<'_> {
+    pub(crate) fn session_committed(self) -> bool {
+        self.engine.committed && !self.engine.recovery && !self.engine.sealed
+    }
+    pub(crate) fn session_committed_disposed(self) -> bool {
+        self.session_committed() && self.engine.disposition_ready()
+    }
+    pub(crate) fn owns_pending_phase(self) -> bool {
+        self.stage_present()
+            || (self.engine.retirement && self.engine.completed_origin() && !self.engine.sealed)
+    }
     pub(crate) fn stage_present(self) -> bool {
         self.engine.stage_name.is_some() && !self.engine.unlinked[Slot::StageDirectory as usize]
     }
@@ -798,7 +825,7 @@ impl NativeStageView<'_> {
         } else {
             return false;
         };
-        self.engine.recovery
+        self.engine.completed_origin()
             && !self.engine.sealed
             && self.engine.lower.original[slot as usize].is_some()
             && !self.engine.unlinked[slot as usize]
@@ -808,6 +835,37 @@ impl NativeStageView<'_> {
             return false;
         }
         if !self.stage_present() {
+            if self.engine.retirement && self.engine.completed_origin() {
+                return !crate::routing_preset::pending(paths)
+                    && [
+                        PENDING_DIRECTORY,
+                        INTENT,
+                        TERMINAL,
+                        crate::restore_retirement_candidate::RECEIPT_MEMBER,
+                        crate::restore_closure_model::CLOSURE_MEMBER,
+                        crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+                        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+                        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+                        crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+                    ]
+                    .iter()
+                    .all(|name| {
+                        let terminal_slot = match *name {
+                            INTENT => Some(Slot::Intent),
+                            TERMINAL => Some(Slot::Terminal),
+                            _ => None,
+                        };
+                        let own_terminal = terminal_slot.is_some_and(|slot| {
+                            self.engine.lower.original[slot as usize].is_some()
+                                && !self.engine.unlinked[slot as usize]
+                        });
+                        own_terminal
+                            || self.own_completion_member(name)
+                            || matches!(
+                        std::fs::symlink_metadata(paths.directory.join(name)),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+                    });
+            }
             return !crate::pending_private_transaction::pending(paths);
         }
         let Ok(state) = self.engine.lower.io.original(Slot::State) else {
@@ -916,6 +974,7 @@ impl NativeEngine {
             catalogues: [NativeCatalogue::empty(), NativeCatalogue::empty()],
             catalogues_captured: false,
             recovery: false,
+            committed: false,
             singleton_locked: false,
             unlinked: [false; IO_SLOTS],
             completed: false,
@@ -933,9 +992,11 @@ impl NativeEngine {
             && self.disposition_done
             && self.history
             && !self.sealed
-            && self.recovery
-            && self.singleton_locked
+            && self.completed_origin()
             && !self.ordinary_handoff
+    }
+    fn completed_origin(&self) -> bool {
+        (self.recovery && self.singleton_locked) || (!self.recovery && self.committed)
     }
     pub(crate) fn consume_into_ordinary_lease(&mut self) -> Result<(), ()> {
         if !self.disposition_ready() {
@@ -949,15 +1010,20 @@ impl NativeEngine {
             && self.completed
             && self.disposition_done
             && !self.sealed
-            && self.recovery
-            && self.singleton_locked
+            && self.completed_origin()
     }
     pub(crate) fn check_ordinary_lease_prefix(&mut self) -> Result<(), ()> {
         if !self.ordinary_lease_held() {
             return Err(());
         }
-        let result =
-            self.check_recovery_singleton(Instant::now() + std::time::Duration::from_secs(2));
+        // Fresh recovery retains its separately acquired existing singleton.
+        // SAME current-owner completion never fabricates that role: it stays
+        // in the original serialized coordinator/RuntimeServer owner.
+        let result = if self.recovery {
+            self.check_recovery_singleton(Instant::now() + std::time::Duration::from_secs(2))
+        } else {
+            Ok(())
+        };
         if result.is_err() {
             self.revoke_native();
         }
@@ -1128,9 +1194,9 @@ impl NativeEngine {
             |file| {
                 let mut iterator = RawDir::new(file, &mut self.lower.directory_buffer);
                 let mut seen = [false; CATALOGUE_LIMIT];
-                let mut extra = [false; 3];
+                let mut extra = [false; 4];
                 let mut dots = [false; 2];
-                for _ in 0..CATALOGUE_LIMIT + 6 {
+                for _ in 0..CATALOGUE_LIMIT + 7 {
                     tick(until)?;
                     let row = iterator.next();
                     tick(until)?;
@@ -1309,7 +1375,9 @@ impl NativeEngine {
             }
         }
         self.scan_catalogue(Slot::Config, None, &extra_config[..count], until)?;
-        let mut extra_state = [""; 3];
+        // Current-session retirement briefly holds Stage+Intent+Committed+
+        // its own receipt. Recovery's originals were in its initial catalogue.
+        let mut extra_state = [""; 4];
         let mut count = 0;
         if self.stage_name.is_some() && !self.unlinked[Slot::StageDirectory as usize] {
             self.lower.binding(
@@ -1895,15 +1963,50 @@ impl NativeEngine {
         terminal: &[u8],
         until: Instant,
     ) -> Result<(), FirstError> {
+        self.retire_native_terminal(
+            origin,
+            RetainedTerminal {
+                members,
+                intent,
+                terminal,
+                choice: NativeTerminalChoice::OldAborted,
+            },
+            &mut |_| Ok(()),
+            until,
+        )
+    }
+    fn retire_native_terminal<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        retained: RetainedTerminal<'_>,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let RetainedTerminal {
+            members,
+            intent,
+            terminal,
+            choice,
+        } = retained;
+        let committed = matches!(choice, NativeTerminalChoice::NewCommitted);
+        if self.retirement || self.sealed || (committed && (!self.committed || self.recovery)) {
+            return Err(FirstError::StillFenced);
+        }
         self.retirement = true;
         let terminal_record =
             DecisionRecord::decode(terminal).map_err(|_| FirstError::Admission)?;
-        let receipt =
+        let receipt = if committed {
+            crate::restore_retirement_candidate::RetirementReceipt::from_retained_committed(
+                &terminal_record,
+                members,
+            )
+        } else {
             crate::restore_retirement_candidate::RetirementReceipt::from_retained_terminal(
                 &terminal_record,
                 members,
             )
-            .map_err(|_| FirstError::Admission)?;
+        }
+        .map_err(|_| FirstError::Admission)?;
         let pending = crate::restore_retirement_candidate::RECEIPT_MEMBER;
         let closure_name = crate::restore_closure_model::CLOSURE_MEMBER;
         for name in [pending, closure_name] {
@@ -1930,6 +2033,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::RetirementReceipt)?;
         for (slot, name) in RECOVERED_NEW {
             if self.lower.original[slot as usize].is_some() {
                 self.own_unlink(Slot::Config, slot, name, false, origin, until)?;
@@ -1949,6 +2053,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::StageRetired)?;
         self.own_unlink(Slot::State, Slot::Terminal, TERMINAL, false, origin, until)?;
         self.own_unlink(Slot::State, Slot::Intent, INTENT, false, origin, until)?;
         // Receipt remains the durable existence fence through every destructive
@@ -1963,6 +2068,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::Closure)?;
         self.lower
             .verify_member(
                 Slot::State,
@@ -1982,13 +2088,19 @@ impl NativeEngine {
             )
             .map_err(|_| FirstError::StillFenced)?;
         self.own_unlink(Slot::State, Slot::Scratch2, pending, false, origin, until)?;
+        let offset = if committed { 2 } else { 0 };
         for index in 0..2 {
+            let live_slot = if committed {
+                NATIVE_REPLACEMENTS[index].0
+            } else {
+                LIVE[index].0
+            };
             self.lower
                 .verify_member(
                     Slot::Config,
-                    LIVE[index].0,
+                    live_slot,
                     LIVE[index].1,
-                    members[index],
+                    members[index + offset],
                     until,
                 )
                 .map_err(|_| FirstError::StillFenced)?;
@@ -1998,7 +2110,7 @@ impl NativeEngine {
             .map_err(|_| FirstError::StillFenced)?
             .is_intent_of(&terminal_record)
             || !closure.matches_pending(&receipt)
-            || !receipt.matches_pair(members[0], members[1])
+            || !receipt.matches_pair(members[offset], members[offset + 1])
         {
             return Err(FirstError::StillFenced);
         }
@@ -2023,6 +2135,86 @@ impl NativeEngine {
     ) -> Result<(), FirstError> {
         self.recover_native(origin, backup, true)
     }
+    /// Only the SAME successful Session engine can consume this path. The
+    /// retained prepared plaintext and original Intent/Committed files are
+    /// rechecked before retirement; no decoder or recapture grants entry.
+    pub(crate) fn complete_native_committed<H: LifecycleHost>(
+        &mut self,
+        origin: &mut NativeSessionOrigin<'_, H>,
+        prepared: &PreparedRestorePair,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+    ) -> Result<crate::native_coordinator::NativeCommittedDisposition, FirstError> {
+        let until = Instant::now() + std::time::Duration::from_secs(45);
+        let result = (|| {
+            if self.recovery || !self.committed || self.completed || self.retirement || self.sealed
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.gate(origin, until)?;
+            let mut intent = [0; RECORD_BYTES];
+            let mut terminal = [0; RECORD_BYTES];
+            for (slot, bytes) in [(Slot::Intent, &mut intent), (Slot::Terminal, &mut terminal)] {
+                self.lower
+                    .io
+                    .perform(
+                        slot,
+                        || tick(until),
+                        |file| file.read_exact_at(bytes, 0).map_err(|_| Unavailable),
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                if self.expected[slot as usize]
+                    != Some((RECORD_BYTES, Sha256::digest(*bytes).into()))
+                {
+                    return Err(FirstError::StillFenced);
+                }
+            }
+            let chain = DecisionChain::decode(&intent, Some(&terminal))
+                .map_err(|_| FirstError::StillFenced)?;
+            let members = [
+                prepared.original_store(),
+                prepared.original_template(),
+                prepared.incoming_store(),
+                prepared.incoming_template(),
+            ];
+            let plan = planned_stage_identity(members).map_err(|_| FirstError::StillFenced)?;
+            let desired = origin.committed_desired_bytes(self.view())?;
+            if chain.active().phase() != DecisionPhase::Committed
+                || !chain.active().matches_stage_identity(&plan)
+                || chain.active().review_inspection(
+                    origin.generation(),
+                    Some(&desired),
+                    &plan,
+                    class_from_matches(
+                        members[2] == members[0],
+                        members[3] == members[1],
+                        true,
+                        true,
+                    ),
+                ) != RecoveryReview::VerifyCommittedCandidate
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.retire_native_terminal(
+                origin,
+                RetainedTerminal {
+                    members,
+                    intent: &intent,
+                    terminal: &terminal,
+                    choice: NativeTerminalChoice::NewCommitted,
+                },
+                cut,
+                until,
+            )?;
+            let uid = origin.uid();
+            let generation = origin.generation();
+            self.dispose_completed_inner_cut(origin, uid, generation, &desired, cut, until)?;
+            origin.committed_disposition(self.view())
+        })();
+        if result.is_err() {
+            self.revoke_native();
+        }
+        result
+    }
     pub(crate) fn check_native_completed(
         &mut self,
         origin: &mut NativeRecoveryOrigin<'_>,
@@ -2040,12 +2232,7 @@ impl NativeEngine {
         origin: &mut NativeRecoveryOrigin<'_>,
         until: Instant,
     ) -> Result<(), FirstError> {
-        if !self.completed
-            || self.sealed
-            || !self.recovery
-            || !self.singleton_locked
-            || self.ordinary_handoff
-        {
+        if !self.completed || self.sealed || !self.completed_origin() || self.ordinary_handoff {
             return Err(FirstError::StillFenced);
         }
         let receipt = crate::restore_retirement_candidate::RECEIPT_MEMBER;
@@ -2103,12 +2290,22 @@ impl NativeEngine {
         desired: &[u8],
         until: Instant,
     ) -> Result<(), FirstError> {
+        self.dispose_completed_inner_cut(origin, uid, generation, desired, &mut |_| Ok(()), until)
+    }
+    fn dispose_completed_inner_cut<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
         use crate::restore_disposition_complete_model::{COMPLETE_MEMBER, CompleteRecord};
         use crate::restore_disposition_ticket_model::{TICKET_MEMBER, Ticket};
         if !self.completed
             || self.sealed
-            || !self.recovery
-            || !self.singleton_locked
+            || !self.completed_origin()
             || self.disposition
             || self.unlinked[Slot::Scratch3 as usize]
             || self.uid != Some(uid)
@@ -2167,6 +2364,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::DispositionComplete)?;
         self.own_unlink(
             Slot::State,
             Slot::Scratch3,
@@ -2254,6 +2452,7 @@ impl NativeEngine {
             .io
             .original(Slot::State)
             .map_err(|_| FirstError::StillFenced)?;
+        cut(NativeStep::History)?;
         for name in [
             "routing-preset.pending.json",
             PENDING_DIRECTORY,
@@ -2943,7 +3142,9 @@ impl NativeEngine {
             {
                 return Err(FirstError::StillFenced);
             }
-            self.gate(origin, until)
+            self.gate(origin, until)?;
+            self.committed = true;
+            Ok(())
         })();
         if result.is_err() {
             self.sealed = true;

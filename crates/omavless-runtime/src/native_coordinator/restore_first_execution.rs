@@ -34,8 +34,38 @@ pub(crate) use native_recovery::{
 pub(crate) struct NativeSessionOrigin<'a, H> {
     session: Session<'a, H>,
 }
+/// Nonescaping, consumed by this SAME call's scheduler completion. The private
+/// engine view is the issuer; the address is equality-only Rust object identity,
+/// never dereferenced, serialized, process authority or a caller grant.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct NativeCommittedDisposition {
+    owner: *const crate::mutation::MutationCoordinator,
+    revision: u64,
+}
+#[cfg(feature = "t4-manager-actor-service")]
+impl NativeCommittedDisposition {
+    pub(crate) fn matches(
+        &self,
+        owner: &crate::mutation::MutationCoordinator,
+        revision: u64,
+    ) -> bool {
+        std::ptr::eq(self.owner, owner) && self.revision == revision
+    }
+}
 #[cfg(feature = "t4-manager-actor-service")]
 impl<H: LifecycleHost> NativeSessionOrigin<'_, H> {
+    pub(crate) fn committed_disposition(
+        &self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+    ) -> Result<NativeCommittedDisposition, FirstError> {
+        if !view.session_committed_disposed() {
+            return Err(FirstError::StillFenced);
+        }
+        Ok(NativeCommittedDisposition {
+            owner: &self.session.owner.coordinator,
+            revision: self.session.readiness.revision,
+        })
+    }
     pub(crate) fn uid(&self) -> u32 {
         self.session.owner.uid()
     }
@@ -43,6 +73,20 @@ impl<H: LifecycleHost> NativeSessionOrigin<'_, H> {
         self.session.readiness.owner_generation
     }
     pub(crate) fn desired_bytes(&self) -> Result<zeroize::Zeroizing<Vec<u8>>, FirstError> {
+        self.desired_bytes_inner(true)
+    }
+    pub(crate) fn committed_desired_bytes(
+        &self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>, FirstError> {
+        if !view.session_committed() {
+            return Err(FirstError::Admission);
+        }
+        // The SAME engine brackets this read with its original OLD-zero-link
+        // and named NEW-role checks; never recapture OLD through current names.
+        self.desired_bytes_inner(false)
+    }
+    fn desired_bytes_inner(&self, live: bool) -> Result<zeroize::Zeroizing<Vec<u8>>, FirstError> {
         use std::os::unix::fs::FileExt;
         let pin = self
             .session
@@ -71,7 +115,7 @@ impl<H: LifecycleHost> NativeSessionOrigin<'_, H> {
             return Err(FirstError::Admission);
         }
         bytes.truncate(length);
-        self.session.boundary.native_recheck(self.uid(), true)?;
+        self.session.boundary.native_recheck(self.uid(), live)?;
         Ok(bytes)
     }
     pub(crate) fn directory(&self, index: usize) -> Result<&File, FirstError> {
@@ -137,6 +181,8 @@ impl<H: LifecycleHost> NativeSessionOrigin<'_, H> {
 #[derive(Debug, PartialEq, Eq)]
 enum FirstOutcome {
     CommittedStillFenced,
+    #[cfg(feature = "t4-manager-actor-service")]
+    CompletedOrdinary,
 }
 
 #[derive(Debug, PartialEq, Eq)]

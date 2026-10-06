@@ -159,13 +159,17 @@ pub(crate) struct NativeSteadyCompletion {
 /// Current ordinary lease origin, never a decoded history or frozen-Off grant.
 /// The ONE initialized OnceLock owns the ONE actual MigrationLock object.
 pub(crate) struct NativeOrdinaryLease {
-    original: Arc<Mutex<Option<RecoveryHeld>>>,
+    original: NativeOrdinaryCustody,
     lock: Arc<OnceLock<MigrationLock>>,
     available: Arc<AtomicBool>,
     paths: CutoverPaths,
     uid: u32,
     generation: u64,
     scope: Arc<AtomicBool>,
+}
+enum NativeOrdinaryCustody {
+    Recovery(Arc<Mutex<Option<RecoveryHeld>>>),
+    Committed(Arc<Mutex<super::retained::HeldExecution>>),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NativeLeaseError {
@@ -245,24 +249,62 @@ impl NativeOrdinaryLease {
         self.available.store(false, Ordering::Release);
         // Poison is itself permanent unavailability; never recover the guard
         // or reconstruct an authority snapshot from its possibly partial data.
-        if let Ok(mut slot) = self.original.lock()
-            && let Some(held) = slot.as_mut()
-        {
-            held.engine.revoke_native();
+        match &self.original {
+            NativeOrdinaryCustody::Recovery(original) => {
+                if let Ok(mut slot) = original.lock()
+                    && let Some(held) = slot.as_mut()
+                {
+                    held.engine.revoke_native();
+                }
+            }
+            NativeOrdinaryCustody::Committed(original) => {
+                if let Ok(mut held) = original.lock() {
+                    held.refuse_ordinary();
+                }
+            }
         }
     }
     fn borrow_checked(&self, paths: &CutoverPaths, uid: u32) -> Result<(), ()> {
-        let mut held = self.original.lock().map_err(|_| ())?;
-        let held = held.as_mut().ok_or(())?;
-        if !Arc::ptr_eq(&held.lock, &self.lock)
-            || !held.engine.ordinary_lease_held()
-            || held.failed_lock.is_some()
-        {
-            return Err(());
+        match &self.original {
+            NativeOrdinaryCustody::Recovery(original) => {
+                let mut held = original.lock().map_err(|_| ())?;
+                let held = held.as_mut().ok_or(())?;
+                if !Arc::ptr_eq(&held.lock, &self.lock)
+                    || !held.engine.ordinary_lease_held()
+                    || held.failed_lock.is_some()
+                {
+                    return Err(());
+                }
+                held.engine.check_ordinary_lease_prefix()?;
+            }
+            NativeOrdinaryCustody::Committed(original) => {
+                original
+                    .lock()
+                    .map_err(|_| ())?
+                    .check_ordinary(&self.lock)?;
+            }
         }
-        held.engine.check_ordinary_lease_prefix()?;
         let actual = self.lock.get().ok_or(())?;
         current_ordinary_lease(actual, paths, uid, self.generation)
+    }
+    pub(super) fn committed(
+        original: Arc<Mutex<super::retained::HeldExecution>>,
+        lock: Arc<OnceLock<MigrationLock>>,
+        available: Arc<AtomicBool>,
+        scope: Arc<AtomicBool>,
+        paths: CutoverPaths,
+        uid: u32,
+        generation: u64,
+    ) -> Self {
+        Self {
+            original: NativeOrdinaryCustody::Committed(original),
+            lock,
+            available,
+            scope,
+            paths,
+            uid,
+            generation,
+        }
     }
 }
 fn current_ordinary_lease(
@@ -355,7 +397,7 @@ fn native_ordinary_current_marker_pending_and_lease_drift_are_permanent_refusal(
             facts: None,
         })));
         let keeper = NativeOrdinaryLease {
-            original: Arc::clone(&original),
+            original: NativeOrdinaryCustody::Recovery(Arc::clone(&original)),
             lock: Arc::clone(&actual),
             available: Arc::new(AtomicBool::new(true)),
             paths: paths.clone(),
@@ -463,7 +505,7 @@ impl NativeSteadyCompletion {
             return Err(());
         }
         let result = NativeOrdinaryLease {
-            original: Arc::clone(&self.original),
+            original: NativeOrdinaryCustody::Recovery(Arc::clone(&self.original)),
             lock: Arc::clone(&held.lock),
             available: Arc::clone(&self.available),
             paths: facts.paths.clone(),

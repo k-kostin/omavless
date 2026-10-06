@@ -248,6 +248,8 @@ pub struct MutationCoordinator {
     result_cache: VecDeque<CachedOperation>,
     external_closes: Vec<ExternalCloseEntry>,
 }
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct RetainedRestoreRevision(u64);
 
 impl Default for MutationCoordinator {
     fn default() -> Self {
@@ -257,6 +259,38 @@ impl Default for MutationCoordinator {
 }
 
 impl MutationCoordinator {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn prepare_retained_restore(
+        &self,
+    ) -> Result<RetainedRestoreRevision, CoordinatorError> {
+        if self.active()
+            || self.queued() != 0
+            || self
+                .external_closes
+                .iter()
+                .any(|entry| entry.receipt.is_none())
+        {
+            return Err(CoordinatorError::Busy);
+        }
+        if self.revision == MAX_REVISION {
+            return Err(CoordinatorError::RevisionExhausted);
+        }
+        Ok(RetainedRestoreRevision(self.revision))
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn finish_retained_restore(
+        &mut self,
+        revision: RetainedRestoreRevision,
+        proof: crate::native_coordinator::NativeCommittedDisposition,
+    ) -> Result<(), CoordinatorError> {
+        if self.prepare_retained_restore()?.0 != revision.0 || !proof.matches(self, revision.0) {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        // Like ordinary Success: historical operation receipts remain history;
+        // uncached stale work must not act on the pre-replacement revision.
+        self.revision += 1;
+        Ok(())
+    }
     pub fn with_limits(
         queue_limit: usize,
         result_cache_limit: usize,
@@ -641,6 +675,44 @@ impl MutationCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn retained_restore_revision_preflight_refuses_busy_pending_and_exhausted() {
+        let mut coordinator = MutationCoordinator::default();
+        assert!(coordinator.prepare_retained_restore().is_ok());
+        let pending = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("queued"), Some(0), 1))
+                .unwrap(),
+        );
+        assert!(coordinator.prepare_retained_restore().is_err());
+        assert!(matches!(
+            coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(_)
+        ));
+        assert!(coordinator.prepare_retained_restore().is_err());
+        coordinator
+            .finish(pending, MutationResult::NoChange)
+            .unwrap();
+        assert!(coordinator.prepare_retained_restore().is_ok());
+        let ExternalCloseAdmission::Reserved(original) = coordinator
+            .reserve_external_close("close", 0, digest(2), false)
+            .unwrap()
+        else {
+            panic!("reservation missing");
+        };
+        assert!(coordinator.prepare_retained_restore().is_err());
+        coordinator
+            .finish_external_close(&original, ExternalCloseOutcome::Missing)
+            .unwrap();
+        assert!(coordinator.prepare_retained_restore().is_ok());
+        coordinator.revision = MAX_REVISION;
+        assert!(matches!(
+            coordinator.prepare_retained_restore(),
+            Err(CoordinatorError::RevisionExhausted)
+        ));
+    }
 
     fn digest(value: u8) -> MutationDigest {
         MutationDigest::new([value; 32])

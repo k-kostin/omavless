@@ -71,17 +71,37 @@ impl RetirementReceipt {
         terminal: &DecisionRecord,
         members: [&[u8]; 4],
     ) -> Result<Self, RetirementError> {
+        Self::from_retained_choice(terminal, members, DecisionPhase::Aborted, 0)
+    }
+
+    /// Encoding only for the retained engine's distinct NEW/Committed path.
+    /// This accepts no Intent/Aborted terminal and grants no cleanup authority.
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn from_retained_committed(
+        terminal: &DecisionRecord,
+        members: [&[u8]; 4],
+    ) -> Result<Self, RetirementError> {
+        Self::from_retained_choice(terminal, members, DecisionPhase::Committed, 2)
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn from_retained_choice(
+        terminal: &DecisionRecord,
+        members: [&[u8]; 4],
+        phase: DecisionPhase,
+        offset: usize,
+    ) -> Result<Self, RetirementError> {
         let stage = crate::restore_staging_candidate::planned_stage_identity(members)
             .map_err(|_| RetirementError::Admission)?;
-        if !terminal.matches_stage_identity(&stage) || terminal.phase() != DecisionPhase::Aborted {
+        if !terminal.matches_stage_identity(&stage) || terminal.phase() != phase {
             return Err(RetirementError::Admission);
         }
         Ok(Self {
             terminal: DecisionRecord::decode(&terminal.encode())
                 .map_err(|_| RetirementError::Admission)?,
             expected: [
-                MemberBinding::from_bytes(members[0])?,
-                MemberBinding::from_bytes(members[1])?,
+                MemberBinding::from_bytes(members[offset])?,
+                MemberBinding::from_bytes(members[offset + 1])?,
             ],
         })
     }
@@ -246,6 +266,31 @@ impl RetirementReceipt {
                 .map_err(|_| RetirementError::ManualRecovery)?,
         ))
     }
+}
+
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+#[test]
+fn retained_terminal_encodings_keep_committed_new_distinct_from_aborted_old() {
+    use crate::restore_decision_candidate::TerminalChoice;
+    let members: [&[u8]; 4] = [b"old-store", b"old-template", b"new-store", b"new-template"];
+    let stage = crate::restore_staging_candidate::planned_stage_identity(members).unwrap();
+    let desired =
+        br#"{"schemaVersion":1,"generation":0,"connected":false,"profileId":"","mode":"rule"}"#;
+    let intent = DecisionRecord::intent(2, Some(desired), &stage, [9; 16]).unwrap();
+    let committed = intent.terminal(TerminalChoice::Commit).unwrap();
+    let aborted = intent.terminal(TerminalChoice::Abort).unwrap();
+    let new = RetirementReceipt::from_retained_committed(&committed, members).unwrap();
+    let old = RetirementReceipt::from_retained_terminal(&aborted, members).unwrap();
+    assert!(new.matches_pair(members[2], members[3]) && !new.matches_pair(members[0], members[1]));
+    assert!(old.matches_pair(members[0], members[1]) && !old.matches_pair(members[2], members[3]));
+    for wrong in [&intent, &aborted] {
+        assert!(RetirementReceipt::from_retained_committed(wrong, members).is_err());
+    }
+    for wrong in [&intent, &committed] {
+        assert!(RetirementReceipt::from_retained_terminal(wrong, members).is_err());
+    }
+    let changed: [&[u8]; 4] = [members[0], members[1], b"substituted new", members[3]];
+    assert!(RetirementReceipt::from_retained_committed(&committed, changed).is_err());
 }
 
 fn read_receipt_member(
