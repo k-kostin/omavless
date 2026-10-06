@@ -201,3 +201,24 @@ session when its agreed outcome is achieved or a genuine external/owner decision
 prevents remaining in-scope work; save an exact-head handoff. Do not stop merely
 because several steps ran, and do not fabricate closure to avoid a blocker.
 New scope needs its own applicable owner direction.
+
+## 9. Lightweight workflow retrospectives
+
+During long active orchestration, reassess after a repeated setup bottleneck,
+two diagnostics that do not narrow a failure, or a stalled integration
+milestone. If none triggers, use a short checkpoint after roughly two or three
+hours of active work. This is not a new background automation or VM permission.
+
+Keep the output small: bottleneck, mechanism, one reusable correction, and its
+observable validation/remaining limit. Prefer a tested script for mechanical
+steps; create a concise skill when state recognition or routing is also needed.
+Do not reread unchanged full graphs/history or call a large reviewer routinely
+merely because time passed. Tested outcomes matter more than new PR/test counts.
+
+If application registration fails after creating a worktree, reuse its returned
+exact directory; do not create duplicate checkouts or delete evidence to free
+capacity blindly. Summarize bounded metadata rather than dumping an unbounded
+thread/artifact history into context. Preserve other writers and active caches.
+Secrets never enter a reusable procedure. A VM-console/password workflow must
+be validated by its designated operator; a skill does not grant another agent
+permission to take over that VM.
