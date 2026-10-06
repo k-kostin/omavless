@@ -375,6 +375,8 @@ pub struct OfflineNativeCoordinator<H> {
     batch: Option<batch::BatchOwnerState>,
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    resume_barrier: crate::network_resume::BarrierSlot,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -399,6 +401,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             batch: None,
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            resume_barrier: crate::network_resume::BarrierSlot::Absent,
         }
     }
 
@@ -1104,6 +1108,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if self.resume_barrier.installed() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.transaction.reconcile_startup()
     }
 
@@ -1111,6 +1119,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if self.resume_barrier.installed() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.transaction.reconcile_startup_locked(lock)
     }
 

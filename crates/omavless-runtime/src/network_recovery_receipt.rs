@@ -93,6 +93,12 @@ pub(crate) struct Admission {
     poisoned: bool,
 }
 
+#[derive(Clone, Copy)]
+enum Trigger {
+    Event(Hint),
+    Startup { enrolled_tick: u64 },
+}
+
 impl Admission {
     // Construct exactly once with the process's fresh owner instance. Recreating
     // this handle for each event would erase an in-memory uncertain-write latch;
@@ -113,6 +119,24 @@ impl Admission {
         journal: &mut impl Journal,
         host: &mut impl Observation,
     ) -> Result<(), Refused> {
+        self.attempt_trigger(Trigger::Event(hint), journal, host)
+    }
+
+    pub(crate) fn attempt_startup(
+        &mut self,
+        enrolled_tick: u64,
+        journal: &mut impl Journal,
+        host: &mut impl Observation,
+    ) -> Result<(), Refused> {
+        self.attempt_trigger(Trigger::Startup { enrolled_tick }, journal, host)
+    }
+
+    fn attempt_trigger(
+        &mut self,
+        trigger: Trigger,
+        journal: &mut impl Journal,
+        host: &mut impl Observation,
+    ) -> Result<(), Refused> {
         if self.poisoned {
             return Err(Refused);
         }
@@ -123,7 +147,7 @@ impl Admission {
         if ready.schema != 1 || ready.fence != self.fence || ready.phase != Phase::Ready {
             return Err(Refused);
         }
-        self.check(hint, host)?;
+        self.check(trigger, host)?;
         let reserved = Receipt {
             phase: Phase::Reserved,
             ..ready
@@ -134,7 +158,7 @@ impl Admission {
         }
         // Off or stale facts discovered after sync burn the receipt too. The
         // only safe effect site is after durable reservation AND a fresh fence.
-        self.check(hint, host)?;
+        self.check(trigger, host)?;
         host.synthetic_effect()?;
         // Completion never grants another attempt. A completion-write error or
         // crash keeps Reserved/Finished, both terminal for automatic recovery.
@@ -148,7 +172,7 @@ impl Admission {
         Ok(())
     }
 
-    fn check(&self, hint: Hint, host: &mut impl Observation) -> Result<(), Refused> {
+    fn check(&self, trigger: Trigger, host: &mut impl Observation) -> Result<(), Refused> {
         let (fence, mut current) = host.current()?;
         if fence != self.fence || !self.fence.matches(current) {
             return Err(Refused);
@@ -157,7 +181,22 @@ impl Admission {
         // Ready receipt at admission; after reservation this same invocation is
         // consuming that proof, not re-admitting another attempt.
         current.attempt = Attempt::NoneProven;
-        if hint_plan::plan(hint, current) != Decision::CandidateOnce {
+        let admitted = match trigger {
+            Trigger::Event(hint) => hint_plan::plan(hint, current) == Decision::CandidateOnce,
+            Trigger::Startup { enrolled_tick } => {
+                current
+                    .now_tick
+                    .checked_sub(enrolled_tick)
+                    .is_some_and(|age| {
+                        (hint_plan::QUIET_SECS..=hint_plan::MAX_HINT_AGE_SECS).contains(&age)
+                    })
+                    && current.desired_connected
+                    && current.mutation_idle
+                    && current.owned == hint_plan::OwnedState::ProvenEmpty
+                    && current.recovery_safety_proven
+            }
+        };
+        if !admitted {
             return Err(Refused);
         }
         Ok(())

@@ -4,8 +4,10 @@
 
 use super::*;
 use crate::desired::{DesiredState, ReconcileAction, reconcile};
-use crate::network_recovery_receipt::{Fence, Observation, Refused};
-use crate::network_resume::Context;
+use crate::network_recovery_receipt::{Fence, Journal, Observation, Phase, Refused};
+use crate::network_resume::{
+    BarrierSlot, Context, Eligibility, Files, RecoveryBarrier, Source, SourcePort, Status,
+};
 use crate::network_transition_plan::{Attempt, Current, OwnedState};
 use sha2::{Digest, Sha256};
 
@@ -17,6 +19,69 @@ pub(crate) trait ResumeBinding: LifecycleHost {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn install_resume_barrier(
+        &mut self,
+        boot: [u8; 16],
+        instance: [u8; 16],
+        epoch: u64,
+        enrolled_tick: u64,
+    ) -> Result<(), Refused> {
+        if self.resume_barrier.installed() {
+            return Err(Refused);
+        }
+        // All subsequent errors leave an installed permanent sentinel. No
+        // fallible capture or source operation can reopen legacy startup.
+        self.resume_barrier = BarrierSlot::Blocked;
+        self.transaction
+            .lifecycle_mut()
+            .install_network_recovery_guard()
+            .map_err(|_| Refused)?;
+        let context = self.resume_context(boot, instance, epoch)?;
+        let receipt = self
+            .transaction
+            .desired_paths()
+            .directory
+            .join("network-resume-receipt.json");
+        self.resume_barrier = BarrierSlot::Installed(Box::new(RecoveryBarrier::new(
+            context,
+            receipt,
+            enrolled_tick,
+        )?));
+        Ok(())
+    }
+
+    fn take_resume_barrier(&mut self) -> Result<Box<RecoveryBarrier>, Refused> {
+        if !matches!(self.resume_barrier, BarrierSlot::Installed(_)) {
+            return Err(Refused);
+        }
+        match std::mem::replace(&mut self.resume_barrier, BarrierSlot::InFlight) {
+            BarrierSlot::Installed(barrier) => Ok(barrier),
+            _ => unreachable!("barrier extraction is owner serialized"),
+        }
+    }
+
+    pub(crate) fn resume_status(&self) -> Status {
+        match &self.resume_barrier {
+            BarrierSlot::Absent => Status::Idle,
+            BarrierSlot::Installed(barrier) => barrier.events.status,
+            BarrierSlot::InFlight | BarrierSlot::Blocked => Status::ManualRecovery,
+        }
+    }
+
+    pub(crate) fn resume_projection(&self) -> Value {
+        match &self.resume_barrier {
+            BarrierSlot::Installed(barrier) => barrier.events.status_projection(),
+            _ => serde_json::json!({"schema":1,"state":self.resume_status()}),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resume_pending_tick(&self) -> Option<u64> {
+        match &self.resume_barrier {
+            BarrierSlot::Installed(barrier) => barrier.events.pending_tick(),
+            _ => None,
+        }
+    }
     pub(crate) fn resume_lease(&self) -> Result<MigrationLock, Refused> {
         let lease = self.transaction.acquire_lock().map_err(|_| Refused)?;
         self.resume_owned(&lease)?;
@@ -82,6 +147,193 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 }
 
+impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn resume_receive(&mut self, source: &mut Source, tick: u64) {
+        let Ok(mut barrier) = self.take_resume_barrier() else {
+            return;
+        };
+        if barrier.events.eligibility == Eligibility::Open {
+            match self.resume_context(
+                barrier.context.fence.boot,
+                barrier.context.fence.owner_instance,
+                barrier.context.fence.network_epoch,
+            ) {
+                Ok(current)
+                    if current.desired == barrier.context.desired
+                        && current.store_digest == barrier.context.store_digest =>
+                {
+                    barrier.events.receive(source, &current, tick);
+                }
+                Ok(_) => barrier.events.status = Status::Cancelled,
+                Err(_) => barrier.events.status = Status::ManualRecovery,
+            }
+        }
+        barrier.events.sync_eligibility();
+        self.resume_barrier = BarrierSlot::Installed(barrier);
+    }
+
+    pub(crate) fn resume_poll(
+        &mut self,
+        source: &mut Source,
+        tick: u64,
+        fail_before: bool,
+        fail_after: bool,
+        fault_phase: Option<Phase>,
+    ) -> usize
+    where
+        H: ResumeBinding,
+    {
+        let Ok(mut barrier) = self.take_resume_barrier() else {
+            return 0;
+        };
+        let effects = (|| {
+            if !barrier.events.available(tick) {
+                return Ok(0);
+            }
+            let lease = self.resume_lease()?;
+            let paths = self.transaction.cutover_paths().clone();
+            let uid = self.uid();
+            let mut files = Files {
+                receipt: &barrier.receipt,
+                lease: &lease,
+                paths: &paths,
+                uid,
+                fail_before,
+                fail_after,
+                fault_phase,
+            };
+            let ready = files.load()?;
+            if ready.schema != 1
+                || ready.fence != barrier.context.fence
+                || ready.phase != Phase::Ready
+            {
+                return Err(Refused);
+            }
+            let mut port = Port::new(self, &lease, &barrier.context, tick);
+            barrier.events.poll(source, tick, &mut files, &mut port);
+            Ok(port.effect_calls)
+        })();
+        if effects.is_err() {
+            barrier.events.status = Status::ManualRecovery;
+        }
+        barrier.events.sync_eligibility();
+        self.resume_barrier = BarrierSlot::Installed(barrier);
+        effects.unwrap_or(0)
+    }
+
+    pub(crate) fn resume_startup(
+        &mut self,
+        source: &mut Source,
+        tick: u64,
+        fail_before: bool,
+        fail_after: bool,
+        fault_phase: Option<Phase>,
+    ) -> usize
+    where
+        H: ResumeBinding,
+    {
+        let Ok(mut barrier) = self.take_resume_barrier() else {
+            return 0;
+        };
+        let mut dispatched = 0;
+        let effects = (|| {
+            if !barrier.events.available(tick) || barrier.events.startup_deferred() {
+                return Ok(0);
+            }
+            let age = tick.checked_sub(barrier.enrolled_tick).ok_or(Refused)?;
+            if age > crate::network_transition_plan::MAX_HINT_AGE_SECS {
+                return Err(Refused);
+            }
+            if age < crate::network_transition_plan::QUIET_SECS {
+                barrier.events.status = Status::Checking;
+                return Ok(0);
+            }
+            if !source.matches(barrier.context.fence) {
+                return Err(Refused);
+            }
+            source.quiescent()?;
+            let lease = self.resume_lease()?;
+            let paths = self.transaction.cutover_paths().clone();
+            let uid = self.uid();
+            let mut files = Files {
+                receipt: &barrier.receipt,
+                lease: &lease,
+                paths: &paths,
+                uid,
+                fail_before,
+                fail_after,
+                fault_phase,
+            };
+            let ready = files.load()?;
+            if ready.schema != 1
+                || ready.fence != barrier.context.fence
+                || ready.phase != Phase::Ready
+            {
+                return Err(Refused);
+            }
+            let mut port = Port::new(self, &lease, &barrier.context, tick);
+            let (_, current) = port.current()?;
+            if !current.mutation_idle {
+                return Err(Refused);
+            }
+            if !current.desired_connected || current.owned == OwnedState::VerifiedLocal {
+                source.quiescent()?;
+                port.observe_only()?;
+                source.quiescent()?;
+                barrier.events.status = Status::ObserveOnly;
+            } else {
+                let mut sourced = SourcePort {
+                    source,
+                    port: &mut port,
+                };
+                let attempted = barrier.events.admission.attempt_startup(
+                    barrier.enrolled_tick,
+                    &mut files,
+                    &mut sourced,
+                );
+                dispatched = port.effect_calls;
+                attempted?;
+                barrier.events.status = Status::Recovered;
+            }
+            Ok(port.effect_calls)
+        })();
+        if effects.is_err() {
+            barrier.events.status = Status::ManualRecovery;
+        }
+        barrier.events.sync_eligibility();
+        self.resume_barrier = BarrierSlot::Installed(barrier);
+        effects.unwrap_or(dispatched)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resume_lowest_startup(
+        &mut self,
+    ) -> Result<crate::lifecycle::LifecycleOutcome, crate::lifecycle::LifecycleError> {
+        self.transaction.lifecycle_mut().reconcile_startup()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resume_fixture_revision_change(&mut self) {
+        let request = MutationRequest::new(
+            MutationKind::Other,
+            None,
+            None,
+            crate::mutation::MutationDigest::from_semantic_bytes(b"fixed revision fence fixture"),
+        )
+        .unwrap();
+        let SubmitOutcome::Queued { token } = self.coordinator.submit(request).unwrap() else {
+            unreachable!()
+        };
+        assert!(matches!(
+            self.coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(_)
+        ));
+        self.coordinator
+            .finish(token, crate::mutation::MutationResult::Success)
+            .unwrap();
+    }
+}
+
 pub(crate) struct Port<'a, H> {
     owner: &'a mut OfflineNativeCoordinator<H>,
     lease: &'a MigrationLock,
@@ -91,6 +343,16 @@ pub(crate) struct Port<'a, H> {
 }
 
 impl<'a, H: ResumeBinding> Port<'a, H> {
+    fn observe_only(&mut self) -> Result<(), Refused> {
+        let desired = self.desired()?;
+        self.owner
+            .transaction
+            .lifecycle_mut()
+            .observe_network_only(&desired)
+            .map_err(|_| Refused)?;
+        self.desired()?;
+        Ok(())
+    }
     pub(crate) fn new(
         owner: &'a mut OfflineNativeCoordinator<H>,
         lease: &'a MigrationLock,

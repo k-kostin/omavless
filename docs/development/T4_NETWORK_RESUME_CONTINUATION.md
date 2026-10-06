@@ -14,7 +14,8 @@ narrow; real sleep/NIC acceptance is not inferred from deterministic tests.
 | Event owner | Suspend pauses observation; resume/link bursts wait three quiet monotonic seconds; discard after 60 seconds from the first hint | Executable owner tests; no wall-clock input |
 | Safety | Off, changed generation/revision/profile/mode/store, unavailable/mixed/foreign/unsafe ownership never reconnect; healthy state observes only | Original ownership-gated coordinator and injected binding evidence under real MigrationLock |
 | One attempt | Existing exact Ready is reserved durably before coordinator invocation; failure/unknown completion never rearms | Real private files, pre/post publication errors, inherited process-death fixture |
-| Restart | New owner instance refuses old Ready/Reserved/Finished; missing/lost receipt never initializes Ready | Event-path fixture; shared production process-start reconciliation remains a mandatory activation gate |
+| Shared startup/event barrier | One owner-installed admission and terminal eligibility; legacy startup paths refuse enrollment; both trigger orders recover at most once | Dormant original-coordinator/private-file fixtures; production enrollment remains unavailable |
+| Restart | New owner instance refuses old Ready/Reserved/Finished; missing/lost receipt never initializes Ready | Both dormant trigger paths share refusal; no production identity/provisioning claim |
 | Real integration | Canonical daemon source subscription, authenticated host event delivery and actual binding proof | Pending; no host bus, service, core or network was contacted |
 | Hardware | Real suspend/resume and physical NIC transition | Pending separate bare-metal gate; VM evidence cannot close it |
 
@@ -33,7 +34,9 @@ limited by its remaining budget. A slow source cannot extend this budget by
 delivering one byte just before successive read timeouts. The limit is an I/O
 deadline, not a promise of scheduler latency on a stalled machine.
 
-One EventOwner retains at most one pending hint and one non-clonable Admission.
+One owner-installed RecoveryBarrier retains immutable desired/store/owner
+context, a fixed receipt binding, one EventOwner, at most one pending hint and
+one non-clonable Admission shared by startup and events.
 There is no source reconnect, automatic Ready provisioning, reset or rearm API.
 The stable epoch is the already-established Ready fence; sequence advancement
 does not prove a new network epoch. New-epoch provisioning remains separate.
@@ -65,6 +68,44 @@ body into a common private helper without changing its operations or error
 handling. The event entry, source, receipt composition and coordinator port
 remain dormant. No daemon IPC/CLI registration, settings, UI, package or
 service change occurs.
+
+## Shared dormant startup boundary
+
+The original OfflineNativeCoordinator holds Absent, Installed, InFlight or
+Blocked barrier state. Enrollment is private, once-only and before any general
+startup reconciliation. Its receipt name is fixed below the original desired
+state directory. Capture failure leaves a permanent blocked sentinel; extraction
+leaves InFlight, so a panic cannot expose Absent or permit new enrollment. No
+Arc/poison recovery, detach, reset, replacement or per-trigger Admission exists.
+
+While enrolled, both original owner startup entry points refuse before host
+calls. The lowest LifecycleExecutor general startup entry also refuses, including
+the profile-preserving route into that entry. Normal factories do not enroll a
+barrier, and their existing startup behavior is unchanged. Enrollment after an
+unrestricted startup has already entered is refused and closes further bypass.
+
+Guarded startup uses the same original migration lease and coordinator port as
+events. It derives its quiet/deadline budget from actual monotonic enrollment
+time; it never invents an old event Hint to pass the event planner. A queued or
+paused event defers startup. Source loss, gap, clock regression, context loss,
+manual recovery and any spent/uncertain attempt terminalize eligibility for both
+paths, including a failed reservation which left durable Ready unchanged.
+
+Healthy/settled-Off reconciliation uses a narrow observation-only lifecycle
+method. A second observation becoming empty, mixed or residual cannot fall
+through to general startup recovery or cleanup. Desired state is rechecked after
+the last lifecycle observation before preparation or cache adoption. Observation
+does not repair pointers, alter store digest, stop a residual Off owner, write
+intent or increment revision. This is a cooperating original-lease contract,
+not protection against an arbitrary malicious same-user filesystem writer.
+
+The fixed fixture seeds Ready only in its fresh exclusive directory before
+enrollment. Missing or mismatched receipts never initialize it. A restarted
+fixture creates a new owner instance and refuses the old Ready, Reserved or
+Finished record before any automatic effect. This closes the shared **dormant
+fixture** trigger boundary, not production Ready provisioning or restart identity.
+Supervised event/control-socket integration and actual runtime dispatcher hooks
+are a separate review milestone; no new real process fixture is exercised here.
 
 ## Fixed developer entry
 
@@ -109,11 +150,12 @@ not inject faults inside write/fsync/rename. Source and effect operate serially
 in one fixture owner; real scheduler cancellation/lease ordering remains part
 of integration review.
 
-The existing startup reconciler can recover once in a new process and is
-unchanged. Therefore this candidate cannot be installed as a production event
-worker until startup and event paths share a durable attempt/recovery barrier.
-Restart refusal here is explicitly event-path evidence, not a cross-trigger
-product guarantee. A later stable epoch cannot bypass unresolved reservation.
+The normal production factories still have no network barrier enrollment,
+trusted Ready provisioner, host binding implementation or event source. The
+shared dormant guard therefore cannot be advertised as product recovery. Actual
+factory/dispatcher enrollment, supervised source cancellation, restart provenance
+and durable production storage remain required activation gates. A later stable
+epoch cannot bypass an unresolved reservation.
 
 Primary and independent exact-head review must cover the changed recovery seam
 and complete reached dependency boundary before any host activation. Dev VM

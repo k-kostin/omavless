@@ -224,6 +224,10 @@ pub struct LifecycleExecutor<H> {
     paths: DesiredPaths,
     uid: u32,
     actual: ActualState,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    network_recovery_guard: bool,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    startup_reconciliation_entered: bool,
 }
 
 impl<H: LifecycleHost> LifecycleExecutor<H> {
@@ -234,6 +238,10 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             paths,
             uid,
             actual: ActualState::Disconnected,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            network_recovery_guard: false,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            startup_reconciliation_entered: false,
         }
     }
 
@@ -686,14 +694,52 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         expected: &DesiredState,
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let desired = self.read()?;
-        if &desired != expected || !desired.connected {
+        if !self.network_recovery_guard || &desired != expected || !desired.connected {
             return Err(LifecycleError::ManualRecoveryRequired);
         }
         let observed = self.observe_or_manual(&desired)?;
         if reconcile(&desired, observed) != ReconcileAction::RecoverConnected {
             return Err(LifecycleError::ManualRecoveryRequired);
         }
+        if self.read()? != desired {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
         self.recover_connected_empty(&desired)
+    }
+
+    /// Install once before developer startup. No detach/reset API exists; this
+    /// also closes the profile-preserving path's call into general startup.
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn install_network_recovery_guard(&mut self) -> Result<(), LifecycleError> {
+        let refused = self.network_recovery_guard || self.startup_reconciliation_entered;
+        self.network_recovery_guard = true;
+        if refused {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        Ok(())
+    }
+
+    /// Narrow read-only reconciliation. A second observation may invalidate
+    /// healthy/Off facts, but can NEVER turn into recovery or owned cleanup.
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn observe_network_only(
+        &mut self,
+        expected: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let desired = self.read()?;
+        if !self.network_recovery_guard || &desired != expected {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let observed = self.observe_or_manual(&desired)?;
+        if self.read()? != desired {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = match reconcile(&desired, observed) {
+            ReconcileAction::AdoptConnected => ActualState::Connected,
+            ReconcileAction::SettledDisconnected => ActualState::Disconnected,
+            _ => return Err(LifecycleError::ManualRecoveryRequired),
+        };
+        Ok(self.outcome(&desired, false))
     }
 
     fn recover_connected_empty(
@@ -733,6 +779,14 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
     /// must not loop this method after `RecoveryFailed`; a fresh owner process
     /// may attempt one new bounded recovery after re-observation.
     pub fn reconcile_startup(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if self.network_recovery_guard {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        {
+            self.startup_reconciliation_entered = true;
+        }
         let desired = self.read()?;
         let observed = self.observe_or_manual(&desired)?;
         match reconcile(&desired, observed) {

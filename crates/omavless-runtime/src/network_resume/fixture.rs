@@ -5,10 +5,7 @@ use crate::cutover::CutoverPaths;
 use crate::cutover::MigrationLock;
 use crate::desired::{DesiredPaths, OwnedObservation, RoutingMode, read_desired, write_desired};
 use crate::lifecycle::{HostStepError, LifecycleHost};
-use crate::native_coordinator::{
-    OfflineNativeCoordinator,
-    network_resume::{Port, ResumeBinding},
-};
+use crate::native_coordinator::{OfflineNativeCoordinator, network_resume::ResumeBinding};
 use omavless_store::atomic_replace_private;
 use serde_json::json;
 use std::fs::{self, DirBuilder};
@@ -53,10 +50,24 @@ struct Host {
     fail_start: bool,
     fail_stop: bool,
     change_after_observation: Option<(usize, DesiredPaths, u32, DesiredState)>,
+    #[cfg(test)]
+    change_observation_at: Option<(usize, OwnedObservation)>,
+    #[cfg(test)]
+    panic_observation_at: Option<usize>,
 }
 impl LifecycleHost for Host {
     fn observe(&mut self, _: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         self.observations += 1;
+        #[cfg(test)]
+        if self.panic_observation_at == Some(self.observations) {
+            panic!("fixed fixture observation lost");
+        }
+        #[cfg(test)]
+        if let Some((at, observed)) = self.change_observation_at
+            && at == self.observations
+        {
+            self.observed = observed;
+        }
         if let Some((after, path, uid, target)) = &self.change_after_observation
             && self.observations == *after
         {
@@ -109,17 +120,23 @@ struct Fixture {
     root: PathBuf,
     receipt: PathBuf,
     desired: DesiredPaths,
+    #[cfg(test)]
     cutover: CutoverPaths,
     uid: u32,
     coordinator: OfflineNativeCoordinator<Host>,
     context: Context,
-    owner: EventOwner,
     source: Source,
     writer: UnixStream,
     sequence: u64,
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_intent(true)
+    }
+    fn with_intent(connected: bool) -> Self {
+        Self::with_guard(connected, true)
+    }
+    fn with_guard(connected: bool, guard: bool) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "ov-network-resume-{}-{}",
@@ -141,9 +158,13 @@ impl Fixture {
         .unwrap();
         let desired = DesiredPaths::below(&root);
         let target = DesiredState {
-            connected: true,
+            connected,
             generation: 12,
-            profile_id: PROFILE.to_owned(),
+            profile_id: if connected {
+                PROFILE.to_owned()
+            } else {
+                String::new()
+            },
             mode: RoutingMode::Rule,
             ..DesiredState::default()
         };
@@ -157,7 +178,7 @@ impl Fixture {
             "startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},
             "onboardingComplete":true
         })).unwrap(), uid).unwrap();
-        let coordinator = OfflineNativeCoordinator::new_ownership_gated(
+        let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
             Host {
                 observed: empty(),
                 unavailable: false,
@@ -169,6 +190,10 @@ impl Fixture {
                 fail_start: false,
                 fail_stop: false,
                 change_after_observation: None,
+                #[cfg(test)]
+                change_observation_at: None,
+                #[cfg(test)]
+                panic_observation_at: None,
             },
             desired.clone(),
             &store_path,
@@ -177,7 +202,7 @@ impl Fixture {
             7,
         );
         let context = coordinator.resume_context(BOOT, INSTANCE, 5).unwrap();
-        let receipt = root.join("receipt.json");
+        let receipt = desired.directory.join("network-resume-receipt.json");
         atomic_replace_private(
             &receipt,
             &serde_json::to_vec(&Receipt {
@@ -189,18 +214,22 @@ impl Fixture {
             uid,
         )
         .unwrap();
-        let owner = EventOwner::new(&context).unwrap();
+        if guard {
+            coordinator
+                .install_resume_barrier(BOOT, INSTANCE, 5, 0)
+                .unwrap();
+        }
         let (reader, writer) = UnixStream::pair().unwrap();
         let source = Source::owned(reader, std::process::id(), uid, &context).unwrap();
         Self {
             root,
             receipt,
             desired,
+            #[cfg(test)]
             cutover,
             uid,
             coordinator,
             context,
-            owner,
             source,
             writer,
             sequence: 0,
@@ -213,7 +242,50 @@ impl Fixture {
     fn send_sequence(&mut self, kind: Kind, tick: u64, sequence: u64) {
         serde_json::to_writer(&mut self.writer, &Frame { sequence, kind }).unwrap();
         self.writer.write_all(b"\n").unwrap();
-        self.owner.receive(&mut self.source, &self.context, tick);
+        self.receive(tick);
+    }
+    fn receive(&mut self, tick: u64) {
+        self.coordinator.resume_receive(&mut self.source, tick);
+    }
+    #[cfg(test)]
+    fn status(&self) -> Status {
+        self.coordinator.resume_status()
+    }
+    fn projection(&self) -> serde_json::Value {
+        self.coordinator.resume_projection()
+    }
+    fn startup(&mut self, tick: u64) -> usize {
+        self.coordinator
+            .resume_startup(&mut self.source, tick, false, false, None)
+    }
+    #[cfg(test)]
+    fn restart(&mut self, instance: [u8; 16]) {
+        let target = read_desired(&self.desired, self.uid).unwrap();
+        self.coordinator = OfflineNativeCoordinator::new_ownership_gated(
+            Host {
+                observed: empty(),
+                unavailable: false,
+                safe: true,
+                binding_target: target,
+                observations: 0,
+                bindings: 0,
+                changes: Vec::new(),
+                fail_start: false,
+                fail_stop: false,
+                change_after_observation: None,
+                change_observation_at: None,
+                panic_observation_at: None,
+            },
+            self.desired.clone(),
+            &self.root.join("profiles.json"),
+            self.cutover.clone(),
+            self.uid,
+            7,
+        );
+        self.context = self.coordinator.resume_context(BOOT, instance, 5).unwrap();
+        self.coordinator
+            .install_resume_barrier(BOOT, instance, 5, 0)
+            .unwrap();
     }
     fn poll(&mut self, tick: u64, fail_before: bool, fail_after: bool) -> usize {
         self.poll_fault(tick, fail_before, fail_after, None)
@@ -225,27 +297,8 @@ impl Fixture {
         fail_after: bool,
         fault_phase: Option<Phase>,
     ) -> usize {
-        let lease = match self.coordinator.resume_lease() {
-            Ok(lease) => lease,
-            Err(_) => {
-                self.owner.pending = None;
-                self.owner.status = Status::ManualRecovery;
-                return 0;
-            }
-        };
-        let mut journal = Files {
-            receipt: &self.receipt,
-            lease: &lease,
-            paths: &self.cutover,
-            uid: self.uid,
-            fail_before,
-            fail_after,
-            fault_phase,
-        };
-        let mut port = Port::new(&mut self.coordinator, &lease, &self.context, tick);
-        self.owner
-            .poll(&mut self.source, tick, &mut journal, &mut port);
-        port.effect_calls
+        self.coordinator
+            .resume_poll(&mut self.source, tick, fail_before, fail_after, fault_phase)
     }
     fn phase(&self) -> Phase {
         decode(fs::read(&self.receipt).unwrap().as_slice())
@@ -281,7 +334,8 @@ pub(super) fn run_developer_fixture() -> serde_json::Value {
     assert!(read_desired(&fixture.desired, fixture.uid).unwrap() == fixture.context.desired);
     fixture.send(Kind::Resume, 106);
     assert_eq!(fixture.poll(109, false, false), 0);
-    let mut report = fixture.owner.status_projection();
+    assert_eq!(fixture.startup(110), 0);
+    let mut report = fixture.projection();
     report["scope"] = json!("owned_fixture");
     report["effectCalls"] = json!(effects);
     report["revision"] = json!(fixture.coordinator.revision());

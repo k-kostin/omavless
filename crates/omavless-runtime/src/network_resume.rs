@@ -49,7 +49,7 @@ struct Frame {
 /// Fixture attribution only: kernel-reported peer PID/UID, a pinned owned
 /// stream, and trusted receiver boot/instance. PID is not process-lifetime proof
 /// and this does not establish logind/NetworkManager/netlink authenticity.
-struct Source {
+pub(crate) struct Source {
     reader: BufReader<UnixStream>,
     boot: [u8; 16],
     instance: [u8; 16],
@@ -60,7 +60,7 @@ struct Source {
 }
 
 impl Source {
-    fn quiescent(&mut self) -> Result<(), Refused> {
+    pub(crate) fn quiescent(&mut self) -> Result<(), Refused> {
         if self.lost {
             return Err(Refused);
         }
@@ -81,6 +81,9 @@ impl Source {
             return Err(Refused);
         }
         Ok(())
+    }
+    pub(crate) fn matches(&self, fence: Fence) -> bool {
+        self.boot == fence.boot && self.instance == fence.owner_instance
     }
     fn owned(stream: UnixStream, pid: u32, uid: u32, context: &Context) -> Result<Self, Refused> {
         let peer = getsockopt(&stream, PeerCredentials).map_err(|_| Refused)?;
@@ -162,7 +165,7 @@ impl Source {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Status {
+pub(crate) enum Status {
     Idle,
     Paused,
     Checking,
@@ -180,17 +183,61 @@ struct Pending {
 
 /// Construct once for one owner/established Ready fence. There is no rearm or
 /// source-reconnect method. Stable-epoch provisioning is outside this fixture.
-struct EventOwner {
+pub(crate) struct EventOwner {
     fence: Fence,
-    admission: Admission,
+    pub(crate) admission: Admission,
     pending: Option<Pending>,
     last_tick: Option<u64>,
     paused: bool,
-    status: Status,
+    pub(crate) status: Status,
+    pub(crate) eligibility: Eligibility,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Eligibility {
+    Open,
+    Finished,
+    Blocked,
+}
+
+pub(crate) struct RecoveryBarrier {
+    pub(crate) context: Context,
+    pub(crate) receipt: std::path::PathBuf,
+    pub(crate) enrolled_tick: u64,
+    pub(crate) events: EventOwner,
+}
+
+pub(crate) enum BarrierSlot {
+    Absent,
+    Installed(Box<RecoveryBarrier>),
+    /// Extraction never leaves Absent. Unwinding retains this permanent refusal.
+    InFlight,
+    Blocked,
+}
+impl BarrierSlot {
+    pub(crate) fn installed(&self) -> bool {
+        !matches!(self, Self::Absent)
+    }
+}
+
+impl RecoveryBarrier {
+    pub(crate) fn new(
+        context: Context,
+        receipt: std::path::PathBuf,
+        enrolled_tick: u64,
+    ) -> Result<Self, Refused> {
+        let events = EventOwner::new(&context)?;
+        Ok(Self {
+            context,
+            receipt,
+            enrolled_tick,
+            events,
+        })
+    }
 }
 
 impl EventOwner {
-    fn status_projection(&self) -> serde_json::Value {
+    pub(crate) fn status_projection(&self) -> serde_json::Value {
         // Fixed coarse state only; no boot/owner IDs, profile, digest, SSID,
         // address, raw event payload or claim of DNS/route health.
         serde_json::json!({"schema":1,"state":self.status})
@@ -203,18 +250,23 @@ impl EventOwner {
             last_tick: None,
             paused: false,
             status: Status::Idle,
+            eligibility: Eligibility::Open,
         })
     }
 
-    fn available(&mut self, tick: u64) -> bool {
-        if matches!(
-            self.status,
-            Status::ManualRecovery | Status::SourceUnavailable | Status::Recovered
-        ) || self.last_tick.is_some_and(|previous| tick < previous)
+    pub(crate) fn available(&mut self, tick: u64) -> bool {
+        self.sync_eligibility();
+        if self.eligibility != Eligibility::Open
+            || matches!(
+                self.status,
+                Status::ManualRecovery | Status::SourceUnavailable | Status::Recovered
+            )
+            || self.last_tick.is_some_and(|previous| tick < previous)
         {
             self.pending = None;
             if self.last_tick.is_some_and(|previous| tick < previous) {
                 self.status = Status::SourceUnavailable;
+                self.eligibility = Eligibility::Blocked;
             }
             return false;
         }
@@ -222,7 +274,30 @@ impl EventOwner {
         true
     }
 
-    fn receive(&mut self, source: &mut Source, context: &Context, tick: u64) {
+    pub(crate) fn sync_eligibility(&mut self) {
+        if self.eligibility != Eligibility::Open {
+            return;
+        }
+        self.eligibility = match self.status {
+            Status::Recovered => Eligibility::Finished,
+            Status::SourceUnavailable | Status::ManualRecovery | Status::Cancelled => {
+                Eligibility::Blocked
+            }
+            _ => Eligibility::Open,
+        };
+    }
+
+    pub(crate) fn startup_deferred(&self) -> bool {
+        self.paused || self.pending.is_some()
+    }
+    #[cfg(test)]
+    pub(crate) fn pending_tick(&self) -> Option<u64> {
+        self.pending
+            .as_ref()
+            .map(|pending| pending.hint.last_hint_tick)
+    }
+
+    pub(crate) fn receive(&mut self, source: &mut Source, context: &Context, tick: u64) {
         if !self.available(tick) {
             return;
         }
@@ -271,7 +346,7 @@ impl EventOwner {
         self.status = Status::Checking;
     }
 
-    fn poll(
+    pub(crate) fn poll(
         &mut self,
         source: &mut Source,
         tick: u64,
@@ -344,9 +419,9 @@ impl EventOwner {
     }
 }
 
-struct SourcePort<'a, P> {
-    source: &'a mut Source,
-    port: &'a mut P,
+pub(crate) struct SourcePort<'a, P> {
+    pub(crate) source: &'a mut Source,
+    pub(crate) port: &'a mut P,
 }
 impl<P: Observation> Observation for SourcePort<'_, P> {
     fn current(&mut self) -> Result<(Fence, plan::Current), Refused> {
@@ -362,14 +437,14 @@ impl<P: Observation> Observation for SourcePort<'_, P> {
 /// Only used below a trusted exclusive fixture directory and under the original
 /// MigrationLock. It intentionally does not claim pinned-dirfd/power-loss or
 /// rollback-resistant production provisioning. Absent state is never seeded.
-struct Files<'a> {
-    receipt: &'a Path,
-    lease: &'a crate::cutover::MigrationLock,
-    paths: &'a crate::cutover::CutoverPaths,
-    uid: u32,
-    fail_before: bool,
-    fail_after: bool,
-    fault_phase: Option<Phase>,
+pub(crate) struct Files<'a> {
+    pub(crate) receipt: &'a Path,
+    pub(crate) lease: &'a crate::cutover::MigrationLock,
+    pub(crate) paths: &'a crate::cutover::CutoverPaths,
+    pub(crate) uid: u32,
+    pub(crate) fail_before: bool,
+    pub(crate) fail_after: bool,
+    pub(crate) fault_phase: Option<Phase>,
 }
 
 impl Journal for Files<'_> {
