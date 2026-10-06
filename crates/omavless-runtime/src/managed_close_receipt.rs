@@ -4,6 +4,10 @@
 use serde::Deserialize;
 
 pub(crate) const SCHEMA: &str = "omavless-managed-dns-close-pair-v1";
+pub(crate) const K1_SCHEMA: &str = "omavless-managed-dns-k1-close-pair-v1";
+pub(crate) const K1_PATCH: &str =
+    "be7929ec02c71c57b65b050abb495315b33f2653184afabd30ec97b868d17cc4";
+const K1_SOURCE: &str = "08194a275d315db7ca502e50f960c80af6dc163b";
 pub(crate) const CLOSE_PATCH: &str =
     "0858827e1af00c3ed3196f021b0dbc76ce34a8de7aa7130d7085614d149acc8f";
 const DNS_PATCH: &str = "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37";
@@ -39,6 +43,12 @@ struct Receipt {
     conditional_close_abi: u8,
     go_cgo: bool,
     go_buildvcs: bool,
+    #[serde(default, deserialize_with = "present_string")]
+    managed_device: Option<String>,
+    #[serde(default, deserialize_with = "present_string")]
+    enrollment_policy: Option<String>,
+    #[serde(default, deserialize_with = "present_string")]
+    managed_device_source: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,6 +59,17 @@ struct Patches {
     tun: String,
     #[serde(rename = "mihomo-conditional-close.patch")]
     close: String,
+    #[serde(
+        rename = "mihomo-k1-device.patch",
+        default,
+        deserialize_with = "present_string"
+    )]
+    k1: Option<String>,
+}
+fn present_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    // Missing field may be None, but an explicit null/bool/number is invalid;
+    // it cannot masquerade as the exact three-field schema.
+    String::deserialize(d).map(Some)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,7 +139,8 @@ pub(crate) fn decode(raw: &[u8], architecture: &str) -> Result<Hashes, ()> {
         _ => return Err(()),
     };
     let r: Receipt = serde_json::from_slice(raw).map_err(|_| ())?;
-    if r.schema != SCHEMA
+    let k1 = r.schema == K1_SCHEMA;
+    if !matches!(r.schema.as_str(), SCHEMA | K1_SCHEMA)
         || r.architecture != architecture
         || !hex(&r.omavless_commit, 20)
         || r.mihomo_commit != MIHOMO
@@ -128,16 +150,46 @@ pub(crate) fn decode(raw: &[u8], architecture: &str) -> Result<Hashes, ()> {
         || r.patch_sha256.dns != DNS_PATCH
         || r.patch_sha256.tun != TUN_PATCH
         || r.patch_sha256.close != CLOSE_PATCH
-        || r.package_flavor != "release-close"
-        || r.broker_feature != "release-package"
+        || r.package_flavor
+            != if k1 {
+                "release-close-k1"
+            } else {
+                "release-close"
+            }
+        || r.broker_feature
+            != if k1 {
+                "k1-managed-device"
+            } else {
+                "release-package"
+            }
         || r.conditional_close_abi != 1
         || r.go_cgo
         || r.go_buildvcs
-        || r.go_build_tags != "with_gvisor"
+        || r.go_build_tags
+            != if k1 {
+                "with_gvisor,omavless_k1_device"
+            } else {
+                "with_gvisor"
+            }
         || r.go_dependency_mode != "vendor"
         || !go_tool(&r.go_version, goarch)
         || !tool(&r.rustc_version, "rustc ")
         || !tool(&r.cargo_version, "cargo ")
+    {
+        return Err(());
+    }
+    if k1 {
+        if r.patch_sha256.k1.as_deref() != Some(K1_PATCH)
+            || r.managed_device.as_deref() != Some("omavless0")
+            || r.enrollment_policy.as_deref() != Some("omavless0-ipv4-development-v1")
+            || r.managed_device_source.as_deref() != Some(K1_SOURCE)
+        {
+            return Err(());
+        }
+    } else if r.patch_sha256.k1.is_some()
+        || r.managed_device.is_some()
+        || r.enrollment_policy.is_some()
+        || r.managed_device_source.is_some()
     {
         return Err(());
     }
@@ -181,6 +233,75 @@ pub(crate) fn fixture(architecture: &str) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn four_family_requires_exact_source_overlay_tag_feature_device_and_new_consent_policy() {
+        for arch in ["x86_64", "aarch64"] {
+            let three = fixture(arch);
+            let mut four = three.clone();
+            four["schema"] = serde_json::json!(K1_SCHEMA);
+            four["package_flavor"] = serde_json::json!("release-close-k1");
+            four["go_build_tags"] = serde_json::json!("with_gvisor,omavless_k1_device");
+            four["broker_feature"] = serde_json::json!("k1-managed-device");
+            four["patch_sha256"]["mihomo-k1-device.patch"] = serde_json::json!(K1_PATCH);
+            four["managed_device"] = serde_json::json!("omavless0");
+            four["enrollment_policy"] = serde_json::json!("omavless0-ipv4-development-v1");
+            four["managed_device_source"] = serde_json::json!(K1_SOURCE);
+            assert!(decode(&serde_json::to_vec(&four).unwrap(), arch).is_ok());
+            assert!(decode(&serde_json::to_vec(&three).unwrap(), arch).is_ok());
+            for key in [
+                "schema",
+                "package_flavor",
+                "go_build_tags",
+                "broker_feature",
+            ] {
+                let mut mixed = four.clone();
+                mixed[key] = three[key].clone();
+                assert!(decode(&serde_json::to_vec(&mixed).unwrap(), arch).is_err());
+            }
+            for key in [
+                "managed_device",
+                "enrollment_policy",
+                "managed_device_source",
+            ] {
+                let mut missing = four.clone();
+                missing.as_object_mut().unwrap().remove(key);
+                assert!(decode(&serde_json::to_vec(&missing).unwrap(), arch).is_err());
+                let mut wrong = four.clone();
+                wrong[key] = serde_json::json!("Meta");
+                assert!(decode(&serde_json::to_vec(&wrong).unwrap(), arch).is_err());
+                let mut extra = three.clone();
+                extra[key] = serde_json::Value::Null;
+                assert!(decode(&serde_json::to_vec(&extra).unwrap(), arch).is_err());
+            }
+            for bad in [
+                serde_json::Value::Null,
+                serde_json::json!(false),
+                serde_json::json!(DNS_PATCH),
+            ] {
+                let mut changed = four.clone();
+                changed["patch_sha256"]["mihomo-k1-device.patch"] = bad;
+                assert!(decode(&serde_json::to_vec(&changed).unwrap(), arch).is_err());
+                let mut extended = three.clone();
+                extended["patch_sha256"]["mihomo-k1-device.patch"] = serde_json::Value::Null;
+                assert!(decode(&serde_json::to_vec(&extended).unwrap(), arch).is_err());
+            }
+            let mut missing_patch = four.clone();
+            missing_patch["patch_sha256"]
+                .as_object_mut()
+                .unwrap()
+                .remove("mihomo-k1-device.patch");
+            assert!(decode(&serde_json::to_vec(&missing_patch).unwrap(), arch).is_err());
+            let raw = serde_json::to_string(&four).unwrap();
+            let duplicate = raw.replace(
+                "\"mihomo-k1-device.patch\":",
+                "\"mihomo-k1-device.patch\":\"invalid\",\"mihomo-k1-device.patch\":",
+            );
+            assert!(decode(duplicate.as_bytes(), arch).is_err());
+            let mut old = four;
+            old["enrollment_policy"] = serde_json::json!("meta-ipv4-release-v1");
+            assert!(decode(&serde_json::to_vec(&old).unwrap(), arch).is_err());
+        }
+    }
     #[test]
     fn exact_family_requires_all_three_patches_abi_and_native_architecture() {
         for arch in ["x86_64", "aarch64"] {

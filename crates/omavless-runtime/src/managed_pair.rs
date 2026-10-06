@@ -302,6 +302,22 @@ mod tests {
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
         let uid = nix::unistd::getuid().as_raw();
         assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_ok());
+        // The second qualified family shares compatibility verification only,
+        // never a permit. No device/consent family may be inferred from ABI.
+        value["schema"] = json!(crate::managed_close_receipt::K1_SCHEMA);
+        value["package_flavor"] = json!("release-close-k1");
+        value["broker_feature"] = json!("k1-managed-device");
+        value["go_build_tags"] = json!("with_gvisor,omavless_k1_device");
+        value["patch_sha256"]["mihomo-k1-device.patch"] =
+            json!(crate::managed_close_receipt::K1_PATCH);
+        value["managed_device"] = json!("omavless0");
+        value["enrollment_policy"] = json!("omavless0-ipv4-development-v1");
+        value["managed_device_source"] = json!("08194a275d315db7ca502e50f960c80af6dc163b");
+        write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_ok());
+        value["enrollment_policy"] = json!("meta-ipv4-release-v1");
+        write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_err());
         value["conditional_close_abi"] = json!(true);
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
         assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_err());

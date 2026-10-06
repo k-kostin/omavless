@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Explicit developer pair only; never accepts both device families.
+k1-managed-device = []
+
 [dependencies]
 libc = "=0.2.189"
 rustix = { version = "=1.1.5", features = ["fs", "net", "process"] }

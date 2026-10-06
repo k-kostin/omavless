@@ -25,6 +25,10 @@ PINNED_PATCHES = {
 CLOSE_SCHEMA = "omavless-managed-dns-close-pair-v1"
 CLOSE_PATCH = "0858827e1af00c3ed3196f021b0dbc76ce34a8de7aa7130d7085614d149acc8f"
 CLOSE_PATCHES = PINNED_PATCHES | {"mihomo-conditional-close.patch": CLOSE_PATCH}
+K1_CLOSE_SCHEMA = "omavless-managed-dns-k1-close-pair-v1"
+K1_PATCH = "be7929ec02c71c57b65b050abb495315b33f2653184afabd30ec97b868d17cc4"
+K1_SOURCE = "08194a275d315db7ca502e50f960c80af6dc163b"
+K1_CLOSE_PATCHES = CLOSE_PATCHES | {"mihomo-k1-device.patch": K1_PATCH}
 PAIR_FILES = ("mihomo", "omavless-dns-broker", "corresponding-source.tar.xz",
               "mihomo.LICENSE", "sing-tun.LICENSE", "omavless.LICENSE")
 RECEIPT_KEYS = {"schema", "architecture", "omavless_commit", "mihomo_commit",
@@ -34,9 +38,12 @@ RECEIPT_KEYS = {"schema", "architecture", "omavless_commit", "mihomo_commit",
                 "cargo_version", "sha256"}
 RELEASE_RECEIPT_KEYS = RECEIPT_KEYS | {"package_flavor", "broker_feature"}
 CLOSE_RECEIPT_KEYS = RELEASE_RECEIPT_KEYS | {"conditional_close_abi", "go_cgo", "go_buildvcs"}
+K1_CLOSE_RECEIPT_KEYS = CLOSE_RECEIPT_KEYS | {"managed_device", "enrollment_policy", "managed_device_source"}
 
 
 def pair_policy(flavor):
+    if flavor == "release-close-k1":
+        return K1_CLOSE_RECEIPT_KEYS, K1_CLOSE_SCHEMA, K1_CLOSE_PATCHES
     if flavor == "release-close":
         return CLOSE_RECEIPT_KEYS, CLOSE_SCHEMA, CLOSE_PATCHES
     if flavor in ("experimental", "release"):
@@ -146,19 +153,23 @@ def reviewed_pair(directory, architecture, revision, flavor="experimental"):
             or receipt.get("omavless_commit") != revision
             or (flavor == "release" and (receipt.get("package_flavor") != "release"
                                                or receipt.get("broker_feature") != "release-package"))
-            or (flavor == "release-close" and (
-                receipt.get("package_flavor") != "release-close"
-                or receipt.get("broker_feature") != "release-package"
+            or (flavor in ("release-close", "release-close-k1") and (
+                receipt.get("package_flavor") != flavor
+                or receipt.get("broker_feature") != ("k1-managed-device" if flavor == "release-close-k1" else "release-package")
                 or type(receipt.get("conditional_close_abi")) is not int
                 or receipt["conditional_close_abi"] != 1
                 or receipt.get("go_cgo") is not False
                 or receipt.get("go_buildvcs") is not False))
+            or (flavor == "release-close-k1" and (
+                receipt.get("managed_device") != "omavless0"
+                or receipt.get("enrollment_policy") != "omavless0-ipv4-development-v1"
+                or receipt.get("managed_device_source") != K1_SOURCE))
             or receipt.get("mihomo_commit") != PINNED_MIHOMO
             or receipt.get("mihomo_tag") != "v1.19.31"
             or receipt.get("sing_tun_commit") != PINNED_SING_TUN
             or receipt.get("sing_tun_tag") != "v0.4.24"
             or receipt.get("patch_sha256") != expected_patches
-            or receipt.get("go_build_tags") != "with_gvisor"
+            or receipt.get("go_build_tags") != ("with_gvisor,omavless_k1_device" if flavor == "release-close-k1" else "with_gvisor")
             or receipt.get("go_dependency_mode") != "vendor"
             or not isinstance(receipt.get("sha256"), dict)
             or set(receipt["sha256"]) != set(PAIR_FILES)
@@ -189,10 +200,14 @@ def reviewed_pair(directory, architecture, revision, flavor="experimental"):
     required = {"mihomo/go.mod", "mihomo/vendor/modules.txt", "mihomo/LICENSE",
                 "sing-tun/go.mod", "sing-tun/LICENSE", "omavless/Cargo.lock",
                 "omavless/LICENSE"}
-    if flavor == "release-close":
+    if flavor in ("release-close", "release-close-k1"):
         required |= {"mihomo/hub/route/connections.go", "mihomo/hub/route/conditional_close_test.go",
                      "mihomo/tunnel/statistic/manager.go", "mihomo/tunnel/statistic/tracker.go",
                      "mihomo/tunnel/statistic/conditional_close_test.go"}
+    if flavor == "release-close-k1":
+        required |= {"mihomo/listener/sing_tun/system_dns_device_k1.go",
+                     "mihomo/listener/sing_tun/system_dns_device_legacy.go",
+                     "mihomo/listener/sing_tun/system_dns_device_test.go"}
     seen = set()
     try:
         with tarfile.open(fileobj=io.BytesIO(payload["corresponding-source.tar.xz"]),
@@ -211,7 +226,7 @@ def reviewed_pair(directory, architecture, revision, flavor="experimental"):
                 seen.add(path)
             if not required <= seen:
                 raise Refused("The corresponding-source archive is incomplete.")
-            if flavor == "release-close" and any(not archive.getmember(name).isfile() for name in required):
+            if flavor in ("release-close", "release-close-k1") and any(not archive.getmember(name).isfile() for name in required):
                 raise Refused("Required conditional sources must be regular files.")
             for source, separate in (("mihomo/LICENSE", "mihomo.LICENSE"),
                                      ("sing-tun/LICENSE", "sing-tun.LICENSE"),

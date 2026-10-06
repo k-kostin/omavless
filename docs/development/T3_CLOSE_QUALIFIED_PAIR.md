@@ -125,10 +125,59 @@ affected review and exact new public artifacts are required before any VM
 selection. Default exposure, release adoption, ARM64/installed acceptance and
 whole T3/C1 remain unclaimed.
 
-K1's separately frozen managed-device overlay/tag/broker/enrollment policy is
-not inferred by this family. Its fourth-patch qualification will be a distinct
-explicit family/mode after scoped source/pin review; Meta-only three-patch and
-legacy behavior are retained.
+## Separate four-patch managed-device candidate
+
+The explicitly selected `release-close-k1` builder / `k1-close-qualified`
+stager family has exact schema `omavless-managed-dns-k1-close-pair-v1`.
+It requires the three unchanged patches above plus the public K1 overlay
+be7929ec02c71c57b65b050abb495315b33f2653184afabd30ec97b868d17cc4
+from frozen08194a275d315db7ca502e50f960c80af6dc163b. The source
+integration copies only its nine DNS crate files, overlay and owning contract;
+no netguard/runtime-stack activation is imported. K1's later31f8822 fixture-map
+correction belongs to tests/features absent from this branch and is not an
+excuse to add a dormant unrelated runtime feature.
+
+Required receipt fields bind `managed_device=omavless0`,
+`enrollment_policy=omavless0-ipv4-development-v1` and that exact source commit.
+Go tags must be `with_gvisor,omavless_k1_device`; broker Cargo feature must be
+`k1-managed-device` (including release-package and the leaf's fixed-device
+feature). Unknown, duplicate, null, absent or crossed fields refuse. Both
+qualified decoders return hashes only; the same original Session qualification,
+sticky refusal, retained package/core/controller/selector graph and ProofFlight
+remain unchanged. No additional permit or runtime feature flag authorizes close.
+
+The source-only feature selects exactly omavless0 across the Go listener and
+Rust HeldTun/index/netns rechecks. Feature-absent builds retain exactly Meta.
+Enrollment consent policies are distinct; old Meta consent never admits the
+new family. No arbitrary device-name input or wire ABI change is introduced.
+The source archive additionally requires both fixed build-tag files and their
+test. The four-family producer requires the explicit original
+TestSystemDNSDeviceFlavorExclusive run/pass/package-pass receipt as well as the
+unchanged broader DNS tests and seven conditional primitive receipts. A
+successful zero-case command cannot qualify it.
+
+This four-family SOURCE candidate has not been built/staged/run in a VM.
+Next: separately reviewed frozen native producer, exact artifacts and normal
+package-path original-Session/socket gate, then the distinct genuine managed
+TUN/broker/lifecycle gate. The three-family result below is not four-family,
+installed native-owner, DNS-ready or K1 protection evidence. Default package,
+public close-method exposure, release assembler and distribution stay unchanged.
+
+Four-family local SOURCE gates returned0: receipt3 and compatibility4;
+TUN leaf15 default/15 K1; broker52 default,52 release and52 K1 (one existing
+host-composition case ignored in each build); strict all-target DNS default/K1
+and developer runtime Clippy; runtime default check; package21 controls;
+unchanged scheduling/default-boundary5; formatter, whitespace, exact overlay
+hash and documentation navigation. The release/K1 broker gates use a serial
+test harness and short private HOME temporary directory. An earlier parallel
+release run returned101 with two unchanged journal reopen Refused errors;
+that original failure is preserved, not called PASS or assigned a cause by
+these subsequent source gates. No journal production code was changed.
+The first full Python run had a too-long inherited Unix-socket fixture path;
+the separate short-HOME-TMPDIR run passed without changing that fixture.
+An initial Rust command named a nonexistent TUI feature and refused before
+compilation; the corrected existing developer feature gates above passed.
+Full combined CI and native producer/device/VM gates remain separate.
 
 SOURCE checkpoint gates returned original0: strict receipt2; retained local
 objects/Arc3; managed-pair compatibility4; package mode/producer receipt2;

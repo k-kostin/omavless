@@ -31,6 +31,55 @@ EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFile
 
 
 class PackageTests(unittest.TestCase):
+    def test_four_family_requires_actual_device_test_not_zero_case_metadata(self):
+        package = next(iter(build_pair.DEVICE_TESTS))
+        name = next(iter(build_pair.DEVICE_TESTS[package]))
+        events = [{"Action":"start","Package":package},
+                  {"Action":"run","Package":package,"Test":name},
+                  {"Action":"pass","Package":package,"Test":name},
+                  {"Action":"pass","Package":package}]
+        wire = lambda xs: b"".join(json.dumps(x).encode()+b"\n" for x in xs)
+        build_pair.tests_completed(wire(events),build_pair.DEVICE_TESTS)
+        for cut in range(len(events)):
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(events[:cut]+events[cut+1:]),build_pair.DEVICE_TESTS)
+        for bad in (events+events,list(reversed(events)),events[:1]+events[-1:]):
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(bad),build_pair.DEVICE_TESTS)
+        for action in ("skip","fail"):
+            changed=[dict(e) for e in events];changed[2]["Action"]=action
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(changed),build_pair.DEVICE_TESTS)
+
+    def test_four_family_is_exact_and_crosses_no_legacy_or_three_family_consent(self):
+        path=self.pair/"source-receipt.json";receipt=json.loads(path.read_text())
+        receipt.update(schema=stage.K1_CLOSE_SCHEMA,package_flavor="release-close-k1",broker_feature="k1-managed-device",
+            patch_sha256=stage.K1_CLOSE_PATCHES,conditional_close_abi=1,go_cgo=False,go_buildvcs=False,
+            go_build_tags="with_gvisor,omavless_k1_device",managed_device="omavless0",
+            enrollment_policy="omavless0-ipv4-development-v1",managed_device_source=stage.K1_SOURCE)
+        src=self.pair/"corresponding-source.tar.xz";rebuilt=io.BytesIO()
+        with tarfile.open(src,"r:xz") as old, tarfile.open(fileobj=rebuilt,mode="w:xz") as new:
+            for m in old:new.addfile(m,old.extractfile(m) if m.isfile() else None)
+            for name in ("hub/route/connections.go","hub/route/conditional_close_test.go","tunnel/statistic/manager.go",
+                "tunnel/statistic/tracker.go","tunnel/statistic/conditional_close_test.go",
+                "listener/sing_tun/system_dns_device_k1.go","listener/sing_tun/system_dns_device_legacy.go",
+                "listener/sing_tun/system_dns_device_test.go"):
+                body=b"public source presence fixture";m=tarfile.TarInfo("mihomo/"+name);m.size=len(body);new.addfile(m,io.BytesIO(body))
+        src.write_bytes(rebuilt.getvalue());receipt["sha256"]["corresponding-source.tar.xz"]=hashlib.sha256(rebuilt.getvalue()).hexdigest()
+        path.write_text(json.dumps(receipt))
+        stage.reviewed_pair(self.pair,"aarch64","a"*40,"release-close-k1")
+        with mock.patch.object(stage,"outside_git_destination",side_effect=lambda p:Path(p)):
+            release_stage.stage(self.pair,"aarch64","a"*40,self.root/"four","k1-close-qualified")
+        for flavor in ("experimental","release","release-close"):
+            with self.assertRaises(stage.Refused):stage.reviewed_pair(self.pair,"aarch64","a"*40,flavor)
+        for key,bad in (("go_build_tags","with_gvisor"),("broker_feature","release-package"),
+            ("managed_device","Meta"),("enrollment_policy","meta-ipv4-release-v1"),
+            ("managed_device_source","a"*40),("conditional_close_abi",True)):
+            changed=dict(receipt);changed[key]=bad;path.write_text(json.dumps(changed))
+            with self.assertRaises(stage.Refused):stage.reviewed_pair(self.pair,"aarch64","a"*40,"release-close-k1")
+        self.assertEqual(build_pair.digest(build_pair.PATCHES/"mihomo-k1-device.patch"),stage.K1_PATCH)
+        self.assertEqual(stage.pair_policy("release-close")[2],stage.CLOSE_PATCHES)
+
     def test_qualified_public_source_failure_is_fixed_phase_bounded_and_legacy_quiet(self):
         from types import SimpleNamespace
         result=SimpleNamespace(returncode=1,stderr=b"public compiler error\x1b"+b"x"*20000,stdout=b"public output")

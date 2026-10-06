@@ -11,6 +11,17 @@ and atomic ID/token close compare require the distinct three-patch/ABI receipt
 and original Session qualification; neither old DNS patches nor an ABI boolean
 grant close authority. Default build/staging and release activation are unchanged.
 
+The distinct explicit `release-close-k1` candidate also retains
+`mihomo-k1-device.patch` from public08194a275d315db7ca502e50f960c80af6dc163b,
+SHA256 `be7929ec02c71c57b65b050abb495315b33f2653184afabd30ec97b868d17cc4`.
+Its build tag `omavless_k1_device` fixes the policy to omavless0; without that
+tag Meta remains the only allowed device. This is GPL-3.0 Mihomo source and is
+included with its licenses in the corresponding source archive. The separate
+four-patch schema binds that exact overlay/tag, Rust broker/leaf feature and
+distinct enrollment consent policy. Neither the old two-patch receipt nor the
+three-patch Meta family is managed-device qualification. Source-only Rust/mock
+gates do not establish real TUN/broker serving, native startup or installation.
+
 This directory retains the **unpublished, review-only** Mihomo patches needed
 to test DNS-0 for #270. They are not applied by the ordinary installer, release,
 plugin or CI package. An explicitly staged experimental core using the full
