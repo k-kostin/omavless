@@ -19,6 +19,8 @@ const PUBLIC_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"a
 
 #[path = "native_retained_fault_vm_tests.rs"]
 mod fault_matrix;
+#[path = "native_retained_recovery_vm_tests.rs"]
+mod fresh_recovery;
 
 #[test]
 fn fixed_native_vm_public_archive_fixture_roundtrip_and_optional_export() {

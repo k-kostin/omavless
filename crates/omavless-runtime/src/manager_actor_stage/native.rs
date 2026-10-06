@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 //! Nonescaping genuine-native-session pair engine. No actor or public issuer.
+// Recovery uses a distinct issuer below; normal Session admission is unchanged.
 use super::*;
 use crate::lifecycle::LifecycleHost;
-use crate::native_coordinator::NativeSessionOrigin;
 use crate::native_coordinator::{NativeFirstError as FirstError, PreparedRestorePair};
+use crate::native_coordinator::{NativeRecoveryOrigin, NativeSessionOrigin};
 use std::fs::File;
 const NATIVE_REPLACEMENTS: [(Slot, &str); 2] = [
     (
@@ -15,6 +16,257 @@ const NATIVE_REPLACEMENTS: [(Slot, &str); 2] = [
         crate::restore_executor_candidate::NEW_SLOT[1],
     ),
 ];
+const NATIVE_ROLLBACKS: [(Slot, &str); 2] = [
+    (
+        Slot::RollbackStore,
+        crate::restore_executor_candidate::OLD_SLOT[0],
+    ),
+    (
+        Slot::RollbackTemplate,
+        crate::restore_executor_candidate::OLD_SLOT[1],
+    ),
+];
+const RECOVERED_NEW: [(Slot, &str); 2] = [
+    (
+        Slot::Scratch4,
+        crate::restore_executor_candidate::NEW_SLOT[0],
+    ),
+    (
+        Slot::Scratch5,
+        crate::restore_executor_candidate::NEW_SLOT[1],
+    ),
+];
+// Private dispatch only: two concrete issuer types, never caller-provided grant
+// closures, public trait objects or reconstructed Session snapshots.
+trait NativeGate {
+    fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError>;
+}
+
+#[cfg(test)]
+#[test]
+fn native_recovery_mixed_intent_admission_is_exact_and_non_authoritative() {
+    let members: [&[u8]; 4] = [b"old-store", b"old-template", b"new-store", b"new-template"];
+    let desired =
+        br#"{"schemaVersion":1,"generation":0,"connected":false,"profileId":"","mode":"rule"}"#;
+    let plan = planned_stage_identity(members).unwrap();
+    let intent = DecisionRecord::intent(2, Some(desired), &plan, [7; 16]).unwrap();
+    assert!(
+        mixed_intent_review(
+            &intent.encode(),
+            members,
+            [members[2], members[1]],
+            2,
+            desired
+        )
+        .is_ok()
+    );
+    for current in [
+        [members[0], members[1]],
+        [members[2], members[3]],
+        [members[0], members[3]],
+        [b"corrupt".as_slice(), members[1]],
+    ] {
+        assert!(mixed_intent_review(&intent.encode(), members, current, 2, desired).is_err());
+    }
+    for (generation, bytes) in [
+        (1, desired.as_slice()),
+        (3, desired.as_slice()),
+        (2, b"stale".as_slice()),
+    ] {
+        assert!(
+            mixed_intent_review(
+                &intent.encode(),
+                members,
+                [members[2], members[1]],
+                generation,
+                bytes
+            )
+            .is_err()
+        );
+    }
+    for terminal in [TerminalChoice::Commit, TerminalChoice::Abort] {
+        assert!(
+            mixed_intent_review(
+                &intent.terminal(terminal).unwrap().encode(),
+                members,
+                [members[2], members[1]],
+                2,
+                desired
+            )
+            .is_err()
+        );
+    }
+    let wrong_members: [&[u8]; 4] = [
+        members[0],
+        members[1],
+        b"different authenticated NEW",
+        members[3],
+    ];
+    assert!(
+        mixed_intent_review(
+            &intent.encode(),
+            wrong_members,
+            [members[2], members[1]],
+            2,
+            desired
+        )
+        .is_err()
+    );
+    let encoded = intent.encode();
+    for raw in [&encoded[..RECORD_BYTES - 1], &[0_u8; RECORD_BYTES][..]] {
+        assert!(mixed_intent_review(raw, members, [members[2], members[1]], 2, desired).is_err());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn native_recovery_existing_singleton_busy_and_named_drift_are_real_files() {
+    use std::fs;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::net::UnixListener;
+    for (index, case) in [
+        "positive",
+        "busy",
+        "directory-drift",
+        "lock-drift",
+        "socket-drift",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let root = std::env::temp_dir().join(format!("rs-{:x}-{index}", std::process::id()));
+        assert!(
+            root.join("omavless")
+                .join(crate::SOCKET_NAME)
+                .as_os_str()
+                .as_encoded_bytes()
+                .len()
+                < 108
+        );
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let directory = root.join("omavless");
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(directory.join(crate::OWNER_LOCK_NAME))
+            .unwrap();
+        let socket = UnixListener::bind(directory.join(crate::SOCKET_NAME)).unwrap();
+        fs::set_permissions(
+            directory.join(crate::SOCKET_NAME),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        if case == "busy" {
+            rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+        }
+        let mut engine = NativeEngine::reserve();
+        engine.uid = Some(nix::unistd::getuid().as_raw());
+        engine.gid = Some(nix::unistd::getgid().as_raw());
+        engine.recovery = true;
+        engine.lower.io.native_admit().unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        engine
+            .clone_file(Slot::Run, &File::open(&root).unwrap(), true, until)
+            .unwrap();
+        let result = engine.capture_recovery_singleton(until);
+        if case == "busy" {
+            assert!(result.is_err());
+            assert!(!engine.singleton_locked);
+            assert!(engine.lower.io.test_retains_original(Slot::Lock));
+        } else {
+            result.unwrap();
+            assert!(engine.singleton_locked);
+            assert!(
+                rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+                    .is_err()
+            );
+            engine.check_recovery_singleton(until).unwrap(); // SAME call baseline PASS
+            engine.check_recovery_singleton(until).unwrap(); // complete rescan, no cursor alias
+            match case {
+                "directory-drift" => {
+                    fs::rename(&directory, root.join("original-directory")).unwrap();
+                    fs::DirBuilder::new()
+                        .mode(0o700)
+                        .create(&directory)
+                        .unwrap();
+                }
+                "lock-drift" => {
+                    fs::rename(
+                        directory.join(crate::OWNER_LOCK_NAME),
+                        directory.join("original-lock"),
+                    )
+                    .unwrap();
+                    fs::write(directory.join(crate::OWNER_LOCK_NAME), b"").unwrap();
+                    fs::set_permissions(
+                        directory.join(crate::OWNER_LOCK_NAME),
+                        fs::Permissions::from_mode(0o600),
+                    )
+                    .unwrap();
+                }
+                "socket-drift" => {
+                    fs::rename(
+                        directory.join(crate::SOCKET_NAME),
+                        directory.join("original-socket"),
+                    )
+                    .unwrap();
+                }
+                _ => {}
+            }
+            if case != "positive" {
+                assert!(engine.check_recovery_singleton(until).is_err());
+            }
+        }
+        // Only these known local synthetic objects; never an actor/VM/foreign
+        // original or recovery effect. Production uses the retained Arc holder.
+        drop((engine, socket, lock));
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+fn mixed_intent_review(
+    intent: &[u8],
+    members: [&[u8]; 4],
+    current: [&[u8]; 2],
+    generation: u64,
+    desired: &[u8],
+) -> Result<DecisionChain, FirstError> {
+    let plan = planned_stage_identity(members).map_err(|_| FirstError::Admission)?;
+    let chain = DecisionChain::decode(intent, None).map_err(|_| FirstError::Admission)?;
+    let class = class_from_matches(
+        current[0] == members[0],
+        current[1] == members[1],
+        current[0] == members[2],
+        current[1] == members[3],
+    );
+    if class != LivePairClass::Mixed
+        || current[0] != members[2]
+        || current[1] != members[1]
+        || chain.active().phase() != DecisionPhase::Intent
+        || chain
+            .active()
+            .review_inspection(generation, Some(desired), &plan, class)
+            != RecoveryReview::OldRollbackCandidate
+    {
+        return Err(FirstError::Admission);
+    }
+    Ok(chain)
+}
+impl<H: LifecycleHost> NativeGate for NativeSessionOrigin<'_, H> {
+    fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
+        NativeSessionOrigin::check(self, view)
+    }
+}
+impl NativeGate for NativeRecoveryOrigin<'_> {
+    fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
+        NativeRecoveryOrigin::check(self, view)
+    }
+}
 
 // Original directory membership is a bounded fact of the same held objects,
 // not authority for any additional file. No name allocation after effects.
@@ -67,6 +319,8 @@ pub(crate) struct NativeEngine {
     expected: [Option<(usize, [u8; 32])>; IO_SLOTS],
     catalogues: [NativeCatalogue; 2],
     catalogues_captured: bool,
+    recovery: bool,
+    singleton_locked: bool,
 }
 #[derive(Clone, Copy)]
 pub(crate) struct NativeStageView<'a> {
@@ -78,6 +332,13 @@ impl NativeStageView<'_> {
     }
     pub(crate) fn live_changed(self) -> bool {
         self.engine.lower.live.contains(&LiveRole::Renamed)
+    }
+    pub(crate) fn recovery_exclusive(self) -> bool {
+        self.engine.recovery
+            && self.engine.singleton_locked
+            && !self.engine.sealed
+            && self.engine.lower.io.original(Slot::Root).is_ok()
+            && self.engine.lower.io.original(Slot::Lock).is_ok()
     }
     pub(crate) fn pending_allowed(self, paths: &crate::desired::DesiredPaths, uid: u32) -> bool {
         if self.engine.uid.is_some_and(|original| original != uid) || self.engine.sealed {
@@ -179,16 +440,18 @@ impl NativeEngine {
             expected: [None; IO_SLOTS],
             catalogues: [NativeCatalogue::empty(), NativeCatalogue::empty()],
             catalogues_captured: false,
+            recovery: false,
+            singleton_locked: false,
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn recovery_held(&self) -> bool {
+        self.view().recovery_exclusive()
     }
     fn view(&self) -> NativeStageView<'_> {
         NativeStageView { engine: self }
     }
-    fn gate<H: LifecycleHost>(
-        &mut self,
-        origin: &mut NativeSessionOrigin<'_, H>,
-        until: Instant,
-    ) -> Result<(), FirstError> {
+    fn gate<O: NativeGate>(&mut self, origin: &mut O, until: Instant) -> Result<(), FirstError> {
         tick(until).map_err(|_| FirstError::StillFenced)?;
         self.check_original_bytes(until)?;
         self.check_bindings(until)
@@ -299,6 +562,40 @@ impl NativeEngine {
                 },
             )?;
         }
+        let replacements = if self.recovery {
+            NATIVE_ROLLBACKS
+        } else {
+            NATIVE_REPLACEMENTS
+        };
+        if self.recovery {
+            self.check_recovery_singleton(until)?;
+            if self.lower.original[Slot::Terminal as usize].is_none()
+                && !matches!(
+                    fstatat(
+                        self.lower.io.original(Slot::State)?,
+                        TERMINAL,
+                        AtFlags::AT_SYMLINK_NOFOLLOW
+                    ),
+                    Err(nix::errno::Errno::ENOENT)
+                )
+            {
+                return Err(Unavailable);
+            }
+            for (slot, name) in NATIVE_ROLLBACKS {
+                if self.lower.original[slot as usize].is_none()
+                    && !matches!(
+                        fstatat(
+                            self.lower.io.original(Slot::Config)?,
+                            name,
+                            AtFlags::AT_SYMLINK_NOFOLLOW
+                        ),
+                        Err(nix::errno::Errno::ENOENT)
+                    )
+                {
+                    return Err(Unavailable);
+                }
+            }
+        }
         for index in 0..2 {
             let (old, name) = LIVE[index];
             if self.lower.live[index] == LiveRole::Renamed {
@@ -317,26 +614,39 @@ impl NativeEngine {
                 {
                     return Err(Unavailable);
                 }
-                self.lower.binding(
-                    Slot::Config,
-                    NATIVE_REPLACEMENTS[index].0,
-                    name,
-                    false,
-                    until,
-                )?;
+                self.lower
+                    .binding(Slot::Config, replacements[index].0, name, false, until)?;
             } else {
                 self.lower.binding(Slot::Config, old, name, false, until)?;
             }
         }
         let mut extra_config = [""; 2];
         let mut count = 0;
-        for (index, (slot, name)) in NATIVE_REPLACEMENTS.into_iter().enumerate() {
+        for (index, (slot, name)) in replacements.into_iter().enumerate() {
             if self.lower.original[slot as usize].is_some()
                 && self.lower.live[index] != LiveRole::Renamed
             {
                 self.lower.binding(Slot::Config, slot, name, false, until)?;
-                extra_config[count] = name;
-                count += 1;
+                if self.catalogues[0].index(name.as_bytes()).is_none() {
+                    extra_config[count] = name;
+                    count += 1;
+                }
+            }
+        }
+        if self.recovery {
+            for (slot, name) in RECOVERED_NEW {
+                if self.lower.original[slot as usize].is_some() {
+                    self.lower.binding(Slot::Config, slot, name, false, until)?;
+                } else if !matches!(
+                    fstatat(
+                        self.lower.io.original(Slot::Config)?,
+                        name,
+                        AtFlags::AT_SYMLINK_NOFOLLOW
+                    ),
+                    Err(nix::errno::Errno::ENOENT)
+                ) {
+                    return Err(Unavailable);
+                }
             }
         }
         self.scan_catalogue(Slot::Config, None, &extra_config[..count], until)?;
@@ -350,8 +660,13 @@ impl NativeEngine {
                 true,
                 until,
             )?;
-            extra_state[count] = PENDING_DIRECTORY;
-            count += 1;
+            if self.catalogues[1]
+                .index(PENDING_DIRECTORY.as_bytes())
+                .is_none()
+            {
+                extra_state[count] = PENDING_DIRECTORY;
+                count += 1;
+            }
             let mut expected = [""; 5];
             let mut staged_count = 0;
             for (slot, name) in STAGED
@@ -371,8 +686,10 @@ impl NativeEngine {
         for (slot, name) in [(Slot::Intent, INTENT), (Slot::Terminal, TERMINAL)] {
             if self.lower.original[slot as usize].is_some() {
                 self.lower.binding(Slot::State, slot, name, false, until)?;
-                extra_state[count] = name;
-                count += 1;
+                if self.catalogues[1].index(name.as_bytes()).is_none() {
+                    extra_state[count] = name;
+                    count += 1;
+                }
             }
         }
         self.scan_catalogue(Slot::State, None, &extra_state[..count], until)
@@ -394,6 +711,10 @@ impl NativeEngine {
                 n if n == Slot::Terminal as usize => Slot::Terminal,
                 n if n == Slot::ReplacementStore as usize => Slot::ReplacementStore,
                 n if n == Slot::ReplacementTemplate as usize => Slot::ReplacementTemplate,
+                n if n == Slot::RollbackStore as usize => Slot::RollbackStore,
+                n if n == Slot::RollbackTemplate as usize => Slot::RollbackTemplate,
+                n if n == Slot::Scratch4 as usize && self.recovery => Slot::Scratch4,
+                n if n == Slot::Scratch5 as usize && self.recovery => Slot::Scratch5,
                 _ => return Err(FirstError::StillFenced),
             };
             let file = self
@@ -487,13 +808,13 @@ impl NativeEngine {
         self.lower.io.clone_original(slot, source, || tick(until))?;
         self.shape(slot, directory, until)
     }
-    fn write<H: LifecycleHost>(
+    fn write<O: NativeGate>(
         &mut self,
         parent: Slot,
         slot: Slot,
         name: &'static str,
         bytes: &[u8],
-        origin: &mut NativeSessionOrigin<'_, H>,
+        origin: &mut O,
         until: Instant,
     ) -> Result<(), FirstError> {
         self.gate(origin, until)?;
@@ -554,6 +875,567 @@ impl NativeEngine {
             )
             .map_err(|_| FirstError::StillFenced)?;
         self.gate(origin, until)
+    }
+
+    fn check_recovery_singleton(&mut self, until: Instant) -> Result<(), Unavailable> {
+        if !self.singleton_locked {
+            return Err(Unavailable);
+        }
+        self.lower
+            .binding(Slot::Run, Slot::Root, "omavless", true, until)?;
+        self.lower
+            .binding(Slot::Root, Slot::Lock, crate::OWNER_LOCK_NAME, false, until)?;
+        self.lower.catalogue_inner(
+            Slot::Root,
+            &[crate::OWNER_LOCK_NAME, crate::SOCKET_NAME],
+            until,
+        )?;
+        let socket = self.lower.original[Slot::Scratch6 as usize]
+            .as_ref()
+            .ok_or(Unavailable)?;
+        let held = self
+            .lower
+            .io
+            .original(Slot::Scratch6)?
+            .metadata()
+            .map_err(|_| Unavailable)?;
+        let named = fstatat(
+            self.lower.io.original(Slot::Root)?,
+            crate::SOCKET_NAME,
+            AtFlags::AT_SYMLINK_NOFOLLOW,
+        )
+        .map_err(|_| Unavailable)?;
+        if !same_member(socket, &held)
+            || socket.gid() != held.gid()
+            || (
+                socket.dev(),
+                socket.ino(),
+                socket.mode(),
+                socket.uid(),
+                socket.gid(),
+                socket.nlink(),
+                socket.len(),
+                socket.mtime(),
+                socket.mtime_nsec(),
+                socket.ctime(),
+                socket.ctime_nsec(),
+            ) != (
+                named.st_dev,
+                named.st_ino,
+                named.st_mode,
+                named.st_uid,
+                named.st_gid,
+                named.st_nlink,
+                named.st_size as u64,
+                named.st_mtime,
+                named.st_mtime_nsec,
+                named.st_ctime,
+                named.st_ctime_nsec,
+            )
+        {
+            return Err(Unavailable);
+        }
+        Ok(())
+    }
+
+    fn capture_recovery_singleton(&mut self, until: Instant) -> Result<(), FirstError> {
+        // Existing original singleton directory and owner.lock are charged
+        // in Root/Lock of the same36-role ledger BEFORE any postchecks.
+        self.lower
+            .io
+            .child(
+                ChildPlan {
+                    parent: Slot::Run,
+                    slot: Slot::Root,
+                    name: "omavless",
+                    flags: OFlag::O_RDONLY | OFlag::O_DIRECTORY,
+                    mode: Mode::empty(),
+                },
+                || tick(until),
+                |_| Ok(()),
+            )
+            .map_err(|_| FirstError::Admission)?;
+        self.shape(Slot::Root, true, until)
+            .map_err(|_| FirstError::Admission)?;
+        self.lower
+            .binding(Slot::Run, Slot::Root, "omavless", true, until)
+            .map_err(|_| FirstError::Admission)?;
+        self.lower
+            .io
+            .child(
+                ChildPlan {
+                    parent: Slot::Root,
+                    slot: Slot::Lock,
+                    name: crate::OWNER_LOCK_NAME,
+                    flags: OFlag::O_RDONLY | OFlag::O_NONBLOCK,
+                    mode: Mode::empty(),
+                },
+                || tick(until),
+                |_| Ok(()),
+            )
+            .map_err(|_| FirstError::Admission)?;
+        self.shape(Slot::Lock, false, until)
+            .map_err(|_| FirstError::Admission)?;
+        self.lower
+            .io
+            .perform(
+                Slot::Lock,
+                || tick(until),
+                |file| {
+                    rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+                        .map_err(|_| Unavailable)?;
+                    self.singleton_locked = true; // positive original syscall only
+                    Ok(())
+                },
+            )
+            .map_err(|_| FirstError::Admission)?;
+        self.lower
+            .binding(Slot::Root, Slot::Lock, crate::OWNER_LOCK_NAME, false, until)
+            .map_err(|_| FirstError::Admission)?;
+        // The old endpoint is retained ONLY as an inert named object. The
+        // NEW existing-owner.lock flock excludes RuntimeServer bind; no
+        // connection, rebound socket, old PID or creation proof is adopted.
+        self.lower
+            .io
+            .child(
+                ChildPlan {
+                    parent: Slot::Root,
+                    slot: Slot::Scratch6,
+                    name: crate::SOCKET_NAME,
+                    flags: OFlag::O_PATH,
+                    mode: Mode::empty(),
+                },
+                || tick(until),
+                |_| Ok(()),
+            )
+            .map_err(|_| FirstError::Admission)?;
+        let socket = self
+            .lower
+            .io
+            .original(Slot::Scratch6)
+            .map_err(|_| FirstError::Admission)?
+            .metadata()
+            .map_err(|_| FirstError::Admission)?;
+        use std::os::unix::fs::FileTypeExt;
+        if !socket.file_type().is_socket()
+            || socket.uid() != self.uid.ok_or(FirstError::Admission)?
+            || socket.gid() != nix::unistd::getgid().as_raw()
+            || socket.mode() & 0o7777 != 0o600
+            || socket.nlink() != 1
+        {
+            return Err(FirstError::Admission);
+        }
+        self.lower.original[Slot::Scratch6 as usize] = Some(socket);
+        Ok(())
+    }
+
+    fn recover_member(
+        &mut self,
+        parent: Slot,
+        slot: Slot,
+        name: &'static str,
+        maximum: usize,
+        until: Instant,
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>, FirstError> {
+        use std::os::unix::fs::FileExt;
+        self.lower
+            .io
+            .child(
+                ChildPlan {
+                    parent,
+                    slot,
+                    name,
+                    flags: OFlag::O_RDONLY | OFlag::O_NONBLOCK,
+                    mode: Mode::empty(),
+                },
+                || tick(until),
+                |_| Ok(()),
+            )
+            .map_err(|_| FirstError::Admission)?;
+        self.shape(slot, false, until)
+            .map_err(|_| FirstError::Admission)?;
+        let file = self
+            .lower
+            .io
+            .original(slot)
+            .map_err(|_| FirstError::Admission)?;
+        let length = usize::try_from(file.metadata().map_err(|_| FirstError::Admission)?.len())
+            .map_err(|_| FirstError::Admission)?;
+        if length > maximum {
+            return Err(FirstError::Admission);
+        }
+        let mut bytes = zeroize::Zeroizing::new(vec![0; length + 1]);
+        let mut done = 0;
+        while done < bytes.len() {
+            tick(until).map_err(|_| FirstError::Admission)?;
+            let n = file
+                .read_at(&mut bytes[done..], done as u64)
+                .map_err(|_| FirstError::Admission)?;
+            tick(until).map_err(|_| FirstError::Admission)?;
+            if n == 0 {
+                break;
+            }
+            done += n;
+        }
+        if done != length {
+            return Err(FirstError::Admission);
+        }
+        bytes.truncate(length);
+        self.lower
+            .verify_member(parent, slot, name, &bytes, until)
+            .map_err(|_| FirstError::Admission)?;
+        self.expected[slot as usize] = Some((bytes.len(), Sha256::digest(&bytes).into()));
+        Ok(bytes)
+    }
+
+    /// Only fresh Intent/MIXED, authenticated NEW, and the newly acquired
+    /// existing singleton/operation leases. No former actor/session is imported.
+    pub(crate) fn reconcile_native_mixed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+    ) -> Result<(), FirstError> {
+        if self.sealed || self.uid.is_some() {
+            return Err(FirstError::StillFenced);
+        }
+        let until = Instant::now() + std::time::Duration::from_secs(45);
+        self.recovery = true; // consumed before every original acquisition
+        let result = (|| {
+            self.uid = Some(origin.uid());
+            self.gid = Some(nix::unistd::getgid().as_raw());
+            self.lower
+                .io
+                .native_admit()
+                .map_err(|_| FirstError::Admission)?;
+            for (index, slot) in [Slot::Config, Slot::State, Slot::Run]
+                .into_iter()
+                .enumerate()
+            {
+                self.clone_file(slot, origin.directory(index)?, true, until)
+                    .map_err(|_| FirstError::Admission)?;
+            }
+            self.capture_recovery_singleton(until)?;
+            for (index, slot) in [Slot::Owner, Slot::Desired, Slot::Login]
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(file) = origin.member(index)? {
+                    self.clone_file(slot, file, false, until)
+                        .map_err(|_| FirstError::Admission)?;
+                }
+            }
+            self.gate(origin, until)?;
+            for (index, (slot, _)) in LIVE.into_iter().enumerate() {
+                self.clone_file(slot, origin.live(index)?, false, until)
+                    .map_err(|_| FirstError::Admission)?;
+            }
+            for name in [
+                TERMINAL,
+                crate::restore_executor_candidate::OLD_SLOT[0],
+                crate::restore_executor_candidate::OLD_SLOT[1],
+            ] {
+                let parent = if name == TERMINAL {
+                    Slot::State
+                } else {
+                    Slot::Config
+                };
+                if !matches!(
+                    fstatat(
+                        self.lower
+                            .io
+                            .original(parent)
+                            .map_err(|_| FirstError::Admission)?,
+                        name,
+                        AtFlags::AT_SYMLINK_NOFOLLOW
+                    ),
+                    Err(nix::errno::Errno::ENOENT)
+                ) {
+                    return Err(FirstError::Admission);
+                }
+            }
+            self.lower
+                .io
+                .child(
+                    ChildPlan {
+                        parent: Slot::State,
+                        slot: Slot::StageDirectory,
+                        name: PENDING_DIRECTORY,
+                        flags: OFlag::O_RDONLY | OFlag::O_DIRECTORY,
+                        mode: Mode::empty(),
+                    },
+                    || tick(until),
+                    |_| Ok(()),
+                )
+                .map_err(|_| FirstError::Admission)?;
+            self.shape(Slot::StageDirectory, true, until)
+                .map_err(|_| FirstError::Admission)?;
+            self.stage_name = self.lower.original[Slot::StageDirectory as usize].clone();
+            let old_store = self.recover_member(
+                Slot::StageDirectory,
+                Slot::StageOldStore,
+                MEMBERS[0],
+                omavless_domain::private_store::MAX_PRIVATE_STORE_BYTES,
+                until,
+            )?;
+            let old_template = self.recover_member(
+                Slot::StageDirectory,
+                Slot::StageOldTemplate,
+                MEMBERS[1],
+                omavless_domain::config::MAX_TEMPLATE_BYTES,
+                until,
+            )?;
+            let new_store = self.recover_member(
+                Slot::StageDirectory,
+                Slot::StageNewStore,
+                MEMBERS[2],
+                omavless_domain::private_store::MAX_PRIVATE_STORE_BYTES,
+                until,
+            )?;
+            let new_template = self.recover_member(
+                Slot::StageDirectory,
+                Slot::StageNewTemplate,
+                MEMBERS[3],
+                omavless_domain::config::MAX_TEMPLATE_BYTES,
+                until,
+            )?;
+            let members = [
+                old_store.as_slice(),
+                old_template.as_slice(),
+                new_store.as_slice(),
+                new_template.as_slice(),
+            ];
+            let ready = self.recover_member(
+                Slot::StageDirectory,
+                Slot::StageReady,
+                READY_MEMBER,
+                crate::restore_staging_candidate::READY_BYTES,
+                until,
+            )?;
+            let intent =
+                self.recover_member(Slot::State, Slot::Intent, INTENT, RECORD_BYTES, until)?;
+            if ready.as_slice() != ready_bytes(members)
+                || backup
+                    .restore_store_off()
+                    .map_err(|_| FirstError::Prepare)?
+                    .as_slice()
+                    != members[2]
+                || backup.template() != members[3]
+            {
+                return Err(FirstError::Admission);
+            }
+            let plan = planned_stage_identity(members).map_err(|_| FirstError::Admission)?;
+            let current_store = self.read_original_live(0, until)?;
+            let current_template = self.read_original_live(1, until)?;
+            let current = [current_store.as_slice(), current_template.as_slice()];
+            let chain = mixed_intent_review(
+                &intent,
+                members,
+                current,
+                origin.generation(),
+                origin.desired_bytes(),
+            )?;
+            for (index, (slot, name)) in RECOVERED_NEW.into_iter().enumerate() {
+                match fstatat(
+                    self.lower
+                        .io
+                        .original(Slot::Config)
+                        .map_err(|_| FirstError::Admission)?,
+                    name,
+                    AtFlags::AT_SYMLINK_NOFOLLOW,
+                ) {
+                    Err(nix::errno::Errno::ENOENT) => {}
+                    Ok(_) => {
+                        if self
+                            .recover_member(
+                                Slot::Config,
+                                slot,
+                                name,
+                                members[index + 2].len(),
+                                until,
+                            )?
+                            .as_slice()
+                            != members[index + 2]
+                        {
+                            return Err(FirstError::Admission);
+                        }
+                    }
+                    Err(_) => return Err(FirstError::Admission),
+                }
+            }
+            self.scan_catalogue(Slot::Config, Some(0), &[], until)
+                .map_err(|_| FirstError::Admission)?;
+            self.scan_catalogue(Slot::State, Some(1), &[], until)
+                .map_err(|_| FirstError::Admission)?;
+            self.catalogues_captured = true;
+            self.gate(origin, until)?;
+            // All admission/classification is complete before the first OLD copy.
+            for index in 0..2 {
+                self.write(
+                    Slot::Config,
+                    NATIVE_ROLLBACKS[index].0,
+                    NATIVE_ROLLBACKS[index].1,
+                    members[index],
+                    origin,
+                    until,
+                )?;
+            }
+            for index in 0..2 {
+                self.gate(origin, until)?;
+                self.lower
+                    .io
+                    .perform(
+                        Slot::Config,
+                        || tick(until),
+                        |config| {
+                            renameat(config, NATIVE_ROLLBACKS[index].1, config, LIVE[index].1)
+                                .map_err(|_| Unavailable)?;
+                            self.lower.live[index] = LiveRole::Renamed;
+                            Ok(())
+                        },
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                for (slot, links) in [(LIVE[index].0, 0), (NATIVE_ROLLBACKS[index].0, 1)] {
+                    self.lower
+                        .io
+                        .perform(
+                            slot,
+                            || tick(until),
+                            |file| {
+                                let after = file.metadata().map_err(|_| Unavailable)?;
+                                if !same_after_own_rename(
+                                    self.lower.original[slot as usize]
+                                        .as_ref()
+                                        .ok_or(Unavailable)?,
+                                    &after,
+                                    links,
+                                ) {
+                                    return Err(Unavailable);
+                                }
+                                self.lower.original[slot as usize] = Some(after);
+                                Ok(())
+                            },
+                        )
+                        .map_err(|_| FirstError::StillFenced)?;
+                }
+                self.lower
+                    .verify_unlinked_old(LIVE[index].0, current[index], until)
+                    .map_err(|_| FirstError::StillFenced)?;
+                self.lower
+                    .verify_member(
+                        Slot::Config,
+                        NATIVE_ROLLBACKS[index].0,
+                        LIVE[index].1,
+                        members[index],
+                        until,
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                for slot in [NATIVE_ROLLBACKS[index].0, Slot::Config] {
+                    self.lower
+                        .io
+                        .perform(
+                            slot,
+                            || tick(until),
+                            |file| file.sync_all().map_err(|_| Unavailable),
+                        )
+                        .map_err(|_| FirstError::StillFenced)?;
+                }
+                self.gate(origin, until)?;
+            }
+            let terminal = chain
+                .active()
+                .terminal(TerminalChoice::Abort)
+                .map_err(|_| FirstError::StillFenced)?
+                .encode();
+            self.write(
+                Slot::State,
+                Slot::Terminal,
+                TERMINAL,
+                &terminal,
+                origin,
+                until,
+            )?;
+            let final_chain = DecisionChain::decode(&intent, Some(&terminal))
+                .map_err(|_| FirstError::StillFenced)?;
+            if final_chain.active().phase() != DecisionPhase::Aborted
+                || final_chain.active().review_inspection(
+                    origin.generation(),
+                    Some(origin.desired_bytes()),
+                    &plan,
+                    LivePairClass::Old,
+                ) != RecoveryReview::VerifyAbortedCandidate
+            {
+                return Err(FirstError::StillFenced);
+            }
+            for index in 0..2 {
+                self.lower
+                    .verify_member(
+                        Slot::Config,
+                        NATIVE_ROLLBACKS[index].0,
+                        LIVE[index].1,
+                        members[index],
+                        until,
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+            }
+            self.lower
+                .verify_member(Slot::State, Slot::Intent, INTENT, &intent, until)
+                .map_err(|_| FirstError::StillFenced)?;
+            self.lower
+                .verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)
+                .map_err(|_| FirstError::StillFenced)?;
+            self.gate(origin, until) // final SAME fresh origin after all readbacks
+        })();
+        if result.is_err() {
+            self.sealed = true;
+            self.lower.revoke();
+        }
+        result
+    }
+
+    fn read_original_live(
+        &mut self,
+        index: usize,
+        until: Instant,
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>, FirstError> {
+        use std::os::unix::fs::FileExt;
+        let (slot, name) = LIVE[index];
+        let file = self
+            .lower
+            .io
+            .original(slot)
+            .map_err(|_| FirstError::Admission)?;
+        let length = usize::try_from(file.metadata().map_err(|_| FirstError::Admission)?.len())
+            .map_err(|_| FirstError::Admission)?;
+        let maximum = if index == 0 {
+            omavless_domain::private_store::MAX_PRIVATE_STORE_BYTES
+        } else {
+            omavless_domain::config::MAX_TEMPLATE_BYTES
+        };
+        if length > maximum {
+            return Err(FirstError::Admission);
+        }
+        let mut bytes = zeroize::Zeroizing::new(vec![0; length + 1]);
+        let mut done = 0;
+        while done < bytes.len() {
+            tick(until).map_err(|_| FirstError::Admission)?;
+            let n = file
+                .read_at(&mut bytes[done..], done as u64)
+                .map_err(|_| FirstError::Admission)?;
+            tick(until).map_err(|_| FirstError::Admission)?;
+            if n == 0 {
+                break;
+            }
+            done += n;
+        }
+        if done != length {
+            return Err(FirstError::Admission);
+        }
+        bytes.truncate(length);
+        self.lower
+            .verify_member(Slot::Config, slot, name, &bytes, until)
+            .map_err(|_| FirstError::Admission)?;
+        self.expected[slot as usize] = Some((bytes.len(), Sha256::digest(&bytes).into()));
+        Ok(bytes)
     }
     pub(crate) fn execute_native<H: LifecycleHost>(
         &mut self,

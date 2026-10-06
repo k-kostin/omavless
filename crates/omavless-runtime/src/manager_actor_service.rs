@@ -15,6 +15,8 @@ mod stage;
 mod transfer;
 pub(crate) use stage::NativeStep;
 pub(crate) use stage::{NativeEngine, NativeStageView};
+pub(crate) const NATIVE_RETAINED_ROLE_CEILING: usize =
+    retained_io::IO_SLOTS + 3 + 3 + 2 + 1 + 1 + 2;
 #[cfg(test)]
 pub(crate) const NATIVE_VM_LOWER_SLOTS: usize = retained_io::IO_SLOTS;
 pub(crate) const CANONICAL_STAGE_ORIGIN_FENCES: usize = stage::ORIGIN_FENCES;

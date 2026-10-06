@@ -246,6 +246,10 @@ impl FileIo {
         self.ledger.slots[slot as usize].as_ref().ok_or(Unavailable)
     }
     #[cfg(test)]
+    pub(super) fn test_retains_original(&self, slot: Slot) -> bool {
+        self.ledger.slots[slot as usize].is_some()
+    }
+    #[cfg(test)]
     pub(super) fn local_files(files: Vec<(Slot, File)>) -> Self {
         // Real locally owned originals only. This test adapter supplies no
         // Canonical/manager/lease admission and is absent from production.

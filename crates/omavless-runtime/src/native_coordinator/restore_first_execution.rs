@@ -19,6 +19,13 @@ use std::path::PathBuf;
 mod retained;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use retained::HeldExecutionSlot;
+#[cfg(feature = "t4-manager-actor-service")]
+#[path = "restore_native_recovery.rs"]
+mod native_recovery;
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+pub(crate) use native_recovery::FreshRecovery;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use native_recovery::NativeRecoveryOrigin;
 
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) struct NativeSessionOrigin<'a, H> {
@@ -290,12 +297,34 @@ impl Boundary {
         owner: &OfflineNativeCoordinator<H>,
         installed: &mut Option<Self>,
     ) -> Result<(), FirstError> {
-        let paths = owner.transaction.cutover_paths();
-        let store = owner.transaction.store_path();
+        if owner.transaction.desired_paths().directory
+            != owner.transaction.cutover_paths().state_directory
+            || owner.transaction.desired_paths().file
+                != owner
+                    .transaction
+                    .cutover_paths()
+                    .state_directory
+                    .join("desired.json")
+        {
+            return Err(FirstError::Admission);
+        }
+        Self::capture_native_paths(
+            owner.transaction.cutover_paths(),
+            owner.transaction.store_path(),
+            owner.uid(),
+            installed,
+        )
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn capture_native_paths(
+        paths: &crate::cutover::CutoverPaths,
+        store: &Path,
+        uid: u32,
+        installed: &mut Option<Self>,
+    ) -> Result<(), FirstError> {
         let config = store.parent().ok_or(FirstError::Admission)?;
         if store.file_name() != Some("profiles.json".as_ref())
-            || owner.transaction.desired_paths().directory != paths.state_directory
-            || owner.transaction.desired_paths().file != paths.state_directory.join("desired.json")
             || paths.ownership_marker != paths.state_directory.join("ownership.json")
         {
             return Err(FirstError::Admission);
@@ -317,8 +346,7 @@ impl Boundary {
             return Err(FirstError::Admission);
         }
         for path in [config, &paths.state_directory, &paths.runtime_base] {
-            let file =
-                open_private_directory(path, owner.uid()).map_err(|_| FirstError::Admission)?;
+            let file = open_private_directory(path, uid).map_err(|_| FirstError::Admission)?;
             this.capture_prefix.push(file);
             let metadata = this
                 .capture_prefix
@@ -355,7 +383,7 @@ impl Boundary {
                         .metadata()
                         .map_err(|_| FirstError::Admission)?;
                     if !metadata.is_file()
-                        || metadata.uid() != owner.uid()
+                        || metadata.uid() != uid
                         || metadata.mode() & 0o7777 != 0o600
                         || metadata.nlink() != 1
                     {

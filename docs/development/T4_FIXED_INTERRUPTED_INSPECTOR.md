@@ -448,3 +448,69 @@ retained lower ledger and explicit fixed rollback/readback/Aborted transition,
 not the older path-recapturing ordinary executor. Unknown original completion,
 live old lease, drift or late consultation seals/refuses without adoption or
 cleanup. These new-context implementation/VM gates remain pending.
+
+### Actual fixed real-owner fault checkpoint
+
+ROOT selected exact499a49e6f155e372c9a8b97a3f3bea5b8b0c58f4 only after
+PRIMARY and independent source/packet reviews. Release ELF24,375,936 bytes,
+SHA256`b7152a887454c2b5af48276a41ff75b8d42c043dc3509f9ca16a0a4451c51d86`.
+BOOT682f9d46-d8f0-425f-a9f4-308475bef0b5; fresh review22. Original test/SSH
+`8a487f` exited0; separate fixed-file observer`d95a3d` exited0. Stdout284 bytes,
+SHA256`1b221c8449646d9d2fe98e36f7fe7283cadeb03f2c017ade649117d9d4211e27`,
+exact matrix marker/one successful harness; stderr empty/no refusal labels.
+The three actual original-owner assertions therefore passed. No successful
+Commit/Abort, cleanup or recovered ordinary-owner authority is inferred. Runtime
+lock/socket names remain: process completion is not filesystem retirement.
+
+### Fresh authenticated Intent/MIXED continuation (inactive)
+
+One new process-reserved recovery slot retains its preallocated SAME Arc,
+NativeEngine36 and Boundary3/3/2/prefix/probe capacities before authentication,
+lease or any pair effect. Necessary RLIMIT52 is not ambient free-FD proof.
+The exact existing operation lock is newly acquired without creation/repair;
+the fixture's volatile runtime namespace must still exist. Reboot/missing lock
+refuses; no post-reboot bootstrap or ordinary initialize fallback is included.
+The new context authenticates its own backup and pins current original owner,
+Desired/login/directories/stage/Intent/live Files. No former FD/PID/Session,
+historical marker, serialized readiness or expected transaction ID grants it.
+
+Inactive services and empty core/TUN alone do not exclude an Off singleton.
+The existing runtime/omavless directory and owner.lock are retained in reserved
+Root/Lock roles; a NEW positive nonblocking exclusive flock is held throughout,
+without create/chmod/unlink. Held/named metadata and directory catalogue repeat
+at every fence. Stale control.sock is ONLY a pinned O_PATH metadata object in
+Scratch6, never connected/rebound/adopted. Missing/changed namespace or busy
+singleton refuses. Actual fixed legacy/native service queries and the SAME
+observation-only host's strict whole visible core/TUN inventory repeat at every
+fresh origin check. Ordinary Canonical inactive policy is not modified.
+
+Effect admission is only original Intent plus exact storeNEW/templateOLD MIXED,
+stageReady/StageIdentity, current owner generation and exact original Desired,
+with authenticated backup NEW equal to captured staged NEW. OLD/NEW/Identical,
+reverse MIXED, unknown/corrupt/stale journal, committed/aborted phase or drift
+refuses. Terminal and OLD-copy absence are positively checked before effects
+and while uncreated. Optional preexisting NEW replacement originals are bound
+to authenticated NEW in Scratch4/5, without caller-selected names or tail guesses.
+
+Two fresh OLD copies use RollbackStore/Template roles22/23, O_EXCL0600, under
+the same held config. Exactly two own renames update only corresponding known
+ctime/nlink transitions. Displaced MIXED Files remain held0links with original
+bytes; current OLD names are bound to the SAME rollback-copy Files. All originals,
+stage/config/state membership, bytes and readbacks remain checked. OLD copies,
+pair/directories are fsynced before exclusive Aborted, exact Aborted chain/OLD
+and journal readbacks; the final SAME fresh origin consultation remains last.
+No changed-live blanket exemption or path recapture supplies role authority.
+
+Root/Lock/stale socket and optional replacement roles use the existing36-slot
+ledger; Boundary10 prospective roles plus operation lease2 keep48, not a new
+descriptor subsystem. The irreversible one-attempt/process reservation and
+held slot remain occupied on error/unwind/normal completion. Nonfatal handle
+loss preserves the original prefix; fatal process death means unavailable.
+No automatic retry, cleanup, ordinary owner or resume is exposed. Native effect
+entry is private developer-feature only and unregistered; VM selector is ignored.
+
+After this narrow gate, required work remains fresh-context fault/late/live-owner
+refusals, typed terminal retirement/closure under the SAME held origin, then
+normal installed current()/login/store admission and reviewed product dispatcher
+integration. Isolated initialize/fault/recovery results do not waive those gates
+or generic unreported constructor/recv-error/backend ownership limitations.
