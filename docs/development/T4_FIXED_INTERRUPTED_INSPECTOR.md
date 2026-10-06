@@ -633,4 +633,59 @@ endpoint/owner-lock handoff and product registration remain separately gated.
 Local filesystem controls exercise the SAME retirement/disposition/known-current
 replacement checks and original flock move/borrow ending. They do not supply real
 manager or startup authority. Exact source/build/VM receipts belong to their
-selected heads; this new source has no ignored-test/VM acceptance yet.
+selected heads. Actual fresh scenario25 evidence follows below.
+
+### Exact readonly closure/owner checkpoint
+
+ROOT selected exact `0ee59eef424819a2c50772251f3dc526467f191f` only after
+PRIMARY and independent affected source/packet reviews. Its sealed release test
+ELF was 24,532,808 bytes, SHA256
+`b8368b45a79354c878e2e1d23749ca57b231ae59437cd690ca4522e9666d72bb`.
+Four local native controls and nine mocked delivery controls passed; formatting
+and strict feature/default checks passed within the declared affected scope.
+The positively completed recovery23 state and original BOOT682f were preserved.
+Separate create/uploads/admission/readonly prepare completed0. Original run
+`be7d76` / session5862 → `1cd74c` completed SSH/test0. Separately predeclared
+fixed-file observer `e25645` completed0: stdout292 bytes, SHA256
+`8604c293a95138d26062976c1a5e6f5ccf731b2fb88c906a135d35fa044a7506`,
+exact marker and one successful harness, no refusals; stderr empty.
+This proves the fixed SAME-held OLD/Aborted retirement/closure and genuine
+normal-owner readonly consultation assertions, not ordinary mutable eligibility,
+new listener, installed application store/login, later current()/restart or full
+T4 completion. The earlier e803 proposal was unselected, not a VM failure.
+
+### Exact fresh disposition and ordinary onboarding checkpoint
+
+Tested native source `ede26560d0181ce62147d34a754414e6949bd6f2`, including
+the reviewed `b39266c7` boundary, narrow `f270284f` current-role correction and
+three fixed ignored selectors. Release ELF24,662,608 bytes, SHA256
+`e4ed5fdd43e615386cbdf0dc8542b3628e56abaaa603b6837389d8a65df78d43`.
+PRIMARY and independent affected source/packet reviews, feature/default strict
+checks, focused filesystem/lease/onboarding controls and twelve mocked helper
+controls preceded ROOT's sole VM selection. The fresh BOOT was
+`f38feb34-2517-49f9-9ac1-560f96d363dd`; administrative archive/reset was not
+product recovery. NEW fixture/source/runtime25 did not reuse prior contexts.
+
+Delivery/create/uploads completed0. The first ROOT payload-admission command
+`640aae` refused before chmod because its ad-hoc fullstat comparison included
+atime changed by reading. That NONPASS is retained; the corrected already-reviewed
+nine-field identity tuple admission `8dd0ab` completed0, before fixture/actor
+selection. Prepare `282466` completed0.
+
+Each original process completed0 before ROOT selected its successor:
+
+- producer `d011d2`, observer `e171f9`: stdout278 bytes, SHA256
+  `e2879fc03f1adce0720af15c6de26101f97b519642c6e0a3f6af2206405bddc5`;
+- fresh authenticated rollback `30b2eb`, observer `31ee1e`: stdout292 bytes,
+  SHA256 `98971c09651e38b4c01d3ec867d4de8f98231904b255618b212cdcb2ea526c93`;
+- consuming completion and real ordinary onboarding `0aa01c` / session98517
+  → `830f94`, observer `72ee69`: stdout308 bytes, SHA256
+  `968b404544f27984cb0e22c852e7a5f7b5520374d947d03fb2ccf9a75d0c4767`.
+
+All projections reported the exact phase marker and one successful harness,
+empty stderr and no refusal labels. The final source assertions establish the
+fixed new context's ordinary onboarding change, current status/store readback,
+absent pending fences and still-held original lease. No installed application
+store, private profiles, services or network were changed. This is one actual
+ordinary store mutation under consuming disposition, not general/repeated
+mutations, installed current()/login, restart, power-loss or full T4 acceptance.
