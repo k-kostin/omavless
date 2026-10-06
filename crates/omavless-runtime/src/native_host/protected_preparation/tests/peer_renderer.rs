@@ -8,9 +8,12 @@ use std::os::fd::AsRawFd;
 
 const INPUT_DIRECTORY: &str = "/run/omavless-k1-peer";
 const IDENTITY: &str = "/run/omavless-k1-peer/identity.bin";
-const OUTPUT_DIRECTORY: &str = "/run/omavless-k1-rendered";
-const OUTPUT: &str = "/run/omavless-k1-rendered/generated.json";
-const CONTROLLER: &str = "/run/omavless-k1-rendered/controller.sock";
+// A distinct one-shot publication preserves the old Global-policy matrix.
+// This ignored test still calls the production renderer; it does not recreate
+// configuration JSON or grant coverage/Arm authority.
+const OUTPUT_DIRECTORY: &str = "/run/omavless-k1-rule-rendered";
+const OUTPUT: &str = "/run/omavless-k1-rule-rendered/generated.json";
+const CONTROLLER: &str = "/run/omavless-k1-rule-rendered/controller.sock";
 
 fn canonical_peer(identity: &[u8; 16]) -> Result<Vec<u8>, PreparationError> {
     let mut uuid = String::with_capacity(36);
