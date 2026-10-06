@@ -103,6 +103,81 @@ enum ProductionOwnership {
 }
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
+    #[cfg(test)]
+    pub(crate) fn initialize_connect_fixture(
+        host: H,
+        inputs: crate::developer_network_resume::OwnerInputs,
+        uid: u32,
+        setup: crate::native_coordinator::network_enrollment::FreshSetupAuthority,
+        driver: &mut crate::developer_network_resume::Driver,
+    ) -> Result<Self, ProductionOwnerError>
+    where
+        H: crate::native_coordinator::network_resume::ResumeBinding,
+    {
+        let crate::developer_network_resume::OwnerInputs {
+            desired: desired_paths,
+            store: store_path,
+            cutover: cutover_paths,
+            enrollment,
+        } = inputs;
+        let lock = MigrationLock::acquire(&cutover_paths, uid).map_err(lock_error)?;
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
+            host,
+            desired_paths,
+            &store_path,
+            cutover_paths,
+            uid,
+            marker.generation(),
+        );
+        let observed = coordinator
+            .install_awaiting_connect_locked(
+                &lock,
+                setup,
+                enrollment,
+                &mut driver.source,
+                driver.clock.now(),
+            )
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let startup = ConnectionTransactionOutcome {
+            changed: observed.changed,
+            pruned: 0,
+        };
+        drop(lock);
+        Ok(Self {
+            coordinator,
+            startup,
+            login_ready: false,
+            ownership: ProductionOwnership::Committed {
+                rust_generation: marker.generation(),
+                origin_preparing_generation: None,
+            },
+        })
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn respond_connection_with_source(
+        &mut self,
+        request: &Value,
+        source: &mut crate::network_resume::Source,
+        clock: &crate::developer_network_resume::Clock,
+    ) -> Result<Value, ProtocolError>
+    where
+        H: crate::native_coordinator::network_resume::ResumeBinding,
+    {
+        crate::native_dispatch::respond_to_connection_with_source(
+            &mut self.coordinator,
+            request,
+            source,
+            clock,
+        )
+    }
     #[cfg(any(test, feature = "network-resume-fixture"))]
     pub(crate) fn initialize_network_fixture(
         host: H,

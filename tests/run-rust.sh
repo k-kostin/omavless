@@ -35,5 +35,23 @@ cargo check --locked -p omavless-runtime --features network-resume-fixture --all
 cargo test --locked -p omavless-runtime --features network-resume-fixture network_resume
 cargo clippy --locked -p omavless-runtime --features network-resume-fixture --all-targets -- -D warnings
 cargo run --quiet --locked -p omavless-runtime --features network-resume-fixture --example network_resume_fixture
+# First-use enrollment is private fixture-only; replay/NoChange cannot grant it.
+cargo test --locked -p omavless-runtime --features network-resume-fixture --lib \
+  developer_network_resume_fixture::connect_enrollment:: -- --ignored --test-threads=1
+# Compose actual private OS protocol with that original control-socket owner.
+# The fixed system constructor remains uncalled; these are not host recovery tests.
+cargo test --locked -p omavless-runtime \
+  --features 'system-event-source,network-resume-fixture,developer-subscription-schedule' --lib \
+  developer_network_resume_fixture::os_event_enrollment:: -- --ignored --test-threads=1
+cargo clippy --locked -p omavless-runtime \
+  --features 'system-event-source,network-resume-fixture,developer-subscription-schedule' \
+  --all-targets -- -D warnings
+# Fixed source adapter is dormant. Its explicit private-bus/metadata fixtures
+# stay ignored in generic parallel suites and execute here once, serially.
+# Neither this feature nor its fixtures call the production system constructor.
+cargo check --locked -p omavless-runtime --features system-event-source --all-targets
+cargo test --locked -p omavless-runtime --features system-event-source --lib \
+  host_event_source::tests:: -- --ignored --test-threads=1
+cargo clippy --locked -p omavless-runtime --features system-event-source --all-targets -- -D warnings
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json

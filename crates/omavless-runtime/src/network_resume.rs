@@ -50,7 +50,8 @@ struct Frame {
 /// stream, and trusted receiver boot/instance. PID is not process-lifetime proof
 /// and this does not establish logind/NetworkManager/netlink authenticity.
 pub(crate) struct Source {
-    reader: BufReader<UnixStream>,
+    identity: std::sync::Arc<()>,
+    reader: Reader,
     boot: [u8; 16],
     instance: [u8; 16],
     sequence: u64,
@@ -58,18 +59,56 @@ pub(crate) struct Source {
     #[cfg(test)]
     after_newline_pause: Duration,
 }
+enum Reader {
+    Fixture(BufReader<UnixStream>),
+    #[cfg(any(test, feature = "system-event-source"))]
+    Host(Box<crate::host_event_source::HostEventSource>),
+}
+pub(crate) struct SourceOrigin(std::sync::Weak<()>);
 
 impl Source {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "first-use source capture exists only in the test-only fresh constructor"
+        )
+    )]
+    pub(crate) fn origin(&self) -> SourceOrigin {
+        SourceOrigin(std::sync::Arc::downgrade(&self.identity))
+    }
+    pub(crate) fn same_origin(&self, origin: &SourceOrigin) -> bool {
+        !self.lost
+            && origin
+                .0
+                .upgrade()
+                .is_some_and(|original| std::sync::Arc::ptr_eq(&original, &self.identity))
+    }
     pub(crate) fn readable(&mut self) -> Result<bool, Refused> {
         if self.lost {
             return Err(Refused);
         }
-        if !self.reader.buffer().is_empty() {
+        #[cfg(any(test, feature = "system-event-source"))]
+        if let Reader::Host(source) = &mut self.reader {
+            return source.readable().map_err(|_| {
+                self.lost = true;
+                Refused
+            });
+        }
+        #[cfg(not(any(test, feature = "system-event-source")))]
+        let Reader::Fixture(reader) = &mut self.reader;
+        #[cfg(any(test, feature = "system-event-source"))]
+        let reader = match &mut self.reader {
+            Reader::Fixture(reader) => reader,
+            #[cfg(any(test, feature = "system-event-source"))]
+            Reader::Host(_) => return Err(Refused),
+        };
+        if !reader.buffer().is_empty() {
             return Ok(true);
         }
         let mut byte = [0; 1];
         match recv(
-            self.reader.get_ref().as_raw_fd(),
+            reader.get_ref().as_raw_fd(),
             &mut byte,
             MsgFlags::MSG_PEEK | MsgFlags::MSG_DONTWAIT,
         ) {
@@ -86,16 +125,41 @@ impl Source {
         }
     }
     pub(crate) fn quiescent(&mut self) -> Result<(), Refused> {
+        self.quiescent_bounded(None)
+    }
+    fn quiescent_bounded(&mut self, outer: Option<Instant>) -> Result<(), Refused> {
         if self.lost {
             return Err(Refused);
         }
+        if outer.is_some_and(|end| Instant::now() >= end) {
+            self.lost = true;
+            return Err(Refused);
+        }
+        #[cfg(any(test, feature = "system-event-source"))]
+        if let Reader::Host(source) = &mut self.reader {
+            let deadline = outer.map_or(Instant::now() + Duration::from_millis(100), |end| {
+                end.min(Instant::now() + Duration::from_millis(100))
+            });
+            return source.quiescent_until(deadline).map(|_| ()).map_err(|_| {
+                self.lost = true;
+                Refused
+            });
+        }
+        #[cfg(not(any(test, feature = "system-event-source")))]
+        let Reader::Fixture(reader) = &mut self.reader;
+        #[cfg(any(test, feature = "system-event-source"))]
+        let reader = match &mut self.reader {
+            Reader::Fixture(reader) => reader,
+            #[cfg(any(test, feature = "system-event-source"))]
+            Reader::Host(_) => return Err(Refused),
+        };
         // The effect boundary must see a live, completely drained source.
         // A queued event is not silently skipped while recovering an old hint.
         let mut byte = [0; 1];
-        let ready = self.reader.buffer().is_empty()
+        let ready = reader.buffer().is_empty()
             && matches!(
                 recv(
-                    self.reader.get_ref().as_raw_fd(),
+                    reader.get_ref().as_raw_fd(),
                     &mut byte,
                     MsgFlags::MSG_PEEK | MsgFlags::MSG_DONTWAIT
                 ),
@@ -106,6 +170,32 @@ impl Source {
             return Err(Refused);
         }
         Ok(())
+    }
+    /// One original host adapter, held directly rather than behind a forwarding
+    /// pipe. Receiver boot/instance are trusted owner construction inputs, not
+    /// wire identity or first-use authority. There is no replacement/reset API.
+    #[cfg(any(test, feature = "system-event-source"))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "normal factories do not enroll a host source")
+    )]
+    pub(crate) fn from_host(
+        source: crate::host_event_source::HostEventSource,
+        context: &Context,
+    ) -> Result<Self, Refused> {
+        if !context.fence.valid() {
+            return Err(Refused);
+        }
+        Ok(Self {
+            identity: std::sync::Arc::new(()),
+            reader: Reader::Host(Box::new(source)),
+            boot: context.fence.boot,
+            instance: context.fence.owner_instance,
+            sequence: 0,
+            lost: false,
+            #[cfg(test)]
+            after_newline_pause: Duration::ZERO,
+        })
     }
     pub(crate) fn matches(&self, fence: Fence) -> bool {
         self.boot == fence.boot && self.instance == fence.owner_instance
@@ -128,7 +218,8 @@ impl Source {
             .set_read_timeout(Some(Duration::from_millis(100)))
             .map_err(|_| Refused)?;
         Ok(Self {
-            reader: BufReader::new(stream),
+            identity: std::sync::Arc::new(()),
+            reader: Reader::Fixture(BufReader::new(stream)),
             boot: context.fence.boot,
             instance: context.fence.owner_instance,
             sequence: 0,
@@ -139,23 +230,72 @@ impl Source {
     }
 
     fn next(&mut self) -> Result<Option<Kind>, Refused> {
+        self.next_bounded(false, None)
+    }
+
+    fn next_bounded(
+        &mut self,
+        enrollment: bool,
+        outer: Option<Instant>,
+    ) -> Result<Option<Kind>, Refused> {
         if self.lost {
             return Err(Refused);
         }
+        #[cfg(any(test, feature = "system-event-source"))]
+        if let Reader::Host(source) = &mut self.reader {
+            let deadline = outer.map_or(Instant::now() + Duration::from_millis(100), |end| {
+                end.min(Instant::now() + Duration::from_millis(100))
+            });
+            let result = source
+                .next_until(deadline)
+                .map_err(|_| Refused)
+                .and_then(|emission| {
+                    let Some(emission) = emission else {
+                        return Ok(None);
+                    };
+                    use crate::host_event_source::Event;
+                    let kind = match emission.event {
+                        Event::Suspend => Kind::Suspend,
+                        Event::Resume => Kind::Resume,
+                        Event::NetworkChanged => Kind::NetworkChanged,
+                    };
+                    if (enrollment && kind != Kind::NetworkChanged)
+                        || self.sequence.checked_add(1) != Some(emission.sequence)
+                    {
+                        return Err(Refused);
+                    }
+                    self.sequence = emission.sequence;
+                    Ok(Some(kind))
+                });
+            if result.is_err() {
+                self.lost = true;
+            }
+            return result;
+        }
+        #[cfg(not(any(test, feature = "system-event-source")))]
+        let Reader::Fixture(reader) = &mut self.reader;
+        #[cfg(any(test, feature = "system-event-source"))]
+        let reader = match &mut self.reader {
+            Reader::Fixture(reader) => reader,
+            #[cfg(any(test, feature = "system-event-source"))]
+            Reader::Host(_) => return Err(Refused),
+        };
         let result = (|| {
             let mut bytes = Vec::new();
-            let deadline = Instant::now() + Duration::from_millis(100);
+            let deadline = outer.map_or(Instant::now() + Duration::from_millis(100), |end| {
+                end.min(Instant::now() + Duration::from_millis(100))
+            });
             loop {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() || bytes.len() == 256 {
                     return Err(Refused);
                 }
-                self.reader
+                reader
                     .get_ref()
                     .set_read_timeout(Some(remaining))
                     .map_err(|_| Refused)?;
                 let mut byte = [0; 1];
-                if self.reader.read(&mut byte).map_err(|_| Refused)? != 1 {
+                if reader.read(&mut byte).map_err(|_| Refused)? != 1 {
                     return Err(Refused);
                 }
                 #[cfg(test)]
@@ -176,6 +316,11 @@ impl Source {
             if frame.sequence == 0 {
                 return Err(Refused);
             }
+            // Enrollment may consume only NetworkChanged bookkeeping. Even a
+            // duplicated/reordered Suspend or Resume must revoke its candidate.
+            if enrollment && frame.kind != Kind::NetworkChanged {
+                return Err(Refused);
+            }
             // A duplicate or reordered reply is discarded, not a newer epoch.
             if frame.sequence <= self.sequence {
                 return Ok(None);
@@ -191,12 +336,29 @@ impl Source {
         }
         result
     }
+
+    pub(crate) fn drain_for_enrollment(&mut self) -> Result<(), Refused> {
+        let end = Instant::now() + Duration::from_millis(400);
+        for _ in 0..4 {
+            if Instant::now() >= end {
+                self.lost = true;
+                return Err(Refused);
+            }
+            if !self.readable()? {
+                return self.quiescent_bounded(Some(end));
+            }
+            self.next_bounded(true, Some(end))?;
+        }
+        // Backlog is refusal, never an indefinite lock-held drain or skipped Suspend.
+        self.quiescent_bounded(Some(end))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Status {
     Idle,
+    AwaitingConnect,
     Paused,
     Checking,
     Cancelled,
@@ -239,10 +401,19 @@ pub(crate) struct RecoveryBarrier {
 
 pub(crate) enum BarrierSlot {
     Absent,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "fresh setup authority is test-only; feature alone cannot enroll first use"
+        )
+    )]
+    AwaitingConnect(Box<crate::native_coordinator::network_enrollment::AwaitingConnect>),
     Installed(Box<RecoveryBarrier>),
     /// Extraction never leaves Absent. Unwinding retains this permanent refusal.
     InFlight,
     Blocked,
+    Cancelled,
 }
 impl BarrierSlot {
     pub(crate) fn installed(&self) -> bool {

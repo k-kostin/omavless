@@ -98,6 +98,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn resume_status(&self) -> Status {
         match &self.resume_barrier {
             BarrierSlot::Absent => Status::Idle,
+            BarrierSlot::AwaitingConnect(_) => Status::AwaitingConnect,
+            BarrierSlot::Cancelled => Status::Cancelled,
             BarrierSlot::Installed(barrier) => barrier.events.status,
             BarrierSlot::InFlight | BarrierSlot::Blocked => Status::ManualRecovery,
         }
@@ -220,6 +222,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn resume_service_lost(&mut self) {
+        if matches!(self.resume_barrier, BarrierSlot::AwaitingConnect(_)) {
+            self.resume_barrier = BarrierSlot::Blocked;
+        }
         if let BarrierSlot::Installed(barrier) = &mut self.resume_barrier {
             barrier.events.status = Status::SourceUnavailable;
             barrier.events.eligibility = Eligibility::Blocked;
@@ -293,6 +298,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         result
     }
     pub(crate) fn resume_receive(&mut self, source: &mut Source, tick: u64) {
+        if self.poll_awaiting_connect(source, tick) {
+            return;
+        }
         let Ok(mut barrier) = self.take_resume_barrier() else {
             return;
         };
@@ -327,6 +335,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     where
         H: ResumeBinding,
     {
+        if self.poll_awaiting_connect(source, tick) {
+            return 0;
+        }
         let Ok(mut barrier) = self.take_resume_barrier() else {
             return 0;
         };
@@ -510,6 +521,24 @@ pub(crate) struct Port<'a, H> {
 }
 
 impl<'a, H: ResumeBinding> Port<'a, H> {
+    pub(super) fn verify_healthy_binding(&mut self) -> Result<(), Refused> {
+        if self.owner.coordinator.active() || self.owner.coordinator.queued() != 0 {
+            return Err(Refused);
+        }
+        let desired = self.desired()?;
+        let observed = self
+            .owner
+            .host_mut()
+            .observe(&desired)
+            .map_err(|_| Refused)?;
+        if reconcile(&desired, observed) != ReconcileAction::AdoptConnected
+            || !self.owner.host_mut().binding_safe_for(&desired)
+        {
+            return Err(Refused);
+        }
+        self.desired()?;
+        Ok(())
+    }
     fn observe_only(&mut self) -> Result<crate::lifecycle::LifecycleOutcome, Refused> {
         let desired = self.desired()?;
         let outcome = self

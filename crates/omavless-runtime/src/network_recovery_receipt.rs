@@ -23,7 +23,7 @@ pub(crate) struct Fence {
 }
 
 impl Fence {
-    fn valid(self) -> bool {
+    pub(crate) fn valid(self) -> bool {
         self.boot != [0; 16]
             && self.owner_instance != [0; 16]
             && self.owner_generation != 0

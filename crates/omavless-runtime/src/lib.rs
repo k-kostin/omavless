@@ -62,6 +62,8 @@ pub mod doctor;
 pub mod fresh_setup;
 pub mod frontend_bridge;
 pub mod full_quit;
+#[cfg(any(test, feature = "system-event-source"))]
+mod host_event_source;
 pub mod import_read_protocol;
 pub mod isolated_validation;
 pub mod lifecycle;
@@ -1284,6 +1286,14 @@ where
                 None,
             );
         }
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if matches!(
+            request["method"].as_str(),
+            Some("connection.connect" | "connection.disconnect" | "routing.set_mode")
+        ) && let Some(network) = &mut self.network
+        {
+            return network.connection(&mut self.owner, request);
+        }
         let owner = &mut self.owner;
         let transport = &self.transport;
         let record_ids = &mut self.record_ids;
@@ -1458,6 +1468,43 @@ impl RuntimeServer {
             network: Some(developer_network_resume::Registration::new(driver)),
         };
         server.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
+        Ok(server)
+    }
+
+    #[cfg(test)]
+    fn bind_connect_fixture<H, T>(
+        paths: RuntimePaths,
+        host: H,
+        inputs: developer_network_resume::OwnerInputs,
+        setup: native_coordinator::network_enrollment::FreshSetupAuthority,
+        mut driver: developer_network_resume::Driver,
+        transport: T,
+    ) -> Result<Self>
+    where
+        H: lifecycle::LifecycleHost
+            + native_coordinator::network_resume::ResumeBinding
+            + Send
+            + 'static,
+        T: NativeSubscriptionTransport + 'static,
+    {
+        let mut server = Self::bind(paths)?;
+        let owner = production_owner::ProductionNativeOwner::initialize_connect_fixture(
+            host,
+            inputs,
+            server.uid,
+            setup,
+            &mut driver,
+        )
+        .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        server.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(
+            RegisteredNativeOwner {
+                owner,
+                transport: SharedSubscriptionTransport(Arc::new(transport)),
+                record_ids: RecordIdGenerator::new(&server.instance_id),
+                batch_initialized: false,
+                network: Some(developer_network_resume::Registration::new(driver)),
+            },
+        ))));
         Ok(server)
     }
     pub fn bind(paths: RuntimePaths) -> Result<Self> {
@@ -7837,7 +7884,34 @@ mod tests {
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let dispatcher = Arc::clone(&server.dispatcher);
+        let stop = Arc::new(AtomicBool::new(false));
+        struct StopOnDrop(Arc<AtomicBool>);
+        impl Drop for StopOnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        let _stop_on_failure = StopOnDrop(Arc::clone(&stop));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+        // This fixed host has no live route identity, so these reads cannot
+        // collect externally. Busy alone is a valid admission refusal; every
+        // other error or I/O result is returned immediately for exact assertions.
+        let route_read = |params: Value| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                let response = call(&paths, "routing.check", params.clone()).unwrap();
+                if response["error"]["code"] != "busy" {
+                    break response;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "read-only Busy bound exhausted"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+        };
         let caps = call(&paths, "capabilities.get", json!({})).unwrap();
         assert!(
             caps["result"]["methods"]
@@ -7848,7 +7922,7 @@ mod tests {
         );
         let before = fs::read(base.join("config/profiles.json")).unwrap();
         let host_before = calls.load(Ordering::Relaxed);
-        let unknown = call(&paths, "routing.check", json!({"query":"PRIVATE.EXAMPLE."})).unwrap();
+        let unknown = route_read(json!({"query":"PRIVATE.EXAMPLE."}));
         assert_eq!(unknown["ok"], true);
         assert_eq!(unknown["result"]["query"], "private.example");
         assert_eq!(unknown["result"]["source"], "disconnected");
@@ -7857,7 +7931,7 @@ mod tests {
             json!({"query":"private.example","mode":"global"}),
             json!({"query":"https://private.example/private-token"}),
         ] {
-            let rejected = call(&paths, "routing.check", params).unwrap();
+            let rejected = route_read(params);
             assert_eq!(rejected["error"]["code"], "invalid_argument");
             assert!(!rejected.to_string().contains("private.example"));
             assert!(!rejected.to_string().contains("private-token"));
@@ -7868,7 +7942,7 @@ mod tests {
             call(&paths, "routing.set_mode", json!({"mode":"global"})).unwrap()["ok"],
             true
         );
-        let mode = call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+        let mode = route_read(json!({"query":"private.example"}));
         assert_eq!(mode["result"]["source"], "mode");
         assert_eq!(mode["result"]["outcome"], "vpn");
         assert_eq!(
@@ -7884,8 +7958,7 @@ mod tests {
             .unwrap()["ok"],
             true
         );
-        let unavailable =
-            call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+        let unavailable = route_read(json!({"query":"private.example"}));
         assert_eq!(unavailable["error"]["code"], "capability_unavailable");
         assert!(unavailable.get("result").is_none());
         assert_eq!(
@@ -7893,8 +7966,23 @@ mod tests {
             true
         );
         write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
-        let revoked = call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+        let before_revoked_calls = calls.load(Ordering::Relaxed);
+        // Read-only routing.check may first refuse before admission. Deliberate
+        // original-owner contention proves that contract, not the precise
+        // source of the earlier hosted Busy result.
+        {
+            let _held = dispatcher.lock().unwrap();
+            let busy = call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+            assert_eq!(busy["error"]["code"], "busy");
+            assert!(busy.get("result").is_none());
+            assert_eq!(calls.load(Ordering::Relaxed), before_revoked_calls);
+        }
+        let revoked = route_read(json!({"query":"private.example"}));
         assert_eq!(revoked["error"]["code"], "capability_unavailable");
+        assert!(revoked.get("result").is_none());
+        assert!(!revoked.to_string().contains("private.example"));
+        assert_eq!(calls.load(Ordering::Relaxed), before_revoked_calls);
+        stop.store(true, Ordering::Release);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
