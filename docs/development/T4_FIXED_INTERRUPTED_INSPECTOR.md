@@ -96,3 +96,53 @@ The controlled OLD members are valid public fixture bytes distinct from both
 authenticated NEW members, so one rename really produces Mixed. This does not
 change earlier Stage/Commit fixture bytes or pretend rename count alone proves
 the live class. The inspector independently checks this actual byte class.
+
+## Observer-role source successor
+
+ROOT selected original `08b771eb` on its admitted fresh developer boot. Whole
+SSH completed nonzero (`6bcee5`, exit 2). The separately pre-scoped file observer
+completed zero (`1288e9`) and projected supervisor 64 bytes/two frames, last
+`t4_service_mixed_writer_ready`, and actor 74 bytes/two frames, last
+`t4_actor_before_canonical_observer`. No successful interruption or inspector
+execution is claimed, and the captures alone do not prove absence of effects.
+
+That immutable source binds self command-line observation only to
+`--actor-canonical`, while its fixed writer and inspector use different worker
+arguments. Those declared arguments cannot pass that gate. The source successor
+stores a closed expected role selected one-to-one by the actual worker entry
+before READY/capture, and admits only that role's exact argument. It does not
+allow all three arguments generically. Default canonical behavior, executable,
+UID/namespace, inventory, origin fences, budgets and transaction rules remain
+unchanged. Wrong-role/noncanonical/short/extra argument controls are pure source
+tests; fresh critical review, build identity and actual selection remain
+separate. The stopped `08b771eb` scope is not queried, retried or reclassified.
+
+## Exact role-bound developer checkpoint
+
+ROOT completed the scoped scenario at exact tested source
+`75378da6fc41fabeac0937b18373fd7e5dd929b0`, after PRIMARY and independent
+critical source review, the finite packet delta review and 24 pure packet/
+transport controls. Any later documentation head records that tested source;
+it is not a newly executed actor. The sealed release actor was 2,085,448 bytes,
+SHA256 `2573a3eb46a6c2b16e2ad7a3fa5dec98f322097771f5384843987e88eecc84d4`.
+
+On ROOT's fresh admitted developer boot, ordinary native-user runtime stop and
+an independent inactive/no-TUN baseline preceded upload `d03eec`, prepare
+`e01345`, whole run `41284` → `79fd9a`, and the separately pre-scoped fixed-file
+observer `37853` → `41f89e`. Each original operation completed with exit zero.
+Whole zero includes the exactly classified/reaped original writer exit 86,
+permanent old-context revocation, fresh inspector admission, read-only
+Intent/MIXED classification, inspector Halt and original inspector exit zero.
+
+- Actor: 7,852 bytes, 223 closed-grammar frames, last
+  `t4_actor_fixture_intent_mixed_inspected`; SHA256
+  `b12a5d4b1897ea4d369ebb7688434d2a0c44fdc5e157593d1a683407c08aaf3f`.
+- Supervisor: 222 bytes, six frames, last
+  `t4_service_interrupted_inspection_completed`; SHA256
+  `75866bc3462ae16ecb87fd7aaaf81e67aad4f6b76e16671117bdc179b26111a2`.
+
+This is controlled process-exit interruption and factual read-only re-entry,
+not SIGKILL/power-cut evidence, restoration of a real pair, product rollback,
+startup permission or whole T4 acceptance. The original `08b771eb` refusal
+remains NONPASS. Additional optional-drift/held-file/expectation-body fault
+controls remain separate from this one completed positive scenario.

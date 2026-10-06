@@ -439,6 +439,35 @@ impl StageAdmission {
 mod commit_plan_tests {
     use super::*;
     #[test]
+    fn exact_observer_role_rejects_every_other_worker_or_noncanonical_shape() {
+        for role in [
+            ObserverRole::Canonical,
+            ObserverRole::MixedWriter,
+            ObserverRole::Inspector,
+        ] {
+            for argument in [
+                b"--actor-canonical".as_slice(),
+                b"--actor-mixed-writer",
+                b"--actor-inspector",
+                b"--actor",
+                b"--observe-manager",
+                b"",
+            ] {
+                assert_eq!(
+                    role.command_matches(&[b"/fixed/actor", argument]),
+                    argument == role.argument()
+                );
+            }
+            assert!(!role.command_matches(&[]));
+            assert!(!role.command_matches(&[b"/fixed/actor"]));
+            assert!(!role.command_matches(&[b"/fixed/actor", role.argument(), b"extra"]));
+            let mut changed = role.argument().to_vec();
+            changed.push(b' ');
+            assert!(!role.command_matches(&[b"/fixed/actor", &changed]));
+        }
+        assert!(Canonical::reserve().unwrap().observer_role == ObserverRole::Canonical);
+    }
+    #[test]
     fn commit_requires_exact_fixed_34_fences_and_never_reuses_consumed_admission() {
         for count in [0, 26, 33, 34, 35] {
             let mut admission = StageAdmission {
@@ -774,7 +803,27 @@ fn positive_query(eof: bool, status: WaitStatus, pid: Pid) -> Result<bool> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObserverRole {
+    Canonical,
+    MixedWriter,
+    Inspector,
+}
+impl ObserverRole {
+    fn argument(self) -> &'static [u8] {
+        match self {
+            Self::Canonical => b"--actor-canonical",
+            Self::MixedWriter => b"--actor-mixed-writer",
+            Self::Inspector => b"--actor-inspector",
+        }
+    }
+    fn command_matches(self, args: &[&[u8]]) -> bool {
+        args.len() == 2 && args[1] == self.argument()
+    }
+}
+
 pub(crate) struct Canonical {
+    observer_role: ObserverRole,
     files: Vec<File>,
     installed: Vec<Installed>,
     root: Option<usize>,
@@ -846,6 +895,11 @@ impl Authentication {
 }
 impl Canonical {
     pub(crate) fn reserve() -> std::result::Result<Self, Unavailable> {
+        Self::reserve_role(ObserverRole::Canonical)
+    }
+    pub(crate) fn reserve_role(
+        observer_role: ObserverRole,
+    ) -> std::result::Result<Self, Unavailable> {
         let mut files = Vec::new();
         files
             .try_reserve_exact(FIXED_FILES)
@@ -869,6 +923,7 @@ impl Canonical {
         let mut link = Zeroizing::new(Vec::new());
         link.try_reserve_exact(4097).map_err(|_| Unavailable)?;
         Ok(Self {
+            observer_role,
             files,
             installed,
             named,
@@ -1950,8 +2005,7 @@ impl Canonical {
         let args = arguments(&myself.command_bytes)?;
         if myself.identity.uids != [0; 4]
             || myself.identity.namespace_pids != [myself.pid]
-            || args.len() != 2
-            || args[1] != b"--actor-canonical"
+            || !self.observer_role.command_matches(&args)
         {
             return Err(());
         }
