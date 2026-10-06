@@ -604,6 +604,73 @@ fn native_catalogue_known_unlink_is_one_way_no_unknown_or_reintroduced_name() {
     assert!(!catalogue.removed[catalogue.index(b"unrelated").unwrap()]);
 }
 
+#[cfg(test)]
+#[test]
+fn native_store_nochange_uses_named_rollback_original_not_displaced_mixed_file() {
+    use std::fs;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    struct LocalRoleOnly;
+    impl NativeGate for LocalRoleOnly {
+        fn check(&mut self, _: NativeStageView<'_>) -> Result<(), FirstError> {
+            Ok(())
+        }
+    }
+    let root = std::env::temp_dir().join(format!("nc-{:x}", std::process::id()));
+    fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+    let write = |name, bytes: &[u8]| {
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(root.join(name))
+            .unwrap();
+        file.write_all(bytes).unwrap();
+        file.sync_all().unwrap();
+        file
+    };
+    let mixed = write(LIVE[0].1, b"actual displaced MIXED");
+    let rollback = write(NATIVE_ROLLBACKS[0].1, b"actual current OLD");
+    let mut engine = NativeEngine::reserve();
+    engine.uid = Some(nix::unistd::getuid().as_raw());
+    engine.gid = Some(nix::unistd::getgid().as_raw());
+    engine.lower.io.native_admit().unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(5);
+    engine
+        .clone_file(Slot::Config, &File::open(&root).unwrap(), true, until)
+        .unwrap();
+    engine
+        .clone_file(Slot::OldStore, &mixed, false, until)
+        .unwrap();
+    engine
+        .clone_file(NATIVE_ROLLBACKS[0].0, &rollback, false, until)
+        .unwrap();
+    fs::rename(root.join(NATIVE_ROLLBACKS[0].1), root.join(LIVE[0].1)).unwrap();
+    // Only this reported own rename advances these original metadata roles.
+    // No real manager/recovery authority is inferred from this cfg(test) test.
+    engine.lower.original[Slot::OldStore as usize] = Some(mixed.metadata().unwrap());
+    engine.lower.original[NATIVE_ROLLBACKS[0].0 as usize] = Some(rollback.metadata().unwrap());
+    engine.lower.live[0] = LiveRole::Renamed;
+    engine.completed = true;
+    engine.disposition_done = true;
+    engine.history = true;
+    engine.recovery = true;
+    engine.singleton_locked = true;
+    engine.store_attempted = true;
+    engine
+        .finish_store_inner(&mut LocalRoleOnly, b"actual current OLD", false, until)
+        .unwrap();
+    assert_eq!(mixed.metadata().unwrap().nlink(), 0);
+    assert_eq!(rollback.metadata().unwrap().nlink(), 1);
+    assert_eq!(
+        fs::read(root.join(LIVE[0].1)).unwrap(),
+        b"actual current OLD"
+    );
+    drop((engine, mixed, rollback));
+    fs::remove_file(root.join(LIVE[0].1)).unwrap();
+    fs::remove_dir(root).unwrap();
+}
+
 // Original directory membership is a bounded fact of the same held objects,
 // not authority for any additional file. No name allocation after effects.
 const CATALOGUE_LIMIT: usize = 128;
@@ -953,8 +1020,13 @@ impl NativeEngine {
                     Some((expected.len(), Sha256::digest(expected).into()));
                 self.current_store = true; // only full retained current-byte proof
             } else {
+                let current = if self.lower.live[0] == LiveRole::Renamed {
+                    NATIVE_ROLLBACKS[0].0
+                } else {
+                    Slot::OldStore
+                };
                 self.lower
-                    .verify_member(Slot::Config, Slot::OldStore, LIVE[0].1, expected, until)
+                    .verify_member(Slot::Config, current, LIVE[0].1, expected, until)
                     .map_err(|_| FirstError::StillFenced)?;
             }
             self.gate(origin, until)
