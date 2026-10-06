@@ -1,6 +1,6 @@
 # T3 default-off original-child executable witness
 
-Developer-only concrete read-only helper and passive test. No default close
+Developer-only concrete read-only helper, passive tests and same-Session effect gate. No default close
 method, effect permit, installer, unit/enrollment creation or service activation.
 The prior capless package-path gates remain exact4d/e452/7def evidence; they do
 not solve normal capability-enabled `/proc/<child>/exe` access. The helper is
@@ -12,8 +12,8 @@ existing service or the unprivileged runtime.
 The new `omavless-image-witness` crate is empty by default. Its explicit
 developer-helper feature provides a separately compiled binary, accepting only
 `--development-service`. Runtime's separate non-default developer-image-witness
-feature includes the ignored passive gate and a separately pending, test-only
-same-original Session integration. Default/native product activation still
+feature includes the ignored passive gate and test-only same-original Session
+integration with exact scoped acceptance below. Default/native product activation still
 does not select this provider. No service registration or public caller path exists.
 
 The fixed endpoint is `/run/omavless-image/control.sock`, under root-only writable
@@ -154,7 +154,7 @@ packet and all actual privilege/resource boundaries need separate primary and
 independent review before selection. No actor, socket or ignored test was run
 by the author.
 
-## Next native integration, not assumed by this passive slice
+## Native integration requirement, not implied by this passive slice
 
 After the first exact passive gate, the SAME original OwnedCore/Session must
 retain this channel/child pidfd. Capture and EVERY image recheck must use fresh
@@ -226,10 +226,11 @@ matched the exact negative grammar. These are specific bind-refusal controls,
 not generic-error or kernel-errno inference. Native test stdout222 bytes/SHA256
 `cf4b5c79a024fc5e934590c686fb7b41c9d106caf7cb97731391cf01e3424282`.
 
-This proves the bounded passive same-original cap-child image samples and two
-negative controls only. Actual image/source drift, NativeOwner/Session fresh
-per-flight integration, effect-bearing close, default exposure and distribution
-remain pending. No source/packet author operated the VM or read raw captures.
+This400c checkpoint proves bounded passive same-original cap-child image samples
+and two negative controls only. It does not establish actual image/source drift,
+NativeOwner/Session per-flight integration or effect-bearing close; the later c9
+acceptance below is separate evidence. Default exposure and distribution remain
+pending. No source/packet author operated the VM or read raw captures.
 
 ## Same-original native Session integration — new SOURCE candidate
 
@@ -289,9 +290,8 @@ The new ignored `actual_owner_qualified_cap_image_close_with_witness_in_dev_vm`
 uses the original real RuntimeServer/coordinator and two private no-TUN/no-DNS
 streams. It requires actual parent0 caps/NNP0, original cap-child0x3400, the exact
 qualified pair, no fixture permit, selected EOF/other echo, exact receipt replay
-and unchanged desired bytes. Its real helper/native statuses and full packet
-remain PENDING. The actual changed-source/current-image negative is also required
-before effect selection; memory callbacks below are not that privileged evidence.
+and unchanged desired bytes. Its exact c9 actual result is recorded below;
+memory callbacks are not that privileged evidence and do not substitute for it.
 
 The source-drift extension is a separate declared passive case, not a generic
 positive panic relabelled PASS. ROOT's new fixed namespace recipe must first
@@ -302,8 +302,8 @@ child's pidfd and exact UID/parent/0x3400 evidence; it does not send the wrong
 parent or a dead child. One bind must refuse, with the extra closed
 `image_witness_original_source_drift_refused` phase, original helper2/native0
 and exact complete grammar required externally. No native mutation, retry,
-fallback, controller POST, cleanup proof or default effect occurs. Its actual
-outcome remains pending until ROOT selects the separately reviewed recipe.
+fallback, controller POST, cleanup proof or default effect occurs. Its exact
+fresh-scope6 actual result is recorded below, after separate ROOT selection.
 
 Regular regression tests use the existing actual owned child/controller fixture
 with memory image-RPC callbacks, never a helper or CAP_SYS_PTRACE. They exercise
@@ -321,9 +321,116 @@ type-complexity and private enum-name diagnostics were fixed without suppression
 The first source guard incorrectly stopped at an internal cfg(test) block; its
 function-range extractor was corrected without a production change.
 
-The first1173-case serial feature suite is NONPASS: unchanged self-reexec
-synthetic restore crash cases failed while the author rebuilt the SAME debug
-test pathname for focused checks. Original diagnostics are retained; until its
-final error trace and isolated immutable-ELF reproduction, this is a concrete
-scheduling hypothesis, not attribution to a product or T4 code defect. The
-candidate is not full-suite/VM acceptance or a default-release promotion.
+The first1173-case serial feature suite remains originalEXIT101/NONPASS:
+1107 passed,26 failed,40 ignored in1900.08s. Its recovered original complete
+source-test result was150176 bytes/SHA256
+`67c5182ffe0aad2fc39affc0a3a11c2ce53f368caf2a5bae232a1a9988562866`.
+All26 failures report ENOENT at self-reexec output sites, while the author
+rebuilt that SAME active debug ELF pathname for focused checks. This signature
+is consistent with replacement/unlink of the reexec image, not a demonstrated
+application recovery defect; no application fix was made.
+
+A unique immutable debug ELF231713680 bytes/SHA256
+`f434f2a33903d51813256cd16ef9130242f7304db2628701145612a0b6ed8efd`
+preserved the integrated0c8e source controls before c9's additional ignored
+passive-case branch. The first exact failed filter then passed. Its subsequent
+whole serial run returned originalEXIT0:1134 passed,0 failed,40 ignored,
+1174 total in2564.64s. Durable stdout132919 bytes/SHA256
+`9fdcd1204988cfcaf06ac37883f29a61c5397f9d652db3bc63e979e4c0d5e7f2`,
+stderr empty. No ignored helper/VM case executed and no live ELF was rebuilt
+during this run. This is ordinary source-test evidence only; the old failure
+remains retained separately. See [self-reexec scheduling guidance](../../CONTRIBUTING.md#checks).
+
+## Same-original VM integration: earlier supervisor failures preserved
+
+The integrated runtime candidate is exactc9baa5479e36582ba5c73920c95f94c54a6983dd
+(production effect source0c8e4864/helper400c648b), immutable release test ELF
+21805440 bytes/SHA256
+`97d71f9fb48ea713f46b40fdd14eb6a753121c2e6e9466a6955263f1cf950536`.
+It passed only the new exact developer gates recorded below, not default activation.
+
+New scope3 upload/preparation returned original0, but source-drift supervisor
+parked at HELPER_START before native spawn. Its separately scoped fixed-file
+observer returned original0: helper stdout empty, stderr75 bytes/SHA256
+`c1bd16bf8459e9a2ca1cf632c09e4cce8ed23ccc50a0d5d79f87e114bfe0b052`
+contained listener_ready once and the closed expired category. Source inspection
+and a pure counterexample found a live-capture reader could reject concurrent
+growth between fstat and pread; a fresh scope4 recipe corrected that reader,
+not the production helper or any privilege/authority predicate.
+
+Scope4 upload/preparation also returned original0; its new original supervisor
+parked at HELPER_START/fixed_operation/io_error. A
+separately selected helper-only observer returned original0 with the same exact
+75-byte helper grammar/hash and empty stdout. The helper started, but neither
+projection isolates the supervisor's failure: fixed_operation is also reset
+AFTER readiness, so the earlier pre-readiness inference was wrong. The live-reader
+defect is not established as its actual cause. Neither failed scope is retried,
+signalled, reaped, traversed or cleaned by the author. Fresh scope5 SOURCE
+diagnostics classified only existing acquisition subphases/returned errno through
+closed public categories, without raw errors or additional resource probes.
+That new original also parked at HELPER_START/fixed_operation/io_other; it is
+NONPASS, not a completed source-drift test.
+
+Reassessment found a concrete recipe ordering incompatibility: RLIMIT_FSIZE
+262144 preceded a61083808-byte drift-copy write. A pure frozen critical-order
+counterexample produces EFBIG, which the old taxonomy reported as io_other.
+This is consistent with the observed outcome, not an attestation of its actual
+errno. Fresh scope6 SOURCE prepares the full same-byte/capability, different-inode
+read-only copy BEFORE the capture-file limit and helper startup; the fixed
+source is covered only AFTER original helper readiness and repeated retained/
+named/capability checks. Capture size, helper privileges, all deadlines and
+negative/positive status requirements remain unchanged. The new actual selection
+requires primary/independent review and ROOT operation.
+No observer0, source0 or passive helper gate promotes these runs to PASS.
+
+## Exact same-original cap-image effect checkpoint (ROOT-operated)
+
+Fresh scope6 retained the same runtime c9/source0c8e, helper400c/570592-byte ELF
+SHA256 `6c646467e572437ba98b64ba248e2b944745ca06d4bc9eec11784bc600db304b`,
+and four-family source4d4747af47d60956b370e588469a3b9472ed42a1/package objects.
+The corrected recipe received full primary/independent affected review and38
+pure controls before ROOT alone selected each action. Original upload `10cf48`
+and preparation `15345`→`824341` returned0. No old failed graph was reused.
+
+The source-drift negative ran first: original `26608`→`234ff8` returnedSSH0
+with the exact completion marker, after the recipe independently verified
+ORIGINAL helper2/native0, complete fixed grammars and both positive original
+reaps. Separate fixed-file observer `6332`→`e7b052` returned0. Helper stdout
+empty; stderr131 bytes/SHA256
+`dc98b3bd954d42750ae6536d8d9fcf820761ffadc7f2fb34591f316469d1cfa7`
+matched ready/before-bind/bind-refused/fixed-refusal. Native stderr134 bytes/SHA256
+`9c38f99d6f33c5c56ef086f1f639cec92f095ce8676a4cdfc1288260f88c168a`
+matched original-cap-verified/binding-refused/source-drift-refused. Native
+stdout222 bytes/SHA256
+`02273be623c628423ca4cdcdcb590af730bbfabb1148e2b53e276ce9cbeb2f05`
+matched the complete exact single-test grammar without panic. This is the
+declared same-byte/different-inode source-drift refusal, not generic error2/101.
+
+ROOT then selected a SEPARATE original-owner positive namespace. Original
+`58818`→`5bf48e` returnedSSH0 with the same exact completion marker after
+verified ORIGINAL helper0/native0, whole grammars and positive-only original
+reaps. Separate observer `52772`→`454f9e` returned0: helper stdout empty;
+stderr5413 bytes/SHA256
+`94d0d250fc6a0d4c9204560830fca5170331444680119c1e863d8015e9f0d2db`
+matched ready/original-binding/current-image-sends/positive-finished grammar.
+Native stderr87 bytes/SHA256
+`48cac33d2e4043dcfb821cebf955b62c3a1e3fe1a80361d6bd3afd0ddba19bd4`
+matched original-cap-verified/owner-selected-closed; stdout234 bytes/SHA256
+`9956601e1723918303aee589d02f76dcac970020479849b6a4f881c541cf2814`
+matched exact single-test success grammar, without panic.
+
+This proves the scoped real RuntimeServer/NativeOwner integration with SAME
+retained Session/Client, off-lock fresh executable FD checks through each counted
+effect/final flight, actual cap-enabled original child, selected B EOF while
+nonselected A echoes, exact receipt replay and desired bytes unchanged. No
+fixture-effect permit was used. Original helper exit0 is separately verified,
+not inferred from Finish ACK. Trusted fixed non-exec core and ordinary
+stdlib/kernel/fixture Drop assumptions remain; no atomic image lock, unknown
+cleanup, fatal descriptor survival or original-core exit0 receipt is inferred.
+
+Default provider selection, helper service/enrollment distribution, public
+default close registration, installed frontend/cap-helper acceptance, native
+startup/DNS/TUN/broker serving, both host-family release gates and whole T3/C1
+closure remain open. Prior capless/CLI/Foot evidence belongs to its own exact
+heads; these two new gates neither replace it nor borrow its broader claims.
+Raw captures/private packets stayed outside Git. All scopes3/4/5 stay NONPASS.
