@@ -39,6 +39,20 @@ fn fixed_developer_entry_returns_only_the_owned_fixture_projection() {
 }
 
 #[test]
+fn final_newline_return_after_deadline_never_admits_an_event() {
+    let mut fixture = Fixture::new();
+    // Whole authentic frame is available immediately. Simulate the reader's
+    // scheduling pause after its final read, before accepting that newline.
+    fixture.source.after_newline_pause = Duration::from_millis(120);
+    fixture.send(Kind::Resume, 10);
+    assert_eq!(fixture.owner.status, Status::SourceUnavailable);
+    assert_eq!(fixture.poll(13, false, false), 0);
+    assert_eq!(fixture.coordinator.host().observations, 0);
+    assert_eq!(fixture.phase(), Phase::Ready);
+    fixture.unchanged();
+}
+
+#[test]
 fn authenticated_source_runs_original_coordinator_once_after_a_quiet_burst() {
     let mut f = Fixture::new();
     f.send(Kind::Resume, 100);

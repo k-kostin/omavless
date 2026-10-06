@@ -74,7 +74,9 @@ trait and coordinator hooks stay crate-private. The function accepts no path,
 identity, command, endpoint, profile, channel or callback. It creates a fresh
 owned fixture directory, seeds synthetic Ready only there, drives a burst into
 the original coordinator with the private synthetic host, verifies one recovery
-and a duplicate refusal, then removes its owned fixture. It returns only the
+and a duplicate refusal, then removes its owned fixture after successful
+completion. A partial setup panic may leave owned synthetic files; it does not
+claim cleanup on that failure or acquisition of any host resource. It returns only the
 coarse `owned_fixture` status, effect count, revision and intent-preservation
 boolean. This is not a production Ready initializer or host binding provider.
 

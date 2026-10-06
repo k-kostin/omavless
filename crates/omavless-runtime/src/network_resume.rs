@@ -55,6 +55,8 @@ struct Source {
     instance: [u8; 16],
     sequence: u64,
     lost: bool,
+    #[cfg(test)]
+    after_newline_pause: Duration,
 }
 
 impl Source {
@@ -98,6 +100,8 @@ impl Source {
             instance: context.fence.owner_instance,
             sequence: 0,
             lost: false,
+            #[cfg(test)]
+            after_newline_pause: Duration::ZERO,
         })
     }
 
@@ -119,6 +123,15 @@ impl Source {
                     .map_err(|_| Refused)?;
                 let mut byte = [0; 1];
                 if self.reader.read(&mut byte).map_err(|_| Refused)? != 1 {
+                    return Err(Refused);
+                }
+                #[cfg(test)]
+                if byte[0] == b'\n' && !self.after_newline_pause.is_zero() {
+                    std::thread::sleep(self.after_newline_pause);
+                }
+                // A final byte arriving around timeout rounding or a paused
+                // reader cannot be admitted after the original frame budget.
+                if Instant::now() >= deadline {
                     return Err(Refused);
                 }
                 bytes.push(byte[0]);
