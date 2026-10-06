@@ -93,7 +93,10 @@ building or running the nonignored pure renderer test is not file-publication
 or installed-core evidence. The helper uses the existing private renderer;
 ordinary runtime/API/package sources and admission issuance are unchanged.
 
-## Six separately selected VM cases — all pending
+## Six separately selected VM cases
+
+Runtime cases remain pending. The separately observed original `-t` subgate in
+case 6 passed as recorded below; this does not accept its later lifecycle gate.
 
 1. Numeric success: exact managed core SHA
    `1da6469cd2d122ddc9073835ba5fcee083509e1c76845fb67b8efacb8f448619`,
@@ -121,11 +124,11 @@ ordinary runtime/API/package sources and admission issuance are unchanged.
 ROOT alone provisions/selects/runs VM phases. No automatic cleanup, compensating
 network changes, recovery, retry or software installation is provided here.
 
-## BPF observer design, not implementation or permission
+## BPF observation boundary
 
 Do not launch the file-capability core under ptrace: it may change exec privilege
 semantics. ROOT reported kernel BTF available and subsequently installed
-bpftrace/BCC in the VM; no observer attach has been claimed. ROOT owns the
+bpftrace/BCC in the VM. ROOT owns the
 separately reviewed observer packet. Capture original exec identity, pid/start epoch and
 credentials; socket creation, connect destination, SO_MARK setsockopt value and
 return, and effective socket `sk_mark` at connect/send. Correlate socket identity
@@ -138,3 +141,59 @@ attached before original execution. Do not add marks to fixture/probe processes.
 Independent nft counters/capture are useful corroboration but cannot replace
 effective per-socket mark attribution. No production observer or permissive
 bypass rule is added by this fixture.
+
+## Exact validation and collector-load results — 2026-10-06
+
+ROOT selected an independent, flattened full disk copy of the Omarchy dev VM;
+the original VM/disk/NVRAM remained off and unchanged. The installed user
+runtime and netguard were inactive, with only loopback and the VM Ethernet
+interface. No physical-host VPN, service, network or package was changed.
+Synthetic inputs were generated privately, and the exact renderer image from
+`b4430ef01e40714ccfc2870654986ba7df5fa4e2` returned original0. This is real
+private file publication, not runtime activation. A separately reviewed fixed
+ephemeral CA was installed only in this disposable copy for upcoming TLS tests.
+
+The final validator source SHA256 is
+`ebba5a704c43f7673f5a1a2fb9c1b990c6d6985f235cbeab585d7a65441e5607`;
+its file-only staging source SHA256 is
+`7eb91c6e6c250eecfd7761a248eb5092ef751b7b2044a07fcd3293076f056ea2`.
+The separately frozen passive observer SHA256 is
+`f4f9d506d3befa255dc0f3ec7e97ce0153d12ee7e636ad25c7ba90feeb578240`.
+Twenty-one offline controls passed, including real temporary-file staging,
+exact embedded bytes and unchanged existing config/data. Original child
+execution was held until all-hook, original-PID/credentials-authenticated
+notification; no ptrace or extra mark was introduced.
+
+Actual selection `fb097e` returned originalSSH0 and the fixed result
+`K1_VALIDATOR_ORIGINAL_ZERO_NO_SOCKET_EVENTS 10`. It positively observed/reaped
+the original observer and original core exit0, confirmed all original thread
+exits, held/named input postchecks, empty unchanged data directory and zero core
+stderr. A separate fixed read `81b8dc` returned original0: one exec, four thread
+births, five exits, zero socket/network/mark events, zero observer stderr and
+the expected finalizer. The 376-byte private trace SHA256 is
+`343118467513d39d4dcdcbe79fece933f1608a9be595c81f93472a47b41107bc`.
+These are bounded kernel socket/task and filesystem-inventory facts for this
+exact canonical `-t` invocation, not a general filesystem syscall trace or
+proof for other configs, builds or runtime paths.
+
+Earlier selections remained NONPASS. Their original input/process graphs were
+retained rather than retried/adopted: installed bpftrace adds exactly two final
+LF bytes, and distinct thread exits can share a nanosecond timestamp. The
+successor accepts only that exact finalizer and independent, already-known,
+distinct exit-only ties; unknown events, duplicate threads and all other ties
+still refuse. An unselected staging source with descriptor-variable shadowing
+was rejected before VM execution; the corrected real-file test covers it.
+
+The runtime collector's exact-broker successor SHA256 is
+`b1a123643f5e0cbcfe1a0710751040fc9c0b71f0c5e7afe4c3a2922da47b3540`.
+Its separate load verifier SHA256 is
+`c4ddbdbfa4a652aad338ad2ad21b0d4d9d567c87a70a4b9c9f8dd463a0f634ae`.
+It returned original0 (`f7d2fb`) after actual passive `--dry-run` attachment
+and original status/reap on kernel `7.2.5-3-omarchy`, installed bpftrace binary
+SHA256 `b38f3edca7ae17f78274c3eb0d569af417da25eb735467423223008de019bfbd`.
+Its verbose private stderr is 1,119 bytes, not an empty-diagnostics claim.
+This closes only compilation/load of the specified hooks, including the real
+DNS broker's fixed UNIX SEQPACKET connect. No runtime core, TLS peer, packet
+matrix, coverage issuance, Arm or native lifecycle acceptance follows from it.
+All raw captures, fixture identity/keys/config and observation tools remain
+private outside Git. Production coverage issuance is still closed.
