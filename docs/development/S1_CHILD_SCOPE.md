@@ -132,12 +132,13 @@ result without borrowing it as new runtime acceptance.
 
 ## Remaining product decision and gates
 
-### Prepared isolated-core successor — no core execution yet
+### Isolated-core developer witness — bounded offline interoperability
 
 The optional test-only `child_scope/isolated_core.rs` candidate adds ignored
-namespace/core exchange and supervisor-loss entries. It is source preparation;
-primary and independent review of the exact head must precede any core launch.
-The earlier pinned-client result remains tied to its original exact code.
+namespace/core exchange and supervisor-loss entries. Primary and independent
+review of the exact head precede core launch. The exact developer results below
+do not enable production behavior; earlier pinned-client evidence stays tied
+to its original exact code.
 
 The sole core specimen is root-owned `/usr/bin/mihomo`, package1.19.32-1,
 size62054520, SHA256
@@ -193,7 +194,7 @@ The mandatory loss entry deliberately bypasses Drop by exiting the verified
 PID1 while its original core is freshly observed running. Proposed evidence
 requires kernel PID-namespace descendant teardown, original bwrap completion,
 one fixed readiness marker and EOF on both pipe writers inherited by the core.
-It has not run. Ordinary completion instead requires original core cancellation
+The exact executed loss result is recorded below. Ordinary completion requires original core cancellation
 and terminal observation; `--die-with-parent` also bounds outer owner loss.
 No post-death descriptor custody, application-wide/global proxy safety, core
 product lifecycle or recovery is promised by this developer experiment.
@@ -209,6 +210,40 @@ which the earlier ambient-selector allowlist rejected. The explicit generated
 value correction needs its own exact delta review before a separately admitted
 new attempt. No parent-loss or actual-core exchange PASS follows from that
 first attempt, and the normal exchange was not run.
+
+After ROOT primary and independent Astra review, the separately admitted
+successor `e6ec13fd26167680363cb3c27a231464746da4f2` executed the parent-loss
+scenario once, then the normal exchange once from the same frozen test ELF.
+Both original completions were zero: parent loss one passed/788 filtered in
+1.61 seconds; normal exchange one passed/788 filtered in1.73 seconds.
+The original namespace was admitted as PID1 with the stated containment
+predicates; its freshly observed running core preceded the fixed loss marker.
+Original bwrap completion and both inherited pipe EOFs passed after supervisor
+exit. The normal scenario observed the proxy connection during the origin GET,
+the independent direct baseline with no proxy connection, distinct response
+bodies, exact fixed child receipts, unchanged private parent proxy snapshots
+and forced cancellation/reaping of the original known-running fixture core.
+This is no-TUN HTTP interoperability with the exact sealed specimen and a
+controlled numeric origin, not VPN/provider egress or product crash recovery.
+
+Frozen mode0500/single-link test ELF SHA256:
+`6533c3a5a29dfd8d25d8721be17405bb48a3830faee5702a8c53136f11c0fbb8`.
+Private parent-loss stdout198B SHA256
+`a7193de1c8665f07f7682e5e074ab1c3e70031a43a4fd9210979393102aa5112`;
+normal stdout200B SHA256
+`c7fb3def207a59fa19f7b656ed41fa840de8e196b39a507b4462975c7b8430cb`.
+Both stderr captures were empty; bounded namespace/core diagnostics and the
+earlier failed receipt remain private under HOME cache. Version output was
+not requested; specimen identity uses the exact executable digest and inspected
+package metadata, not a newly observed runtime version string.
+
+The final affected suite on this exact code passed100 cases, with six explicit
+core/consumer entries ignored and683 filtered. Fresh locked/offline compile,
+format/diff and strict no-default-feature library/test Clippy passed. The
+separate reviewed source wrapper again passed326 Python tests/two skipped plus
+JS/QML contracts at the previously recorded launcher hash. Exact-head GitHub
+test and both package CI jobs also passed. Later documentation heads record
+this exact executable evidence without minting another runtime acceptance.
 
 Source inspection: [defaults/parser](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/config/config.go),
 [startup/environment](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/main.go),
