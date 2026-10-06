@@ -390,3 +390,22 @@ A local real-reader regression proves0400 refusal and0600 authenticated success.
 The selector additionally prints exactly its five already-computed original
 admitted/result/held/denied/lease-busy bits before final refusal/completion, never
 resampling or granting authority. Old20 files/modes/captures are not touched.
+
+## Exact isolated real-owner Commit checkpoint
+
+After PRIMARY and independent source/helper reviews, ROOT selected exact
+`10985b8cf5930d7dca3178ef00034dde6c0e977d`, release test ELF24,435,312 bytes,
+SHA256`e47dfdd9477d9e00535d267bbc0298eeaa82940c701a74044f4e12d64d32e167`.
+Fresh private review21 preserved the installed application's profiles/configs.
+Original test/SSH `822432` completed zero. Separately selected fixed-file observer
+`ba334d` completed zero: stderr empty; stdout344 bytes,
+SHA256`0af59decb0ffad7609b208d35144aa6ec60f027783f8bf3805de2dd5bee9a6a6`,
+with the exact native completion marker and one-successful-test harness grammar.
+Original zero plus the source's final assertions bind genuine isolated singleton,
+real NativeLifecycleHost/ordinary initialize issuer, same retained Session/lease,
+actual pair write/rename/Committed/readbacks and permanently fenced owner.
+The five-cut projection was null because libtest prefixes its first output line;
+no five-bit value or cause is inferred from that null. This is not current()
+installed-login identity, application/private-store acceptance, rollback or whole
+T4 closure. Source fault/reconciliation matrix and fresh-context recovery
+classification remain necessary; old19/20 failures are retained unchanged.
