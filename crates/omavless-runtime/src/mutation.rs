@@ -291,6 +291,18 @@ impl MutationCoordinator {
         self.revision += 1;
         Ok(())
     }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn finish_retained_abort(
+        &mut self,
+        revision: RetainedRestoreRevision,
+        proof: crate::native_coordinator::NativeAbortedDisposition,
+    ) -> Result<(), CoordinatorError> {
+        if self.prepare_retained_restore()?.0 != revision.0 || !proof.matches(self, revision.0) {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        self.revision += 1;
+        Ok(())
+    }
     pub fn with_limits(
         queue_limit: usize,
         result_cache_limit: usize,

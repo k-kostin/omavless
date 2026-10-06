@@ -43,6 +43,21 @@ pub(crate) struct NativeCommittedDisposition {
     revision: u64,
 }
 #[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct NativeAbortedDisposition {
+    owner: *const crate::mutation::MutationCoordinator,
+    revision: u64,
+}
+#[cfg(feature = "t4-manager-actor-service")]
+impl NativeAbortedDisposition {
+    pub(crate) fn matches(
+        &self,
+        owner: &crate::mutation::MutationCoordinator,
+        revision: u64,
+    ) -> bool {
+        std::ptr::eq(self.owner, owner) && self.revision == revision
+    }
+}
+#[cfg(feature = "t4-manager-actor-service")]
 impl NativeCommittedDisposition {
     pub(crate) fn matches(
         &self,
@@ -54,6 +69,18 @@ impl NativeCommittedDisposition {
 }
 #[cfg(feature = "t4-manager-actor-service")]
 impl<H: LifecycleHost> NativeSessionOrigin<'_, H> {
+    pub(crate) fn aborted_disposition(
+        &self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+    ) -> Result<NativeAbortedDisposition, FirstError> {
+        if !view.session_aborted_disposed() {
+            return Err(FirstError::StillFenced);
+        }
+        Ok(NativeAbortedDisposition {
+            owner: &self.session.owner.coordinator,
+            revision: self.session.readiness.revision,
+        })
+    }
     pub(crate) fn committed_disposition(
         &self,
         view: crate::manager_actor_service::NativeStageView<'_>,
@@ -183,6 +210,8 @@ enum FirstOutcome {
     CommittedStillFenced,
     #[cfg(feature = "t4-manager-actor-service")]
     CompletedOrdinary,
+    #[cfg(feature = "t4-manager-actor-service")]
+    IntentPaused,
 }
 
 #[derive(Debug, PartialEq, Eq)]

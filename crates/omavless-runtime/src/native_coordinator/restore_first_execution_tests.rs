@@ -12,6 +12,262 @@ const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activ
 
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
+fn native_positive_intent_pause_aborts_old_without_live_rename_and_moves_same_lease() {
+    let mut f = Fixture::new();
+    let old = fs::read(&f.store).unwrap();
+    let old_inode = fs::metadata(&f.store).unwrap().ino();
+    assert_eq!(
+        f.owner.pause_current_restore_intent(&f.backup, PASSWORD),
+        Ok(())
+    );
+    assert!(f.owner.current_intent_paused());
+    assert!(f.owner.retained_restore_busy());
+    assert!(!f.owner.transaction.independently_blocked());
+    assert_eq!(f.owner.revision(), 0);
+    assert_eq!(fs::read(&f.store).unwrap(), old);
+    assert_eq!(fs::metadata(&f.store).unwrap().ino(), old_inode);
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    assert!(
+        f.owner
+            .pause_current_restore_intent(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(
+        f.owner
+            .execute_first_restore_completed(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(f.owner.current_intent_paused()); // expected busy did not revoke
+    let denied = crate::make_request(
+        "paused-mutation",
+        "onboarding.complete",
+        serde_json::json!({"operationId":"paused-mutation","expectedRevision":0}),
+    )
+    .unwrap();
+    assert!(f.owner.execute_onboarding(&denied).is_err());
+    assert!(f.owner.current_intent_paused());
+    assert_eq!(f.owner.abort_current_restore_intent(), Ok(()));
+    assert!(!f.owner.current_intent_paused());
+    assert!(!f.owner.retained_restore_busy());
+    assert_eq!(f.owner.revision(), 1);
+    assert_eq!(fs::read(&f.store).unwrap(), old);
+    assert_eq!(fs::metadata(&f.store).unwrap().ino(), old_inode);
+    assert!(!crate::pending_private_transaction::pending_at(&f.state()));
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    assert!(f.owner.abort_current_restore_intent().is_err());
+    assert!(!f.owner.retained_restore_busy()); // stale resume cannot revoke success
+    let request = crate::make_request(
+        "after-abort",
+        "onboarding.complete",
+        serde_json::json!({"operationId":"after-abort","expectedRevision":1}),
+    )
+    .unwrap();
+    assert!(matches!(
+        f.owner.execute_onboarding(&request).unwrap(),
+        NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+    ));
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_paused_abort_publication_and_retirement_cuts_are_sticky() {
+    use crate::manager_actor_service::NativeStep;
+    for selected in [
+        NativeStep::Terminal,
+        NativeStep::RetirementReceipt,
+        NativeStep::StageRetired,
+        NativeStep::Closure,
+        NativeStep::DispositionComplete,
+        NativeStep::History,
+    ] {
+        let mut f = Fixture::new();
+        let old = fs::read(&f.store).unwrap();
+        f.owner
+            .pause_current_restore_intent(&f.backup, PASSWORD)
+            .unwrap();
+        let mut reached = false;
+        assert!(
+            f.owner
+                .abort_current_restore_intent_cut(&mut |step| {
+                    if step == selected {
+                        reached = true;
+                        return Err(FirstError::StillFenced);
+                    }
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert!(reached, "selected cut was not reached");
+        assert!(!f.owner.current_intent_paused());
+        assert!(f.owner.retained_restore_busy());
+        assert!(f.owner.transaction.independently_blocked());
+        assert!(f.owner.abort_current_restore_intent().is_err());
+        assert!(
+            MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+                .is_err()
+        );
+        assert_eq!(fs::read(&f.store).unwrap(), old);
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_pause_first_publication_unknown_and_original_substitution_never_resume() {
+    use crate::manager_actor_service::NativeStep;
+    for selected in [NativeStep::StageReady, NativeStep::Intent] {
+        let mut f = Fixture::new();
+        let old = fs::read(&f.store).unwrap();
+        let mut reached = false;
+        assert!(
+            f.owner
+                .pause_current_restore_intent_cut(&f.backup, PASSWORD, |step| {
+                    if step == selected {
+                        reached = true;
+                        return Err(FirstError::StillFenced);
+                    }
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert!(reached);
+        assert!(!f.owner.current_intent_paused());
+        assert!(f.owner.abort_current_restore_intent().is_err());
+        assert!(f.owner.retained_restore_busy());
+        assert_eq!(fs::read(&f.store).unwrap(), old);
+    }
+    for selected in ["intent", "live", "instance", "history"] {
+        let mut f = Fixture::new();
+        f.owner
+            .initialize_batch_operations("original-instance")
+            .unwrap();
+        f.owner
+            .pause_current_restore_intent(&f.backup, PASSWORD)
+            .unwrap();
+        match selected {
+            "instance" => f.owner.batch.as_mut().unwrap().instance = "foreign-instance".into(),
+            "history" => private(&f.state().join("restore-disposition.history"), b"foreign"),
+            _ => {
+                let path = if selected == "intent" {
+                    f.state().join("restore-decision.intent")
+                } else {
+                    f.store.clone()
+                };
+                let bytes = fs::read(&path).unwrap();
+                fs::rename(&path, f.root.join("substituted-original")).unwrap();
+                private(&path, &bytes);
+            }
+        }
+        assert!(f.owner.abort_current_restore_intent().is_err());
+        assert!(!f.owner.current_intent_paused());
+        assert!(f.owner.retained_restore_busy());
+        assert!(f.owner.abort_current_restore_intent().is_err());
+        assert!(
+            MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+                .is_err()
+        );
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_positive_pause_lost_response_publication_seals_same_original_slot() {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let mut f = Fixture::new();
+    let old = fs::read(&f.store).unwrap();
+    f.owner
+        .pause_current_restore_intent(&f.backup, PASSWORD)
+        .unwrap();
+    let (mut producer, consumer) = UnixStream::pair().unwrap();
+    drop(consumer);
+    let publication = producer.write_all(b"public positive pause reply\n");
+    assert!(publication.is_err());
+    if publication.is_err() {
+        f.owner.refuse_unpublished_intent_pause(0);
+    }
+    assert!(!f.owner.current_intent_paused());
+    assert!(f.owner.retained_restore_busy());
+    assert!(f.owner.transaction.independently_blocked());
+    assert!(f.owner.abort_current_restore_intent().is_err());
+    assert!(
+        f.owner
+            .pause_current_restore_intent(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    assert_eq!(fs::read(&f.store).unwrap(), old);
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_pause_queue_and_active_refuse_before_original_acquisition() {
+    use crate::mutation::{BeginOutcome, MutationKind, MutationRequest, SubmitOutcome};
+    let mut f = Fixture::new();
+    let old = fs::read(&f.store).unwrap();
+    let request = MutationRequest::new(
+        MutationKind::Other,
+        Some("existing"),
+        Some(0),
+        MutationDigest::from_semantic_bytes(b"existing queued operation"),
+    )
+    .unwrap();
+    assert!(matches!(
+        f.owner.coordinator.submit(request).unwrap(),
+        SubmitOutcome::Queued { .. }
+    ));
+    assert!(
+        f.owner
+            .pause_current_restore_intent(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(!f.owner.held_restore_execution.occupied());
+    assert!(matches!(
+        f.owner.coordinator.begin_next().unwrap(),
+        BeginOutcome::Started(_)
+    ));
+    assert!(
+        f.owner
+            .pause_current_restore_intent(&f.backup, PASSWORD)
+            .is_err()
+    );
+    assert!(!f.owner.held_restore_execution.occupied());
+    assert!(!f.stage().exists());
+    assert_eq!(fs::read(&f.store).unwrap(), old);
+    assert_eq!(f.owner.revision(), 0);
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
+fn native_intent_pause_identical_pair_uses_aborted_not_committed_proof() {
+    let mut f = Fixture::new();
+    let incoming = open_existing(&f.backup, f.owner.uid(), PASSWORD).unwrap();
+    private(&f.store, &incoming.restore_store_off().unwrap());
+    private(
+        &f.store.with_file_name("route-template.yaml"),
+        incoming.template(),
+    );
+    let old_inode = fs::metadata(&f.store).unwrap().ino();
+    f.owner
+        .pause_current_restore_intent(&f.backup, PASSWORD)
+        .unwrap();
+    f.owner.abort_current_restore_intent().unwrap();
+    assert_eq!(fs::metadata(&f.store).unwrap().ino(), old_inode);
+    assert_eq!(f.owner.revision(), 1);
+    assert!(!f.owner.retained_restore_busy());
+    assert!(!crate::pending_private_transaction::pending_at(&f.state()));
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
 fn native_committed_completion_retains_new_pair_and_one_original_ordinary_lease() {
     let mut f = Fixture::new();
     let original = f.owner.transaction.acquire_lock().unwrap();

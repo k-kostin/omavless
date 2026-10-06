@@ -23,9 +23,9 @@ pub(crate) use first_execution::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::HeldExecutionSlot;
 #[cfg(feature = "t4-manager-actor-service")]
-pub(crate) use first_execution::NativeCommittedDisposition;
-#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::NativeSessionOrigin;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use first_execution::{NativeAbortedDisposition, NativeCommittedDisposition};
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::{
     NativeCompletedOff, NativeLeaseError, NativeMigrationBorrow, NativeMutationLease,

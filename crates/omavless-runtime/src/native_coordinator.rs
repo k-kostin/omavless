@@ -31,9 +31,9 @@ pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefr
 #[cfg(all(test, feature = "t4-manager-actor-service"))]
 pub(crate) use restore_candidate::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
-pub(crate) use restore_candidate::NativeCommittedDisposition;
-#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::NativeSessionOrigin;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeAbortedDisposition, NativeCommittedDisposition};
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
 #[cfg(feature = "t4-manager-actor-service")]

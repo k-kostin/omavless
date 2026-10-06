@@ -14,7 +14,7 @@ mod stage;
 #[path = "manager_actor_transfer.rs"]
 mod transfer;
 pub(crate) use stage::NativeStep;
-pub(crate) use stage::{NativeEngine, NativeStageView};
+pub(crate) use stage::{NativeEngine, NativeIntentPaused, NativeStageView};
 pub(crate) const NATIVE_RETAINED_ROLE_CEILING: usize =
     retained_io::IO_SLOTS + 3 + 3 + 2 + 1 + 1 + 2;
 #[cfg(test)]

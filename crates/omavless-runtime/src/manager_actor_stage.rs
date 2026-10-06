@@ -28,7 +28,7 @@ use std::time::Instant;
 #[path = "manager_actor_stage/native.rs"]
 mod native;
 pub(crate) use native::NativeStep;
-pub(crate) use native::{NativeEngine, NativeStageView};
+pub(crate) use native::{NativeEngine, NativeIntentPaused, NativeStageView};
 
 const TRANSACTION: &str = "authenticated-transaction";
 const LIVE: [(Slot, &str); 2] = [

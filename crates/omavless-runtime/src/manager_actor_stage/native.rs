@@ -716,6 +716,23 @@ struct RetainedTerminal<'a> {
     terminal: &'a [u8],
     choice: NativeTerminalChoice,
 }
+
+// One private positive checkpoint, never a decoded record or failed-IO grant.
+pub(crate) struct NativeIntentPaused {
+    engine: std::sync::Arc<()>,
+    intent: [u8; RECORD_BYTES],
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CurrentIntentPhase {
+    None,
+    Paused,
+    Resuming,
+    Aborted,
+}
+enum NativeForwardOutcome {
+    Committed,
+    IntentPaused(NativeIntentPaused),
+}
 struct NativeCatalogue {
     names: [[u8; 255]; CATALOGUE_LIMIT],
     lengths: [usize; CATALOGUE_LIMIT],
@@ -769,6 +786,8 @@ pub(crate) struct NativeEngine {
     recovery: bool,
     // Set only after SAME Session execute_native's final original gate.
     committed: bool,
+    intent_identity: std::sync::Arc<()>,
+    current_intent: CurrentIntentPhase,
     singleton_locked: bool,
     unlinked: [bool; IO_SLOTS],
     completed: bool,
@@ -790,6 +809,12 @@ impl NativeStageView<'_> {
     }
     pub(crate) fn session_committed_disposed(self) -> bool {
         self.session_committed() && self.engine.disposition_ready()
+    }
+    pub(crate) fn session_aborted_disposed(self) -> bool {
+        self.engine.current_intent == CurrentIntentPhase::Aborted
+            && !self.engine.recovery
+            && !self.engine.sealed
+            && self.engine.disposition_ready()
     }
     pub(crate) fn owns_pending_phase(self) -> bool {
         self.stage_present()
@@ -975,6 +1000,8 @@ impl NativeEngine {
             catalogues_captured: false,
             recovery: false,
             committed: false,
+            intent_identity: std::sync::Arc::new(()),
+            current_intent: CurrentIntentPhase::None,
             singleton_locked: false,
             unlinked: [false; IO_SLOTS],
             completed: false,
@@ -996,7 +1023,9 @@ impl NativeEngine {
             && !self.ordinary_handoff
     }
     fn completed_origin(&self) -> bool {
-        (self.recovery && self.singleton_locked) || (!self.recovery && self.committed)
+        (self.recovery && self.singleton_locked)
+            || (!self.recovery
+                && (self.committed || self.current_intent == CurrentIntentPhase::Aborted))
     }
     pub(crate) fn consume_into_ordinary_lease(&mut self) -> Result<(), ()> {
         if !self.disposition_ready() {
@@ -2135,9 +2164,145 @@ impl NativeEngine {
     ) -> Result<(), FirstError> {
         self.recover_native(origin, backup, true)
     }
-    /// Only the SAME successful Session engine can consume this path. The
-    /// retained prepared plaintext and original Intent/Committed files are
-    /// rechecked before retirement; no decoder or recapture grants entry.
+    /// Only the SAME positively paused Session engine can consume this path.
+    /// Retained plaintext, original Intent and still-OLD live files are checked
+    /// before Aborted publication; no decoder or recapture grants entry.
+    pub(crate) fn abort_paused_native_intent<H: LifecycleHost>(
+        &mut self,
+        origin: &mut NativeSessionOrigin<'_, H>,
+        prepared: &PreparedRestorePair,
+        paused: NativeIntentPaused,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+    ) -> Result<crate::native_coordinator::NativeAbortedDisposition, FirstError> {
+        // Consume BEFORE even a tick/read. Invalid/second continuation revokes;
+        // it never rearms a previously failed/revoked ledger.
+        let valid = self.current_intent == CurrentIntentPhase::Paused
+            && std::sync::Arc::ptr_eq(&self.intent_identity, &paused.engine)
+            && !self.recovery
+            && !self.committed
+            && !self.sealed
+            && !self.retirement
+            && !self.completed;
+        self.current_intent = CurrentIntentPhase::Resuming;
+        let until = Instant::now() + std::time::Duration::from_secs(45);
+        let result = (|| {
+            if !valid {
+                return Err(FirstError::StillFenced);
+            }
+            self.gate(origin, until)?;
+            let members = [
+                prepared.original_store(),
+                prepared.original_template(),
+                prepared.incoming_store(),
+                prepared.incoming_template(),
+            ];
+            let plan = planned_stage_identity(members).map_err(|_| FirstError::StillFenced)?;
+            let desired = origin.desired_bytes()?;
+            let intent =
+                DecisionRecord::decode(&paused.intent).map_err(|_| FirstError::StillFenced)?;
+            let old_class = class_from_matches(
+                true,
+                true,
+                members[0] == members[2],
+                members[1] == members[3],
+            );
+            if intent.phase() != DecisionPhase::Intent
+                || !intent.matches_stage_identity(&plan)
+                || intent.review_inspection(origin.generation(), Some(&desired), &plan, old_class)
+                    != RecoveryReview::OldRollbackCandidate
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.lower
+                .verify_member(Slot::State, Slot::Intent, INTENT, &paused.intent, until)
+                .map_err(|_| FirstError::StillFenced)?;
+            for index in 0..2 {
+                self.lower
+                    .verify_member(
+                        Slot::Config,
+                        LIVE[index].0,
+                        LIVE[index].1,
+                        members[index],
+                        until,
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                for slot in [LIVE[index].0, Slot::Config] {
+                    self.lower
+                        .io
+                        .perform(
+                            slot,
+                            || tick(until),
+                            |file| file.sync_all().map_err(|_| Unavailable),
+                        )
+                        .map_err(|_| FirstError::StillFenced)?;
+                    self.gate(origin, until)?;
+                }
+            }
+            self.check_original_bytes(until)?;
+            self.gate(origin, until)?;
+            let terminal = intent
+                .terminal(TerminalChoice::Abort)
+                .map_err(|_| FirstError::StillFenced)?
+                .encode();
+            self.write(
+                Slot::State,
+                Slot::Terminal,
+                TERMINAL,
+                &terminal,
+                origin,
+                until,
+            )?;
+            cut(NativeStep::Terminal)?;
+            let chain = DecisionChain::decode(&paused.intent, Some(&terminal))
+                .map_err(|_| FirstError::StillFenced)?;
+            if chain.active().phase() != DecisionPhase::Aborted
+                || chain.active().review_inspection(
+                    origin.generation(),
+                    Some(&desired),
+                    &plan,
+                    old_class,
+                ) != RecoveryReview::VerifyAbortedCandidate
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.lower
+                .verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)
+                .map_err(|_| FirstError::StillFenced)?;
+            for index in 0..2 {
+                self.lower
+                    .verify_member(
+                        Slot::Config,
+                        LIVE[index].0,
+                        LIVE[index].1,
+                        members[index],
+                        until,
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+            }
+            self.gate(origin, until)?;
+            self.current_intent = CurrentIntentPhase::Aborted;
+            self.retire_native_terminal(
+                origin,
+                RetainedTerminal {
+                    members,
+                    intent: &paused.intent,
+                    terminal: &terminal,
+                    choice: NativeTerminalChoice::OldAborted,
+                },
+                cut,
+                until,
+            )?;
+            let uid = origin.uid();
+            let generation = origin.generation();
+            self.dispose_completed_inner_cut(origin, uid, generation, &desired, cut, until)?;
+            origin.aborted_disposition(self.view())
+        })();
+        if result.is_err() {
+            self.revoke_native();
+        }
+        result
+    }
+
     pub(crate) fn complete_native_committed<H: LifecycleHost>(
         &mut self,
         origin: &mut NativeSessionOrigin<'_, H>,
@@ -2866,6 +3031,35 @@ impl NativeEngine {
         prepared: &PreparedRestorePair,
         mut cut: impl FnMut(NativeStep) -> Result<(), FirstError>,
     ) -> Result<(), FirstError> {
+        match self.execute_native_mode(origin, prepared, &mut cut, false)? {
+            NativeForwardOutcome::Committed => Ok(()),
+            NativeForwardOutcome::IntentPaused(_) => {
+                self.revoke_native();
+                Err(FirstError::StillFenced)
+            }
+        }
+    }
+    pub(crate) fn pause_native_intent<H: LifecycleHost>(
+        &mut self,
+        origin: &mut NativeSessionOrigin<'_, H>,
+        prepared: &PreparedRestorePair,
+        mut cut: impl FnMut(NativeStep) -> Result<(), FirstError>,
+    ) -> Result<NativeIntentPaused, FirstError> {
+        match self.execute_native_mode(origin, prepared, &mut cut, true)? {
+            NativeForwardOutcome::IntentPaused(paused) => Ok(paused),
+            NativeForwardOutcome::Committed => {
+                self.revoke_native();
+                Err(FirstError::StillFenced)
+            }
+        }
+    }
+    fn execute_native_mode<H: LifecycleHost>(
+        &mut self,
+        origin: &mut NativeSessionOrigin<'_, H>,
+        prepared: &PreparedRestorePair,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        pause_at_intent: bool,
+    ) -> Result<NativeForwardOutcome, FirstError> {
         if self.sealed || self.uid.is_some() {
             return Err(FirstError::StillFenced);
         }
@@ -3043,6 +3237,29 @@ impl NativeEngine {
             self.write(Slot::State, Slot::Intent, INTENT, &intent, origin, until)?;
             cut(NativeStep::Intent)?;
             self.gate(origin, until)?;
+            if pause_at_intent {
+                self.lower
+                    .verify_member(Slot::State, Slot::Intent, INTENT, &intent, until)
+                    .map_err(|_| FirstError::StillFenced)?;
+                for index in 0..2 {
+                    self.lower
+                        .verify_member(
+                            Slot::Config,
+                            LIVE[index].0,
+                            LIVE[index].1,
+                            members[index],
+                            until,
+                        )
+                        .map_err(|_| FirstError::StillFenced)?;
+                }
+                self.check_original_bytes(until)?;
+                self.gate(origin, until)?;
+                self.current_intent = CurrentIntentPhase::Paused;
+                return Ok(NativeForwardOutcome::IntentPaused(NativeIntentPaused {
+                    engine: std::sync::Arc::clone(&self.intent_identity),
+                    intent,
+                }));
+            }
             pair_steps(|step| {
                 let index = match step {
                     CommitStep::Write(i) | CommitStep::Rename(i) => i,
@@ -3144,7 +3361,7 @@ impl NativeEngine {
             }
             self.gate(origin, until)?;
             self.committed = true;
-            Ok(())
+            Ok(NativeForwardOutcome::Committed)
         })();
         if result.is_err() {
             self.sealed = true;

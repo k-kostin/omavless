@@ -169,6 +169,41 @@ pub(crate) enum NativeCompletedRead {
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) {
+        self.coordinator.refuse_unpublished_intent_pause(revision);
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_pause(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .pause_current_restore_intent(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_abort(
+        &mut self,
+        request: &crate::developer_current_restore::AbortRequest,
+    ) -> Result<(), ProductionOwnerError> {
+        let original = self
+            .current_origin
+            .as_ref()
+            .ok_or(ProductionOwnerError::OwnershipUnavailable)?;
+        // A positive pause alone enables this private consumer. Do not use
+        // general ownership availability, which correctly refuses pending Intent.
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation == original.generation)
+            || request.revision() != self.revision()
+            || !self.coordinator.current_intent_paused()
+        {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        self.coordinator
+            .abort_current_restore_intent()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn developer_current_restore(
         &mut self,
         request: &crate::developer_current_restore::Request,

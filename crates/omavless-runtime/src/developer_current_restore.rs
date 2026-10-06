@@ -11,6 +11,13 @@ pub(crate) const METHOD: &str = "developer.restore_current";
 const CONFIRM: &str = "replace-current-private-pair";
 pub(crate) const BACKUP_METHOD: &str = "developer.backup_current";
 const BACKUP_CONFIRM: &str = "export-current-private-pair";
+pub(crate) const PAUSE_METHOD: &str = "developer.pause_current_intent";
+const PAUSE_CONFIRM: &str = "pause-current-private-intent";
+pub(crate) const ABORT_METHOD: &str = "developer.abort_current_intent";
+const ABORT_CONFIRM: &str = "abort-current-private-intent";
+pub(crate) fn private_method(method: &str) -> bool {
+    matches!(method, METHOD | BACKUP_METHOD | PAUSE_METHOD | ABORT_METHOD)
+}
 pub(crate) const MAX_INPUT: usize = 32768;
 #[derive(Debug, PartialEq, Eq)]
 enum ReplyDisposition {
@@ -18,7 +25,10 @@ enum ReplyDisposition {
     Unknown,
 }
 fn classify_response(response: &Value) -> Result<(), ReplyDisposition> {
-    if response["ok"] == true && response["result"]["completed"] == true {
+    classify_response_field(response, "completed")
+}
+fn classify_response_field(response: &Value, field: &str) -> Result<(), ReplyDisposition> {
+    if response["ok"] == true && response["result"][field] == true {
         return Ok(());
     }
     if response["ok"] == false
@@ -64,6 +74,38 @@ pub(crate) struct Request {
     instance_id: String,
     expected_revision: u64,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AbortRequest {
+    schema: u8,
+    confirmation: String,
+    instance_id: String,
+    expected_revision: u64,
+}
+impl AbortRequest {
+    pub(crate) fn parse(value: &Value) -> Result<Self, ()> {
+        let input = serde_json::to_vec(value).map_err(|_| ())?;
+        if input.len() > MAX_INPUT {
+            return Err(());
+        }
+        let request: Self = serde_json::from_slice(&input).map_err(|_| ())?;
+        if request.schema != 1
+            || request.confirmation != ABORT_CONFIRM
+            || request.instance_id.is_empty()
+            || request.instance_id.len() > 128
+            || request.expected_revision > omavless_control_protocol::MAX_REVISION
+        {
+            return Err(());
+        }
+        Ok(request)
+    }
+    pub(crate) fn instance(&self) -> &str {
+        &self.instance_id
+    }
+    pub(crate) fn revision(&self) -> u64 {
+        self.expected_revision
+    }
+}
 fn valid_private(schema: u8, archive: &str, passphrase: &str) -> bool {
     schema == 1
         && !archive.is_empty()
@@ -105,7 +147,10 @@ impl Request {
     }
     fn valid(&self) -> bool {
         valid_private(self.schema, &self.archive.0, &self.passphrase.0)
-            && matches!(self.confirmation.as_str(), CONFIRM | BACKUP_CONFIRM)
+            && matches!(
+                self.confirmation.as_str(),
+                CONFIRM | BACKUP_CONFIRM | PAUSE_CONFIRM
+            )
             && !self.instance_id.is_empty()
             && self.instance_id.len() <= 128
             && self.expected_revision <= omavless_control_protocol::MAX_REVISION
@@ -125,12 +170,12 @@ impl Request {
     pub(crate) fn matches_method(&self, method: &str) -> bool {
         matches!(
             (method, self.confirmation.as_str()),
-            (METHOD, CONFIRM) | (BACKUP_METHOD, BACKUP_CONFIRM)
+            (METHOD, CONFIRM) | (BACKUP_METHOD, BACKUP_CONFIRM) | (PAUSE_METHOD, PAUSE_CONFIRM)
         )
     }
 }
 pub(crate) fn wipe_request(request: &mut Value) {
-    if matches!(request["method"].as_str(), Some(METHOD | BACKUP_METHOD))
+    if request["method"].as_str().is_some_and(private_method)
         && let Some(params) = request["params"].as_object_mut()
         && let Some(Value::String(secret)) = params.remove("passphrase")
     {
@@ -140,6 +185,18 @@ pub(crate) fn wipe_request(request: &mut Value) {
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     arguments == ["developer", "restore-current", "--confirm-private-pair"]
         || arguments == ["developer", "backup-current", "--confirm-private-export"]
+        || arguments
+            == [
+                "developer",
+                "pause-current-intent",
+                "--confirm-private-intent-pause",
+            ]
+        || arguments
+            == [
+                "developer",
+                "abort-current-intent",
+                "--confirm-private-intent-abort",
+            ]
 }
 /// A lost reply is UNKNOWN, never an automatic retry. No request data is echoed.
 pub fn from_private_input(
@@ -149,7 +206,12 @@ pub fn from_private_input(
     if !arguments_admitted(arguments) {
         return Err("developer_current_arguments_refused");
     }
-    let (method, confirmation, marker) = if arguments[1] == "backup-current" {
+    let abort = arguments[1] == "abort-current-intent";
+    let (method, confirmation, marker) = if abort {
+        (ABORT_METHOD, ABORT_CONFIRM, "t4_current_intent_aborted")
+    } else if arguments[1] == "pause-current-intent" {
+        (PAUSE_METHOD, PAUSE_CONFIRM, "t4_current_intent_paused")
+    } else if arguments[1] == "backup-current" {
         (BACKUP_METHOD, BACKUP_CONFIRM, "t4_current_backup_created")
     } else {
         (METHOD, CONFIRM, "t4_current_pair_completed")
@@ -163,7 +225,24 @@ pub fn from_private_input(
         .take((MAX_INPUT + 1) as u64)
         .read_to_end(&mut raw)
         .map_err(|_| "developer_current_restore_input_refused")?;
-    let request = parse_input(&raw).map_err(|_| "developer_current_restore_input_refused")?;
+    if raw.len() > MAX_INPUT {
+        return Err("developer_current_restore_input_refused");
+    }
+    let request = if abort {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ResumeInput {
+            schema: u8,
+        }
+        let value: ResumeInput =
+            serde_json::from_slice(&raw).map_err(|_| "developer_current_restore_input_refused")?;
+        if value.schema != 1 {
+            return Err("developer_current_restore_input_refused");
+        }
+        None
+    } else {
+        Some(parse_input(&raw).map_err(|_| "developer_current_restore_input_refused")?)
+    };
     let paths = crate::RuntimePaths::current().map_err(|_| "developer_current_restore_refused")?;
     let hello = crate::call(&paths, "system.hello", serde_json::json!({"versions":[1]}))
         .map_err(|_| "developer_current_restore_refused")?;
@@ -171,26 +250,40 @@ pub fn from_private_input(
         .as_str()
         .filter(|value| !value.is_empty() && value.len() <= 128)
         .ok_or("developer_current_restore_refused")?;
-    if hello["ok"] != true || hello["result"]["runtimeOwnership"] != true {
+    if hello["ok"] != true || (!abort && hello["result"]["runtimeOwnership"] != true) {
         return Err("developer_current_restore_refused");
     }
-    let status = crate::call(&paths, "status.get", serde_json::json!({}))
-        .map_err(|_| "developer_current_restore_refused")?;
-    if status["ok"] != true
-        || status["result"]["runtimeOwnership"] != true
-        || status["result"]["desired"] != "disconnected"
-        || status["result"]["actual"] != "disconnected"
+    let status = if abort {
+        hello.clone()
+    } else {
+        crate::call(&paths, "status.get", serde_json::json!({}))
+            .map_err(|_| "developer_current_restore_refused")?
+    };
+    if !abort
+        && (status["ok"] != true
+            || status["result"]["runtimeOwnership"] != true
+            || status["result"]["desired"] != "disconnected"
+            || status["result"]["actual"] != "disconnected")
     {
         return Err("developer_current_restore_refused");
     }
     let revision = status["revision"]
         .as_u64()
         .ok_or("developer_current_restore_refused")?;
-    let params = serde_json::json!({"schema":1,"confirmation":confirmation,"archive":request.archive.0.as_str(),"passphrase":request.passphrase.0.as_str(),"instanceId":instance,"expectedRevision":revision});
+    let params = if let Some(request) = request {
+        serde_json::json!({"schema":1,"confirmation":confirmation,"archive":request.archive.0.as_str(),"passphrase":request.passphrase.0.as_str(),"instanceId":instance,"expectedRevision":revision})
+    } else {
+        serde_json::json!({"schema":1,"confirmation":confirmation,"instanceId":instance,"expectedRevision":revision})
+    };
     let response =
         crate::call_with_timeout(&paths, method, params, std::time::Duration::from_secs(120))
             .map_err(|_| "developer_current_restore_outcome_unknown")?;
-    classify_response(&response).map_err(|outcome| match outcome {
+    let disposition = if method == PAUSE_METHOD {
+        classify_response_field(&response, "intentPaused")
+    } else {
+        classify_response(&response)
+    };
+    disposition.map_err(|outcome| match outcome {
         ReplyDisposition::RefusedBeforeEffect => "developer_current_restore_refused",
         ReplyDisposition::Unknown => "developer_current_restore_outcome_unknown",
     })?;
@@ -200,6 +293,46 @@ pub fn from_private_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn intent_resume_is_closed_context_only_and_pause_is_not_completion() {
+        let good = serde_json::json!({"schema":1,"confirmation":ABORT_CONFIRM,
+            "instanceId":"public-instance","expectedRevision":0});
+        assert!(AbortRequest::parse(&good).is_ok());
+        let pause_wire = wire()
+            .replace(METHOD, PAUSE_METHOD)
+            .replace(CONFIRM, PAUSE_CONFIRM);
+        assert!(checked(pause_wire.as_bytes()).is_ok());
+        assert!(checked(pause_wire.replace(PAUSE_CONFIRM, CONFIRM).as_bytes()).is_err());
+        let mut resume_wire = crate::make_request("resume", ABORT_METHOD, good.clone()).unwrap();
+        let encoded = crate::encode_request(&resume_wire).unwrap();
+        let duplicate = String::from_utf8(encoded)
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        assert!(crate::decode_request(duplicate.as_bytes()).is_err());
+        resume_wire["params"]["phase"] = "any".into();
+        assert!(AbortRequest::parse(&resume_wire["params"]).is_err());
+        for (key, value) in [
+            ("archive", serde_json::json!("/public/a")),
+            ("passphrase", serde_json::json!("synthetic password")),
+            ("schema", serde_json::json!(true)),
+            ("confirmation", serde_json::json!(PAUSE_CONFIRM)),
+            ("instanceId", serde_json::json!("")),
+        ] {
+            let mut bad = good.clone();
+            bad[key] = value;
+            assert!(AbortRequest::parse(&bad).is_err());
+        }
+        let paused = serde_json::json!({"ok":true,"result":{"intentPaused":true}});
+        assert_eq!(classify_response_field(&paused, "intentPaused"), Ok(()));
+        assert_eq!(classify_response(&paused), Err(ReplyDisposition::Unknown));
+        assert_eq!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"completed":true}}),
+                "intentPaused"
+            ),
+            Err(ReplyDisposition::Unknown)
+        );
+    }
     fn checked(frame: &[u8]) -> Result<(), ()> {
         if frame.len() > MAX_INPUT {
             return Err(());

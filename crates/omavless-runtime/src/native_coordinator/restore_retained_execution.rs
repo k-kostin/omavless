@@ -10,6 +10,12 @@ pub(super) fn completion_owns_lease(lease: &crate::connection_transaction::Migra
         crate::connection_transaction::MigrationLease::Owned(_)
     )
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeMode {
+    FenceCommitted,
+    CompleteCommitted,
+    PauseIntent,
+}
 
 pub(crate) struct HeldExecution {
     // Each reported object is inserted before the next fallible operation.
@@ -26,6 +32,9 @@ pub(crate) struct HeldExecution {
     available: Arc<AtomicBool>,
     scope: Arc<AtomicBool>,
     activated: bool,
+    intent_pause: Option<crate::manager_actor_service::NativeIntentPaused>,
+    pause_revision: Option<crate::mutation::RetainedRestoreRevision>,
+    pause_instance: Option<Option<String>>,
 }
 impl HeldExecution {
     fn reserve() -> Self {
@@ -41,6 +50,9 @@ impl HeldExecution {
             available: Arc::new(AtomicBool::new(true)),
             scope: Arc::new(AtomicBool::new(false)),
             activated: false,
+            intent_pause: None,
+            pause_revision: None,
+            pause_instance: None,
         }
     }
     pub(super) fn refuse_ordinary(&mut self) {
@@ -104,6 +116,30 @@ impl Drop for HeldExecutionSlot {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn pause_current_restore_intent(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |_| Ok(()),
+            NativeMode::PauseIntent,
+        )
+        .map(|_| ())
+    }
+    #[cfg(test)]
+    pub(super) fn pause_current_restore_intent_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode(source, passphrase, || Ok(()), cut, NativeMode::PauseIntent)
+            .map(|_| ())
+    }
     /// Private developer path; authentication still precedes the lease. The
     /// installed slot remains occupied across errors, unwind and StillFenced.
     #[allow(dead_code)]
@@ -122,8 +158,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         source: &Path,
         passphrase: &[u8],
     ) -> Result<(), FirstError> {
-        self.execute_first_restore_mode(source, passphrase, || Ok(()), |_| Ok(()), true)
-            .map(|_| ())
+        self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |_| Ok(()),
+            NativeMode::CompleteCommitted,
+        )
+        .map(|_| ())
     }
     #[cfg(test)]
     pub(super) fn execute_first_restore_completed_cut(
@@ -132,8 +174,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         passphrase: &[u8],
         cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
     ) -> Result<(), FirstError> {
-        self.execute_first_restore_mode(source, passphrase, || Ok(()), cut, true)
-            .map(|_| ())
+        self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            cut,
+            NativeMode::CompleteCommitted,
+        )
+        .map(|_| ())
     }
     fn execute_first_restore_retained_gated(
         &mut self,
@@ -142,7 +190,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         acquired: impl FnMut() -> Result<(), FirstError>,
         cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
     ) -> Result<FirstOutcome, FirstError> {
-        self.execute_first_restore_mode(source, passphrase, acquired, cut, false)
+        self.execute_first_restore_mode(
+            source,
+            passphrase,
+            acquired,
+            cut,
+            NativeMode::FenceCommitted,
+        )
     }
     fn execute_first_restore_mode(
         &mut self,
@@ -150,12 +204,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         passphrase: &[u8],
         mut acquired: impl FnMut() -> Result<(), FirstError>,
         mut cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
-        complete: bool,
+        mode: NativeMode,
     ) -> Result<FirstOutcome, FirstError> {
+        let complete = mode == NativeMode::CompleteCommitted;
+        let pause = mode == NativeMode::PauseIntent;
         if self.retained_restore_busy() {
             return Err(FirstError::StillFenced);
         }
-        let revision = if complete {
+        let mut revision = if complete || pause {
             Some(
                 self.coordinator
                     .prepare_retained_restore()
@@ -180,7 +236,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     .acquire_lock()
                     .map_err(|_| FirstError::Admission)?,
             );
-            if complete
+            if (complete || pause)
                 && (!held.lock.as_ref().is_some_and(completion_owns_lease)
                     || !self.transaction.original_lease_vacant()
                     || held.ordinary_lock.get().is_some())
@@ -212,6 +268,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             } = &mut *held;
             let prepared = prepared.as_ref().ok_or(FirstError::Admission)?;
             let instance = self.batch.as_ref().map(|batch| batch.instance.clone());
+            let pause_instance = pause.then(|| instance.clone());
             let session = Session {
                 owner: self,
                 lock: lock.as_ref().ok_or(FirstError::Admission)?,
@@ -220,6 +277,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 instance,
             };
             let mut origin = NativeSessionOrigin { session };
+            if pause {
+                let paused = engine.pause_native_intent(&mut origin, prepared, &mut cut)?;
+                held.intent_pause = Some(paused);
+                held.pause_revision = revision.take();
+                held.pause_instance = pause_instance;
+                return Ok(FirstOutcome::IntentPaused);
+            }
             engine
                 .execute_native(&mut origin, prepared, &mut cut)
                 .map_err(|_| FirstError::StillFenced)?;
@@ -285,11 +349,133 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         } else {
             result
         };
-        if !complete || result.is_err() {
+        if (mode == NativeMode::FenceCommitted) || result.is_err() {
             self.transaction.block();
         }
         self.invalidate_connection_close();
         // Never take/reinsert or clear the installed holder, even on success.
+        result
+    }
+
+    pub(crate) fn current_intent_paused(&self) -> bool {
+        self.held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    held.intent_pause.is_some()
+                        && held.pause_revision.is_some()
+                        && held.pause_instance.is_some()
+                        && !held.activated
+                        && held.available.load(Ordering::Acquire)
+                })
+            })
+    }
+    pub(crate) fn abort_current_restore_intent(&mut self) -> Result<(), FirstError> {
+        self.abort_current_restore_intent_cut(&mut |_| Ok(()))
+    }
+    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) {
+        if self.revision() == revision && self.current_intent_paused() {
+            if let Some(original) = &self.held_restore_execution.original
+                && let Ok(mut held) = original.lock()
+            {
+                held.intent_pause = None;
+                held.pause_revision = None;
+                held.pause_instance = None;
+                held.refuse_ordinary();
+            }
+            self.transaction.block();
+        }
+    }
+    pub(super) fn abort_current_restore_intent_cut(
+        &mut self,
+        cut: &mut impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        if !self.current_intent_paused() {
+            return Err(FirstError::Admission);
+        }
+        let original = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .cloned()
+            .ok_or(FirstError::Admission)?;
+        let result = (|| {
+            let mut held = original.lock().map_err(|_| FirstError::StillFenced)?;
+            if held.activated || !held.available.load(Ordering::Acquire) {
+                return Err(FirstError::Admission);
+            }
+            // Exact one attempt: consume the original positive pause BEFORE
+            // any current-origin check, read, synchronization or publication.
+            let paused = held.intent_pause.take().ok_or(FirstError::Admission)?;
+            let revision = held.pause_revision.take().ok_or(FirstError::StillFenced)?;
+            let instance = held.pause_instance.take().ok_or(FirstError::StillFenced)?;
+            if self.batch.as_ref().map(|batch| batch.instance.as_str()) != instance.as_deref() {
+                return Err(FirstError::StillFenced);
+            }
+            let HeldExecution {
+                lock,
+                boundary,
+                prepared,
+                engine,
+                ..
+            } = &mut *held;
+            let prepared = prepared.as_ref().ok_or(FirstError::StillFenced)?;
+            let session = Session {
+                owner: self,
+                lock: lock.as_ref().ok_or(FirstError::StillFenced)?,
+                boundary: boundary.as_ref().ok_or(FirstError::StillFenced)?,
+                readiness: *prepared.readiness(),
+                instance,
+            };
+            let mut origin = NativeSessionOrigin { session };
+            let proof = engine.abort_paused_native_intent(&mut origin, prepared, paused, cut)?;
+            engine
+                .consume_into_ordinary_lease()
+                .map_err(|_| FirstError::StillFenced)?;
+            let generation = prepared.readiness().owner_generation;
+            let paths = origin.session.owner.transaction.cutover_paths().clone();
+            let uid = origin.uid();
+            let lock = match held.lock.take() {
+                Some(crate::connection_transaction::MigrationLease::Owned(lock)) => lock,
+                other => {
+                    held.lock = other;
+                    return Err(FirstError::StillFenced);
+                }
+            };
+            if let Err(lock) = held.ordinary_lock.set(lock) {
+                held.failed_lock = Some(lock);
+                return Err(FirstError::StillFenced);
+            }
+            let keeper = native_recovery::NativeOrdinaryLease::committed(
+                Arc::clone(&original),
+                Arc::clone(&held.ordinary_lock),
+                Arc::clone(&held.available),
+                Arc::clone(&held.scope),
+                paths,
+                uid,
+                generation,
+            );
+            drop(held); // SAME installed graph; no fallible vacant ownership gap.
+            self.transaction
+                .install_original_lease(keeper)
+                .map_err(|_| FirstError::StillFenced)?;
+            self.coordinator
+                .finish_retained_abort(revision, proof)
+                .map_err(|_| FirstError::StillFenced)?;
+            original
+                .lock()
+                .map_err(|_| FirstError::StillFenced)?
+                .activated = true;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.transaction.block();
+            if let Ok(mut held) = original.lock() {
+                held.refuse_ordinary();
+            }
+        }
+        self.invalidate_connection_close();
         result
     }
 }

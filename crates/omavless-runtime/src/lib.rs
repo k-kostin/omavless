@@ -390,6 +390,18 @@ enum RuntimeDispatcher {
 
 trait NativeRuntimeOwner: Send {
     #[cfg(feature = "t4-manager-actor-service")]
+    fn refuse_unpublished_intent_pause(&mut self, revision: u64);
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_pause(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), ()>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_abort(
+        &mut self,
+        request: &developer_current_restore::AbortRequest,
+    ) -> std::result::Result<(), ()>;
+    #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_restore(
         &mut self,
         request: &developer_current_restore::Request,
@@ -707,6 +719,24 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn refuse_unpublished_intent_pause(&mut self, revision: u64) {
+        self.owner.refuse_unpublished_intent_pause(revision);
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_pause(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), ()> {
+        self.owner.developer_current_pause(request).map_err(|_| ())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_abort(
+        &mut self,
+        request: &developer_current_restore::AbortRequest,
+    ) -> std::result::Result<(), ()> {
+        self.owner.developer_current_abort(request).map_err(|_| ())
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_backup(
         &mut self,
@@ -1403,10 +1433,10 @@ impl RuntimeServer {
             let frame = zeroize::Zeroizing::new(frame);
             let request = decode_request(&frame)?;
             #[cfg(feature = "t4-manager-actor-service")]
-            if matches!(
-                request["method"].as_str(),
-                Some(developer_current_restore::METHOD | developer_current_restore::BACKUP_METHOD)
-            ) && frame.len() > developer_current_restore::MAX_INPUT
+            if request["method"]
+                .as_str()
+                .is_some_and(developer_current_restore::private_method)
+                && frame.len() > developer_current_restore::MAX_INPUT
             {
                 return Err(omavless_control_protocol::ProtocolError::new(
                     StableErrorCode::InvalidArgument,
@@ -1415,6 +1445,13 @@ impl RuntimeServer {
             Ok(request)
         }) {
             Ok(request) => {
+                #[cfg(feature = "t4-manager-actor-service")]
+                if request["method"] == developer_current_restore::PAUSE_METHOD {
+                    let result = self.publish_current_intent_pause(&request, stream);
+                    let mut request = request;
+                    developer_current_restore::wipe_request(&mut request);
+                    return result;
+                }
                 let result = self.dispatch(&request);
                 #[cfg(feature = "t4-manager-actor-service")]
                 {
@@ -1463,25 +1500,98 @@ impl RuntimeServer {
             );
         }
         #[cfg(feature = "t4-manager-actor-service")]
-        if matches!(
-            request["method"].as_str(),
-            Some(developer_current_restore::METHOD | developer_current_restore::BACKUP_METHOD)
-        ) {
+        if request["method"]
+            .as_str()
+            .is_some_and(developer_current_restore::private_method)
+        {
             return self.dispatch_developer_current_restore(request);
         }
         self.dispatch_admitted(request)
     }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
+        // The SAME dispatcher mutex spans original pause creation AND the
+        // response write. No competing resume can slip between write failure
+        // and sealing. Only this fixed method can invoke publication feedback.
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let input = developer_current_restore::Request::parse(&request["params"]);
+        let gate = self.quit_gate.try_read();
+        let dispatcher = self.dispatcher.try_lock();
+        let mut dispatcher = dispatcher;
+        let publish = |response: std::result::Result<
+            Value,
+            omavless_control_protocol::ProtocolError,
+        >,
+                       stream: &mut UnixStream| {
+            response
+                .map_err(|_| RuntimeError::Protocol)
+                .and_then(|response| encode_response(&response).map_err(|_| RuntimeError::Protocol))
+                .and_then(|frame| {
+                    write_unary_frame(stream, &frame, FrameKind::Response)
+                        .map_err(|_| RuntimeError::Io)
+                })
+        };
+        let response = match (&input, &gate, &mut dispatcher) {
+            (Ok(input), Ok(gate), Ok(dispatcher)) if !**gate => {
+                if !input.matches_method(developer_current_restore::PAUSE_METHOD) {
+                    error_response(id, 0, StableErrorCode::InvalidArgument, false, None)
+                } else if input.instance() != self.instance_id {
+                    error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
+                } else if let RuntimeDispatcher::Native(owner) = &mut **dispatcher {
+                    if input.revision() != owner.revision() {
+                        error_response(id, owner.revision(), StableErrorCode::Conflict, false, None)
+                    } else {
+                        let result = owner.developer_current_pause(input);
+                        let revision = owner.revision();
+                        if result.is_ok() {
+                            let publication = publish(
+                                success_response(id, revision, json!({"intentPaused":true})),
+                                stream,
+                            );
+                            if publication.is_err() {
+                                owner.refuse_unpublished_intent_pause(input.revision());
+                            }
+                            return publication;
+                        } else {
+                            error_response(
+                                id,
+                                revision,
+                                StableErrorCode::ManualRecoveryRequired,
+                                false,
+                                None,
+                            )
+                        }
+                    }
+                } else {
+                    error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None)
+                }
+            }
+            (Err(_), _, _) => error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+            (_, Ok(gate), _) if **gate => {
+                error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
+            }
+            (_, _, Err(std::sync::TryLockError::Poisoned(_))) => {
+                error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None)
+            }
+            _ => error_response(id, 0, StableErrorCode::Busy, true, None),
+        };
+        publish(response, stream)
+    }
+
     #[cfg(feature = "t4-manager-actor-service")]
     fn dispatch_developer_current_restore(
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        let method = request["method"].as_str().unwrap_or("");
+        if method == developer_current_restore::ABORT_METHOD {
+            return self.dispatch_developer_current_abort(request);
+        }
         let input = match developer_current_restore::Request::parse(&request["params"]) {
             Ok(input) => input,
             Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
         };
-        let method = request["method"].as_str().unwrap_or("");
         if !input.matches_method(method) {
             return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
         }
@@ -1504,12 +1614,62 @@ impl RuntimeServer {
         if input.revision() != owner.revision() {
             return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
         }
-        let result = if method == developer_current_restore::BACKUP_METHOD {
+        let result = if method == developer_current_restore::PAUSE_METHOD {
+            owner.developer_current_pause(&input)
+        } else if method == developer_current_restore::BACKUP_METHOD {
             owner.developer_current_backup(&input)
         } else {
             owner.developer_current_restore(&input)
         };
         match result {
+            Ok(()) => success_response(
+                id,
+                owner.revision(),
+                if method == developer_current_restore::PAUSE_METHOD {
+                    json!({"intentPaused":true})
+                } else {
+                    json!({"completed":true})
+                },
+            ),
+            Err(()) => error_response(
+                id,
+                owner.revision(),
+                StableErrorCode::ManualRecoveryRequired,
+                false,
+                None,
+            ),
+        }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_developer_current_abort(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let input = match developer_current_restore::AbortRequest::parse(&request["params"]) {
+            Ok(input) => input,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        if input.instance() != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(value) => value,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        if input.revision() != owner.revision() {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
+        }
+        match owner.developer_current_abort(&input) {
             Ok(()) => success_response(id, owner.revision(), json!({"completed":true})),
             Err(()) => error_response(
                 id,
@@ -3125,6 +3285,35 @@ mod tests {
         backup["params"]["confirmation"] = "export-current-private-pair".into();
         assert_eq!(server.dispatch(&backup).unwrap()["ok"], false); // same current issuer requirement
         assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::BACKUP_METHOD));
+        let mut pause = request.clone();
+        pause["method"] = developer_current_restore::PAUSE_METHOD.into();
+        pause["params"]["confirmation"] = "pause-current-private-intent".into();
+        assert_eq!(server.dispatch(&pause).unwrap()["ok"], false);
+        let abort = make_request(
+            "abort",
+            developer_current_restore::ABORT_METHOD,
+            json!({"schema":1,"confirmation":"abort-current-private-intent",
+                "instanceId":server.instance_id,"expectedRevision":0}),
+        )
+        .unwrap();
+        assert_eq!(server.dispatch(&abort).unwrap()["ok"], false);
+        for original in [&pause, &abort] {
+            let mut changed = original.clone();
+            changed["params"]["instanceId"] = "foreign".into();
+            assert_eq!(
+                server.dispatch(&changed).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            changed = original.clone();
+            changed["params"]["expectedRevision"] = 1.into();
+            assert_eq!(
+                server.dispatch(&changed).unwrap()["error"]["code"],
+                "conflict"
+            );
+            let guard = server.dispatcher.lock().unwrap();
+            assert_eq!(server.dispatch(original).unwrap()["error"]["code"], "busy");
+            drop(guard);
+        }
         let mut changed = request.clone();
         changed["params"]["instanceId"] = "other".into();
         assert_eq!(
@@ -3212,6 +3401,17 @@ mod tests {
             "unknown_method"
         );
         assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.backup_current"));
+        for method in [
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+        ] {
+            let request = make_request("absent", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "unknown_method"
+            );
+            assert!(!NATIVE_MUTATION_METHODS.contains(&method));
+        }
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }
