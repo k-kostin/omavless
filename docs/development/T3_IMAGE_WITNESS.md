@@ -293,6 +293,18 @@ and unchanged desired bytes. Its real helper/native statuses and full packet
 remain PENDING. The actual changed-source/current-image negative is also required
 before effect selection; memory callbacks below are not that privileged evidence.
 
+The source-drift extension is a separate declared passive case, not a generic
+positive panic relabelled PASS. ROOT's new fixed namespace recipe must first
+start the original helper and verify listener-ready, then overlay ONLY its
+fixed core source with an exact same-byte/capability copy in a different inode
+before the native original cap-child launch. Native still uses that actual live
+child's pidfd and exact UID/parent/0x3400 evidence; it does not send the wrong
+parent or a dead child. One bind must refuse, with the extra closed
+`image_witness_original_source_drift_refused` phase, original helper2/native0
+and exact complete grammar required externally. No native mutation, retry,
+fallback, controller POST, cleanup proof or default effect occurs. Its actual
+outcome remains pending until ROOT selects the separately reviewed recipe.
+
 Regular regression tests use the existing actual owned child/controller fixture
 with memory image-RPC callbacks, never a helper or CAP_SYS_PTRACE. They exercise
 off-gate cancellation/late valid FD, expiry/wrong image sticky revocation,

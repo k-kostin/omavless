@@ -20,7 +20,7 @@ fn actual_original_cap_child_image_witness_in_dev_vm() {
     let case = std::env::var("OMAVLESS_IMAGE_WITNESS_CASE").unwrap();
     assert!(matches!(
         case.as_str(),
-        "positive" | "wrong-parent" | "dead"
+        "positive" | "wrong-parent" | "dead" | "source-drift"
     ));
     let _fixtures = FIXTURES.lock().unwrap();
     let parent = original_cap_image_status(own_pid).expect("image_witness_parent_unavailable");
@@ -79,7 +79,15 @@ fn actual_original_cap_child_image_witness_in_dev_vm() {
             Err(Error::Refused | Error::Unavailable | Error::ChannelLost)
         ));
         eprintln!("image_witness_negative_original_binding_refused");
-        if case == "wrong-parent" {
+        if case == "source-drift" {
+            // ROOT alone replaced the fixed source with a same-byte/cap
+            // different inode after ORIGINAL helper source capture, before
+            // this live original child's launch. No native mutation or retry.
+            assert_eq!(core.running(), Ok(true));
+            assert_eq!(core.pid(), Some(pid));
+            eprintln!("image_witness_original_source_drift_refused");
+        }
+        if case != "dead" {
             core.stop(Duration::from_secs(2)).unwrap();
         }
         return;
