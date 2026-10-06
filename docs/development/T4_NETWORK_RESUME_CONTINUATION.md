@@ -231,6 +231,12 @@ and deadline successor; its changed code needs its own checks and review.
 
 ## Required activation decisions
 
+The [combined OS-event/Connect enrollment integration](T4_OS_EVENT_ENROLLMENT.md)
+holds the real private-protocol adapter directly in the original Source and
+exercises an explicit Connect-derived first permit followed by one private-wire
+sleep/resume recovery. It does not enroll an existing installation or implement
+production binding safety, host kernel delivery or physical sleep acceptance.
+
 The separate [fixed system-event source checkpoint](T4_SYSTEM_EVENT_SOURCE.md)
 prepares a dormant original-transport logind/rtnetlink adapter. Its new source
 boundary is compile/review-only until explicitly approved fixture execution;

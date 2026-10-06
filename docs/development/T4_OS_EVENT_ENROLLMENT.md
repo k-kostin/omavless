@@ -15,6 +15,25 @@ sleep/resume recovery; owner replacement without recovery/rearm; and source loss
 while awaiting, preserving explicit Connect without granting Ready. Exact final
 combined/full/CI results belong to the integration PR, not the component pins.
 
+## Combined verification checkpoint
+
+At `f8bac8439211170fe9adde7eef9bc9646a5e2ed5`, the complete Rust script passed:
+default workspace/runtime (828 passes, 34 historic/developer ignores and the
+separately passed helper), serialized DNS suites, TUI terminal, strict checks
+and lint, the existing monotonic example, parity, and the explicit eight
+enrollment / three combined-wire / fifteen source scenarios. An additional
+all-three-feature workspace gate passed (runtime 829, the same 34 ignores and
+one separately passed helper). The isolated source gate passed 499 tests with
+two opt-in skips plus JS/QML/navigation checks. No ignored installed/physical
+case was promoted by association.
+
+The first three-case combined execution at `7394c480` used test ELF SHA-256
+`c690dcd1efa90581f401f1e5a3116d96d19762f7cc5f7db7ce308749b99e2554`.
+That executable and exact known-status logs are privately retained outside
+rebuildable target storage. Later documentation-only component handoff imports
+do not transfer a changed implementation's acceptance. Final hosted checks are
+recorded on the integration Draft PR.
+
 ## Completion matrix
 
 | Boundary | Required outcome | Evidence target |
