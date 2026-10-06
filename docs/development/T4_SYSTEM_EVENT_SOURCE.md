@@ -1,10 +1,10 @@
 # T4 fixed system-event source adapter
 
-Status: dormant source/build checkpoint on the independently selected #697
+Status: dormant source/private-protocol checkpoint on the independently selected #697
 baseline `eb42ab9a45f027143ae48aa32092d547e7bb633c`. No normal daemon factory,
 owner, receipt or lifecycle path activates this adapter. No host bus, host
-netlink, service, network setting or VM has been contacted. New fixtures remain
-ignored until complete primary and independent boundary review permits execution.
+netlink, service, network setting or VM has been contacted. Fixtures remain
+ignored in generic parallel tests and run explicitly in a serialized Rust gate.
 Earlier #697 evidence belongs to that head, not this new transport boundary.
 The first source checkpoint `e73b4177` is execution HOLD from review, not a
 runtime failure or acceptance result. Its successor corrects fixture supervision,
@@ -137,7 +137,13 @@ owner replacement/EOF, subscribe-before-snapshot races, whole startup timeout,
 retained initial suspend, bounded queues, malformed signals, little/big-endian
 header admission, BEGIN fragments, auth bounds, descriptor rejection, partial
 framing, payload PID/sequence irrelevance, invalid-after-valid datagrams and
-network coalescing without hint gaps. They are compiled, not run or accepted yet.
+network coalescing without hint gaps. Full primary and independent review of
+`3cf053e9dee5b30602d85ed91246712f8223dd8f` permitted the first actual private
+matrix: all fifteen tests passed serially, exit zero in 2.14 seconds. Executed
+ELF SHA-256 was `56bde78139eaa1649269afd89877ea4e3e826c7f91338d204bacc81c987a8850`.
+This is owned private-bus protocol and synthetic receive-metadata evidence, not
+genuine root/system-bus or kernel multicast acquisition. Exact final-head gates
+and hosted CI belong in the successor Draft; earlier HOLD pins remain retained.
 The fixed daemon launch clears inherited environment. Fixture builders, emission
 and release futures have whole two-second budgets. Original-child shutdown is
 idempotent: bounded try_wait proves completion; an unknown signal/wait result
@@ -148,8 +154,10 @@ is claimed. After retention, unknown completion categorically fails a normally
 returning test; an already unwinding test avoids a double panic. Neither path
 retries cleanup. Completed rebuildable fixture cleanup remains ordinary test-only work.
 
-Complete primary and independent code/dependency review must precede any new
-fixture execution. Genuine fixed-system-bus and kernel delivery, original-owner
+New changes need proportionate review before new fixture execution. The explicit
+`tests/run-rust.sh` source-feature check/serialized fifteen-case matrix/strict
+lint selection does not run `HostEventSource::system`. Genuine fixed-system-bus
+and kernel delivery, original-owner
 integration/linearization, durable production Ready, protection/DNS/route binding,
 owner restart provenance, VM integration and physical sleep/NIC gates remain
 pending. Host notifications are hints, never network trust; names/SSIDs cannot
