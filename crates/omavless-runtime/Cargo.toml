@@ -11,6 +11,7 @@ repository.workspace = true
 default = ["tui"]
 tui = ["dep:omavless-tui"]
 developer-subscription-schedule = []
+network-resume-fixture = []
 
 [dependencies]
 base64 = "0.22"
@@ -37,3 +38,8 @@ workspace = true
 [[bin]]
 name = "omavless"
 path = "src/main.rs"
+
+[[example]]
+name = "network_resume_fixture"
+path = "examples/network_resume_fixture.rs"
+required-features = ["network-resume-fixture"]

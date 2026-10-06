@@ -20,6 +20,9 @@ pub use batch::{
     NativeBatchCompletionReceipt, NativeBatchOutcome, NativeBatchTicket, NativeSubscriptionBatch,
 };
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
+#[cfg(any(test, feature = "network-resume-fixture"))]
+#[path = "native_coordinator/network_resume.rs"]
+pub(crate) mod network_resume;
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
 #[cfg(test)]
 pub(crate) use schedule::AcknowledgementFault;
@@ -380,6 +383,8 @@ pub struct OfflineNativeCoordinator<H> {
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
     automatic_refresh: schedule::AutomaticRefreshState,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    resume_barrier: crate::network_resume::BarrierSlot,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -405,6 +410,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
             automatic_refresh: schedule::AutomaticRefreshState::default(),
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            resume_barrier: crate::network_resume::BarrierSlot::Absent,
         }
     }
 
@@ -1170,6 +1177,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if self.resume_barrier.installed() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.transaction.reconcile_startup()
     }
 
@@ -1177,6 +1188,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if self.resume_barrier.installed() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         self.transaction.reconcile_startup_locked(lock)
     }
 

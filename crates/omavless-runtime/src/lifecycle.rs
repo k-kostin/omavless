@@ -249,6 +249,10 @@ pub struct LifecycleExecutor<H> {
     paths: DesiredPaths,
     uid: u32,
     actual: ActualState,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    network_recovery_guard: bool,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    startup_reconciliation_entered: bool,
 }
 
 impl<H: LifecycleHost> LifecycleExecutor<H> {
@@ -259,6 +263,10 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             paths,
             uid,
             actual: ActualState::Disconnected,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            network_recovery_guard: false,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            startup_reconciliation_entered: false,
         }
     }
 
@@ -712,10 +720,107 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         self.reconcile_startup()
     }
 
+    /// Developer fixture only. Unlike general startup reconciliation this
+    /// refuses Off, adoption and stop decisions, and preserves exact intent.
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn recover_network_empty(
+        &mut self,
+        expected: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let desired = self.read()?;
+        if !self.network_recovery_guard || &desired != expected || !desired.connected {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let observed = self.observe_or_manual(&desired)?;
+        if reconcile(&desired, observed) != ReconcileAction::RecoverConnected {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        if self.read()? != desired {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.recover_connected_empty(&desired)
+    }
+
+    /// Install once before developer startup. No detach/reset API exists; this
+    /// also closes the profile-preserving path's call into general startup.
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn install_network_recovery_guard(&mut self) -> Result<(), LifecycleError> {
+        let refused = self.network_recovery_guard || self.startup_reconciliation_entered;
+        self.network_recovery_guard = true;
+        if refused {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        Ok(())
+    }
+
+    /// Narrow read-only reconciliation. A second observation may invalidate
+    /// healthy/Off facts, but can NEVER turn into recovery or owned cleanup.
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn observe_network_only(
+        &mut self,
+        expected: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let desired = self.read()?;
+        if !self.network_recovery_guard || &desired != expected {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let observed = self.observe_or_manual(&desired)?;
+        if self.read()? != desired {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = match reconcile(&desired, observed) {
+            ReconcileAction::AdoptConnected => ActualState::Connected,
+            ReconcileAction::SettledDisconnected => ActualState::Disconnected,
+            _ => return Err(LifecycleError::ManualRecoveryRequired),
+        };
+        Ok(self.outcome(&desired, false))
+    }
+
+    fn recover_connected_empty(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.actual = ActualState::Reconnecting;
+        let recovered = self.host.prepare(desired).is_ok()
+            && self.host.start_prepared().is_ok()
+            && self.verify_connected(desired).is_ok()
+            && self.host.commit_prepared().is_ok();
+        if recovered {
+            self.actual = ActualState::Connected;
+            return Ok(self.outcome(desired, true));
+        }
+        // Recovery preserves connected intent. Clean partial owned state, but
+        // never rewrite desired disconnected on its own.
+        if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let empty = self.host.observe(desired).is_ok_and(|value| {
+            !value.service_active
+                && !value.controller_ready
+                && value.core_count == 0
+                && value.tun_count == 0
+        });
+        if !empty {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = ActualState::Failed;
+        Err(LifecycleError::RecoveryFailed)
+    }
+
     /// Execute exactly one accepted restart-reconciliation decision. Callers
     /// must not loop this method after `RecoveryFailed`; a fresh owner process
     /// may attempt one new bounded recovery after re-observation.
     pub fn reconcile_startup(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if self.network_recovery_guard {
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        {
+            self.startup_reconciliation_entered = true;
+        }
         let desired = self.read()?;
         let observed = self.observe_or_manual(&desired)?;
         match reconcile(&desired, observed) {
@@ -742,35 +847,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
                 self.actual = ActualState::Disconnected;
                 Ok(self.outcome(&desired, true))
             }
-            ReconcileAction::RecoverConnected => {
-                self.actual = ActualState::Reconnecting;
-                let recovered = self.host.prepare(&desired).is_ok()
-                    && self.host.start_prepared().is_ok()
-                    && self.verify_connected(&desired).is_ok()
-                    && self.host.commit_prepared().is_ok();
-                if recovered {
-                    self.actual = ActualState::Connected;
-                    return Ok(self.outcome(&desired, true));
-                }
-                // Recovery preserves connected intent. Clean partial owned
-                // state, but never rewrite desired disconnected on its own.
-                if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
-                    self.actual = ActualState::ManualRecoveryRequired;
-                    return Err(LifecycleError::ManualRecoveryRequired);
-                }
-                let empty = self.host.observe(&desired).is_ok_and(|value| {
-                    !value.service_active
-                        && !value.controller_ready
-                        && value.core_count == 0
-                        && value.tun_count == 0
-                });
-                if !empty {
-                    self.actual = ActualState::ManualRecoveryRequired;
-                    return Err(LifecycleError::ManualRecoveryRequired);
-                }
-                self.actual = ActualState::Failed;
-                Err(LifecycleError::RecoveryFailed)
-            }
+            ReconcileAction::RecoverConnected => self.recover_connected_empty(&desired),
         }
     }
 }
