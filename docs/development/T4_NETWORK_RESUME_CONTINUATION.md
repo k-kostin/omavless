@@ -104,8 +104,61 @@ enrollment. Missing or mismatched receipts never initialize it. A restarted
 fixture creates a new owner instance and refuses the old Ready, Reserved or
 Finished record before any automatic effect. This closes the shared **dormant
 fixture** trigger boundary, not production Ready provisioning or restart identity.
-Supervised event/control-socket integration and actual runtime dispatcher hooks
-are a separate review milestone; no new real process fixture is exercised here.
+The combined maintenance candidate adds the supervised private service boundary
+described below. It is compiled for review; its new socket scenarios remain
+explicitly ignored pending primary and independent boundary approval.
+
+## Combined private service candidate
+
+The developer constructor holds the original ProductionNativeOwner constructor's
+MigrationLock continuously through marker/login-receipt checks, locked guard
+capture/enrollment and narrow observation-only initialization. It requires
+existing compatibility pointers consistent with desired intent. Healthy On and
+settled Off produce the actual lifecycle outcome; empty On, mixed facts, residual
+Off, a healthy-to-empty second observation, missing/mismatched Ready or changed
+fences refuse. It never repairs pointers, stops a core or recovers during
+construction. Enrollment quiet time applies only to later automatic recovery.
+
+The existing RegisteredNativeOwner remains the single holder of that original
+ProductionNativeOwner. Private monomorphized wake/get/lost hooks are manufactured
+only by the H:ResumeBinding construction boundary. Its generic LifecycleHost
+implementation invokes those fixed hooks; it accepts no caller function address,
+callback, descriptor, clock, profile or path. Normal and transition registrations
+store None, and normal initialize/current/bind_current are unchanged.
+
+Only serve_until drives service wakes. The blocking serve(maximum_connections)
+path does not support service activation. A wake uses the existing quit admission
+gate and a nonblocking attempt to acquire the same dispatcher/owner mutex. It
+drains at most four fixed frames, each with the existing whole-frame 100-ms budget:
+worst-case read occupancy is 400 ms per wake, not a 100-ms aggregate promise.
+Remaining backlog defers recovery rather than skipping a queued Suspend. Effects
+are serialized at the original owner/migration boundary; a socket packet's
+arrival is not itself acceptance. Disconnect or Quit accepted under that boundary
+before recovery changes/revokes the original context. Later requests observe the
+one completed outcome rather than interrupting an admitted atomic effect.
+
+Source EOF, malformed/gapped/partial frames, time regression, panic or lost wake
+terminalize the original shared guard. Shutdown marks the network service lost
+before independent batch drain/phase changes; no join, acknowledgement or later
+wake resets eligibility. Catching a wake panic does not recover a poisoned
+dispatcher: the original InFlight/Blocked barrier stays revoked. The existing
+subscription worker can independently commit or cancel; its revision/store
+changes invalidate old pending resume work, and its ACK cannot reset the network
+barrier. No second coordinator or production owner is constructed.
+
+The only new control method is privately registered developer.network_resume.get
+with exactly the current instanceId. Its coarse cached projection performs no
+peek, drain, clock read, lazy initialization, host observation or file read. It
+is explicitly not current source, DNS, route or connection health. Events use the
+owned Unix source, with no producer clock/profile/FD/path choices in either
+protocol. Source peer attribution remains fixture-only, not host-bus provenance.
+
+The no-argument feature example now prepares a fresh owned fake-host fixture and
+drives the actual RuntimeServer private control socket plus its owned event pair
+on this same registered owner. Its constructor does not build a preliminary
+coordinator to manufacture a snapshot. Ready is seeded only by exclusive fixture
+setup. New executable socket/process evidence must wait for exact-boundary review;
+compilation and earlier offline-guard results are not that acceptance.
 
 ## Fixed developer entry
 
@@ -120,6 +173,8 @@ completion. A partial setup panic may leave owned synthetic files; it does not
 claim cleanup on that failure or acquisition of any host resource. It returns only the
 coarse `owned_fixture` status, effect count, revision and intent-preservation
 boolean. This is not a production Ready initializer or host binding provider.
+The old offline-only runner is retained under tests as a historical fixture;
+the feature entry now selects the combined private service described above.
 
 Compile preflight and the fixed scenario with `--features network-resume-fixture`
 and `--example network_resume_fixture`; place Cargo and temporary storage in

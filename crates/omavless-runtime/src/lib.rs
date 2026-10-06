@@ -51,6 +51,10 @@ pub mod cutover_activation;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod developer_network_resume;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod developer_network_resume_fixture;
 #[cfg(any(test, feature = "developer-subscription-schedule"))]
 pub mod developer_subscription_schedule;
 mod diagnostic_read;
@@ -368,6 +372,12 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_wake(&mut self);
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_get(&self) -> Option<Value>;
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_lost(&mut self);
     #[cfg(any(test, feature = "developer-subscription-schedule"))]
     fn automatic_control(
         &mut self,
@@ -674,6 +684,8 @@ struct RegisteredNativeOwner<H> {
     transport: SharedSubscriptionTransport,
     record_ids: RecordIdGenerator,
     batch_initialized: bool,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    network: Option<developer_network_resume::Registration<H>>,
 }
 
 fn profile_list_json(projection: &omavless_domain::private_store::StoreListProjection) -> Value {
@@ -720,6 +732,32 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_wake(&mut self) {
+        if let Some(network) = &mut self.network {
+            // Catch inside the owner guard. Lost wake retains the original
+            // InFlight/Blocked barrier; this never recovers a poisoned mutex.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                network.wake(&mut self.owner)
+            }))
+            .is_err()
+            {
+                network.lost(&mut self.owner);
+            }
+        }
+    }
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_get(&self) -> Option<Value> {
+        self.network
+            .as_ref()
+            .map(|network| network.get(&self.owner))
+    }
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_lost(&mut self) {
+        if let Some(network) = &mut self.network {
+            network.lost(&mut self.owner);
+        }
+    }
     fn usage_transport(&self) -> SharedSubscriptionTransport {
         self.transport.clone()
     }
@@ -1123,6 +1161,8 @@ where
     }
 
     fn batch_stop(&mut self) {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        self.network_lost();
         #[cfg(any(test, feature = "developer-subscription-schedule"))]
         let _ = self
             .owner
@@ -1337,6 +1377,68 @@ where
 }
 
 impl RuntimeServer {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn wake_network_resume(&self) {
+        let Ok(gate) = self.quit_gate.try_read() else {
+            return;
+        };
+        if *gate || self.quit_requested.load(Ordering::Acquire) {
+            return;
+        }
+        // Idle wakes never queue behind accepted unary/quit work. The owner
+        // mutex and original migration lease define effect serialization.
+        let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+            return;
+        };
+        if let RuntimeDispatcher::Native(owner) = &mut *dispatcher {
+            owner.network_wake();
+        }
+    }
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn shutdown_network_resume(&self) {
+        if let Ok(mut dispatcher) = self.dispatcher.lock()
+            && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
+        {
+            owner.network_lost();
+        }
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn bind_network_fixture<H, T>(
+        paths: RuntimePaths,
+        host: H,
+        inputs: developer_network_resume::OwnerInputs,
+        mut driver: developer_network_resume::Driver,
+        transport: T,
+    ) -> Result<Self>
+    where
+        H: lifecycle::LifecycleHost
+            + native_coordinator::network_resume::ResumeBinding
+            + Send
+            + 'static,
+        T: NativeSubscriptionTransport + 'static,
+    {
+        let mut server = Self::bind(paths)?;
+        let owner = production_owner::ProductionNativeOwner::initialize_network_fixture(
+            host,
+            inputs.desired,
+            &inputs.store,
+            inputs.cutover,
+            server.uid,
+            inputs.enrollment,
+            &mut driver,
+        )
+        .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        let registered = RegisteredNativeOwner {
+            owner,
+            transport: SharedSubscriptionTransport(Arc::new(transport)),
+            record_ids: RecordIdGenerator::new(&server.instance_id),
+            batch_initialized: false,
+            network: Some(developer_network_resume::Registration::new(driver)),
+        };
+        server.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
+        Ok(server)
+    }
     pub fn bind(paths: RuntimePaths) -> Result<Self> {
         let uid = Uid::current().as_raw();
         prepare_runtime_directory(&paths.directory, uid)?;
@@ -1464,6 +1566,8 @@ impl RuntimeServer {
             transport: SharedSubscriptionTransport(Arc::new(transport)),
             record_ids: RecordIdGenerator::new(&self.instance_id),
             batch_initialized: false,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            network: None,
         };
         self.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
     }
@@ -1493,6 +1597,8 @@ impl RuntimeServer {
                     break;
                 }
             }
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            self.shutdown_network_resume();
             self.batch_scheduler.stop(&self.dispatcher);
         });
         Ok(())
@@ -1508,6 +1614,8 @@ impl RuntimeServer {
             while !stop.load(Ordering::Relaxed) && !self.quit_requested.load(Ordering::Acquire) {
                 #[cfg(any(test, feature = "developer-subscription-schedule"))]
                 self.wake_developer_subscription_schedule();
+                #[cfg(any(test, feature = "network-resume-fixture"))]
+                self.wake_network_resume();
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
                         if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
@@ -1521,11 +1629,15 @@ impl RuntimeServer {
                         thread::sleep(Duration::from_millis(20));
                     }
                     Err(_) => {
+                        #[cfg(any(test, feature = "network-resume-fixture"))]
+                        self.shutdown_network_resume();
                         self.batch_scheduler.stop(&self.dispatcher);
                         return Err(RuntimeError::Io);
                     }
                 }
             }
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            self.shutdown_network_resume();
             self.batch_scheduler.stop(&self.dispatcher);
             Ok(())
         })
@@ -1593,6 +1705,29 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if request["method"] == developer_network_resume::METHOD {
+            let id = request["id"].as_str().unwrap_or("invalid");
+            if let Err(code) = developer_network_resume::validate_get(request, &self.instance_id) {
+                return error_response(id, 0, code, false, None);
+            }
+            let dispatcher = self.dispatcher.lock().map_err(|_| {
+                omavless_control_protocol::ProtocolError::new(StableErrorCode::InternalError)
+            })?;
+            let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                return error_response(id, 0, StableErrorCode::UnknownMethod, false, None);
+            };
+            return match owner.network_get() {
+                Some(state) => success_response(id, owner.revision(), state),
+                None => error_response(
+                    id,
+                    owner.revision(),
+                    StableErrorCode::UnknownMethod,
+                    false,
+                    None,
+                ),
+            };
+        }
         if request["method"] == "subscriptions.usage" {
             return self.dispatch_subscription_usage(request);
         }
@@ -1746,6 +1881,17 @@ impl RuntimeServer {
                                 .iter()
                                 .map(|method| json!(method)),
                         );
+                    }
+                    response
+                });
+                #[cfg(any(test, feature = "network-resume-fixture"))]
+                let response = response.map(|mut response| {
+                    if request["method"] == "capabilities.get"
+                        && response["ok"] == true
+                        && owner.network_get().is_some()
+                        && let Some(methods) = response["result"]["methods"].as_array_mut()
+                    {
+                        methods.push(json!(developer_network_resume::METHOD));
                     }
                     response
                 });
@@ -2277,6 +2423,8 @@ impl RuntimeServer {
                 )),
                 record_ids: RecordIdGenerator::new(&self.instance_id),
                 batch_initialized: false,
+                #[cfg(any(test, feature = "network-resume-fixture"))]
+                network: None,
             };
             *dispatcher = RuntimeDispatcher::Native(Box::new(registered));
         }
@@ -2306,6 +2454,8 @@ impl RuntimeServer {
 
 impl Drop for RuntimeServer {
     fn drop(&mut self) {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        self.shutdown_network_resume();
         self.batch_scheduler.stop(&self.dispatcher);
         let _ = fs::remove_file(&self.paths.socket);
     }

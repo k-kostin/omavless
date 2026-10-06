@@ -82,6 +82,8 @@ impl RuntimeServer {
                 None,
             );
         }
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        owner.network_lost();
         owner.batch_stop();
         let result = success_response(
             id,

@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 /// Ready solely inside a newly created owned synthetic fixture directory.
 #[cfg(feature = "network-resume-fixture")]
 pub fn developer_network_resume_fixture() -> serde_json::Value {
-    fixture::run_developer_fixture()
+    crate::developer_network_resume_fixture::run()
 }
 
 pub(crate) struct Context {
@@ -60,6 +60,31 @@ pub(crate) struct Source {
 }
 
 impl Source {
+    pub(crate) fn readable(&mut self) -> Result<bool, Refused> {
+        if self.lost {
+            return Err(Refused);
+        }
+        if !self.reader.buffer().is_empty() {
+            return Ok(true);
+        }
+        let mut byte = [0; 1];
+        match recv(
+            self.reader.get_ref().as_raw_fd(),
+            &mut byte,
+            MsgFlags::MSG_PEEK | MsgFlags::MSG_DONTWAIT,
+        ) {
+            Ok(0) => {
+                self.lost = true;
+                Err(Refused)
+            }
+            Ok(_) => Ok(true),
+            Err(nix::errno::Errno::EAGAIN) => Ok(false),
+            Err(_) => {
+                self.lost = true;
+                Err(Refused)
+            }
+        }
+    }
     pub(crate) fn quiescent(&mut self) -> Result<(), Refused> {
         if self.lost {
             return Err(Refused);
@@ -85,7 +110,12 @@ impl Source {
     pub(crate) fn matches(&self, fence: Fence) -> bool {
         self.boot == fence.boot && self.instance == fence.owner_instance
     }
-    fn owned(stream: UnixStream, pid: u32, uid: u32, context: &Context) -> Result<Self, Refused> {
+    pub(crate) fn owned(
+        stream: UnixStream,
+        pid: u32,
+        uid: u32,
+        context: &Context,
+    ) -> Result<Self, Refused> {
         let peer = getsockopt(&stream, PeerCredentials).map_err(|_| Refused)?;
         if peer.pid() as u32 != pid
             || peer.uid() != uid
@@ -237,6 +267,7 @@ impl RecoveryBarrier {
 }
 
 impl EventOwner {
+    #[cfg(test)]
     pub(crate) fn status_projection(&self) -> serde_json::Value {
         // Fixed coarse state only; no boot/owner IDs, profile, digest, SSID,
         // address, raw event payload or claim of DNS/route health.
@@ -287,6 +318,7 @@ impl EventOwner {
         };
     }
 
+    #[cfg(test)]
     pub(crate) fn startup_deferred(&self) -> bool {
         self.paused || self.pending.is_some()
     }
@@ -483,4 +515,5 @@ impl Journal for Files<'_> {
     }
 }
 
+#[cfg(test)]
 mod fixture;

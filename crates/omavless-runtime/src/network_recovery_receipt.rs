@@ -96,7 +96,10 @@ pub(crate) struct Admission {
 #[derive(Clone, Copy)]
 enum Trigger {
     Event(Hint),
-    Startup { enrolled_tick: u64 },
+    #[cfg(test)]
+    Startup {
+        enrolled_tick: u64,
+    },
 }
 
 impl Admission {
@@ -122,6 +125,7 @@ impl Admission {
         self.attempt_trigger(Trigger::Event(hint), journal, host)
     }
 
+    #[cfg(test)]
     pub(crate) fn attempt_startup(
         &mut self,
         enrolled_tick: u64,
@@ -183,6 +187,7 @@ impl Admission {
         current.attempt = Attempt::NoneProven;
         let admitted = match trigger {
             Trigger::Event(hint) => hint_plan::plan(hint, current) == Decision::CandidateOnce,
+            #[cfg(test)]
             Trigger::Startup { enrolled_tick } => {
                 current
                     .now_tick
