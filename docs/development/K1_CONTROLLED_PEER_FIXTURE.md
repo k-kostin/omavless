@@ -242,3 +242,39 @@ compilation/passive-load gate: no runtime core, peer, TUN, packet request,
 socket-mark census or cleanup followed from it. Numeric10's outcome is not
 rewritten as success. The reviewed default/K1 Go device tests and a distinct
 four-patch package build remain separate from the next real protected run.
+
+## Four-family Numeric12 selection
+
+The actual four-family package built from
+`4d4747af47d60956b370e588469a3b9472ed42a1` was separately installed and
+enrolled in the disposable VM; the owning package contract records its exact
+pins. At fresh boot `c655aa71-9bc9-4c39-adf8-c2e7a73194ed`, collector11's
+separate passive-load selection again returned originalSSH0 (`0e16f8`), with
+the same 1,281-byte private diagnostic hash above. Source-only staging
+(`861b05`) and additive fixture-network preparation (`91dd9d`) returned
+originalSSH0. These are separate selections, not an automatic test chain.
+
+Numeric12 uses the unchanged strict parser, original child ownership and one
+numeric request. It progressed through authenticated observer/peer readiness,
+the TUN/controller/listener prerequisites and the UID1000 route to `omavless0`.
+It then remained **NONPASS** at `ONE_NUMERIC_TRIGGER` (`518e98`); the original
+supervisor and uncertain graph were retained, without a resend, timeout kill,
+compensating cleanup or success/reap claim. The route capture is 135 bytes,
+SHA256 `157bea18df8e14c987ea48ac68345cd9f8955040c2296f8a2d2b9bdced6531b1`;
+the trigger's sole refusal marker is 24 bytes,
+SHA256 `060e864190e62e12ff13ce626a5a96608e219ae0bd98b648f3f73f06e2f09955`.
+The separately bounded capture observation (`5932e0`) saw a positive kernel
+listener and fixed DNS-broker SEQPACKET connection, but no accept, clone,
+outbound connect, mark or send. Core stderr was empty; no core error/warning
+marker was present. Raw logs and private fixture inputs remain outside Git.
+
+Read-only network diagnostics (`4d3b1f`, `3ac48f`) found seven TUN TX and RX
+packets without device drops, seven admitted numeric OUTPUT packets, and no
+inner-return or managed-outer packets. The preserved UFW IPv4 INPUT chain has
+DROP policy. The system TUN implementation rewrites the original SYN into an
+incoming `198.18.0.2 -> 198.18.0.1:listener-port` SYN before local acceptance;
+the fixture had admitted OUTPUT only. This is a concrete next hypothesis,
+not proof that every missing packet is attributed to the core. A separately
+reviewed fresh experiment may admit only that observed tuple in the actual
+blocking VM chain. A fixture-only firewall admission is not product ownership,
+foreign-firewall preservation, coverage issuance or permission to Arm.
