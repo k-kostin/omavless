@@ -442,9 +442,14 @@ impl Drop for OwnedChild {
     }
 }
 
+fn admission_refusal(check: &'static str) -> Error {
+    eprintln!("S1 admission check={check} ok=false");
+    Error::Unavailable
+}
+
 fn admission() -> Result<()> {
     if std::process::id() != 1 {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("pid-1"));
     }
     let parent = std::env::var(NAMESPACES).map_err(|_| Error::Unavailable)?;
     let current = namespaces()?;
@@ -454,7 +459,7 @@ fn admission() -> Result<()> {
         || before.len() != NS.len()
         || before.iter().zip(&now).any(|(a, b)| a == b || a.is_empty())
     {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("fresh-namespaces"));
     }
     let status = fs::read_to_string("/proc/self/status").map_err(|_| Error::Unavailable)?;
     for (field, value) in [
@@ -469,7 +474,7 @@ fn admission() -> Result<()> {
             .lines()
             .any(|line| line.strip_prefix(field).is_some_and(|v| v.trim() == value))
         {
-            return Err(Error::Unavailable);
+            return Err(admission_refusal(field));
         }
     }
     let devices = fs::read_to_string("/proc/self/net/dev").map_err(|_| Error::Unavailable)?;
@@ -487,7 +492,7 @@ fn admission() -> Result<()> {
             .flags()
             .contains(FsFlags::ST_RDONLY)
     {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("loopback-and-read-only-mounts"));
     }
     let core = fs::symlink_metadata("/tmp/fixed-core").map_err(|_| Error::Unavailable)?;
     if !core.is_file()
@@ -497,28 +502,31 @@ fn admission() -> Result<()> {
         || core.nlink() != 0
         || core.len() != CORE_SIZE
     {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("copied-core-metadata"));
     }
     let bytes = fs::read("/tmp/fixed-core").map_err(|_| Error::Unavailable)?;
     if format!("{:x}", Sha256::digest(&bytes)) != CORE_HASH {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("copied-core-hash"));
     }
     if fs::read_dir("/run")
         .map_err(|_| Error::Unavailable)?
         .next()
         .is_some()
     {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("empty-run"));
     }
     if !matches!(fs::symlink_metadata("/dev/net/tun"), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
     {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("absent-tun-device"));
     }
-    // All ambient selectors were removed by the original outer command.
-    if std::env::vars_os()
-        .any(|(k, _)| k != "HOME" && k != "TMPDIR" && k != SELECTOR && k != NAMESPACES)
+    // bwrap 0.12.0 itself sets PWD after --chdir. Admit only that fixed
+    // generated value; scrub() removes it again before the core is spawned.
+    if std::env::var_os("PWD").as_deref() != Some(std::ffi::OsStr::new("/tmp"))
+        || std::env::vars_os().any(|(k, _)| {
+            k != "HOME" && k != "TMPDIR" && k != SELECTOR && k != NAMESPACES && k != "PWD"
+        })
     {
-        return Err(Error::Unavailable);
+        return Err(admission_refusal("fixed-environment"));
     }
     Ok(())
 }

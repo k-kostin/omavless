@@ -159,7 +159,9 @@ It checks NoNewPrivs1, zero capability sets, loopback-only interfaces, read-only
 root/core mounts, exact core bytes/mode, empty masked `/run` and no TUN device.
 Fresh0700 HOME-cache scratch backs logical `/tmp`. HOME is preserved verbatim;
 all other ambient selectors are removed, including core shell/controller
-overrides. Trusted host files remain read-only visible: this is not private-file
+overrides. Bwrap itself generates `PWD=/tmp` after its fixed `--chdir`; admission
+requires that exact value and the core command removes it again. Trusted host
+files remain read-only visible: this is not private-file
 confidentiality or hostile-code isolation. Trusted helpers and the separately
 frozen mode0500 test program remain outside a hostile root/owner threat model.
 
@@ -195,6 +197,18 @@ It has not run. Ordinary completion instead requires original core cancellation
 and terminal observation; `--die-with-parent` also bounds outer owner loss.
 No post-death descriptor custody, application-wide/global proxy safety, core
 product lifecycle or recovery is promised by this developer experiment.
+
+The first selected parent-loss attempt on
+`de388a2b0f95df0089434916dfb46763a5fe538c` ended with original exit101 at the
+admission phase, before core config/launch. Original namespace completion and
+both pipe EOFs were observed; this was a known pre-core refusal, not an unknown
+core effect. Frozen test SHA256
+`7f352b4098b6e36db18a0da48601272cbb0104f3f4277aa47ca693fceb3fc206` and original
+private receipts remain preserved. The pinned bwrap source sets `PWD` itself,
+which the earlier ambient-selector allowlist rejected. The explicit generated
+value correction needs its own exact delta review before a separately admitted
+new attempt. No parent-loss or actual-core exchange PASS follows from that
+first attempt, and the normal exchange was not run.
 
 Source inspection: [defaults/parser](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/config/config.go),
 [startup/environment](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/main.go),
