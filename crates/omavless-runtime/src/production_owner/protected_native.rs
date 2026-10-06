@@ -176,3 +176,7 @@ mod tests {
         assert_eq!(dropped.get(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "protected_native_vm_tests.rs"]
+mod native_vm_tests;
