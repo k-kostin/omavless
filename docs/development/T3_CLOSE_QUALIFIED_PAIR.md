@@ -167,7 +167,30 @@ c6e283d9c8b4c2fa59163e6a363b93788a36b210f33d5d9dee2d8b5eec5bd8f2;
 source archive SHA256
 fc958cff638a86c6ed91496688e85510ba758ec2bdec786985b4eb0fe140e723.
 The same reviewed native Go version above and required original Go JSON cases
-passed. This does not claim an actual fourth-family VM result.
+passed. ROOT then selected actual makepkg with original0 (ba1f2b): package
+37,563,245 bytes/SHA256
+3be453d9b90fa7c6fd25a41de9ce3140dcf064f2dc21784deed455be55d5e71c.
+After explicit VM administration/reset, an initial installation preflight
+refused before any pacman effect (the atime comparison was a false source
+preflight failure); it is preserved, not retroactively called PASS. Separately
+selected corrected installation returned originalSSH0 (4ddbb2), with exact
+native pins/filecaps check0 (3398d), new explicit UID1000 enrollment0
+(7fa657), and manual system broker start0 without enable. These administrative
+acts do not prove broker/TUN serving, supervisor child custody or K1 coverage.
+
+The fresh four-family CAPLESS namespace gate used exact runtime source
+7defa26cd441f4dad5896b249c0d72752fb39cdd, release headless test image
+21,607,344 bytes/SHA256
+b701e4db273ec79c00e004cc6d06495f3a6bb9e88f2807ce07c44e9e0ee7cdae
+and the unchanged4d pair. Uploade515f5 and prepare9dfc1a returned0;
+original run7d84f6 returnedSSH0. Separately selected observation4d999c
+returned0, complete success grammar, stdout226 bytes/SHA256
+71096769b1658f9cc8266eee5393426a904289fd8dd6715227102cf98ed97777,
+stderr empty. It verifies SAME original owner/Session/private IPC, selected
+EOF, other-stream echo, exact receipt replay and unchanged desired bytes in
+the fresh private UID/GID1000/PID1 mount/PID/net scope. It is not the cap-enabled
+gate below, installed/capability-enabled image acceptance or broker/TUN effects.
+This documentation successor never becomes the tested runtime source.
 Next: exact normal-package-path original-Session/socket gate, then distinct managed
 TUN/broker/lifecycle gate. The three-family result below is not four-family,
 installed native-owner, DNS-ready or K1 protection evidence. Default package,
