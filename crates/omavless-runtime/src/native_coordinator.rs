@@ -1274,6 +1274,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             LockAdmission::Locked(lock) => lock,
             LockAdmission::Uncached(outcome) => return Ok(outcome),
         };
+        // An admitted explicit Disconnect wins over automatic maintenance even
+        // when the already-disconnected lifecycle returns NoChange/revision 0.
+        // Cancellation changes no host policy and never affects manual batches.
+        if matches!(action, OwnerAction::Disconnect) {
+            let _ = self.cancel_automatic_subscription_refresh();
+        }
         let completion = match action {
             OwnerAction::Connect { profile_id, mode } => {
                 self.transaction.connect(&lock, profile_id, mode)

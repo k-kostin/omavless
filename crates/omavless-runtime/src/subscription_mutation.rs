@@ -194,10 +194,35 @@ pub fn commit_subscription_refresh_batch(
     updates: Vec<SubscriptionRefreshBatchEntries>,
     updated_at: u64,
 ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError> {
+    commit_subscription_refresh_batch_with_policy(
+        store_path,
+        uid,
+        snapshot,
+        updates,
+        updated_at,
+        |_, _| Ok(()),
+    )
+}
+
+/// Fixed runtime policies may refuse a completely prepared candidate before
+/// publication. The owner must hold its existing migration/revision lease;
+/// neither private payload is released to a client or caller-selected code.
+pub(crate) fn commit_subscription_refresh_batch_with_policy<F>(
+    store_path: &Path,
+    uid: u32,
+    snapshot: SubscriptionRefreshBatchSnapshot,
+    updates: Vec<SubscriptionRefreshBatchEntries>,
+    updated_at: u64,
+    policy: F,
+) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>
+where
+    F: FnOnce(&str, &[u8]) -> Result<(), SubscriptionMutationCommitError>,
+{
     validate_existing_store(store_path, uid)?;
     let input = read_private_utf8(store_path, uid).map_err(map_io)?;
     let (result, counts) = apply_subscription_refresh_batch(&input, snapshot, updates, updated_at)
         .map_err(SubscriptionMutationCommitError::Mutation)?;
+    policy(&input, result.payload())?;
     if result.changed {
         atomic_replace_private(store_path, result.payload(), uid).map_err(map_io)?;
     }

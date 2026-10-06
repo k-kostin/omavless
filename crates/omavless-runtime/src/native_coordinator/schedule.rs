@@ -8,7 +8,7 @@ use super::*;
 use crate::subscription_batch_work::{
     BatchWorkError, BatchWorkStep, BudgetedSubscriptionTransport,
 };
-use crate::subscription_mutation::commit_subscription_refresh_batch;
+use crate::subscription_mutation::commit_subscription_refresh_batch_with_policy;
 use crate::subscription_schedule_attempt::{
     AttemptError, AttemptSnapshot, AttemptState, AttemptTicket, begin_attempt_for_batch,
     finish_attempt_with_receipt, read_attempt,
@@ -128,6 +128,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             expected_revision,
             schedule,
         );
+        self.accept_automatic_preference_result(schedule, result)
+    }
+
+    fn accept_automatic_preference_result(
+        &mut self,
+        schedule: RefreshSchedule,
+        result: Result<PreferenceSnapshot, PreferenceError>,
+    ) -> Result<PreferenceSnapshot, AutomaticRefreshError> {
         match result {
             Ok(snapshot) => {
                 if self
@@ -311,7 +319,35 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         work: AutomaticSubscriptionBatch,
         now_secs: u64,
     ) -> Result<AttemptSnapshot, AutomaticRefreshError> {
-        self.finish_automatic_with_store(work, now_secs, commit_subscription_refresh_batch)
+        let desired_paths = self.transaction.desired_paths().clone();
+        self.finish_automatic_with_store(
+            work,
+            now_secs,
+            move |path, uid, snapshot, updates, stamp| {
+                // Called inside the batch commit lease after ownership/revision and
+                // preference fencing. Protect the selected profile's exact config
+                // contribution without observing, stopping or restarting the core.
+                let desired = crate::desired::read_desired_snapshot(&desired_paths, uid)
+                    .map_err(|_| SubscriptionMutationCommitError::UnsafeStore)?;
+                commit_subscription_refresh_batch_with_policy(
+                    path,
+                    uid,
+                    snapshot,
+                    updates,
+                    stamp,
+                    |before, candidate| {
+                        if desired.connected
+                            && !unchanged_selected_profile(before, candidate, &desired.profile_id)
+                        {
+                            return Err(SubscriptionMutationCommitError::Mutation(
+                                PrivateStoreError::ActiveSubscription,
+                            ));
+                        }
+                        Ok(())
+                    },
+                )
+            },
+        )
     }
 
     pub(super) fn finish_automatic_with_store<F>(
@@ -416,4 +452,29 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             self.automatic_refresh.blocked = Some(AutomaticRefreshError::WorkerLost);
         }
     }
+}
+
+/// Both documents have already passed the canonical full-store validator.
+/// Metadata/preferences unrelated to the selected proxy may change; private
+/// URI or display name changes conservatively defer the entire automatic batch.
+fn unchanged_selected_profile(before: &str, candidate: &[u8], selected: &str) -> bool {
+    let Ok(before) = serde_json::from_str::<Value>(before) else {
+        return false;
+    };
+    let Ok(candidate) = serde_json::from_slice::<Value>(candidate) else {
+        return false;
+    };
+    let row = |document: Value| {
+        document["profiles"]
+            .as_array()
+            .and_then(|profiles| profiles.iter().find(|profile| profile["id"] == selected))
+            .cloned()
+    };
+    let (Some(before), Some(candidate)) = (row(before), row(candidate)) else {
+        return false;
+    };
+    before["missing"] != true
+        && candidate["missing"] != true
+        && before["uri"] == candidate["uri"]
+        && before["name"] == candidate["name"]
 }

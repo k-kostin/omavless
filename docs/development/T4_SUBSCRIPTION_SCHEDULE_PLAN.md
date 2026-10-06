@@ -147,6 +147,27 @@ is uncertain, or a worker is lost/panics, automatic replay remains blocked.
 Neither an Off/re-enable choice nor a later manual batch clears that blocker.
 No new recovery/reset capability is exposed.
 
+Automatic maintenance never disconnects, restarts or overrides the selected
+profile. Under the existing commit lease it reads durable desired state and
+compares the selected profile's exact private URI, local name and present/
+non-missing status in the validated current and candidate stores. If those
+inputs change or disappear while connected, the entire automatic batch is
+deferred as a fixed conflict with normal retry backoff; no partial store or
+host action occurs. An unchanged selected proxy can receive subscription
+metadata/other-row updates with zero lifecycle calls. Conservative refusal of
+even a harmless URI spelling/name change is intentional. This proves unchanged
+selected configuration inputs, not live controller health or network egress.
+An admitted explicit Disconnect also cancels automatic work when an already
+disconnected lifecycle returns NoChange without advancing the owner revision.
+Manual batches retain their existing behavior.
+
+The preference writer now classifies every failed post-publication readback as
+WriteUncertain. The automatic owner latches that uncertainty and cancels its
+exact current worker, so a later apparently valid read or Off/re-enable cannot
+clear the current context's blocker. Interrupted admitted work additionally
+retains its durable Started journal across daemon restart. No implicit recovery
+policy is added for either case.
+
 | Scope | Deterministic evidence | Remaining acceptance |
 | --- | --- | --- |
 | Default Off, interval/backoff and injected clock | Actual driver and private file tests; production HTTP transport against synthetic loopback | Installed opt-in preference and trusted daemon timer wiring |
