@@ -6,6 +6,8 @@ fn main() {
         [flag] if flag == "--development-runtime-service" => {
             omavless_image_witness::serve_development_runtime
         }
+        #[cfg(feature = "product-epochs")]
+        [flag] if flag == "--product-epoch-service" => omavless_image_witness::serve_product_epochs,
         _ => {
             eprintln!("Development image witness invocation refused.");
             std::process::exit(2);

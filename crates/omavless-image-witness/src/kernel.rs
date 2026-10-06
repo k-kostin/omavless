@@ -245,9 +245,9 @@ pub(crate) struct Roots {
 }
 impl Roots {
     pub(crate) fn capture(class: Class, until: Instant) -> Result<Self> {
-        let enrollment = Fixed::open(class.enrollment(), 0o600, 512, until)?;
-        let raw = bytes(&enrollment.file, 512, until)?;
-        let (core_hash, client_hash) = enrollment_hashes(&raw, class)?;
+        let record = Fixed::open(class.enrollment(), 0o600, 512, until)?;
+        let raw = bytes(&record.file, 512, until)?;
+        let (uid, core_hash, client_hash) = enrollment(&raw, class)?;
         let mut core = Fixed::open(CORE, 0o755, 128 * 1024 * 1024, until)?;
         let mut client = Fixed::open(class.client(), 0o755, 128 * 1024 * 1024, until)?;
         if core.hash(until)? != core_hash || client.hash(until)? != client_hash {
@@ -256,32 +256,34 @@ impl Roots {
         let result = Self {
             core,
             client,
-            enrollment,
-            uid: 1000,
+            enrollment: record,
+            uid,
         };
         result.check(until)?;
         Ok(result)
     }
-    fn check(&self, until: Instant) -> Result<()> {
+    pub(crate) fn check(&self, until: Instant) -> Result<()> {
         self.core.check(until)?;
         self.client.check(until)?;
         self.enrollment.check(until)
     }
 }
-fn enrollment_hashes(raw: &[u8], class: Class) -> Result<([u8; 32], [u8; 32])> {
+fn enrollment(raw: &[u8], class: Class) -> Result<(u32, [u8; 32], [u8; 32])> {
     if raw.len() > 512 {
         return Err(Error::Refused);
     }
     let text = std::str::from_utf8(raw).map_err(|_| Error::Refused)?;
     let fields: Vec<_> = text.split('\n').collect();
-    if fields.len() != 5
-        || fields[0] != class.schema()
-        || fields[1] != "1000"
-        || !fields[4].is_empty()
-    {
+    if fields.len() != 5 || fields[0] != class.schema() || !fields[4].is_empty() {
         return Err(Error::Refused);
     }
-    Ok((hex(fields[2])?, hex(fields[3])?))
+    // The UID is selected exclusively by the held root record, never a frame,
+    // a caller path, peer-supplied field or DNS receipt. Canonical decimal only.
+    let uid = fields[1].parse::<u32>().map_err(|_| Error::Refused)?;
+    if fields[1] != uid.to_string() || !class.admits_uid(uid) {
+        return Err(Error::Refused);
+    }
+    Ok((uid, hex(fields[2])?, hex(fields[3])?))
 }
 fn unready(count: usize, flags: PollFlags) -> bool {
     count == 0 && flags.is_empty()
@@ -431,8 +433,8 @@ impl Row {
     }
 }
 /// Holds the exact kernel peer/child objects and original rows; no Clone/Debug.
-pub(crate) struct Binding {
-    roots: Roots,
+pub(crate) struct Binding<'a> {
+    roots: &'a Roots,
     peer: OwnedFd,
     child: OwnedFd,
     peer_row: Row,
@@ -442,9 +444,9 @@ pub(crate) struct Binding {
     namespaces: Vec<(File, File, File)>,
     poisoned: bool,
 }
-impl Binding {
+impl<'a> Binding<'a> {
     pub(crate) fn bind(
-        roots: Roots,
+        roots: &'a Roots,
         peer: OwnedFd,
         child: OwnedFd,
         until: Instant,
@@ -540,6 +542,62 @@ impl Binding {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "product-epochs")]
+    #[test]
+    fn product_enrollment_uid_is_exact_root_selected_and_never_dns_or_developer_authority() {
+        for uid in [1, 1000, 1001, u32::MAX - 1] {
+            let raw = format!(
+                "{}\n{uid}\n{}\n{}\n",
+                Class::Product.schema(),
+                "11".repeat(32),
+                "22".repeat(32)
+            );
+            assert_eq!(
+                enrollment(raw.as_bytes(), Class::Product).unwrap(),
+                (uid, [0x11; 32], [0x22; 32])
+            );
+            assert!(enrollment(raw.as_bytes(), Class::InstalledRuntime).is_err());
+            assert!(enrollment(raw.as_bytes(), Class::Tests).is_err());
+        }
+        let raw = format!(
+            "{}\n1001\n{}\n{}\n",
+            Class::Product.schema(),
+            "11".repeat(32),
+            "22".repeat(32)
+        );
+        for uid in [
+            "0",
+            "4294967295",
+            "4294967296",
+            "01001",
+            "+1001",
+            "1001 ",
+            "1001\n1001",
+            "caller",
+        ] {
+            assert!(
+                enrollment(
+                    raw.replace("\n1001\n", &format!("\n{uid}\n")).as_bytes(),
+                    Class::Product
+                )
+                .is_err()
+            );
+        }
+        for schema in [
+            Class::Tests.schema(),
+            Class::InstalledRuntime.schema(),
+            "omavless-dns-pair-v1",
+        ] {
+            assert!(
+                enrollment(
+                    raw.replace(Class::Product.schema(), schema).as_bytes(),
+                    Class::Product
+                )
+                .is_err()
+            );
+        }
+    }
+
     #[test]
     fn development_enrollment_is_exact_and_cannot_cross_classes() {
         for class in [Class::Tests, Class::InstalledRuntime] {
@@ -550,15 +608,15 @@ mod tests {
                 "22".repeat(32)
             );
             assert_eq!(
-                enrollment_hashes(raw.as_bytes(), class).unwrap(),
-                ([0x11; 32], [0x22; 32])
+                enrollment(raw.as_bytes(), class).unwrap(),
+                (1000, [0x11; 32], [0x22; 32])
             );
             let other = if class == Class::Tests {
                 Class::InstalledRuntime
             } else {
                 Class::Tests
             };
-            assert!(enrollment_hashes(raw.as_bytes(), other).is_err());
+            assert!(enrollment(raw.as_bytes(), other).is_err());
             for changed in [
                 raw.replace("\n1000\n", "\n1001\n"),
                 raw.replace("\n1000\n", "\n01000\n"),
@@ -568,9 +626,9 @@ mod tests {
                 raw.trim_end().into(),
                 raw.replace('\n', "\r\n"),
             ] {
-                assert!(enrollment_hashes(changed.as_bytes(), class).is_err());
+                assert!(enrollment(changed.as_bytes(), class).is_err());
             }
-            assert!(enrollment_hashes(&[b'x'; 513], class).is_err());
+            assert!(enrollment(&[b'x'; 513], class).is_err());
         }
     }
     #[test]

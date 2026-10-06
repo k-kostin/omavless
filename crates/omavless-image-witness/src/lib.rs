@@ -9,6 +9,8 @@ mod kernel;
 mod protocol;
 mod service;
 mod status;
+#[cfg(feature = "product-epochs")]
+pub use service::serve_product_epochs;
 pub use service::{Client, serve_development, serve_development_runtime};
 
 use std::fmt;
