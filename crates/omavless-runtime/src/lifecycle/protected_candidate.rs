@@ -127,6 +127,8 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
         effect: impl FnOnce(&mut LifecycleExecutor<H>) -> Result<T, LifecycleError>,
     ) -> Result<T, LifecycleError> {
         self.phase = Phase::InFlight; // consumed BEFORE any callback/effect/panic
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(crate::protected_native_diagnostic::Site::Local);
         self.origin_check()?;
         let result = effect(
             &mut self
@@ -139,6 +141,12 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
     }
     fn exchange(&mut self, request: Request) -> Result<Response, LifecycleError> {
         self.phase = Phase::InFlight;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(match request {
+            Request::Status {} => crate::protected_native_diagnostic::Site::Status,
+            Request::Arm { .. } => crate::protected_native_diagnostic::Site::Arm,
+            Request::Disarm { .. } => crate::protected_native_diagnostic::Site::Disarm,
+        });
         self.origin_check()?;
         #[cfg(all(test, feature = "netguard-native-scenario"))]
         if request == (Request::Status {}) {
@@ -222,6 +230,10 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
         // Reserve headroom for explicit disconnected intent as well. No wraps,
         // recycled attempts or trusted floor invented from a wire omission.
         self.phase = Phase::InFlight;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(
+            crate::protected_native_diagnostic::Site::Preparation,
+        );
         self.origin_check()?;
         #[cfg(all(test, feature = "netguard-native-scenario"))]
         crate::protected_native_diagnostic::mark(
@@ -323,6 +335,10 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
                 .map_err(|_| LifecycleError::ManualRecoveryRequired)
         })?;
         self.interval = Some(interval);
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(
+            crate::protected_native_diagnostic::Site::IntervalBefore,
+        );
         self.origin_check()?;
         let result = self
             .owned
@@ -345,6 +361,10 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
                 .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
             e.verify_connected(&desired)
         })?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(
+            crate::protected_native_diagnostic::Site::IntervalAfter,
+        );
         self.origin_check()?;
         self.phase = Phase::Armed(generation);
         Ok(())

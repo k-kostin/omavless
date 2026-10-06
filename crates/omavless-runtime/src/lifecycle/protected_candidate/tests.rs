@@ -325,6 +325,66 @@ struct Fixture {
 
 #[cfg(feature = "netguard-native-scenario")]
 #[test]
+fn diagnostic_origin_calls_distinguish_reserve_arm_write_and_start_without_extra_checks() {
+    use crate::protected_native_diagnostic::{self as diagnostic, Cut, Site};
+    diagnostic::mark(Cut::NotEntered);
+    let f = Fixture::new(0, None);
+    let mut initial = f.candidate(None, None);
+    let owned = initial.owned.take();
+    let calls = RefCell::new(Vec::new());
+    let mut origin = || {
+        diagnostic::enter_origin();
+        calls.borrow_mut().push(diagnostic::origin());
+        Ok(())
+    };
+    // Same initial invocation as coordinator, then actual candidate call sites.
+    origin().unwrap();
+    let mut candidate = ProtectedCandidate {
+        owned,
+        phase: Phase::Fresh,
+        admission: None,
+        interval: None,
+        origin: Some(&mut origin),
+    };
+    candidate.connect_full("fixture").unwrap();
+    assert_eq!(
+        *calls.borrow(),
+        vec![
+            (Site::Initial, 1),
+            (Site::Local, 2),
+            (Site::Local, 3),
+            (Site::Local, 4),
+            (Site::Status, 5),
+            (Site::Preparation, 6),
+            (Site::Local, 7),
+            (Site::Arm, 8),
+            (Site::Local, 9),
+            (Site::Local, 10),
+            (Site::Local, 11),
+            (Site::Local, 12),
+        ]
+    );
+    candidate.observe_interval().unwrap();
+    candidate.disconnect().unwrap();
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .any(|(site, _)| *site == Site::IntervalBefore)
+    );
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .any(|(site, _)| *site == Site::IntervalAfter)
+    );
+    assert!(calls.borrow().iter().any(|(site, _)| *site == Site::Disarm));
+    drop(candidate);
+    assert_eq!(f.drops.get(), 3);
+}
+
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
 fn diagnostic_distinguishes_origin_read_empty_eligibility_and_status_cuts() {
     use crate::protected_native_diagnostic::{Cut, last, mark};
 

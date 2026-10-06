@@ -510,3 +510,34 @@ Existing guards, latches, budgets, listener and recovery semantics are unchanged
 The original failed interval remains NONPASS. A separately admitted exact
 service/native successor must establish the actual failure and any later fix;
 these diagnostics are not themselves K1 acceptance.
+
+### Original-envelope diagnostic slice
+
+The Native50 attempt remains unknown/nonpassing. Its last-entered
+`origin_envelope` label does not identify which envelope predicate refused or
+which repeated invocation reached it. The separate test-only successor splits
+the existing short-circuit expression into the same four checks, in order:
+original migration lock, ownership marker, pending transaction fence, login
+receipt. Each has a closed pre-operation label; no predicate is evaluated twice
+and no new syscall, authority input or fallback is introduced.
+
+The ignored launcher preserves its existing three diagnostic lines and appends
+`K1_NATIVE_ORIGIN_DIAGNOSTIC <site> <ordinal>` inside the same catch-unwind after
+whole-owner custody retention. The thread-local ordinal increments only at the
+existing origin closure entry and saturates at255. Sites are fixed initial,
+local, status, arm, disarm, preparation, interval_before and interval_after.
+They are source locations, not successful effects or identity/generation data.
+On the straight-line connect path ordinals7/8/9/10 enter the reserved-Desired
+write, Arm exchange, connected-Desired write and owned-core start respectively;
+an error branch is interpreted from its exact source, never from that mapping
+alone. Ordinal saturation has no effect on execution. Reset and thread isolation
+are tested. Default/non-test builds contain neither this state nor the output.
+
+No failed Native50 context is resumed, no installed run is accepted, and no
+timeout, custody rule, pending fence, package qualification or issuer changes.
+The serial protected filter passed59 controls with three VM selectors ignored;
+strict headless scenario all-target and ordinary-default library Clippy, scoped
+formatting and diff checks passed. The new actual mock-candidate call-sequence
+control checks the above ordinals through connect, interval and explicit close.
+An initial redundant match fallback produced a compiler warning; it was removed
+before the final strict gates. These are SOURCE controls, not real native effects.

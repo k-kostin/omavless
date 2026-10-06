@@ -51,30 +51,53 @@ impl OfflineNativeCoordinator<crate::native_host::NativeLifecycleHost> {
         let uid = self.uid();
         let mut origin = || {
             #[cfg(test)]
+            crate::protected_native_diagnostic::enter_origin();
+            #[cfg(test)]
             crate::protected_native_diagnostic::mark(
                 crate::protected_native_diagnostic::Cut::SingletonCheck,
             );
             singleton()?;
             #[cfg(test)]
             crate::protected_native_diagnostic::mark(
-                crate::protected_native_diagnostic::Cut::OriginEnvelope,
+                crate::protected_native_diagnostic::Cut::OriginLock,
             );
-            if !lock.authorizes(&paths, uid)
-                || !read_marker(&paths, uid)
-                    .is_ok_and(|m| m.phase() == fence.phase && m.generation() == fence.generation)
-                || crate::pending_private_transaction::pending(&desired)
-                || crate::login_transaction::check_startup_receipt(
-                    &paths,
-                    uid,
-                    lock,
-                    Some(fence.generation),
-                )
-                .is_err()
+            if !lock.authorizes(&paths, uid) {
+                return Err(LifecycleError::ManualRecoveryRequired);
+            }
+            #[cfg(test)]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::OriginMarker,
+            );
+            if !read_marker(&paths, uid)
+                .is_ok_and(|m| m.phase() == fence.phase && m.generation() == fence.generation)
+            {
+                return Err(LifecycleError::ManualRecoveryRequired);
+            }
+            #[cfg(test)]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::OriginPending,
+            );
+            if crate::pending_private_transaction::pending(&desired) {
+                return Err(LifecycleError::ManualRecoveryRequired);
+            }
+            #[cfg(test)]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::OriginLogin,
+            );
+            if crate::login_transaction::check_startup_receipt(
+                &paths,
+                uid,
+                lock,
+                Some(fence.generation),
+            )
+            .is_err()
             {
                 return Err(LifecycleError::ManualRecoveryRequired);
             }
             Ok(())
         };
+        #[cfg(test)]
+        crate::protected_native_diagnostic::site(crate::protected_native_diagnostic::Site::Initial);
         origin()?;
         // Consumed coordinator cannot admit a parallel ordinary mutation. The
         // existing executor stays in its original transaction, borrowed only.
