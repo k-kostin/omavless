@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: MIT
 fn main() {
     let arguments: Vec<_> = std::env::args().skip(1).collect();
+    #[cfg(feature = "product-epochs")]
+    if let [flag, uid] = arguments.as_slice()
+        && flag == "--enroll-product"
+    {
+        match omavless_image_witness::enroll_product(uid) {
+            Ok(()) => {
+                println!("Product image enrollment completed.");
+                return;
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(2);
+            }
+        }
+    }
     let serve = match arguments.as_slice() {
         [flag] if flag == "--development-service" => omavless_image_witness::serve_development,
         [flag] if flag == "--development-runtime-service" => {

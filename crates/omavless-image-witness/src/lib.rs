@@ -5,10 +5,14 @@
 
 mod channel;
 mod class;
+#[cfg(feature = "product-epochs")]
+mod enrollment;
 mod kernel;
 mod protocol;
 mod service;
 mod status;
+#[cfg(feature = "product-epochs")]
+pub use enrollment::enroll_product;
 #[cfg(feature = "product-epochs")]
 pub use service::serve_product_epochs;
 pub use service::{Client, serve_development, serve_development_runtime};

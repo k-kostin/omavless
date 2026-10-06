@@ -17,7 +17,8 @@ class NormalSchedulingBoundary(unittest.TestCase):
         helper = SRC.parent.parent / "omavless-image-witness"
         self.assertEqual(tomllib.loads((helper / "Cargo.toml").read_text())
                          ["features"]["product-epochs"], ["developer-helper"])
-        self.assertNotIn("--product-image-witness", (SRC / "main.rs").read_text())
+        self.assertRegex((SRC / "main.rs").read_text(),
+                         r'#\[cfg\(feature = "product-image-witness"\)\]\s*if arguments == \["daemon", "--product-image-witness"\]')
         for value in ("/var/lib/omavless-image-product/runtime.enrollment",
                       "/run/omavless-image-product/control.sock",
                       "omavless-product-current-image-v1"):

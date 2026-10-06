@@ -254,6 +254,19 @@ impl RuntimeServer {
         let fail = |revision, code| {
             error_response(id, revision, code, code == StableErrorCode::Busy, None)
         };
+        // Disabled methods are unknown before method-specific parsing or owner
+        // admission. Selection is immutable data, not cached effect authority.
+        {
+            let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                return fail(0, StableErrorCode::Busy);
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return fail(0, StableErrorCode::UnknownMethod);
+            };
+            if owner.close_registration() == crate::lifecycle::CloseRegistration::Disabled {
+                return fail(owner.revision(), StableErrorCode::UnknownMethod);
+            }
+        }
         let action = match parse(request, &self.instance_id) {
             Ok(action) => action,
             Err(code) => return fail(0, code),
@@ -275,6 +288,9 @@ impl RuntimeServer {
             let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
                 return fail(0, StableErrorCode::UnknownMethod);
             };
+            if owner.close_registration() == crate::lifecycle::CloseRegistration::Disabled {
+                return fail(owner.revision(), StableErrorCode::UnknownMethod);
+            }
             match owner.developer_close(action, &self.instance_id) {
                 Ok(Admission::Respond(result)) => {
                     return success_response(id, owner.revision(), result);

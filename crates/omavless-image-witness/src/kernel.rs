@@ -243,6 +243,75 @@ pub(crate) struct Roots {
     enrollment: Fixed,
     pub uid: u32,
 }
+
+#[cfg(feature = "product-epochs")]
+pub(crate) struct EnrollmentInputs {
+    core: Fixed,
+    client: Fixed,
+    payload: Vec<u8>,
+}
+#[cfg(feature = "product-epochs")]
+impl EnrollmentInputs {
+    pub(crate) fn capture(uid: u32, until: Instant) -> Result<Self> {
+        if !Class::Product.admits_uid(uid) {
+            return Err(Error::Refused);
+        }
+        let mut core = Fixed::open(CORE, 0o755, 128 * 1024 * 1024, until)?;
+        let mut client = Fixed::open(Class::Product.client(), 0o755, 128 * 1024 * 1024, until)?;
+        for image in [&core, &client] {
+            use std::os::unix::fs::FileExt;
+            let mut header = [0; 64];
+            if image
+                .file
+                .read_at(&mut header, 0)
+                .map_err(|_| Error::Unavailable)?
+                != 64
+                || !native_header(&header)
+            {
+                return Err(Error::Refused);
+            }
+            image.check(until)?;
+        }
+        let encode = |hash: [u8; 32]| hash.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let payload = format!(
+            "{}\n{uid}\n{}\n{}\n",
+            Class::Product.schema(),
+            encode(core.hash(until)?),
+            encode(client.hash(until)?)
+        )
+        .into_bytes();
+        let result = Self {
+            core,
+            client,
+            payload,
+        };
+        enrollment(&result.payload, Class::Product)?;
+        result.check(until)?;
+        Ok(result)
+    }
+    pub(crate) fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+    pub(crate) fn check(&self, until: Instant) -> Result<()> {
+        self.core.check(until)?;
+        self.client.check(until)
+    }
+}
+#[cfg(feature = "product-epochs")]
+fn native_header(header: &[u8; 64]) -> bool {
+    let machine = if cfg!(target_arch = "x86_64") {
+        62
+    } else if cfg!(target_arch = "aarch64") {
+        183
+    } else {
+        0
+    };
+    header[..7] == [0x7f, b'E', b'L', b'F', 2, 1, 1]
+        && matches!(u16::from_le_bytes([header[16], header[17]]), 2 | 3)
+        && u16::from_le_bytes([header[18], header[19]]) == machine
+        && machine != 0
+        && u64::from_le_bytes(header[24..32].try_into().unwrap()) != 0
+}
 impl Roots {
     pub(crate) fn capture(class: Class, until: Instant) -> Result<Self> {
         let record = Fixed::open(class.enrollment(), 0o600, 512, until)?;
@@ -541,6 +610,26 @@ impl<'a> Binding<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "product-epochs")]
+    #[test]
+    fn enrollment_native_header_is_fixed_architecture_executable_not_arbitrary_bytes() {
+        let mut header = [0; 64];
+        header[..7].copy_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1]);
+        header[16..18].copy_from_slice(&2u16.to_le_bytes());
+        let machine: u16 = if cfg!(target_arch = "x86_64") {
+            62
+        } else {
+            183
+        };
+        header[18..20].copy_from_slice(&machine.to_le_bytes());
+        header[24] = 1;
+        assert!(native_header(&header));
+        for index in [0, 4, 5, 6, 16, 18, 24] {
+            let mut wrong = header;
+            wrong[index] = 0;
+            assert!(!native_header(&wrong));
+        }
+    }
 
     #[cfg(feature = "product-epochs")]
     #[test]

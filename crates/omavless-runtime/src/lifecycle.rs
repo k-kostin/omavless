@@ -46,6 +46,15 @@ pub enum CloseEpochAdmission {
     Refused,
 }
 
+#[cfg(feature = "developer-conditional-close")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum CloseRegistration {
+    Disabled,
+    Developer,
+    Product,
+}
+
 impl fmt::Display for HostStepError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -85,6 +94,14 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    #[cfg(feature = "developer-conditional-close")]
+    #[doc(hidden)]
+    fn close_registration(&self) -> CloseRegistration {
+        #[cfg(feature = "product-image-witness")]
+        return CloseRegistration::Disabled;
+        #[cfg(not(feature = "product-image-witness"))]
+        return CloseRegistration::Developer;
+    }
     #[cfg(feature = "product-image-witness")]
     #[doc(hidden)]
     fn close_epoch_admission(&self) -> CloseEpochAdmission {

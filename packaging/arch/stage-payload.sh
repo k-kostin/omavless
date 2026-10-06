@@ -8,13 +8,14 @@ fail() {
   exit 2
 }
 
-if [[ $# -ne 2 ]]; then
+if [[ $# -ne 2 && !( $# -eq 4 && $3 == --product-image-witness ) ]]; then
   echo "Usage: stage-payload.sh ABSOLUTE_DESTDIR ABSOLUTE_PREBUILT_BINARY" >&2
   exit 2
 fi
 
 destdir=$1
 binary=$2
+product_helper=${4-}
 
 # This helper assembles a package payload. It must never be usable as a live
 # host installer, and it must not follow a package-root symlink into another
@@ -41,6 +42,10 @@ reject_unsafe_file_target() {
 }
 
 reject_symlink_components "$destdir"
+if [[ -n $product_helper ]]; then
+  [[ "$product_helper" == /* && -f "$product_helper" && ! -L "$product_helper" && -x "$product_helper" ]] || fail
+  reject_symlink_components "$product_helper"
+fi
 destdir=$(realpath -e -- "$destdir")
 [[ "$destdir" != / ]] || fail
 reject_symlink_components "$destdir"
@@ -54,6 +59,12 @@ login_unit_target="$destdir/usr/lib/systemd/user/omavless-login-prepare.service"
 license_target="$destdir/usr/share/licenses/omavless/LICENSE"
 notices_target="$destdir/usr/share/licenses/omavless/THIRD_PARTY_NOTICES.md"
 docs_target="$destdir/usr/share/doc/omavless/README.md"
+product_directories=()
+product_targets=()
+if [[ -n $product_helper ]]; then
+  product_directories=("$destdir/usr/lib/omavless-image" "$destdir/usr/lib/systemd/system")
+  product_targets=("$destdir/usr/lib/omavless-image/omavless-image-witness" "$destdir/usr/lib/systemd/system/omavless-image-witness.service")
+fi
 
 for target in \
   "$binary_target" \
@@ -64,6 +75,7 @@ for target in \
   "$docs_target"; do
   reject_unsafe_file_target "$target"
 done
+for target in "${product_targets[@]}"; do reject_unsafe_file_target "$target"; done
 
 for directory in \
   "$destdir/usr" \
@@ -79,6 +91,10 @@ for directory in \
   reject_symlink_components "$directory"
   [[ ! -e "$directory" || -d "$directory" ]] || fail
 done
+for directory in "${product_directories[@]}"; do
+  reject_symlink_components "$directory"
+  [[ ! -e "$directory" || -d "$directory" ]] || fail
+done
 
 install -d -m 0755 -- \
   "$destdir/usr" \
@@ -91,6 +107,7 @@ install -d -m 0755 -- \
   "$destdir/usr/share/licenses/omavless" \
   "$destdir/usr/share/doc" \
   "$destdir/usr/share/doc/omavless"
+if [[ -n $product_helper ]]; then install -d -m 0755 -- "${product_directories[@]}"; fi
 
 # Recheck the created path before publishing files. This is a package-build
 # boundary, not a defense against a hostile process racing in the same build
@@ -105,6 +122,10 @@ for target in \
   reject_symlink_components "$(dirname -- "$target")"
   reject_unsafe_file_target "$target"
 done
+for target in "${product_targets[@]}"; do
+  reject_symlink_components "$(dirname -- "$target")"
+  reject_unsafe_file_target "$target"
+done
 
 install -m 0755 -- "$binary" "$binary_target"
 install -m 0644 -- \
@@ -116,3 +137,7 @@ install -m 0644 -- \
 install -m 0644 -- "$repo_root/LICENSE" "$license_target"
 install -m 0644 -- "$repo_root/THIRD_PARTY_NOTICES.md" "$notices_target"
 install -m 0644 -- "$script_dir/README.md" "$docs_target"
+if [[ -n $product_helper ]]; then
+  install -m 0755 -- "$product_helper" "${product_targets[0]}"
+  install -m 0644 -- "$repo_root/packaging/systemd/omavless-image-witness.service" "${product_targets[1]}"
+fi

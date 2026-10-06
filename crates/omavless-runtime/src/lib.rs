@@ -387,6 +387,8 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&mut self) -> lifecycle::CloseRegistration;
     #[cfg(feature = "product-image-witness")]
     fn developer_close_retired(
         &mut self,
@@ -720,6 +722,10 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&mut self) -> lifecycle::CloseRegistration {
+        self.owner.batch_coordinator().host().close_registration()
+    }
     #[cfg(feature = "product-image-witness")]
     fn developer_close_retired(
         &mut self,
@@ -2274,7 +2280,12 @@ fn dispatch_native(
         },
         "capabilities.get" if empty_params(request) => {
             #[cfg(feature = "developer-conditional-close")]
-            let development_methods = developer_connection_close::METHODS;
+            let development_methods = match owner.close_registration() {
+                lifecycle::CloseRegistration::Disabled => &[][..],
+                lifecycle::CloseRegistration::Developer | lifecycle::CloseRegistration::Product => {
+                    developer_connection_close::METHODS
+                }
+            };
             #[cfg(not(feature = "developer-conditional-close"))]
             let development_methods: &[&str] = &[];
             let methods: Vec<_> = READ_ONLY_METHODS
@@ -2569,6 +2580,8 @@ mod tests {
     const SUBSCRIPTION_ID: &str = "10000000-0000-4000-8000-000000000001";
 
     struct FakeHost {
+        #[cfg(feature = "product-image-witness")]
+        close_registration: lifecycle::CloseRegistration,
         auxiliary: Option<Arc<auxiliary_core::AuxiliarySlot>>,
         probe_paths: Option<(PathBuf, PathBuf)>,
         observation: OwnedObservation,
@@ -2622,6 +2635,10 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        #[cfg(feature = "product-image-witness")]
+        fn close_registration(&self) -> lifecycle::CloseRegistration {
+            self.close_registration
+        }
         fn probe_paths(&self) -> Option<(PathBuf, PathBuf)> {
             self.probe_paths.clone()
         }
@@ -3019,6 +3036,8 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            #[cfg(feature = "product-image-witness")]
+            close_registration: lifecycle::CloseRegistration::Disabled,
             auxiliary: None,
             probe_paths: None,
             lifecycle_effects: Arc::new(AtomicUsize::new(0)),
@@ -3078,7 +3097,13 @@ mod tests {
     fn developer_close_socket_is_semantic_and_unsupported_hosts_refuse() {
         let base = temporary_base("dev-close");
         let paths = RuntimePaths::below(&base.join("runtime"));
-        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        #[allow(unused_mut)] // explicit selection is absent without product feature
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        #[cfg(feature = "product-image-witness")]
+        {
+            owner.batch_coordinator().host_mut().close_registration =
+                lifecycle::CloseRegistration::Developer;
+        }
         let mut server = RuntimeServer::bind(paths.clone()).unwrap();
         server.register_native_owner(
             owner,
@@ -3133,6 +3158,37 @@ mod tests {
         assert_eq!(status["revision"], 0);
         worker.join().unwrap();
         assert_eq!(calls.load(Ordering::Relaxed), count_before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_compiled_ordinary_socket_does_not_advertise_or_route_close() {
+        let base = temporary_base("ordinary-no-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let instance = server.instance_id.clone();
+        let before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        for method in developer_connection_close::METHODS {
+            assert!(
+                !caps["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|value| value == method)
+            );
+            let reply = call(&paths, method, json!({"instanceId": instance})).unwrap();
+            assert_eq!(reply["error"]["code"], "unknown_method");
+        }
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), before);
         fs::remove_dir_all(base).unwrap();
     }
 

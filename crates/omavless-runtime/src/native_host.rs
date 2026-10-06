@@ -1093,6 +1093,28 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&self) -> crate::lifecycle::CloseRegistration {
+        use crate::lifecycle::CloseRegistration;
+        #[cfg(feature = "product-image-witness")]
+        {
+            if self.product_image.is_some() {
+                return CloseRegistration::Product;
+            }
+            if !matches!(self.development_image, DevelopmentImageState::Disabled) {
+                return CloseRegistration::Developer;
+            }
+            #[cfg(test)]
+            if self.close_fixture.is_some() {
+                return CloseRegistration::Developer;
+            }
+            CloseRegistration::Disabled
+        }
+        #[cfg(not(feature = "product-image-witness"))]
+        {
+            CloseRegistration::Developer
+        }
+    }
     #[cfg(feature = "product-image-witness")]
     fn matches_close_retirement(&self, original: &CloseObservation) -> bool {
         self.product_image.as_ref().is_some_and(|epochs| {
@@ -1647,6 +1669,24 @@ mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_compiled_ordinary_host_registration_is_disabled_until_explicit_selection() {
+        use crate::lifecycle::CloseRegistration;
+        let (root, mut host) = observation_fixture();
+        assert!(host.close_registration() == CloseRegistration::Disabled);
+        host.development_image = DevelopmentImageState::Available;
+        assert!(host.close_registration() == CloseRegistration::Developer);
+        host.development_image = DevelopmentImageState::Disabled;
+        host.product_image = Some(ProductImageEpochs::new().unwrap());
+        assert!(host.close_registration() == CloseRegistration::Product);
+        // Selection publishes implementation only, never acquires/enrolls or
+        // constructs a proof/current-image/conditional effect permission.
+        assert_eq!(host.product_history_for_test(), (0, 0));
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[cfg(feature = "product-image-witness")]
     #[test]

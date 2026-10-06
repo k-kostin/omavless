@@ -11,8 +11,9 @@ K1 authority or schema1 DNS consent is promoted by this successor.
 The optional helper feature `product-epochs` selects a distinct class and the
 explicit invocation `--product-epoch-service`. Defaults expose no helper.
 Existing developer classes keep their single channel, initial thirty-second
-wait and fixed UID1000. This cut ships no unit, installer, enrollment writer,
-runtime flag, public method registration or automatic startup selection.
+wait and fixed UID1000. The opt-in source package adds an explicit runtime flag,
+fixed root enrollment writer and inactive helper unit; default public
+registration/activation remain absent.
 
 Closed product paths are runtime `/usr/bin/omavless`, managed core
 `/usr/lib/omavless-dns/mihomo`, root record
@@ -62,8 +63,11 @@ helper idle or ACK is never a copied native-drain attestation.
 ## Same-owner caller candidate
 
 The optional runtime feature `product-image-witness` now has a source-only
-`bind_current_product_image` factory through the SAME normal current owner. No
-CLI flag, packaged unit or default method selects it. Root/current-manager,
+`bind_current_product_image` factory through the SAME normal current owner. Only
+the explicitly compiled/selected `daemon --product-image-witness` uses it.
+Ordinary daemon in that same compiled image publishes/routes no close methods.
+Typed Disabled/Developer/Product registration is selection data, not authority.
+Existing developer selection and fixture tests remain separate. Root/current-manager,
 login, desired, TUN/broker, original core/controller and exact close-qualified
 pair predicates are unchanged. Enrollment is not a boolean effect permit.
 
@@ -128,6 +132,66 @@ actual sequential FD behavior. Independent full boundary review and concrete
 caller integration precede ROOT's fresh normal-owner two-epoch VM scenario and
 wrong-UID/dead/drift/expiry/upgrade tests. Default public registration, packaging,
 enrollment and ARM/Nix activation remain OFF/pending.
+
+## Explicit opt-in package / enrollment boundary
+
+The helper's `--enroll-product UID` is root administration only: actual UID/EUID
+and GID/EGID must be0. One canonical nonroot UID is explicit input, never inferred
+from the caller. No path/hash/profile/receipt input is accepted. It holds and
+hashes the two exact fixed root755 single-link native ELF images under the
+existing five-second sampled deadline and rechecks those same inputs. It creates
+only the fixed root0700 parent and root600 record via exclusive no-follow open;
+whole payload/held-name identity and file+directory sync are checked. Existing
+record/foreign contents/provider socket refuses. Any partial/error publication
+leaves its prefix untouched for explicit ROOT reconciliation, not overwrite or
+retry. There is no runtime ownership, service, DNS/network or profile mutation.
+The record is read-only image enrollment, not a close permit; native qualification
+and SAME-session effect fences remain mandatory on every admission.
+
+The inactive system unit runs the fixed helper with `--product-epoch-service`
+as root with CAP_SYS_PTRACE only (bounding+ambient), NOFILE64, no auto-restart
+and no Install target. Genuine PID/user/network views remain; only this helper
+uses mount hardening because it does not exec the capability-enabled core.
+Runtime parent is root0755 and socket ACL selects the enrolled UID. Native/DNS/
+netguard caps and unit policy are unchanged. Unit-active is not original binding
+or helper/client completion proof. Record or runtime/core inode/hash drift
+refuses; no upgrade/restart repair or stale-token adoption is provided.
+
+Explicit inert Arch mode:
+
+```text
+build-local-package.sh BUILD_DIR RUNTIME_ELF SOURCE_SHA --product-image-witness HELPER_ELF
+```
+
+It reuses normal payload/PKGBUILD/makepkg topology, checks both native ELF shapes
+and records both byte hashes under schema4 opt-in identity. It includes the fixed
+helper/system unit, requires the managed DNS package, and preserves the ordinary
+runtime/login user-unit bytes. No supplied ELF is executed and no compile,
+install, enroll, enable or start occurs. Three-argument and RC/stable modes remain
+unchanged. Prebuilt provenance is caller-supplied, not toolchain attestation or
+released distribution acceptance.
+
+Required real gate after full primary/peer review: ROOT seals product runtime/
+helper/package, explicitly installs/enrolls/starts in the disposable VM, uses
+standard HOME/current login/manager/original broker and genuine TUN, then proves
+two explicit same-owner epochs and pre-effect cancel, selected EOF/nonselected
+echo, unchanged desired/replay/FD plateau/original statuses. Wrong-UID/dead/drift/
+expiry/startup/reboot/upgrade checks remain separate and pending. Old scope5 or
+passive/memory callbacks are not promoted to that result.
+
+Opt-in integration SOURCE checks:18 helper pure controls;11 selected product
+runtime controls (including the preexisting nonpromotion case) and the explicit
+developer unsupported-host socket control passed. The new ordinary product-build
+socket control originally exposed method-specific parsing before the disabled
+registration gate; the gate now rejects before parsing/admission, and both
+ordinary no-advertise/no-route controls pass.12 offline package controls pass
+(one root-only refusal control skipped for the ordinary test UID), including
+actual inert makepkg archives with public `/usr/bin/true` as prebuilt fixture,
+both hashes, opt-in-only members and unchanged user-unit bytes. Those fixtures
+are not actual product binaries. Strict helper/feature/default all-target Clippy,
+feature/default checks,14 static retention guards, format/shell syntax/whitespace
+pass. No root enrollment writer, helper/service activation, package install or
+VM scenario has executed at this successor.
 
 New caller controls run the real owned controller/Worker/receipt functions with
 memory image-provider callbacks, not a privileged helper or qualified product
