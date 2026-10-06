@@ -1,0 +1,257 @@
+# T4 network-resume owner continuation
+
+Status: executable, dormant developer owner composition; no installed event subscriber
+or product recovery activation. It depends on the exact admission planner and
+receipt/crash fixtures from #365, #374 and #419. Their historic outcomes and
+production boundaries remain unchanged. The completion matrix is deliberately
+narrow; real sleep/NIC acceptance is not inferred from deterministic tests.
+
+## Completion matrix
+
+| Scope | Required behavior | Evidence / remaining gate |
+| --- | --- | --- |
+| Owned local source | Authenticate Unix peer credentials to the fixture PID/UID; pin receiver boot and owner identity; strict bounded fixed events | Deterministic real Unix stream fixture; not host bus authority or PID lifetime proof |
+| Event owner | Suspend pauses observation; resume/link bursts wait three quiet monotonic seconds; discard after 60 seconds from the first hint | Executable owner tests; no wall-clock input |
+| Safety | Off, changed generation/revision/profile/mode/store, unavailable/mixed/foreign/unsafe ownership never reconnect; healthy state observes only | Original ownership-gated coordinator and injected binding evidence under real MigrationLock |
+| One attempt | Existing exact Ready is reserved durably before coordinator invocation; failure/unknown completion never rearms | Real private files, pre/post publication errors, inherited process-death fixture |
+| Shared startup/event barrier | One owner-installed admission and terminal eligibility; legacy startup paths refuse enrollment; both trigger orders recover at most once | Dormant original-coordinator/private-file fixtures; production enrollment remains unavailable |
+| Restart | New owner instance refuses old Ready/Reserved/Finished; missing/lost receipt never initializes Ready | Both dormant trigger paths share refusal; no production identity/provisioning claim |
+| Registered developer service | One original registered owner, private control socket and owned event pair; accepted Disconnect/Quit wins; automatic metadata commit invalidates old resume; ACK cannot clear its guard | Fifteen deterministic constructor/control/event/fault tests enabled by default, including claimed RPC fairness; exact-head execution in integration PR; fixed monotonic feature example, not a host subscriber |
+| Real integration | Canonical daemon source subscription, authenticated host event delivery and actual binding proof | Pending; no host bus, service, core or network was contacted |
+| Hardware | Real suspend/resume and physical NIC transition | Pending separate bare-metal gate; VM evidence cannot close it |
+
+## Concrete pipeline
+
+`network_resume` is compiled under tests or the disabled-by-default
+`network-resume-fixture` feature. An attributed owned Unix
+stream sends only a sequence and Suspend/Resume/NetworkChanged enum. The source
+rejects oversized, duplicate-field, malformed and gapped frames, channel loss
+and timeout. Duplicate/reordered notifications are discarded. Receiver time is
+monotonic synthetic fixture time; the sender cannot choose time, owner, epoch,
+profile or commands. Boot/instance identity comes from fixture setup, never the
+wire. No SSID, endpoint, URL, address or raw OS event payload is accepted.
+One 100-ms monotonic deadline covers the whole frame; each blocking read is
+limited by its remaining budget. A slow source cannot extend this budget by
+delivering one byte just before successive read timeouts. The limit is an I/O
+deadline, not a promise of scheduler latency on a stalled machine.
+
+One owner-installed RecoveryBarrier retains immutable desired/store/owner
+context, a fixed receipt binding, one EventOwner, at most one pending hint and
+one non-clonable Admission shared by startup and events.
+There is no source reconnect, automatic Ready provisioning, reset or rearm API.
+The stable epoch is the already-established Ready fence; sequence advancement
+does not prove a new network epoch. New-epoch provisioning remains separate.
+The first hint bounds a burst's total age, so continuous notifications cannot
+push the deadline indefinitely. Source availability and a fully drained channel
+are rechecked at observation and the effect boundary. EOF or queued unprocessed
+events invalidate the old action rather than skipping a possible newer Suspend.
+
+The concrete `native_coordinator/network_resume` port borrows the original
+OfflineNativeCoordinator under its actual MigrationLock. It checks the exact
+committed Rust marker, revision, complete desired target, complete private-store
+digest and live target existence. Off/busy does not enter the lifecycle host
+observer. Incomplete observation remains uncertainty. The separate ResumeBinding
+trait has no production host implementation: synthetic evidence is bound to the
+exact desired target and cannot advertise real DNS/routes/protection safety.
+
+After durable reservation and fresh revalidation, the port reserves a mutation
+slot in the original coordinator and uses a narrow proved-empty lifecycle entry.
+That entry refuses Off, adoption and stop decisions, preserves exact desired
+intent and shares the existing bounded recovery implementation. Successful
+verification repairs compatibility pointers and advances the original revision.
+Any recovery/pointer error establishes the original manual-recovery barrier;
+the event owner also terminalizes. Failed completion publication cannot repeat
+an already completed coordinator operation. Healthy observations perform no
+restart and make no claim of DNS, routes, Internet or leak protection.
+
+The sole default-production-path code change extracts the existing startup recovery
+body into a common private helper without changing its operations or error
+handling. The event entry, source, receipt composition and coordinator port
+remain dormant. No daemon IPC/CLI registration, settings, UI, package or
+service change occurs.
+
+## Shared dormant startup boundary
+
+The original OfflineNativeCoordinator holds Absent, Installed, InFlight or
+Blocked barrier state. Enrollment is private, once-only and before any general
+startup reconciliation. Its receipt name is fixed below the original desired
+state directory. Capture failure leaves a permanent blocked sentinel; extraction
+leaves InFlight, so a panic cannot expose Absent or permit new enrollment. No
+Arc/poison recovery, detach, reset, replacement or per-trigger Admission exists.
+
+While enrolled, both original owner startup entry points refuse before host
+calls. The lowest LifecycleExecutor general startup entry also refuses, including
+the profile-preserving route into that entry. Normal factories do not enroll a
+barrier, and their existing startup behavior is unchanged. Enrollment after an
+unrestricted startup has already entered is refused and closes further bypass.
+
+Guarded startup uses the same original migration lease and coordinator port as
+events. It derives its quiet/deadline budget from actual monotonic enrollment
+time; it never invents an old event Hint to pass the event planner. A queued or
+paused event defers startup. Source loss, gap, clock regression, context loss,
+manual recovery and any spent/uncertain attempt terminalize eligibility for both
+paths, including a failed reservation which left durable Ready unchanged.
+
+Healthy/settled-Off reconciliation uses a narrow observation-only lifecycle
+method. A second observation becoming empty, mixed or residual cannot fall
+through to general startup recovery or cleanup. Desired state is rechecked after
+the last lifecycle observation before preparation or cache adoption. Observation
+does not repair pointers, alter store digest, stop a residual Off owner, write
+intent or increment revision. This is a cooperating original-lease contract,
+not protection against an arbitrary malicious same-user filesystem writer.
+
+The fixed fixture seeds Ready only in its fresh exclusive directory before
+enrollment. Missing or mismatched receipts never initialize it. A restarted
+fixture creates a new owner instance and refuses the old Ready, Reserved or
+Finished record before any automatic effect. This closes the shared **dormant
+fixture** trigger boundary, not production Ready provisioning or restart identity.
+The combined maintenance candidate adds the supervised private service boundary
+described below. It is compiled for review; its new socket scenarios remain
+explicitly ignored pending primary and independent boundary approval.
+
+## Combined private service candidate
+
+The developer constructor holds the original ProductionNativeOwner constructor's
+MigrationLock continuously through marker/login-receipt checks, locked guard
+capture/enrollment and narrow observation-only initialization. It requires
+existing compatibility pointers consistent with desired intent. Healthy On and
+settled Off produce the actual lifecycle outcome; empty On, mixed facts, residual
+Off, a healthy-to-empty second observation, missing/mismatched Ready or changed
+fences refuse. It never repairs pointers, stops a core or recovers during
+construction. Enrollment quiet time applies only to later automatic recovery.
+
+The existing RegisteredNativeOwner remains the single holder of that original
+ProductionNativeOwner. Private monomorphized wake/get/lost hooks are manufactured
+only by the H:ResumeBinding construction boundary. Its generic LifecycleHost
+implementation invokes those fixed hooks; it accepts no caller function address,
+callback, descriptor, clock, profile or path. Normal and transition registrations
+store None, and normal initialize/current/bind_current are unchanged.
+
+Only serve_until drives service wakes. The blocking serve(maximum_connections)
+path does not support service activation. A wake uses the existing quit admission
+gate and a nonblocking attempt to acquire the same dispatcher/owner mutex. It
+drains at most four fixed frames, each with the existing whole-frame 100-ms budget:
+worst-case read occupancy is 400 ms per wake, not a 100-ms aggregate promise.
+Remaining backlog defers recovery rather than skipping a queued Suspend. Effects
+are serialized at the original owner/migration boundary; a socket packet's
+arrival is not itself acceptance. Disconnect or Quit accepted under that boundary
+before recovery changes/revokes the original context. Later requests observe the
+one completed outcome rather than interrupting an admitted atomic effect.
+
+Source EOF, malformed/gapped/partial frames, time regression, panic or lost wake
+terminalize the original shared guard. Shutdown marks the network service lost
+before independent batch drain/phase changes; no join, acknowledgement or later
+wake resets eligibility. Catching a wake panic does not recover a poisoned
+dispatcher: the original InFlight/Blocked barrier stays revoked. The existing
+subscription worker can independently commit or cancel; its revision/store
+changes invalidate old pending resume work, and its ACK cannot reset the network
+barrier. No second coordinator or production owner is constructed.
+
+Before any event-poll host observation, the same migration lease must establish
+a present valid private desired file, complete store/selected member and the
+original owner/manual fences. A changed valid desired/revision/store context
+terminally reports `cancelled` for stale background work; this is not a VPN
+health or Off claim. Missing/invalid/unsafe files, deleted selected members and
+unknown ownership remain `manual_recovery`, not safe cancellation. Neither
+classification can rearm the shared startup/event eligibility, even with Ready
+unchanged. The synthetic automatic feed retains the exact canonical selected
+member; it adds only a nonselected member. A failed runtime join retains its
+first terminal result and owned evidence across repeated shutdown/Drop.
+
+The only new control method is privately registered developer.network_resume.get
+with exactly the current instanceId. Its coarse cached projection performs no
+peek, drain, clock read, lazy initialization, host observation or file read. It
+is explicitly not current source, DNS, route or connection health. Events use the
+owned Unix source, with no producer clock/profile/FD/path choices in either
+protocol. Source peer attribution remains fixture-only, not host-bus provenance.
+
+The no-argument feature example now prepares a fresh owned fake-host fixture and
+drives the actual RuntimeServer private control socket plus its owned event pair
+on this same registered owner. Its constructor does not build a preliminary
+coordinator to manufacture a snapshot. Ready is seeded only by exclusive fixture
+setup. The service and correction boundary received primary and independent review
+at `218502ceb6a938285dea6b6a2d451d8cdda9e674` before executable socket tests.
+Compilation and earlier offline-guard results were not borrowed as acceptance.
+The first actual twelve-case matrix on that head returned eleven passes and one
+Quit-response assertion failure. The original assertion did not retain the
+refusal code; a detailed Quit-only diagnostic successor passed. The corrected
+caller waits at most two seconds through only the documented pre-admission Busy
+response, with identical operation/revision, and stops on every other error or
+I/O loss. Its twelve-case matrix and no-argument monotonic example passed. The
+thirteen promoted tests additionally prove that normal factory registration
+does not infer enrollment from an existing fixture Ready. Exact final-head
+combined/workspace/CI results belong to the integration PR, not these earlier pins.
+
+The initial hosted feature-filtered suite at `219ab84b` passed 46 cases but the
+Quit caller exhausted that same two-second Busy bound. Local full gates and both
+package jobs had passed; they did not supersede the hosted failure. The successor
+defers dormant network wakes while any original bounded RPC worker slot is
+claimed, giving a not-yet-dispatched Quit worker a quiet window. Slot count is a
+scheduling hint only, never admission authority; quit gate, original dispatcher,
+lease and all stale/source fences are unchanged. Deferral cannot clear a lost
+context; slow clients may delay automatic work, not authorize it. A deterministic
+claim-before-wake regression checks that the source stays unread and Ready/effects
+unchanged until original slot release, then one ordinary quiet-budget recovery.
+A fixed test-only two-second Quit-dispatch latch additionally holds the real
+authenticated, claimed RPC worker before dispatch, verifies three real suppressed
+loop iterations with a due recovery and unchanged Ready/observations/effects,
+then releases that same worker and proves accepted Quit seals the context. No
+callback or IPC can install it, normal construction leaves it absent, failure
+releases it before fixture join, and it is not compiled into the feature example.
+
+## Fixed developer entry
+
+The feature enables one no-argument library function and a required-feature
+Cargo example, `network_resume_fixture`. Types, source handles, journal, binding
+trait and coordinator hooks stay crate-private. The function accepts no path,
+identity, command, endpoint, profile, channel or callback. It creates a fresh
+owned fixture directory, seeds synthetic Ready only there, drives a burst into
+the original coordinator with the private synthetic host, verifies one recovery
+and a duplicate refusal, then removes its owned fixture after successful
+completion. A partial setup panic may leave owned synthetic files; it does not
+claim cleanup on that failure or acquisition of any host resource. It returns only the
+coarse `owned_fixture` status, effect count, revision and intent-preservation
+boolean. This is not a production Ready initializer or host binding provider.
+The old offline-only runner is retained under tests as a historical fixture;
+the feature entry now selects the combined private service described above.
+
+Compile preflight and the fixed scenario with `--features network-resume-fixture`
+and `--example network_resume_fixture`; place Cargo and temporary storage in
+dedicated HOME directories. There are no installed service/core/network calls.
+Extra example arguments are refused before creating a fixture. Normal builds,
+including normal daemon startup, do not contain or invoke the exported entry.
+Enabling the feature still does not register an event subscriber or production
+recovery path. Actual Ready provisioning and all activation gates remain pending.
+
+Exact `5290891f1ff8499d35daa99ab4ef24490fb78312` records the original test-only
+checkpoint: primary/independent review and GitHub test plus both package jobs
+passed. Its local workspace/developer evidence and environment qualifications
+are retained in #692. Evidence on that head is not transferred to this feature
+and deadline successor; its changed code needs its own checks and review.
+
+## Required activation decisions
+
+Production activation must independently review authentic host source identity,
+boot/owner lifetime provenance, loss/replacement handling and per-host behavior.
+logind, NetworkManager and netlink notifications are observation hints, never
+network trust. Network names cannot authorize recovery.
+
+Ready provisioning must distinguish first use from loss/rollback and establish
+the exact durable anchor; an absent file cannot authorize it. The fixture uses
+trusted exclusive directories and the existing private atomic writer, not a
+pinned-dirfd or power-loss/rollback-resistant production storage proof. It does
+not inject faults inside write/fsync/rename. Source and effect operate serially
+in one fixture owner; real scheduler cancellation/lease ordering remains part
+of integration review.
+
+The normal production factories still have no network barrier enrollment,
+trusted Ready provisioner, host binding implementation or event source. The
+shared dormant guard therefore cannot be advertised as product recovery. Actual
+factory/dispatcher enrollment, supervised source cancellation, restart provenance
+and durable production storage remain required activation gates. A later stable
+epoch cannot bypass an unresolved reservation.
+
+Primary and independent exact-head review must cover the changed recovery seam
+and complete reached dependency boundary before any host activation. Dev VM
+control belongs exclusively to its designated operator; this lane has only
+source, synthetic owned files/streams and ordinary build/test authority.

@@ -30,5 +30,10 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo check --locked -p omavless-runtime --features tui
 cargo test --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
 cargo clippy --locked -p omavless-runtime --features tui --all-targets -- -D warnings
+# Dormant developer handler: no installed daemon registration or host effects.
+cargo check --locked -p omavless-runtime --features network-resume-fixture --all-targets
+cargo test --locked -p omavless-runtime --features network-resume-fixture network_resume
+cargo clippy --locked -p omavless-runtime --features network-resume-fixture --all-targets -- -D warnings
+cargo run --quiet --locked -p omavless-runtime --features network-resume-fixture --example network_resume_fixture
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json

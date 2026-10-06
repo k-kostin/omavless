@@ -51,6 +51,12 @@ pub mod cutover_activation;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod developer_network_resume;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod developer_network_resume_fixture;
+#[cfg(any(test, feature = "developer-subscription-schedule"))]
+pub mod developer_subscription_schedule;
 mod diagnostic_read;
 pub mod doctor;
 pub mod fresh_setup;
@@ -73,6 +79,13 @@ pub mod native_coordinator;
 pub mod native_dispatch;
 pub mod native_host;
 pub mod native_probe_resolver;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod network_recovery_receipt;
+#[cfg(any(test, feature = "network-resume-fixture"))]
+mod network_resume;
+#[cfg(feature = "network-resume-fixture")]
+pub use network_resume::developer_network_resume_fixture;
+pub mod network_transition_plan;
 mod onboarding_protocol;
 pub mod owner;
 pub mod plugin_action;
@@ -107,6 +120,10 @@ mod subscription_probe_work;
 pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
+pub mod subscription_schedule_attempt;
+pub mod subscription_schedule_driver;
+pub mod subscription_schedule_plan;
+pub mod subscription_schedule_preference;
 pub mod subscription_transport;
 mod subscription_usage;
 mod support_diagnostics;
@@ -261,12 +278,16 @@ pub struct RuntimeServer {
     instance_id: String,
     dispatcher: Arc<Mutex<RuntimeDispatcher>>,
     batch_scheduler: batch_scheduler::BatchScheduler,
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    developer_schedule: Option<developer_subscription_schedule::DeveloperSubscriptionSchedule>,
     remote_fetches: remote_fetch::RemoteFetchPool,
     ping_read: Mutex<()>,
     // Full Quit excludes every admitted unary handler, including detached
     // remote completion, before disconnecting and sealing new admission.
     quit_gate: RwLock<bool>,
     quit_requested: AtomicBool,
+    #[cfg(test)]
+    quit_dispatch_latch: Option<Arc<developer_network_resume::QuitDispatchLatch>>,
     _owner: OwnerLock,
 }
 
@@ -353,6 +374,50 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_wake(&mut self);
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_get(&self) -> Option<Value>;
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_lost(&mut self);
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_control(
+        &mut self,
+        request: &Value,
+        instance: &str,
+        now: u64,
+    ) -> std::result::Result<Value, StableErrorCode>;
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_start(
+        &mut self,
+        instance: &str,
+        clock: developer_subscription_schedule::Clock,
+    ) -> std::result::Result<
+        Option<batch_scheduler::BatchWork>,
+        native_coordinator::AutomaticRefreshError,
+    >;
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_progress(&mut self, work: &native_coordinator::AutomaticSubscriptionBatch)
+    -> bool;
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_finish(
+        &mut self,
+        work: native_coordinator::AutomaticSubscriptionBatch,
+        now: u64,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError>;
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_lost(&mut self, ticket: native_coordinator::NativeBatchTicket);
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_interrupted(&self, ticket: &native_coordinator::NativeBatchTicket) -> bool;
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_acknowledge(
+        &mut self,
+        proof: &batch_scheduler::DrainedAutomaticAttempt,
+        sequence: u64,
+        preference: u64,
+        revision: u64,
+        now: u64,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -437,7 +502,13 @@ trait NativeRuntimeOwner: Send {
         native_coordinator::NativeOwnerError,
     >;
     fn batch_progress(&mut self, job: &native_coordinator::NativeSubscriptionBatch) -> bool;
-    fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch);
+    fn batch_finish(
+        &mut self,
+        job: native_coordinator::NativeSubscriptionBatch,
+    ) -> std::result::Result<
+        native_coordinator::NativeBatchCompletionReceipt,
+        native_coordinator::NativeOwnerError,
+    >;
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
     fn provider_preflight(
@@ -615,6 +686,8 @@ struct RegisteredNativeOwner<H> {
     transport: SharedSubscriptionTransport,
     record_ids: RecordIdGenerator,
     batch_initialized: bool,
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    network: Option<developer_network_resume::Registration<H>>,
 }
 
 fn profile_list_json(projection: &omavless_domain::private_store::StoreListProjection) -> Value {
@@ -661,8 +734,106 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_wake(&mut self) {
+        if let Some(network) = &mut self.network {
+            // Catch inside the owner guard. Lost wake retains the original
+            // InFlight/Blocked barrier; this never recovers a poisoned mutex.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                network.wake(&mut self.owner)
+            }))
+            .is_err()
+            {
+                network.lost(&mut self.owner);
+            }
+        }
+    }
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_get(&self) -> Option<Value> {
+        self.network
+            .as_ref()
+            .map(|network| network.get(&self.owner))
+    }
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn network_lost(&mut self) {
+        if let Some(network) = &mut self.network {
+            network.lost(&mut self.owner);
+        }
+    }
     fn usage_transport(&self) -> SharedSubscriptionTransport {
         self.transport.clone()
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_control(
+        &mut self,
+        request: &Value,
+        instance: &str,
+        now: u64,
+    ) -> std::result::Result<Value, StableErrorCode> {
+        self.owner.automatic_control(request, instance, now)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_start(
+        &mut self,
+        instance: &str,
+        clock: developer_subscription_schedule::Clock,
+    ) -> std::result::Result<
+        Option<batch_scheduler::BatchWork>,
+        native_coordinator::AutomaticRefreshError,
+    > {
+        if !self.batch_initialized {
+            self.owner
+                .batch_coordinator()
+                .initialize_batch_operations(instance)?;
+            self.batch_initialized = true;
+        }
+        match self.owner.automatic_start(instance, clock())? {
+            native_coordinator::AutomaticRefreshStart::Idle(_) => Ok(None),
+            native_coordinator::AutomaticRefreshStart::Started(job) => {
+                self.batch_initialized = true;
+                Ok(Some(batch_scheduler::BatchWork::Automatic {
+                    job,
+                    clock,
+                    transport: self.transport.clone(),
+                    record_ids: RecordIdGenerator::new(&self.record_ids.next()),
+                }))
+            }
+        }
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_progress(
+        &mut self,
+        work: &native_coordinator::AutomaticSubscriptionBatch,
+    ) -> bool {
+        self.owner.automatic_progress(work)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_finish(
+        &mut self,
+        work: native_coordinator::AutomaticSubscriptionBatch,
+        now: u64,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError> {
+        self.owner.automatic_finish(work, now)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_lost(&mut self, ticket: native_coordinator::NativeBatchTicket) {
+        self.owner.automatic_lost(ticket);
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_interrupted(&self, ticket: &native_coordinator::NativeBatchTicket) -> bool {
+        self.owner.automatic_interrupted(ticket)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn automatic_acknowledge(
+        &mut self,
+        proof: &batch_scheduler::DrainedAutomaticAttempt,
+        sequence: u64,
+        preference: u64,
+        revision: u64,
+        now: u64,
+    ) -> std::result::Result<(), native_coordinator::AutomaticRefreshError> {
+        self.owner
+            .automatic_acknowledge(proof, sequence, preference, revision, now)
     }
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>> {
         self.owner.batch_coordinator().host().auxiliary_slot()
@@ -951,8 +1122,15 @@ where
                 .is_ok()
     }
 
-    fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch) {
-        let _ = self
+    fn batch_finish(
+        &mut self,
+        job: native_coordinator::NativeSubscriptionBatch,
+    ) -> std::result::Result<
+        native_coordinator::NativeBatchCompletionReceipt,
+        native_coordinator::NativeOwnerError,
+    > {
+        let ticket = job.supervisor_ticket();
+        let completion = self
             .owner
             .batch_coordinator()
             .complete_subscription_batch(job, || {
@@ -962,6 +1140,19 @@ where
                     .as_millis()
                     .min(u128::from(u64::MAX)) as u64
             });
+        // A worker failure can still be a proved terminal cancellation/failure.
+        // The owner-minted receipt, not Result<()> and not an IPC projection,
+        // is the future automatic journal's completion authority.
+        match self
+            .owner
+            .batch_coordinator()
+            .subscription_batch_receipt(&ticket)
+        {
+            Ok(receipt) => Ok(receipt),
+            Err(_) => Err(completion
+                .err()
+                .unwrap_or(native_coordinator::NativeOwnerError::Invariant)),
+        }
     }
 
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket) {
@@ -972,6 +1163,13 @@ where
     }
 
     fn batch_stop(&mut self) {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        self.network_lost();
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        let _ = self
+            .owner
+            .batch_coordinator()
+            .cancel_automatic_subscription_refresh();
         let _ = self.owner.batch_coordinator().stop_batch_operations();
     }
 
@@ -1181,6 +1379,87 @@ where
 }
 
 impl RuntimeServer {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn wake_network_resume_when_idle(&self, active: &AtomicUsize) {
+        // A claimed worker needs a quiet scheduling window before dispatch can
+        // acquire quit_gate. Repeated idle reads must not starve that worker.
+        // This count is only a scheduling hint; the original gate, dispatcher
+        // and migration lease below still authorize every observation/effect.
+        if active.load(Ordering::Acquire) == 0 {
+            self.wake_network_resume();
+        } else {
+            #[cfg(test)]
+            if let Some(latch) = &self.quit_dispatch_latch
+                && latch.claimed.load(Ordering::Acquire)
+                && !latch.release.load(Ordering::Acquire)
+            {
+                latch.suppressed_wakes.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn wake_network_resume(&self) {
+        let Ok(gate) = self.quit_gate.try_read() else {
+            return;
+        };
+        if *gate || self.quit_requested.load(Ordering::Acquire) {
+            return;
+        }
+        // Idle wakes never queue behind accepted unary/quit work. The owner
+        // mutex and original migration lease define effect serialization.
+        let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+            return;
+        };
+        if let RuntimeDispatcher::Native(owner) = &mut *dispatcher {
+            owner.network_wake();
+        }
+    }
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn shutdown_network_resume(&self) {
+        if let Ok(mut dispatcher) = self.dispatcher.lock()
+            && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
+        {
+            owner.network_lost();
+        }
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    fn bind_network_fixture<H, T>(
+        paths: RuntimePaths,
+        host: H,
+        inputs: developer_network_resume::OwnerInputs,
+        mut driver: developer_network_resume::Driver,
+        transport: T,
+    ) -> Result<Self>
+    where
+        H: lifecycle::LifecycleHost
+            + native_coordinator::network_resume::ResumeBinding
+            + Send
+            + 'static,
+        T: NativeSubscriptionTransport + 'static,
+    {
+        let mut server = Self::bind(paths)?;
+        let owner = production_owner::ProductionNativeOwner::initialize_network_fixture(
+            host,
+            inputs.desired,
+            &inputs.store,
+            inputs.cutover,
+            server.uid,
+            inputs.enrollment,
+            &mut driver,
+        )
+        .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        let registered = RegisteredNativeOwner {
+            owner,
+            transport: SharedSubscriptionTransport(Arc::new(transport)),
+            record_ids: RecordIdGenerator::new(&server.instance_id),
+            batch_initialized: false,
+            network: Some(developer_network_resume::Registration::new(driver)),
+        };
+        server.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
+        Ok(server)
+    }
     pub fn bind(paths: RuntimePaths) -> Result<Self> {
         let uid = Uid::current().as_raw();
         prepare_runtime_directory(&paths.directory, uid)?;
@@ -1206,10 +1485,14 @@ impl RuntimeServer {
             instance_id: format!("{:x}-{nonce:x}", std::process::id()),
             dispatcher: Arc::new(Mutex::new(RuntimeDispatcher::ReadOnly)),
             batch_scheduler: batch_scheduler::BatchScheduler::default(),
+            #[cfg(any(test, feature = "developer-subscription-schedule"))]
+            developer_schedule: None,
             remote_fetches: remote_fetch::RemoteFetchPool::default(),
             ping_read: Mutex::new(()),
             quit_gate: RwLock::new(false),
             quit_requested: AtomicBool::new(false),
+            #[cfg(test)]
+            quit_dispatch_latch: None,
             _owner: owner,
         })
     }
@@ -1222,6 +1505,53 @@ impl RuntimeServer {
         Self::bind_with_owner_factory(paths, |runtime_paths| {
             production_owner::ProductionNativeOwner::current(runtime_paths)
         })
+    }
+
+    /// Deliberate dormant registration: trusted time and wakeup are supplied
+    /// by the developer embedding. Normal bind/CLI/startup never calls this.
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub fn register_developer_subscription_schedule(
+        &mut self,
+        schedule: developer_subscription_schedule::DeveloperSubscriptionSchedule,
+    ) -> Result<()> {
+        if self.developer_schedule.is_some() {
+            return Err(RuntimeError::NativeOwnerUnavailable);
+        }
+        let mut dispatcher = self
+            .dispatcher
+            .lock()
+            .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return Err(RuntimeError::NativeOwnerUnavailable);
+        };
+        if !owner.runtime_ownership() {
+            return Err(RuntimeError::NativeOwnerUnavailable);
+        }
+        self.developer_schedule = Some(schedule);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    fn wake_developer_subscription_schedule(&self) {
+        // Same admission barrier as unary mutations. In particular, an idle
+        // wakeup must not queue behind the owner while Full Quit holds the
+        // write gate, then create a first batch after Quit has sealed admission.
+        let Ok(gate) = self.quit_gate.try_read() else {
+            return;
+        };
+        if *gate || self.quit_requested.load(Ordering::Acquire) {
+            return;
+        }
+        if let Some(schedule) = &self.developer_schedule
+            && schedule.take_wakeup()
+        {
+            let _ = self.batch_scheduler.wake_automatic(
+                &self.instance_id,
+                &self.dispatcher,
+                &self.remote_fetches,
+                Arc::clone(&schedule.clock),
+            );
+        }
     }
 
     fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
@@ -1259,6 +1589,8 @@ impl RuntimeServer {
             transport: SharedSubscriptionTransport(Arc::new(transport)),
             record_ids: RecordIdGenerator::new(&self.instance_id),
             batch_initialized: false,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            network: None,
         };
         self.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
     }
@@ -1288,6 +1620,8 @@ impl RuntimeServer {
                     break;
                 }
             }
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            self.shutdown_network_resume();
             self.batch_scheduler.stop(&self.dispatcher);
         });
         Ok(())
@@ -1301,6 +1635,10 @@ impl RuntimeServer {
         let server = &self;
         thread::scope(|scope| {
             while !stop.load(Ordering::Relaxed) && !self.quit_requested.load(Ordering::Acquire) {
+                #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                self.wake_developer_subscription_schedule();
+                #[cfg(any(test, feature = "network-resume-fixture"))]
+                self.wake_network_resume_when_idle(&active);
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
                         if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
@@ -1314,11 +1652,15 @@ impl RuntimeServer {
                         thread::sleep(Duration::from_millis(20));
                     }
                     Err(_) => {
+                        #[cfg(any(test, feature = "network-resume-fixture"))]
+                        self.shutdown_network_resume();
                         self.batch_scheduler.stop(&self.dispatcher);
                         return Err(RuntimeError::Io);
                     }
                 }
             }
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            self.shutdown_network_resume();
             self.batch_scheduler.stop(&self.dispatcher);
             Ok(())
         })
@@ -1339,7 +1681,18 @@ impl RuntimeServer {
         let response = match read_unary_frame(stream, FrameKind::Request)
             .and_then(|frame| decode_request(&frame))
         {
-            Ok(request) => self.dispatch(&request),
+            Ok(request) => {
+                #[cfg(test)]
+                if request["method"] == "runtime.quit"
+                    && self
+                        .quit_dispatch_latch
+                        .as_ref()
+                        .is_some_and(|latch| !latch.wait())
+                {
+                    return Err(RuntimeError::Io);
+                }
+                self.dispatch(&request)
+            }
             Err(error) => error_response(
                 "invalid",
                 0,
@@ -1386,8 +1739,69 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        if request["method"] == developer_network_resume::METHOD {
+            let id = request["id"].as_str().unwrap_or("invalid");
+            if let Err(code) = developer_network_resume::validate_get(request, &self.instance_id) {
+                return error_response(id, 0, code, false, None);
+            }
+            let dispatcher = self.dispatcher.lock().map_err(|_| {
+                omavless_control_protocol::ProtocolError::new(StableErrorCode::InternalError)
+            })?;
+            let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                return error_response(id, 0, StableErrorCode::UnknownMethod, false, None);
+            };
+            return match owner.network_get() {
+                Some(state) => success_response(id, owner.revision(), state),
+                None => error_response(
+                    id,
+                    owner.revision(),
+                    StableErrorCode::UnknownMethod,
+                    false,
+                    None,
+                ),
+            };
+        }
         if request["method"] == "subscriptions.usage" {
             return self.dispatch_subscription_usage(request);
+        }
+        #[cfg(any(test, feature = "developer-subscription-schedule"))]
+        if developer_subscription_schedule::METHODS
+            .contains(&request["method"].as_str().unwrap_or(""))
+        {
+            let id = request["id"].as_str().unwrap_or("invalid");
+            if self.developer_schedule.is_none() {
+                return error_response(id, 0, StableErrorCode::UnknownMethod, false, None);
+            }
+            let clock = &self
+                .developer_schedule
+                .as_ref()
+                .expect("explicit registration checked")
+                .clock;
+            if request["method"] == "developer.subscription_schedule.acknowledge" {
+                return self.batch_scheduler.acknowledge_automatic(
+                    request,
+                    &self.instance_id,
+                    &self.dispatcher,
+                    clock,
+                );
+            }
+            let mut dispatcher = self.dispatcher.lock().map_err(|_| {
+                omavless_control_protocol::ProtocolError::new(StableErrorCode::InternalError)
+            })?;
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+            };
+            return match owner.automatic_control(request, &self.instance_id, clock()) {
+                Ok(projection) => success_response(id, owner.revision(), projection),
+                Err(code) => error_response(
+                    id,
+                    owner.revision(),
+                    code,
+                    code == StableErrorCode::Busy,
+                    None,
+                ),
+            };
         }
         // Remote plugin actions must bypass the general owner-held mutation
         // path. Canonical preflight and completion retain replay/ownership;
@@ -1487,7 +1901,35 @@ impl RuntimeServer {
         match &mut *dispatcher {
             RuntimeDispatcher::ReadOnly => dispatch_read_only(request, &self.instance_id),
             RuntimeDispatcher::Native(owner) => {
-                dispatch_native(request, &self.instance_id, owner.as_mut())
+                let response = dispatch_native(request, &self.instance_id, owner.as_mut());
+                #[cfg(any(test, feature = "developer-subscription-schedule"))]
+                let response = response.map(|mut response| {
+                    if self.developer_schedule.is_some()
+                        && request["method"] == "capabilities.get"
+                        && response["ok"] == true
+                        && response["result"]["runtimeOwnership"] == true
+                        && let Some(methods) = response["result"]["methods"].as_array_mut()
+                    {
+                        methods.extend(
+                            developer_subscription_schedule::METHODS
+                                .iter()
+                                .map(|method| json!(method)),
+                        );
+                    }
+                    response
+                });
+                #[cfg(any(test, feature = "network-resume-fixture"))]
+                let response = response.map(|mut response| {
+                    if request["method"] == "capabilities.get"
+                        && response["ok"] == true
+                        && owner.network_get().is_some()
+                        && let Some(methods) = response["result"]["methods"].as_array_mut()
+                    {
+                        methods.push(json!(developer_network_resume::METHOD));
+                    }
+                    response
+                });
+                response
             }
         }
     }
@@ -2015,6 +2457,8 @@ impl RuntimeServer {
                 )),
                 record_ids: RecordIdGenerator::new(&self.instance_id),
                 batch_initialized: false,
+                #[cfg(any(test, feature = "network-resume-fixture"))]
+                network: None,
             };
             *dispatcher = RuntimeDispatcher::Native(Box::new(registered));
         }
@@ -2044,6 +2488,8 @@ impl RuntimeServer {
 
 impl Drop for RuntimeServer {
     fn drop(&mut self) {
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        self.shutdown_network_resume();
         self.batch_scheduler.stop(&self.dispatcher);
         let _ = fs::remove_file(&self.paths.socket);
     }
@@ -2427,6 +2873,9 @@ fn call_stream_with_timeout(
 
 #[cfg(test)]
 mod tests {
+    mod developer_schedule {
+        include!("developer_subscription_schedule_tests.rs");
+    }
     use super::*;
     use crate::cutover::{CutoverPaths, OwnershipPhase};
     use crate::desired::{
@@ -2628,11 +3077,21 @@ mod tests {
         }
     }
 
-    fn temporary_base(label: &str) -> PathBuf {
-        // The control socket is nested below this directory. Keep the fixture
-        // short even when TMPDIR lives in a user's home directory.
-        let short_label: String = label.chars().take(12).collect();
-        crate::test_temp::directory(&short_label).unwrap()
+    fn temporary_base(_label: &str) -> PathBuf {
+        // Scenario names belong in the test report, not the Unix-socket path.
+        // Reuse the exclusive private allocator rather than descriptive names
+        // plus a wall-clock timestamp that exhaust SUN_LEN under HOME TMPDIR.
+        crate::test_temp::directory("rt").unwrap()
+    }
+
+    #[test]
+    fn fixture_roots_leave_room_for_nested_control_sockets() {
+        let base = temporary_base("long-scenario-description-that-must-not-be-a-socket-path");
+        let runtime = base.join("runtime/omavless");
+        fs::create_dir_all(&runtime).unwrap();
+        let listener = UnixListener::bind(runtime.join("control.sock")).unwrap();
+        drop(listener);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

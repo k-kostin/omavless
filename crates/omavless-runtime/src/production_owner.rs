@@ -103,6 +103,157 @@ enum ProductionOwnership {
 }
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn initialize_network_fixture(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        enrollment: crate::developer_network_resume::Enrollment,
+        driver: &mut crate::developer_network_resume::Driver,
+    ) -> Result<Self, ProductionOwnerError>
+    where
+        H: crate::native_coordinator::network_resume::ResumeBinding,
+    {
+        let lock = MigrationLock::acquire(&cutover_paths, uid).map_err(lock_error)?;
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            marker.generation(),
+        );
+        coordinator
+            .install_resume_barrier_locked(
+                &lock,
+                enrollment.boot,
+                enrollment.instance,
+                enrollment.epoch,
+                driver.clock.now(),
+            )
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let observed = coordinator
+            .resume_initialize_observe_locked(&mut driver.source, driver.clock.now(), &lock)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let startup = ConnectionTransactionOutcome {
+            changed: observed.changed,
+            pruned: 0,
+        };
+        drop(lock);
+        Ok(Self {
+            coordinator,
+            startup,
+            login_ready: false,
+            ownership: ProductionOwnership::Committed {
+                rust_generation: marker.generation(),
+                origin_preparing_generation: None,
+            },
+        })
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn network_resume_status(&self) -> crate::network_resume::Status {
+        self.coordinator.resume_status()
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_control(
+        &mut self,
+        request: &Value,
+        instance: &str,
+        now: u64,
+    ) -> Result<Value, omavless_control_protocol::StableErrorCode> {
+        use crate::developer_subscription_schedule as schedule;
+        if !self.rust_ownership_available() {
+            return Err(omavless_control_protocol::StableErrorCode::CapabilityUnavailable);
+        }
+        if let Some((revision, preference)) = schedule::parse(request, instance)? {
+            self.coordinator
+                .set_automatic_subscription_preference_at(revision, preference, now)
+                .map_err(schedule::code)?;
+        }
+        let (preference, attempt, registered) = self
+            .coordinator
+            .automatic_subscription_snapshot(instance)
+            .map_err(schedule::code)?;
+        Ok(schedule::projection(preference, attempt, registered))
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_start(
+        &mut self,
+        instance: &str,
+        now: u64,
+    ) -> Result<
+        crate::native_coordinator::AutomaticRefreshStart,
+        crate::native_coordinator::AutomaticRefreshError,
+    > {
+        if !self.rust_ownership_available() {
+            return Err(crate::developer_subscription_schedule::unavailable());
+        }
+        self.coordinator
+            .start_automatic_subscription_refresh(instance, now)
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_progress(
+        &mut self,
+        work: &crate::native_coordinator::AutomaticSubscriptionBatch,
+    ) -> bool {
+        self.rust_ownership_available()
+            && self
+                .coordinator
+                .check_automatic_subscription_work(work)
+                .is_ok()
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_finish(
+        &mut self,
+        work: crate::native_coordinator::AutomaticSubscriptionBatch,
+        now: u64,
+    ) -> Result<(), crate::native_coordinator::AutomaticRefreshError> {
+        self.coordinator
+            .finish_automatic_subscription_refresh(work, now)
+            .map(|_| ())
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_lost(&mut self, ticket: crate::native_coordinator::NativeBatchTicket) {
+        self.coordinator.lose_automatic_subscription_ticket(ticket);
+    }
+
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_interrupted(
+        &self,
+        ticket: &crate::native_coordinator::NativeBatchTicket,
+    ) -> bool {
+        self.coordinator.automatic_interrupted_ticket(ticket)
+    }
+    #[cfg(any(test, feature = "developer-subscription-schedule"))]
+    pub(crate) fn automatic_acknowledge(
+        &mut self,
+        proof: &crate::batch_scheduler::DrainedAutomaticAttempt,
+        sequence: u64,
+        preference: u64,
+        revision: u64,
+        now: u64,
+    ) -> Result<(), crate::native_coordinator::AutomaticRefreshError> {
+        if !self.rust_ownership_available() {
+            return Err(crate::developer_subscription_schedule::unavailable());
+        }
+        self.coordinator
+            .acknowledge_automatic_subscription(proof, sequence, preference, revision, now)
+            .map(|_| ())
+    }
     /// Build an owner from trusted paths and an already constructed host.
     /// Tests use this boundary with a deterministic host; production uses
     /// [`ProductionNativeOwner::current`].
