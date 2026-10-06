@@ -103,6 +103,7 @@ pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
 pub mod subscription_schedule_attempt;
+pub mod subscription_schedule_driver;
 pub mod subscription_schedule_plan;
 pub mod subscription_schedule_preference;
 pub mod subscription_transport;

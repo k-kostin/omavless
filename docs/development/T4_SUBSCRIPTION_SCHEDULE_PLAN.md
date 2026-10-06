@@ -112,3 +112,51 @@ its journal write must block automatic replay rather than guess completion.
 The future UI must expose only bounded privacy-safe states and provide an
 explicit reviewed way to resolve interrupted attempts. No host/VM network
 state is changed by this checkpoint.
+
+## Automatic owner and clock-driven execution checkpoint
+
+The next independent Draft composes the existing preference, planner, journal
+and typed batch receipts with the native owner. The clock-driven Rust driver
+actually admits and executes the same bounded subscription batch transaction;
+each tick does at most one provider step outside both owner and migration locks.
+It receives the existing runtime fetch pool, whose clones share the manual
+four-GET limit. A missing preference stays Off, and no production constructor,
+timer, IPC method, CLI command or QML control registers the driver yet.
+
+Admission reads exact committed native generation, owner revision, preference
+revision and terminal attempt history. It reserves the existing global batch
+slot and holds the still-private, non-runnable job until the journal start is
+durably confirmed. Only then does it release runnable work to the driver.
+The in-memory exact worker token is checked separately from the journal's
+instance string. A Started journal without that live registry is uncertain,
+including an accidental same-instance collision; a restart cannot guess failure
+or automatically replay it.
+
+An explicit owner preference change cooperatively cancels the exact automatic
+batch. Before each provider step the owner rechecks ownership, revision,
+preference and the worker token; final preference validation runs under the
+same migration lease as the existing batch revision/member checks and store
+publication. Off, changed preference, deleted/changed subscriptions, stale
+revision and owner withdrawal cannot publish a late result. Driver stop cancels
+before consuming unfinished work and prevents subsequent ticks from admitting.
+
+The original batch registry mints the terminal receipt consumed by the journal.
+A factual successful/empty commit, cancellation or ordinary refusal remains
+distinct from uncertainty. If the store commit or terminal journal publication
+is uncertain, or a worker is lost/panics, automatic replay remains blocked.
+Neither an Off/re-enable choice nor a later manual batch clears that blocker.
+No new recovery/reset capability is exposed.
+
+| Scope | Deterministic evidence | Remaining acceptance |
+| --- | --- | --- |
+| Default Off, interval/backoff and injected clock | Actual driver and private file tests; production HTTP transport against synthetic loopback | Installed opt-in preference and trusted daemon timer wiring |
+| One worker, shared fetch permits, disable/cancel and stale completion | Owner/driver concurrency and refusal tests | Combined native integration and exact installed head |
+| Durable begin, typed terminal receipt, interrupted/uncertain state | Private journal and fault tests | Reviewed explicit interrupted-attempt disposition before product exposure |
+| Network and lifecycle ownership | No core, TUN, proxy, service or package effect in this checkpoint | VM operator's separate integration; physical suspend/network cases if later claimed |
+
+New work follows the [execution policy](EXECUTION_POLICY.md), copied exactly
+from owner-approved policy commit
+`b8c967f2039bdad8a385429a212b977318adc9dc` (#662). This changes development
+procedure only; it does not weaken subscription/store guarantees or adopt the
+separate T4 retained-manager actor implementation. The automatic maintenance
+feature remains incomplete and unexposed until its own pending gates pass.
