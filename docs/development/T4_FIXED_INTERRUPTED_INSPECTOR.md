@@ -14,9 +14,11 @@ interruption, not SIGKILL, power-cut or unknown-effect recovery evidence.
 
 The original supervisor must observe without reaping through its retained
 pidfd (`WNOWAIT`), classify exactly its original child's planned
-86 and successfully reap that same expected exit, then permanently revoke that
-original context. Any other/late/unknown result
-stops before reaping: no fresh inspection launch, query, retry, compensation or cleanup. The
+86 before allowing one original reap. Only the matching reaped exit followed by
+its sampled postcheck permits permanent original-context revocation and fresh
+inspection. A mismatched/unobserved terminal status stops before reaping; any
+late/throw/unknown step stops dependent work. There is no fresh inspection,
+query, retry, compensation or cleanup after such refusal. The
 next actor has a new authenticated channel context/nonce and READY; it receives
 only the bounded expected transaction ID, never the writer's Files, PID or live
 proof. The same fixed listener may accept the distinct new connection; the old
