@@ -13,6 +13,8 @@ use std::io::Write;
 use std::sync::atomic::AtomicU64;
 
 const PROFILE: &str = "11111111-1111-4111-8111-111111111111";
+const SELECTED_URI: &str =
+    "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Fixture";
 const BOOT: [u8; 16] = [11; 16];
 const INSTANCE: [u8; 16] = [22; 16];
 fn empty() -> OwnedObservation {
@@ -241,7 +243,7 @@ impl Fixture {
         let store = base.join("config/profiles.json");
         let mut document = json!({"version":3,"activeId":PROFILE,"lastId":PROFILE,
             "profiles":[{"id":PROFILE,"name":"Fixture","protocol":"vless","favorite":false,
-                "uri":"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Fixture"}],
+                "uri":SELECTED_URI}],
             "subscriptions":[],"routingPreset":"custom","customRules":[],"rulesUpdatedAt":0,
             "startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"onboardingComplete":true});
         if !connected || matches!(initial, Initial::PointerMismatch) {
@@ -250,8 +252,11 @@ impl Fixture {
         if subscription {
             let id = "10000000-0000-4000-8000-000000000001";
             document["profiles"][0]["subscriptionId"] = json!(id);
-            document["profiles"][0]["subscriptionKey"] =
-                json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            document["profiles"][0]["subscriptionKey"] = json!(
+                omavless_profile::canonical::parse_canonical(SELECTED_URI)
+                    .unwrap()
+                    .subscription_identity()
+            );
             document["subscriptions"] = json!([{"id":id,"name":"Fixture source","url":"https://example.invalid/fixed-feed","updatedAt":1}]);
         }
         let raw = serde_json::to_vec(&document).unwrap();
@@ -372,7 +377,7 @@ impl Fixture {
         self.stop.store(true, Ordering::Release);
         if let Some(runtime) = self.runtime.take() {
             self.joined = matches!(runtime.join(), Ok(Ok(())));
-        } else {
+        } else if self.server.is_some() {
             drop(self.server.take());
             self.joined = true;
         }

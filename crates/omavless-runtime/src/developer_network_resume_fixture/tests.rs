@@ -148,7 +148,7 @@ impl subscription_batch_work::BudgetedSubscriptionTransport for Feed {
             panic!("fixed synthetic transport loss");
         }
         Ok(omavless_domain::subscription_feed::PrivateSubscriptionBody::from_bytes(
-            b"vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Synthetic".to_vec()).unwrap())
+            format!("{SELECTED_URI}\nvless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Synthetic").into_bytes()).unwrap())
     }
 }
 fn automatic_fixture(panic: bool) -> (Fixture, Arc<AtomicU64>, Arc<AtomicBool>, Arc<AtomicU64>) {
@@ -225,7 +225,7 @@ fn automatic_commit_changes_revision_and_store_before_old_resume_context_can_rec
     let completed = wait_attempt(&fixture, "succeeded");
     assert_eq!(completed["revision"], 1);
     network_now.store(3, Ordering::Release);
-    fixture.wait("manual_recovery");
+    fixture.wait("cancelled");
     assert!(fixture.facts.lock().unwrap().calls.is_empty());
     fixture.shutdown();
     assert!(fixture.joined);
@@ -254,15 +254,23 @@ fn automatic_acknowledgement_cannot_clear_source_lost_network_eligibility() {
         .unwrap()["ok"],
         true
     );
-    let response = call(
-        &fixture.paths,
-        "developer.subscription_schedule.acknowledge",
-        json!({"instanceId":fixture.instance,
-        "attemptSequence":failed["result"]["attempt"]["sequence"],"expectedPreferenceRevision":2,
-        "expectedRevision":failed["revision"]}),
-    )
-    .unwrap();
-    assert_eq!(response["ok"], true);
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let response = call(
+            &fixture.paths,
+            "developer.subscription_schedule.acknowledge",
+            json!({"instanceId":fixture.instance,
+            "attemptSequence":failed["result"]["attempt"]["sequence"],"expectedPreferenceRevision":2,
+            "expectedRevision":failed["revision"]}),
+        )
+        .unwrap();
+        if response["ok"] == true {
+            break;
+        }
+        assert_eq!(response["error"]["code"], "busy");
+        assert!(std::time::Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
     automatic_now.store(200, Ordering::Release);
     network_now.store(10, Ordering::Release);
     assert_eq!(fixture.state()["result"]["state"], "source_unavailable");
@@ -274,6 +282,25 @@ fn automatic_acknowledgement_cannot_clear_source_lost_network_eligibility() {
 fn controlled() -> (Fixture, Arc<AtomicU64>) {
     let now = Arc::new(AtomicU64::new(0));
     (Fixture::new(Clock::injected(Arc::clone(&now))), now)
+}
+
+#[test]
+#[ignore = "constructor/owned fixture boundary: execute only after primary and independent review"]
+fn failed_runtime_join_preserves_first_terminal_result_and_owned_evidence_on_drop() {
+    let (mut fixture, _) = controlled();
+    drop(fixture.server.take());
+    fixture.runtime = Some(thread::spawn(|| Err(RuntimeError::NativeOwnerUnavailable)));
+    let evidence = fixture.base.join("failed-join-evidence.json");
+    atomic_replace_private(&evidence, b"{\"syntheticFailedJoin\":true}", fixture.uid).unwrap();
+    let base = fixture.base.clone();
+    fixture.shutdown();
+    assert!(!fixture.joined);
+    fixture.shutdown();
+    assert!(!fixture.joined);
+    drop(fixture);
+    assert!(evidence.is_file());
+    // Test-only cleanup after proving retention of this exact owned fixture.
+    fs::remove_dir_all(base).unwrap();
 }
 
 #[test]

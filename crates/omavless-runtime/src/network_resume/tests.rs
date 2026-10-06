@@ -508,6 +508,15 @@ fn every_desired_change_and_off_cancel_before_any_host_effect() {
         assert!(f.coordinator.host().changes.is_empty());
         assert_eq!(f.coordinator.host().observations, 0);
         assert_eq!(f.phase(), Phase::Ready);
+        assert_eq!(
+            f.status(),
+            if matches!(case, 0 | 1 | 3) {
+                Status::Cancelled
+            } else {
+                Status::ManualRecovery
+            }
+        );
+        assert_eq!(f.startup(14), 0);
     }
     let mut f = Fixture::new();
     let mut off = f.context.desired.clone();
@@ -710,7 +719,7 @@ fn disconnect_through_original_owner_wins_and_receipt_cannot_reconnect() {
 }
 
 #[test]
-fn changed_profile_store_content_or_deleted_target_cancels_without_observation() {
+fn valid_changed_store_cancels_but_deleted_target_requires_manual_without_observation() {
     for delete in [false, true] {
         let mut f = Fixture::new();
         f.send(Kind::Resume, 10);
@@ -727,6 +736,76 @@ fn changed_profile_store_content_or_deleted_target_cancels_without_observation()
         assert_eq!(f.poll(13, false, false), 0);
         assert!(f.coordinator.host().changes.is_empty());
         assert_eq!(f.coordinator.host().observations, 0);
+        assert_eq!(
+            f.status(),
+            if delete {
+                Status::ManualRecovery
+            } else {
+                Status::Cancelled
+            }
+        );
+        assert_eq!(f.phase(), Phase::Ready);
+        assert_eq!(f.startup(14), 0);
+    }
+}
+
+#[test]
+fn valid_revision_change_cancels_without_observation_or_rearming() {
+    let mut f = Fixture::new();
+    f.send(Kind::Resume, 10);
+    f.coordinator.resume_fixture_revision_change();
+    assert_eq!(f.poll(13, false, false), 0);
+    assert_eq!(f.status(), Status::Cancelled);
+    assert_eq!(f.coordinator.host().observations, 0);
+    assert!(f.coordinator.host().changes.is_empty());
+    assert_eq!(f.phase(), Phase::Ready);
+    f.send(Kind::Resume, 14);
+    assert_eq!(f.poll(17, false, false), 0);
+    assert_eq!(f.startup(18), 0);
+}
+
+#[test]
+fn incomplete_invalid_io_and_owner_manual_fences_never_become_safe_cancellation() {
+    for fault in 0..9 {
+        let mut f = Fixture::new();
+        f.send(Kind::Resume, 10);
+        match fault {
+            0 => fs::remove_file(&f.desired.file).unwrap(),
+            1 => atomic_replace_private(&f.desired.file, b"invalid", f.uid).unwrap(),
+            2 => fs::remove_file(f.root.join("profiles.json")).unwrap(),
+            3 => atomic_replace_private(&f.root.join("profiles.json"), b"invalid", f.uid).unwrap(),
+            4 => fs::set_permissions(&f.desired.file, fs::Permissions::from_mode(0o644)).unwrap(),
+            5 => fs::set_permissions(
+                f.root.join("profiles.json"),
+                fs::Permissions::from_mode(0o644),
+            )
+            .unwrap(),
+            6 => atomic_replace_private(
+                &f.cutover.ownership_marker,
+                br#"{"schemaVersion":1,"generation":8,"phase":"rust"}"#,
+                f.uid,
+            )
+            .unwrap(),
+            7 => atomic_replace_private(
+                &f.cutover.ownership_marker,
+                br#"{"schemaVersion":1,"generation":7,"phase":"legacy"}"#,
+                f.uid,
+            )
+            .unwrap(),
+            _ => f.coordinator.resume_fixture_manual_block(),
+        }
+        assert_eq!(f.poll(13, false, false), 0);
+        assert_eq!(f.status(), Status::ManualRecovery);
+        assert_eq!(f.coordinator.host().observations, 0);
+        assert!(f.coordinator.host().changes.is_empty());
+        assert_eq!(f.phase(), Phase::Ready);
+        assert_eq!(f.startup(14), 0);
+        // Restoration cannot re-create the consumed owner eligibility.
+        if fault == 0 {
+            write_desired(&f.desired, f.uid, &f.context.desired).unwrap();
+            f.send(Kind::Resume, 15);
+            assert_eq!(f.poll(18, false, false), 0);
+        }
     }
 }
 

@@ -12,6 +12,7 @@ use crate::network_resume::{
 };
 use crate::network_transition_plan::{Attempt, Current, OwnedState};
 use sha2::{Digest, Sha256};
+use std::os::unix::fs::MetadataExt;
 
 /// Test host evidence for an exact target, separate from local core liveness.
 /// A real implementation needs reviewed DNS/route/protection/foreign-VPN
@@ -158,7 +159,31 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         epoch: u64,
     ) -> Result<Context, Refused> {
         self.resume_owned(lease)?;
-        let desired = self.desired().map_err(|_| Refused)?;
+        // Resume enrollment/cancellation needs a complete durable target;
+        // normal desired() intentionally defaults a missing file to Off.
+        let desired_paths = self.transaction.desired_paths();
+        let directory = std::fs::symlink_metadata(&desired_paths.directory).map_err(|_| Refused)?;
+        let file = std::fs::symlink_metadata(&desired_paths.file).map_err(|_| Refused)?;
+        if !directory.is_dir()
+            || directory.file_type().is_symlink()
+            || directory.uid() != self.uid()
+            || directory.mode() & 0o077 != 0
+            || !file.is_file()
+            || file.file_type().is_symlink()
+            || file.uid() != self.uid()
+            || file.mode() & 0o077 != 0
+            || file.len() > crate::desired::MAX_DESIRED_STATE_BYTES
+        {
+            return Err(Refused);
+        }
+        let raw =
+            omavless_store::read_private_utf8(&self.transaction.desired_paths().file, self.uid())
+                .map_err(|_| Refused)?;
+        if raw.len() as u64 > crate::desired::MAX_DESIRED_STATE_BYTES {
+            return Err(Refused);
+        }
+        let desired: DesiredState = serde_json::from_str(&raw).map_err(|_| Refused)?;
+        desired.validate().map_err(|_| Refused)?;
         let store_digest = self.resume_store_digest(&desired)?;
         Ok(Context {
             fence: Fence {
@@ -310,6 +335,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Ok(0);
             }
             let lease = self.resume_lease()?;
+            // A complete valid newer context is ordinary stale background work,
+            // not evidence of unhealthy networking. Read it under the same
+            // owner lease before any host observation or receipt reservation.
+            // Missing/invalid files and owner/manual fences remain refusal.
+            let current = self.resume_context_locked(
+                &lease,
+                barrier.context.fence.boot,
+                barrier.context.fence.owner_instance,
+                barrier.context.fence.network_epoch,
+            )?;
+            if current.fence != barrier.context.fence
+                || current.desired != barrier.context.desired
+                || current.store_digest != barrier.context.store_digest
+            {
+                barrier.events.status = Status::Cancelled;
+                return Ok(0);
+            }
             let paths = self.transaction.cutover_paths().clone();
             let uid = self.uid();
             let mut files = Files {
@@ -430,6 +472,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
     ) -> Result<crate::lifecycle::LifecycleOutcome, crate::lifecycle::LifecycleError> {
         self.transaction.lifecycle_mut().reconcile_startup()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resume_fixture_manual_block(&mut self) {
+        self.transaction.block();
     }
 
     #[cfg(test)]

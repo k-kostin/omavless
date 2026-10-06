@@ -146,6 +146,17 @@ subscription worker can independently commit or cancel; its revision/store
 changes invalidate old pending resume work, and its ACK cannot reset the network
 barrier. No second coordinator or production owner is constructed.
 
+Before any event-poll host observation, the same migration lease must establish
+a present valid private desired file, complete store/selected member and the
+original owner/manual fences. A changed valid desired/revision/store context
+terminally reports `cancelled` for stale background work; this is not a VPN
+health or Off claim. Missing/invalid/unsafe files, deleted selected members and
+unknown ownership remain `manual_recovery`, not safe cancellation. Neither
+classification can rearm the shared startup/event eligibility, even with Ready
+unchanged. The synthetic automatic feed retains the exact canonical selected
+member; it adds only a nonselected member. A failed runtime join retains its
+first terminal result and owned evidence across repeated shutdown/Drop.
+
 The only new control method is privately registered developer.network_resume.get
 with exactly the current instanceId. Its coarse cached projection performs no
 peek, drain, clock read, lazy initialization, host observation or file read. It
