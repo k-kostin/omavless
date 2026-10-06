@@ -121,7 +121,9 @@ fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, Bac
 }
 
 /// Seal only a strict current-schema store and its exact matching bundled
-/// template. The passphrase is supplied as private in-memory bytes, never argv
+/// template (including the normal managed-default byte variant). Managed flags
+/// are data, never local DNS enrollment or runtime authority. The passphrase is
+/// supplied as private in-memory bytes, never argv
 /// or environment data. The caller is responsible for clearing its own copy.
 /// Random salt and nonce come from the OS CSPRNG; RNG failure refuses output.
 /// Validate exact current data against the restricted bundled-pair contract.
@@ -278,6 +280,23 @@ mod tests {
         assert_eq!(opened.template(), TEMPLATE);
         assert_eq!(opened.profile_count(), 0);
         assert_eq!(opened.subscription_count(), 0);
+    }
+
+    #[test]
+    fn normal_managed_default_roundtrip_keeps_exact_bytes_in_all_modes() {
+        let trusted = std::str::from_utf8(TEMPLATE).unwrap();
+        for mode in ["rule", "global", "direct"] {
+            let managed = trusted
+                .replace("\nmode: rule\n", &format!("\nmode: {mode}\n"))
+                .replace(
+                    "  device: Meta\n",
+                    "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
+                );
+            let sealed = seal(STORE, managed.as_bytes(), PASSPHRASE).unwrap();
+            let opened = open(&sealed, PASSPHRASE).unwrap();
+            assert_eq!(opened.store(), STORE);
+            assert_eq!(opened.template(), managed.as_bytes());
+        }
     }
 
     #[test]

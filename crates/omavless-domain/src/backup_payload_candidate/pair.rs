@@ -21,6 +21,20 @@ fn bundled(preset: &str) -> Option<&'static str> {
     }
 }
 
+// Only the normal managed-selection producer's exact default transformation.
+// The argument is a trusted bundled mode candidate, never incoming YAML.
+fn managed_default(candidate: &str) -> Option<String> {
+    const ANCHOR: &str = "  device: Meta\n";
+    if candidate.matches(ANCHOR).count() != 1 {
+        return None;
+    }
+    Some(candidate.replacen(
+        ANCHOR,
+        "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
+        1,
+    ))
+}
+
 impl<'a> FramedPayload<'a> {
     pub(crate) fn validate_bundled_pair(self) -> Result<ValidatedPair<'a>, InvalidPayload> {
         let store = self.validate_store()?;
@@ -28,8 +42,12 @@ impl<'a> FramedPayload<'a> {
         // Recognize trusted source bytes only. This is not a YAML security
         // parser or permission to carry arbitrary paths, providers or scripts.
         let matches = ["rule", "global", "direct"].iter().any(|mode| {
-            crate::routing::template_with_mode(expected, mode)
-                .is_ok_and(|candidate| candidate.as_bytes() == self.template)
+            crate::routing::template_with_mode(expected, mode).is_ok_and(|candidate| {
+                candidate.as_bytes() == self.template
+                    || (store.routing_preset == "roscomvpn-default"
+                        && managed_default(&candidate)
+                            .is_some_and(|managed| managed.as_bytes() == self.template))
+            })
         });
         if !matches {
             return Err(InvalidPayload);
@@ -63,6 +81,113 @@ mod tests {
         bundled(preset)
             .unwrap()
             .replace("\nmode: rule\n", &format!("\nmode: {mode}\n"))
+    }
+
+    fn managed_template(mode: &str) -> String {
+        // Independent exact spelling of the normal default producer.
+        template(PRESETS[0], mode).replace(
+            "  device: Meta\n",
+            "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
+        )
+    }
+
+    #[test]
+    fn twelve_trusted_templates_preserve_original_borrowed_pair() {
+        let mut accepted = 0;
+        for preset in PRESETS {
+            for mode in MODES {
+                let mut variants = vec![template(preset, mode)];
+                if preset == PRESETS[0] {
+                    variants.push(managed_template(mode));
+                }
+                for original_template in variants {
+                    let original_store = format!("\n  {}\n", store(preset));
+                    let wire =
+                        encode(original_store.as_bytes(), original_template.as_bytes()).unwrap();
+                    let framed = decode(&wire).unwrap();
+                    let pointers = (framed.store.as_ptr(), framed.template.as_ptr());
+                    let pair = framed.validate_bundled_pair().unwrap();
+                    assert_eq!(pair.store.bytes, original_store.as_bytes());
+                    assert_eq!(pair.template, original_template.as_bytes());
+                    assert_eq!(pair.store.bytes.as_ptr(), pointers.0);
+                    assert_eq!(pair.template.as_ptr(), pointers.1);
+                    accepted += 1;
+                }
+            }
+        }
+        assert_eq!(accepted, 12);
+    }
+
+    #[test]
+    fn managed_default_is_not_cross_preset_or_unknown_custom_authority() {
+        for mode in MODES {
+            let managed = managed_template(mode);
+            for preset in [PRESETS[1], PRESETS[2], "custom", "unknown"] {
+                let wire = encode(store(preset).as_bytes(), managed.as_bytes()).unwrap();
+                assert!(decode(&wire).unwrap().validate_bundled_pair().is_err());
+            }
+            for preset in [PRESETS[1], PRESETS[2]] {
+                let altered = template(preset, mode).replace(
+                    "  device: Meta\n",
+                    "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
+                );
+                let wire = encode(store(preset).as_bytes(), altered.as_bytes()).unwrap();
+                assert!(decode(&wire).unwrap().validate_bundled_pair().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn managed_template_requires_exact_original_producer_bytes() {
+        let expected = managed_template("rule");
+        for altered in [
+            expected.replace("  disable-system-dns: true\n", ""),
+            expected.replace("  omavless-dns-broker: true\n", ""),
+            expected.replace("disable-system-dns: true", "disable-system-dns: false"),
+            expected.replace("omavless-dns-broker: true", "omavless-dns-broker: false"),
+            expected.replace(
+                "  disable-system-dns: true\n",
+                "  disable-system-dns: true\n  disable-system-dns: true\n",
+            ),
+            expected.replace(
+                "  disable-system-dns: true\n  omavless-dns-broker: true\n",
+                "  omavless-dns-broker: true\n  disable-system-dns: true\n",
+            ),
+            expected.replace("  device: Meta\n", "  device: omavless0\n"),
+            expected.replace("  device: Meta\n", "  device: Meta \n"),
+            expected.replace(
+                "  disable-system-dns: true\n",
+                "  disable-system-dns: true # comment\n",
+            ),
+            expected.replace('\n', "\r\n"),
+            format!("{expected}\nexternal-controller: /synthetic/private.sock\n"),
+            format!("{expected}\nproxy-providers: {{}}\n"),
+            format!("{expected}\nscript: synthetic-private\n"),
+        ] {
+            assert_ne!(altered, expected);
+            let wire = encode(store(PRESETS[0]).as_bytes(), altered.as_bytes()).unwrap();
+            assert!(decode(&wire).unwrap().validate_bundled_pair().is_err());
+        }
+    }
+
+    #[test]
+    fn managed_pair_preserves_custom_rules_and_startup_as_data() {
+        let mut original: serde_json::Value = serde_json::from_str(&store(PRESETS[0])).unwrap();
+        let profile = "10000000-0000-4000-8000-000000000001";
+        original["profiles"] = json!([{"id":profile,"name":"Synthetic",
+            "uri":"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Synthetic",
+            "protocol":"vless","favorite":false}]);
+        original["lastId"] = json!(profile);
+        original["customRules"] = json!([{"id":"30000000-0000-4000-8000-000000000001",
+            "kind":"domain","value":"example.invalid","action":"direct"}]);
+        original["startup"] =
+            json!({"enabled":true,"target":"last","profileId":"","mode":"global"});
+        let raw = original.to_string();
+        let managed = managed_template("direct");
+        let wire = encode(raw.as_bytes(), managed.as_bytes()).unwrap();
+        let pair = decode(&wire).unwrap().validate_bundled_pair().unwrap();
+        assert_eq!(pair.store.bytes, raw.as_bytes());
+        assert_eq!(pair.template, managed.as_bytes());
     }
 
     #[test]

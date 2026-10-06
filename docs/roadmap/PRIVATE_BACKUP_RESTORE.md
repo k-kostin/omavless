@@ -198,13 +198,31 @@ The inner framing candidate also offers a deliberately narrow whole-pair
 gate. After strict store validation, it recognizes only the exact current
 checked-in default, China or Iran template selected by the store's routing
 preset, with the existing canonical rule/global/direct mode transformation.
-Nine positive combinations and all eighteen cross-preset mismatches are covered.
+It also recognizes the normal managed-selection producer's **exact default**
+counterpart in those three modes: after the sole `  device: Meta` line, insert
+`  disable-system-dns: true` followed by `  omavless-dns-broker: true`, with
+their original indentation and LF endings. This adds three trusted byte
+alternatives to the nine pristine combinations, not managed China/Iran,
+`omavless0`, arbitrary flags or a YAML normalization policy. The transformation
+is applied only to trusted checked-in bytes for comparison; input is never
+parsed, repaired or rewritten as a template.
+Twelve positive combinations and cross-preset mismatches are covered.
 Both borrowed members remain byte-for-byte unchanged. Portable custom rules and
 startup preferences remain store data; this gate does not render, merge or
 activate them, nor infer a saved routing mode from an unrelated store field.
 
+The managed flags are portable **data**, not permission to use a DNS broker,
+enrollment, selected package, core/device family or runtime ownership. No such
+authority is included in the archive. Normal activation must independently
+earn its existing local package/selection/enrollment and owner gates. Default
+backup/Restore registration and installed activation are unchanged.
+
 Unknown/custom/unconfigured presets and edited templates refuse, including
 comments, controller additions, duplicate mode keys and line-ending rewrites.
+Missing, false, duplicated or reordered managed flags, another device, extra
+provider/controller/script keys and even altered whitespace refuse. Managed
+roundtrip tests authenticate and retain exact source bytes in all three modes;
+the strict store schema, including refusal of semantic repairs, is unchanged.
 This is exact source-byte recognition, not a general YAML security parser or a
 lossy backup conversion. Invalid UTF-8 and private-looking rejected content
 produce only fixed diagnostics. No private result exposes formatting, cloning
