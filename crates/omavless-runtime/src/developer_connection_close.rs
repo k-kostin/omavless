@@ -40,6 +40,8 @@ pub(super) enum Action {
 
 pub(super) enum Admission {
     Discover(Box<CloseDiscovery>),
+    #[cfg(feature = "product-image-witness")]
+    Retire(Box<crate::native_coordinator::connection_close::CloseRetirement>),
     Respond(Value),
 }
 
@@ -153,9 +155,26 @@ impl<H: LifecycleHost + Send + 'static> RegisteredNativeOwner<H> {
         }
         coordinator.poll_connection_close()?;
         match action {
-            Action::Snapshot => coordinator
-                .capture_connection_close()
-                .map(|discovery| Admission::Discover(Box::new(discovery))),
+            Action::Snapshot => {
+                #[cfg(not(feature = "product-image-witness"))]
+                return coordinator
+                    .capture_connection_close()
+                    .map(|discovery| Admission::Discover(Box::new(discovery)));
+                #[cfg(feature = "product-image-witness")]
+                return coordinator
+                    .admit_connection_close_snapshot()
+                    .map(|admission| {
+                        use crate::native_coordinator::connection_close::CloseSnapshotAdmission;
+                        match admission {
+                            CloseSnapshotAdmission::Discover(discovery) => {
+                                Admission::Discover(Box::new(discovery))
+                            }
+                            CloseSnapshotAdmission::Retire(task) => {
+                                Admission::Retire(Box::new(task))
+                            }
+                        }
+                    });
+            }
             Action::Prepare { handle } => {
                 let confirmation = coordinator.prepare_connection_close(handle)?;
                 Ok(Admission::Respond(json!({
@@ -214,6 +233,16 @@ impl<H: LifecycleHost + Send + 'static> RegisteredNativeOwner<H> {
             "rows": rows,
         }))
     }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(super) fn retire_developer_close(
+        &mut self,
+        result: Result<crate::native_coordinator::connection_close::CloseRetired, NativeOwnerError>,
+    ) -> Result<CloseDiscovery, NativeOwnerError> {
+        self.owner
+            .batch_coordinator()
+            .complete_connection_close_retirement(result)
+    }
 }
 
 impl RuntimeServer {
@@ -250,13 +279,33 @@ impl RuntimeServer {
                 Ok(Admission::Respond(result)) => {
                     return success_response(id, owner.revision(), result);
                 }
-                Ok(Admission::Discover(discovery)) => discovery,
+                Ok(admission) => admission,
                 Err(error) => return fail(owner.revision(), error.stable_code()),
             }
         };
+        let discovery = match admission {
+            Admission::Discover(discovery) => discovery,
+            #[cfg(feature = "product-image-witness")]
+            Admission::Retire(task) => {
+                // Finish the SAME old session off-lock; neither an ACK nor a
+                // dropped result may clear the owner-installed retirement slot.
+                let result = (*task).retire();
+                let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                    return fail(0, StableErrorCode::Busy);
+                };
+                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                    return fail(0, StableErrorCode::CapabilityUnavailable);
+                };
+                match owner.developer_close_retired(result) {
+                    Ok(discovery) => Box::new(discovery),
+                    Err(error) => return fail(owner.revision(), error.stable_code()),
+                }
+            }
+            Admission::Respond(_) => return fail(0, StableErrorCode::InternalError),
+        };
         // Controller reads and full developer-pair proof are outside the owner
         // mutex/lease. The original absolute expiry is never renewed here.
-        let discovered = (*admission).observe();
+        let discovered = (*discovery).observe();
         let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
             return fail(0, StableErrorCode::Busy);
         };

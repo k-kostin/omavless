@@ -97,6 +97,21 @@ pub trait LifecycleHost {
         _original: &crate::conditional_close_candidate::CloseEpochCompletion,
     ) {
     }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn matches_close_retirement(&self, _original: &crate::native_host::CloseObservation) -> bool {
+        false
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn complete_close_retirement(
+        &mut self,
+        _original: &crate::conditional_close_candidate::CloseEpochRetirement,
+    ) {
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn refuse_close_epoch(&mut self) {}
     /// Unsupported hosts cannot manufacture an observation or a close permit.
     /// This seam does not expose any IPC action by itself.
     #[doc(hidden)]

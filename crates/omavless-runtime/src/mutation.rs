@@ -348,6 +348,11 @@ impl MutationCoordinator {
         })
     }
 
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn close_receipt_capacity_available(&self) -> bool {
+        self.external_closes.len() < EXTERNAL_CLOSE_LIMIT
+    }
+
     pub(crate) fn reserve_external_close(
         &mut self,
         operation_id: &str,

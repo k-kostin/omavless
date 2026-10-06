@@ -438,6 +438,10 @@ pub(crate) struct Cancellation {
 }
 impl Cancellation {
     #[cfg(feature = "product-image-witness")]
+    pub(crate) fn same_epoch(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity) && Arc::ptr_eq(&self.lifetime, &other.lifetime)
+    }
+    #[cfg(feature = "product-image-witness")]
     pub(crate) fn epoch_lifetime_available(&self) -> bool {
         self.lifetime.gate.lock().is_ok_and(|gate| gate.live)
     }
@@ -939,25 +943,7 @@ impl Session {
         #[cfg(feature = "developer-image-witness")]
         if finalizing && self.image_witness_selected() {
             let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
-            #[cfg(test)]
-            let result = if let Some(probe) = &mut self.image_finish_probe {
-                probe(deadline)
-            } else if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
-                client
-                    .finish(deadline)
-                    .map_err(|_| Outcome::RefusedBeforeWrite)
-            } else {
-                Ok(())
-            };
-            #[cfg(not(test))]
-            let result = if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
-                client
-                    .finish(deadline)
-                    .map_err(|_| Outcome::RefusedBeforeWrite)
-            } else {
-                Err(Outcome::RefusedBeforeWrite)
-            };
-            if result.is_err() {
+            if self.finish_image_witness(deadline).is_err() {
                 self.revoke_image();
                 return Err(Outcome::RefusedBeforeWrite);
             }
@@ -1270,6 +1256,119 @@ impl Session {
             lifetime: Arc::clone(&self.lifetime),
             identity: Arc::clone(&self.identity),
         }
+    }
+
+    #[cfg(feature = "developer-image-witness")]
+    fn finish_image_witness(&mut self, deadline: Instant) -> Result<(), Outcome> {
+        #[cfg(test)]
+        if let Some(probe) = &mut self.image_finish_probe {
+            return probe(deadline);
+        }
+        if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
+            client
+                .finish(deadline)
+                .map_err(|_| Outcome::RefusedBeforeWrite)
+        } else {
+            #[cfg(test)]
+            return Ok(());
+            #[cfg(not(test))]
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+    }
+
+    /// Detached explicit snapshot cancellation only. It cannot retire a
+    /// revoked/expired, effect-authorized, attempted or concurrent-flight context.
+    /// No owner/migration lock may be held by the caller.
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn retire_before_effect(mut self) -> Result<CloseEpochRetirement, Outcome> {
+        let original = self.cancellation();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if self.effect_proof.is_some() || !self.image_witness_selected() {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            {
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_locked(&mut gate)?;
+                if !gate
+                    .reservation
+                    .as_ref()
+                    .is_some_and(|r| matches!(r.phase, Phase::BeforeEffect) && r.proofs == 0)
+                {
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
+            }
+            let flight = self.image_proof_flight()?;
+            self.check_with_flight(&flight)?;
+            {
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_locked_current(&mut gate, flight.current.as_ref())?;
+                let reservation = gate
+                    .reservation
+                    .as_ref()
+                    .ok_or(Outcome::RefusedBeforeWrite)?;
+                if !matches!(reservation.phase, Phase::BeforeEffect) || reservation.proofs != 1 {
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
+            }
+            let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
+            self.finish_image_witness(deadline)?;
+            remaining(deadline)?;
+            self.check_with_flight(&flight)?;
+            {
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_locked_current(&mut gate, flight.current.as_ref())?;
+                let reservation = gate
+                    .reservation
+                    .as_mut()
+                    .ok_or(Outcome::RefusedBeforeWrite)?;
+                if !matches!(reservation.phase, Phase::BeforeEffect) || reservation.proofs != 1 {
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
+                reservation.cancelled = true;
+                reservation.phase = Phase::Finished(Outcome::RefusedBeforeWrite);
+                reservation.stream = None;
+            }
+            drop(flight); // current FD and real count are gone before publication
+            let gate = self
+                .lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            if !gate.live
+                || !gate.reservation.as_ref().is_some_and(|r| {
+                    Arc::ptr_eq(&r.identity, &self.identity)
+                        && matches!(r.phase, Phase::Finished(Outcome::RefusedBeforeWrite))
+                        && r.cancelled
+                        && r.proofs == 0
+                })
+            {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            Ok(())
+        }));
+        if !matches!(result, Ok(Ok(()))) {
+            self.revoke_image();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        drop(self); // ALL original session/channel/source fields, not ACK alone
+        Ok(CloseEpochRetirement { original })
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn refuse_retirement(&self) {
+        self.revoke_image();
     }
 
     fn finish(&mut self, candidate: Outcome) -> Outcome {
@@ -1810,6 +1909,23 @@ pub struct CloseEpochCompletion {
     outcome: Outcome,
     original: Cancellation,
     retired: bool,
+}
+#[cfg(feature = "product-image-witness")]
+pub struct CloseEpochRetirement {
+    original: Cancellation,
+}
+#[cfg(feature = "product-image-witness")]
+impl CloseEpochRetirement {
+    pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
+        Arc::ptr_eq(&self.original.identity, &expected.identity)
+            && Arc::ptr_eq(&self.original.lifetime, &expected.lifetime)
+            && self
+                .original
+                .lifetime
+                .gate
+                .lock()
+                .is_ok_and(|gate| gate.live && gate.reservation.is_none())
+    }
 }
 #[cfg(feature = "product-image-witness")]
 impl CloseEpochCompletion {

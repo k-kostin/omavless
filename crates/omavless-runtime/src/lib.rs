@@ -387,6 +387,17 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_retired(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::CloseRetired,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<
+        native_coordinator::connection_close::CloseDiscovery,
+        native_coordinator::NativeOwnerError,
+    >;
     #[cfg(feature = "developer-conditional-close")]
     fn developer_close(
         &mut self,
@@ -709,6 +720,19 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_retired(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::CloseRetired,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<
+        native_coordinator::connection_close::CloseDiscovery,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.retire_developer_close(result)
+    }
     #[cfg(feature = "developer-conditional-close")]
     fn developer_close(
         &mut self,

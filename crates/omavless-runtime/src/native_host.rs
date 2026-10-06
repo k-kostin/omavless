@@ -1094,6 +1094,38 @@ impl NativeLifecycleHost {
 
 impl LifecycleHost for NativeLifecycleHost {
     #[cfg(feature = "product-image-witness")]
+    fn matches_close_retirement(&self, original: &CloseObservation) -> bool {
+        self.product_image.as_ref().is_some_and(|epochs| {
+            !epochs.poisoned
+                && epochs
+                    .active
+                    .as_ref()
+                    .is_some_and(|expected| expected.same_epoch(&original.session().cancellation()))
+        })
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn complete_close_retirement(
+        &mut self,
+        original: &crate::conditional_close_candidate::CloseEpochRetirement,
+    ) {
+        if let Some(epochs) = &mut self.product_image {
+            if !epochs.poisoned
+                && epochs
+                    .active
+                    .as_ref()
+                    .is_some_and(|expected| original.admits(expected))
+            {
+                epochs.active = None;
+            } else {
+                epochs.revoke_if_used();
+            }
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn refuse_close_epoch(&mut self) {
+        self.revoke_product_image();
+    }
+    #[cfg(feature = "product-image-witness")]
     fn close_epoch_admission(&self) -> crate::lifecycle::CloseEpochAdmission {
         self.product_image.as_ref().map_or(
             crate::lifecycle::CloseEpochAdmission::Legacy,

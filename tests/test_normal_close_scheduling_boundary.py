@@ -43,12 +43,33 @@ class NormalSchedulingBoundary(unittest.TestCase):
         capture = close.split("pub(crate) fn capture_connection_close(", 1)[1].split("pub(crate) fn retain_connection_close(", 1)[0]
         self.assertLess(capture.index("close_epoch_admission()"), capture.index("invalidate_connection_close()"))
         self.assertLess(capture.index("ENTROPY_LIMIT -"), capture.index("invalidate_connection_close()"))
+        self.assertLess(capture.index("close_receipt_capacity_available()"), capture.index("invalidate_connection_close()"))
         self.assertLess(capture.index("invalidate_connection_close()"), capture.index("self.batch_lock()"))
         host = (SRC / "native_host.rs").read_text()
         capture = host.split("pub(crate) fn capture_connection_close(", 1)[1].split("fn capture_original_close(", 1)[0]
         self.assertLess(capture.index("epochs.reserve()?"), capture.index("CloseImageCapture::ProductWitness"))
         self.assertNotIn(".finish(", capture)
         self.assertNotIn("Client::bind", capture)
+
+    def test_detached_retirement_is_original_offlock_and_drain_precedes_marker(self):
+        source = (SRC / "conditional_close_candidate.rs").read_text()
+        retire = source.split("pub(crate) fn retire_before_effect(", 1)[1].split("pub(crate) fn refuse_retirement(", 1)[0]
+        self.assertLess(retire.index("r.proofs == 0"), retire.index("self.image_proof_flight()?"))
+        self.assertLess(retire.index("self.finish_image_witness(deadline)?"), retire.index("drop(flight)"))
+        self.assertLess(retire.index("drop(flight)"), retire.index("drop(self)"))
+        self.assertLess(retire.index("drop(self)"), retire.index("Ok(CloseEpochRetirement"))
+        self.assertIn("self.check_with_flight(&flight)?", retire)
+        self.assertNotIn("Instant::now() + BUDGET", retire)
+        close = (SRC / "native_coordinator/connection_close.rs").read_text()
+        admit = close.split("pub(crate) fn admit_connection_close_snapshot(", 1)[1].split("pub(crate) fn complete_connection_close_retirement(", 1)[0]
+        self.assertLess(admit.index("retiring = Some"), admit.index(".snapshot\n            .take()"))
+        self.assertNotIn(".finish(", admit)
+        self.assertNotIn(".retire(", admit)
+        server = (SRC / "developer_connection_close.rs").read_text()
+        server = server.split("pub(super) fn dispatch_developer_close(", 1)[1]
+        task = server.split("Admission::Retire(task) =>", 1)[1].split("Admission::Respond(_)", 1)[0]
+        self.assertLess(task.index("(*task).retire()"), task.index("self.dispatcher.try_lock()"))
+        self.assertLess(task.index("self.dispatcher.try_lock()"), task.index("owner.developer_close_retired(result)"))
 
     def test_current_image_helper_is_separate_default_off_and_passive_gate_unpromoted(self):
         manifest=tomllib.loads((SRC.parent/"Cargo.toml").read_text())

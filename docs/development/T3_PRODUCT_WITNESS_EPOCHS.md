@@ -59,7 +59,7 @@ native final flight still exists when it receives Finish ACK. The independent
 original Worker drain/owner completion below is mandatory before any NEW Bind;
 helper idle or ACK is never a copied native-drain attestation.
 
-## Required caller cut before product use
+## Same-owner caller candidate
 
 The optional runtime feature `product-image-witness` now has a source-only
 `bind_current_product_image` factory through the SAME normal current owner. No
@@ -74,7 +74,7 @@ reserves a full128-row snapshot plus confirmation before acquisition; existing
 opaque token and128 receipt histories do not evict. First helper Bind/Observe
 still occurs detached inside that SAME Session's counted proof flight.
 
-Only the SAME original Worker's completion can permit a later explicit snapshot:
+For an effect, only the SAME original Worker's completion can permit a later explicit snapshot:
 the existing finish path proves helper Finish, definitive Closed phase and zero
 counted flights; then Worker drops the entire Session/FDs and its slot BEFORE
 publication. Its noncloneable private completion matches the saved cancellation
@@ -86,23 +86,30 @@ failed Finish never renews. Receipt replay performs no capture or resend.
 Every normal config/start/commit/stop/discard after first use permanently revokes
 this candidate factory; initial normal connection setup before first use remains
 available. This first cut supports explicit subsequent operations on the SAME
-original core incarnation after Closed only, not reconnect/upgrade adoption.
-Independent review and actual sequential-session evidence are still pending.
+original core incarnation after Closed or proven before-effect retirement, not
+reconnect/upgrade adoption. Actual sequential-session evidence is still pending.
 
-The remaining cancel-before-effect integration must take the old SAME snapshot/session into an
-explicit retirement task under its owner, then run Finish outside owner and
-migration locks. Only known terminal completion or positively before-effect
-cancel plus all original flights/current FDs drained may admit an explicit NEW
-snapshot. Re-enter the owner to verify retirement identity and exact current
-context/revision before new original core/controller/qualified-pair acquisition.
-Busy, drift, refusal, timeout, late reply or partial/Unknown delivery stays
-sticky; no automatic retry or old rows/tickets become renewed authority. Preserve
-all receipt/token/lifetime history without eviction and refuse before acquisition
-at capacity. Exact replay remains read-only, never another effect.
+An explicit new Snapshot request may now take the old SAME snapshot/session into
+an owner-installed Retiring slot. No worker/discovery may be active; old pending
+confirmation/rows are consumed. Normal context and same saved session identity
+are checked before transfer. Finish/fresh image/controller/qualified pair checks
+run outside owner and migration locks under the unrenewed original budget.
+Before any new image acquisition/RPC the gate must be BeforeEffect, unrevoked,
+uncancelled and have zero flights; exactly the task's one flight may then exist.
+Effect authorization/attempt, expiry, panic, cancellation, drift or failed Finish
+refuses and poisons. The current FD/count and WHOLE old Session fields drop
+before the sealed, noncloneable retirement result is returned.
+
+The owner rechecks that exact Retiring identity, old context/revision and original
+expiry before consuming the result. Unknown/lost/late/Busy/drift results keep the
+slot occupied and cannot renew. On a positive result only the SAME explicit
+Snapshot request may proceed to a NEW guarded capture; old rows/tickets do not
+authorize it. Receipt capacity is also checked before acquisition, including
+refused confirmations that filled history without adding a host epoch. All
+receipt/token/lifetime history remains nonevicting; exact replay never resends.
 
 Current capture refuses Busy BEFORE invalidation for an active product epoch;
 Snapshot Drop does not positively Finish the provider and cannot grant renewal.
-The detached cancellation/retirement task is not implemented in this cut.
 Expired/revoked snapshots remain unavailable, not recreated to Finish.
 Three-second snapshot,
 five-second confirmation and existing effect budgets/cancellation/per-chunk/final
@@ -122,7 +129,7 @@ memory image-provider callbacks, not a privileged helper or qualified product
 package: original publication enables next admission after complete Drop; Busy
 preserves the original snapshot; unknown/failed Finish refuses renewal; replay
 does not write again; capacity reserves before acquisition. Real second capture
-through product enrollment/class, cancellation retirement, FD plateau and genuine
+through product enrollment/class, FD plateau and genuine
 package/reboot/upgrade acceptance remain unrun.
 
 First-cut source results:16 product-feature and10 unchanged developer-feature
@@ -139,3 +146,23 @@ checks passed. The first new static-order guard selected an earlier spawn-failur
 slot Drop; its scope was corrected to the actual worker closure before passing.
 These are exact candidate source results, not actual product helper/second-epoch
 or default registration acceptance.
+
+Retirement controls additionally exercise the real take/task/return functions:
+one-shot original before-effect Finish outside the lifetime gate; old confirmation
+unavailability and concurrent admission Busy; refusal at the NEW fixed product
+capture guard in this deliberately non-product fixture; Finish error, expiry,
+late cancellation, panic and observed context drift before/after Finish stay
+sealed; restored bytes cannot repair poison; receipt exhaustion admits no source
+or helper acquisition. These controlled callbacks are not root service/package
+or actual two-session acceptance. Read-only observation descriptors may drop on
+failure as in the baseline; original core remains under its owner and no fatal
+descriptor-survival/product recovery claim is introduced.
+
+Retirement successor source results:7 epoch/retirement/capacity behavioral
+controls plus6 existing image-RPC fault controls passed (the broader `product_`
+filter also includes one preexisting receipt-is-not-product test). Strict
+all-target feature/default Clippy, feature/default checks,14 static retention
+guards and explicit formatting of the included Rust tests passed. A new static
+guard initially selected the admission constructor instead of the dispatcher;
+its function boundary was corrected before passing. No old accepted helper
+primitive was rerun for this prose/caller change and no product VM gate ran.

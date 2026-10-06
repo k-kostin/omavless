@@ -2585,6 +2585,8 @@ pub(super) struct CloseState {
     cancellation: Option<Cancellation>,
     scheduler: Scheduler,
     active: Option<ActiveClose>,
+    #[cfg(feature = "product-image-witness")]
+    retiring: Option<Arc<()>>,
 }
 impl CloseState {
     fn entropy(&mut self) -> Result<OpaqueToken, NativeOwnerError> {
@@ -2646,6 +2648,61 @@ pub(crate) struct CloseDiscovered {
     observation: CloseObservation,
     rows: Vec<ObservedRow>,
 }
+
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct CloseRetirement {
+    identity: Arc<()>,
+    snapshot: Snapshot,
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct CloseRetired {
+    identity: Arc<()>,
+    context: Context,
+    expiry: Instant,
+    original: crate::conditional_close_candidate::CloseEpochRetirement,
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) enum CloseSnapshotAdmission {
+    Discover(CloseDiscovery),
+    Retire(CloseRetirement),
+}
+#[cfg(feature = "product-image-witness")]
+impl CloseRetirement {
+    /// Only one owner-installed task owns this SAME old snapshot. Errors revoke
+    /// its original lifetime; they never yield a new-session or retry permit.
+    pub(crate) fn retire(mut self) -> Result<CloseRetired, NativeOwnerError> {
+        let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if Instant::now() >= self.snapshot.expiry {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            self.snapshot
+                .observation
+                .observe()
+                .map_err(|_| NativeOwnerError::OwnershipUnavailable)
+        }));
+        if !matches!(checked, Ok(Ok(()))) {
+            self.snapshot.observation.session_mut().refuse_retirement();
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let Snapshot {
+            context,
+            expiry,
+            observation,
+            rows,
+        } = self.snapshot;
+        drop(rows); // all old handles/targets are gone, never a new selection
+        let original = observation
+            .into_session()
+            .retire_before_effect()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        Ok(CloseRetired {
+            identity: self.identity,
+            context,
+            expiry,
+            original,
+        })
+    }
+}
 impl CloseDiscovery {
     /// Run outside the actual owner's mutex AND migration lease.
     pub(crate) fn observe(mut self) -> Result<CloseDiscovered, NativeOwnerError> {
@@ -2677,6 +2734,90 @@ impl CloseDiscovery {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn admit_connection_close_snapshot(
+        &mut self,
+    ) -> Result<CloseSnapshotAdmission, NativeOwnerError> {
+        if self.connection_close.retiring.is_some() {
+            if self.host().close_epoch_admission() == crate::lifecycle::CloseEpochAdmission::Refused
+            {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Busy {
+            return self
+                .capture_connection_close()
+                .map(CloseSnapshotAdmission::Discover);
+        }
+        if self.connection_close.active.is_some() || self.connection_close.discovery.is_some() {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        let _lease = self.batch_lock()?;
+        let snapshot = self
+            .connection_close
+            .snapshot
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if let Err(error) = self.close_context_matches(&snapshot.context) {
+            self.host_mut().refuse_close_epoch();
+            return Err(error);
+        }
+        if !self.host().matches_close_retirement(&snapshot.observation) {
+            self.host_mut().refuse_close_epoch();
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let identity = Arc::new(());
+        // Install the nonreusable owner slot BEFORE moving the old Session.
+        self.connection_close.retiring = Some(Arc::clone(&identity));
+        self.connection_close.pending = None;
+        let snapshot = self
+            .connection_close
+            .snapshot
+            .take()
+            .ok_or(NativeOwnerError::Invariant)?;
+        Ok(CloseSnapshotAdmission::Retire(CloseRetirement {
+            identity,
+            snapshot,
+        }))
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn complete_connection_close_retirement(
+        &mut self,
+        result: Result<CloseRetired, NativeOwnerError>,
+    ) -> Result<CloseDiscovery, NativeOwnerError> {
+        let result = (|| {
+            let retired = result?;
+            if !self
+                .connection_close
+                .retiring
+                .as_ref()
+                .is_some_and(|identity| Arc::ptr_eq(identity, &retired.identity))
+                || Instant::now() >= retired.expiry
+            {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            let _lease = self.batch_lock()?;
+            self.close_context_matches(&retired.context)?;
+            self.host_mut().complete_close_retirement(&retired.original);
+            if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Ready {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.host_mut().refuse_close_epoch();
+            // Retiring stays occupied, including Busy/late/context drift. No
+            // dropped result or future request can silently recapture originals.
+            return Err(error);
+        }
+        self.connection_close.retiring = None;
+        // This is the explicit Snapshot request's next stage, not a retry of
+        // old authority. Capture checks capacity/context again before acquisition.
+        self.capture_connection_close()
+    }
+
     pub(super) fn invalidate_connection_close(&mut self) {
         self.connection_close.invalidate();
     }
@@ -2775,8 +2916,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         };
         #[cfg(feature = "product-image-witness")]
         if product
-            && self.connection_close.issued.len()
-                > ENTROPY_LIMIT - (crate::conditional_close_candidate::MAX_ROWS + 1)
+            && (!self.coordinator.close_receipt_capacity_available()
+                || self.connection_close.issued.len()
+                    > ENTROPY_LIMIT - (crate::conditional_close_candidate::MAX_ROWS + 1))
         {
             // Reserve room for a complete maximum-row snapshot AND its one
             // confirmation before source/controller/pidfd/helper acquisition.
