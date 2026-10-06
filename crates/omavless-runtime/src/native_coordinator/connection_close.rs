@@ -70,6 +70,22 @@ mod tests {
             true,
         );
     }
+    #[test]
+    fn qualified_selector_is_written_before_first_adoption_observation() {
+        let helper = include_str!("connection_close.rs")
+            .split(concat!(
+                "    fn composed_core_",
+                "selected_close_with_client("
+            ))
+            .nth(1)
+            .unwrap();
+        assert!(
+            helper
+                .find("&config.join(crate::managed_pair::SELECTOR)")
+                .unwrap()
+                < helper.find(".adopt_owned_close_fixture()").unwrap()
+        );
+    }
     #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
     include!("connection_close_client_integration.rs");
     #[cfg(all(feature = "developer-conditional-close", feature = "tui"))]
@@ -1949,6 +1965,18 @@ while True:
         });
         let runtime = fixture.root.join("r");
         let config = fixture.root.join("c");
+        if qualified_pair {
+            assert!(
+                developer_pair && socket_workspace && !rebind && !client_workspace && !real_cli
+            );
+            // Establish this fixture-local user selection BEFORE the first
+            // adoption observation. It does not create any root package object.
+            write(
+                &config.join(crate::managed_pair::SELECTOR),
+                crate::managed_pair::SELECTION_BYTES,
+                0o600,
+            );
+        }
         let socket = runtime.join("mihomo.sock");
         let paths = NativeHostPaths::new(
             executable.clone(),
@@ -2041,18 +2069,6 @@ while True:
             clients.push(client);
         }
         let desired = fixture.owner.desired().unwrap();
-        if qualified_pair {
-            assert!(
-                developer_pair && socket_workspace && !rebind && !client_workspace && !real_cli
-            );
-            // Only a fixed USER selection in this private fixture. Root package
-            // provisioning/build/admission remains outside the executable.
-            write(
-                &config.join(crate::managed_pair::SELECTOR),
-                crate::managed_pair::SELECTION_BYTES,
-                0o600,
-            );
-        }
         if socket_workspace {
             #[cfg(feature = "developer-conditional-close")]
             {
