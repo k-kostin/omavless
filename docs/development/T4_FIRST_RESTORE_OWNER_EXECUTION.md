@@ -171,11 +171,16 @@ adapter: exact `developer backup-current --confirm-private-export`, fixed hidden
 existing `create_backup_candidate` on that SAME current-qualified owner under
 its mutex/original lease, not a copied constructor or raw external live reader.
 Only ciphertext is exclusively published at the absent private destination;
-the existing publisher uses an unnamed private temporary plus non-overwriting
-link, sync and readback. It never edits the live store/template or invents an
+the existing publisher writes/syncs and checks metadata of its unnamed private
+temporary, performs a non-overwriting link, then rechecks parent identity and
+syncs that directory. It does not read ciphertext/final member back; the later
+restore's separate `open_existing` authenticates the archive. It never edits the live store/template or invents an
 epoch/receipt. The same grammar, instance/revision/peer/quit/Busy restrictions,
 secret handling and default/capability absence apply. Crossed export/replace
 confirmations refuse. Ambiguous publication is preserved, not cleaned/retried.
+The client classifies backend ManualRecoveryRequired, malformed/unrecognized
+replies and transport loss as UNKNOWN, not no-effect refusal. Only the explicit
+pre-effect protocol/Busy/stale/unavailable-method replies are called refusal.
 
 The normal VM sequence is therefore real normal login/current daemon → export
 its actual pair to a new private encrypted archive → restore that authenticated

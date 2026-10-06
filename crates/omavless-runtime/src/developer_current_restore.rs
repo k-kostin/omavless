@@ -12,6 +12,35 @@ const CONFIRM: &str = "replace-current-private-pair";
 pub(crate) const BACKUP_METHOD: &str = "developer.backup_current";
 const BACKUP_CONFIRM: &str = "export-current-private-pair";
 pub(crate) const MAX_INPUT: usize = 32768;
+#[derive(Debug, PartialEq, Eq)]
+enum ReplyDisposition {
+    RefusedBeforeEffect,
+    Unknown,
+}
+fn classify_response(response: &Value) -> Result<(), ReplyDisposition> {
+    if response["ok"] == true && response["result"]["completed"] == true {
+        return Ok(());
+    }
+    if response["ok"] == false
+        && matches!(
+            response["error"]["code"].as_str(),
+            Some(
+                "invalid_request"
+                    | "invalid_argument"
+                    | "busy"
+                    | "conflict"
+                    | "daemon_restarting"
+                    | "capability_unavailable"
+                    | "unknown_method"
+            )
+        )
+    {
+        return Err(ReplyDisposition::RefusedBeforeEffect);
+    }
+    // Backend manual recovery/publication ambiguity, malformed reply and any
+    // unrecognized outcome may follow effects. No retry or no-effect claim.
+    Err(ReplyDisposition::Unknown)
+}
 struct PrivateText(Zeroizing<String>);
 impl<'de> Deserialize<'de> for PrivateText {
     fn deserialize<D: Deserializer<'de>>(input: D) -> Result<Self, D::Error> {
@@ -161,9 +190,10 @@ pub fn from_private_input(
     let response =
         crate::call_with_timeout(&paths, method, params, std::time::Duration::from_secs(120))
             .map_err(|_| "developer_current_restore_outcome_unknown")?;
-    if response["ok"] != true || response["result"]["completed"] != true {
-        return Err("developer_current_restore_refused");
-    }
+    classify_response(&response).map_err(|outcome| match outcome {
+        ReplyDisposition::RefusedBeforeEffect => "developer_current_restore_refused",
+        ReplyDisposition::Unknown => "developer_current_restore_outcome_unknown",
+    })?;
     Ok(marker)
 }
 
@@ -261,5 +291,34 @@ mod tests {
             "backup-current".into(),
             "--confirm-private-pair".into()
         ]));
+    }
+    #[test]
+    fn private_effect_reply_never_labels_manual_recovery_as_no_effect() {
+        assert_eq!(
+            classify_response(&serde_json::json!({"ok":true,"result":{"completed":true}})),
+            Ok(())
+        );
+        for code in [
+            "invalid_request",
+            "invalid_argument",
+            "busy",
+            "conflict",
+            "daemon_restarting",
+            "capability_unavailable",
+            "unknown_method",
+        ] {
+            assert_eq!(
+                classify_response(&serde_json::json!({"ok":false,"error":{"code":code}})),
+                Err(ReplyDisposition::RefusedBeforeEffect)
+            );
+        }
+        for reply in [
+            serde_json::json!({"ok":false,"error":{"code":"manual_recovery_required"}}),
+            serde_json::json!({"ok":false,"error":{"code":"internal_error"}}),
+            serde_json::json!({"ok":true,"result":{"completed":false}}),
+            serde_json::json!({}),
+        ] {
+            assert_eq!(classify_response(&reply), Err(ReplyDisposition::Unknown));
+        }
     }
 }
