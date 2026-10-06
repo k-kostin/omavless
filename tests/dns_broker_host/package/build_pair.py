@@ -227,6 +227,8 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
             raise stage.Refused("Reviewed core build identity is incomplete.")
         cargo_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
                      "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": str(work / "cargo-target")}
+        if close:
+            cargo_env["CARGO_BUILD_JOBS"] = "4"
         cargo_command = ["/usr/bin/cargo", "build", "--release", "--locked", "--offline",
                          "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"]
         if flavor in ("release", "release-close"):
