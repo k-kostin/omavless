@@ -587,3 +587,22 @@ The subsequent one-way typed lease/singleton disposition must preserve original
 exclusivity without duplicating Flock wrappers (whose Drop can unlock a shared
 OFD), then prove the actual mutating and fresh restart seams. No default dispatch
 registration, cleanup waiver, automatic resume or full T4 acceptance is inferred.
+
+### Exact readonly closure/owner checkpoint
+
+ROOT selected exact `0ee59eef424819a2c50772251f3dc526467f191f` only after
+PRIMARY and independent affected source/packet reviews. Its sealed release test
+ELF was 24,532,808 bytes, SHA256
+`b8368b45a79354c878e2e1d23749ca57b231ae59437cd690ca4522e9666d72bb`.
+Four local native controls and nine mocked delivery controls passed; formatting
+and strict feature/default checks passed within the declared affected scope.
+The positively completed recovery23 state and original BOOT682f were preserved.
+Separate create/uploads/admission/readonly prepare completed0. Original run
+`be7d76` / session5862 → `1cd74c` completed SSH/test0. Separately predeclared
+fixed-file observer `e25645` completed0: stdout292 bytes, SHA256
+`8604c293a95138d26062976c1a5e6f5ccf731b2fb88c906a135d35fa044a7506`,
+exact marker and one successful harness, no refusals; stderr empty.
+This proves the fixed SAME-held OLD/Aborted retirement/closure and genuine
+normal-owner readonly consultation assertions, not ordinary mutable eligibility,
+new listener, installed application store/login, later current()/restart or full
+T4 completion. The earlier e803 proposal was unselected, not a VM failure.
