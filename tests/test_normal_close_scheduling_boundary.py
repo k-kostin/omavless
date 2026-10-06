@@ -9,6 +9,27 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
+    def test_product_preview_is_inert_and_final_confirm_is_new_original_guarded_work(self):
+        preview=(SRC/'native_coordinator/connection_close_preview.rs').read_text()
+        inert=preview.split('struct InertPreview {',1)[1].split('}',1)[0]
+        for forbidden in ('Session','CloseObservation','File','EffectProof','Worker'):
+            self.assertNotIn(forbidden,inert)
+        discovery=preview.split('pub(crate) fn observe_preview(',1)[1].split('pub(crate) enum ProductConfirmAdmission',1)[0]
+        self.assertLess(discovery.index('retire_before_effect()'),discovery.index('Ok(ClosePreviewReady'))
+        admit=preview.split('pub(crate) fn admit_product_confirm(',1)[1].split('pub(crate) fn complete_product_confirm(',1)[0]
+        self.assertLess(admit.index('reserve_connection_close('),admit.index('capture_connection_close_inner(Some(&token))'))
+        self.assertIn('self.coordinator.external_close_reservation_current(&token)',preview)
+        session=(SRC/'conditional_close_candidate.rs').read_text()
+        selection=session.split('pub(crate) fn matches_preview(',1)[1].split('pub(crate) fn bind(',1)[0]
+        for literal in ('same_metadata','row.target.target.id == selected.target.id',
+                        'row.target.target.token == selected.target.token','row.display == selected.display',
+                        'Arc::ptr_eq(&row.target.session_identity, &self.identity)'):
+            self.assertIn(literal,selection)
+        server=(SRC/'developer_connection_close.rs').read_text()
+        self.assertIn('(*task).observe()',server)
+        self.assertIn('(*discovery).observe_preview()',server)
+        host=(SRC/'native_host.rs').read_text()
+        self.assertRegex(host,r'#\[cfg\(all\(test, feature = "product-image-witness"\)\)\]\s*pub\(crate\) fn install_product_preview_fixture_for_test')
     def test_snapshot_wire_fixture_covers_actual_final_dispatch_wrapper(self):
         import json
         source = (SRC / 'developer_connection_close.rs').read_text()

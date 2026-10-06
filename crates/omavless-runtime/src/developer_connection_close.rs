@@ -42,6 +42,11 @@ pub(super) enum Admission {
     Discover(Box<CloseDiscovery>),
     #[cfg(feature = "product-image-witness")]
     Retire(Box<crate::native_coordinator::connection_close::CloseRetirement>),
+    #[cfg(feature = "product-image-witness")]
+    ConfirmPreview {
+        task: Box<crate::native_coordinator::connection_close::CloseConfirmDiscovery>,
+        operation: String,
+    },
     Respond(Value),
 }
 
@@ -205,6 +210,17 @@ impl<H: LifecycleHost + Send + 'static> RegisteredNativeOwner<H> {
                 handle,
                 ticket,
             } => {
+                #[cfg(feature = "product-image-witness")]
+                if coordinator.host().close_registration()
+                    == crate::lifecycle::CloseRegistration::Product
+                {
+                    return match coordinator.admit_product_confirm(&operation,expected_revision,handle,ticket)? {
+                        crate::native_coordinator::connection_close::ProductConfirmAdmission::Replay(receipt) =>
+                            Ok(Admission::Respond(receipt_projection(instance,&operation,Some(receipt)))),
+                        crate::native_coordinator::connection_close::ProductConfirmAdmission::Discover(task) =>
+                            Ok(Admission::ConfirmPreview { task,operation }),
+                    };
+                }
                 // Existing exact replay precedes fresh ownership, revision and
                 // expiry checks. It cannot send a second controller request.
                 let receipt = coordinator.confirm_connection_close(
@@ -245,6 +261,24 @@ impl<H: LifecycleHost + Send + 'static> RegisteredNativeOwner<H> {
             "scope": "development_owned_single_connection_close",
             "rows": rows,
         }))
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(super) fn retain_product_close_preview(
+        &mut self,
+        result: Result<
+            crate::native_coordinator::connection_close::ClosePreviewReady,
+            NativeOwnerError,
+        >,
+    ) -> Result<Value, NativeOwnerError> {
+        let rows = self
+            .owner
+            .batch_coordinator()
+            .retain_product_preview(result)?;
+        Ok(
+            json!({"schemaVersion":1,"scope":"development_owned_single_connection_close",
+            "rows":rows.into_iter().map(|r|json!({"handle":r.handle.to_wire(),"display":r.display})).collect::<Vec<_>>() }),
+        )
     }
 
     #[cfg(feature = "product-image-witness")]
@@ -313,6 +347,24 @@ impl RuntimeServer {
             }
         };
         let discovery = match admission {
+            #[cfg(feature = "product-image-witness")]
+            Admission::ConfirmPreview { task, operation } => {
+                let result = (*task).observe();
+                let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                    return fail(0, StableErrorCode::Busy);
+                };
+                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                    return fail(0, StableErrorCode::CapabilityUnavailable);
+                };
+                return match owner.developer_close_confirmed(result) {
+                    Ok(receipt) => success_response(
+                        id,
+                        owner.revision(),
+                        receipt_projection(&self.instance_id, &operation, receipt),
+                    ),
+                    Err(error) => fail(owner.revision(), error.stable_code()),
+                };
+            }
             Admission::Discover(discovery) => discovery,
             #[cfg(feature = "product-image-witness")]
             Admission::Retire(task) => {
@@ -332,6 +384,22 @@ impl RuntimeServer {
             }
             Admission::Respond(_) => return fail(0, StableErrorCode::InternalError),
         };
+        #[cfg(feature = "product-image-witness")]
+        if discovery.product_preview() {
+            let result = (*discovery).observe_preview();
+            let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                return fail(0, StableErrorCode::Busy);
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return fail(0, StableErrorCode::CapabilityUnavailable);
+            };
+            return match owner.developer_close_preview(result) {
+                Ok(result) => {
+                    snapshot_success_response(id, owner.revision(), &self.instance_id, result)
+                }
+                Err(error) => fail(owner.revision(), error.stable_code()),
+            };
+        }
         // Controller reads and full developer-pair proof are outside the owner
         // mutex/lease. The original absolute expiry is never renewed here.
         let discovered = (*discovery).observe();

@@ -476,9 +476,21 @@ pub struct NativeLifecycleHost {
     development_image: DevelopmentImageState,
     #[cfg(feature = "product-image-witness")]
     product_image: Option<ProductImageEpochs>,
+    #[cfg(all(test, feature = "product-image-witness"))]
+    product_preview_fixture: bool,
 }
 
 impl NativeLifecycleHost {
+    #[cfg(all(test, feature = "product-image-witness"))]
+    pub(crate) fn install_product_preview_fixture_for_test(&mut self) {
+        assert!(matches!(
+            self.close_fixture,
+            Some(CloseFixture::OwnedLoopback)
+        ));
+        assert!(self.core.as_ref().and_then(OwnedCore::pid).is_some());
+        self.product_image = Some(ProductImageEpochs::new().unwrap());
+        self.product_preview_fixture = true;
+    }
     #[cfg(all(test, feature = "product-image-witness"))]
     pub(crate) fn install_product_epoch_from_fixture_session(
         &mut self,
@@ -760,6 +772,8 @@ impl NativeLifecycleHost {
             development_image: DevelopmentImageState::Disabled,
             #[cfg(feature = "product-image-witness")]
             product_image: None,
+            #[cfg(all(test, feature = "product-image-witness"))]
+            product_preview_fixture: false,
         })
     }
 
@@ -836,6 +850,24 @@ impl NativeLifecycleHost {
         #[cfg(feature = "product-image-witness")]
         if let Some(epochs) = &mut self.product_image {
             epochs.reserve()?;
+            #[cfg(test)]
+            let observation = if self.product_preview_fixture {
+                let mut observation =
+                    self.capture_original_close(desired, CloseImageCapture::Direct)?;
+                let image = observation.session().original_image_for_test();
+                observation
+                    .session_mut()
+                    .install_image_probe_for_test(Box::new(move |_| {
+                        Ok(image.try_clone().unwrap())
+                    }));
+                observation
+                    .session_mut()
+                    .install_image_finish_probe_for_test(Box::new(|_| Ok(())));
+                observation
+            } else {
+                self.capture_original_close(desired, CloseImageCapture::ProductWitness)?
+            };
+            #[cfg(not(test))]
             let observation =
                 self.capture_original_close(desired, CloseImageCapture::ProductWitness)?;
             self.product_image

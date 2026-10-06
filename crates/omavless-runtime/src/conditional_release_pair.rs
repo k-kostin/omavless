@@ -258,6 +258,21 @@ impl Original {
 }
 
 impl Evidence {
+    #[cfg(feature = "product-image-witness")]
+    pub(in crate::conditional_close_candidate) fn preview_fingerprint(&self) -> Fingerprint {
+        Fingerprint {
+            members: [
+                (self.core.identity, self.core.gid),
+                (self.broker.identity, self.broker.gid),
+                (self.receipt.identity, self.receipt.gid),
+                (self.selection.identity, self.selection.gid),
+            ],
+            directories: [&self.package, &self.receipt_parent, &self.selection_parent]
+                .into_iter()
+                .map(|chain| chain.dirs.iter().map(|d| d.identity).collect())
+                .collect(),
+        }
+    }
     pub(in crate::conditional_close_candidate) fn belongs_to(&self, identity: &Arc<()>) -> bool {
         self.original.matches(identity)
     }
@@ -396,6 +411,24 @@ impl Evidence {
             self.original.refuse();
         }
         result
+    }
+}
+
+// Bounded private comparison data only. No descriptors, proof, permission,
+// wire constructor or Debug; a fresh qualified Session must match it later.
+#[cfg(feature = "product-image-witness")]
+#[derive(PartialEq, Eq)]
+pub(in crate::conditional_close_candidate) struct Fingerprint {
+    members: [(FileIdentity, u32); 4],
+    directories: Vec<Vec<DirIdentity>>,
+}
+#[cfg(all(test, feature = "product-image-witness"))]
+impl Fingerprint {
+    pub(in crate::conditional_close_candidate) fn data_for_test(identity: FileIdentity) -> Self {
+        Self {
+            members: [(identity, 0); 4],
+            directories: Vec::new(),
+        }
     }
 }
 

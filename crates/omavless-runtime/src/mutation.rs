@@ -353,6 +353,15 @@ impl MutationCoordinator {
         self.external_closes.len() < EXTERNAL_CLOSE_LIMIT
     }
 
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn external_close_reservation_current(&self, token: &ExternalCloseToken) -> bool {
+        self.external_closes.iter().any(|entry| {
+            Arc::ptr_eq(&entry.token.0, &token.0)
+                && entry.receipt.is_none()
+                && entry.base_revision == self.revision
+        })
+    }
+
     pub(crate) fn reserve_external_close(
         &mut self,
         operation_id: &str,

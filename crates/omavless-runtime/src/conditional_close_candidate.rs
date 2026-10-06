@@ -98,6 +98,41 @@ pub(crate) struct ObservedRow {
     pub(crate) display: serde_json::Value,
 }
 
+/// Inert comparison data: never a BoundTarget or effect permit, and never
+/// exported raw controller identifiers. Only a fresh observed row may match.
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct PreviewRow {
+    target: Target,
+    pub(crate) display: serde_json::Value,
+}
+#[cfg(feature = "product-image-witness")]
+impl ObservedRow {
+    pub(crate) fn into_preview(self) -> PreviewRow {
+        PreviewRow {
+            target: self.target.target,
+            display: self.display,
+        }
+    }
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct PreviewOrigin {
+    binding: Binding,
+    lifetime: Arc<Lifetime>,
+    image: FileIdentity,
+    source: FileIdentity,
+    package: Option<package_evidence::release_pair::Fingerprint>,
+}
+#[cfg(feature = "product-image-witness")]
+impl PreviewOrigin {
+    fn same_metadata(&self, actual: &Self) -> bool {
+        self.binding == actual.binding
+            && Arc::ptr_eq(&self.lifetime, &actual.lifetime)
+            && self.image == actual.image
+            && self.source == actual.source
+            && self.package == actual.package
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Capabilities {
@@ -591,6 +626,46 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn preview_origin(&self) -> Result<PreviewOrigin, Outcome> {
+        let image = self
+            .executable
+            .as_ref()
+            .ok_or(Outcome::RefusedBeforeWrite)?;
+        #[cfg(not(test))]
+        if self.qualified_pair.is_none() {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        #[cfg(test)]
+        if self.qualified_pair.is_none() && self.image_probe.is_none() {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        Ok(PreviewOrigin {
+            binding: self.binding,
+            lifetime: Arc::clone(&self.lifetime),
+            image: image.image_identity,
+            source: image.source_identity,
+            package: self
+                .qualified_pair
+                .as_ref()
+                .map(|pair| pair.preview_fingerprint()),
+        })
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn matches_preview(
+        &self,
+        expected: &PreviewOrigin,
+        row: &ObservedRow,
+        selected: &PreviewRow,
+    ) -> bool {
+        self.preview_origin()
+            .is_ok_and(|actual| expected.same_metadata(&actual))
+            && row.target.binding == self.binding
+            && Arc::ptr_eq(&row.target.session_identity, &self.identity)
+            && row.target.target.id == selected.target.id
+            && row.target.target.token == selected.target.token
+            && row.display == selected.display
+    }
     pub(crate) fn bind(core: &mut OwnedCore, uid: u32) -> Result<Self, Outcome> {
         if !core.running().is_ok_and(|v| v) {
             return Err(Outcome::RefusedBeforeWrite);
@@ -757,6 +832,11 @@ impl Session {
     pub(crate) fn install_image_probe_for_test(&mut self, probe: ImageProbe) {
         assert!(self.image_witness.is_none() && self.image_probe.is_none());
         self.image_probe = Some(probe);
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn fail_installed_image_probe_for_test(&mut self) {
+        assert!(self.image_witness.is_none() && self.image_probe.is_some());
+        self.image_probe = Some(Box::new(|_| Err(Outcome::RefusedBeforeWrite)));
     }
     #[cfg(all(test, feature = "developer-image-witness"))]
     pub(crate) fn original_image_for_test(&self) -> File {
@@ -2180,6 +2260,65 @@ mod tests {
     // Serialize their fixture lifetime; core-side concurrent confirmation is
     // independently exercised by the Go race matrix, not this host fixture.
     static FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn inert_preview_origin_metadata_rejects_every_identity_component_change() {
+        // DATA comparison only: neither numeric model nor Arc is live authority.
+        let lifetime = Arc::new(Lifetime::new(17));
+        let identity = FileIdentity {
+            inode: (1, 2),
+            size: 64,
+            mode: 0o100755,
+            owner: 0,
+            change: (1, 0),
+            modified: (1, 0),
+        };
+        let make = || PreviewOrigin {
+            binding: Binding {
+                pid: 17,
+                uid: 1000,
+                directory: (1, 3),
+                socket: (1, 4),
+            },
+            lifetime: Arc::clone(&lifetime),
+            image: identity,
+            source: identity,
+            package: Some(package_evidence::release_pair::Fingerprint::data_for_test(
+                identity,
+            )),
+        };
+        let original = make();
+        assert!(original.same_metadata(&make()));
+        for cut in [
+            "pid",
+            "uid",
+            "directory",
+            "socket",
+            "lifetime",
+            "image",
+            "source",
+            "package",
+        ] {
+            let mut other = make();
+            match cut {
+                "pid" => other.binding.pid += 1,
+                "uid" => other.binding.uid += 1,
+                "directory" => other.binding.directory.1 += 1,
+                "socket" => other.binding.socket.1 += 1,
+                "lifetime" => other.lifetime = Arc::new(Lifetime::new(17)),
+                "image" => other.image.inode.1 += 1,
+                "source" => other.source.inode.1 += 1,
+                _ => {
+                    let mut changed = identity;
+                    changed.change.0 += 1;
+                    other.package = Some(
+                        package_evidence::release_pair::Fingerprint::data_for_test(changed),
+                    );
+                }
+            }
+            assert!(!original.same_metadata(&other), "{cut}");
+        }
+    }
     #[test]
     fn strict_targets_refuse_duplicates_noncanonical_tokens_and_arbitrary_paths() {
         assert!(

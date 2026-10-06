@@ -387,6 +387,22 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_preview(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::ClosePreviewReady,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError>;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::CloseConfirmedDiscovery,
+    ) -> std::result::Result<
+        Option<mutation::ExternalCloseReceipt>,
+        native_coordinator::NativeOwnerError,
+    >;
     #[cfg(feature = "developer-conditional-close")]
     fn close_registration(&mut self) -> lifecycle::CloseRegistration;
     #[cfg(feature = "product-image-witness")]
@@ -722,6 +738,28 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_preview(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::ClosePreviewReady,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError> {
+        self.retain_product_close_preview(result)
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::CloseConfirmedDiscovery,
+    ) -> std::result::Result<
+        Option<mutation::ExternalCloseReceipt>,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.owner
+            .batch_coordinator()
+            .complete_product_confirm(result)
+    }
     #[cfg(feature = "developer-conditional-close")]
     fn close_registration(&mut self) -> lifecycle::CloseRegistration {
         self.owner.batch_coordinator().host().close_registration()
@@ -2317,11 +2355,20 @@ fn dispatch_native(
                 .copied()
                 .filter(|method| *method != "startup.configure" || owner.startup_available())
                 .collect();
-            json!({
+            let result = json!({
                 "runtimeOwnership": runtime_ownership,
                 "mutations": runtime_ownership,
                 "methods": methods
-            })
+            });
+            #[cfg(feature = "product-image-witness")]
+            let result = {
+                let mut result = result;
+                if owner.close_registration() == lifecycle::CloseRegistration::Product {
+                    result["connectionCloseView"] = json!("inert-preview-v1");
+                }
+                result
+            };
+            result
         }
         "status.get" | "capabilities.get" => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
@@ -3158,6 +3205,38 @@ mod tests {
         assert_eq!(status["revision"], 0);
         worker.join().unwrap();
         assert_eq!(calls.load(Ordering::Relaxed), count_before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_preview_view_hint_comes_from_actual_registered_server_serialization() {
+        let base = temporary_base("product-view-wire");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().close_registration =
+            lifecycle::CloseRegistration::Product;
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+        let wire = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(wire["ok"], true);
+        assert_eq!(wire["result"]["connectionCloseView"], "inert-preview-v1");
+        for method in developer_connection_close::METHODS {
+            assert!(
+                wire["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v == method)
+            );
+        }
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), before);
         fs::remove_dir_all(base).unwrap();
     }
 

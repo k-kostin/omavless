@@ -180,6 +180,62 @@ positive retirement, then at final confirmation acquire a fresh same-owner
 Session and exactly revalidate the selected generation/tuple/context/package.
 No speed-only GUI acceptance or reuse of old row authority is claimed here.
 
+### SOURCE B inert preview / fresh final confirmation candidate
+
+In explicit Product mode only, Snapshot now fully observes its SAME original
+Session, extracts bounded private comparison data, and positively retires the
+Session through A before the owner publishes any rows. During human inspection
+the preview holds only bounded display, controller ID/generation-token data,
+same-core lifetime/binding and original image/package file identities. It holds
+no Session, channel/current-image FD, effect proof or worker; the normal owner
+still independently owns its core. None of these copied facts grants permission.
+
+Prepare creates only an opaque modal ticket under the unchanged five-second
+confirmation lifetime. Confirm reserves the original non-evicting external
+operation before any new acquisition, consumes its ticket/preview, and performs
+a genuinely fresh same-owner Session capture and full qualification/catalogue
+observation off owner/migration locks. Original pending external reservation is
+checked before the receipt-capacity exception and again before completion.
+The fresh exact selected ID plus non-reused core generation token, stable five
+display fields, original core lifetime/controller binding, image/package and
+owner instance/revision/context must match. Missing/reused/changed selection is
+not retargeted; a positive no-effect retirement returns Refused and requires a
+new explicit human preview. I/O/identity poison, cancellation or late result
+cannot reconnect, renew or fall back. The existing Worker/per-write/final proof
+and three-second mutation deadline start in this fresh confirmation operation,
+not during the user's preview wait. Replay never acquires or resends.
+
+Default ordinary and live developer paths remain unchanged. A typed DATA-only
+capabilities view hint distinguishes Product's inert preview in the same opaque
+client. It is not a permission bit: all four capabilities and every native guard
+remain required. Only preview idle time has no mutation timer; modal five-second
+expiry, request budgets, Unknown's receipt-only behavior and the one-shot Closed
+window stay unchanged. English/Russian wording now describes explicit Product
+preview instead of falsely claiming that no qualified pair is adopted. Dynamic
+provider/endpoint/controller data is not translated. No rendered environment is
+available to this source author: actual EN/RU delayed-human, modal/cancel/close
+and constrained rendering checks remain ROOT-only and pending at an exact new
+installed image. Old617/GUI UNKNOWN and earlier positive receipts remain separate.
+
+Behavioral fixtures use the original owned subprocess/controller/coordinator
+with explicitly cfg(test) memory image/Finish callbacks. They do not establish
+privileged helper, real package enrollment, TUN/broker or installed authority.
+
+Focused SOURCE B controls: eight original owner/preview/server-wire tests,
+one inert-origin comparison vector (binding, same PID/different lifetime, image,
+source and package changes), four A retirement regressions, and two ordinary
+product-build disabled-registration/socket controls passed on an immutable
+test executable. The first provider-refusal test incorrectly attempted a second
+single-install probe and failed; its explicit cfg(test) failure injector now
+preserves that single-install rule, and the full focused group passes. Eighteen
+client-library controls including EN/RU TestBackend checks, sixteen retention
+guards, bounded332-key catalog/shared QML checks, strict product/default/runtime
+and selected-client Clippy, default check and format/whitespace checks pass.
+Runtime-image mismatch still belongs to the unchanged helper's per-message
+original-runtime/enrollment guards; the generic provider-refusal memory vector
+does not claim an actual runtime replacement or privileged helper test. No old
+installed image or full CI success is silently attributed to this new source.
+
 The helper's `--enroll-product UID` is root administration only: actual UID/EUID
 and GID/EGID must be0. One canonical nonroot UID is explicit input, never inferred
 from the caller. No path/hash/profile/receipt input is accepted. It holds and
