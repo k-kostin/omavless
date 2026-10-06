@@ -2,7 +2,6 @@
 use super::*;
 
 #[test]
-#[ignore = "constructor/socket boundary: execute only after primary and independent review"]
 fn constructor_real_observation_refuses_empty_mixed_residual_and_changed_pointer_or_health() {
     for initial in [
         Initial::EmptyOn,
@@ -40,7 +39,6 @@ fn constructor_real_observation_refuses_empty_mixed_residual_and_changed_pointer
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn bounded_backlog_retains_queued_suspend_before_any_recovery() {
     let (mut fixture, now) = controlled();
     fixture.facts.lock().unwrap().observed = empty();
@@ -63,7 +61,6 @@ fn bounded_backlog_retains_queued_suspend_before_any_recovery() {
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn observer_panic_keeps_original_inflight_barrier_terminal() {
     let (mut fixture, now) = controlled();
     fixture.start();
@@ -81,7 +78,6 @@ fn observer_panic_keeps_original_inflight_barrier_terminal() {
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn quit_accepted_before_or_after_effect_seals_the_same_owner_event_context() {
     for after in [false, true] {
         let (mut fixture, now) = controlled();
@@ -93,14 +89,28 @@ fn quit_accepted_before_or_after_effect_seals_the_same_owner_event_context() {
             now.store(3, Ordering::Release);
             fixture.wait("recovered");
         }
-        let response = call(
-            &fixture.paths,
-            "runtime.quit",
-            json!({"instanceId":fixture.instance,
-            "expectedRevision":if after {1} else {0},"operationId":"fixed-quit"}),
-        )
-        .unwrap();
-        assert_eq!(response["ok"], true);
+        // Socket arrival is not acceptance: an original-owner wake may hold
+        // the quit gate before this explicit request is admitted. Only Busy
+        // is a proven pre-admission refusal; no unknown/other error is retried.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let response = call(
+                &fixture.paths,
+                "runtime.quit",
+                json!({"instanceId":fixture.instance,
+                "expectedRevision":if after {1} else {0},"operationId":"fixed-quit"}),
+            )
+            .unwrap();
+            if response["ok"] == true {
+                break;
+            }
+            assert_eq!(
+                response["error"]["code"], "busy",
+                "fixed quit response: {response}"
+            );
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
         fixture.shutdown();
         assert!(fixture.joined);
         assert_eq!(
@@ -213,7 +223,6 @@ fn wait_attempt(fixture: &Fixture, state: &str) -> Value {
 }
 
 #[test]
-#[ignore = "combined socket boundary: execute only after primary and independent review"]
 fn automatic_commit_changes_revision_and_store_before_old_resume_context_can_recover() {
     let (mut fixture, network_now, wake, _) = automatic_fixture(false);
     fixture.start();
@@ -232,7 +241,6 @@ fn automatic_commit_changes_revision_and_store_before_old_resume_context_can_rec
 }
 
 #[test]
-#[ignore = "combined socket boundary: execute only after primary and independent review"]
 fn automatic_acknowledgement_cannot_clear_source_lost_network_eligibility() {
     let (mut fixture, network_now, wake, automatic_now) = automatic_fixture(true);
     fixture.start();
@@ -285,7 +293,54 @@ fn controlled() -> (Fixture, Arc<AtomicU64>) {
 }
 
 #[test]
-#[ignore = "constructor/owned fixture boundary: execute only after primary and independent review"]
+fn normal_factory_remains_unregistered_even_with_an_existing_fixture_ready_receipt() {
+    let (mut fixture, _) = controlled();
+    // The explicitly enrolled developer owner is gone before constructing the
+    // normal factory. An on-disk fixture Ready is not implicit enrollment.
+    drop(fixture.server.take());
+    let receipt = fixture
+        .desired
+        .directory
+        .join("network-resume-receipt.json");
+    let before = fs::read(&receipt).unwrap();
+    let server = RuntimeServer::bind_with_owner_factory(fixture.paths.clone(), |_| {
+        production_owner::ProductionNativeOwner::initialize(
+            Host(Arc::clone(&fixture.facts)),
+            fixture.desired.clone(),
+            &fixture.base.join("config/profiles.json"),
+            CutoverPaths::below(
+                &fixture.base.join("runtime"),
+                &fixture.base.join("state"),
+                fixture.uid,
+            ),
+            fixture.uid,
+        )
+    })
+    .unwrap();
+    assert!(server.developer_schedule.is_none());
+    let capabilities = server
+        .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+        .unwrap();
+    assert_eq!(capabilities["ok"], true);
+    assert!(
+        !capabilities["result"]["methods"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(METHOD))
+    );
+    let get = server
+        .dispatch(&make_request("get", METHOD, json!({"instanceId":server.instance_id})).unwrap())
+        .unwrap();
+    assert_eq!(get["error"]["code"], "unknown_method");
+    let observations = fixture.facts.lock().unwrap().observations;
+    server.wake_network_resume();
+    assert_eq!(fixture.facts.lock().unwrap().observations, observations);
+    assert!(fixture.facts.lock().unwrap().calls.is_empty());
+    assert_eq!(fs::read(receipt).unwrap(), before);
+    fixture.server = Some(server);
+}
+
+#[test]
 fn failed_runtime_join_preserves_first_terminal_result_and_owned_evidence_on_drop() {
     let (mut fixture, _) = controlled();
     drop(fixture.server.take());
@@ -304,7 +359,6 @@ fn failed_runtime_join_preserves_first_terminal_result_and_owned_evidence_on_dro
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn private_socket_and_owned_event_source_recover_on_the_same_registered_owner_once() {
     let (mut fixture, now) = controlled();
     fixture.start();
@@ -330,7 +384,6 @@ fn private_socket_and_owned_event_source_recover_on_the_same_registered_owner_on
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn disconnect_accepted_before_effect_wins_and_after_effect_stops_the_one_recovery() {
     for before in [true, false] {
         let (mut fixture, now) = controlled();
@@ -376,7 +429,6 @@ fn disconnect_accepted_before_effect_wins_and_after_effect_stops_the_one_recover
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn pure_get_never_peeks_drains_initializes_or_observes_pending_source() {
     let (mut fixture, _now) = controlled();
     fixture
@@ -403,7 +455,6 @@ fn pure_get_never_peeks_drains_initializes_or_observes_pending_source() {
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn source_eof_gap_partial_timeout_and_clock_regression_are_terminal_without_effects() {
     for failure in 0..4 {
         let (mut fixture, now) = controlled();
@@ -436,7 +487,6 @@ fn source_eof_gap_partial_timeout_and_clock_regression_are_terminal_without_effe
 }
 
 #[test]
-#[ignore = "new socket boundary: execute only after primary and independent review"]
 fn shutdown_terminalizes_network_before_jobs_and_does_not_rearm_from_ready() {
     let (mut fixture, now) = controlled();
     fixture.start();

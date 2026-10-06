@@ -16,6 +16,7 @@ narrow; real sleep/NIC acceptance is not inferred from deterministic tests.
 | One attempt | Existing exact Ready is reserved durably before coordinator invocation; failure/unknown completion never rearms | Real private files, pre/post publication errors, inherited process-death fixture |
 | Shared startup/event barrier | One owner-installed admission and terminal eligibility; legacy startup paths refuse enrollment; both trigger orders recover at most once | Dormant original-coordinator/private-file fixtures; production enrollment remains unavailable |
 | Restart | New owner instance refuses old Ready/Reserved/Finished; missing/lost receipt never initializes Ready | Both dormant trigger paths share refusal; no production identity/provisioning claim |
+| Registered developer service | One original registered owner, private control socket and owned event pair; accepted Disconnect/Quit wins; automatic metadata commit invalidates old resume; ACK cannot clear its guard | Thirteen deterministic constructor/control/event/fault tests run by default; fixed monotonic feature example, not a host subscriber |
 | Real integration | Canonical daemon source subscription, authenticated host event delivery and actual binding proof | Pending; no host bus, service, core or network was contacted |
 | Hardware | Real suspend/resume and physical NIC transition | Pending separate bare-metal gate; VM evidence cannot close it |
 
@@ -168,8 +169,18 @@ The no-argument feature example now prepares a fresh owned fake-host fixture and
 drives the actual RuntimeServer private control socket plus its owned event pair
 on this same registered owner. Its constructor does not build a preliminary
 coordinator to manufacture a snapshot. Ready is seeded only by exclusive fixture
-setup. New executable socket/process evidence must wait for exact-boundary review;
-compilation and earlier offline-guard results are not that acceptance.
+setup. The service and correction boundary received primary and independent review
+at `218502ceb6a938285dea6b6a2d451d8cdda9e674` before executable socket tests.
+Compilation and earlier offline-guard results were not borrowed as acceptance.
+The first actual twelve-case matrix on that head returned eleven passes and one
+Quit-response assertion failure. The original assertion did not retain the
+refusal code; a detailed Quit-only diagnostic successor passed. The corrected
+caller waits at most two seconds through only the documented pre-admission Busy
+response, with identical operation/revision, and stops on every other error or
+I/O loss. Its twelve-case matrix and no-argument monotonic example passed. The
+thirteen promoted tests additionally prove that normal factory registration
+does not infer enrollment from an existing fixture Ready. Exact final-head
+combined/workspace/CI results belong to the integration PR, not these earlier pins.
 
 ## Fixed developer entry
 
