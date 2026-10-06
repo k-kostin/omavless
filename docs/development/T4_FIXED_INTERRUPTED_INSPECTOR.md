@@ -362,3 +362,20 @@ This deliberately does not invoke `current()`'s installed-login/package-image
 identity constructor and is not acceptance of the existing application store,
 private profiles, normal login, rollback or recovery. Its ROOT-operated result
 and exact test ELF/helper review remain pending separately from this source.
+
+ROOT's first isolated review19 helper preparation completed zero, while its
+original ignored test returned101 before singleton/owner construction. The
+pre-scoped two-file observer reported only `inventory_refused`, with no success
+marker/harness. That immutable scope is not retried or cleaned up. A separate
+read-only real-unit query under the selector's exact private XDG runtime failed
+to connect to the user scope bus. This is an environment/query prerequisite
+failure, not a service-active or native pair-engine result.
+
+The fresh test-only review20 successor keeps the real ambient
+`XDG_RUNTIME_DIR=/run/user/1000` for unchanged systemctl transport. Existing
+explicit `below` constructors bind only the fixture singleton/Desired/cutover
+paths to their separate fixed namespace; native backend/query policy is not
+changed or wrapped. It also projects only the SAME original observer constructor
+or verification error into a closed stage+enum label before refusal. No extra
+probe, retry, acceptance change, bus symlink or installed-store access is added.
+Fresh exact source/helper/build reviews and actual selection remain separate.

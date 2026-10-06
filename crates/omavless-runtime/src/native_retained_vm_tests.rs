@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 const UID: u32 = 1000;
 const HOME: &str = "/home/kdk_vm";
-const ROOT: &str = "/home/kdk_vm/.cache/t4-native-retained-owner-review19";
-const RUNTIME: &str = "/run/user/1000/t4n19";
+const ROOT: &str = "/home/kdk_vm/.cache/t4-native-retained-owner-review20";
+const RUNTIME: &str = "/run/user/1000/t4n20";
 const CORE: &str = "/usr/lib/omavless-dns/mihomo";
 const OPT_IN: &str = "OMAVLESS_TEST_T4_NATIVE_RETAINED_VM";
 const PASSWORD: &[u8] = b"public isolated native-owner fixture passphrase";
@@ -91,6 +91,58 @@ fn empty(facts: crate::lifecycle::NativeLocalObservation) -> bool {
         && !facts.desired_profile_matches_owned
 }
 
+fn observer_refusal(
+    construction: bool,
+    error: crate::production_observation::ProductionObservationError,
+) -> &'static str {
+    use crate::production_observation::ProductionObservationError as E;
+    macro_rules! label {
+        ($category:literal) => {
+            if construction {
+                concat!(
+                    "fixed_native_vm_inventory_constructor_",
+                    $category,
+                    "_refused"
+                )
+            } else {
+                concat!("fixed_native_vm_inventory_verify_", $category, "_refused")
+            }
+        };
+    }
+    match error {
+        E::UnsafePath => label!("unsafe_path"),
+        E::ServiceQuery => label!("service_query"),
+        E::ServiceResponse => label!("service_response"),
+        E::PrivateState => label!("private_state"),
+        E::HostNotEmpty => label!("host_not_empty"),
+        E::IncompleteInventory => label!("incomplete_inventory"),
+        E::Cutover(_) => label!("cutover"),
+    }
+}
+
+#[test]
+fn fixed_native_vm_original_observer_error_projection_is_closed_and_stage_bound() {
+    use crate::production_observation::ProductionObservationError as E;
+    for (error, category) in [
+        (E::UnsafePath, "unsafe_path"),
+        (E::ServiceQuery, "service_query"),
+        (E::ServiceResponse, "service_response"),
+        (E::PrivateState, "private_state"),
+        (E::HostNotEmpty, "host_not_empty"),
+        (E::IncompleteInventory, "incomplete_inventory"),
+        (E::Cutover(CutoverError::Io), "cutover"),
+    ] {
+        assert_eq!(
+            observer_refusal(true, error),
+            format!("fixed_native_vm_inventory_constructor_{category}_refused")
+        );
+        assert_eq!(
+            observer_refusal(false, error),
+            format!("fixed_native_vm_inventory_verify_{category}_refused")
+        );
+    }
+}
+
 #[test]
 fn fixed_native_vm_identity_is_not_an_ambient_opt_in() {
     let h = Some(std::ffi::OsStr::new(HOME));
@@ -127,26 +179,16 @@ fn isolated_installed_host_native_retained_pair_commit() {
     let fixture_home = root.join("home");
     let state_base = root.join("state");
     let config = fixture_home.join(".config/omavless");
-    let runtime = RuntimePaths::current().expect("fixed_native_vm_runtime_refused");
-    let expected_runtime = RuntimePaths::below(Path::new(RUNTIME));
-    let desired = DesiredPaths::current().expect("fixed_native_vm_desired_refused");
-    let cutover = CutoverPaths::current(UID).expect("fixed_native_vm_cutover_refused");
+    // Real systemctl uses the ambient user's systemd/private transport. Keep it
+    // real while isolating only the explicitly constructed owner filesystem.
     assert!(
-        runtime == expected_runtime,
+        std::env::var_os("XDG_RUNTIME_DIR").as_deref()
+            == Some(std::ffi::OsStr::new("/run/user/1000")),
         "fixed_native_vm_runtime_binding_refused"
     );
-    assert!(
-        desired == DesiredPaths::below(&state_base),
-        "fixed_native_vm_state_binding_refused"
-    );
-    let expected_cutover = CutoverPaths::below(Path::new(RUNTIME), &state_base, UID);
-    assert!(
-        cutover.runtime_base == expected_cutover.runtime_base
-            && cutover.operation_lock == expected_cutover.operation_lock
-            && cutover.ownership_marker == expected_cutover.ownership_marker
-            && cutover.state_directory == expected_cutover.state_directory,
-        "fixed_native_vm_cutover_binding_refused"
-    );
+    let runtime = RuntimePaths::below(Path::new(RUNTIME));
+    let desired = DesiredPaths::below(&state_base);
+    let cutover = CutoverPaths::below(Path::new(RUNTIME), &state_base, UID);
     assert!(
         [
             root,
@@ -182,12 +224,11 @@ fn isolated_installed_host_native_retained_pair_commit() {
         Path::new("/sys/class/net").to_owned(),
         UID,
     );
-    assert!(
-        ProductionOwnershipObserver::new(observed, UID)
-            .and_then(|o| o.verify_native_empty())
-            .is_ok(),
-        "fixed_native_vm_inventory_refused"
-    );
+    let observer = ProductionOwnershipObserver::new(observed, UID)
+        .unwrap_or_else(|error| panic!("{}", observer_refusal(true, error)));
+    observer
+        .verify_native_empty()
+        .unwrap_or_else(|error| panic!("{}", observer_refusal(false, error)));
     let core = fs::symlink_metadata(CORE).expect("fixed_native_vm_installed_core_refused");
     assert!(
         core.is_file()
