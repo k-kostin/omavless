@@ -46,6 +46,10 @@ struct Facts {
     observe_change: Option<(usize, OwnedObservation)>,
     #[cfg(test)]
     panic_at: Option<usize>,
+    #[cfg(test)]
+    first_connect: bool,
+    #[cfg(test)]
+    connect_event: Option<UnixStream>,
 }
 struct Host(Arc<Mutex<Facts>>);
 impl LifecycleHost for Host {
@@ -69,6 +73,24 @@ impl LifecycleHost for Host {
     }
     fn prepare(&mut self, desired: &DesiredState) -> std::result::Result<(), HostStepError> {
         let mut facts = self.0.lock().map_err(|_| HostStepError::Prepare)?;
+        #[cfg(test)]
+        if facts.first_connect {
+            if !desired.connected
+                || desired.profile_id != PROFILE
+                || desired.mode != RoutingMode::Rule
+                || facts.target.connected
+                || facts.target.generation.checked_add(1) != Some(desired.generation)
+            {
+                return Err(HostStepError::Prepare);
+            }
+            facts.first_connect = false;
+            facts.target = desired.clone();
+            if let Some(mut sender) = facts.connect_event.take() {
+                // Optional event delivery cannot turn a completed user Connect
+                // into a failure; the original source check handles loss.
+                let _ = writeln!(sender, "{}", json!({"sequence":1,"kind":"NetworkChanged"}));
+            }
+        }
         if desired != &facts.target {
             return Err(HostStepError::Prepare);
         }
@@ -128,7 +150,7 @@ impl ResumeBinding for Host {
     }
 }
 
-struct Fixture {
+pub(crate) struct Fixture {
     base: PathBuf,
     paths: RuntimePaths,
     desired: DesiredPaths,
@@ -304,6 +326,10 @@ impl Fixture {
             observe_change: matches!(initial, Initial::HealthyThenEmpty).then_some((2, empty())),
             #[cfg(test)]
             panic_at: None,
+            #[cfg(test)]
+            first_connect: false,
+            #[cfg(test)]
+            connect_event: None,
         }));
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server = RuntimeServer::bind_network_fixture(
@@ -412,5 +438,7 @@ pub(crate) fn run() -> Value {
         "revision":result["revision"],"intentPreserved":intent.connected})
 }
 
+#[cfg(test)]
+pub(crate) mod connect_enrollment;
 #[cfg(test)]
 mod tests;

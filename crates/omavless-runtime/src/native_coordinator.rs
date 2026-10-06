@@ -21,6 +21,8 @@ pub use batch::{
 };
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 #[cfg(any(test, feature = "network-resume-fixture"))]
+pub(crate) mod network_enrollment;
+#[cfg(any(test, feature = "network-resume-fixture"))]
 #[path = "native_coordinator/network_resume.rs"]
 pub(crate) mod network_resume;
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
@@ -1322,6 +1324,38 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: OwnerRequest,
     ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_connection_impl(
+            request,
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            None,
+        )
+    }
+
+    #[cfg(any(test, feature = "network-resume-fixture"))]
+    pub(crate) fn execute_connection_with_source(
+        &mut self,
+        request: OwnerRequest,
+        source: &mut crate::network_resume::Source,
+        clock: &crate::developer_network_resume::Clock,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError>
+    where
+        H: network_resume::ResumeBinding,
+    {
+        self.execute_connection_impl(
+            request,
+            Some(network_enrollment::ConnectEnrollmentBorrow::new(
+                source, clock,
+            )),
+        )
+    }
+
+    fn execute_connection_impl(
+        &mut self,
+        request: OwnerRequest,
+        #[cfg(any(test, feature = "network-resume-fixture"))] enrollment: Option<
+            network_enrollment::ConnectEnrollmentBorrow<'_, H>,
+        >,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
         let (action, operation_id, expected_revision, digest) = request.into_parts();
         let admission = self.admit(
             action.kind(),
@@ -1357,7 +1391,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         // Cancellation changes no host policy and never affects manual batches.
         if matches!(action, OwnerAction::Disconnect) {
             let _ = self.cancel_automatic_subscription_refresh();
+            #[cfg(any(test, feature = "network-resume-fixture"))]
+            self.cancel_connect_enrollment();
         }
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        let awaiting = if matches!(action, OwnerAction::Connect { .. }) {
+            self.begin_connect_enrollment(&lock)
+        } else {
+            None
+        };
         let completion = match action {
             OwnerAction::Connect { profile_id, mode } => {
                 self.transaction.connect(&lock, profile_id, mode)
@@ -1365,7 +1407,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             OwnerAction::Disconnect => self.transaction.disconnect(&lock),
             OwnerAction::SetMode { mode } => self.transaction.set_mode(&lock, mode),
         };
-        match completion {
+        let result = match completion {
             Completion::Ordinary(outcome) => self.finish(
                 token,
                 outcome
@@ -1376,7 +1418,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             Completion::CommittedFailure(error) => {
                 self.finish(token, Err(NativeTransactionError::Connection(error)), true)
             }
-        }
+        };
+        #[cfg(any(test, feature = "network-resume-fixture"))]
+        self.complete_connect_enrollment(&lock, awaiting, enrollment, &result);
+        result
     }
 
     pub fn execute_profile(
