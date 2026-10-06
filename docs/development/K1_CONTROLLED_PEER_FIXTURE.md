@@ -402,3 +402,42 @@ origin/type of those four denied packets is not yet established. They must not
 be ignored or attributed to the managed core without evidence. No original
 reaps, held-input postchecks, cleanup, coverage issuance or whole-run PASS are
 claimed for Numeric21.
+
+## Complete numeric runtime gate — Numeric22
+
+At fresh disposable-VM boot `ff77d9af-ce71-4438-8f2c-e1a53eebae3a`,
+Numeric22 constrains only its two newly created, initially DOWN IPv4 fixture
+veth interfaces: disable IPv6, require exact readback, and bind both interface
+indices to the original root/held-peer namespace identities. Runtime rechecks
+that fresh root-owned record before starting the core and after the census.
+No physical interface, TUN or global/default IPv6 policy is modified. The
+collector, parser, nft expressions, DROP verdicts and `wrong_peer == 0`
+postcondition are unchanged. This is a fixture correction, not attribution
+of Numeric21's four denied packets or a production IPv6 exception.
+
+Runtime source SHA256 is
+`154ff1d910ce3b520e1f7fca27c81e8d0f87776034e6f0f62f7a8dc55a8794b1`;
+network preparation SHA256 is
+`685ad2754f5ed749c54c4f7e3423f47ec3962701445b4a3b9ec1409a64bee3d5`.
+Primary and independent changed-boundary review passed, as did 36 bound-source
+controls and three transport-binding controls. File staging, fixed private
+input provisioning, normal broker start and network preparation each completed
+separately before runtime selection.
+
+Actual runtime selection returned originalSSH0 (`ea645b`) and
+`K1_NUMERIC_ORIGINAL_ZERO_CENSUS`: 48 complete socket generations, 266 events,
+one positively bound TUN queue, broker peer, UDP control, marked outer TCP
+connection and accepted inner connection. Four outer sends were observed.
+Packet deltas were `outer_ok=8`, `inner_ok=5`, `inner_return=5`,
+`wrong_peer=0`, `other_drop=12`; the exact fixture INPUT rule advanced five
+packets/325 bytes and foreign INPUT structure remained equal. Original
+core/peer/trigger/observer zero statuses, held-input and veth postchecks,
+and all four original reaps completed in the same supervisor.
+
+A separate bounded projection returned originalSSH0 (`9f8377`). The private
+15,236-byte trace SHA256 is
+`b799b8a1f883c253c9ef92d3d59e635fa67e6a8ffb480374eaf0256f60c9271c`;
+core, observer, peer and trigger stderr were empty. This closes the fixed
+numeric end-to-end gate, not the DNS/negative matrix, production coverage
+issuer, NetGuard Arm/Disarm or native protected lifecycle. Fixture firewall
+rules/interfaces remain; no cleanup or product recovery is inferred.
