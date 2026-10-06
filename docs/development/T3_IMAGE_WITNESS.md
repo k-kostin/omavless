@@ -480,14 +480,18 @@ production's no-TUN refusal is NOT replaced with a test exception. Effect chunks
 definitive finish, cancellation/expiry, sticky refusal and exact receipt replay
 use the unchanged original flight and qualified-pair graph.
 
-The next attended gate uses ROOT's independently reviewed isolated PID/mount/net
-namespace/private HOME and actual installed runtime/core/broker binaries,
-fixed enrollment and helper privilege. It must construct the ordinary native
-owner, observe genuine owned TUN/broker facts, then exercise the real CLI/TUI's
-single selected close, other-stream echo, exact receipt and unchanged desired
-bytes. Original helper/runtime/client statuses and fresh source-drift/refusal
-checks remain necessary. No global unit activation is needed or authorized by
-this source; no unit/install/enrollment writer or default grant is shipped here.
+The next attended gate must use a private MOUNT but the original VM PID/net,
+real user-manager/resolve1/broker and standard HOME. A new PID/net/private-HOME
+fixture cannot supply the genuine root broker and current-manager login receipt;
+copying marker/receipt bytes into it would not grant a second owner. Standard
+ownership state and the authentic consumed receipt must remain untouched. Fixed
+development binary/helper enrollment and synthetic config/cache may be overlaid
+only through a separately reviewed VM-only packet. It must construct the ordinary
+native owner, observe genuine owned TUN/broker facts, then exercise the real
+CLI/TUI's single selected close, other-stream echo, exact receipt and unchanged
+desired bytes during close. Original helper/runtime/client statuses remain
+necessary. No global normal-runtime activation is authorized by this source;
+no unit/install/enrollment writer or default grant is shipped here.
 An unavailable helper or spent epoch requires explicit developer administration,
 not an implicit restart or proof reconstruction. Installed acceptance and default
 release exposure remain pending until the new exact-head boundaries are reviewed
@@ -502,3 +506,24 @@ Clippy, formatting and whitespace checks passed. These controls did not execute
 a privileged helper, grant enrollment, install/activate a service, or perform
 the pending installed-development scenario. The earlier c9 actual result stays
 bound to its unchanged compiled images, not this source successor.
+
+Exact source8fdd012f3d4ced47b2f15e41d2e71bc3f13d6dfe then passed its own
+default-TUI/developer-image-witness library suite from an immutable copied ELF:
+original83664/completion45b0fb EXIT0,1144 passed,0 failed,44 ignored,1188 total
+in2538.82s. Image249917864 bytes/SHA256
+`a409964e31c9128fdddd92677e00e401e14c8e71918c9eeafd5d719ebb6b5050`;
+durable stdout134765 bytes/SHA256
+`d8c9860bcb215c1d5c755a99501b65aec4b02f0c9dee5f742699d641d5a585ae`,
+stderr empty. No active test image was rebuilt and no ignored actual gate ran.
+This is source-test evidence, not installed service, TUN/broker or UI acceptance.
+
+ROOT's separately reviewed standard-context read-only observation7c6b37 returned
+originalSSH0: committed Rust marker and fixed packaged/inactive units, standard
+manager roots and pre/post identities passed; the current login receipt was
+ABSENT. No owner was constructed or state changed. A new legitimate packaged
+login-prepare oneshot, conditional on verified disabled startup and actual Off
+intent, is proposed to issue the authentic current-manager receipt without
+starting the normal runtime or rewriting profiles. The new boot, actual installed
+binary identity, private snapshot guards and completion/post-receipt checks must
+be reviewed before selection. Matching diagnostic booleans are not admission;
+the future foreground runtime still enforces its ordinary locks and receipt.
