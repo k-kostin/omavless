@@ -435,7 +435,7 @@ closure remain open. Prior capless/CLI/Foot evidence belongs to its own exact
 heads; these two new gates neither replace it nor borrow its broader claims.
 Raw captures/private packets stayed outside Git. All scopes3/4/5 stay NONPASS.
 
-## Explicit installed-development class — new SOURCE, actual gate pending
+## Explicit installed-development class — SOURCE and scoped actual gate
 
 This successor does not borrow the c9 test-ELF acceptance. With the same
 non-default developer-image-witness feature, only exact
@@ -527,3 +527,52 @@ starting the normal runtime or rewriting profiles. The new boot, actual installe
 binary identity, private snapshot guards and completion/post-receipt checks must
 be reviewed before selection. Matching diagnostic booleans are not admission;
 the future foreground runtime still enforces its ordinary locks and receipt.
+
+## Installed-development original-owner checkpoint
+
+Tested source is `8fdd012f3d4ced47b2f15e41d2e71bc3f13d6dfe`, not this
+documentation successor. The actual primary executable was 8,710,904 bytes,
+SHA256 `9fb9f44ee29a2b642a96526816a294953a8fb0cdf1274ff09540da1cb870d6e3`;
+the separately compiled helper was 573,088 bytes,
+SHA256 `e57aef8a2e34a8d9d011949a8522652830dda41306241b85126be0495501a899`.
+Full primary/independent source review and the fresh packet's 13 inert controls
+preceded ROOT's sole operation of the disposable x86_64 Omarchy VM.
+
+The actual gate used a private mount namespace only: original PID/net/user
+namespaces, standard HOME, real user manager and resolve1/broker, committed Rust
+ownership and genuinely issued current-manager login receipt. Synthetic profile
+and template overlays preserved the underlying private configuration. The
+parent-owned capability-enabled core created a genuine TUN without changing the
+VM's default route. The helper was bound to that same original core and retained
+Session; no fixture permit, copied receipt or alternate coordinator was used.
+
+ROOT's original run `64334` completed `2014e2`, SSH exit0, with the exact
+`T3_INSTALLED_USER_FLOW_ORIGINAL_ZERO` and
+`T3_INSTALLED_ORIGINAL_OWNER_HELPER_CLI_TUN_CLOSE_VERIFIED` markers after the
+supervisor's full original-status and postcondition checks. The real primary
+TUI displayed two loopback echo connections. Reviewing and cancelling A did
+not close it. Selecting B, reviewing its full target and confirming once
+produced Pending; explicit `u` resolved the original receipt to Closed. The
+adaptive terminal sequence took 2.472 seconds; neither the five-second selection
+window nor the helper's thirty-second initial wait was extended.
+
+The original user-flow then verified B EOF, A echo and byte-identical desired
+On intent during close; original helper exit0; normal native disconnect with
+Off intent, absent TUN and restored original mode; semantic native quit and
+original runtime/client exit0. Underlying private configuration, package
+objects, ownership/current receipt and foreign rules remained unchanged.
+Actual follow-up observation confirmed inactive normal runtime units and no TUN.
+Raw captures and VM recipes remain private outside Git.
+
+Earlier installed attempts remain NONPASS: the first exposed an unsearchable
+root0700 helper parent (corrected to root0755 without weakening socket ACLs),
+one refused before application effects because the normal broker was inactive,
+and later attempts did not complete within the existing helper/selection bounds.
+Separate disposable-VM administrative shutdowns are not successful product
+cleanup or recovery. These outcomes were not reclassified by the new PASS.
+
+This closes the scoped installed-development original-owner/helper/CLI/TUN
+selected-close gate. Default helper distribution and enrollment, default public
+close registration, released-package/frontend acceptance, ARM64 and whole T3/C1
+remain separate. Cancellation also exposed a minor stale confirmation notice
+in the otherwise-correct row list; that UI follow-up is not hidden by acceptance.
