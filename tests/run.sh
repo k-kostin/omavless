@@ -3,6 +3,19 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_actor_state_export.py" \
+  "$here/test_terminal_envelope_export.py" \
+  "$here/test_prepared_local_reply_export.py" \
+  "$here/test_t4_delivery_command.py" \
+  "$here/test_t4_startup_followup.py" \
+  "$here/test_t4_cli_lineage.py" \
+  "$here/test_t4_cli_root_guard.py" \
+  "$here/test_t4_cli_deadline_boundaries.py" \
+  "$here/test_t4_startup_inventory.py" \
+  "$here/test_first_abort_cli.py" \
+  "$here/test_first_abort_root_vm_guard.py" \
+  "$here/test_first_abort_vm_guard.py" \
+  "$here/test_first_restore_owner_execution.py" \
   "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \
   "$here/test_native_launcher_no_python.py" \
@@ -21,6 +34,9 @@ python3 -m unittest -v \
   "$here/test_installed_native_package.py" \
   "$here/test_installed_python_mask.py" \
   "$here/test_human_authorization.py" \
+  "$here/test_k1_launch_fixture_boundary.py" \
+  "$here/test_system_historical_off_boundary.py" \
+  "$here/test_normal_close_scheduling_boundary.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_native_live_protocol_validation.py" \
   "$here/test_native_dns_readback.py" \
@@ -33,6 +49,7 @@ python3 -m unittest -v \
   "$here/test_dns_core_packet_probe.py" \
   "$here/test_dns_core_broker_probe.py" \
   "$here/test_dns_broker_composition_probe.py" \
+  "$here/test_journal_fork_lock.py" \
   "$here/dns_broker_host/test_unit.py" \
   "$here/dns_broker_host/package/test_package.py" \
   "$here/test_staged_native_unit_acceptance.py" \

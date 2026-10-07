@@ -1,0 +1,53 @@
+{
+  "schema": "t4-terminal-envelope-source-evidence-v1",
+  "product_dependency": false,
+  "automatic_patch_application": false,
+  "baseline": "0a0c958cd823b5be70abd38cf8def36b1554a089",
+  "checked_count_source": "f53aff5b40663fcf6a4c1fa55606d902c876f715",
+  "source": "79975b10a0c21aa008bb6a8941459beb9bf35d2e",
+  "patches": {
+    "terminal-source-79975b1.patch": {
+      "bytes": 18823,
+      "sha256": "e836be063215e738b346c741f0ce7f4dbd1d15bd5b2df54bc0a99a7c1f3f937c"
+    },
+    "terminal-docs-79975b1.patch": {
+      "bytes": 1597,
+      "sha256": "5b8a3a8267685e266a036bf8b2873588e76644afc114e6ed1d05e8c08bed5f36"
+    }
+  },
+  "result_files": {
+    "rustix-1.1.5/src/backend/libc/net/syscalls.rs": "044780f2f298e7212a050b91535074ad57e01ba676511f08ebfe1c2590b9c6a1",
+    "rustix-1.1.5/src/backend/linux_raw/net/syscalls.rs": "58d74def4bffccba76ba35ef3f270b5bd97861e19400372e571c914ccc81d658",
+    "rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs": "7fad1c7534b9f69a825db05a73e0fecf78e326a0a72e1ecbe946729768e14187",
+    "rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs": "7ff24b57371f78d966a3b17c11c5aeddb57af408e382cb00412c20df8c7b875d"
+  },
+  "recipe_sha256": "c8885083ceb3afe596d44ef32f594e363bc7fa6929f87b543ba47b39798ab34f",
+  "recipe_review_sha256": "7b3c49db19d6a5aa42043854ff0080d864bbb1e5cb2e4d6a720fd37a758700c0",
+  "root_selection": "82cbc6/session25686/a8f693",
+  "root_post_zero_gate": "a0ae9b",
+  "original_terminal_exit": 0,
+  "aggregate_literal": "T4_TERMINAL_DOCS_RAW7_LIBC8_KNOWN_ZERO\n",
+  "target": "x86_64-unknown-linux-gnu",
+  "compile": "offline locked lib no-run jobs-2; unchanged full private harness",
+  "backends": {
+    "linux_raw": {"compiled": true, "pure_controls_passed": 7},
+    "use-libc": {"compiled": true, "pure_controls_passed": 8}
+  },
+  "terminal_test_prefix": "net::send_recv::msg::owned_ancillary_experiment::preallocated::terminal::tests::",
+  "terminal_tests": [
+    "whole_scratch_is_initialized_without_claiming_reported_length",
+    "error_after_synthetic_writes_retains_exact_storage_and_all_capacities",
+    "all_error_length_relations_stay_opaque_without_decoder_or_owners",
+    "success_with_unbounded_length_is_quarantined_not_decoded",
+    "empty_success_preserves_storage_and_has_only_success_frame_access",
+    "unsupported_flags_refuse_before_backend_entry",
+    "unexpected_backend_unwind_does_not_drop_or_reuse_attempt_context"
+  ],
+  "libc_extra_test": "backend::net::syscalls::terminal_header_count_refuses_narrowing_without_syscall",
+  "actual_receive_selected": false,
+  "descriptor_callbacks_selected": false,
+  "musl_compiled": false,
+  "unknown_fd_recovery_proven": false,
+  "installed_unreported_fd_ownership_proven": false,
+  "whole_t4_accepted": false
+}

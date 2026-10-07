@@ -31,6 +31,146 @@ EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFile
 
 
 class PackageTests(unittest.TestCase):
+    def test_four_family_requires_actual_device_test_not_zero_case_metadata(self):
+        package = next(iter(build_pair.DEVICE_TESTS))
+        name = next(iter(build_pair.DEVICE_TESTS[package]))
+        events = [{"Action":"start","Package":package},
+                  {"Action":"run","Package":package,"Test":name},
+                  {"Action":"pass","Package":package,"Test":name},
+                  {"Action":"pass","Package":package}]
+        wire = lambda xs: b"".join(json.dumps(x).encode()+b"\n" for x in xs)
+        build_pair.tests_completed(wire(events),build_pair.DEVICE_TESTS)
+        for cut in range(len(events)):
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(events[:cut]+events[cut+1:]),build_pair.DEVICE_TESTS)
+        for bad in (events+events,list(reversed(events)),events[:1]+events[-1:]):
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(bad),build_pair.DEVICE_TESTS)
+        for action in ("skip","fail"):
+            changed=[dict(e) for e in events];changed[2]["Action"]=action
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(changed),build_pair.DEVICE_TESTS)
+
+    def test_four_family_is_exact_and_crosses_no_legacy_or_three_family_consent(self):
+        path=self.pair/"source-receipt.json";receipt=json.loads(path.read_text())
+        receipt.update(schema=stage.K1_CLOSE_SCHEMA,package_flavor="release-close-k1",broker_feature="k1-managed-device",
+            patch_sha256=stage.K1_CLOSE_PATCHES,conditional_close_abi=1,go_cgo=False,go_buildvcs=False,
+            go_build_tags="with_gvisor,omavless_k1_device",managed_device="omavless0",
+            enrollment_policy="omavless0-ipv4-development-v1",managed_device_source=stage.K1_SOURCE)
+        src=self.pair/"corresponding-source.tar.xz";rebuilt=io.BytesIO()
+        with tarfile.open(src,"r:xz") as old, tarfile.open(fileobj=rebuilt,mode="w:xz") as new:
+            for m in old:new.addfile(m,old.extractfile(m) if m.isfile() else None)
+            for name in ("hub/route/connections.go","hub/route/conditional_close_test.go","tunnel/statistic/manager.go",
+                "tunnel/statistic/tracker.go","tunnel/statistic/conditional_close_test.go",
+                "listener/sing_tun/system_dns_device_k1.go","listener/sing_tun/system_dns_device_legacy.go",
+                "listener/sing_tun/system_dns_device_test.go"):
+                body=b"public source presence fixture";m=tarfile.TarInfo("mihomo/"+name);m.size=len(body);new.addfile(m,io.BytesIO(body))
+        src.write_bytes(rebuilt.getvalue());receipt["sha256"]["corresponding-source.tar.xz"]=hashlib.sha256(rebuilt.getvalue()).hexdigest()
+        path.write_text(json.dumps(receipt))
+        stage.reviewed_pair(self.pair,"aarch64","a"*40,"release-close-k1")
+        with mock.patch.object(stage,"outside_git_destination",side_effect=lambda p:Path(p)):
+            release_stage.stage(self.pair,"aarch64","a"*40,self.root/"four","k1-close-qualified")
+        for flavor in ("experimental","release","release-close"):
+            with self.assertRaises(stage.Refused):stage.reviewed_pair(self.pair,"aarch64","a"*40,flavor)
+        for key,bad in (("go_build_tags","with_gvisor"),("broker_feature","release-package"),
+            ("managed_device","Meta"),("enrollment_policy","meta-ipv4-release-v1"),
+            ("managed_device_source","a"*40),("conditional_close_abi",True)):
+            changed=dict(receipt);changed[key]=bad;path.write_text(json.dumps(changed))
+            with self.assertRaises(stage.Refused):stage.reviewed_pair(self.pair,"aarch64","a"*40,"release-close-k1")
+        self.assertEqual(build_pair.digest(build_pair.PATCHES/"mihomo-k1-device.patch"),stage.K1_PATCH)
+        self.assertEqual(stage.pair_policy("release-close")[2],stage.CLOSE_PATCHES)
+
+    def test_qualified_public_source_failure_is_fixed_phase_bounded_and_legacy_quiet(self):
+        from types import SimpleNamespace
+        result=SimpleNamespace(returncode=1,stderr=b"public compiler error\x1b"+b"x"*20000,stdout=b"public output")
+        output=io.StringIO()
+        with mock.patch.object(build_pair.subprocess,"run",return_value=result), mock.patch.object(build_pair.sys,"stderr",output):
+            with self.assertRaises(stage.Refused):
+                build_pair.command(["/usr/bin/cargo","build"],public_diagnostics=True)
+        text=output.getvalue()
+        self.assertIn("phase=broker-build",text);self.assertNotIn("\x1b",text)
+        self.assertIn("diagnostic_truncated",text);self.assertLess(len(text),16550)
+        output=io.StringIO()
+        with mock.patch.object(build_pair.subprocess,"run",return_value=result), mock.patch.object(build_pair.sys,"stderr",output):
+            with self.assertRaises(stage.Refused):build_pair.command(["/usr/bin/cargo","build"])
+        self.assertEqual(output.getvalue(),"")
+        with mock.patch.object(build_pair.subprocess,"run",side_effect=subprocess.TimeoutExpired([],1,stderr=b"public timeout")), mock.patch.object(build_pair.sys,"stderr",output):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                build_pair.command(["/usr/bin/go","test"],public_diagnostics=True)
+        self.assertIn("phase=dns-tests timeout",output.getvalue())
+
+    def test_qualified_compiler_tmpdir_is_short_private_home_child_without_mutation(self):
+        from types import SimpleNamespace
+        uid=os.getuid()
+        metadata=SimpleNamespace(st_uid=uid,st_mode=0o40700)
+        with mock.patch.object(Path,"lstat",return_value=metadata), mock.patch.object(os,"mkdir") as create:
+            self.assertEqual(build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":"/home/test/t"}),"/home/test/t")
+            for path in ("/tmp/t","relative","/home/test/extra/t","/home/test/"+"x"*40):
+                with self.assertRaises(stage.Refused):
+                    build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":path})
+            create.assert_not_called()
+        for mode in (0o40755,0o40777,0o120700,0o100700):
+            with mock.patch.object(Path,"lstat",return_value=SimpleNamespace(st_uid=uid,st_mode=mode)):
+                with self.assertRaises(stage.Refused):
+                    build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":"/home/test/t"})
+
+    def test_distinct_close_pair_mode_never_promotes_legacy_dns_receipt(self):
+        path = self.pair / "source-receipt.json"
+        receipt = json.loads(path.read_text())
+        receipt.update(package_flavor="release", broker_feature="release-package")
+        path.write_text(json.dumps(receipt))
+        with mock.patch.object(stage, "outside_git_destination", side_effect=lambda p: Path(p)):
+            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-release")
+            with self.assertRaises(stage.Refused):
+                release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-close", "close-qualified")
+            receipt.update(schema=stage.CLOSE_SCHEMA, package_flavor="release-close",
+                           patch_sha256=stage.CLOSE_PATCHES, conditional_close_abi=1,
+                           go_cgo=False, go_buildvcs=False)
+            # Source-presence fixture only, not actual compilation/attestation.
+            source_path=self.pair/"corresponding-source.tar.xz"
+            rebuilt=io.BytesIO()
+            with tarfile.open(source_path,"r:xz") as old, tarfile.open(fileobj=rebuilt,mode="w:xz") as new:
+                for member in old:
+                    new.addfile(member,old.extractfile(member) if member.isfile() else None)
+                for name in ("hub/route/connections.go","hub/route/conditional_close_test.go",
+                             "tunnel/statistic/manager.go","tunnel/statistic/tracker.go",
+                             "tunnel/statistic/conditional_close_test.go"):
+                    member=tarfile.TarInfo("mihomo/"+name);body=b"public source fixture";member.size=len(body)
+                    new.addfile(member,io.BytesIO(body))
+            source_path.write_bytes(rebuilt.getvalue())
+            receipt["sha256"]["corresponding-source.tar.xz"]=hashlib.sha256(rebuilt.getvalue()).hexdigest()
+            path.write_text(json.dumps(receipt))
+            with self.assertRaises(stage.Refused):
+                release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "implicit-close")
+            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "qualified", "close-qualified")
+        for key, bad in (("conditional_close_abi", True), ("conditional_close_abi", 2),
+                         ("go_cgo", True), ("go_buildvcs", True), ("production_adoption", True)):
+            altered = dict(receipt); altered[key] = bad
+            path.write_text(json.dumps(altered))
+            with self.assertRaises(stage.Refused):
+                stage.reviewed_pair(self.pair, "aarch64", "a" * 40, "release-close")
+        self.assertEqual(build_pair.digest(build_pair.PATCHES / "mihomo-conditional-close.patch"), stage.CLOSE_PATCH)
+        self.assertEqual(len(build_pair.PATCH_SHA), 2)
+
+    def test_conditional_production_test_receipt_requires_every_original_case(self):
+        events = []
+        for package, names in build_pair.CONDITIONAL_TESTS.items():
+            events.append({"Action": "start", "Package": package})
+            for name in sorted(names):
+                events.extend([{"Action": "run", "Package": package, "Test": name},
+                               {"Action": "pass", "Package": package, "Test": name}])
+            events.append({"Action": "pass", "Package": package})
+        wire = lambda xs: b"".join(json.dumps(x).encode()+b"\n" for x in xs)
+        build_pair.conditional_tests_completed(wire(events))
+        for cut in range(len(events)):
+            with self.assertRaises(stage.Refused):
+                build_pair.conditional_tests_completed(wire(events[:cut]+events[cut+1:]))
+        for action in ("skip", "fail"):
+            changed = [dict(e) for e in events]; changed[2]["Action"] = action
+            with self.assertRaises(stage.Refused): build_pair.conditional_tests_completed(wire(changed))
+        for bad in ([], events+events, events[:-1], events[1:], list(reversed(events))):
+            with self.assertRaises(stage.Refused): build_pair.conditional_tests_completed(wire(bad))
+
     def test_native_ci_emits_the_reviewed_package_extension_on_both_arches(self):
         script_path = ROOT / "build-ci.sh"
         script = script_path.read_text()
@@ -129,7 +269,7 @@ class PackageTests(unittest.TestCase):
         hook = (destination / "omavless-dns.hook").read_text()
         script = (destination / "omavless-dns.install").read_text()
         self.assertIn("pkgname=omavless-dns\n", recipe)
-        self.assertIn("pkgver=0.9.8beta1\n", recipe)
+        self.assertIn("pkgver=0.9.8beta2\n", recipe)
         self.assertIn("conflicts=('omavless-dns-experimental')", recipe)
         self.assertIn("/usr/lib/omavless-dns/mihomo", recipe)
         self.assertIn("/usr/lib/omavless-dns/omavless-dns-broker", unit)

@@ -8,12 +8,16 @@ not replaced by this short entry point.
 1. Fetch/prune remote metadata; compare main, current branch, open PRs and local
    changes. Preserve other agents' work; one branch has one active writer.
 2. Read the [detailed agent guide](docs/development/AGENT_GUIDE.md) completely.
+   Also read the owner-approved [execution policy](docs/development/EXECUTION_POLICY.md)
+   for failure classification, risk-based review and agent/VM coordination.
 3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
    [current status](docs/roadmap/CURRENT_STATUS.md),
    [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and
    [acceptance policy](docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md).
 4. For backend/runtime/protocol/packaging/TUI work, read
    [Rust migration](docs/roadmap/RUST_MIGRATION.md) and the owning feature contract.
+   For new execution and failure handling, also read the owner-approved
+   [execution policy](docs/development/EXECUTION_POLICY.md).
 5. For UI work, use the [UI review skill](skills/omavless-ui-review/SKILL.md).
    For localization, use the [localization skill](skills/omavless-localization/SKILL.md).
 

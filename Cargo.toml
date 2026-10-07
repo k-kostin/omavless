@@ -8,7 +8,9 @@ members = [
   "crates/omavless-dns-broker",
   "crates/omavless-dns-channel",
   "crates/omavless-dns-tun",
+  "crates/omavless-image-witness",
   "crates/omavless-mihomo",
+  "crates/omavless-netguard",
   "crates/omavless-parity",
   "crates/omavless-profile",
   "crates/omavless-runtime",
@@ -18,7 +20,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.9.8-beta.1"
+version = "0.9.8-beta.2"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"

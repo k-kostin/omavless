@@ -70,10 +70,52 @@ impl From<&str> for CliError {
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    #[cfg(feature = "t4-manager-actor-service")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "developer")
+    {
+        if !omavless_runtime::developer_current_restore::arguments_admitted(&arguments) {
+            return Err("developer_current_restore_arguments_refused".into());
+        }
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("developer_current_restore_private_stdin_required".into());
+        }
+        let marker = omavless_runtime::developer_current_restore::from_private_input(
+            &arguments,
+            io::stdin().lock(),
+        )
+        .map_err(CliError::from)?;
+        println!("{marker}");
+        return Ok(());
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "restore")
+    {
+        if !omavless_runtime::restore_abort_cli::arguments_admitted(&arguments) {
+            return Err(
+                "Usage: omavless restore abort --confirm-rollback (private JSON on stdin)".into(),
+            );
+        }
+        omavless_runtime::restore_abort_cli::abort_from_private_input(io::stdin().lock())
+            .map_err(|error| CliError::Message(error.to_string()))?;
+        println!("OLD restored; recovery fence remains. Normal startup is still blocked.");
+        return Ok(());
+    }
     #[cfg(feature = "tui")]
     if arguments == ["tui", "--available"] {
         println!("omavless.tui.v1");
         return Ok(());
+    }
+    #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+    if arguments == ["tui", "--developer-conditional-close"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::developer_close::run(move |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .map_err(CliError::Terminal);
     }
     #[cfg(feature = "tui")]
     if arguments == ["tui"] {
@@ -118,8 +160,12 @@ fn run() -> Result<(), CliError> {
     if arguments == ["-h"] || arguments == ["--help"] {
         #[cfg(feature = "tui")]
         println!("  tui                             terminal controls; close leaves VPN unchanged");
+        #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
         println!(
-            "{USAGE}\n  import preview                  read private input from stdin; private UI output"
+            "  tui --developer-conditional-close  opt-in development workspace; not product pair adoption"
+        );
+        println!(
+            "{USAGE}\n  import preview                  read private input from stdin; private UI output\n  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
         );
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
@@ -466,6 +512,24 @@ fn run() -> Result<(), CliError> {
         }
     };
     let paths = RuntimePaths::current().map_err(|error| admission_error(error.to_string()))?;
+    #[cfg(feature = "product-image-witness")]
+    if arguments == ["daemon", "--product-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_product_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
+    #[cfg(feature = "developer-image-witness")]
+    if arguments == ["daemon", "--developer-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_development_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
     if arguments == ["daemon"] {
         let stop = Arc::new(AtomicBool::new(false));
         flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;

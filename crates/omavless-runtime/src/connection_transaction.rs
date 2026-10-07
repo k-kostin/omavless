@@ -7,7 +7,7 @@
 //! registers itself; only the committed production owner may expose it.
 
 use crate::cutover::{CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, read_marker};
-use crate::desired::{DesiredPaths, DesiredState, read_desired};
+use crate::desired::{DesiredPaths, DesiredState, read_desired, read_desired_snapshot};
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleExecutor, LifecycleHost};
 use crate::mutation::{
     BeginOutcome, CachedOutcome, CoordinatorError, MutationCoordinator, MutationRequest,
@@ -153,6 +153,25 @@ pub(crate) enum Completion {
     CommittedFailure(ConnectionTransactionError),
 }
 
+// Keep the existing ordinary owned lease inline: boxing after successful FD
+// acquisition would introduce a new allocation/failure boundary. The shared
+// borrower adds no FD and never owns another Flock wrapper.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum MigrationLease {
+    Owned(MigrationLock),
+    #[cfg(feature = "t4-manager-actor-service")]
+    Original(crate::native_coordinator::NativeMigrationBorrow),
+}
+impl std::ops::Deref for MigrationLease {
+    type Target = MigrationLock;
+    fn deref(&self) -> &MigrationLock {
+        match self {
+            Self::Owned(lock) => lock,
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::Original(lock) => lock,
+        }
+    }
+}
 pub(crate) struct ConnectionTransactionState<H> {
     lifecycle: LifecycleExecutor<H>,
     desired_paths: DesiredPaths,
@@ -161,6 +180,8 @@ pub(crate) struct ConnectionTransactionState<H> {
     uid: u32,
     blocked: bool,
     connection_blocked: bool,
+    #[cfg(feature = "t4-manager-actor-service")]
+    native_original_lease: Option<crate::native_coordinator::NativeOrdinaryLease>,
 }
 
 impl<H: LifecycleHost> ConnectionTransactionState<H> {
@@ -179,6 +200,8 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             uid,
             blocked: false,
             connection_blocked: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            native_original_lease: None,
         }
     }
 
@@ -214,6 +237,11 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         read_desired(&self.desired_paths, self.uid).map_err(|_| ConnectionTransactionError::Store)
     }
 
+    pub(crate) fn desired_for_status(&self) -> Result<DesiredState, ConnectionTransactionError> {
+        read_desired_snapshot(&self.desired_paths, self.uid)
+            .map_err(|_| ConnectionTransactionError::Store)
+    }
+
     pub(crate) fn desired_paths(&self) -> &DesiredPaths {
         &self.desired_paths
     }
@@ -245,18 +273,69 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         })
     }
 
-    pub(crate) fn acquire_lock(&self) -> Result<MigrationLock, ConnectionTransactionError> {
-        MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)
+    pub(crate) fn acquire_lock(&self) -> Result<MigrationLease, ConnectionTransactionError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(original) = &self.native_original_lease {
+            return original
+                .borrow(&self.cutover_paths, self.uid)
+                .map(MigrationLease::Original)
+                .map_err(|error| match error {
+                    crate::native_coordinator::NativeLeaseError::Busy => {
+                        ConnectionTransactionError::Busy
+                    }
+                    crate::native_coordinator::NativeLeaseError::Unavailable => {
+                        ConnectionTransactionError::ManualRecoveryRequired
+                    }
+                });
+        }
+        MigrationLock::acquire(&self.cutover_paths, self.uid)
+            .map(MigrationLease::Owned)
+            .map_err(lock_error)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn install_original_lease(
+        &mut self,
+        original: crate::native_coordinator::NativeOrdinaryLease,
+    ) -> Result<(), ()> {
+        if self.native_original_lease.is_some() {
+            return Err(());
+        }
+        self.native_original_lease = Some(original);
+        // Install before the first post-transfer check. Refusal leaves the
+        // SAME keeper in its destination, never drop/take/reinsert around a
+        // fallible callback or expose a vacant ordinary acquisition fallback.
+        let result = self
+            .native_original_lease
+            .as_ref()
+            .ok_or(())?
+            .borrow(&self.cutover_paths, self.uid)
+            .map(|_| ())
+            .map_err(|_| ());
+        if result.is_err() {
+            self.block();
+        }
+        result
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn original_lease_vacant(&self) -> bool {
+        self.native_original_lease.is_none()
     }
 
     pub(crate) fn blocked(&self) -> bool {
         self.connection_blocked || self.stop_blocked()
     }
 
+    /// Stored lifecycle/store failures independent of the existence-based
+    /// private-transaction fence. Only the inactive terminal-restore
+    /// retirement candidate may consider that exact fence separately.
+    pub(crate) fn independently_blocked(&self) -> bool {
+        self.blocked || self.connection_blocked
+    }
+
     // A lifecycle failure can be resolved by explicit, verified owned cleanup.
     // Store/cutover/preset ambiguity cannot be cleared by a successful stop.
     pub(crate) fn stop_blocked(&self) -> bool {
-        self.blocked || crate::routing_preset::pending(&self.desired_paths)
+        self.blocked || crate::pending_private_transaction::pending(&self.desired_paths)
     }
 
     pub(crate) fn block_connection(&mut self) {
@@ -286,11 +365,28 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
-        if self.blocked() {
-            return Err(ConnectionTransactionError::ManualRecoveryRequired);
-        }
-        let lifecycle = self.lifecycle.reconcile_startup();
-        let desired = match read_desired(&self.desired_paths, self.uid) {
+        self.reconcile_startup_admitted(
+            lock,
+            &mut crate::startup_admission::StartupAdmission::ordinary(),
+        )
+    }
+
+    pub(crate) fn reconcile_startup_admitted(
+        &mut self,
+        lock: &MigrationLock,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        admission
+            .transaction(
+                &self.cutover_paths,
+                &self.desired_paths,
+                self.uid,
+                lock,
+                self.independently_blocked(),
+            )
+            .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
+        let lifecycle = self.lifecycle.reconcile_startup_admitted(admission);
+        let desired = match admission.desired(&self.desired_paths, self.uid) {
             Ok(desired) => desired,
             Err(_) => {
                 // Reconciliation may already have changed owned host state.
@@ -347,6 +443,9 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             }
             Err(error) => return Err(store_error(error)),
         };
+        admission
+            .pointer(&plan)
+            .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
         let write = match plan.commit_locked(lock, &self.cutover_paths) {
             Ok(write) => write,
             Err(_) if self.lifecycle.actual() == ActualState::Connected => {
@@ -357,6 +456,9 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             }
             Err(error) => return Err(store_error(error)),
         };
+        admission
+            .recheck()
+            .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
         if let Some(error) = deferred_error {
             return Err(error);
         }
@@ -372,6 +474,26 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         profile_id: String,
         mode: Option<crate::desired::RoutingMode>,
     ) -> Completion {
+        self.connect_admitted(
+            lock,
+            profile_id,
+            mode,
+            &mut crate::native_coordinator::connection_admission::ConnectionAdmission::ordinary(),
+        )
+    }
+    pub(crate) fn connect_admitted(
+        &mut self,
+        lock: &MigrationLock,
+        profile_id: String,
+        mode: Option<crate::desired::RoutingMode>,
+        admission: &mut crate::native_coordinator::connection_admission::ConnectionAdmission<
+            '_,
+            '_,
+        >,
+    ) -> Completion {
+        if admission.recheck().is_err() {
+            return Completion::Ordinary(Err(ConnectionTransactionError::ManualRecoveryRequired));
+        }
         let previous = match self.desired() {
             Ok(desired) => desired,
             Err(error) => return Completion::Ordinary(Err(error)),
@@ -386,11 +508,24 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             Ok(plan) => plan,
             Err(error) => return Completion::Ordinary(Err(store_error(error))),
         };
-        let lifecycle = match self.lifecycle.connect_requested(&profile_id, mode) {
-            Ok(outcome) => outcome,
-            Err(error) => return Completion::Ordinary(Err(lifecycle_error(error))),
+        let lifecycle =
+            match self
+                .lifecycle
+                .connect_requested_admitted(&profile_id, mode, admission)
+            {
+                Ok(outcome) => outcome,
+                Err(error) => return Completion::Ordinary(Err(lifecycle_error(error))),
+            };
+        let write = match admission.pointer(&plan, lock, &self.cutover_paths, false) {
+            Ok(result) => result,
+            Err(_) => {
+                self.block();
+                return Completion::Ordinary(Err(
+                    ConnectionTransactionError::ManualRecoveryRequired,
+                ));
+            }
         };
-        match plan.commit_locked(lock, &self.cutover_paths) {
+        match write {
             Ok(write) => Completion::Ordinary(Ok(ConnectionTransactionOutcome {
                 changed: lifecycle.changed || write == PreparedWrite::Changed,
                 pruned: 0,
@@ -402,8 +537,11 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
                 Completion::Ordinary(Err(ConnectionTransactionError::ManualRecoveryRequired))
             }
             Err(_) => {
-                let disconnected = self.lifecycle.disconnect().is_ok();
-                let restored = plan.restore_locked(lock, &self.cutover_paths).is_ok();
+                let disconnected = self.lifecycle.disconnect_admitted(admission).is_ok();
+                let restored = matches!(
+                    admission.pointer(&plan, lock, &self.cutover_paths, true),
+                    Ok(Ok(_))
+                );
                 if !restored {
                     self.block();
                 }
@@ -412,7 +550,11 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
                     && (!previous.connected
                         || self
                             .lifecycle
-                            .connect(&previous.profile_id, previous.mode)
+                            .connect_requested_admitted(
+                                &previous.profile_id,
+                                Some(previous.mode),
+                                admission,
+                            )
                             .is_ok());
                 if recovered {
                     Completion::Ordinary(Err(ConnectionTransactionError::TransitionFailedRestored))
@@ -424,6 +566,22 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
     }
 
     pub(crate) fn disconnect(&mut self, lock: &MigrationLock) -> Completion {
+        self.disconnect_admitted(
+            lock,
+            &mut crate::native_coordinator::connection_admission::ConnectionAdmission::ordinary(),
+        )
+    }
+    pub(crate) fn disconnect_admitted(
+        &mut self,
+        lock: &MigrationLock,
+        admission: &mut crate::native_coordinator::connection_admission::ConnectionAdmission<
+            '_,
+            '_,
+        >,
+    ) -> Completion {
+        if admission.recheck().is_err() {
+            return Completion::Ordinary(Err(ConnectionTransactionError::ManualRecoveryRequired));
+        }
         let plan = match prepare_pointer_mutation(
             &self.store_path,
             self.uid,
@@ -434,11 +592,20 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             Ok(plan) => plan,
             Err(error) => return Completion::Ordinary(Err(store_error(error))),
         };
-        let lifecycle = match self.lifecycle.disconnect() {
+        let lifecycle = match self.lifecycle.disconnect_admitted(admission) {
             Ok(outcome) => outcome,
             Err(error) => return Completion::Ordinary(Err(lifecycle_error(error))),
         };
-        match plan.commit_locked(lock, &self.cutover_paths) {
+        let write = match admission.pointer(&plan, lock, &self.cutover_paths, false) {
+            Ok(result) => result,
+            Err(_) => {
+                self.block();
+                return Completion::Ordinary(Err(
+                    ConnectionTransactionError::ManualRecoveryRequired,
+                ));
+            }
+        };
+        match write {
             Ok(write) => {
                 let recovered = self.connection_blocked;
                 self.connection_blocked = false;

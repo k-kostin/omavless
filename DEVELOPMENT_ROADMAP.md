@@ -2,13 +2,17 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.8 assembly, 2026-10-02:** owner selected the 0.9.7 maintenance source as
-the base of `beta/0.9.8`, with T4 private backup/restore reviewed last to avoid
-freezing another agent's active work prematurely. The
-[selection](docs/development/BETA_098.md) distinguishes the unchanged base,
-late T4 admission and declared integration gates. Internal RC source checkpoints
-do not require repeating public distribution gates at each version; installed
-checks follow affected behavior. No backup/restore availability is claimed yet.
+**0.9.8 internal assembly, 2026-10-07:** owner renewed `beta/0.9.8` to combine
+the checked retained backup/restore and opt-in selective-close checkpoints on
+the 0.9.7 maintenance base. Version `0.9.8-beta.2`; no default feature activation.
+The [selection](docs/development/BETA_098.md) and
+[#702](https://github.com/k-kostin/omavless/pull/702) record exact inputs, combined
+gates and app/DNS/frontend artifact identities. Earlier feature-host results
+are not assigned to the combined binary; the VM master owns its separately
+scheduled installed review. Background recovery/subscriptions and product
+kill switch/AppProxy/WG/AWG/GUI remain excluded. Main, frozen 0.9.7 RC and
+Marketplace are unchanged. The October 2 baseline and late T4 refusal remain
+historical evidence, not the current source-selection decision.
 
 **0.9.7 maintenance RC source, 2026-10-01:** the owner selected the checked
 0.9.6 source plus a narrow TUI Connections loading correction and installed

@@ -2,6 +2,17 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.8-beta.2 — internal integration only
+
+- Combine the opt-in selective connection-close client and retained private
+  backup/restore implementation on the existing maintenance baseline.
+- Preserve default-disabled feature registration, original-owner admission,
+  recovery fences and immutable restore history. Add a combined-feature
+  regression so compilation cannot itself grant close or restore authority.
+
+No user release, new default feature, main update or marketplace publication.
+See [the internal selection and remaining gates](docs/development/BETA_098.md).
+
 ## 0.9.0-rc.1 — unpublished development candidate
 
 - Add the terminal application: browse profiles/subscriptions, control the

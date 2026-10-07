@@ -1,0 +1,100 @@
+"""INERT mock-template text: future reviewed module binding required."""
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+from unittest.mock import Mock,patch
+
+r=None  # No module load, execution or future selection binding here.
+
+def positive():
+    return ('\nrunning 6 tests\n'+''.join('test tests::'+name+' ... ok\n' for name in r.NAMES)
+        +'\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n').encode()
+
+class Controls(unittest.TestCase):
+    def setUp(self):r.HELD.clear()
+    def test_only_six_exact_pure_names(self):
+        self.assertEqual(len(r.NAMES),6);self.assertEqual(len(set(r.NAMES)),6)
+        self.assertEqual(tuple(sorted(r.NAMES)),r.NAMES)
+        self.assertEqual(r.SOURCE_COMMIT,'054305502de47bea19997fccb9606a73146fb9e4')
+        self.assertIsNotNone(r.RUSTC)  # Future fixed binding requires its own review.
+    def test_exact_positive_and_all_count_or_order_mutations(self):
+        r.pure_receipt(positive())
+        for raw in (positive().replace(b'6 passed',b'5 passed'),
+            positive().replace(b'0 ignored',b'1 ignored'),positive()+b'unknown\n',
+            positive().replace(b'0.00s',b'30.01s'),
+            positive().replace(r.NAMES[0].encode(),r.NAMES[1].encode()),
+            positive().replace(b' ... ok',b' ... FAILED',1),
+            positive().replace(b'\n',b'\r\n'),positive().replace(b'\n',b'\v'),
+            positive().replace(b'\n',b'\f'),positive().replace(b'\n',b'\r'),
+            positive().replace(b'\n',b'\t'),b'prefix'+positive(),positive()+b'suffix',
+            positive()+b'\n',positive()[:-1],positive().replace(b' ... ok',b'\t... ok',1)):
+            with self.assertRaises(r.Refused):r.pure_receipt(raw)
+    def test_no_capture_reads_after_nonzero_or_unknown_original_wait(self):
+        for outcome in (1,None,True,'0'):
+            value=r.Run();child=SimpleNamespace(wait=lambda:outcome)
+            with patch.object(value,'fresh_file',side_effect=[11,12]),patch.object(value,'recheck'), \
+                patch.object(value,'open') as opened,patch.object(r.subprocess,'Popen',return_value=child):
+                with self.assertRaises(r.Refused):value.command(['INERT'],'compile')
+                opened.assert_not_called();self.assertIn(child,r.HELD)
+    def test_wait_throw_does_not_read_or_cleanup(self):
+        value=r.Run();child=SimpleNamespace(wait=Mock(side_effect=OSError('inert')))
+        with patch.object(value,'fresh_file',side_effect=[11,12]),patch.object(value,'recheck'), \
+            patch.object(value,'open') as opened,patch.object(r.subprocess,'Popen',return_value=child):
+            with self.assertRaises(OSError):value.command(['INERT'],'compile')
+            opened.assert_not_called();child.wait.assert_called_once_with();self.assertIn(child,r.HELD)
+    def test_late_constructor_return_retained_before_wait_or_read(self):
+        value=r.Run();child=SimpleNamespace(wait=Mock())
+        def spawn(*args,**kwargs):value.end=0.0;return child
+        with patch.object(value,'fresh_file',side_effect=[11,12]),patch.object(value,'recheck'), \
+            patch.object(value,'open') as opened,patch.object(r.subprocess,'Popen',side_effect=spawn):
+            with self.assertRaises(r.Refused):value.command(['INERT'],'compile')
+            child.wait.assert_not_called();opened.assert_not_called();self.assertIn(child,r.HELD)
+    def test_child_environment_is_closed_not_cargo_or_loader_inherited(self):
+        value=r.Run();child=SimpleNamespace(wait=lambda:1)
+        with patch.object(value,'fresh_file',side_effect=[11,12]),patch.object(value,'recheck'), \
+            patch.dict(r.os.environ,{'HOME':'/home/kk','CARGO_X':'INERT','RUSTFLAGS':'INERT','LD_PRELOAD':'INERT'}), \
+            patch.object(r.subprocess,'Popen',return_value=child) as spawn:
+            with self.assertRaises(r.Refused):value.command(['INERT'],'compile')
+            self.assertEqual(spawn.call_args.kwargs['env'],{'HOME':'/home/kk','PATH':'/usr/bin:/bin',
+                'LANG':'C','LC_ALL':'C','TMPDIR':str(r.ROOT/'tmp')})
+            self.assertNotIn('timeout',spawn.call_args.kwargs)
+
+    def test_output_write_short_throw_or_late_seals_without_flush(self):
+        raw=b'PUBLIC_FIXED\n'
+        for outcome in ('short','throw','late','bool','float'):
+            value=r.Run();events=[]
+            def write(data):
+                events.append(('write',data))
+                if outcome=='throw':raise OSError('inert')
+                if outcome=='late':value.end=0.0
+                if outcome=='short':return len(data)-1
+                if outcome=='bool':return True
+                if outcome=='float':return float(len(data))
+                return len(data)
+            stream=SimpleNamespace(write=write,flush=Mock())
+            with self.assertRaises((r.Refused,OSError)):value.emit(raw,stream)
+            self.assertEqual(events,[('write',raw)])
+            stream.flush.assert_not_called();self.assertTrue(value.sealed)
+            next_effect=Mock()
+            with self.assertRaises(r.Refused):value.call(next_effect)
+            next_effect.assert_not_called()
+    def test_output_flush_throw_late_or_wrong_return_seals_and_success_is_exact(self):
+        raw=b'PUBLIC_FIXED\n'
+        for outcome in ('throw','late','wrong','success'):
+            value=r.Run();events=[]
+            def write(data):events.append(('write',data));return len(data)
+            def flush():
+                events.append(('flush',))
+                if outcome=='throw':raise OSError('inert')
+                if outcome=='late':value.end=0.0
+                if outcome=='wrong':return 0
+                return None
+            stream=SimpleNamespace(write=write,flush=flush)
+            if outcome=='success':value.emit(raw,stream)
+            else:
+                with self.assertRaises((r.Refused,OSError)):value.emit(raw,stream)
+            self.assertEqual(events,[('write',raw),('flush',)])
+            self.assertTrue(value.sealed)
+            next_effect=Mock()
+            with self.assertRaises(r.Refused):value.call(next_effect)
+            next_effect.assert_not_called()

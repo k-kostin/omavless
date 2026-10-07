@@ -68,12 +68,10 @@ fn pending_and_quarantine_cannot_be_reset_or_reacquired() {
 
 #[test]
 fn simultaneous_journal_owner_is_refused() {
-    let root = fixture();
-    let journal = open(&root).unwrap();
-    assert_eq!(open(&root).unwrap_err(), Error::Refused);
-    drop(journal);
-    assert!(open(&root).is_ok());
+    isolated_singleton::run();
 }
+
+mod isolated_singleton;
 
 #[test]
 fn every_persisted_phase_requires_reconciliation_after_process_restart() {

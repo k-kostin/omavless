@@ -13,9 +13,9 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-const RELEASE_CORE: &str = "/usr/lib/omavless-dns/mihomo";
-const RELEASE_BROKER: &str = "/usr/lib/omavless-dns/omavless-dns-broker";
-const RELEASE_RECEIPT: &str = "/usr/share/omavless-dns/source-receipt.json";
+pub(crate) const RELEASE_CORE: &str = "/usr/lib/omavless-dns/mihomo";
+pub(crate) const RELEASE_BROKER: &str = "/usr/lib/omavless-dns/omavless-dns-broker";
+pub(crate) const RELEASE_RECEIPT: &str = "/usr/share/omavless-dns/source-receipt.json";
 pub(crate) const SELECTOR: &str = "managed-dns-selection";
 pub(crate) const SELECTION_BYTES: &[u8] = b"managed-dns-release-v1\n";
 const MIHOMO_COMMIT: &str = "ab405bad5beeeac8b003bb01f60f134f6df54471";
@@ -187,6 +187,21 @@ impl ManagedPair {
         package_owner: u32,
     ) -> Result<PackageHashes, HostStepError> {
         let bytes = bounded_bytes(receipt, package_owner, 0o644, 8192)?;
+        // The new distinct family can continue the existing DNS/TUN path.
+        // This validation returns hashes only, NEVER conditional-close authority.
+        // Effect qualification independently retains the same original objects.
+        if let Ok(hashes) = crate::managed_close_receipt::decode(&bytes, std::env::consts::ARCH) {
+            if sha256_file(core, package_owner, 128 * 1024 * 1024)? != hashes.core
+                || sha256_file(broker, package_owner, 32 * 1024 * 1024)? != hashes.broker
+            {
+                return Err(HostStepError::Prepare);
+            }
+            return Ok(PackageHashes {
+                receipt: Sha256::digest(&bytes).into(),
+                core: hashes.core,
+                broker: hashes.broker,
+            });
+        }
         let value: Receipt = serde_json::from_slice(&bytes).map_err(|_| HostStepError::Prepare)?;
         if value.schema != 1
             || value.architecture != std::env::consts::ARCH
@@ -271,6 +286,41 @@ mod tests {
     fn write_mode(path: &Path, bytes: &[u8], mode: u32) {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+    #[test]
+    fn new_qualified_family_can_validate_dns_objects_but_is_not_an_effect_permit() {
+        let root = tempfile::tempdir().unwrap();
+        let core = root.path().join("core");
+        let broker = root.path().join("broker");
+        let receipt = root.path().join("receipt");
+        write_mode(&core, b"synthetic core", 0o755);
+        write_mode(&broker, b"synthetic broker", 0o755);
+        let mut value = crate::managed_close_receipt::fixture(std::env::consts::ARCH);
+        value["sha256"]["mihomo"] = json!(format!("{:x}", Sha256::digest(b"synthetic core")));
+        value["sha256"]["omavless-dns-broker"] =
+            json!(format!("{:x}", Sha256::digest(b"synthetic broker")));
+        write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        let uid = nix::unistd::getuid().as_raw();
+        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_ok());
+        // The second qualified family shares compatibility verification only,
+        // never a permit. No device/consent family may be inferred from ABI.
+        value["schema"] = json!(crate::managed_close_receipt::K1_SCHEMA);
+        value["package_flavor"] = json!("release-close-k1");
+        value["broker_feature"] = json!("k1-managed-device");
+        value["go_build_tags"] = json!("with_gvisor,omavless_k1_device");
+        value["patch_sha256"]["mihomo-k1-device.patch"] =
+            json!(crate::managed_close_receipt::K1_PATCH);
+        value["managed_device"] = json!("omavless0");
+        value["enrollment_policy"] = json!("omavless0-ipv4-development-v1");
+        value["managed_device_source"] = json!("08194a275d315db7ca502e50f960c80af6dc163b");
+        write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_ok());
+        value["enrollment_policy"] = json!("meta-ipv4-release-v1");
+        write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_err());
+        value["conditional_close_abi"] = json!(true);
+        write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_err());
     }
 
     #[test]

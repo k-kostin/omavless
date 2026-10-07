@@ -1,0 +1,173 @@
+"""INERT text template: no bindings or entrypoint; NOT selected evidence.
+
+A future owner must independently review fresh bindings, tooling and scope.
+The reviewed external recipe, not this relocated template, produced evidence.
+"""
+import hashlib
+import math
+import os
+from pathlib import Path
+import re
+import stat
+import struct
+import subprocess
+import sys
+import time
+
+SOURCE=None  # Future separately reviewed source binding.
+SOURCE_BYTES=7638
+SOURCE_SHA='e4784dba06a3014991f9e65296a4e839133f79e1b00cc9e872afed172b148664'
+SOURCE_COMMIT='054305502de47bea19997fccb9606a73146fb9e4'
+RUSTC=None  # Future separately reviewed fixed compiler binding.
+RUSTC_BYTES=5240
+RUSTC_SHA='c916a85b7d4f52d9650399eebd15c672377933e6c2d8e98215757ab0b9b37136'
+ROOT=None  # Future separately reviewed fresh private scope.
+NAMES=('abandoned_preparation_cannot_reset_owner',
+    'every_nonpositive_fact_seals_without_promotion',
+    'exact_positive_uses_original_results_only',
+    'fresh_label_is_not_live_authority',
+    'incomplete_drop_during_caught_unwind_only_models_label_poison',
+    'uncertain_live_consumes_same_owner_without_recovery')
+HELD=[]
+ATTEMPTED=False
+
+class Refused(Exception):pass
+def need(value):
+    if not value:raise Refused()
+def identity(s):
+    return tuple(getattr(s,k) for k in ('st_dev','st_ino','st_mode','st_uid','st_gid',
+        'st_nlink','st_size','st_mtime_ns','st_ctime_ns'))
+
+class Run:
+    def __init__(self):
+        self.sealed=True;now=time.monotonic()
+        need(type(now)is float and math.isfinite(now));self.end=now+180.0
+        need(math.isfinite(self.end));self.sealed=False;self.files=[];self.dirs=[]
+    def tick(self):
+        now=time.monotonic()
+        need(not self.sealed and type(now)is float and math.isfinite(now) and now<self.end)
+    def call(self,fn,*args,**kwargs):
+        try:self.tick();value=fn(*args,**kwargs);self.tick();return value
+        except BaseException:self.sealed=True;raise
+    def emit(self,raw,stream):
+        try:
+            count=self.call(stream.write,raw)
+            need(type(count)is int and count==len(raw))
+            need(self.call(stream.flush) is None)
+            self.tick();self.sealed=True
+        except BaseException:self.sealed=True;raise
+    def open(self,*args,**kwargs):
+        self.tick();fd=os.open(*args,**kwargs);HELD.append(fd);self.tick();return fd
+    def ancestors(self,path):
+        parent=None
+        for item in (Path('/'),*reversed(path.parents[:-1]),path):
+            fd=self.open(str(item) if parent is None else item.name,
+                os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=parent)
+            s=self.call(os.fstat,fd)
+            need(stat.S_ISDIR(s.st_mode) and s.st_uid in (0,1000)
+                and not s.st_mode&0o022 and not self.call(os.listxattr,fd)
+                and identity(s)==identity(self.call(os.lstat,item)))
+            self.dirs.append((fd,item,s));parent=fd
+        return parent
+    def read(self,fd,cap):
+        s=self.call(os.fstat,fd);need(stat.S_ISREG(s.st_mode) and 0<=s.st_size<=cap)
+        raw=self.call(os.pread,fd,cap+1,0)
+        need(type(raw)is bytes and len(raw)==s.st_size<=cap
+            and identity(s)==identity(self.call(os.fstat,fd)))
+        return raw
+    def fixed(self,path,size,sha,uid,mode):
+        parent=self.ancestors(path.parent)
+        fd=self.open(path.name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC,dir_fd=parent)
+        s=self.call(os.fstat,fd)
+        need(stat.S_ISREG(s.st_mode) and s.st_uid==s.st_gid==uid and s.st_nlink==1
+            and stat.S_IMODE(s.st_mode)==mode and s.st_size==size
+            and not self.call(os.listxattr,fd) and identity(s)==identity(self.call(os.lstat,path)))
+        raw=self.read(fd,size);need(hashlib.sha256(raw).hexdigest()==sha)
+        self.files.append((fd,path,s,raw));return raw
+    def recheck(self):
+        for fd,path,s,raw in self.files:
+            need(identity(s)==identity(self.call(os.fstat,fd))==identity(self.call(os.lstat,path))
+                and not self.call(os.listxattr,fd) and self.read(fd,len(raw))==raw)
+        for fd,path,s in self.dirs:
+            current=self.call(os.fstat,fd);named=self.call(os.lstat,path)
+            # Fixed ownership prefix; full current named/original agreement.
+            # Fresh child creation legitimately changes directory timestamps.
+            need(identity(s)[:5]==identity(current)[:5] and identity(current)==identity(named)
+                and not self.call(os.listxattr,fd))
+    def fresh_file(self,name):
+        fd=self.open(ROOT/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
+        s=self.call(os.fstat,fd);need(stat.S_ISREG(s.st_mode) and s.st_uid==s.st_gid==1000
+            and s.st_nlink==1 and stat.S_IMODE(s.st_mode)==0o600 and s.st_size==0)
+        return fd
+    def command(self,argv,prefix):
+        try:return self._command(argv,prefix)
+        except BaseException:self.sealed=True;raise
+    def _command(self,argv,prefix):
+        output=self.fresh_file(prefix+'.stdout');error=self.fresh_file(prefix+'.stderr')
+        env={'HOME':os.environ['HOME'],'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C',
+            'TMPDIR':str(ROOT/'tmp')}
+        self.recheck()
+        self.tick()
+        child=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=output,
+            stderr=error,cwd=ROOT,env=env,close_fds=True)
+        HELD.append(child);self.tick()
+        # No timeout/cancellation. Only original known-zero enables file reads.
+        status=self.call(child.wait);need(type(status)is int and status==0)
+        self.recheck()
+        values=[]
+        for name,writer in ((prefix+'.stdout',output),(prefix+'.stderr',error)):
+            fd=self.open(ROOT/name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+            s=self.call(os.fstat,fd)
+            need(stat.S_ISREG(s.st_mode) and s.st_uid==s.st_gid==1000 and s.st_nlink==1
+                and stat.S_IMODE(s.st_mode)==0o600 and not self.call(os.listxattr,fd)
+                and identity(s)==identity(self.call(os.lstat,ROOT/name))
+                ==identity(self.call(os.fstat,writer)))
+            raw=self.read(fd,65536);self.files.append((fd,ROOT/name,s,raw));values.append(raw)
+        return values
+
+def pure_receipt(raw):
+    need(type(raw)is bytes and len(raw)<=65536)
+    prefix=(b'\nrunning 6 tests\n'+b''.join(
+        b'test tests::'+name.encode('ascii')+b' ... ok\n' for name in NAMES)+b'\n')
+    # Whole exact bytes, literal LF and exact two terminal LFs. No splitlines.
+    match=re.fullmatch(re.escape(prefix)+
+        rb'test result: ok\. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in ([0-9]+\.[0-9]{2})s\n\n',raw)
+    need(match is not None and float(match.group(1))<=30.0)
+
+def main():
+    global ATTEMPTED
+    need(not ATTEMPTED);ATTEMPTED=True
+    need(SOURCE is not None and RUSTC is not None and ROOT is not None)
+    need(len(sys.argv)==1 and sys.flags.isolated and sys.dont_write_bytecode
+        and os.environ.get('HOME')=='/home/kk' and os.getresuid()==os.getresgid()==(1000,)*3
+        and not any(k in os.environ for k in ('LD_PRELOAD','LD_LIBRARY_PATH','LD_AUDIT','LD_DEBUG','GLIBC_TUNABLES')))
+    os.umask(0o077);run=Run();HELD.append(run)
+    source=run.fixed(SOURCE,SOURCE_BYTES,SOURCE_SHA,1000,0o400)
+    compiler=run.fixed(RUSTC,RUSTC_BYTES,RUSTC_SHA,0,0o755)
+    need(compiler[:4]==b'\x7fELF')
+    run.call(os.mkdir,ROOT,0o700);rootfd=run.ancestors(ROOT)
+    run.call(os.mkdir,ROOT/'tmp',0o700);tmpfd=run.ancestors(ROOT/'tmp')
+    for fd in (rootfd,tmpfd):
+        s=run.call(os.fstat,fd)
+        need(s.st_uid==s.st_gid==1000 and stat.S_IMODE(s.st_mode)==0o700)
+    sourcefd=run.fresh_file('actor_state.rs')
+    count=run.call(os.write,sourcefd,source)
+    need(type(count)is int and count==len(source));run.call(os.fsync,sourcefd)
+    run.call(os.fchmod,sourcefd,0o400);run.call(os.fsync,sourcefd)
+    run.fixed(ROOT/'actor_state.rs',SOURCE_BYTES,SOURCE_SHA,1000,0o400)
+    stdout,stderr=run.command([str(RUSTC),'--test','--edition=2021','--crate-name','t4_synthetic_actor',
+        '--deny','warnings',str(ROOT/'actor_state.rs'),'-o',str(ROOT/'actor-tests')],'compile')
+    need(stdout==stderr==b'')
+    fd=run.open(ROOT/'actor-tests',os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+    s=run.call(os.fstat,fd)
+    need(stat.S_ISREG(s.st_mode) and s.st_uid==s.st_gid==1000 and s.st_nlink==1
+        and stat.S_IMODE(s.st_mode)==0o700 and 64<=s.st_size<=64*1024*1024
+        and not run.call(os.listxattr,fd) and identity(s)==identity(run.call(os.lstat,ROOT/'actor-tests')))
+    raw=run.read(fd,64*1024*1024)
+    need(raw[:7]==b'\x7fELF\x02\x01\x01' and struct.unpack_from('<H',raw,18)[0]==62
+        and struct.unpack_from('<H',raw,16)[0] in (2,3))
+    binary_sha=hashlib.sha256(raw).hexdigest();run.files.append((fd,ROOT/'actor-tests',s,raw))
+    stdout,stderr=run.command([str(ROOT/'actor-tests'),'--test-threads=1'],'pure')
+    need(stderr==b'');pure_receipt(stdout);run.recheck();run.tick()
+    receipt=('T4_SYNTHETIC_ACTOR_COMPILE_PURE6_KNOWN_ZERO '+binary_sha+'\n').encode('ascii')
+    run.emit(receipt,sys.stdout.buffer)

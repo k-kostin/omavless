@@ -10,6 +10,7 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Instant;
 
+#[derive(Clone)]
 pub(crate) struct ConfigReadiness {
     pub(crate) mode: RoutingMode,
     profile_name: String,
@@ -149,7 +150,7 @@ impl ConfigReadiness {
         })
     }
 
-    fn ready_with(
+    pub(crate) fn ready_with(
         &self,
         deadline: Instant,
         mut read: impl FnMut(ReadOnlyEndpoint) -> Option<Value>,

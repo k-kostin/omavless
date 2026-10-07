@@ -1,5 +1,11 @@
 # Uninstalled DNS TUN admission leaf
 
+The source-only `k1-managed-device` feature selects exclusively `omavless0`
+instead of `Meta`, retaining that private selection through all original-object
+and index rechecks. Defaults remain unchanged. See the
+[developer pair contract](../../docs/development/K1_MANAGED_DEVICE_CONTRACT.md);
+this is not installed capability evidence or dual-device permission.
+
 `HeldTun::admit(OwnedFd)` consumes a received descriptor and validates the fixed
 `Meta` device used by all three tracked routing templates. The public API has no
 caller-selected interface, path, namespace or ioctl. It rejects non-TUN character

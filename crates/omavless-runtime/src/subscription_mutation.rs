@@ -194,14 +194,112 @@ pub fn commit_subscription_refresh_batch(
     updates: Vec<SubscriptionRefreshBatchEntries>,
     updated_at: u64,
 ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError> {
+    prepare_subscription_batch_commit(store_path, uid, snapshot, updates, updated_at)?
+        .commit()
+        .map(|committed| committed.outcome())
+}
+
+/// Exact canonical preparation shared by the fixed production writer and its
+/// test-only historical admission. No caller-selected writer or proof result.
+pub(crate) struct PreparedSubscriptionBatchCommit {
+    path: std::path::PathBuf,
+    uid: u32,
+    result: omavless_domain::private_store::PrivateSubscriptionMutation,
+    counts: SubscriptionRefreshCounts,
+}
+
+impl PreparedSubscriptionBatchCommit {
+    #[cfg(test)]
+    pub(crate) fn changed(&self) -> bool {
+        self.result.changed
+    }
+    #[cfg(test)]
+    pub(crate) fn matches(&self, bytes: &[u8]) -> bool {
+        self.result.payload() == bytes
+    }
+    pub(crate) fn commit(
+        self,
+    ) -> Result<CommittedSubscriptionBatch, SubscriptionMutationCommitError> {
+        if self.result.changed {
+            atomic_replace_private(&self.path, self.result.payload(), self.uid).map_err(map_io)?;
+        }
+        Ok(CommittedSubscriptionBatch {
+            plan: self,
+            #[cfg(test)]
+            written: None,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_retained(
+        self,
+    ) -> Result<CommittedSubscriptionBatch, SubscriptionMutationCommitError> {
+        let written = if self.result.changed {
+            Some(
+                omavless_store::atomic_replace_private_retained(
+                    &self.path,
+                    self.result.payload(),
+                    self.uid,
+                )
+                .map_err(map_io)?,
+            )
+        } else {
+            None
+        };
+        Ok(CommittedSubscriptionBatch {
+            plan: self,
+            written,
+        })
+    }
+}
+
+/// Minted only by the actual fixed writer's successful return. Exact payload
+/// stays private; public counts alone cannot fabricate this readback proof.
+pub(crate) struct CommittedSubscriptionBatch {
+    plan: PreparedSubscriptionBatchCommit,
+    #[cfg(test)]
+    written: Option<omavless_store::PrivateReplacementReceipt>,
+}
+impl CommittedSubscriptionBatch {
+    pub(crate) fn outcome(&self) -> SubscriptionRefreshCommit {
+        SubscriptionRefreshCommit {
+            counts: self.plan.counts,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn changed(&self) -> bool {
+        self.plan.changed()
+    }
+    #[cfg(test)]
+    pub(crate) fn matches(&self, bytes: &[u8]) -> bool {
+        self.plan.matches(bytes)
+    }
+    #[cfg(test)]
+    pub(crate) fn matches_written_file(&self, file: &std::fs::File) -> bool {
+        match &self.written {
+            Some(written) => self.changed() && written.matches_file(file),
+            None => !self.changed(), // No-op still needs full original identity.
+        }
+    }
+}
+
+pub(crate) fn prepare_subscription_batch_commit(
+    store_path: &Path,
+    uid: u32,
+    snapshot: SubscriptionRefreshBatchSnapshot,
+    updates: Vec<SubscriptionRefreshBatchEntries>,
+    updated_at: u64,
+) -> Result<PreparedSubscriptionBatchCommit, SubscriptionMutationCommitError> {
     validate_existing_store(store_path, uid)?;
     let input = read_private_utf8(store_path, uid).map_err(map_io)?;
     let (result, counts) = apply_subscription_refresh_batch(&input, snapshot, updates, updated_at)
         .map_err(SubscriptionMutationCommitError::Mutation)?;
-    if result.changed {
-        atomic_replace_private(store_path, result.payload(), uid).map_err(map_io)?;
-    }
-    Ok(SubscriptionRefreshCommit { counts })
+    Ok(PreparedSubscriptionBatchCommit {
+        path: store_path.to_owned(),
+        uid,
+        result,
+        counts,
+    })
 }
 
 #[cfg(test)]

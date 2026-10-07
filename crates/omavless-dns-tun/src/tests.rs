@@ -20,7 +20,8 @@ struct Fake {
 impl Default for Fake {
     fn default() -> Self {
         let mut name = [0; 16];
-        name[..4].copy_from_slice(b"Meta");
+        let selected = Device::selected().name().as_bytes();
+        name[..selected.len()].copy_from_slice(selected);
         Self {
             calls: RefCell::new(Vec::new()),
             fail: Cell::new(None),
@@ -80,10 +81,51 @@ impl Kernel for Fake {
         self.step("socket")?;
         Ok(fd())
     }
-    fn index(&self, _: &OwnedFd) -> Result<u32, Error> {
+    fn index(&self, _: &OwnedFd, device: Device) -> Result<u32, Error> {
         self.step("index")?;
+        assert_eq!(
+            &self.name.get()[..device.name().len()],
+            device.name().as_bytes()
+        );
         Ok(self.index.get())
     }
+}
+
+#[test]
+fn device_flavors_are_exclusive_and_retained_across_rechecks() {
+    for selected in [Device::Meta, Device::K1] {
+        let kernel = Fake::default();
+        let mut name = [0; 16];
+        name[..selected.name().len()].copy_from_slice(selected.name().as_bytes());
+        kernel.name.set(name);
+        let held = HeldTun::admit_selected(fd(), &kernel, selected).unwrap();
+        held.recheck_with(&kernel).unwrap();
+        let other = if selected == Device::Meta {
+            Device::K1
+        } else {
+            Device::Meta
+        };
+        assert_eq!(
+            HeldTun::admit_selected(fd(), &kernel, other).unwrap_err(),
+            Error::InvalidTun
+        );
+        name.fill(0);
+        name[..other.name().len()].copy_from_slice(other.name().as_bytes());
+        kernel.name.set(name);
+        assert_eq!(held.recheck_with(&kernel), Err(Error::InvalidTun));
+    }
+}
+
+#[test]
+fn compiled_admission_selects_one_fixed_family() {
+    assert_eq!(
+        Device::selected().name(),
+        if cfg!(feature = "k1-managed-device") {
+            "omavless0"
+        } else {
+            "Meta"
+        }
+    );
 }
 
 #[test]

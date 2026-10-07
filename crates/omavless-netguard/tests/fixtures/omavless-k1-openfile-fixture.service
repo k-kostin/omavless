@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Developer-only, non-installed descriptor-match fixture. NOT NetGuard authority.
+# This file is not consumed by the existing transient VM runner. Do not install.
+[Unit]
+Description=OmaVLESS K1 descriptor-match fixture (not protection)
+
+[Service]
+Type=exec
+User=root
+ExecStart=/run/omavless-k1-openfile-fixture/probe
+Environment=OMAVLESS_K1_OPENFILE_FIXTURE=1
+OpenFile=/proc/1/ns/net:k1-host-netns:read-only
+PrivateUsers=no
+PrivatePIDs=no
+PrivateNetwork=no
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RuntimeMaxSec=10s
+TimeoutStopSec=2s
