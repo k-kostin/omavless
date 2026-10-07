@@ -71,6 +71,13 @@ Diagnostic reads and effect authorization are distinct. New experiments should
 provide bounded phase/error output from the start so routine failures do not
 require a new bespoke observer implementation every time.
 
+When a handled-failure path promises to retain its owned graph, its diagnostics
+must be bounded, best-effort and non-throwing. A broken output stream must not
+turn parking into an unwind/exit that releases the graph; include panic hooks
+and the parking wait itself in that review. Use inert broken-output and
+interrupted-wait controls where applicable. This does not require a new logging
+framework or promise resource survival after fatal process death.
+
 Define the diagnostic surface before the run: exact permitted captures or
 service queries, maximum bytes/time, privacy classification and independence
 from mutation paths. Prefer a reusable reviewed observer with narrow fixed
