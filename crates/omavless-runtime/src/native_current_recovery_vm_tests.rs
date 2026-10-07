@@ -93,9 +93,18 @@ struct Held {
 }
 impl Held {
     fn open(path: &Path, limit: usize, directory: bool) -> std::result::Result<Self, ()> {
+        // Installed VM readers retain their fixed expected owner. A generic
+        // synthetic fixture cannot change this entry or supply VM authority.
+        Self::open_for_owner(path, limit, directory, (UID, UID))
+    }
+    fn open_for_owner(
+        path: &Path,
+        limit: usize,
+        directory: bool,
+        owner: (u32, u32),
+    ) -> std::result::Result<Self, ()> {
         let metadata = fs::symlink_metadata(path).map_err(|_| ())?;
-        if metadata.uid() != UID
-            || metadata.gid() != UID
+        if (metadata.uid(), metadata.gid()) != owner
             || metadata.mode() & 0o7777 != if directory { 0o700 } else { 0o600 }
             || (directory && !metadata.is_dir())
             || (!directory && (!metadata.is_file() || metadata.nlink() != 1))
@@ -589,6 +598,12 @@ fn current43_fixed_input_and_exact_denial_are_not_generic_grants() {
 #[test]
 fn current43_original_readers_detect_byte_name_and_directory_drift() {
     use std::os::unix::fs::PermissionsExt;
+    // Hosted runners need not have the development VM's UID/GID. Keep the
+    // generic reader fixture tied to its own creator, not a copied VM identity.
+    let owner = (
+        Uid::current().as_raw(),
+        nix::unistd::Gid::current().as_raw(),
+    );
     let root = crate::test_temp::directory_under(
         Path::new(&std::env::var_os("HOME").unwrap()),
         "current43-reader",
@@ -598,16 +613,21 @@ fn current43_original_readers_detect_byte_name_and_directory_drift() {
     let path = root.join("private");
     fs::write(&path, b"public").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(Held::open(&path, 5, false).is_err());
+    assert!(Held::open_for_owner(&path, 6, false, (owner.0 ^ 1, owner.1)).is_err());
+    assert!(Held::open_for_owner(&path, 6, false, (owner.0, owner.1 ^ 1)).is_err());
+    if owner != (UID, UID) {
+        assert!(Held::open(&path, 6, false).is_err()); // VM entry stays fixed.
+    }
+    assert!(Held::open_for_owner(&path, 5, false, owner).is_err());
     fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
-    assert!(Held::open(&path, 6, false).is_err());
+    assert!(Held::open_for_owner(&path, 6, false, owner).is_err());
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     let alias = root.join("alias");
     std::os::unix::fs::symlink(&path, &alias).unwrap();
-    assert!(Held::open(&alias, 6, false).is_err());
+    assert!(Held::open_for_owner(&alias, 6, false, owner).is_err());
     fs::remove_file(alias).unwrap();
-    let mut file = Held::open(&path, 6, false).unwrap();
-    let mut dir = Held::open(&root, 0, true).unwrap();
+    let mut file = Held::open_for_owner(&path, 6, false, owner).unwrap();
+    let mut dir = Held::open_for_owner(&root, 0, true, owner).unwrap();
     file.unchanged().unwrap();
     dir.unchanged().unwrap();
     fs::rename(&path, root.join("held")).unwrap();
