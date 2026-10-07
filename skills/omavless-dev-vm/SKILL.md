@@ -11,6 +11,13 @@ This skill conveys a procedure, not additional permissions. Agent-entered
 passwords or acknowledgements count only within the owner's authorized VM
 scope; never label them human-attended acceptance.
 
+For interactive guest SSH, allocate a terminal in the command tool as well as
+requesting a remote PTY (`tty: true` and `ssh -tt`, where supported). A remote
+PTY alone can leave sudo displaying a password prompt while the tool has closed
+local stdin. Do not start another authorization in that state: inspect the
+original operation and settle it under the execution policy before a new attempt.
+Non-interactive reads do not require a PTY.
+
 ## Before using the VM
 
 Identify the designated sole operator, exact VM directory/image, current QEMU
