@@ -1,7 +1,7 @@
 # T3 product witness epochs
 
-Status: default-off candidate based on `5cfbf2fd`, with separate exact617 backend
-and exact B installed EN/RU Product VM checkpoints below. Public/default activation,
+Status: default-off candidate based on `5cfbf2fd`, with separate exact617 backend,
+exact B installed EN/RU Product and ordinary no-flag VM checkpoints below. Public/default activation,
 reboot/upgrade/host-family closure are not implied. The existing
 [original-image contract](T3_IMAGE_WITNESS.md) and its exact installed-development
 checkpoint remain authoritative for the unchanged path. Earlier acceptance is
@@ -602,6 +602,63 @@ captures and chronology remain outside Git. Public/default activation, whole
 T3/C1, cold startup/reboot/upgrade, ARM64/NixOS, K1 and release/main/Marketplace
 acceptance do not follow from this result.
 
+## Exact B ordinary no-flag fresh-boot restart — 2026-10-07
+
+Application SOURCE remains `0b55a1a6e2b2a93c8e4e72ef7fd6f10a93891df2` and the
+installed runtime remains 8,805,616 bytes/SHA256
+`30d91c7a077c48dff6c242254c7b49103b6763628b488ccd836448d3d884cfdd`.
+ROOT alone operated a separately selected fresh x86_64 Omarchy boot
+`0153e37b-0cb9-43d8-891b-fcfd2bf5bf83`; GUI5's old boot was not reused.
+Genuine normal login preparation was active-exited/success0. An initial ordinary
+canonical start and parsed status established owned Off/Rule/empty profile,
+revision0 and the consumed current-manager receipt, then a separately selected
+known-Off stop established the inactive baseline before the measured gate.
+
+The fixed normal-user recipe had full ROOT/independent affected SOURCE review
+and 14 pure controls. Type=simple start can precede socket binding, so a bounded
+metadata/pidfd-only wait now precedes the first semantic CLI. It uses at most 5s
+within the unchanged original 45s phase budget; only exact user700 directory /
+user600 socket is ready. It issues no RPC, retry or cleanup. Only both BOOT
+literals changed in the full original source closure before actual selection:
+start 13,799 bytes/SHA256
+`474eee959516584d584cc29ef502ab1a0684f515ff64fe917bd8ed32d70bb261`,
+stop 12,557 bytes/SHA256
+`6afdd634c131759ff21ca7cf11d08d816b5c84d318f478e64e13467ea780e2e3`.
+The actual public-source upload/readback retained400/single UID:GID1000 files.
+No privileged helper, alternate HOME, generic/raw IPC or state/config edit was
+introduced; the genuine native login/ownership constructor remained authoritative.
+
+One start (`420536`) returned original SSH0 with
+`T3_B_ORDINARY_START_ORIGINAL_ZERO_OWNED_OFF_CLOSE_NOT_ADVERTISED`.
+The recipe proved original normal systemctl/CLI WNOWAIT0 and reap0, exact
+packaged no-flag daemon image/command line and unit without overrides, semantic
+native ownership true, all close methods absent, owned Off/empty profile and
+unchanged desired/marker/login/image/unit objects. Independent actual readback
+again confirmed owned Off/no Meta or omavless0.
+
+Only after that known completion, one separately selected stop (`cb5d86`) returned
+original SSH0 with
+`T3_B_ORDINARY_STOP_ORIGINAL_ZERO_INACTIVE_NO_TUN_OR_SOCKET`.
+The still-Off ordinary owner was verified before normal stop; original command0,
+original daemon pidfd death observation, canonical inactive/dead/PID0/success0,
+no runtime control socket and no Meta/omavless0 passed. Independent actual `9013bb`
+readback confirmed inactive MainPID/ControlPID0, success and the same absences.
+PIDfd death observation is not manager-owned child reaping or new authority.
+
+Separate successful-scope ADMIN preservation returned original0
+(archive39328/result433928), retaining the fixed source/config/state originals
+in a root600/single-link/no-replace 286,720-byte archive outside Git. Normal guest
+poweroff44987/resultd218f4 then returned original0; original QEMU8627/result073575
+exited0 and original serial46651/result9a8286 reached EOF0. This is administrative
+evidence preservation and VM handoff, not product rollback or recovery.
+
+This is scoped ordinary no-flag restart after genuine epoch consumption in a
+fresh boot. It does not prove automatic login/autostart or AUTO-1, a Product
+context across reboot, image upgrade/re-enrollment, every possible TUN name,
+whole T3/C1 or public default activation. Explicit no-route close RPC remains
+UNRUN: the existing semantic CLI has no such fixed command, and no raw-method
+probe was added. Earlier617 ordinary evidence and GUI5 remain separate.
+
 ### Remaining T3/C1 completion gates
 
 The [client evidence matrix](T3_DEVELOPER_CLOSE_CLIENT.md#evidence-matrix),
@@ -614,7 +671,7 @@ owning scope. The next real checkpoints are:
 | Product fault cuts | Wrong UID/parent, dead original child, retained source/runtime/core/package/enrollment drift, helper expiry/loss and late Finish/publication must refuse without renewal; earlier developer-class or memory controls do not prove B's real Product class. |
 | Real client ambiguity/concurrency | Lost UI response, sticky Unknown, actual owner/revision change, competing normal mutation/Disconnect and fresh-selected generation/tuple drift through the Product client; receipt-only resolution must not resend or retarget. |
 | Installed UI matrix | Constrained EN and actionable/modal constrained states; actual client-loss/signal/resize during pending/unresolved work. The RU spent-window resize above proves only that state. |
-| Default startup and lifetime | B's ordinary no-flag cold startup/no-advertise/no-route, reboot and root-attended image upgrade/re-enrollment, plus defined capacity exhaustion/restart behavior. A new administrative enrollment is not accepted product recovery or old-token revival. |
+| Default startup and lifetime | B's ordinary no-flag fresh-boot restart/Off/no-advertise/stop now has its own scoped result above. Explicit no-route RPC, automatic login/autostart, Product-context reboot and root-attended image upgrade/re-enrollment, plus defined capacity exhaustion/restart behavior remain unrun. A new administrative enrollment is not accepted product recovery or old-token revival. |
 | Distribution/host scope | Separately selected normal public registration, qualified pair/helper distribution and release/frontend installation; applicable ARM64 and NixOS package/service/generation gates remain unrun. Source/package CI cannot supply those installed results. |
 | Whole T3/C1 workspace | Complete the declared privacy-aware connection/process/chain and adjacent operator-view matrix against the shared runtime, including truncation/stale/unavailable/privacy and client concurrency. One selected-close slice does not close that broader ledger. |
 
