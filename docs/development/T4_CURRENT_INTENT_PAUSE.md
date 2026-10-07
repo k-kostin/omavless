@@ -124,6 +124,100 @@ volatile lock files after reboot likewise remain unavailable, not repaired from
 history or Aborted bytes. These limitations keep cold bootstrap and repeated
 ordinary completion outside this source cut.
 
+#### Installed current43 source driver (not yet selected)
+
+The feature-and-test-only `native_current_recovery_vm_tests` has five separately
+selected originals, not a dispatcher, startup factory or automatic scenario.
+ROOT must first earn genuine normal current/login admission with exact d0ab
+normal package and the compatible whole LegacyMeta2 bundle. A fresh private
+archive is exported by the existing current backup API; the fixed private
+schema-1 request at `/home/kdk_vm/.cache/t4-installed-current-recovery-review43/request.json`
+names only sibling `actual-current.ovb`. Neither a private password nor a path
+is supplied through arguments/environment/output. Two required correlation
+fields `expectedInstanceId`/`expectedRevision` come from ROOT's original normal
+pre-publication hello; the driver requires exactly those SAME values before
+any of its other RPCs. They are never authentication, lease or recovery grants.
+The normal export/pause wire request retains its existing schema/parameters;
+these additional driver-input fields are not passed blindly to the app CLI.
+Unknown, duplicate, malformed,
+oversized and other-path inputs refuse before RPC/authentication. Private owned
+text/read buffers are Zeroizing; serde JSON temporaries are not all guaranteed.
+
+Only after ROOT's original publication-loss sender0, source-closed seal and
+separately proved SAME live daemon may ROOT select each fixed Pause, Abort,
+Backup and Restore denial test once. Each uses normal `call_with_timeout`
+credentials/framing with the observed SAME instance/revision, its method-specific
+confirmation, and the existing private dispatcher. It requires the exact
+`capability_unavailable`/fixed-message/retryable-false response at the same
+revision. Any transport, malformed or other response stops before postchecks,
+with no second mutation. After exact denial, predeclared hello/status/list and
+all held/named byte and full-nine-field directory/member checks must remain
+identical. This proves **that new operation** refused before entry, never that
+the preceding sealed operation had no effects. A fenced profiles-list response
+may be unavailable; the exact normal decoded response is compared before/after.
+
+These factual readers reserve 16 file slots (15 admitted files plus one later
+Terminal readback), six original directories, and optional original audit
+history. At most 24 persistent/transient reader/RPC descriptors are needed;
+RLIMIT >=28 is necessary only, not a process-global allocation proof. The actual
+recovery holder has its independent reviewed reservation/48-role ceiling.
+The recovery driver also checks the combined necessary ceiling80 before any
+reader or recovery-holder acquisition, not a global FD allocation guarantee.
+Every reader is nofollow, bounded through EOF, private0600/single/UID:GID1000/
+no-xattrs, with pre/post held and named nine-field continuity. The actual private
+pair must match original staged OLD; Intent must decode exactly Intent. Other
+pending/temporary roles must be absent, while existing nonpending history is
+pinned and preserved, never removed as setup.
+
+Only after ROOT observes the SAME daemon's known normal stop0 on that SAME boot
+may ROOT select the fifth original. `FreshRecovery` is reserved before factual
+reader acquisition. Normal `RuntimePaths::current`, `CutoverPaths::current`,
+`DesiredPaths::current` and `NativeHostPaths::current` retain their real path,
+package and manager predicates; no explicit alternative factory/old authority
+is imported. The entry authenticates the archive and calls only
+`reconcile_old_intent` with existing original lock files. It rechecks real
+inactive managers, inventory, singleton exclusion, bindings and every reached
+production origin fence. Missing/busy/drift/collision is terminal refusal,
+not repair/retry or fallback to MIXED.
+
+Normal `RuntimeServer` Drop removes its own `control.sock` while preserving the
+existing singleton lock file. Recovery therefore has a closed endpoint origin:
+either the original inert socket remains, or its name is absent. Only nofollow
+`fstatat` ENOENT **after** positively acquiring the SAME new exclusive flock on
+existing `owner.lock` selects absence. Other lookup errors and all O_PATH child
+acquisition failures refuse and retain the acquired prefix; none is converted
+to absence. Existing-socket admission remains immutable and never downgrades
+after disappearance. Absent-socket admission rechecks absence before and after
+the full held/named parent/lock binding and strict singleton catalogue on every
+origin, including the initial gate before main catalogue capture. No endpoint
+is connected, rebound, removed or created, and no lock is created/chmodded.
+
+The live denial originals require the actual socket to be present. Only the
+separate stopped recovery original accepts and pins absence. Its reader checks
+that exact presence/absence again after recovery; production authority comes
+from the new held flock/origin, not that factual reader. The installed RPC image
+remains exact d0ab. The successor recovery test ELF includes this endpoint
+boundary and has a distinct source/artifact pin; the two are not interchangeable.
+Local source controls use real ordinary RuntimeServer bind/Drop and cover busy,
+missing/replaced lock, replaced parent, absent-name socket/file/symlink creation,
+existing socket loss, non-ENOENT classification, expired deadline, failed child
+acquisition with prefix retention, and normal bind excluded by the held flock.
+These local filesystem controls do not attest a real manager or installed gate.
+
+Success independently reads the exact Intent/Aborted chain, checks unchanged
+SAME held OLD file bytes/inodes and held stage/request/archive/history, observes
+the original lease still held, and verifies pending remains. State-directory
+ctime/mtime/size may legitimately advance for the sole reported Terminal write;
+its original inode/mode/UID/GID/nlink and current held/named full tuple remain
+checked, while the production phase-aware engine proves the new role/catalogue.
+No other factual directory/member drift is exempt. The original recovery graph
+is retained before output/final assertions; unexpected positive postcheck lock
+acquisition is retained rather than silently unlocked. One fixed marker plus
+ROOT's **original test exit0** is required: a marker alone is not PASS. Result:
+OLD/Intent→AbortedStillFenced with unchanged live OLD, not terminal retirement,
+repeated-history disposition, ordinary admission, cold bootstrap, default
+activation or whole-T4 completion.
+
 No descriptor role or file-capacity envelope is added. The one bounded holder
 adds an opaque Arc identity, one fixed-size original Intent record, and the
 original scheduler revision/instance. It cannot hold a second pause or admit

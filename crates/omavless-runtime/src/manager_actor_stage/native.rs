@@ -236,6 +236,144 @@ fn native_recovery_existing_singleton_busy_and_named_drift_are_real_files() {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn native_recovery_normal_server_drop_absence_is_exclusive_and_never_downgrades() {
+    use std::fs;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use std::os::unix::net::UnixListener;
+    for (index, case) in [
+        "positive",
+        "busy",
+        "missing-lock",
+        "lock-drift",
+        "parent-drift",
+        "new-socket",
+        "new-file",
+        "new-symlink",
+        "deadline",
+        "child-error",
+        "bind-excluded",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let root = std::env::temp_dir().join(format!("ra-{:x}-{index}", std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let paths = crate::RuntimePaths::below(&root);
+        // Real ordinary bind and Drop, not a manually invented missing socket.
+        let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+        assert!(paths.socket.exists());
+        drop(server);
+        assert!(
+            matches!(fs::symlink_metadata(&paths.socket), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        );
+        assert!(paths.owner_lock.exists());
+        let lock = File::open(&paths.owner_lock).unwrap();
+        if case == "busy" {
+            rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+        } else if case == "missing-lock" {
+            fs::remove_file(&paths.owner_lock).unwrap();
+        }
+        let mut engine = NativeEngine::reserve();
+        engine.uid = Some(nix::unistd::getuid().as_raw());
+        engine.gid = Some(nix::unistd::getgid().as_raw());
+        engine.recovery = true;
+        engine.lower.io.native_admit().unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        engine
+            .clone_file(Slot::Run, &File::open(&root).unwrap(), true, until)
+            .unwrap();
+        // No pre-catalogue origin exists before the actual original capture.
+        assert!(engine.check_bindings(until).is_err());
+        let result = engine.capture_recovery_singleton(until);
+        if matches!(case, "busy" | "missing-lock") {
+            assert!(result.is_err());
+            assert!(engine.recovery_endpoint == RecoveryEndpoint::Unselected);
+            assert!(engine.lower.io.test_retains_original(Slot::Root));
+            if case == "busy" {
+                assert!(engine.lower.io.test_retains_original(Slot::Lock));
+            }
+        } else {
+            result.unwrap();
+            assert!(engine.recovery_endpoint == RecoveryEndpoint::SocketAbsent);
+            assert!(!engine.lower.io.test_retains_original(Slot::Scratch6));
+            // This reaches the initial pre-catalogue check used by real origin gates.
+            assert!(!engine.catalogues_captured);
+            engine.check_bindings(until).unwrap();
+            engine.check_bindings(until).unwrap();
+            let not_directory = fstatat(&lock, crate::SOCKET_NAME, AtFlags::AT_SYMLINK_NOFOLLOW);
+            assert!(matches!(not_directory, Err(nix::errno::Errno::ENOTDIR)));
+            assert!(!socket_absent(not_directory));
+            let mut listener = None;
+            match case {
+                "lock-drift" => {
+                    fs::rename(&paths.owner_lock, paths.directory.join("original-lock")).unwrap();
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
+                        .open(&paths.owner_lock)
+                        .unwrap();
+                }
+                "parent-drift" => {
+                    fs::rename(&paths.directory, root.join("original-directory")).unwrap();
+                    fs::DirBuilder::new()
+                        .mode(0o700)
+                        .create(&paths.directory)
+                        .unwrap();
+                }
+                "new-socket" => listener = Some(UnixListener::bind(&paths.socket).unwrap()),
+                "new-file" => {
+                    fs::write(&paths.socket, b"not a socket").unwrap();
+                }
+                "new-symlink" => {
+                    std::os::unix::fs::symlink(&paths.owner_lock, &paths.socket).unwrap();
+                }
+                "deadline" => {
+                    assert!(
+                        engine
+                            .check_bindings(Instant::now() - std::time::Duration::from_secs(1))
+                            .is_err()
+                    );
+                }
+                "child-error" => {
+                    // Reach the exact O_PATH acquisition helper with a missing name.
+                    // Its error must revoke/retain; it cannot manufacture absence admission.
+                    assert!(engine.capture_existing_recovery_socket(until).is_err());
+                    assert!(engine.recovery_endpoint == RecoveryEndpoint::SocketAbsent);
+                    assert!(engine.check_bindings(until).is_err());
+                }
+                "bind-excluded" => {
+                    assert!(matches!(
+                        crate::RuntimeServer::bind(paths.clone()),
+                        Err(crate::RuntimeError::AlreadyRunning)
+                    ));
+                }
+                _ => {}
+            }
+            if matches!(
+                case,
+                "lock-drift" | "parent-drift" | "new-socket" | "new-file" | "new-symlink"
+            ) {
+                assert!(engine.check_bindings(until).is_err());
+            }
+            assert!(engine.lower.io.test_retains_original(Slot::Root));
+            assert!(engine.lower.io.test_retains_original(Slot::Lock));
+            drop(listener);
+        }
+        drop((engine, lock));
+        fs::remove_dir_all(root).unwrap(); // only these completed local fixtures
+    }
+    for error in [
+        nix::errno::Errno::EACCES,
+        nix::errno::Errno::ENOTDIR,
+        nix::errno::Errno::EIO,
+    ] {
+        assert!(!socket_absent(Err(error)));
+    }
+}
+
 fn mixed_intent_review(
     intent: &[u8],
     members: [&[u8]; 4],
@@ -427,9 +565,12 @@ fn native_recovery_old_abort_real_files_keep_live_inodes_and_uncertain_prefix() 
         fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
         let config = root.join("config");
         let state = root.join("state");
-        for path in [&config, &state] {
+        let run = root.join("run");
+        for path in [&config, &state, &run] {
             fs::DirBuilder::new().mode(0o700).create(path).unwrap();
         }
+        let server = crate::RuntimeServer::bind(crate::RuntimePaths::below(&run)).unwrap();
+        drop(server);
         let write = |path: &std::path::Path, bytes: &[u8]| {
             let mut file = fs::OpenOptions::new()
                 .read(true)
@@ -468,6 +609,10 @@ fn native_recovery_old_abort_real_files_keep_live_inodes_and_uncertain_prefix() 
         engine.recovery = true;
         engine.lower.io.native_admit().unwrap();
         let until = Instant::now() + std::time::Duration::from_secs(10);
+        engine
+            .clone_file(Slot::Run, &File::open(&run).unwrap(), true, until)
+            .unwrap();
+        engine.capture_recovery_singleton(until).unwrap();
         for (slot, path) in [(Slot::Config, &config), (Slot::State, &state)] {
             engine
                 .clone_file(slot, &File::open(path).unwrap(), true, until)
@@ -956,11 +1101,20 @@ fn native_store_nochange_uses_named_rollback_original_not_displaced_mixed_file()
     };
     let mixed = write(LIVE[0].1, b"actual displaced MIXED");
     let rollback = write(NATIVE_ROLLBACKS[0].1, b"actual current OLD");
+    let run = root.join("run");
+    fs::DirBuilder::new().mode(0o700).create(&run).unwrap();
+    let server = crate::RuntimeServer::bind(crate::RuntimePaths::below(&run)).unwrap();
+    drop(server); // real private owner.lock remains, ordinary socket is absent
     let mut engine = NativeEngine::reserve();
     engine.uid = Some(nix::unistd::getuid().as_raw());
     engine.gid = Some(nix::unistd::getgid().as_raw());
     engine.lower.io.native_admit().unwrap();
     let until = Instant::now() + std::time::Duration::from_secs(5);
+    engine.recovery = true;
+    engine
+        .clone_file(Slot::Run, &File::open(&run).unwrap(), true, until)
+        .unwrap();
+    engine.capture_recovery_singleton(until).unwrap();
     engine
         .clone_file(Slot::Config, &File::open(&root).unwrap(), true, until)
         .unwrap();
@@ -979,8 +1133,6 @@ fn native_store_nochange_uses_named_rollback_original_not_displaced_mixed_file()
     engine.completed = true;
     engine.disposition_done = true;
     engine.history = true;
-    engine.recovery = true;
-    engine.singleton_locked = true;
     engine.store_attempted = true;
     engine
         .finish_store_inner(&mut LocalRoleOnly, b"actual current OLD", false, until)
@@ -993,7 +1145,7 @@ fn native_store_nochange_uses_named_rollback_original_not_displaced_mixed_file()
     );
     drop((engine, mixed, rollback));
     fs::remove_file(root.join(LIVE[0].1)).unwrap();
-    fs::remove_dir(root).unwrap();
+    fs::remove_dir_all(root).unwrap();
 }
 
 // Original directory membership is a bounded fact of the same held objects,
@@ -1080,6 +1232,15 @@ impl NativeCatalogue {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecoveryEndpoint {
+    Unselected,
+    ExistingSocket,
+    SocketAbsent,
+}
+fn socket_absent(result: Result<nix::sys::stat::FileStat, nix::errno::Errno>) -> bool {
+    matches!(result, Err(nix::errno::Errno::ENOENT))
+}
 pub(crate) struct NativeEngine {
     lower: Stage,
     stage_name: Option<Metadata>,
@@ -1095,6 +1256,7 @@ pub(crate) struct NativeEngine {
     intent_identity: std::sync::Arc<()>,
     current_intent: CurrentIntentPhase,
     singleton_locked: bool,
+    recovery_endpoint: RecoveryEndpoint,
     unlinked: [bool; IO_SLOTS],
     completed: bool,
     retirement: bool,
@@ -1135,6 +1297,7 @@ impl NativeStageView<'_> {
     pub(crate) fn recovery_exclusive(self) -> bool {
         self.engine.recovery
             && self.engine.singleton_locked
+            && self.engine.recovery_endpoint != RecoveryEndpoint::Unselected
             && !self.engine.sealed
             && self.engine.lower.io.original(Slot::Root).is_ok()
             && self.engine.lower.io.original(Slot::Lock).is_ok()
@@ -1309,6 +1472,7 @@ impl NativeEngine {
             intent_identity: std::sync::Arc::new(()),
             current_intent: CurrentIntentPhase::None,
             singleton_locked: false,
+            recovery_endpoint: RecoveryEndpoint::Unselected,
             unlinked: [false; IO_SLOTS],
             completed: false,
             retirement: false,
@@ -1581,6 +1745,11 @@ impl NativeEngine {
     }
 
     fn check_bindings(&mut self, until: Instant) -> Result<(), Unavailable> {
+        // The first origin check precedes catalogue capture. Flags alone may
+        // never substitute for the SAME positively acquired singleton/endpoint.
+        if self.recovery {
+            self.check_recovery_singleton(until)?;
+        }
         if !self.catalogues_captured {
             return Ok(());
         }
@@ -1610,7 +1779,6 @@ impl NativeEngine {
             NATIVE_REPLACEMENTS
         };
         if self.recovery {
-            self.check_recovery_singleton(until)?;
             if self.lower.original[Slot::Terminal as usize].is_none()
                 && !matches!(
                     fstatat(
@@ -2001,13 +2169,23 @@ impl NativeEngine {
     }
 
     fn check_recovery_singleton(&mut self, until: Instant) -> Result<(), Unavailable> {
-        if !self.singleton_locked {
+        if !self.singleton_locked || self.recovery_endpoint == RecoveryEndpoint::Unselected {
             return Err(Unavailable);
+        }
+        if self.recovery_endpoint == RecoveryEndpoint::SocketAbsent {
+            self.check_recovery_socket_absence(until)?;
         }
         self.lower
             .binding(Slot::Run, Slot::Root, "omavless", true, until)?;
         self.lower
             .binding(Slot::Root, Slot::Lock, crate::OWNER_LOCK_NAME, false, until)?;
+        if self.recovery_endpoint == RecoveryEndpoint::SocketAbsent {
+            self.lower
+                .catalogue_inner(Slot::Root, &[crate::OWNER_LOCK_NAME], until)?;
+            // The same held parent/lock binding and full catalogue bracket
+            // named absence on every origin, even before the main catalogues.
+            return self.check_recovery_socket_absence(until);
+        }
         self.lower.catalogue_inner(
             Slot::Root,
             &[crate::OWNER_LOCK_NAME, crate::SOCKET_NAME],
@@ -2059,6 +2237,23 @@ impl NativeEngine {
             return Err(Unavailable);
         }
         Ok(())
+    }
+    fn check_recovery_socket_absence(&mut self, until: Instant) -> Result<(), Unavailable> {
+        self.lower.io.perform(
+            Slot::Root,
+            || tick(until),
+            |parent| {
+                if socket_absent(fstatat(
+                    parent,
+                    crate::SOCKET_NAME,
+                    AtFlags::AT_SYMLINK_NOFOLLOW,
+                )) {
+                    Ok(())
+                } else {
+                    Err(Unavailable)
+                }
+            },
+        )
     }
 
     fn capture_recovery_singleton(&mut self, until: Instant) -> Result<(), FirstError> {
@@ -2115,6 +2310,30 @@ impl NativeEngine {
         self.lower
             .binding(Slot::Root, Slot::Lock, crate::OWNER_LOCK_NAME, false, until)
             .map_err(|_| FirstError::Admission)?;
+        // Classify only the nofollow named lookup after positive SAME existing
+        // singleton flock. Never catch FileIo.child/O_PATH errors as absence:
+        // those errors revoke the ledger and retain its acquired prefix.
+        let endpoint = fstatat(
+            self.lower
+                .io
+                .original(Slot::Root)
+                .map_err(|_| FirstError::Admission)?,
+            crate::SOCKET_NAME,
+            AtFlags::AT_SYMLINK_NOFOLLOW,
+        );
+        tick(until).map_err(|_| FirstError::Admission)?;
+        if socket_absent(endpoint) {
+            self.recovery_endpoint = RecoveryEndpoint::SocketAbsent;
+        } else if endpoint.is_ok() {
+            self.capture_existing_recovery_socket(until)?;
+            self.recovery_endpoint = RecoveryEndpoint::ExistingSocket;
+        } else {
+            return Err(FirstError::Admission);
+        }
+        self.check_recovery_singleton(until)
+            .map_err(|_| FirstError::Admission)
+    }
+    fn capture_existing_recovery_socket(&mut self, until: Instant) -> Result<(), FirstError> {
         // The old endpoint is retained ONLY as an inert named object. The
         // NEW existing-owner.lock flock excludes RuntimeServer bind; no
         // connection, rebound socket, old PID or creation proof is adopted.
