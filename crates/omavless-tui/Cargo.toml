@@ -26,3 +26,7 @@ workspace = true
 [[example]]
 name = "private_backup_preview"
 required-features = ["private-backup"]
+
+[[example]]
+name = "private_restore_preview"
+required-features = ["private-backup"]

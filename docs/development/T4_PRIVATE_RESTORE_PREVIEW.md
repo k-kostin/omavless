@@ -136,3 +136,7 @@ replacement. Initial test-only non-Debug assertion compilation and a strict
 Clippy chunk-iterator style failure remain preserved; their fixes do not add
 private formatting or change admission. No package, VM, TUI Restore or default
 activation is selected by these source results.
+
+The separate [experimental Restore TUI composition](T4_PRIVATE_RESTORE_TUI.md)
+records the later user-facing source slice and its own checks. Its status does
+not replace the original preview-only evidence or grant installed acceptance.

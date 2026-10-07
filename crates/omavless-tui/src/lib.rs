@@ -14,6 +14,8 @@ pub mod jobs;
 pub mod model;
 #[cfg(feature = "private-backup")]
 pub mod private_backup;
+#[cfg(feature = "private-backup")]
+pub mod private_restore;
 pub mod route_inspection;
 pub mod settings;
 pub mod subscription_usage;
@@ -41,6 +43,11 @@ use std::{
 type BackupAdapter = Box<dyn FnMut(private_backup::Request) -> private_backup::Completion + Send>;
 #[cfg(not(feature = "private-backup"))]
 type BackupAdapter = ();
+#[cfg(feature = "private-backup")]
+type RestoreAdapter =
+    Box<dyn FnMut(private_restore::Request) -> private_restore::Completion + Send>;
+#[cfg(not(feature = "private-backup"))]
+type RestoreAdapter = ();
 
 /// Ratatui 0.30's Terminal destructor uses eprintln! if cursor restoration
 /// fails. After a PTY is revoked both that write and the destructor can panic.
@@ -82,6 +89,7 @@ pub fn run(
         None::<fn(&actions::Request) -> Result<Value, ReadError>>,
         None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
         None,
+        None,
     )
 }
 
@@ -96,6 +104,7 @@ pub fn run_actions(
         Some(mutate),
         None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
         None,
+        None,
     )
 }
 
@@ -105,7 +114,7 @@ pub fn run_full(
     mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate), Some(jobs), None)
+    run_client(read, Some(mutate), Some(jobs), None, None)
 }
 
 /// Explicit opt-in client only. Backup callback has one fixed semantic method;
@@ -117,7 +126,25 @@ pub fn run_full_private_backup(
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
     backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate), Some(jobs), Some(Box::new(backup)))
+    run_client(read, Some(mutate), Some(jobs), Some(Box::new(backup)), None)
+}
+
+/// Separate explicit experimental client; existing Backup-only selection is unchanged.
+#[cfg(feature = "private-backup")]
+pub fn run_full_private_restore(
+    read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
+    mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
+    jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
+    backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
+    restore: impl FnMut(private_restore::Request) -> private_restore::Completion + Send + 'static,
+) -> Result<(), &'static str> {
+    run_client(
+        read,
+        Some(mutate),
+        Some(jobs),
+        Some(Box::new(backup)),
+        Some(Box::new(restore)),
+    )
 }
 
 fn run_client(
@@ -125,6 +152,7 @@ fn run_client(
     mutate: Option<impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static>,
     jobs: Option<impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static>,
     _backup: Option<BackupAdapter>,
+    _restore: Option<RestoreAdapter>,
 ) -> Result<(), &'static str> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
@@ -249,6 +277,24 @@ fn run_client(
             })
             .map_err(|_| "Could not start private Backup client")?;
     }
+    #[cfg(feature = "private-backup")]
+    let (restore_calls, restore_requests) = mpsc::sync_channel::<private_restore::Request>(1);
+    #[cfg(feature = "private-backup")]
+    let (restore_results, restore_responses) = mpsc::sync_channel(1);
+    #[cfg(feature = "private-backup")]
+    if let Some(mut restore) = _restore {
+        app.restore_enabled = true;
+        thread::Builder::new()
+            .name("tui-private-restore".into())
+            .spawn(move || {
+                while let Ok(request) = restore_requests.recv() {
+                    if restore_results.send(restore(request)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|_| "Could not start private Restore client")?;
+    }
     let (job_calls, job_requests) = mpsc::sync_channel::<(job_ui::Phase, jobs::Call)>(1);
     let (job_results, job_responses) = mpsc::sync_channel(1);
     if let Some(mut call) = jobs {
@@ -284,6 +330,15 @@ fn run_client(
         let now = Instant::now();
         #[cfg(feature = "private-backup")]
         {
+            match restore_responses.try_recv() {
+                Ok(result) => {
+                    app.finish_restore(result);
+                    due = now;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => app.restore_worker_disconnected(),
+                Err(mpsc::TryRecvError::Empty) => (),
+            }
+            app.refresh_restore_context(now);
             if let Ok(result) = backup_responses.try_recv() {
                 app.finish_backup(result);
             }
@@ -380,6 +435,16 @@ fn run_client(
                         && submit.try_send(request).is_err()
                     {
                         app.finish(actions::Outcome::Unknown, now);
+                    }
+                }
+                #[cfg(feature = "private-backup")]
+                Action::SubmitRestore => {
+                    if let Some(request) = app.take_restore_request()
+                        && let Err(error) = restore_calls.try_send(request)
+                    {
+                        let (mpsc::TrySendError::Full(request)
+                        | mpsc::TrySendError::Disconnected(request)) = error;
+                        app.finish_restore(request.settle(Err(ReadError::Unavailable)));
                     }
                 }
                 #[cfg(feature = "private-backup")]

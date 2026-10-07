@@ -12,6 +12,14 @@ pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
     #[cfg(feature = "private-backup")]
+    pub restore_enabled: bool,
+    #[cfg(feature = "private-backup")]
+    pub restore: Option<crate::private_restore::Workspace>,
+    #[cfg(feature = "private-backup")]
+    pub restore_open: bool,
+    #[cfg(feature = "private-backup")]
+    restore_request: Option<crate::private_restore::Request>,
+    #[cfg(feature = "private-backup")]
     pub backup_enabled: bool,
     #[cfg(feature = "private-backup")]
     pub backup: Option<crate::private_backup::Workspace>,
@@ -77,6 +85,8 @@ pub enum Confirmation {
 #[derive(PartialEq, Eq, Debug)]
 pub enum Action {
     #[cfg(feature = "private-backup")]
+    SubmitRestore,
+    #[cfg(feature = "private-backup")]
     SubmitBackup,
     StartJob,
     PollJob,
@@ -131,6 +141,14 @@ impl App {
     }
     pub fn new(locale: Locale) -> Self {
         Self {
+            #[cfg(feature = "private-backup")]
+            restore_enabled: false,
+            #[cfg(feature = "private-backup")]
+            restore: None,
+            #[cfg(feature = "private-backup")]
+            restore_open: false,
+            #[cfg(feature = "private-backup")]
+            restore_request: None,
             #[cfg(feature = "private-backup")]
             backup_enabled: false,
             #[cfg(feature = "private-backup")]
@@ -376,15 +394,20 @@ impl App {
         }
         #[cfg(feature = "private-backup")]
         {
+            self.refresh_restore_context(now);
+            if self.restore_open {
+                return self.restore_key(key, now);
+            }
             self.refresh_backup_context(now);
             if self.backup_open {
                 return self.backup_key(key, now);
             }
-            if self.backup_unresolved() {
+            if self.backup_unresolved() || self.restore_unresolved() {
                 match key.code {
                     KeyCode::Char('q') => return Action::Close,
                     KeyCode::Char(',') => self.page = crate::inspection::Page::Settings,
-                    KeyCode::Char('b') => self.backup_open = true,
+                    KeyCode::Char('b') if self.backup_unresolved() => self.backup_open = true,
+                    KeyCode::Char('R') if self.restore_unresolved() => self.restore_open = true,
                     KeyCode::Char('r') => return Action::Refresh,
                     KeyCode::Tab | KeyCode::BackTab => {
                         let next = self.page.next(
@@ -555,6 +578,20 @@ impl App {
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
                 self.operator_query.clear();
+                return Action::None;
+            }
+            #[cfg(feature = "private-backup")]
+            if self.page == crate::inspection::Page::Settings
+                && key.code == KeyCode::Char('R')
+                && self.restore_available(now)
+            {
+                if let Some(snapshot) = &self.snapshot {
+                    self.restore = crate::private_restore::Workspace::new(
+                        &snapshot.metadata.instance_id,
+                        snapshot.revision,
+                    );
+                    self.restore_open = self.restore.is_some();
+                }
                 return Action::None;
             }
             #[cfg(feature = "private-backup")]
@@ -891,6 +928,7 @@ impl App {
     #[cfg(feature = "private-backup")]
     pub fn backup_available(&self, now: Instant) -> bool {
         self.backup_enabled
+            && !self.restore_unresolved()
             && self.viewport_ready
             && self.fresh(now)
             && !self.running
@@ -991,6 +1029,121 @@ impl App {
     pub fn finish_backup(&mut self, result: crate::private_backup::Completion) {
         if let Some(w) = &mut self.backup {
             w.accept(result);
+        }
+    }
+
+    #[cfg(feature = "private-backup")]
+    pub fn restore_available(&self, now: Instant) -> bool {
+        self.restore_enabled
+            && self.viewport_ready
+            && self.fresh(now)
+            && !self.running
+            && !self.unknown
+            && self.pending.is_none()
+            && !self.backup_unresolved()
+            && !self.job.as_ref().is_some_and(|j| j.blocks_actions())
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.capabilities.private_restore
+                    && s.status() == Status::Disconnected
+                    && !s.metadata.desired.connected
+            })
+    }
+    #[cfg(feature = "private-backup")]
+    pub(crate) fn restore_unresolved(&self) -> bool {
+        self.restore.as_ref().is_some_and(|w| w.unresolved())
+    }
+    #[cfg(feature = "private-backup")]
+    pub(crate) fn refresh_restore_context(&mut self, now: Instant) {
+        let available = self.restore_available(now);
+        let context = self
+            .snapshot
+            .as_ref()
+            .map(|s| (s.metadata.instance_id.clone(), s.revision));
+        if let Some(w) = &mut self.restore {
+            w.observe_deadline(now);
+            let (id, rev) = context
+                .as_ref()
+                .map_or(("", 0), |(id, rev)| (id.as_str(), *rev));
+            w.check_header(id, rev, available);
+        }
+    }
+    #[cfg(feature = "private-backup")]
+    fn restore_key(&mut self, key: KeyEvent, now: Instant) -> Action {
+        use crate::private_restore::State;
+        let Some(w) = &mut self.restore else {
+            return Action::None;
+        };
+        if key.code == KeyCode::Esc {
+            w.cancel();
+            self.restore_open = false;
+            self.notice = "";
+            return Action::None;
+        }
+        if matches!(
+            w.state(),
+            State::Previewing | State::Submitted | State::Unknown
+        ) {
+            return if key.code == KeyCode::Char('q') {
+                Action::Close
+            } else {
+                Action::None
+            };
+        }
+        if !self.viewport_ready
+            || key.kind != KeyEventKind::Press
+            || key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return Action::None;
+        }
+        match (w.state(), key.code) {
+            (State::Editing, KeyCode::Tab | KeyCode::BackTab) => w.next_field(),
+            (State::Editing, KeyCode::Backspace) => w.backspace(),
+            (State::Editing, KeyCode::Char(ch)) => {
+                w.push(ch);
+            }
+            (State::Editing, KeyCode::Enter) => {
+                self.restore_request = w.begin_preview_at(now);
+                if self.restore_request.is_some() {
+                    self.notice = "";
+                    return Action::SubmitRestore;
+                }
+                self.notice = "tui.restore_invalid";
+            }
+            (State::Confirming, KeyCode::Enter) => {
+                if let Some(id) = actions::operation_id() {
+                    self.restore_request = w.submit_at(id, now);
+                    if self.restore_request.is_some() {
+                        return Action::SubmitRestore;
+                    }
+                }
+                w.cancel();
+                self.notice = "tui.restore_unavailable";
+            }
+            (_, KeyCode::Char('q')) => return Action::Close,
+            _ => (),
+        }
+        Action::None
+    }
+    #[cfg(feature = "private-backup")]
+    pub fn take_restore_request(&mut self) -> Option<crate::private_restore::Request> {
+        self.restore_request.take()
+    }
+    #[cfg(feature = "private-backup")]
+    pub fn finish_restore(&mut self, result: crate::private_restore::Completion) {
+        // Known accepted other-daemon metadata must be applied before an
+        // original reply, independent of event-loop/key/tick delivery order.
+        self.refresh_restore_context(Instant::now());
+        if let Some(w) = &mut self.restore {
+            w.accept(result);
+        }
+    }
+    #[cfg(feature = "private-backup")]
+    pub(crate) fn restore_worker_disconnected(&mut self) {
+        self.restore_enabled = false;
+        if let Some(w) = &mut self.restore {
+            w.worker_disconnected();
         }
     }
 

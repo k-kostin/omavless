@@ -405,6 +405,9 @@ fn previewed_pair_same_count_replacement_denied_before_slot_then_matching_real_c
     let original_store = fs::read(&f.store).unwrap();
     let original_inode = fs::metadata(&f.store).unwrap().ino();
     let incoming = open_existing(&f.backup, f.owner.uid(), PASSWORD).unwrap();
+    let expected_store = incoming.restore_store_off().unwrap();
+    let expected_template = incoming.template().to_vec();
+    let desired_before = f.owner.desired().unwrap();
     let other =
         omavless_domain::private_backup::seal(incoming.store(), incoming.template(), PASSWORD)
             .unwrap();
@@ -434,11 +437,82 @@ fn previewed_pair_same_count_replacement_denied_before_slot_then_matching_real_c
     )
     .unwrap();
     assert_ne!(digest, actual);
+    #[cfg(not(feature = "tui"))]
     let first = make("matching-envelope", 0, &actual);
+    #[cfg(feature = "tui")]
+    let (mut client, client_request) = {
+        use omavless_tui::private_restore::Workspace;
+        let mut client = Workspace::new("local-engine-control", 0).unwrap();
+        for ch in f.backup.to_str().unwrap().chars() {
+            assert!(client.push(ch));
+        }
+        client.next_field();
+        for ch in std::str::from_utf8(PASSWORD).unwrap().chars() {
+            assert!(client.push(ch));
+        }
+        let preview_request = client.begin_preview().unwrap();
+        let (profiles, subscriptions, confirmed_digest) = f
+            .owner
+            .preview_current_pair(&f.backup, PASSWORD, 0)
+            .unwrap();
+        assert_eq!(confirmed_digest, actual);
+        client.accept(preview_request.settle(Ok(
+            serde_json::json!({"ok":true,"revision":0,"result":{
+                "profiles":profiles,"subscriptions":subscriptions,"scope":"privatePair",
+                "ciphertextDigest":ciphertext_hex(&confirmed_digest)
+            }}),
+        )));
+        let request = client.submit("matching-envelope".into()).unwrap();
+        (client, request)
+    };
+    #[cfg(feature = "tui")]
+    let first = PreviewedRestoreRequest::parse(&client_request.params()).unwrap();
     let result = f.owner.execute_previewed_pair(&first).unwrap();
     assert!(result.error.is_none());
     assert_eq!(result.revision, 1);
+    #[cfg(feature = "tui")]
+    {
+        // Source composition only: this is the actual local retained engine,
+        // not a genuine-current factory or installed positive socket fixture.
+        client.accept(client_request.settle(Ok(
+            serde_json::json!({"ok":true,"revision":result.revision,
+                "result":{"completed":true,"replayed":false,"scope":"privatePair"}
+            }),
+        )));
+        assert_eq!(
+            client.state(),
+            omavless_tui::private_restore::State::Completed
+        );
+        assert!(client.submit("second-submit".into()).is_none());
+    }
+    // Independent file/projection readback, not merely a positive engine label.
+    assert_eq!(fs::read(&f.store).unwrap(), expected_store.as_slice());
+    assert_eq!(
+        fs::read(f.store.parent().unwrap().join("route-template.yaml")).unwrap(),
+        expected_template
+    );
+    let restored: serde_json::Value = serde_json::from_slice(&fs::read(&f.store).unwrap()).unwrap();
+    assert_eq!(restored["profiles"], serde_json::json!([]));
+    assert_eq!(restored["subscriptions"], serde_json::json!([]));
+    assert_eq!(restored["onboardingComplete"], false);
+    assert_eq!(restored["startup"]["enabled"], false);
+    assert_eq!(f.owner.desired().unwrap(), desired_before);
+    let history = fs::read(f.state().join("restore-disposition.history")).unwrap();
+    assert!(crate::restore_disposition_complete_model::CompleteRecord::decode(&history).is_some());
     assert_eq!(f.owner.execute_previewed_pair(&first).unwrap(), result);
+    assert_eq!(fs::read(&f.store).unwrap(), expected_store.as_slice());
+    assert_eq!(
+        fs::read(f.state().join("restore-disposition.history")).unwrap(),
+        history
+    );
+    let changed_same_id = make("matching-envelope", 0, &digest);
+    assert_eq!(
+        f.owner
+            .execute_previewed_pair(&changed_same_id)
+            .unwrap_err()
+            .stable_code(),
+        omavless_control_protocol::StableErrorCode::Conflict
+    );
     assert!(!f.owner.transaction.original_lease_vacant());
     assert!(
         MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
