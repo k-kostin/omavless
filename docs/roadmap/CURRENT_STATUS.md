@@ -6,6 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.8 selected scope frozen:** [internal RC1 #715](https://github.com/k-kostin/omavless/pull/715)
+  carries the current exact-artifact and installed warm/cold relaunch evidence
+  for source `5e7d425893f90c3e9d7849fd3512ef61d157bded`. The beta.4 source
+  below is retained development history, not an accepted/public candidate.
+  ARM-installed and remaining release gates stay explicit in the RC ledger;
+  main, immutable releases and Marketplace are unchanged. The
+  [current consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6048668247)
+  records 92 no-merge historical closures with branches and unique work retained.
+
 - **0.9.8 internal beta.4:** #711 selects the real Backup and authenticated
   Preview/Cancel/Restore path from #701/#705/#708/#710. Its fixed package build
   selector and ordinary **Open app / `omavless tui`** expose those selected
@@ -14,10 +23,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   wrong-key refusal, unchanged Preview/Cancel, one original Completed Restore
   with independent pair/revision readback and known-Off ordinary restart.
   Agent-operated evidence is not owner manual, ARM-installed or fault acceptance.
-  Runtime relaunch after plugin shutdown is the separate #712 successor under
-  review and installed testing, not borrowed from that earlier bundle.
+  Runtime relaunch after plugin shutdown is included through #712/#714 and
+  retains its own later exact-RC installed evidence, not borrowed from that bundle.
   See [selection](../development/BETA_098.md) and
-  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main/RC/Marketplace
+  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main/releases/Marketplace
   are unchanged; there is one integration writer and at most one VM operator.
   [The consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6047446461)
   records 82 verified no-merge PR closures (78 literal included heads and four

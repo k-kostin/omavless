@@ -9,7 +9,27 @@ unpublished source integration is not public release acceptance.
 
 ## Scope and ownership
 
-### Beta.4 selected assembly, 2026-10-07–08
+### Current disposition, 2026-10-08
+
+The beta.4 assembly includes the reviewed relaunch/readiness corrections
+#712/#714 and ARM64 portability fix #713 at executable source
+`dec24965fb60a3543ab39180452b85cb4154ca46`. Its selected scope is now frozen in
+[internal RC1 #715](https://github.com/k-kostin/omavless/pull/715), whose exact
+executable/package/frontend source is
+`5e7d425893f90c3e9d7849fd3512ef61d157bded`.
+The RC branch carries the current installed warm/cold relaunch report and
+remaining gates. Beta Restore evidence below keeps its original source; it is
+not a new RC Restore mutation. Main, releases and Marketplace are unchanged.
+The producer selects ordinary Backup/Restore for beta.4 and RC1 only, not other
+versions. Historical writer/custody statements below are checkpoints, not
+current reservations or requests to repeat completed work.
+
+[The reconciled PR ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6048668247)
+records 92 verified historical no-merge closures. Source/evidence branches and
+unresolved frontier requirements are retained; administrative closure is not
+product acceptance.
+
+### Historical beta.4 selected assembly, 2026-10-07–08
 
 Owner authorized continuing after the installed beta.3 Backup scenario without
 redundant manual keystrokes. Selected base is
