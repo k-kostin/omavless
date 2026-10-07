@@ -40,6 +40,15 @@ the complete matched packages; never swap one component or change frozen test
 pins to make an unrelated bundle fit. Use separate known-Off images when the
 selected scenarios require different bundles.
 
+For a fresh experimental administrative setup, also compare its generated
+enrollment bytes and initial directories with the actual runtime consumers.
+Matching payload hashes does not validate generated configuration: a canonical
+JSON reader may reject a trailing newline. Check which component creates each
+required directory; a systemd `RuntimeDirectory` does not create persistent
+state. Provision only the explicitly selected initially absent empty directory,
+with its exact owner/mode, never synthetic protection records. Run an inert
+canonical-byte check and establish actual empty-state admission before Arm.
+
 ## Encrypted reboot: successful repeatable sequence
 
 1. Establish that the selected QEMU process belongs to the current user and
