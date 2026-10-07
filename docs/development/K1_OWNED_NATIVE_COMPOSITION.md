@@ -689,7 +689,8 @@ interpreted as the new schema. An `interval_data_identity` guard without a
 failed-field token does not establish a link-count cause, particularly on a
 btrfs baseline with link count1. Earlier native NONPASS evidence remains intact.
 
-The local SOURCE-only supervisor successor, outside Git and still unbound,
+At this source checkpoint the local supervisor successor was outside Git and
+still unbound (the later Native57 selection is recorded below). It
 retains its exact returned native child's original stderr capture FD and initial
 metadata. On failure it attempts one bounded `fstat`/`pread`/`fstat` snapshot of
 that same descriptor, accepts only the complete seven-frame closed grammar and
@@ -704,3 +705,22 @@ The next native selection requires a newly frozen exact source head and fresh
 ELF, a genuine new boot, all transitive fixture/source/artifact pins and a
 separately reviewed bound supervisor. It must not reuse the older selected ELF.
 SOURCE tests and diagnostic projection alone do not satisfy native acceptance.
+
+### Exact Native57 development VM checkpoint
+
+The separately selected Native57 original passed on source
+`da335801fd4105df0946d8d2ea422e85a1035f8c`, fresh test ELF SHA256
+`07967da35916aa44dff1d80dcbd0601ccbf56c890fbd42ce046c003d521d5b30`,
+BOOT `f2d2893c-da88-4686-8e99-32751c6c68fe`. ROOT observed the complete original-
+zero census/packet proof and SAME foreground serial return. See the
+[sanitized exact-source report](../testing/K1_NATIVE57_VM_2026-10-07.md).
+
+This closes only that single current-owner validation/Arm/connect/traffic/
+stop-empty/Disarm/final-Status developer composition gate. Native55/56 remain
+NONPASS and their identity diagnostic is not assigned a link-count cause.
+The old genuinely Armed/stale-Live image remains preserved; fresh administrator
+provisioning did not implement cold reconciliation or satisfy armed boot.
+Repeated-cycle/fault, product/default activation and physical-host gates remain
+open. Successful fixtures were not automatically cleaned; the later separately
+admitted poweroff/whole-image retention is an administrator boundary, not
+product recovery. No cleanup/retry or main/release permission follows here.
