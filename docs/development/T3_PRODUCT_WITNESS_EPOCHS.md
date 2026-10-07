@@ -1,7 +1,7 @@
 # T3 product witness epochs
 
 Status: default-off candidate based on `5cfbf2fd`, with separate exact617 backend,
-exact B installed EN/RU Product and ordinary no-flag VM checkpoints below. Public/default activation,
+exact B installed EN/RU Product, ordinary no-flag and SOURCE8 target-loss checkpoints below. Public/default activation,
 reboot/upgrade/host-family closure are not implied. The existing
 [original-image contract](T3_IMAGE_WITNESS.md) and its exact installed-development
 checkpoint remain authoritative for the unchanged path. Earlier acceptance is
@@ -659,6 +659,21 @@ whole T3/C1 or public default activation. Explicit no-route close RPC remains
 UNRUN: the existing semantic CLI has no such fixed command, and no raw-method
 probe was added. Earlier617 ordinary evidence and GUI5 remain separate.
 
+## Exact B installed missing-target refusal — 2026-10-07
+
+The [SOURCE8 installed gate](../testing/T3_PRODUCT_TARGET_LOSS_2026-10-07.md)
+records scoped PASS on exact runtime
+`0b55a1a6e2b2a93c8e4e72ef7fd6f10a93891df2`: original complementary fixture
+FINs and bounded ordinary catalogue DATA establish B absence; the retained
+English preview then reaches an inspected generic terminal refusal/spent window.
+A fresh Russian C confirmation reaches inspected Closed/spent. Original streams,
+desired intent and normal whole cleanup pass. The finer wire outcome/cause
+remains UNOBSERVED; no default or whole-T3 activation follows.
+
+The earlier SOURCE7 attempt reached legitimate English Closed and remains
+NONPASS for target-loss refusal. Its known cleanup is retained separately;
+it is not reclassified by the corrected fixture or newer source evidence.
+
 ### Remaining T3/C1 completion gates
 
 The [client evidence matrix](T3_DEVELOPER_CLOSE_CLIENT.md#evidence-matrix),
@@ -669,7 +684,7 @@ owning scope. The next real checkpoints are:
 | Boundary | Remaining exact-candidate evidence |
 | --- | --- |
 | Product fault cuts | Wrong UID/parent, dead original child, retained source/runtime/core/package/enrollment drift, helper expiry/loss and late Finish/publication must refuse without renewal; earlier developer-class or memory controls do not prove B's real Product class. |
-| Real client ambiguity/concurrency | Lost UI response, sticky Unknown, actual owner/revision change, competing normal mutation/Disconnect and fresh-selected generation/tuple drift through the Product client; receipt-only resolution must not resend or retarget. |
+| Real client ambiguity/concurrency | SOURCE8 proves only inspected generic refusal after selected-target disappearance and a later fresh C close. Lost UI response, sticky Unknown, actual owner/revision change, competing normal mutation/Disconnect and fresh-selected generation/tuple drift through the Product client remain; receipt-only resolution must not resend or retarget. |
 | Installed UI matrix | Constrained EN and actionable/modal constrained states; actual client-loss/signal/resize during pending/unresolved work. The RU spent-window resize above proves only that state. |
 | Default startup and lifetime | B's ordinary no-flag fresh-boot restart/Off/no-advertise/stop now has its own scoped result above. Explicit no-route RPC, automatic login/autostart, Product-context reboot and root-attended image upgrade/re-enrollment, plus defined capacity exhaustion/restart behavior remain unrun. A new administrative enrollment is not accepted product recovery or old-token revival. |
 | Distribution/host scope | Separately selected normal public registration, qualified pair/helper distribution and release/frontend installation; applicable ARM64 and NixOS package/service/generation gates remain unrun. Source/package CI cannot supply those installed results. |
