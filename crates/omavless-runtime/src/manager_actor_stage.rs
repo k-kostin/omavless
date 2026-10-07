@@ -508,7 +508,8 @@ impl Stage {
                     || original.uid() != named.st_uid
                     || original.gid() != named.st_gid
                     || (!directory
-                        && (original.nlink() != named.st_nlink
+                        && (original.nlink()
+                            != crate::file_link_count::link_count_u64(named.st_nlink)
                             || original.len() != named.st_size as u64
                             || original.mtime() != named.st_mtime
                             || original.mtime_nsec() != named.st_mtime_nsec

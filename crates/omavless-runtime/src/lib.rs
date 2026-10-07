@@ -88,6 +88,8 @@ pub mod desktop_helpers;
 mod developer_connection_close;
 mod diagnostic_read;
 pub mod doctor;
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+mod file_link_count;
 pub mod fresh_setup;
 pub mod frontend_bridge;
 pub mod full_quit;

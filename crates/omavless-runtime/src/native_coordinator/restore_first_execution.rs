@@ -550,7 +550,7 @@ impl Boundary {
                             named.st_mode,
                             named.st_uid,
                             named.st_gid,
-                            named.st_nlink,
+                            crate::file_link_count::link_count_u64(named.st_nlink),
                             named.st_size as u64,
                             named.st_mtime,
                             named.st_mtime_nsec,

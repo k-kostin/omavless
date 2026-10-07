@@ -681,7 +681,7 @@ fn named_matches(held: &Metadata, named: &FileStat, image: bool) -> bool {
         && held.gid() == named.st_gid
         && (!image
             || (held.len() == named.st_size as u64
-                && held.nlink() == named.st_nlink
+                && held.nlink() == crate::file_link_count::link_count_u64(named.st_nlink)
                 && held.mtime() == named.st_mtime
                 && held.mtime_nsec() == named.st_mtime_nsec
                 && held.ctime() == named.st_ctime
