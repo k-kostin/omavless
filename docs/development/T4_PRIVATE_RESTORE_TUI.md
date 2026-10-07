@@ -1,6 +1,7 @@
 # Experimental preview-bound Restore through TUI
 
-Status: source candidate, not installed acceptance or default activation. This
+Status: source-ready for the next explicit installed slot, not installed
+acceptance or default activation. This
 bounded cycle depends on Backup assembly #707 at
 `8de29a164e885f398dbb926c69fd377af4764869` and its exact opt-in API/Backup UI.
 It composes the [authenticated preview](T4_PRIVATE_RESTORE_PREVIEW.md),
@@ -74,7 +75,47 @@ The initial integration `c49eb531bd8da2417e9d62914a94c70bdd1de35a` preserves the
 preview source `6164e7f564ae42422eb98d91949f77e4cb08297a`. Independent Astra
 implementation review of that changed backend boundary found no reachable
 blocker (SOURCE CLEAR only). Eleven no-default opt-in preview controls passed.
-The new client and transport require their separate final checks/review.
+The new client/transport received separate final checks/review below; the
+initial preview-only results are not substituted for that changed boundary.
+
+### Final source freeze
+
+Tested implementation is exact
+`5130b18f783b025ccc09eaaa76408ff874db2d00`. Independent Astra SOURCE review
+cleared that frozen head after fixing two actual delivery/custody findings:
+cancelled/expired Preview now retains its original worker fence until exact
+completion/disconnect; known accepted other-instance metadata is applied before
+accepting the old response. An unavailable snapshot alone retains Pending.
+Foreign completion cannot drain the fence; a disconnected adapter is disabled
+without backend cleanup. The fixes have actual app ordering/reentry regressions.
+
+- Full `./tests/run-rust.sh` completed with original exit0 on that exact head,
+  including default/workspace/DNS/terminal/strict-lint gates and the new actual
+  feature combinations. Final product+T4 runtime library: 1491 PASS, 75 ignored,
+  one separately handled helper filtered. Ignored resource gates are not PASS.
+- Opt-in TUI184 and default TUI148 PASS; module9/app10 are included, not extra
+  counts. Fixed Restore transport3, unchanged Backup transport3, preview11 and
+  matching-envelope client/engine readback controls PASS. Strict all-target
+  TUI default/feature lint and runtime combinations, fmt/diff/shell syntax PASS.
+- `./tests/run.sh` original exit0:684 cases/2 opt-in skipped, plus Node/QML/
+  catalogs/navigation checks. The final run used existing test-only
+  `OMAVLESS_TEST_ROOT` and `TMPDIR` in a private verified runtime temporary
+  directory. Earlier HOME/tmp `.git` and protected-ancestry fixture failures
+  remain failures; no marker deletion, guard weakening, HOME override or claim
+  of source-sandbox/VM acceptance. Rust caches/TMP remained under HOME.
+- Source packaging40 cases:39 PASS/one root-only skip. No new installation or
+  compatible Restore bundle is inferred from those tests or old beta artifacts.
+- Twenty final EN/RU TestBackend captures were reviewed: editing, confirmation,
+  maximum160-byte path, Completed/Denied/Unknown, Settings top/end,
+  cancelled-preview waiting and narrow50x14. Secrets masked, full target and
+  primary/return controls visible70x24; captions distinguish archive counts,
+  historic completion and local cancellation from current state/backend abort.
+  Images remain outside Git. This is not installed rendering evidence.
+
+The later documentation successor only records these original results; runtime
+evidence remains attached to5130b18f. Draft #708 targets #707 as a real
+dependency. Before beta integration preserve the subsequent #707 Backup-only
+Settings footer correction rather than replacing it with the older base.
 
 Focused source controls cover default/adapter/capability absence, bounded masked
 input, exact digest/instance/revision, Cancel/stale/wrong-key/different-envelope,
