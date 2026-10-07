@@ -167,6 +167,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
         .map(|_| ())
     }
+
+    pub(crate) fn execute_previewed_restore_completed(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        expected: &[u8; 32],
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode_bound(
+            source,
+            passphrase,
+            || Ok(()),
+            |_| Ok(()),
+            NativeMode::CompleteCommitted,
+            Some(expected),
+        )
+        .map(|_| ())
+    }
     #[cfg(test)]
     pub(super) fn execute_first_restore_completed_cut(
         &mut self,
@@ -202,9 +219,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         source: &Path,
         passphrase: &[u8],
+        acquired: impl FnMut() -> Result<(), FirstError>,
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+        mode: NativeMode,
+    ) -> Result<FirstOutcome, FirstError> {
+        self.execute_first_restore_mode_bound(source, passphrase, acquired, cut, mode, None)
+    }
+    fn execute_first_restore_mode_bound(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
         mut acquired: impl FnMut() -> Result<(), FirstError>,
         mut cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
         mode: NativeMode,
+        expected: Option<&[u8; 32]>,
     ) -> Result<FirstOutcome, FirstError> {
         let complete = mode == NativeMode::CompleteCommitted;
         let pause = mode == NativeMode::PauseIntent;
@@ -221,8 +249,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             None
         };
         let mut disposition = None;
-        let incoming =
-            open_existing(source, self.uid(), passphrase).map_err(|_| FirstError::Prepare)?;
+        let incoming = if let Some(expected) = expected {
+            let (incoming, digest) =
+                crate::backup_destination_candidate::open_existing_with_digest(
+                    source,
+                    self.uid(),
+                    passphrase,
+                )
+                .map_err(|_| FirstError::Prepare)?;
+            // This SAME bounded read is the engine's original authentication.
+            // Mismatch precedes slot installation, lease and every effect.
+            if &digest != expected {
+                return Err(FirstError::CiphertextMismatch);
+            }
+            incoming
+        } else {
+            open_existing(source, self.uid(), passphrase).map_err(|_| FirstError::Prepare)?
+        };
         // Pre-effect plan data only. No marker/history decoder can grant entry.
         let ordinary_paths = self.transaction.cutover_paths().clone();
         let ordinary_uid = self.uid();
