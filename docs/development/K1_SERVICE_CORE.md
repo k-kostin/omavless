@@ -33,7 +33,10 @@ The separate default-off [cold-bootstrap SOURCE successor](K1_COLD_BOOT_RECONCIL
 adds only different-boot Armed/terminal-Live plus independently complete absence
 → NEW causal FullVpn ownership before notify/NM startup. It does not alter the
 default exec unit, old cold classifier, same-epoch orphan refusal or historical
-developer-VM results below. Its exact installed/reboot ordering is unaccepted.
+developer-VM results below. Its exact [cold60/61 installed row](../testing/K1_COLD_BOOT_VM_2026-10-07.md)
+now records normal Arm192 → preserved whole image → new-boot Full(None)/Liveop2
+before NM at source `c4a8a89d`. That scoped result is not whole/default K1,
+physical boot or acceptance of the historical exec unit's ordering.
 
 ## Exact source and dependency boundary
 

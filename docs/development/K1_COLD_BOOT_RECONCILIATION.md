@@ -1,15 +1,18 @@
-# K1 opt-in cold bootstrap: bounded design
+# K1 opt-in cold bootstrap: new-owner boundary
 
-Status: opt-in SOURCE implementation awaiting independent review, on `dev/k1-cold-boot-reconciliation`
-from the Native57 evidence checkpoint. It does not change the frozen Native57
-source/ELF/pins or repair the preserved old Armed192/stale-Live image. No VM,
-physical/default/product/whole-K1 result is claimed. ROOT and a separate T4
-reviewer approved the design direction and must review the complete affected
-source before VM. No installed or reboot result is claimed by source controls.
+Status: primary and independent SOURCE review CLEAR at exact
+`c4a8a89dee1e023473835012e4088e22305cdb03`, followed by the scoped
+[cold60/61 x86_64 developer-VM result](../testing/K1_COLD_BOOT_VM_2026-10-07.md).
+One genuine normal Arm192 → normal poweroff/whole-image preservation → NEW
+cold boot earned NEW current FullVpn ownership/Live operation2 before NM start,
+without changing Armed192 intent. This is not whole K1, default activation,
+product packaging, physical boot/SLEEP or VPN connectivity acceptance. Native57
+and the preserved old Armed192/stale-Live image keep their original identities;
+neither was repaired or reused as a fresh/disarmed baseline.
 
 ## Narrow new producer, not cold adoption
 
-Add an explicit default-off `netguard-cold-bootstrap` feature requiring the
+The explicit default-off `netguard-cold-bootstrap` feature requires the
 existing service core. Keep the normal wire enum and default/private legacy
 ports unchanged. A root/internal startup path owns the SAME enrollment/state
 directory lock and independently acquired canonical creator before any group
@@ -78,12 +81,14 @@ started and the original notify invocation is still activating. Normal no-effect
 disarmed readiness need not be mislabeled genuine armed boot restoration.
 The SAME trusted launch verifier brackets every effect; readiness is not a
 serialized token or an arbitrary recipient/path/manager-epoch argument.
-Dependency/timeout semantics and actual Omarchy unit ordering require source
-tests plus the later real VM gate, not prose or a sleep-based assertion.
+Dependency/timeout semantics require source tests plus actual installed ordering,
+not prose or a sleep-based assertion. The linked cold60/61 report covers only
+its exact notify/NM graph; other hosts and the physical matrix remain open.
 
 All final cold-policy/state/current-manager guards precede listener publication.
-Prepare the SAME retained session/listener graph, consume the startup phase,
-then send READY with no remaining fallible cold-admission step. A late bind or
+Finish proof and consume the early-manager phase on the retained state/creator
+BEFORE publication, then prepare listeners/session from that SAME graph and
+send READY with no remaining fallible cold-admission step. A late bind or
 notification failure can leave a named listener prefix: retain it without
 accept/retry or uncertain unlink; do not assert that its pathname never existed.
 Positive READY cannot be unsent. Ordinary active-session original fences remain,
@@ -100,7 +105,9 @@ On a NEW qualified disposable image, never an edited old cold image:
 2. One fixed enrolled-user request through existing checked transport performs
    normal Arm192 and returns original0 with genuine Armed192/Live operation1.
    Preserve its whole before-reboot image/evidence; no synthetic record write.
-3. ROOT selects a genuine normal reboot. The new original root creator earns
+3. ROOT preserves the positively completed whole armed image after normal
+   guest poweroff/QEMU original0, then cold-boots a new owned overlay. The new
+   original root creator earns
    current namespace lifetime, proves fixed-table absence and re-creates FullVpn
    before NetworkManager starts; no old actor/table ownership is imported.
 4. Exact readback: Armed192 marker bytes/fence unchanged, NEW current-epoch Live
@@ -150,7 +157,8 @@ root-owned manager endpoint; no caller-selected recipient or READY payload exist
 Only `READY=1` is attempted, after all preparation and listener assembly, without
 a fallible post-send cold admission. Success means that send returned its exact
 length, not independent installed proof that PID1 processed it or NM ordering
-worked. Those remain the actual VM gate.
+worked. The exact installed continuation is recorded in the linked report;
+source controls alone never establish that manager event or other host graphs.
 
 Source tests use synthetic canonical/kernel/manager providers and ordinary
 HOME-backed file/socket fixtures; they are not canonical production authority or
@@ -179,15 +187,45 @@ then ONE fixed `Arm { generation: 192, mode: Full }` through the same normal
 credential-checked service, requiring verified Armed192 and the original sender
 exit0. There is no root impersonation, direct marker/receipt publication, new
 runtime API or copied native57 fixture authority. Freeze/review that tiny fixed
-SOURCE sender and outer literal preflight before any VM selection; its current
-unimplemented selector is not implied by this service source.
+SOURCE sender and outer literal preflight before any VM selection. The separately
+reviewed fixed fixture2 sender/observer were actually selected in cold60/61;
+they are not new product commands or a reusable permission to repeat the run.
 
-Preserve the whole positively armed image/records, then select one genuine
-normal reboot. A separately bound read-only observer compares exact unchanged
-Armed192 marker bytes/metadata, current boot/epoch, Live operation2/new causal
+Preserve the whole positively armed image/records after normal poweroff and
+original QEMU0, then select a new owned overlay's actual cold boot. This does
+not claim a tested `systemctl reboot` command or permit copying an active disk.
+A separately bound read-only observer compares exact unchanged
+Armed192 marker bytes/eight persistent metadata fields, current boot/epoch,
+Live operation2/new causal
 Full policy, original service result and actual PID1 READY/NM start ordering.
 One NEW checked client may query Status after readiness; it cannot reuse a
 pre-reboot peer or receipt as permission. No native57 roundtrip, DNS fixture,
 provider/UI result or physical PASS is borrowed. A late/missing policy proof,
 terminal prefix or notification stops the scenario and preserves evidence;
 no helper start, retry, disarm, reset or cleanup manufactures completion.
+
+## Exact scoped checkpoint, 2026-10-07
+
+Production service source is only `c4a8a89dee1e023473835012e4088e22305cdb03`;
+later documentation commits do not change the tested ELF or runtime source.
+The [public report](../testing/K1_COLD_BOOT_VM_2026-10-07.md) records the exact
+service, fixture2, unit/dependency/module pins, original results and preserved
+failed59 prerequisites. A separately reviewed fresh-only administrator successor
+provided canonical no-LF enrollment and an initially empty root0700 state
+directory/fsync; it wrote no Armed/Live records and repaired no existing scope.
+
+Cold60 began genuinely Missing/Missing and reached normal enrolled Arm192 with
+ORIGINAL serial completion0. After whole-image preservation and actual NEW
+cold61 boot, the same source earned NEW Full(None)/current Live operation2,
+kept exact Armed192 bytes/eight persistent fields and reached READY before NM
+execution. Each read still compared all nine held/named fields; across BOOT,
+st_dev is a new-kernel mount number, not persistent inode metadata or authority.
+A NEW normal client completed Status192 original0 without an old peer/receipt
+grant. Final normal shutdown and original QEMU0 preserved the protected image;
+no automatic Disarm/Closed/reset was selected.
+
+This closes only that opt-in installed Arm192/new-boot/Full(None) row. Same-epoch
+orphan adoption, stale Closed/Retired disposition, uncertain/pending/corrupt
+recovery, fatal-loss/fault matrix, default/package/UI distribution, Rule behavior,
+VPN/TUN/DNS/Internet connectivity, IPv6/UDP/ICMP leak probes, SLEEP and physical
+NIC/boot acceptance remain separate. No main merge/release authority follows.
