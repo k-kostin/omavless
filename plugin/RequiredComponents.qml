@@ -67,11 +67,11 @@ ColumnLayout {
       RowLayout {
         Layout.fillWidth: true
         spacing: Style.space(8)
-        visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"
+        visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped" || card.facts.state === "needs_runtime_start"
         Button {
           id: prepareButton
           Layout.fillWidth: true
-          text: card.tr(card.facts.state === "needs_selection" ? "select_pair" : card.facts.state === "needs_broker_stopped" ? "start_broker" : "prepare")
+          text: card.tr(card.facts.state === "needs_runtime_start" ? "start_app" : card.facts.state === "needs_selection" ? "select_pair" : card.facts.state === "needs_broker_stopped" ? "start_broker" : "prepare")
           enabled: parent.visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
           opacity: enabled ? 1 : 0.45
           bordered: true; focusable: true

@@ -8,6 +8,23 @@ const panel = fs.readFileSync(__dirname + '/../plugin/Panel.qml', 'utf8');
 const card = fs.readFileSync(__dirname + '/../plugin/RequiredComponents.qml', 'utf8');
 let count = 0;
 function test(name, run) { try { run(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
+test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
+  const facts={state:'needs_runtime_start',coreInstalled:true};
+  assert.equal(state.parse('needs_runtime_start\n',0),'needs_runtime_start');
+  assert.deepEqual(state.inventory('needs_runtime_start\tpresent\n',0),facts);
+  assert.equal(state.missingAction(facts),'start-app');
+  assert(!state.canInstall(facts.state));
+  assert(state.canRunAction(facts,'start-app'));
+  for(const action of ['install','start-broker','shell','restore-enrollment']) assert(!state.canRunAction(facts,action));
+  for(const locale of ['en','ru']) for(const key of ['start_app','needs_runtime_start']) assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
+  const vm=require('node:vm');
+  const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+  const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,startApp:{running:false},launch:{running:false}});
+  vm.runInContext(page.slice(start,end),c);
+  c.install('start-app');assert(c.startApp.running);assert(!c.launch.running);assert(!c.launching);
+  c.startApp.running=false;c.busy=true;c.install('start-app');assert(!c.startApp.running);
+  assert(page.includes('command: ["/usr/bin/omavless", "app", "start"]'));
+});
 test('only public bounded status enums cross the process boundary', () => {
   for (const value of ['ready', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_broker_stopped', 'needs_runtime_stop', 'needs_attention', 'release_unavailable']) {
     assert.equal(state.parse(value + '\n', 0), value);

@@ -1114,6 +1114,23 @@ and authorization-rejection gates remain pending. See the
 Closing UI never substitutes for disconnect/Full Quit/disable/remove. Panel
 close, shell reload, terminal exit and lost clients must not invoke Full Quit.
 
+### Re-enable after verified shutdown
+
+Re-enabling the frontend does not imply starting the application or connecting
+a VPN. A proven stopped committed installation offers **Start OmaVLESS**, not
+reinstall or an empty-profile claim. Its fixed native `app start` leaves unit
+enablement and startup preferences unchanged and never sends Connect. Read-only
+eligibility is advisory: the action rechecks canonical package/units, owner and
+migration admission, desired Off, pending barriers and current-manager receipt.
+Without a consumed receipt, configured startup Off is required and only the
+real packaged login-preparation service runs first. Its result is re-admitted
+under leases before runtime start. No lock spans a child service start; no
+receipt is fabricated and no uncertain start is automatically retried.
+Fresh authenticated runtime facts, fixed-unit peer PID and installed executable
+identity are required before reporting readiness. Independently authorized
+concurrent actions/manual offline writes are not an atomic no-connect guarantee;
+a post-start observation is not rollback or proof that no such action occurred.
+
 ### Full Quit ordering and failure boundary
 
 1. Show confirmation explaining that VPN, runtime and plugin will stop, while

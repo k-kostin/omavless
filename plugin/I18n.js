@@ -7,6 +7,8 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "setup.needs_runtime_start": {"en":"OmaVLESS is stopped. Saved profiles and startup settings are preserved. Start the application to continue; connecting is a separate action.","ru":"OmaVLESS остановлен. Профили и настройки автозапуска сохранены. Запустите приложение; подключение выполняется отдельно."},
+  "setup.start_app": {"en":"Start OmaVLESS","ru":"Запустить OmaVLESS"},
   "native.app.title": {"en":"OmaVLESS application","ru":"Приложение OmaVLESS"},
   "native.app.open": {"en":"Open app","ru":"Открыть приложение"},
   "native.app.scope": {"en":"Open or focus the terminal workspace. Closing it leaves your VPN unchanged.","ru":"Открыть рабочее пространство в терминале или перейти к нему. Закрытие окна не отключает VPN."},

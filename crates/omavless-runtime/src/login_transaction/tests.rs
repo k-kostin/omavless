@@ -2,6 +2,78 @@
 use super::*;
 
 #[test]
+fn manual_start_classifies_only_real_current_receipt_without_writes() {
+    let fixture = Fixture::new(false);
+    let other = Fixture::new(false);
+    let check = |generation, epoch: &str| {
+        let lock =
+            MigrationLock::acquire_existing(&fixture.paths.cutover, fixture.paths.uid).unwrap();
+        manual_start_receipt(
+            &fixture.paths.cutover,
+            fixture.paths.uid,
+            &lock,
+            generation,
+            epoch,
+        )
+    };
+    // Create the fixture lease explicitly, not through the read-only probe.
+    drop(MigrationLock::acquire(&fixture.paths.cutover, fixture.paths.uid).unwrap());
+    assert_eq!(check(2, "synthetic-epoch"), Ok(false));
+    assert!(!fixture.paths.receipt.exists());
+    assert!(!fixture.paths.desired.file.exists());
+    fixture.put(
+        &fixture.paths.desired.file,
+        &serde_json::to_vec(&DesiredState::default()).unwrap(),
+    );
+    fixture.run(&mut Host::default()).unwrap();
+    let before = fs::read(&fixture.paths.receipt).unwrap();
+    let desired = fs::read(&fixture.paths.desired.file).unwrap();
+    assert_eq!(check(2, "synthetic-epoch"), Ok(true));
+    for (generation, epoch) in [(4, "synthetic-epoch"), (2, "other-manager")] {
+        assert_eq!(
+            check(generation, epoch),
+            Err(LoginTransactionError::ManualRecoveryRequired)
+        );
+    }
+    let lock = MigrationLock::acquire_existing(&fixture.paths.cutover, fixture.paths.uid).unwrap();
+    assert_eq!(
+        manual_start_receipt(
+            &other.paths.cutover,
+            other.paths.uid,
+            &lock,
+            2,
+            "synthetic-epoch"
+        ),
+        Err(LoginTransactionError::ManualRecoveryRequired)
+    );
+    drop(lock);
+    let pending = fixture
+        .paths
+        .cutover
+        .state_directory
+        .join("restore-pair.pending");
+    fs::create_dir(&pending).unwrap();
+    assert_eq!(
+        check(2, "synthetic-epoch"),
+        Err(LoginTransactionError::ManualRecoveryRequired)
+    );
+    fs::remove_dir(&pending).unwrap();
+    assert_eq!(fs::read(&fixture.paths.receipt).unwrap(), before);
+    assert_eq!(fs::read(&fixture.paths.desired.file).unwrap(), desired);
+    let mut value: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    value["phase"] = "pending".into();
+    for bytes in [serde_json::to_vec(&value).unwrap(), b"malformed".to_vec()] {
+        fixture.put(&fixture.paths.receipt, &bytes);
+        assert_eq!(
+            check(2, "synthetic-epoch"),
+            Err(LoginTransactionError::ManualRecoveryRequired)
+        );
+        assert_eq!(fs::read(&fixture.paths.receipt).unwrap(), bytes);
+        assert_eq!(fs::read(&fixture.paths.desired.file).unwrap(), desired);
+    }
+}
+
+#[test]
 fn system_vm_exact_seed_consumes_off_without_candidate_validation() {
     struct OffOnly {
         observations: usize,

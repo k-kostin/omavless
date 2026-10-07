@@ -137,6 +137,7 @@ mod routing_preset;
 pub mod routing_read_protocol;
 mod runtime_observation;
 mod runtime_quit;
+pub mod runtime_relaunch;
 pub mod semantic_cli;
 mod startup_admission;
 pub mod startup_protocol;
@@ -3028,6 +3029,7 @@ fn call_stream_with_timeout(
     params: Value,
     timeout: Duration,
 ) -> Result<Value> {
+    let response_end = std::time::Instant::now() + timeout;
     // Authenticate the connected peer, not just the path checked before
     // connect. In particular, no private editor/subscription input is written
     // before this check. Metadata checks alone cannot close replacement races.
@@ -3040,7 +3042,7 @@ fn call_stream_with_timeout(
         .set_read_timeout(Some(timeout))
         .map_err(|_| RuntimeError::Io)?;
     stream
-        .set_write_timeout(Some(IO_TIMEOUT))
+        .set_write_timeout(Some(timeout.min(IO_TIMEOUT)))
         .map_err(|_| RuntimeError::Io)?;
     let id = format!("cli-{}", std::process::id());
     let request = make_request(&id, method, params).map_err(|_| RuntimeError::Protocol)?;
@@ -3074,7 +3076,7 @@ fn call_stream_with_timeout(
     }
     let mut reader = DeadlineReader {
         stream: &mut stream,
-        end: std::time::Instant::now() + timeout,
+        end: response_end,
     };
     let response = read_unary_frame(&mut reader, FrameKind::Response)
         .and_then(|frame| decode_response(&frame))
