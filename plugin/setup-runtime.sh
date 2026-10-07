@@ -64,6 +64,7 @@ fresh_user_runtime_absent() {
     -p LoadState -p ActiveState -p SubState -p MainPID 2>/dev/null) || return 1
   [[ "$state" == $'LoadState=not-found\nActiveState=inactive\nSubState=dead\nMainPID=0' ]]
 }
+runtime_start_available() { timeout 8 /usr/bin/omavless app can-start >/dev/null 2>&1; }
 system_broker_idle() {
   local state
   state=$(timeout 8 /usr/bin/systemctl --system show omavless-dns-broker.service --no-pager \
@@ -150,6 +151,12 @@ setup_status() {
           || { printf 'needs_attention\n'; return; }
         if jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == true' \
           >/dev/null 2>&1 <<< "$selected"; then
+          if user_runtime_stopped; then
+            if runtime_start_available; then
+              printf 'needs_runtime_start\n'; return
+            fi
+            printf 'needs_attention\n'; return
+          fi
           if system_broker_available; then printf 'ready\n'
           elif user_runtime_stopped && no_managed_tun && system_broker_stopped && no_broker_socket; then
             printf 'needs_broker_stopped\n'

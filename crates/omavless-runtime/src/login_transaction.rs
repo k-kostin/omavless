@@ -319,6 +319,28 @@ pub(crate) fn check_current_receipt(
     }
 }
 
+/// Read-only manual-start classification; absence is not a consumed receipt.
+pub(crate) fn manual_start_receipt(
+    paths: &CutoverPaths,
+    uid: u32,
+    lock: &MigrationLock,
+    generation: u64,
+    epoch: &str,
+) -> Result<bool> {
+    if !lock.authorizes(paths, uid)
+        || pending_private_transaction::pending_at(&paths.state_directory)
+    {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
+        Some(value) => {
+            consumed_identity(&value, generation, epoch)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
 fn consumed_identity(value: &Receipt, generation: u64, epoch: &str) -> Result<()> {
     let expected = format!(
         "{:x}",

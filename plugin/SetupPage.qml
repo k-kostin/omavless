@@ -22,7 +22,7 @@ Item {
   property bool launching: false
   property bool terminalOpened: false
   property string launchAction: "install"
-  readonly property bool busy: probe.running || launching
+  readonly property bool busy: probe.running || launching || startApp.running
   readonly property string script: String(Qt.resolvedUrl("setup-runtime.sh")).replace(/^file:\/\//, "")
   readonly property var focusTargets: requirements.focusTargets.concat([closeButton])
   implicitHeight: content.implicitHeight
@@ -35,11 +35,22 @@ Item {
   function install(action) {
     var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
+    if (action === "start-app") { startApp.running = true; return }
     launchAction = action
     launching = true
     launch.running = true
   }
   Component.onCompleted: check()
+  Process {
+    id: startApp
+    command: ["/usr/bin/omavless", "app", "start"]
+    stdout: StdioCollector { id: startOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) {
+      if (code === 0 && startOutput.text === "ready\n") setup.check()
+      else setup.facts = {state:"needs_attention", coreInstalled:setup.facts.coreInstalled}
+    }
+  }
   onPanelOpenChanged: if (panelOpen) check()
   Process {
     id: probe

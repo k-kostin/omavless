@@ -93,6 +93,19 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    if arguments == ["app", "can-start"] {
+        if !omavless_runtime::runtime_relaunch::can_start() {
+            return Err("OmaVLESS runtime start is unavailable".into());
+        }
+        println!("available");
+        return Ok(());
+    }
+    if arguments == ["app", "start"] {
+        omavless_runtime::runtime_relaunch::start()
+            .map_err(|e| CliError::Message(e.to_string()))?;
+        println!("ready");
+        return Ok(());
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     if arguments
         .first()

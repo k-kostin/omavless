@@ -137,6 +137,7 @@ mod routing_preset;
 pub mod routing_read_protocol;
 mod runtime_observation;
 mod runtime_quit;
+pub mod runtime_relaunch;
 pub mod semantic_cli;
 mod startup_admission;
 pub mod startup_protocol;

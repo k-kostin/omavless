@@ -198,7 +198,7 @@ fn installed_file(path: &Path, contents: Option<&[u8]>) -> Result<()> {
     }
     Ok(())
 }
-fn package() -> Result<()> {
+pub(crate) fn package() -> Result<()> {
     if std::env::var_os("OMAVLESS_HOME").is_some() {
         return Err(Error::Package);
     }
