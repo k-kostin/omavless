@@ -4,7 +4,8 @@
 set -euo pipefail
 [[ $# == 1 ]] || exit 2
 bash "$(dirname "$0")/version-mode.sh" "$1" >/dev/null
-# Scope belongs to this beta, not all future versions or stable/RC packages.
-if [[ $1 == 0.9.8-beta.4 ]]; then
+# These exact selections preserve normal Backup/Restore when freezing the RC.
+# Other future versions and stable packages need their own explicit selection.
+if [[ $1 == 0.9.8-beta.4 || $1 == 0.9.8-rc.1 ]]; then
   printf '%s\n' t4-manager-actor-service
 fi

@@ -45,7 +45,7 @@ as a reviewed release package, not an AUR package announcement.
 | Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
 | Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
 | Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
-| Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
+| Previously used confirmed Quit | In the selected 0.9.8 candidate, re-enable the plugin and use **Start OmaVLESS** after any separate DNS preparation. Earlier releases use the explicit manual reopen procedure below. | Do not reinstall, reset ownership or assume that re-enabling the frontend connects a VPN. |
 
 <a id="guided-first-run--release-preparation"></a>
 
@@ -392,6 +392,16 @@ Closing the panel or a terminal is not Disconnect. Settings' confirmed
 then disables runtime startup and the Omarchy plugin while preserving private
 profiles/settings. Failure or an unknown outcome must be inspected, not treated
 as a clean shutdown. A shell reload is not this explicit Quit action.
+
+In the selected **0.9.8 candidate**, re-enable the frontend with
+`omarchy plugin enable kdk.omavless`, then open its panel. A verified stopped
+installation offers **Start OmaVLESS**. It starts only the application, without
+Connect or enabling login startup, and preserves saved preferences/profiles.
+If the managed DNS broker is also stopped, its separate preparation comes first;
+resolve that operation's OS authorization before starting the application.
+Unsafe, pending or unverified state is not a reason to repeat Start or reset data.
+After updating the frontend, old cached controls can require the deliberate
+shell reload described above; check what is actually loaded, not just file hashes.
 
 For the currently tested update route, set startup Off and disconnect first.
 After verifying clean state and settled authorization, stop the native service,

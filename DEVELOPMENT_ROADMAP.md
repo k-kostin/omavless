@@ -2,7 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.8 next internal candidate, 2026-10-07:** `0.9.8-beta.3` selects the real
+**0.9.8 internal scope freeze, 2026-10-08:** `rc/0.9.8` selects beta.4 normal
+Open app Backup/Restore, guarded explicit relaunch with real-protocol readiness
+and preserved broker setup, and ARM64 lossless link-count portability. The
+[RC ledger](docs/development/RC_098.md) separates exact final gates from older
+beta evidence and retains the original relaunch refusal. Empty unpublished pins;
+no main/release/Marketplace promotion or whole-roadmap acceptance is implied.
+
+**Historical beta.3 selection, 2026-10-07:** `0.9.8-beta.3` selected the real
 opt-in Backup TUI #705 with normal private-pair API #701 on the checked beta.2
 baseline. New combined gates and installed/manual acceptance remain distinct;
 default packages and ordinary TUI selection stay unchanged. Restore UI/new

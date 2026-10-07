@@ -225,6 +225,18 @@ setup_status
         self.assertEqual(result.stderr, "")
 
     def test_component_inventory_reports_only_fixed_presence(self):
+        for state in ["ready", "needs_runtime_start"]:
+            result = self.run_shell(f'setup_status() {{ echo {state}; }}; setup_completion')
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stderr, "")
+            self.assertIn("Return to the plugin", result.stdout)
+        for state in ["needs_broker", "needs_attention", "needs_selection", "unknown"]:
+            result = self.run_shell(f'setup_status() {{ echo {state}; }}; setup_completion')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(result.stderr, "")
+
+    def test_component_presence_projection_is_closed(self):
         for state in ("ready", "needs_package", "needs_activation", "needs_companion",
                       "needs_selection", "needs_broker", "needs_broker_stopped", "needs_runtime_stop",
                       "release_unavailable", "needs_attention"):

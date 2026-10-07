@@ -6,6 +6,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.8 internal RC scope freeze:** `rc/0.9.8`, source `0.9.8-rc.1`, selects
+  normal-entry Backup/Restore, corrected explicit application relaunch and ARM64
+  link-count portability on the beta.4 maintenance base. The
+  [RC ledger](../development/RC_098.md) retains exact inputs, original failed
+  installed readiness and remaining candidate/package/host gates. Pins are
+  empty; main, immutable releases and Marketplace are unchanged. This is not
+  accepted/public RC or whole T3/T4 completion.
+
 - **0.9.8 internal beta.4:** #711 selects the real Backup and authenticated
   Preview/Cancel/Restore path from #701/#705/#708/#710. Its fixed package build
   selector and ordinary **Open app / `omavless tui`** expose those selected

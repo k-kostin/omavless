@@ -2,6 +2,19 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.8-rc.1 — internal scope freeze, not a public release
+
+- Keep selected Backup and authenticated Preview/Cancel/Restore reachable
+  through normal Open app/TUI, without a hidden invocation flag.
+- Offer explicit guarded application start after shutdown. Preserve profiles,
+  startup preferences and unit enablement; starting does not connect a VPN.
+- Validate readiness against the real native protocol, retained peers and a
+  shared deadline. Keep stopped-DNS preparation reachable before app start.
+- Fix ARM64 link-count normalization without weakening file-ownership checks.
+- Retain the maintenance UI/read-side changes and exclude unfinished automatic
+  background work, connection-close activation, kill switch, App proxy, WG/AWG
+  and GUI. Artifact/installed/public gates remain in the RC ledger.
+
 ## 0.9.8-beta.4 — internal Restore assembly in progress
 
 - Retain installed-checked beta.3 Backup and its repeatable VM-only entry.

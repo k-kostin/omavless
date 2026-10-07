@@ -7,8 +7,8 @@ umask 077
 
 setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
-release_version=0.9.8-beta.4
-package_version=0.9.8beta4
+release_version=0.9.8-rc.1
+package_version=0.9.8rc1
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -359,6 +359,16 @@ prepare_application() {
   enable_runtime || return 1
 }
 
+setup_completion() {
+  local completed
+  completed=$(setup_status) || return 1
+  case "$completed" in
+    ready) say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».' ;;
+    needs_runtime_start) say 'Components are prepared. Return to the plugin and start OmaVLESS; no VPN connection was started.' 'Компоненты готовы. Вернитесь в плагин и запустите OmaVLESS; VPN не подключался.' ;;
+    *) return 1 ;;
+  esac
+}
+
 setup_main() {
   [[ $# -ge 1 && $# -le 2 ]] || return 2
   case "${2:-en}" in en|ru) setup_locale=${2:-en} ;; *) return 2 ;; esac
@@ -445,8 +455,7 @@ setup_main() {
       fi
       prepare_application || exit 1
     fi
-    [[ $(setup_status) == ready ]] || exit 1
-    say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».'
+    setup_completion || exit 1
     say 'After connecting, omavless runtime test checks HTTPS on the current route. It is not a VPN leak test.' \
         'После подключения omavless runtime test проверяет HTTPS на текущем маршруте. Это не проверка утечки VPN.'
   ) || {

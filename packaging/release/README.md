@@ -1,6 +1,8 @@
 # Native release, beta and RC preparation
 
-Current assembly source version: **0.9.8-beta.4**, not stable or marketplace-ready.
+Current assembly source version: **0.9.8-rc.1**, not stable or marketplace-ready.
+The [0.9.8 RC ledger](../../docs/development/RC_098.md) freezes the selected scope
+and separates exact package/installed gates from historical beta evidence.
 The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7
 maintenance source plus explicitly selected, default-off connection-close and
 retained backup/restore checkpoints. This is internal integration, not product
