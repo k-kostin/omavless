@@ -288,6 +288,75 @@ fn backup_unresolved_blocks_restore_and_original_backup_only_selector_keeps_layo
 }
 
 #[test]
+fn global_backup_aliases_cannot_bypass_cancelled_pending_or_unknown_restore() {
+    for key in [
+        KeyCode::F(2),
+        KeyCode::Char('b'),
+        KeyCode::Char('B'),
+        KeyCode::Char('и'),
+        KeyCode::Char('И'),
+    ] {
+        for phase in 0..3 {
+            let (mut app, now) = open(Locale::En);
+            fill(&mut app, now, "/private/public-fixture.ovb");
+            let expected = if phase == 0 {
+                assert_eq!(press(&mut app, KeyCode::Enter, now), Action::SubmitRestore);
+                let _original = app.take_restore_request().unwrap();
+                press(&mut app, KeyCode::Esc, now);
+                State::Cancelled // Original worker fence still retained.
+            } else {
+                preview(&mut app, now);
+                assert_eq!(press(&mut app, KeyCode::Enter, now), Action::SubmitRestore);
+                let original = app.take_restore_request().unwrap();
+                if phase == 2 {
+                    app.finish_restore(original.settle(Err(ReadError::Unavailable)));
+                }
+                press(&mut app, KeyCode::Esc, now);
+                if phase == 1 {
+                    State::Submitted
+                } else {
+                    State::Unknown
+                }
+            };
+            assert_eq!(press(&mut app, key, now), Action::None);
+            assert!(
+                !app.backup_open,
+                "Backup alias must not steal a Restore workspace"
+            );
+            assert!(app.backup.is_none());
+            assert!(app.take_backup_request().is_none());
+            assert!(app.take_restore_request().is_none());
+            assert_eq!(app.restore.as_ref().unwrap().state(), expected);
+            press(&mut app, KeyCode::Char('R'), now);
+            assert!(app.restore_open);
+            assert_eq!(app.restore.as_ref().unwrap().state(), expected);
+        }
+    }
+}
+
+#[test]
+fn backup_alias_letters_in_restore_fields_are_input_not_navigation() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = open(locale);
+        for ch in "/private/bBиИ.ovb".chars() {
+            assert_eq!(press(&mut app, KeyCode::Char(ch), now), Action::None);
+        }
+        assert_eq!(app.restore.as_ref().unwrap().archive(), "/private/bBиИ.ovb");
+        press(&mut app, KeyCode::Tab, now);
+        for ch in "bBиИ-synthetic-secret".chars() {
+            assert_eq!(press(&mut app, KeyCode::Char(ch), now), Action::None);
+        }
+        assert_eq!(press(&mut app, KeyCode::F(2), now), Action::None);
+        assert!(app.restore_open && !app.backup_open);
+        let text = render(&app, now, 70, 24);
+        assert!(text.contains("********"));
+        assert!(!text.contains("bBиИ-synthetic-secret"));
+        assert!(app.take_backup_request().is_none());
+        assert!(app.take_restore_request().is_none());
+    }
+}
+
+#[test]
 fn maximum_path_and_primary_footer_keys_are_visible_at_70x24_in_both_locales() {
     let path = format!("/private/{}.ovb", "x".repeat(147));
     assert_eq!(path.len(), 160);

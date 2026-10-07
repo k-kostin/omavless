@@ -151,3 +151,49 @@ combined installed/owner/ARM acceptance and normal restart remain UNRUN.
 
 No main/RC merge, version change, release, marketplace submission or historical
 branch cleanup is part of this deliverable.
+
+## Beta.4 transfer and shortest automated installed gate
+
+Composition base is Backup navigation #709 exact
+`a7953c481850809378b5e620fc9ce53bdac0dfa1`, parent #707
+`27d32de73bdc86db5f0ac5134b6c8ad13cddf438`. Apply only #708 preview `c49eb531`,
+implementation `5130b18f` and documentation `b33d2f5b`, not historical stacks.
+The app-handler conflict keeps global `b/B/и/И/F2` navigation AND the Restore
+worker/Submitted/Unknown guard; an alias can reopen only an already-unresolved
+Backup, never steal a Restore workspace. Literal alias letters inside Restore
+archive/password fields remain input, not navigation. Runtime/crypto/worker
+inputs are unchanged from the tested #708 source; composition has its own
+focused TUI checks, not borrowed installed acceptance. Original evidence above
+remains attached to5130. Relaunch and assembly/entry branches have separate writers.
+
+The VM operator automates the following after an explicit single-operator slot;
+no owner keypress is needed just to exercise Cancel, type a test passphrase or
+read files. Owner assessment/required OS authorization remain separate.
+
+1. **Prepare and prove re-entry first.** Inspect one exact compatible bundle,
+   fresh boot/normal admission and owned Off. Launch through the reproducible
+   beta.4 entry; actual client must be `tui --developer-private-restore`, BOTH
+   preview/bound-Restore capabilities and visible Backup/Restore controls.
+   Close the TUI only and reopen through that SAME entry; confirm the same
+   variant/controls and unchanged runtime/Desired. Ordinary Open app or a
+   one-off terminal window does not establish this gate. Wrong selector stops
+   preparation, not a request for the owner to find the missing feature.
+2. **No-effect cases.** Use only synthetic current pair A and authenticated
+   archive B. Capture A's pair/projection/revision/history/Desired/startup and
+   unrelated service/network baseline. Wrong password sends Preview only and
+   refuses; correct Preview shows archive counts/scope, then Cancel. Independently
+   compare all baseline data, not only a label; no Restore submitted.
+3. **One replacement.** Reopen via the proven entry, Preview B, confirm ONCE.
+   Preserve the original outcome. For known completion independently verify the
+   expected normalized pair B, one revision advance and exactly the expected
+   new history member; Desired/startup policy and unrelated services/network
+   remain unchanged. UNKNOWN stops: no new ID, retry, marker deletion or cleanup.
+4. **Known-completion exit.** Close/reopen the same TUI entry and read the new
+   pair again. Separately normal runtime restart/readiness with persisted pair
+   is required before claiming restart acceptance; it must not be replaced by
+   closing a window or an old PID. EN/RU70x24 are the affected visual contrasts.
+
+The common prepare/reopen guard and runtime relaunch fix are owned by the
+neighboring assembly agent, not implemented by this source-transfer branch.
+Default/public activation, installed Restore, ARM and owner manual judgment
+remain separate gates. Do not include unfinished relaunch as a ready feature.
