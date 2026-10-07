@@ -237,6 +237,16 @@ source work is available. Prefer preflight, compatible cache reuse and explicit
 single-operator VM scheduling. Password entry, a reset or a successful source
 test never substitutes for boot, original completion or product acceptance.
 
+For short-lived UI confirmations, preflight the complete capture/inspection/
+input latency before starting the effect-bearing scenario. A model/tool round
+trip may exceed a five-second dialog even when each local command is fast.
+Do not widen a protection deadline or send blind keys to make the test pass.
+When automation is appropriate, separately review a bounded controller which
+checks the actual rendered target, original focused window and conservative
+deadline before its one confirmation. Missing, changed, truncated or late
+observations refuse; input delivery is not the effect result. Keep the original
+expired run distinct from the later corrected scenario.
+
 Ask an independent reviewer when the proposal changes a difficult ownership,
 privilege or fault boundary; routine process notes do not require Astra.
 Failure classification and applicable owner authorization remain unchanged.
