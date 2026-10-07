@@ -33,11 +33,14 @@ def package_version(cargo_text, manifest_text):
     return cargo_version.replace("-rc.", "rc").replace("-beta.", "beta")
 
 
-def stage(pair, architecture, revision, output):
+def stage(pair, architecture, revision, output, pair_mode="dns"):
     if architecture not in fixture.ARCH or not fixture.re.fullmatch(r"[0-9a-f]{40}", revision):
         raise fixture.Refused("A supported architecture and exact source revision are required.")
     output = fixture.outside_git_destination(output)
-    payload = fixture.reviewed_pair(pair, architecture, revision, "release")
+    if pair_mode not in ("dns", "close-qualified", "k1-close-qualified"):
+        raise fixture.Refused("A fixed package pair mode is required.")
+    payload = fixture.reviewed_pair(pair, architecture, revision,
+        {"dns":"release", "close-qualified":"release-close", "k1-close-qualified":"release-close-k1"}[pair_mode])
     unit = (ROOT / "tests/dns_broker_host/omavless-dns-broker.service").read_bytes()
     old = b"ExecStart=/usr/lib/omavless/omavless-dns-broker --serve"
     if unit.count(old) != 1:
@@ -98,9 +101,10 @@ def main():
     for option in ("pair", "revision", "output"):
         parser.add_argument("--" + option, required=True)
     parser.add_argument("--arch", choices=tuple(fixture.ARCH), required=True)
+    parser.add_argument("--pair-mode", choices=("dns", "close-qualified", "k1-close-qualified"), default="dns")
     args = parser.parse_args()
     try:
-        stage(args.pair, args.arch, args.revision, args.output)
+        stage(args.pair, args.arch, args.revision, args.output, args.pair_mode)
     except (OSError, fixture.Refused):
         parser.exit(1, "DNS companion staging refused; nothing installed or activated.\n")
     print("Unpublished DNS companion sources staged; nothing built or installed.")

@@ -394,6 +394,20 @@ impl MutationCoordinator {
         })
     }
 
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn close_receipt_capacity_available(&self) -> bool {
+        self.external_closes.len() < EXTERNAL_CLOSE_LIMIT
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn external_close_reservation_current(&self, token: &ExternalCloseToken) -> bool {
+        self.external_closes.iter().any(|entry| {
+            Arc::ptr_eq(&entry.token.0, &token.0)
+                && entry.receipt.is_none()
+                && entry.base_revision == self.revision
+        })
+    }
+
     pub(crate) fn reserve_external_close(
         &mut self,
         operation_id: &str,
@@ -477,6 +491,19 @@ impl MutationCoordinator {
         };
         entry.receipt = Some(receipt);
         Ok(receipt)
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn external_close_receipt(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<Option<ExternalCloseReceipt>>, CoordinatorError> {
+        let id = OperationId::parse(operation_id)?;
+        Ok(self
+            .external_closes
+            .iter()
+            .find(|entry| entry.operation_id.0 == id.0)
+            .map(|entry| entry.receipt))
     }
 
     /// Check whether bounded work outside the serialized owner may begin.

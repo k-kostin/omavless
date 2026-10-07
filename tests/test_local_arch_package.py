@@ -16,7 +16,7 @@ class LocalArchPackageContractTests(unittest.TestCase):
     def test_fixed_command_boundaries_and_reviewed_identity(self):
         script = (ROOT / "packaging/arch/build-local-package.sh").read_text()
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
-        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) ) && $EUID -ne 0 ]] || fail', code)
+        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail', code)
         self.assertIn('^[0-9a-f]{40}$', code)
         self.assertEqual(code.count('git -C "$repo_root" rev-parse HEAD'), 2)
         self.assertEqual(code.count('status --porcelain --untracked-files=normal'), 2)
@@ -65,6 +65,8 @@ class LocalArchPackageTests(unittest.TestCase):
             target = self.repo / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
+        target = self.repo / "packaging/systemd/omavless-image-witness.service"
+        shutil.copyfile(ROOT / "packaging/systemd/omavless-image-witness.service", target)
         # Keep RC/development test inputs independent of the current product version.
         (self.repo / 'Cargo.toml').write_text('[workspace.package]\nversion = "0.8.0-rc.1"\n')
         for args in (("init", "-q"), ("add", "."),
@@ -74,11 +76,74 @@ class LocalArchPackageTests(unittest.TestCase):
         self.build = self.base / "build"
         self.build.mkdir()
 
-    def invoke(self, binary="/usr/bin/true", sha=None, build=None, candidate=False, stable=False):
+    def invoke(self, binary="/usr/bin/true", sha=None, build=None, candidate=False, stable=False, product_helper=None):
         return subprocess.run(["bash", str(self.repo / "packaging/arch/build-local-package.sh"),
                                str(build or self.build), str(binary), sha or self.sha,
-                               *(["--stable"] if stable else ["--candidate"] if candidate else [])],
+                               *(["--product-image-witness", str(product_helper)] if product_helper else ["--stable"] if stable else ["--candidate"] if candidate else [])],
                               capture_output=True, text=True, timeout=120)
+
+    def test_product_staging_is_exclusive_opt_in_and_has_no_enrollment_or_activation(self):
+        plain = self.base / "plain"
+        product = self.base / "product"
+        plain.mkdir(); product.mkdir()
+        script = self.repo / "packaging/arch/stage-payload.sh"
+        subprocess.run(["bash", str(script), str(plain), "/usr/bin/true"], check=True)
+        subprocess.run(["bash", str(script), str(product), "/usr/bin/true", "--product-image-witness", "/usr/bin/true"], check=True)
+        self.assertFalse((plain / "usr/lib/omavless-image").exists())
+        self.assertEqual((product / "usr/lib/omavless-image/omavless-image-witness").read_bytes(), Path("/usr/bin/true").read_bytes())
+        for node in ("omavless-runtime.service", "omavless-login-prepare.service"):
+            self.assertEqual((plain / "usr/lib/systemd/user" / node).read_bytes(), (product / "usr/lib/systemd/user" / node).read_bytes())
+        self.assertFalse((product / "var").exists())
+        self.assertFalse((product / "etc").exists())
+        helper_unit = (product / "usr/lib/systemd/system/omavless-image-witness.service").read_text()
+        self.assertIn("AmbientCapabilities=CAP_SYS_PTRACE", helper_unit)
+        self.assertIn("CapabilityBoundingSet=CAP_SYS_PTRACE", helper_unit)
+        self.assertIn("RuntimeDirectoryMode=0755", helper_unit)
+        self.assertIn("Restart=no", helper_unit)
+        self.assertEqual(helper_unit.count("TasksMax=2\n"), 1)
+        self.assertNotIn("TasksMax=1\n", helper_unit)
+        self.assertIn("LimitNOFILE=64\n", helper_unit)
+        self.assertIn("NoNewPrivileges=yes\n", helper_unit)
+        self.assertIn("PrivateUsers=no\n", helper_unit)
+        self.assertIn("PrivateNetwork=no\n", helper_unit)
+        self.assertIn("RestrictNamespaces=yes\n", helper_unit)
+        self.assertNotIn("[Install]", helper_unit)
+        self.assertNotIn("CAP_NET_ADMIN", helper_unit)
+
+    def test_product_stage_refuses_helper_symlink_and_unknown_option_before_writes(self):
+        link = self.base / "helper-link"
+        link.symlink_to("/usr/bin/true")
+        script = self.repo / "packaging/arch/stage-payload.sh"
+        for flag, helper in [("--product-image-witness", link), ("--arbitrary", Path("/usr/bin/true"))]:
+            result = subprocess.run(["bash", str(script), str(self.build), "/usr/bin/true", flag, str(helper)], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(any(self.build.iterdir()))
+
+    def test_explicit_product_empty_helper_refuses_stage_and_builder_without_writes(self):
+        for arguments in (["bash", str(self.repo / "packaging/arch/stage-payload.sh"), str(self.build), "/usr/bin/true", "--product-image-witness", ""],
+                          ["bash", str(self.repo / "packaging/arch/build-local-package.sh"), str(self.build), "/usr/bin/true", self.sha, "--product-image-witness", ""]):
+            result = subprocess.run(arguments, capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(any(self.build.iterdir()))
+
+    def test_offline_product_makepkg_records_both_elf_hashes_without_hooks(self):
+        if os.geteuid() == 0 or not all(shutil.which(t) for t in ("makepkg", "fakeroot", "bsdtar", "readelf", "zstd")):
+            self.skipTest("non-root Arch packaging tools required")
+        result = self.invoke(product_helper="/usr/bin/true")
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        archive, = self.build.glob("omavless-*.pkg.tar.zst")
+        identity = subprocess.check_output(["bsdtar", "-xOf", str(archive), "usr/share/doc/omavless/build-identity.txt"], text=True)
+        self.assertIn("schemaVersion=4\n", identity)
+        self.assertIn("helperSha256=" + hashlib.sha256(Path("/usr/bin/true").read_bytes()).hexdigest(), identity)
+        listing = subprocess.check_output(["bsdtar", "-tf", str(archive)], text=True).splitlines()
+        self.assertNotIn(".INSTALL", listing)
+        self.assertFalse(any(path.startswith(("var/", "etc/")) for path in listing))
+        metadata = subprocess.check_output(["bsdtar", "-xOf", str(archive), ".PKGINFO"], text=True)
+        self.assertIn("depend = omavless-dns\n", metadata)
+        packaged_unit = subprocess.check_output(["bsdtar", "-xOf", str(archive),
+            "usr/lib/systemd/system/omavless-image-witness.service"])
+        self.assertEqual(packaged_unit, (ROOT / "packaging/systemd/omavless-image-witness.service").read_bytes())
+        self.assertEqual(packaged_unit.count(b"TasksMax=2\n"), 1)
 
     def test_refuses_wrong_identity_dirty_checkout_unsafe_paths_without_payload(self):
         self.assertNotEqual(self.invoke(sha="0" * 40).returncode, 0)

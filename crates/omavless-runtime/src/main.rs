@@ -108,6 +108,15 @@ fn run() -> Result<(), CliError> {
         println!("omavless.tui.v1");
         return Ok(());
     }
+    #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+    if arguments == ["tui", "--developer-conditional-close"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::developer_close::run(move |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .map_err(CliError::Terminal);
+    }
     #[cfg(feature = "tui")]
     if arguments == ["tui"] {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
@@ -151,6 +160,10 @@ fn run() -> Result<(), CliError> {
     if arguments == ["-h"] || arguments == ["--help"] {
         #[cfg(feature = "tui")]
         println!("  tui                             terminal controls; close leaves VPN unchanged");
+        #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+        println!(
+            "  tui --developer-conditional-close  opt-in development workspace; not product pair adoption"
+        );
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output\n  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
         );
@@ -499,6 +512,24 @@ fn run() -> Result<(), CliError> {
         }
     };
     let paths = RuntimePaths::current().map_err(|error| admission_error(error.to_string()))?;
+    #[cfg(feature = "product-image-witness")]
+    if arguments == ["daemon", "--product-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_product_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
+    #[cfg(feature = "developer-image-witness")]
+    if arguments == ["daemon", "--developer-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_development_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
     if arguments == ["daemon"] {
         let stop = Arc::new(AtomicBool::new(false));
         flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;

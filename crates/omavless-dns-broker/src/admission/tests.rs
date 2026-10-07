@@ -309,6 +309,19 @@ fn enrollment_is_exact_versioned_bounded_and_credential_free() {
     let root = tempfile::tempdir().unwrap();
     let uid = rustix::process::geteuid().as_raw();
     let policy = crate::ENROLLMENT_POLICY;
+    for other in [
+        "meta-ipv4-v1",
+        "meta-ipv4-release-v1",
+        "omavless0-ipv4-development-v1",
+    ] {
+        if other != policy {
+            let cross = format!(r#"{{"schema":1,"uid":1000,"policy":"{other}"}}"#);
+            assert_eq!(
+                read_enrollment(&enrollment(&root, cross.as_bytes()), uid),
+                Err(Error::InvalidEnrollment)
+            );
+        }
+    }
     let valid = format!(r#"{{"schema":1,"uid":1000,"policy":"{policy}"}}"#);
     assert_eq!(
         read_enrollment(&enrollment(&root, valid.as_bytes()), uid),

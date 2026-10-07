@@ -61,6 +61,16 @@ UI behavior. Read the [testing index](docs/testing/README.md) and
 gates. Host/lifecycle scripts are not an unattended bulk test suite; preserve
 the user's VPN and follow their authorization requirements.
 
+Some Rust crash/recovery controls re-execute `std::env::current_exe()`. Do not
+rebuild their active test ELF, even for an unrelated focused filter: replacing
+or unlinking that pathname can make the running suite's next re-exec fail with
+ENOENT. Compile once, copy the exact ELF to a unique private HOME location,
+verify its hash, and run that immutable copy; alternatively reserve a separate
+Cargo target for the whole suite and leave it untouched until original completion.
+Keep durable private stdout/stderr and the original exit status. A later isolated
+pass does not relabel an earlier failed run, and this scheduling problem does
+not warrant changing application recovery code.
+
 For docs-only work, verify local links, discovery paths and any affected tooling.
 Never repeat unchanged R6/live acceptance merely to update prose. CI may still
 run its normal full suite. Runtime changes need owning regression coverage and

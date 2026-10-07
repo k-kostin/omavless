@@ -10,6 +10,8 @@ repository.workspace = true
 [features]
 default = []
 release-package = []
+# Source-only developer pair; distinct enrollment, not legacy package admission.
+k1-managed-device = ["release-package", "omavless-dns-tun/k1-managed-device"]
 
 [dependencies]
 omavless-dns-channel = { path = "../omavless-dns-channel" }
