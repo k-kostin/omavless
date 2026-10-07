@@ -90,6 +90,42 @@ work. Main, accepted public 0.9.5 RC1 and Marketplace are unchanged.
 
 ## Beta.3 installed Backup checkpoint, 2026-10-07
 
+### Navigation and repeatable-entry closure
+
+The installed x86_64 UI leaf
+`a7953c481850809378b5e620fc9ce53bdac0dfa1` has experimental ELF SHA256
+`4064d871277042ede32c5cc551001f4950fd55be7d10423253fe34e1f7fedcc3`.
+Only presentation/navigation changed from the earlier 27d runtime checkpoint;
+runtime/domain/broker/systemd source remained unchanged. Existing 27d DNS/core/
+broker companions were retained for this internal UI-only pass: it is not a
+new same-source release-pair acceptance or public artifact pin.
+
+The owner confirmed opt-in navigation/focus/Escape. A subsequent normal Open
+app invocation correctly lacked the opt-in Backup adapter, exposing an agent
+preparation gap rather than a reverted binary. The
+[manual-plan postmortem](../testing/BETA_098_MANUAL_PLAN.md#постмортем-ручного-входа--2026-10-07)
+retains that failed handoff. A clearly named VM-only desktop entry now keeps
+the selector, title and app-id distinct. Actual desktop-entry launch, client-only
+close, same-entry reopen, visible `b/F2` and actual Backup navigation pass.
+
+After reopening, the agent executed one real Create to a fresh private test
+destination and observed Completed. Independent read-only authentication
+matched the complete synthetic store/template pair and refused a wrong key.
+A separately submitted existing-destination operation returned Denied, keeping
+the archive bytes/metadata unchanged. Whole pair/metadata/history/Desired,
+revision 0 and the same owned disconnected runtime stayed unchanged. Closing
+the opt-in client also left that runtime running; no TUN/network transition,
+Restore or privilege provisioning was performed. Private archives/captures
+remain outside Git. Invalid/cancel/EN-RU constrained-view cases keep their earlier
+exact-source evidence; they are not relabelled as newly executed here.
+
+The internal beta.3 Backup scenario is installed-checked; owner archive creation
+is UNRUN but is no longer a redundant beta blocker. The successor adds only a
+development desktop entry, regression coverage and reusable preparation policy,
+not production/default activation. Relevant launcher/source tests (34), desktop
+validation and documentation navigation pass; remaining hosted CI status belongs
+to the PR's exact head and is not inferred from these installed checks.
+
 Owner hands-on follow-up: Settings-only `b` was not discoverable/reachable from
 the main Profiles or Activity page. The earlier agent pass did not establish
 that user navigation scenario; it is not called owner PASS. A narrow opt-in

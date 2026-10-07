@@ -18,6 +18,7 @@ python3 -m unittest -v \
   "$here/test_first_restore_owner_execution.py" \
   "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \
+  "$here/test_beta_acceptance_entry.py" \
   "$here/test_native_launcher_no_python.py" \
   "$here/test_install_picker_policy.py" \
   "$here/test_marketplace_setup.py" \

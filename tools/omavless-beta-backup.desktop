@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=OmaVLESS beta — Backup acceptance
+Comment=Development VM only: explicit experimental Backup client, not ordinary Open app
+Exec=/usr/bin/foot --app-id=org.omavless.beta.backup --title=OmaVLESS-beta-Backup /usr/bin/omavless tui --developer-private-backup
+Terminal=false
+Categories=Development;
+StartupWMClass=org.omavless.beta.backup

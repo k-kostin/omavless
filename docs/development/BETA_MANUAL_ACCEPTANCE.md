@@ -36,7 +36,33 @@ is weakened by this policy.
 
 ## Division of work
 
-The human performs the declared ordinary plugin/TUI interactions and describes
+### Preparation must survive the user's normal entry
+
+Before handing off any feature, test the actual entry that the owner will use,
+not just an agent-created window. Check installed executable/frontend identity,
+the selected client mode and required capability. A matching version or binary
+alone does not establish that a feature is enabled in the running client.
+Close only that client, reopen through the same declared entry, inspect the
+rendered legend/action and exercise its navigation again. If an experimental
+entry differs from ordinary Open app, provide a persistent, clearly named
+VM-only launcher and explain the distinction; do not silently change production
+defaults. `tools/omavless-beta-backup.desktop` is one such explicit entry, not
+a production package payload or an installer.
+
+The agent performs all safely automatable interaction, filesystem and outcome
+checks within the owner's authorized environment. Human participation is for
+judgment, unavailable hardware or actual authorization that requires the owner,
+not a substitute for missing preparation or routine keystrokes. Keep agent-run
+and owner-run evidence distinct, but do not block internal beta progression on
+redundant human repetition. Unexpected missing controls trigger fresh rendered
+and running-client inspection before prescribing layout, keys or reinstallation.
+
+Record the executable scenario result and remaining gap, not repeated screenshot
+or test counts. After a failed handoff, repair and test the repeatable entry
+before inviting the owner again. These rules apply to every feature, locale,
+launcher and build variant, not only Backup.
+
+When human review is useful, the human performs the declared ordinary plugin/TUI interactions and describes
 what was visible or confusing. The agent first inspects code/tests, prepares the
 exact build and safe test data, then observes only the separately reviewed
 bounded read-only semantic/status/log sources. Logs never manufacture authority.
