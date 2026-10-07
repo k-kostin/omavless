@@ -71,6 +71,13 @@ Diagnostic reads and effect authorization are distinct. New experiments should
 provide bounded phase/error output from the start so routine failures do not
 require a new bespoke observer implementation every time.
 
+When a handled-failure path promises to retain its owned graph, its diagnostics
+must be bounded, best-effort and non-throwing. A broken output stream must not
+turn parking into an unwind/exit that releases the graph; include panic hooks
+and the parking wait itself in that review. Use inert broken-output and
+interrupted-wait controls where applicable. This does not require a new logging
+framework or promise resource survival after fatal process death.
+
 Define the diagnostic surface before the run: exact permitted captures or
 service queries, maximum bytes/time, privacy classification and independence
 from mutation paths. Prefer a reusable reviewed observer with narrow fixed
@@ -189,6 +196,13 @@ one reviewer/helper; replace or finish the helper before starting another.
 Parallelize independent work, not overlapping edits or simultaneous VM control.
 Delegation is optional when coordination would cost more than the task.
 
+Distinguish delivery of a message from starting work. Before assigning a new
+deliverable to an existing agent, check whether it is running or completed.
+Use the available follow-up/resume operation for an idle or completed agent;
+a queued message alone may not trigger another turn. Confirm a short start or
+progress checkpoint before scheduling dependent integration work. Reuse that
+agent and its owned branch rather than spawning a duplicate writer.
+
 ## 8. Checkpoints, branches and session completion
 
 Continue existing feature PRs; create a new PR for an independently reviewable
@@ -201,3 +215,70 @@ session when its agreed outcome is achieved or a genuine external/owner decision
 prevents remaining in-scope work; save an exact-head handoff. Do not stop merely
 because several steps ran, and do not fabricate closure to avoid a blocker.
 New scope needs its own applicable owner direction.
+
+## 9. Lightweight orchestration retrospectives
+
+The primary agent reassesses the working process at a meaningful integration
+checkpoint, after the same bottleneck recurs, or approximately every two to
+three hours of active work if neither event has occurred. This is an in-session
+checkpoint, not a scheduled extra agent, permission to keep an idle session
+alive, or a reason to rerun unchanged reviews and tests.
+
+Use existing observations and ask three questions: what delayed an executable
+outcome, what smallest reusable change removes the cause, and how will the
+next actual attempt demonstrate improvement? Normally spend a few minutes;
+do not produce another full audit or speculative optimization backlog.
+
+Record a short cause/change/check entry in the owning PR or handoff. When a
+solution is reusable, keep one maintained procedure, helper or narrowly scoped
+project skill and link it from the agent guide. Inspect existing skills and
+other active agents' workflow PRs first; reuse them rather than duplicating
+them. Local machine paths, secrets and private captures stay outside Git.
+Do not create a new branch for every retrospective: use an existing owned
+scope, or one separate workflow PR when the change is independently useful.
+
+Examples worth fixing are repeated VM unlock rediscovery, an incompatible
+package/bundle discovered only after installation, repeated socket/temp-root
+setup, full unchanged graph re-reviews, and serial VM waits while independent
+source work is available. Prefer preflight, compatible cache reuse and explicit
+single-operator VM scheduling. Password entry, a reset or a successful source
+test never substitutes for boot, original completion or product acceptance.
+
+For short-lived UI confirmations, preflight the complete capture/inspection/
+input latency before starting the effect-bearing scenario. A model/tool round
+trip may exceed a five-second dialog even when each local command is fast.
+Do not widen a protection deadline or send blind keys to make the test pass.
+When automation is appropriate, separately review a bounded controller which
+checks the actual rendered target, original focused window and conservative
+deadline before its one confirmation. Missing, changed, truncated or late
+observations refuse; input delivery is not the effect result. Keep the original
+expired run distinct from the later corrected scenario.
+
+Ask an independent reviewer when the proposal changes a difficult ownership,
+privilege or fault boundary; routine process notes do not require Astra.
+Failure classification and applicable owner authorization remain unchanged.
+
+Before carrying a shared fix across feature branches, check that each target
+actually contains the affected implementation/test and its owning wiring.
+Do not import an absent research precursor just to make a cherry-pick apply.
+A source-only conflict is a normal diagnostic: preserve unrelated work,
+resolve or abort the carry, and retain each tested runtime's exact identity.
+
+For a sequential acceptance harness, mock only records earned by preceding
+completed phases. Add a first-observation control that refuses every other
+lookup: a convenient pre-populated mock can hide a self-dependency and waste
+an otherwise valid VM run. Diagnose harness failure separately from product
+failure, preserve the failed scope, and verify the narrow successor before
+selecting a fresh scope. Do not continue past an unresolved observation merely
+because the underlying command returned success.
+
+Define a negative fixture's trigger at the product's actual observation boundary.
+For example, TCP EOF in one direction does not prove that a bidirectional relay
+has left its connection catalogue. Close only the fixture-owned endpoint's
+required direction, retain its original identity, and earn bounded catalogue
+absence through the ordinary data API before selecting the negative operation.
+That observation is not a new effect permission: retain the original preview and
+let the product's fresh conditional check decide the result. Keep a previous
+legitimate success distinct from the intended refusal scenario; fix the fixture,
+not the product's safety deadline or authorization boundary, when the trigger was
+incomplete.
