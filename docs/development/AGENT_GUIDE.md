@@ -25,6 +25,15 @@ GitHub is the source of truth. Do not rely on private chat history, an earlier
 agent handoff or a stale checkout as the only record of a decision, test result,
 policy or useful implementation.
 
+Read the durable [execution policy](EXECUTION_POLICY.md) before development or
+diagnostic work. It distinguishes ordinary build failures from uncertain effects
+and retains risk-proportionate review and explicit single-operator VM custody.
+For installed development-VM work use the
+[VM operations skill](../../skills/omavless-dev-vm/SKILL.md), including graphical
+preflight, actual installed interface discovery and encrypted reboot. At meaningful
+checkpoints use [lightweight retrospectives](EXECUTION_POLICY.md#9-lightweight-orchestration-retrospectives)
+instead of duplicating unchanged audits or adding another permanent agent.
+
 ## Selected implementation direction
 
 Rust is the selected long-term implementation language for the standalone

@@ -9,7 +9,7 @@ unpublished source integration is not public release acceptance.
 
 ## Scope and ownership
 
-### Beta.4 assembly started, 2026-10-07
+### Beta.4 selected assembly, 2026-10-07–08
 
 Owner authorized continuing after the installed beta.3 Backup scenario without
 redundant manual keystrokes. Selected base is
@@ -22,8 +22,9 @@ Beta.4 includes authenticated Preview/Cancel/Restore from #708 at
 `b33d2f5b783e308be0f74ad6e5531fe4c1573f3f`, after the transfer resolves the
 known conflict with #709's global Backup navigation and preserves both original
 unresolved-operation guards. Source transfer
-`ae973ab7c629f60f86b60417e78e2e37c72298e8` is now integrated; installed Restore
-remains pending, not implied by the version bump. Relaunch after plugin disable/full shutdown
+`ae973ab7c629f60f86b60417e78e2e37c72298e8` is integrated; installed Restore
+passed on the exact bundle recorded below, not by inference from the version.
+Relaunch after plugin disable/full shutdown
 is an optional later included checkpoint only after implementation and its own
 no-autoconnect/current-login executable gate. K1, S1, P4, automatic background
 work and GUI remain excluded.
@@ -162,12 +163,14 @@ Current source version `0.9.8-beta.4` / Arch `0.9.8beta4-1`; both package pin
 maps stay empty. No old archive is relabeled. Baseline checks cover version/packaging
 coherence, full developer/Rust suites and affected EN/RU actual QML/TUI review.
 New combined source/build checks do not transfer earlier installed results to
-new binaries. Normal packages keep default `tui` only; a separately compiled
+new binaries. The selected beta.4 producer includes T4 for normal `tui`, as
+described above. Historical beta.2/3 default artifacts had default `tui` only;
+a separately compiled
 product-image-witness + t4-manager-actor-service development executable is
 explicitly opt-in and cannot be used to infer normal feature activation.
-A Backup-only experimental executable instead selects default `tui` plus
+A historical Backup-only experimental executable instead selected default `tui` plus
 `t4-manager-actor-service`; producer feature selection and binary/package hashes
-must accompany it. Default CI artifacts alone do not provide the Backup screen.
+must accompany it. Those old default CI artifacts did not provide the Backup screen.
 Never mix the earlier LegacyMeta2 Backup bundle with the separate T3 Product
 helper/core/broker/enrollment bundle. Both must earn their own current admission.
 
@@ -178,7 +181,7 @@ work. Main, accepted public 0.9.5 RC1 and Marketplace are unchanged.
 
 ## Beta.3 installed Backup checkpoint, 2026-10-07
 
-### Navigation and repeatable-entry closure
+### Historical beta.3 navigation and repeatable-entry workaround
 
 The installed x86_64 UI leaf
 `a7953c481850809378b5e620fc9ce53bdac0dfa1` has experimental ELF SHA256
@@ -207,10 +210,11 @@ Restore or privilege provisioning was performed. Private archives/captures
 remain outside Git. Invalid/cancel/EN-RU constrained-view cases keep their earlier
 exact-source evidence; they are not relabelled as newly executed here.
 
-The internal beta.3 Backup scenario is installed-checked; owner archive creation
+This historical internal beta.3 Backup scenario is installed-checked; owner archive creation
 is UNRUN but is no longer a redundant beta blocker. The successor adds only a
 development desktop entry, regression coverage and reusable preparation policy,
-not production/default activation. Relevant launcher/source tests (34), desktop
+not production/default activation. Beta.4 supersedes that separate-entry
+workaround with its reviewed normal-entry build. Relevant launcher/source tests (34), desktop
 validation and documentation navigation pass; remaining hosted CI status belongs
 to the PR's exact head and is not inferred from these installed checks.
 

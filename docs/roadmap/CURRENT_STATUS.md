@@ -1,21 +1,28 @@
 # Current delivery status
 
-Updated 2026-10-07. This is the compact current-state entry point; the detailed
+Updated 2026-10-08. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.8 next internal candidate:** source version `0.9.8-beta.3` adds the
-  explicitly selected Backup TUI #705 and normal private-pair API #701 to the
-  checked beta.2 baseline. The VM master paused and handed off writers/custody
-  in [#706](https://github.com/k-kostin/omavless/issues/706). Combined source,
-  artifact and installed/manual checks are separately pending until the new
-  exact-head assembly record says otherwise. Default packages/ordinary TUI do
-  not enable Backup; Restore API is opt-in, Restore UI/new preview are excluded.
+- **0.9.8 internal beta.4:** #711 selects the real Backup and authenticated
+  Preview/Cancel/Restore path from #701/#705/#708/#710. Its fixed package build
+  selector and ordinary **Open app / `omavless tui`** expose those selected
+  controls; a per-invocation research flag is not the beta entry. Installed
+  x86_64 source `09f238ff` / frontend `a2e5b647` passed normal entry/reopen,
+  wrong-key refusal, unchanged Preview/Cancel, one original Completed Restore
+  with independent pair/revision readback and known-Off ordinary restart.
+  Agent-operated evidence is not owner manual, ARM-installed or fault acceptance.
+  Runtime relaunch after plugin shutdown is the separate #712 successor under
+  review and installed testing, not borrowed from that earlier bundle.
   See [selection](../development/BETA_098.md) and
   [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main/RC/Marketplace
   are unchanged; there is one integration writer and at most one VM operator.
+  [The consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6047446461)
+  records 82 verified no-merge PR closures (78 literal included heads and four
+  inspected full-patch equivalents). Source/evidence branches and unique
+  unfinished work are retained; administrative closure adds no acceptance.
 
 - **0.9.8 beta.2 baseline:** [#702](https://github.com/k-kostin/omavless/pull/702)
   continues existing beta from `a04dfde8` with exact #690 retained restore and
