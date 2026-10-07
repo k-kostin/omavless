@@ -75,6 +75,18 @@ fn run() -> Result<(), CliError> {
         .first()
         .is_some_and(|argument| argument == "backup")
     {
+        if omavless_runtime::private_pair_api::preview_arguments_admitted(&arguments) {
+            if std::io::IsTerminal::is_terminal(&io::stdin()) {
+                return Err("private_pair_private_stdin_required".into());
+            }
+            let output = omavless_runtime::private_pair_api::preview_from_private_input(
+                &arguments,
+                io::stdin().lock(),
+            )
+            .map_err(CliError::from)?;
+            println!("{output}");
+            return Ok(());
+        }
         if !omavless_runtime::private_pair_api::arguments_admitted(&arguments) {
             return Err("private_pair_arguments_refused".into());
         }
@@ -135,15 +147,42 @@ fn run() -> Result<(), CliError> {
         .map_err(CliError::Terminal);
     }
     #[cfg(all(feature = "tui", feature = "t4-manager-actor-service"))]
-    if arguments == ["tui", "--developer-private-backup"] {
+    if arguments == ["tui", "--developer-private-backup"]
+        || arguments == ["tui", "--developer-private-restore"]
+    {
         let uid = nix::unistd::Uid::current();
         if uid.is_root() || uid != nix::unistd::Uid::effective() {
-            return Err("Private Backup requires an ordinary user".into());
+            return Err("Private Backup/Restore requires an ordinary user".into());
         }
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let backup_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        if arguments == ["tui", "--developer-private-restore"] {
+            let restore_paths =
+                RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+            return omavless_tui::run_full_private_restore(
+                move |request| {
+                    call(&paths, request.method(), request.params())
+                        .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+                },
+                move |request| {
+                    omavless_runtime::call_plugin_action(&action_paths, request.params())
+                        .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+                },
+                move |request| {
+                    call(&job_paths, request.method(), request.params())
+                        .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+                },
+                move |request| {
+                    omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
+                },
+                move |request| {
+                    omavless_runtime::private_pair_api::restore_for_tui(&restore_paths, request)
+                },
+            )
+            .map_err(CliError::Terminal);
+        }
         return omavless_tui::run_full_private_backup(
             move |request| {
                 call(&paths, request.method(), request.params())

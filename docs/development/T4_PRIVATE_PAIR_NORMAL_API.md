@@ -7,6 +7,12 @@ It is based on `44bd54e`, reuses the engine at exact `0f2a1b8a` and the
 Current43/44 and repeated-cycle evidence does not substitute for this new RPC
 boundary's separately selected scope46 below.
 
+A separate [preview-bound Restore source candidate](T4_PRIVATE_RESTORE_PREVIEW.md)
+adds only explicit developer-feature preview DATA and separately confirmed
+ciphertext-bound Restore. It does not rebind the accepted source498/API46 or
+Backup UI62 evidence, change the original two method schemas, or activate default
+Restore UX. Its new boundary remains subject to its own source/installed gates.
+
 ## Closed vertical slice
 
 Only explicit `t4-manager-actor-service` developer-feature builds compile

@@ -9,7 +9,12 @@ use std::io::Read;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-pub(crate) const METHODS: &[&str] = &["backup.create", "backup.restore"];
+pub(crate) const METHODS: &[&str] = &[
+    "backup.create",
+    "backup.restore",
+    "backup.preview",
+    "backup.restore_previewed",
+];
 pub(crate) fn is_method(method: &str) -> bool {
     METHODS.contains(&method)
 }
@@ -91,9 +96,227 @@ impl Request {
         MutationDigest::from_semantic_bytes(&bytes)
     }
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PreviewRequest {
+    schema: u8,
+    archive: PrivateText,
+    passphrase: PrivateText,
+    instance_id: String,
+    expected_revision: u64,
+}
+impl PreviewRequest {
+    pub(crate) fn parse(value: &Value) -> Result<Self, ()> {
+        let raw = Zeroizing::new(serde_json::to_vec(value).map_err(|_| ())?);
+        Self::from_raw(&raw)
+    }
+    fn from_raw(raw: &[u8]) -> Result<Self, ()> {
+        if raw.len() > MAX_INPUT {
+            return Err(());
+        }
+        let request: Self = serde_json::from_slice(raw).map_err(|_| ())?;
+        if !valid_private(request.schema, &request.archive.0, &request.passphrase.0)
+            || request.instance_id.is_empty()
+            || request.instance_id.len() > 128
+            || request.expected_revision > omavless_control_protocol::MAX_REVISION
+        {
+            return Err(());
+        }
+        Ok(request)
+    }
+    pub(crate) fn instance(&self) -> &str {
+        &self.instance_id
+    }
+    pub(crate) fn revision(&self) -> u64 {
+        self.expected_revision
+    }
+    pub(crate) fn archive(&self) -> &Path {
+        Path::new(self.archive.0.as_str())
+    }
+    pub(crate) fn passphrase(&self) -> &[u8] {
+        self.passphrase.0.as_bytes()
+    }
+}
+
+pub(crate) struct PreviewedRestoreRequest {
+    pub(crate) pair: Request,
+    pub(crate) expected: [u8; 32],
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PreviewedWire {
+    schema: u8,
+    archive: PrivateText,
+    passphrase: PrivateText,
+    confirmation: String,
+    instance_id: String,
+    operation_id: String,
+    expected_revision: u64,
+    expected_ciphertext_digest: String,
+}
+impl PreviewedRestoreRequest {
+    pub(crate) fn parse(value: &Value) -> Result<Self, ()> {
+        let raw = Zeroizing::new(serde_json::to_vec(value).map_err(|_| ())?);
+        Self::from_raw(&raw)
+    }
+    fn from_raw(raw: &[u8]) -> Result<Self, ()> {
+        if raw.len() > MAX_INPUT {
+            return Err(());
+        }
+        let wire: PreviewedWire = serde_json::from_slice(raw).map_err(|_| ())?;
+        if wire.confirmation != "replace-previewed-current-private-pair"
+            || !valid_private(wire.schema, &wire.archive.0, &wire.passphrase.0)
+            || wire.instance_id.is_empty()
+            || wire.instance_id.len() > 128
+            || MutationRequest::new(
+                MutationKind::Other,
+                Some(&wire.operation_id),
+                Some(wire.expected_revision),
+                MutationDigest::new([0; 32]),
+            )
+            .is_err()
+        {
+            return Err(());
+        }
+        let expected = parse_ciphertext_digest(&wire.expected_ciphertext_digest)?;
+        Ok(Self {
+            pair: Request {
+                schema: wire.schema,
+                archive: wire.archive,
+                passphrase: wire.passphrase,
+                confirmation: wire.confirmation,
+                instance_id: wire.instance_id,
+                operation_id: wire.operation_id,
+                expected_revision: wire.expected_revision,
+            },
+            expected,
+        })
+    }
+    pub(crate) fn digest(&self) -> MutationDigest {
+        let mut bytes = Zeroizing::new(Vec::new());
+        bytes.extend_from_slice(b"omavless/private-pair/previewed-restore/v1\0");
+        for field in [
+            self.pair.archive.0.as_str(),
+            self.pair.passphrase.0.as_str(),
+            self.pair.instance_id.as_str(),
+        ] {
+            crate::mutation_protocol::append_field(&mut bytes, field);
+        }
+        bytes.extend_from_slice(&self.pair.expected_revision.to_be_bytes());
+        bytes.extend_from_slice(&self.expected);
+        MutationDigest::from_semantic_bytes(&bytes)
+    }
+}
+fn parse_ciphertext_digest(value: &str) -> Result<[u8; 32], ()> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    {
+        return Err(());
+    }
+    let mut result = [0; 32];
+    for (target, source) in result.iter_mut().zip(value.as_bytes().as_chunks::<2>().0) {
+        let nibble = |c: u8| if c <= b'9' { c - b'0' } else { c - b'a' + 10 };
+        *target = nibble(source[0]) * 16 + nibble(source[1]);
+    }
+    Ok(result)
+}
+pub(crate) fn ciphertext_hex(value: &[u8; 32]) -> String {
+    const HEX: &[u8] = b"0123456789abcdef";
+    let mut result = String::with_capacity(64);
+    for b in value {
+        result.push(char::from(HEX[usize::from(b >> 4)]));
+        result.push(char::from(HEX[usize::from(b & 15)]));
+    }
+    result
+}
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     arguments == ["backup", "create", "--confirm-private-export"]
         || arguments == ["backup", "restore", "--confirm-private-pair"]
+}
+pub fn preview_arguments_admitted(arguments: &[OsString]) -> bool {
+    arguments == ["backup", "preview"]
+        || arguments == ["backup", "restore-previewed", "--confirm-private-pair"]
+}
+/// Fixed developer-only preview/confirmation selection. Preview output is
+/// private local DATA; transport loss never supplies a follow-on grant.
+pub fn preview_from_private_input(
+    arguments: &[OsString],
+    input: impl Read,
+) -> Result<String, &'static str> {
+    if !preview_arguments_admitted(arguments) {
+        return Err("private_pair_arguments_refused");
+    }
+    let uid = nix::unistd::Uid::current();
+    if uid.is_root() || uid != nix::unistd::Uid::effective() {
+        return Err("private_pair_refused");
+    }
+    let mut raw = Zeroizing::new(Vec::new());
+    input
+        .take((MAX_INPUT + 1) as u64)
+        .read_to_end(&mut raw)
+        .map_err(|_| "private_pair_input_refused")?;
+    let preview = arguments[1] == "preview";
+    let (instance, revision, params) = if preview {
+        let p = PreviewRequest::from_raw(&raw).map_err(|_| "private_pair_input_refused")?;
+        let params = serde_json::json!({"schema":p.schema,"archive":p.archive.0.as_str(),"passphrase":p.passphrase.0.as_str(),"instanceId":p.instance_id,"expectedRevision":p.expected_revision});
+        (p.instance_id, p.expected_revision, params)
+    } else {
+        let p =
+            PreviewedRestoreRequest::from_raw(&raw).map_err(|_| "private_pair_input_refused")?;
+        let pair = p.pair;
+        let params = serde_json::json!({"schema":pair.schema,"archive":pair.archive.0.as_str(),"passphrase":pair.passphrase.0.as_str(),"confirmation":pair.confirmation,"instanceId":pair.instance_id,"operationId":pair.operation_id,"expectedRevision":pair.expected_revision,"expectedCiphertextDigest":ciphertext_hex(&p.expected)});
+        (pair.instance_id, pair.expected_revision, params)
+    };
+    let paths = crate::RuntimePaths::current().map_err(|_| "private_pair_refused")?;
+    let hello = crate::call(&paths, "system.hello", serde_json::json!({"versions":[1]}))
+        .map_err(|_| "private_pair_refused")?;
+    if hello["ok"] != true || hello["result"]["instanceId"] != instance {
+        return Err("private_pair_refused");
+    }
+    let response = crate::call_with_timeout(
+        &paths,
+        if preview {
+            "backup.preview"
+        } else {
+            "backup.restore_previewed"
+        },
+        params,
+        std::time::Duration::from_secs(120),
+    )
+    .map_err(|_| {
+        if preview {
+            "private_pair_preview_unavailable"
+        } else {
+            "private_pair_outcome_unknown"
+        }
+    })?;
+    if !preview {
+        classify_reply(&response)?;
+        return Ok("private_pair_restore_completed".into());
+    }
+    let result = &response["result"];
+    if response["ok"] != true
+        || response["revision"].as_u64() != Some(revision)
+        || result.as_object().is_none_or(|o| o.len() != 4)
+        || result["scope"] != "privatePair"
+        || result["profiles"]
+            .as_u64()
+            .is_none_or(|n| n > omavless_domain::private_store::MAX_PRIVATE_STORE_BYTES as u64)
+        || result["subscriptions"]
+            .as_u64()
+            .is_none_or(|n| n > omavless_domain::private_store::MAX_PRIVATE_STORE_BYTES as u64)
+        || result["ciphertextDigest"]
+            .as_str()
+            .is_none_or(|v| parse_ciphertext_digest(v).is_err())
+    {
+        return Err("private_pair_preview_unavailable");
+    }
+    // Rebuild only the allowlisted count/digest DATA, never print raw response.
+    serde_json::to_string(&serde_json::json!({"profiles":result["profiles"],"subscriptions":result["subscriptions"],"ciphertextDigest":result["ciphertextDigest"],"scope":"privatePair","revision":revision}))
+        .map_err(|_| "private_pair_preview_unavailable")
 }
 /// One owned opt-in client request. No generic method/timeout surface and no
 /// owner/lease authority here: the existing normal server re-admits the request.
@@ -117,6 +340,43 @@ fn create_tui_exchange(
     paths: &crate::RuntimePaths,
     request: &omavless_tui::private_backup::Request,
 ) -> crate::Result<Value> {
+    private_tui_exchange(
+        paths,
+        "backup.create",
+        || request.params(),
+        request.deadline(),
+    )
+}
+
+/// Closed Restore client request: preview or preview-bound Restore only. No
+/// raw RPC/method/timeout entry point is exposed to user input.
+#[cfg(feature = "tui")]
+pub fn restore_for_tui(
+    paths: &crate::RuntimePaths,
+    request: omavless_tui::private_restore::Request,
+) -> omavless_tui::private_restore::Completion {
+    let response = request
+        .remaining()
+        .ok_or(omavless_tui::model::ReadError::Unavailable)
+        .and_then(|_| {
+            private_tui_exchange(
+                paths,
+                request.method(),
+                || request.params(),
+                request.deadline(),
+            )
+            .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        });
+    request.settle(response)
+}
+
+#[cfg(feature = "tui")]
+fn private_tui_exchange(
+    paths: &crate::RuntimePaths,
+    method: &'static str,
+    params: impl FnOnce() -> Value,
+    end: std::time::Instant,
+) -> crate::Result<Value> {
     use crate::RuntimeError;
     use nix::sys::socket::{
         AddressFamily, SockFlag, SockType, UnixAddr, connect, getsockopt, socket,
@@ -129,7 +389,19 @@ fn create_tui_exchange(
             net::UnixStream,
         },
     };
-    let live = || request.remaining().ok_or(RuntimeError::Io);
+    // All callers are fixed typed adapters above. This private allowlist also
+    // prevents a later internal caller from silently broadening the transport.
+    if !matches!(
+        method,
+        "backup.create" | "backup.preview" | "backup.restore_previewed"
+    ) {
+        return Err(RuntimeError::Protocol);
+    }
+    let live = || {
+        end.checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(RuntimeError::Io)
+    };
     live()?;
     let uid = nix::unistd::Uid::current().as_raw();
     crate::validate_client_directory(&paths.directory, uid)?;
@@ -168,16 +440,12 @@ fn create_tui_exchange(
         .set_nonblocking(false)
         .map_err(|_| RuntimeError::Io)?;
     let id = format!("cli-{}", std::process::id());
-    let mut message =
-        omavless_control_protocol::make_request(&id, "backup.create", request.params())
-            .map_err(|_| RuntimeError::Protocol)?;
+    let mut message = omavless_control_protocol::make_request(&id, method, params())
+        .map_err(|_| RuntimeError::Protocol)?;
     let encoded = omavless_control_protocol::encode_request(&message);
     crate::developer_current_restore::wipe_request(&mut message);
     let frame = Zeroizing::new(encoded.map_err(|_| RuntimeError::Protocol)?);
-    let mut io = TuiDeadlineIo {
-        stream,
-        end: request.deadline(),
-    };
+    let mut io = TuiDeadlineIo { stream, end };
     omavless_control_protocol::write_unary_frame(
         &mut io,
         &frame,
@@ -316,6 +584,150 @@ fn classify_reply(response: &Value) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preview_schema_is_separate_nonmutating_and_digest_strict() {
+        let preview = serde_json::json!({"schema":1,"archive":"/private/synthetic.ovb","passphrase":"synthetic-only-secret","instanceId":"same","expectedRevision":0});
+        assert!(PreviewRequest::parse(&preview).is_ok());
+        for name in [
+            "operationId",
+            "confirmation",
+            "expectedCiphertextDigest",
+            "unknown",
+        ] {
+            let mut v = preview.clone();
+            v[name] = "extra".into();
+            assert!(PreviewRequest::parse(&v).is_err());
+        }
+        let duplicate = serde_json::to_string(&preview)
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        assert!(PreviewRequest::from_raw(duplicate.as_bytes()).is_err());
+        let bound = serde_json::json!({"schema":1,"archive":"/private/synthetic.ovb","passphrase":"synthetic-only-secret","instanceId":"same","expectedRevision":0,"operationId":"new-op","confirmation":"replace-previewed-current-private-pair","expectedCiphertextDigest":"a".repeat(64)});
+        let request = PreviewedRestoreRequest::parse(&bound).unwrap();
+        let duplicate = serde_json::to_string(&bound)
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        assert!(PreviewedRestoreRequest::from_raw(duplicate.as_bytes()).is_err());
+        assert!(request.digest() != request.pair.digest(Action::Restore));
+        let mut other = bound.clone();
+        other["expectedCiphertextDigest"] = "b".repeat(64).into();
+        assert!(request.digest() != PreviewedRestoreRequest::parse(&other).unwrap().digest());
+        for value in [
+            "A".repeat(64),
+            "g".repeat(64),
+            "0".repeat(63),
+            "0".repeat(65),
+        ] {
+            let mut v = bound.clone();
+            v["expectedCiphertextDigest"] = value.into();
+            assert!(PreviewedRestoreRequest::parse(&v).is_err());
+        }
+        assert!(Request::parse("backup.restore", &bound).is_err());
+        let mut old = bound;
+        old.as_object_mut()
+            .unwrap()
+            .remove("expectedCiphertextDigest");
+        old["confirmation"] = "replace-current-private-pair".into();
+        assert!(Request::parse("backup.restore", &old).is_ok());
+        assert!(PreviewedRestoreRequest::parse(&old).is_err());
+        assert!(preview_arguments_admitted(&[
+            "backup".into(),
+            "preview".into()
+        ]));
+        assert!(!arguments_admitted(&["backup".into(), "preview".into()]));
+        assert_eq!(
+            parse_ciphertext_digest(&ciphertext_hex(&[0xa5; 32])).unwrap(),
+            [0xa5; 32]
+        );
+    }
+    #[cfg(feature = "tui")]
+    #[test]
+    fn restore_tui_transport_is_closed_and_expiry_precedes_secret_serialization() {
+        let paths = crate::RuntimePaths::below(Path::new("/public/nonexistent-synthetic-runtime"));
+        for method in [
+            "backup.create",
+            "backup.preview",
+            "backup.restore_previewed",
+        ] {
+            assert_eq!(
+                private_tui_exchange(
+                    &paths,
+                    method,
+                    || panic!("no secret params after expiry"),
+                    std::time::Instant::now()
+                ),
+                Err(crate::RuntimeError::Io)
+            );
+        }
+        assert_eq!(
+            private_tui_exchange(
+                &paths,
+                "profiles.delete",
+                || panic!("closed selector must refuse"),
+                std::time::Instant::now() + std::time::Duration::from_secs(120)
+            ),
+            Err(crate::RuntimeError::Protocol)
+        );
+    }
+    #[cfg(feature = "tui")]
+    #[test]
+    fn restore_tui_real_preview_transport_false_factory_has_no_followon_restore() {
+        use omavless_tui::private_restore::{State, Workspace};
+        let base = crate::test_temp::directory("r-preview").unwrap();
+        let paths = crate::RuntimePaths::below(&base);
+        let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+        let mut editor = Workspace::new(&server.instance_id, 0).unwrap();
+        for ch in "/private/public-fixture.ovb".chars() {
+            assert!(editor.push(ch));
+        }
+        editor.next_field();
+        for ch in "synthetic-restore-secret".chars() {
+            assert!(editor.push(ch));
+        }
+        let request = editor.begin_preview().unwrap();
+        assert!(PreviewRequest::parse(&request.params()).is_ok());
+        let worker = std::thread::spawn(move || server.serve(Some(1)).unwrap());
+        editor.accept(restore_for_tui(&paths, request));
+        worker.join().unwrap();
+        assert_eq!(editor.state(), State::PreviewUnavailable);
+        assert!(editor.submit("no-followon".into()).is_none());
+        assert!(editor.begin_preview().is_none());
+        assert!(!base.join("profiles.json").exists());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+    #[cfg(feature = "tui")]
+    #[test]
+    fn restore_tui_synthetic_preview_data_does_not_grant_real_server_authority() {
+        use omavless_tui::private_restore::{State, Workspace};
+        let base = crate::test_temp::directory("r-submit").unwrap();
+        let paths = crate::RuntimePaths::below(&base);
+        let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+        let mut editor = Workspace::new(&server.instance_id, 0).unwrap();
+        for ch in "/private/public-fixture.ovb".chars() {
+            assert!(editor.push(ch));
+        }
+        editor.next_field();
+        for ch in "synthetic-restore-secret".chars() {
+            assert!(editor.push(ch));
+        }
+        // Local positive DATA-only rendering fixture. The real runtime has NO
+        // current owner and must reject this correlated request before entry.
+        let preview = editor.begin_preview().unwrap();
+        editor.accept(preview.settle(Ok(serde_json::json!({"ok":true,"revision":0,"result":{
+            "profiles":0,"subscriptions":0,"scope":"privatePair","ciphertextDigest":"a".repeat(64)
+        }}))));
+        assert_eq!(editor.state(), State::Confirming);
+        let request = editor.submit("r-submit-once".into()).unwrap();
+        assert!(PreviewedRestoreRequest::parse(&request.params()).is_ok());
+        assert_eq!(request.params()["expectedCiphertextDigest"], "a".repeat(64));
+        let worker = std::thread::spawn(move || server.serve(Some(1)).unwrap());
+        editor.accept(restore_for_tui(&paths, request));
+        worker.join().unwrap();
+        assert_eq!(editor.state(), State::Denied);
+        assert!(editor.submit("no-retry".into()).is_none());
+        assert!(!base.join("profiles.json").exists());
+        std::fs::remove_dir_all(base).unwrap();
+    }
     #[cfg(feature = "tui")]
     #[test]
     fn backup_tui_expired_transport_refuses_before_write_and_does_not_touch_peer() {

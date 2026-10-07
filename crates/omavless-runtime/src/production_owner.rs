@@ -169,6 +169,70 @@ pub(crate) enum NativeCompletedRead {
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_private_preview(
+        &mut self,
+        request: &crate::private_pair_api::PreviewRequest,
+    ) -> Result<(usize, usize, [u8; 32]), omavless_control_protocol::StableErrorCode> {
+        use omavless_control_protocol::StableErrorCode;
+        if request.revision() != self.revision() {
+            return Err(StableErrorCode::Conflict);
+        }
+        if !self.normal_private_pair_available() || !self.rust_ownership_available() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        let result = self
+            .coordinator
+            .preview_current_pair(request.archive(), request.passphrase(), request.revision())
+            .map_err(|e| e.stable_code())?;
+        if !self.normal_private_pair_available()
+            || !self.rust_ownership_available()
+            || request.revision() != self.revision()
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        Ok(result)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_previewed_restore(
+        &mut self,
+        request: &crate::private_pair_api::PreviewedRestoreRequest,
+    ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
+    {
+        use omavless_control_protocol::StableErrorCode;
+        let origin = self
+            .current_origin
+            .as_ref()
+            .ok_or(StableErrorCode::CapabilityUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. }
+            if rust_generation == origin.generation)
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        if let Some(result) = self
+            .coordinator
+            .replay_previewed_pair(request)
+            .map_err(|e| e.stable_code())?
+        {
+            return Ok((result, true));
+        }
+        if request.pair.revision() != self.revision() {
+            return Err(StableErrorCode::Conflict);
+        }
+        if !self.rust_ownership_available() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        let desired = self
+            .desired_for_status()
+            .map_err(|_| StableErrorCode::CapabilityUnavailable)?;
+        if desired.connected || self.actual() != ActualState::Disconnected {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        self.coordinator
+            .execute_previewed_pair(request)
+            .map(|r| (r, false))
+            .map_err(|e| e.stable_code())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn normal_private_pair_available(&self) -> bool {
         self.current_origin.as_ref().is_some_and(|origin| matches!(self.ownership,
             ProductionOwnership::Committed { rust_generation, .. } if rust_generation == origin.generation))
