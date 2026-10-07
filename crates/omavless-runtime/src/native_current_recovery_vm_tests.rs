@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! Five separately selected ROOT-only current43 originals. No owner factory,
-//! daemon lifecycle, lock creation, retry, history disposition or cleanup.
+//! Five historical current43 originals and one separately selected history8
+//! completion successor. No daemon lifecycle, lock creation, retry or cleanup.
 use super::*;
 use crate::restore_decision_candidate::{DecisionChain, DecisionPhase};
 use crate::restore_staging_candidate::{MEMBERS, PENDING_DIRECTORY, READY_BYTES, READY_MEMBER};
@@ -186,6 +186,12 @@ struct Originals {
 }
 impl Originals {
     fn capture(live: bool) -> std::result::Result<Self, ()> {
+        Self::capture_phase(live, false)
+    }
+    fn capture_aborted() -> std::result::Result<Self, ()> {
+        Self::capture_phase(false, true)
+    }
+    fn capture_phase(live: bool, aborted: bool) -> std::result::Result<Self, ()> {
         let (limit, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
             .map_err(|_| ())?;
         if !sufficient_limit(limit, false) {
@@ -257,14 +263,25 @@ impl Originals {
         if !absent(&history) {
             graph.history = Some(Held::open(&history, 4096, false)?);
         }
-        graph.check_absence(false)?;
+        if aborted {
+            graph.files[15] = Some(Held::open(
+                &Path::new(STATE).join("restore-decision.terminal"),
+                record,
+                false,
+            )?);
+        }
+        graph.check_absence(aborted)?;
         if graph.file(0)?.bytes != graph.file(8)?.bytes
             || graph.file(1)?.bytes != graph.file(9)?.bytes
-            || DecisionChain::decode(&graph.file(7)?.bytes, None)
-                .map_err(|_| ())?
-                .active()
-                .phase()
-                != DecisionPhase::Intent
+            || !original_phase(
+                &graph.file(7)?.bytes,
+                if aborted {
+                    Some(&graph.file(15)?.bytes)
+                } else {
+                    None
+                },
+                aborted,
+            )
         {
             return Err(());
         }
@@ -337,6 +354,17 @@ impl Originals {
         }
         self.check_absence(terminal)
     }
+}
+
+fn original_phase(intent: &[u8], terminal: Option<&[u8]>, aborted: bool) -> bool {
+    DecisionChain::decode(intent, terminal).is_ok_and(|chain| {
+        chain.active().phase()
+            == if aborted {
+                DecisionPhase::Aborted
+            } else {
+                DecisionPhase::Intent
+            }
+    })
 }
 
 fn normal_paths() -> std::result::Result<(RuntimePaths, CutoverPaths, DesiredPaths), ()> {
@@ -686,4 +714,141 @@ fn installed_current43_new_authenticated_old_intent_aborted() {
     assert!(complete, "fixed_current43_recovery_unknown");
     println!("T4_CURRENT43_NEW_AUTHENTICATED_OLD_INTENT_ABORTED_STILL_FENCED");
     assert!(Instant::now() < until, "fixed_current43_deadline_refused");
+}
+
+#[test]
+fn current43_completion_terminal_is_data_not_a_completion_grant() {
+    let plan = crate::restore_staging_candidate::planned_stage_identity([
+        b"old store".as_slice(),
+        b"old template",
+        b"new store",
+        b"new template",
+    ])
+    .unwrap();
+    let intent =
+        crate::restore_decision_candidate::DecisionRecord::intent(2, None, &plan, [5; 16]).unwrap();
+    let old = intent
+        .terminal(crate::restore_decision_candidate::TerminalChoice::Abort)
+        .unwrap()
+        .encode();
+    let new = intent
+        .terminal(crate::restore_decision_candidate::TerminalChoice::Commit)
+        .unwrap()
+        .encode();
+    assert!(original_phase(&intent.encode(), None, false));
+    assert!(original_phase(&intent.encode(), Some(&old), true));
+    assert!(!original_phase(&intent.encode(), Some(&old), false));
+    assert!(!original_phase(&intent.encode(), None, true));
+    assert!(!original_phase(&intent.encode(), Some(&new), true));
+    let mut foreign = old;
+    foreign[0] ^= 1;
+    assert!(!original_phase(&intent.encode(), Some(&foreign), true));
+}
+
+#[test]
+#[ignore = "ROOT-only after original current43 OLD/Aborted0; SAMEBOOT existing locks; history8 successor"]
+fn installed_current43_aborted_history8_completion() {
+    let until = Instant::now() + Duration::from_secs(90);
+    let (runtime, paths, desired) = normal_paths().expect("fixed_current43_identity_refused");
+    let (limit, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
+        .expect("fixed_current43_capacity_refused");
+    assert!(
+        sufficient_limit(limit, true),
+        "fixed_current43_capacity_refused"
+    );
+    // Both production holders and their entire eight-audit capacity exist
+    // BEFORE factual file acquisition, authentication or new original leases.
+    let mut recovery = crate::native_coordinator::FreshRecovery::reserve()
+        .expect("fixed_current43_recovery_reservation_refused");
+    let mut graph = Originals::capture_aborted().expect("fixed_current43_originals_refused");
+    let mut successor = None;
+    let complete = (|| -> std::result::Result<(), ()> {
+        if graph.history.is_none()
+            || !(1..8)
+                .all(|n| absent(&Path::new(STATE).join(format!("restore-disposition.history.{n}"))))
+        {
+            return Err(());
+        }
+        let input = input(&graph.file(5)?.bytes)?;
+        let original_store = omavless_domain::private_store::parse_private_store(
+            std::str::from_utf8(&graph.file(0)?.bytes).map_err(|_| ())?,
+        )
+        .map_err(|_| ())?;
+        let expected_list = crate::profile_list_json(&original_store.list_projection());
+        graph.unchanged(true)?;
+        recovery
+            .complete_aborted(
+                Path::new(ARCHIVE),
+                input.passphrase.as_bytes(),
+                paths.clone(),
+                desired,
+                NativeHostPaths::current(&runtime.directory).map_err(|_| ())?,
+                UID,
+            )
+            .map_err(|_| ())?;
+        recovery.dispose_and_transfer_completed().map_err(|_| ())?;
+        recovery.activate_ordinary_owner().map_err(|_| ())?;
+        let owner = recovery.ordinary_owner().ok_or(())?;
+        let current_desired = owner.desired_for_status().map_err(|_| ())?;
+        if owner.actual() != crate::lifecycle::ActualState::Disconnected
+            || !owner.rust_ownership_available()
+            || current_desired.connected || !current_desired.profile_id.is_empty()
+            || owner.login_ready() // This loan is NOT a genuine current()/login issuer.
+            || crate::profile_list_json(&owner.list_projection().map_err(|_| ())?) != expected_list
+            || crate::pending_private_transaction::pending_at(&paths.state_directory)
+        {
+            return Err(());
+        }
+        // Untouched current pair, Desired, marker, login, archive, input and
+        // original lease names retain full nine fields/EOF bytes. Production
+        // owns all positive retirement role transitions; do not recapture its
+        // unlinked Stage/Intent/Terminal or claim their original nlink remains1.
+        for index in [0, 1, 2, 3, 4, 5, 6, 13, 14] {
+            graph.files[index].as_mut().ok_or(())?.unchanged()?;
+        }
+        graph.history.as_mut().ok_or(())?.unchanged()?;
+        for index in [0, 2, 3, 4] {
+            graph.directories[index].as_mut().ok_or(())?.unchanged()?;
+        }
+        if !absent(&Path::new(RUN_DIR).join("control.sock"))
+            || !absent(&Path::new(STATE).join(PENDING_DIRECTORY))
+            || !absent(&Path::new(STATE).join("restore-decision.intent"))
+            || !absent(&Path::new(STATE).join("restore-decision.terminal"))
+            || Instant::now() >= until
+        {
+            return Err(());
+        }
+        // Data readback only; positive completion came from SAME engine,
+        // not this decoded member. Slot0 history remains its original inode.
+        successor = Some(Held::open(
+            &Path::new(STATE).join("restore-disposition.history.1"),
+            crate::restore_disposition_complete_model::COMPLETE_BYTES,
+            false,
+        )?);
+        if crate::restore_disposition_complete_model::CompleteRecord::decode(
+            &successor.as_ref().ok_or(())?.bytes,
+        )
+        .is_none()
+        {
+            return Err(());
+        }
+        let busy = match MigrationLock::acquire_existing(&paths, UID) {
+            Err(_) => true,
+            Ok(unexpected) => {
+                std::mem::forget(unexpected);
+                false
+            }
+        };
+        if !busy {
+            return Err(());
+        }
+        Ok(())
+    })()
+    .is_ok();
+    std::mem::forget((recovery, graph, successor)); // before output/assert, including every uncertain prefix
+    assert!(complete, "fixed_current43_history_completion_unknown");
+    println!("T4_CURRENT43_ABORTED_HISTORY8_COMPLETED_RETAINED_ORDINARY_OFF");
+    assert!(Instant::now() < until, "fixed_current43_deadline_refused");
+    // ROOT independently starts the normal installed RuntimeServer only after
+    // this original exits0. No listener/login/current grant is minted here.
 }

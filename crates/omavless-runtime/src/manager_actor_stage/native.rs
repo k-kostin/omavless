@@ -6,8 +6,11 @@ use crate::lifecycle::LifecycleHost;
 use crate::native_coordinator::{NativeFirstError as FirstError, PreparedRestorePair};
 use crate::native_coordinator::{NativeRecoveryOrigin, NativeSessionOrigin};
 use std::fs::File;
-// Terminal audit bytes are not an admission token. A collision always refuses;
-// repeated disposition needs a separately reviewed history policy.
+#[path = "native_history.rs"]
+mod native_history;
+pub(crate) const NATIVE_HISTORY_SLOTS: usize = native_history::CAPACITY;
+// Legacy first basename retained for exact historical source controls only.
+#[cfg(test)]
 const NATIVE_HISTORY: &str = "restore-disposition.history";
 // This role is unused in the native issuer, which never captures actor-manager
 // libraries. Reserve it for one reported current-store replacement, not a
@@ -729,6 +732,47 @@ impl NativeGate for NativeRecoveryOrigin<'_> {
 #[cfg(test)]
 #[test]
 fn native_retirement_real_files_keep_originals_and_closure_fence() {
+    native_retirement_local_case(0, None);
+}
+#[cfg(test)]
+#[test]
+fn native_history_retirement_real_files_repeat_and_known_effect_cuts() {
+    for prior in 1..native_history::CAPACITY {
+        native_retirement_local_case(prior, None);
+    }
+    for cut in [
+        NativeStep::DispositionComplete,
+        NativeStep::HistoryRenamePrepared,
+        NativeStep::HistoryRenamed,
+        NativeStep::HistorySynced,
+        NativeStep::History,
+    ] {
+        native_retirement_local_case(2, Some(cut));
+    }
+}
+#[cfg(test)]
+#[test]
+fn native_history_admission_refuses_before_receipt_or_any_unlink() {
+    for (prior, case) in [
+        (1, "hole"),
+        (1, "malformed"),
+        (8, "full"),
+        (1, "attributes"),
+        (1, "collision"),
+    ] {
+        native_retirement_local_admission_case(prior, None, Some(case));
+    }
+}
+#[cfg(test)]
+fn native_retirement_local_case(prior: usize, cut: Option<NativeStep>) {
+    native_retirement_local_admission_case(prior, cut, None);
+}
+#[cfg(test)]
+fn native_retirement_local_admission_case(
+    prior: usize,
+    cut: Option<NativeStep>,
+    admission: Option<&'static str>,
+) {
     use std::fs;
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -737,9 +781,26 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
         paths: crate::desired::DesiredPaths,
         uid: u32,
         saw_owned_receipt_with_stage: bool,
+        collision: bool,
     }
     impl NativeGate for ReachedPendingView {
         fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
+            if self.collision && view.engine.audit.attempted() {
+                self.collision = false;
+                // Actual post-capture origin cut: a foreign named target
+                // appears before receipt publication; the subsequent SAME
+                // audit/catalogue fence must refuse, never overwrite it.
+                fs::write(
+                    self.paths.directory.join(native_history::NAMES[1]),
+                    b"foreign collision",
+                )
+                .unwrap();
+                fs::set_permissions(
+                    self.paths.directory.join(native_history::NAMES[1]),
+                    fs::Permissions::from_mode(0o600),
+                )
+                .unwrap();
+            }
             // Exercise the exact pending predicate called by the real recovery
             // origin, without claiming its real manager/host authority.
             if view.stage_present() {
@@ -752,8 +813,7 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
             Ok(())
         }
     }
-    let root = std::env::temp_dir().join(format!("nr-{:x}", std::process::id()));
-    fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+    let root = crate::test_temp::directory("native-retirement").unwrap();
     let config = root.join("config");
     let state = root.join("state");
     let run = root.join("run");
@@ -812,6 +872,48 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     write(&config.join(LIVE[1].1), members[1]);
     write(&state.join(INTENT), &intent.encode());
     write(&state.join(TERMINAL), &terminal.encode());
+    let previous_receipt = crate::restore_retirement_candidate::RetirementReceipt::synthetic(
+        &terminal, members[0], members[1],
+    );
+    let previous_closure =
+        crate::restore_closure_model::ClosureRecord::from_verified_receipt(&previous_receipt)
+            .unwrap();
+    let previous_ticket = crate::restore_disposition_ticket_model::Ticket::from_bound_closure(
+        &previous_closure,
+        nix::unistd::getuid().as_raw(),
+        2,
+        Some(desired),
+    )
+    .unwrap();
+    let mut previous_bytes =
+        crate::restore_disposition_complete_model::CompleteRecord::from_ticket(&previous_ticket)
+            .unwrap()
+            .encode();
+    if admission == Some("malformed") {
+        previous_bytes[0] ^= 1;
+    }
+    let prior_originals: Vec<_> = native_history::NAMES[..prior]
+        .iter()
+        .map(|name| {
+            write(&state.join(name), &previous_bytes);
+            if admission == Some("attributes") {
+                rustix::fs::lsetxattr(
+                    state.join(name),
+                    "user.t4_history_test",
+                    b"public",
+                    rustix::fs::XattrFlags::empty(),
+                )
+                .unwrap();
+            }
+            (
+                File::open(state.join(name)).unwrap(),
+                fs::symlink_metadata(state.join(name)).unwrap(),
+            )
+        })
+        .collect();
+    if admission == Some("hole") {
+        write(&state.join(native_history::NAMES[2]), &previous_bytes);
+    }
     // Only actual owned synthetic files, never a NativeSession/recovery issuer.
     // This checks the SAME retained lower effect/checking code, not host authority.
     let mut engine = NativeEngine::reserve();
@@ -900,16 +1002,74 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
         paths,
         uid,
         saw_owned_receipt_with_stage: false,
+        collision: admission == Some("collision"),
     };
-    engine
-        .retire_native_aborted(
-            &mut local_gate,
-            members,
-            &intent.encode(),
-            &terminal.encode(),
-            until,
-        )
-        .unwrap();
+    let retirement = engine.retire_native_aborted(
+        &mut local_gate,
+        members,
+        &intent.encode(),
+        &terminal.encode(),
+        until,
+    );
+    if admission.is_some() {
+        assert!(retirement.is_err());
+        assert!(!engine.completed && !engine.disposition_done);
+        assert!(engine.lower.original[Slot::Scratch2 as usize].is_none());
+        assert!(
+            !state
+                .join(crate::restore_retirement_candidate::RECEIPT_MEMBER)
+                .exists()
+        );
+        assert!(
+            !state
+                .join(crate::restore_closure_model::CLOSURE_MEMBER)
+                .exists()
+        );
+        assert!(
+            !state
+                .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER)
+                .exists()
+        );
+        assert!(!engine.unlinked.iter().any(|unlinked| *unlinked));
+        for (name, raw) in MEMBERS.into_iter().zip(members) {
+            assert_eq!(fs::read(stage.join(name)).unwrap(), raw);
+        }
+        assert_eq!(fs::read(state.join(INTENT)).unwrap(), intent.encode());
+        assert_eq!(fs::read(state.join(TERMINAL)).unwrap(), terminal.encode());
+        for (index, (file, original)) in prior_originals.iter().enumerate() {
+            assert!(same_member(original, &file.metadata().unwrap()));
+            assert_eq!(original.gid(), file.metadata().unwrap().gid());
+            assert_eq!(
+                fs::read(state.join(native_history::NAMES[index])).unwrap(),
+                previous_bytes
+            );
+            assert_eq!(
+                file.metadata().unwrap().ino(),
+                fs::symlink_metadata(state.join(native_history::NAMES[index]))
+                    .unwrap()
+                    .ino()
+            );
+        }
+        if admission == Some("collision") {
+            assert_eq!(
+                fs::read(state.join(native_history::NAMES[1])).unwrap(),
+                b"foreign collision"
+            );
+        }
+        engine.revoke_native(); // unchanged terminal refusal caller boundary
+        assert!(engine.sealed && !engine.disposition_ready());
+        assert!(crate::pending_private_transaction::pending_at(&state));
+        drop((
+            engine,
+            socket,
+            singleton_lock,
+            run_original,
+            prior_originals,
+        ));
+        fs::remove_dir_all(root).unwrap(); // wholly owned completed local controls only
+        return;
+    }
+    retirement.unwrap();
     assert!(local_gate.saw_owned_receipt_with_stage);
     assert!(engine.completed);
     assert!(
@@ -938,9 +1098,65 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     assert!(crate::pending_private_transaction::pending_at(&state)); // closure is NOT ordinary permission
     assert!(fs::symlink_metadata(state.join(PENDING_DIRECTORY)).is_err());
     // SAME retained lower graph, not a decoded closure authority grant.
-    engine
-        .dispose_completed_inner(&mut local_gate, uid, 2, desired, until)
-        .unwrap();
+    let result = engine.dispose_completed_inner_cut(
+        &mut local_gate,
+        uid,
+        2,
+        desired,
+        &mut |step| {
+            if cut == Some(step) {
+                Err(FirstError::StillFenced)
+            } else {
+                Ok(())
+            }
+        },
+        until,
+    );
+    for (index, (file, original)) in prior_originals.iter().enumerate() {
+        assert!(same_member(original, &file.metadata().unwrap()));
+        assert_eq!(original.gid(), file.metadata().unwrap().gid());
+        assert_eq!(original.nlink(), file.metadata().unwrap().nlink());
+        assert_eq!(original.ctime(), file.metadata().unwrap().ctime());
+        assert_eq!(original.ctime_nsec(), file.metadata().unwrap().ctime_nsec());
+        assert_eq!(
+            fs::read(state.join(native_history::NAMES[index])).unwrap(),
+            previous_bytes
+        );
+        assert_eq!(
+            file.metadata().unwrap().ino(),
+            fs::symlink_metadata(state.join(native_history::NAMES[index]))
+                .unwrap()
+                .ino()
+        );
+    }
+    if let Some(step) = cut {
+        assert!(result.is_err() && !engine.disposition_done);
+        assert!(engine.lower.io.test_retains_original(Slot::Scratch1));
+        engine.revoke_native(); // same private caller's terminal error boundary
+        assert!(engine.sealed && !engine.disposition_ready());
+        assert_eq!(
+            crate::pending_private_transaction::pending_at(&state),
+            matches!(
+                step,
+                NativeStep::DispositionComplete | NativeStep::HistoryRenamePrepared
+            )
+        );
+        assert!(
+            engine
+                .dispose_completed_inner(&mut local_gate, uid, 2, desired, until)
+                .is_err()
+        );
+        drop((
+            engine,
+            socket,
+            singleton_lock,
+            run_original,
+            prior_originals,
+        ));
+        fs::remove_dir_all(root).unwrap();
+        return;
+    }
+    result.unwrap();
     assert!(engine.disposition_ready());
     assert!(!crate::pending_private_transaction::pending_at(&state));
     assert_eq!(fs::read(config.join(LIVE[0].1)).unwrap(), members[0]);
@@ -992,7 +1208,7 @@ fn native_retirement_real_files_keep_originals_and_closure_fence() {
     .unwrap();
     assert!(
         crate::restore_disposition_complete_model::CompleteRecord::decode(
-            &fs::read(state.join(NATIVE_HISTORY)).unwrap()
+            &fs::read(state.join(native_history::NAMES[prior])).unwrap()
         )
         .unwrap()
         .matches_ticket(&ticket)
@@ -1162,6 +1378,9 @@ pub(crate) enum NativeStep {
     StageRetired,
     Closure,
     DispositionComplete,
+    HistoryRenamePrepared,
+    HistoryRenamed,
+    HistorySynced,
     History,
 }
 enum NativeTerminalChoice {
@@ -1262,6 +1481,7 @@ pub(crate) struct NativeEngine {
     retirement: bool,
     disposition: bool,
     history: bool,
+    audit: native_history::History,
     disposition_done: bool,
     store_attempted: bool,
     current_store: bool,
@@ -1478,6 +1698,7 @@ impl NativeEngine {
             retirement: false,
             disposition: false,
             history: false,
+            audit: native_history::History::reserve(),
             disposition_done: false,
             store_attempted: false,
             current_store: false,
@@ -1656,6 +1877,28 @@ impl NativeEngine {
     fn view(&self) -> NativeStageView<'_> {
         NativeStageView { engine: self }
     }
+    fn capture_history(&mut self, until: Instant) -> Result<(), FirstError> {
+        let catalogue = &self.catalogues[1];
+        if !self.catalogues_captured
+            || !(0..catalogue.count).all(|index| {
+                native_history::catalogue_name_allowed(
+                    &catalogue.names[index][..catalogue.lengths[index]],
+                )
+            })
+        {
+            return Err(FirstError::Admission);
+        }
+        let uid = self.uid.ok_or(FirstError::Admission)?;
+        let gid = self.gid.ok_or(FirstError::Admission)?;
+        self.lower
+            .io
+            .perform(
+                Slot::State,
+                || tick(until),
+                |state| self.audit.capture(state, uid, gid, until),
+            )
+            .map_err(|_| FirstError::StillFenced)
+    }
     fn gate<O: NativeGate>(&mut self, origin: &mut O, until: Instant) -> Result<(), FirstError> {
         tick(until).map_err(|_| FirstError::StillFenced)?;
         self.check_original_bytes(until)?;
@@ -1773,6 +2016,11 @@ impl NativeEngine {
                 },
             )?;
         }
+        self.lower.io.perform(
+            Slot::State,
+            || tick(until),
+            |state| self.audit.check(state, self.history, until),
+        )?;
         let replacements = if self.recovery {
             NATIVE_ROLLBACKS
         } else {
@@ -1951,7 +2199,7 @@ impl NativeEngine {
             (
                 Slot::Scratch1,
                 if self.history {
-                    NATIVE_HISTORY
+                    self.audit.target()?
                 } else {
                     crate::restore_disposition_complete_model::COMPLETE_MEMBER
                 },
@@ -2547,6 +2795,12 @@ impl NativeEngine {
             return Err(FirstError::StillFenced);
         }
         self.retirement = true;
+        if !self.audit.attempted() {
+            // Recovery completion selects the finite audit target BEFORE its
+            // first retirement receipt effect. Current execution did so before
+            // Stage creation; no late capacity grant after its pair effects.
+            self.capture_history(until)?;
+        }
         let terminal_record =
             DecisionRecord::decode(terminal).map_err(|_| FirstError::Admission)?;
         let receipt = if committed {
@@ -3018,7 +3272,11 @@ impl NativeEngine {
             .io
             .original(Slot::State)
             .map_err(|_| FirstError::StillFenced)?;
-        for name in [TICKET_MEMBER, COMPLETE_MEMBER, NATIVE_HISTORY] {
+        for name in [
+            TICKET_MEMBER,
+            COMPLETE_MEMBER,
+            self.audit.target().map_err(|_| FirstError::StillFenced)?,
+        ] {
             if !matches!(
                 fstatat(state, name, AtFlags::AT_SYMLINK_NOFOLLOW),
                 Err(nix::errno::Errno::ENOENT)
@@ -3084,6 +3342,7 @@ impl NativeEngine {
         self.lower
             .binding(Slot::State, Slot::Scratch1, COMPLETE_MEMBER, false, until)
             .map_err(|_| FirstError::StillFenced)?;
+        cut(NativeStep::HistoryRenamePrepared)?;
         self.lower
             .io
             .perform(
@@ -3096,7 +3355,7 @@ impl NativeEngine {
                             state,
                             COMPLETE_MEMBER,
                             state,
-                            NATIVE_HISTORY,
+                            self.audit.target()?,
                             nix::fcntl::RenameFlags::RENAME_NOREPLACE,
                         )
                         .map_err(|_| Unavailable)?;
@@ -3111,6 +3370,7 @@ impl NativeEngine {
                 },
             )
             .map_err(|_| FirstError::StillFenced)?;
+        cut(NativeStep::HistoryRenamed)?;
         self.lower
             .io
             .perform(
@@ -3137,11 +3397,12 @@ impl NativeEngine {
                 |file| file.sync_all().map_err(|_| Unavailable),
             )
             .map_err(|_| FirstError::StillFenced)?;
+        cut(NativeStep::HistorySynced)?;
         self.lower
             .verify_member(
                 Slot::State,
                 Slot::Scratch1,
-                NATIVE_HISTORY,
+                self.audit.target().map_err(|_| FirstError::StillFenced)?,
                 &complete.encode(),
                 until,
             )
@@ -3714,6 +3975,8 @@ impl NativeEngine {
             self.scan_catalogue(Slot::State, Some(1), &[], until)
                 .map_err(|_| FirstError::Admission)?;
             self.catalogues_captured = true;
+            self.gate(origin, until)?;
+            self.capture_history(until)?;
             self.gate(origin, until)?;
             self.lower
                 .io

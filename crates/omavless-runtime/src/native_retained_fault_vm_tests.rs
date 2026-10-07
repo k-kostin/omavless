@@ -13,8 +13,7 @@ const CASES: [&str; 3] = ["before-pair", "after-intent", "after-first-rename"];
 // Actual lower role array + Boundary directories/members/live, retained
 // acquisition prefix/probe, and the original MigrationLock pair. Authenticated
 // backup/prepared bytes add no persistent descriptor to the holder.
-const NATIVE_RESERVED: usize =
-    crate::manager_actor_service::NATIVE_VM_LOWER_SLOTS + 3 + 3 + 2 + 1 + 1 + 2;
+const NATIVE_RESERVED: usize = crate::manager_actor_service::NATIVE_RETAINED_ROLE_CEILING;
 const AGGREGATE_RESERVED: usize = 3 * (NATIVE_RESERVED + 2); // singleton originals too
 
 pub(super) struct OriginalCase {
@@ -260,7 +259,9 @@ pub(super) fn construct(
 #[test]
 fn native_fault_matrix_has_one_fixed_bounded_non_evictable_aggregate() {
     assert_eq!(CASES.len(), 3);
-    assert_eq!(AGGREGATE_RESERVED, 150);
+    assert_eq!(crate::manager_actor_service::NATIVE_VM_LOWER_SLOTS, 36);
+    assert_eq!(NATIVE_RESERVED, 56);
+    assert_eq!(AGGREGATE_RESERVED, 174);
     assert!(
         CASES
             .into_iter()
