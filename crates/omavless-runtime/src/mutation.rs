@@ -262,6 +262,10 @@ impl Default for MutationCoordinator {
 
 impl MutationCoordinator {
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn preview_pair_idle(&self) -> bool {
+        !self.pair_operations.unresolved() && self.prepare_retained_restore().is_ok()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn pair_abandoned(&self) -> bool {
         self.pair_operations.abandoned()
     }
@@ -768,6 +772,37 @@ impl MutationCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn preview_pair_idle_observes_running_unknown_and_queue_without_reservation() {
+        let mut c = MutationCoordinator::default();
+        assert!(c.preview_pair_idle());
+        let token = match c
+            .reserve_pair("running", 0, MutationDigest::new([1; 32]))
+            .unwrap()
+        {
+            crate::pair_operation::Admission::Reserved(t) => t,
+            _ => panic!("replay"),
+        };
+        assert!(!c.pair_abandoned());
+        assert!(!c.preview_pair_idle()); // unresolved BEFORE abandonment as well
+        c.finish_pair(token, crate::pair_operation::Outcome::Unknown)
+            .unwrap();
+        assert!(!c.preview_pair_idle());
+        let mut c = MutationCoordinator::default();
+        c.submit(
+            MutationRequest::new(
+                MutationKind::Other,
+                Some("queued"),
+                Some(0),
+                MutationDigest::new([2; 32]),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!c.preview_pair_idle());
+        assert_eq!(c.revision(), 0);
+    }
 
     #[cfg(feature = "t4-manager-actor-service")]
     #[test]

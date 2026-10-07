@@ -132,12 +132,33 @@ pub(crate) fn open_existing(
     open_existing_with_hook(source, uid, passphrase, || {})
 }
 
+/// Authenticated private DATA from the SAME guarded ciphertext read. The
+/// digest is neither a file reservation nor a lease/restore capability.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) fn open_existing_with_digest(
+    source: &Path,
+    uid: u32,
+    passphrase: &[u8],
+) -> Result<(omavless_domain::private_backup::OpenedBackup, [u8; 32]), ReadError> {
+    open_existing_read(source, uid, passphrase, || {})
+}
+
 fn open_existing_with_hook(
     source: &Path,
     uid: u32,
     passphrase: &[u8],
     after_read: impl FnOnce(),
 ) -> Result<omavless_domain::private_backup::OpenedBackup, ReadError> {
+    open_existing_read(source, uid, passphrase, after_read).map(|(opened, _)| opened)
+}
+
+fn open_existing_read(
+    source: &Path,
+    uid: u32,
+    passphrase: &[u8],
+    after_read: impl FnOnce(),
+) -> Result<(omavless_domain::private_backup::OpenedBackup, [u8; 32]), ReadError> {
+    use sha2::{Digest, Sha256};
     if !source.is_absolute() {
         return Err(ReadError::UnsafeSource);
     }
@@ -199,8 +220,9 @@ fn open_existing_with_hook(
     {
         return Err(ReadError::Changed);
     }
-    omavless_domain::private_backup::open(&ciphertext, passphrase)
-        .map_err(|_| ReadError::Unreadable)
+    let opened = omavless_domain::private_backup::open(&ciphertext, passphrase)
+        .map_err(|_| ReadError::Unreadable)?;
+    Ok((opened, Sha256::digest(&ciphertext).into()))
 }
 
 #[allow(dead_code)]
@@ -413,6 +435,35 @@ mod tests {
             open_existing(&destination, uid, b"incorrect passphrase"),
             Err(ReadError::Unreadable)
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn preview_digest_binds_ciphertext_not_only_authenticated_counts_or_pair() {
+        use sha2::{Digest, Sha256};
+        let (root, uid, sealed) = fixture();
+        let path = root.join("private.ovb");
+        publish_new(&path, uid, &sealed).unwrap();
+        let (opened, first) =
+            open_existing_with_digest(&path, uid, b"synthetic passphrase only").unwrap();
+        assert_eq!(first, <[u8; 32]>::from(Sha256::digest(sealed.bytes())));
+        let other = omavless_domain::private_backup::seal(
+            opened.store(),
+            opened.template(),
+            b"synthetic passphrase only",
+        )
+        .unwrap();
+        assert_ne!(sealed.bytes(), other);
+        std::fs::write(&path, &other).unwrap();
+        let (reopened, second) =
+            open_existing_with_digest(&path, uid, b"synthetic passphrase only").unwrap();
+        assert_eq!(opened.store(), reopened.store());
+        assert_eq!(opened.template(), reopened.template());
+        assert_eq!(opened.profile_count(), reopened.profile_count());
+        assert_eq!(opened.subscription_count(), reopened.subscription_count());
+        assert_ne!(first, second);
+        assert_eq!(second, <[u8; 32]>::from(Sha256::digest(other)));
         fs::remove_dir_all(root).unwrap();
     }
 

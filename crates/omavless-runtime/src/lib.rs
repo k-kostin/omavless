@@ -407,6 +407,16 @@ fn developer_current_error_code(error: production_owner::ProductionOwnerError) -
 
 trait NativeRuntimeOwner: Send {
     #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_preview(
+        &mut self,
+        request: &private_pair_api::PreviewRequest,
+    ) -> std::result::Result<(usize, usize, [u8; 32]), StableErrorCode>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_previewed_restore(
+        &mut self,
+        request: &private_pair_api::PreviewedRestoreRequest,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode>;
+    #[cfg(feature = "t4-manager-actor-service")]
     fn normal_private_pair_available(&self) -> bool;
     #[cfg(feature = "t4-manager-actor-service")]
     fn normal_private_pair(
@@ -747,6 +757,20 @@ where
     #[cfg(feature = "t4-manager-actor-service")]
     fn normal_private_pair_available(&self) -> bool {
         self.owner.normal_private_pair_available()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_preview(
+        &mut self,
+        request: &private_pair_api::PreviewRequest,
+    ) -> std::result::Result<(usize, usize, [u8; 32]), StableErrorCode> {
+        self.owner.normal_private_preview(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_previewed_restore(
+        &mut self,
+        request: &private_pair_api::PreviewedRestoreRequest,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode> {
+        self.owner.normal_previewed_restore(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn normal_private_pair(
@@ -1559,6 +1583,12 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if matches!(
+            request["method"].as_str(),
+            Some("backup.preview" | "backup.restore_previewed")
+        ) {
+            return self.dispatch_private_preview(request);
+        }
         let (input, action) = match private_pair_api::Request::parse(
             request["method"].as_str().unwrap_or(""),
             &request["params"],
@@ -1591,6 +1621,66 @@ impl RuntimeServer {
                 Some(error) => error_response(id, result.revision, error, false, None),
             },
             Err(error) => error_response(id, owner.revision(), error, false, None),
+        }
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_private_preview(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        enum Input {
+            Preview(private_pair_api::PreviewRequest),
+            Restore(private_pair_api::PreviewedRestoreRequest),
+        }
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let input = if request["method"] == "backup.preview" {
+            private_pair_api::PreviewRequest::parse(&request["params"]).map(Input::Preview)
+        } else {
+            private_pair_api::PreviewedRestoreRequest::parse(&request["params"]).map(Input::Restore)
+        };
+        let input = match input {
+            Ok(i) => i,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        let instance = match &input {
+            Input::Preview(p) => p.instance(),
+            Input::Restore(p) => p.pair.instance(),
+        };
+        if instance != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(d) => d,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        match input {
+            Input::Preview(p) => match owner.normal_private_preview(&p) {
+                Ok((profiles, subscriptions, digest)) => success_response(
+                    id,
+                    owner.revision(),
+                    json!({"profiles":profiles,"subscriptions":subscriptions,"ciphertextDigest":private_pair_api::ciphertext_hex(&digest),"scope":"privatePair"}),
+                ),
+                Err(error) => error_response(id, owner.revision(), error, false, None),
+            },
+            Input::Restore(p) => match owner.normal_previewed_restore(&p) {
+                Ok((result, replayed)) => match result.error {
+                    None => success_response(
+                        id,
+                        result.revision,
+                        json!({"completed":true,"replayed":replayed,"scope":"privatePair"}),
+                    ),
+                    Some(error) => error_response(id, result.revision, error, false, None),
+                },
+                Err(error) => error_response(id, owner.revision(), error, false, None),
+            },
         }
     }
     #[cfg(feature = "t4-manager-actor-service")]
@@ -3372,6 +3462,44 @@ mod tests {
             subscription_transport::HttpsSubscriptionTransport::new(),
         );
         let before_calls = calls.load(Ordering::Relaxed);
+        for method in ["backup.preview", "backup.restore_previewed"] {
+            let mut params = json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password","instanceId":server.instance_id,"expectedRevision":0});
+            if method == "backup.restore_previewed" {
+                params["operationId"] = "previewed-1".into();
+                params["confirmation"] = "replace-previewed-current-private-pair".into();
+                params["expectedCiphertextDigest"] = "a".repeat(64).into();
+            }
+            let original = make_request("new-private", method, params).unwrap();
+            assert_eq!(
+                server.dispatch(&original).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+            let mut foreign = original.clone();
+            foreign["params"]["instanceId"] = "foreign".into();
+            assert_eq!(
+                server.dispatch(&foreign).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            let held = server.dispatcher.lock().unwrap();
+            assert_eq!(server.dispatch(&original).unwrap()["error"]["code"], "busy");
+            drop(held);
+            let frame = encode_request(&original).unwrap();
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, &frame).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
         let request=make_request("pair","backup.create",json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password","confirmation":"export-current-private-pair","instanceId":server.instance_id,"operationId":"pair-1","expectedRevision":0})).unwrap();
         assert_eq!(
             server.dispatch(&request).unwrap()["error"]["code"],
@@ -3624,7 +3752,12 @@ mod tests {
             "unknown_method"
         );
         assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.backup_current"));
-        for method in ["backup.create", "backup.restore"] {
+        for method in [
+            "backup.create",
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+        ] {
             let request = make_request("absent", method, json!({})).unwrap();
             assert_eq!(
                 server.dispatch(&request).unwrap()["error"]["code"],
