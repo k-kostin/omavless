@@ -1127,7 +1127,12 @@ real packaged login-preparation service runs first. Its result is re-admitted
 under leases before runtime start. No lock spans a child service start; no
 receipt is fabricated and no uncertain start is automatically retried.
 Fresh authenticated runtime facts, fixed-unit peer PID and installed executable
-identity are required before reporting readiness. Independently authorized
+identity are required before reporting readiness. Each unary reply uses its
+authenticated stream; status is bracketed by two Hello replies with the same
+nonempty instance and revision, and all three authenticated peers must be the
+same fixed-unit PID. The canonical status reply has no instanceId; do not invent
+one in readiness fixtures or silently expand the public protocol to fit a client.
+An actual native-dispatch regression retains that wire shape. Independently authorized
 concurrent actions/manual offline writes are not an atomic no-connect guarantee;
 a post-start observation is not rollback or proof that no such action occurred.
 
