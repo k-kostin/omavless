@@ -20,6 +20,9 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [0.9.8 RC1 installed x86_64](RC_098_VM_2026-10-08.md): exact artifact identities,
+  ordinary entry/navigation and preserved-Off warm/cold relaunch; retained
+  failures and explicit ARM-installed, fault, human and public-release limits.
 - [T4 root-observed private Abort process loss](../development/T4_ROOT_OBSERVED_PROCESS_GUARD.md#exact-head-execution--2026-10-04):
   exact-source five-case synthetic SIGKILL/re-entry and bounded whole-invocation
   preservation evidence; not installed restore, power-loss or product T4 PASS.

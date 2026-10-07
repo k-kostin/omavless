@@ -9,7 +9,28 @@ unpublished source integration is not public release acceptance.
 
 ## Scope and ownership
 
-### Beta.4 selected assembly, 2026-10-07–08
+### Current disposition: internal RC1, 2026-10-08
+
+The selected beta.4 scope is now frozen in [internal RC1](RC_098.md), exact
+executable/package/frontend source
+`5e7d425893f90c3e9d7849fd3512ef61d157bded`. The
+[RC installed report](../testing/RC_098_VM_2026-10-08.md) records both-architecture
+offline pairs/native package CI and passing bounded x86_64 ordinary entry,
+known Quit/re-enable/Start and real cold configured-Off login preparation.
+Saved data and disabled startup units were preserved. Final full Test CI remains
+pending; ARM-installed, owning fault/product/human and public provisioning gates
+remain explicit. The old Completed Restore positive below was not replayed or
+relabeled as an RC mutation. Main/releases/Marketplace are unchanged.
+
+The beta sections below retain their checkpoint-specific versions, selectors,
+writer handoffs and original outcomes; they are not current VM-custody claims
+or a request to repeat finished beta work. #712/#713/#714 add only the reviewed
+relaunch, ARM portability and readiness/setup corrections. The
+[current administrative ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6048668247)
+records 92 no-merge historical closures, with source/evidence branches and open
+frontier requirements retained; no branch deletion or research acceptance.
+
+### Historical beta.4 selected assembly, 2026-10-07–08
 
 Owner authorized continuing after the installed beta.3 Backup scenario without
 redundant manual keystrokes. Selected base is
@@ -157,9 +178,9 @@ default restore-abort CLI and restore startup fences inherited from #690 are
 real runtime surface, not mislabeled test-only code. Preserve all original
 refusals. #30 implementation, Draft status and XHTTP evidence stay intact.
 
-## Checkpoint and release boundary
+## Historical beta.4 checkpoint and release boundary
 
-Current source version `0.9.8-beta.4` / Arch `0.9.8beta4-1`; both package pin
+That checkpoint's source version is `0.9.8-beta.4` / Arch `0.9.8beta4-1`; both package pin
 maps stay empty. No old archive is relabeled. Baseline checks cover version/packaging
 coherence, full developer/Rust suites and affected EN/RU actual QML/TUI review.
 New combined source/build checks do not transfer earlier installed results to

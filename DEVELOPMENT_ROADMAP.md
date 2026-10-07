@@ -8,6 +8,15 @@ and preserved broker setup, and ARM64 lossless link-count portability. The
 [RC ledger](docs/development/RC_098.md) separates exact final gates from older
 beta evidence and retains the original relaunch refusal. Empty unpublished pins;
 no main/release/Marketplace promotion or whole-roadmap acceptance is implied.
+Exact source `5e7d425893f90c3e9d7849fd3512ef61d157bded` now has inspected
+both-architecture offline pairs, passing native package CI and bounded
+[installed x86_64 evidence](docs/testing/RC_098_VM_2026-10-08.md): normal
+entry/navigation/reopen, known Quit/re-enable/Start and genuine configured-Off
+cold login preparation preserve data and disabled startup enablement. Final full
+Test CI remains pending; ARM-installed, owning fault/human/product and public
+provisioning gates remain distinct. The earlier Completed Restore belongs to
+its beta.4 source, not a new RC mutation. Administrative consolidation records
+92 no-merge closures without branch deletion or frontier acceptance.
 
 **Historical beta.3 selection, 2026-10-07:** `0.9.8-beta.3` selected the real
 opt-in Backup TUI #705 with normal private-pair API #701 on the checked beta.2
