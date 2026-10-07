@@ -6,7 +6,18 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.8 internal assembly:** [#702](https://github.com/k-kostin/omavless/pull/702)
+- **0.9.8 next internal candidate:** source version `0.9.8-beta.3` adds the
+  explicitly selected Backup TUI #705 and normal private-pair API #701 to the
+  checked beta.2 baseline. The VM master paused and handed off writers/custody
+  in [#706](https://github.com/k-kostin/omavless/issues/706). Combined source,
+  artifact and installed/manual checks are separately pending until the new
+  exact-head assembly record says otherwise. Default packages/ordinary TUI do
+  not enable Backup; Restore API is opt-in, Restore UI/new preview are excluded.
+  See [selection](../development/BETA_098.md) and
+  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main/RC/Marketplace
+  are unchanged; there is one integration writer and at most one VM operator.
+
+- **0.9.8 beta.2 baseline:** [#702](https://github.com/k-kostin/omavless/pull/702)
   continues existing beta from `a04dfde8` with exact #690 retained restore and
   #694 opt-in selective-close checkpoints, version `0.9.8-beta.2`. Both pin maps
   remain empty. The [selection](../development/BETA_098.md) records complete
@@ -14,8 +25,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   Ordinary runtime does not gain default Backup/Restore UI or close authority.
   Both architecture app/DNS/frontend triples were assembled and inspected from
   exact executable-source checkpoint `4594a487`; combined test outcomes belong
-  to #702, not to prior installed-head reports. VM master retains the separately
-  scheduled combined installed gate. Background subscriptions/resume #700,
+  to #702, not to prior installed-head reports. Its later final source
+  `06f9bc1c` and inspected package pairs remain recorded in #702. Background subscriptions/resume #700,
   product K1/S1/P4 and GUI are not selected. Main, frozen 0.9.7 RC and Marketplace
   stay unchanged; internal beta is not a release or whole T3/T4 closure.
 

@@ -1,6 +1,6 @@
 # Native release, beta and RC preparation
 
-Current assembly source version: **0.9.8-beta.2**, not stable or marketplace-ready.
+Current assembly source version: **0.9.8-beta.3**, not stable or marketplace-ready.
 The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7
 maintenance source plus explicitly selected, default-off connection-close and
 retained backup/restore checkpoints. This is internal integration, not product

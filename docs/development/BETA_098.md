@@ -15,16 +15,30 @@ pending. Apply the [manual-acceptance rule](BETA_MANUAL_ACCEPTANCE.md) and
 [actual 0.9.8 test plan](../testing/BETA_098_MANUAL_PLAN.md). This does not
 activate missing client/runtime paths or claim unrun installed checks PASS.
 
-The October 7 assembly continues existing `beta/0.9.8` from exact
-`a04dfde8f8907767a47310861ee47b78ab4597d6` through one separate assembly PR.
-Feature writers keep their branches and the VM master keeps exclusive VM
-control. No main/RC/tag/Marketplace or installed host change is authorized by
-this internal selection.
+The next October 7 assembly continues checked `beta/0.9.8` from exact
+`1a73f386ce0c78a9e5a7c4c5cedc2eec98bd6963` (#702) through a separate narrow
+integration branch. The VM master has stopped all feature writers and handed
+off custody in [#706](https://github.com/k-kostin/omavless/issues/706).
+The beta integrator is the sole integration writer and potential next VM
+operator; source assembly does not itself begin VM operations. Before any
+installed pass, recheck the actual image/boot/units and select one operator.
+No main/RC/tag/Marketplace or physical-host change is authorized by this
+internal selection.
 
 | Selected checkpoint | Exact source | Meaning in this assembly |
 | --- | --- | --- |
 | Retained private backup/restore, [#690](https://github.com/k-kostin/omavless/pull/690) | `44bd54e100c7daeeaa2f69cf987be381f9a8e519` | Existing authenticated current-owner path, positive OLD/NEW completion and eight immutable history slots; optional developer client/service, not default Backup/Restore UI. |
 | Selective connections, [#694](https://github.com/k-kostin/omavless/pull/694) | `d294c36352eb964b6f44d471dc20a5be1ad7cdb8` | Existing opt-in Product image-witness/semantic TUI path with original receipt-only resolution; ordinary daemon does not advertise close. |
+| Normal private-pair API, [#701](https://github.com/k-kostin/omavless/pull/701) | `ec7f5a9aa9fd35a5ae11216937d407ea83fd79ee` | Fixed Backup and Restore API/CLI, genuine-current owner admission and shared scheduler uncertainty fences, explicit compile opt-in only. No Restore UI. |
+| Backup TUI, [#705](https://github.com/k-kostin/omavless/pull/705) | `d4f5ac2e3d644185a408dacc48dbd0b0a5bfd540` | Real Settings Backup editor/confirmation/result flow, selected by `tui --developer-private-backup`; profiles/subscriptions and finite supported routing template only. |
+
+The #705 source gates are green; its earlier installed Backup-only evidence
+belongs to source `662ba08767993374d7101f2e7bdfd723d337898f`, not automatically
+to this new combined assembly. See the [Backup client contract](T4_PRIVATE_BACKUP_TUI.md)
+and [normal API contract](T4_PRIVATE_PAIR_NORMAL_API.md). The shared library
+combination preserves both explicit TUI selectors; ordinary invocation selects
+neither. Newer Restore preview `6164e7f5`, stale-Confirm `1f7485ca` and K1 normal
+lifecycle WIP `a456004d` are preserved but excluded, not missing human-only gates.
 
 Merge the complete prerequisite histories, not orphaned leaf changes. Dormant
 NetGuard and restore-research modules inherited by those histories are source
@@ -56,13 +70,18 @@ refusals. #30 implementation, Draft status and XHTTP evidence stay intact.
 
 ## Checkpoint and release boundary
 
-Current source version `0.9.8-beta.2` / Arch `0.9.8beta2-1`; both package pin
+Current source version `0.9.8-beta.3` / Arch `0.9.8beta3-1`; both package pin
 maps stay empty. No old archive is relabeled. Baseline checks cover version/packaging
 coherence, full developer/Rust suites and affected EN/RU actual QML/TUI review.
 New combined source/build checks do not transfer earlier installed results to
 new binaries. Normal packages keep default `tui` only; a separately compiled
 product-image-witness + t4-manager-actor-service development executable is
 explicitly opt-in and cannot be used to infer normal feature activation.
+A Backup-only experimental executable instead selects default `tui` plus
+`t4-manager-actor-service`; producer feature selection and binary/package hashes
+must accompany it. Default CI artifacts alone do not provide the Backup screen.
+Never mix the earlier LegacyMeta2 Backup bundle with the separate T3 Product
+helper/core/broker/enrollment bundle. Both must earn their own current admission.
 
 Internal RC scope freeze may follow the declared risk-based checks without
 publishing assets or repeating every predecessor's clean installation. Public
@@ -144,9 +163,26 @@ Full local offline source failure remains recorded: inherited HOME-direct tests
 cannot write in the read-only-HOME source launcher. The ordinary hosted source
 gate passed at the artifact checkpoint without weakening those tests/guards.
 
+### Next Backup client assembly
+
+The beta.3 source/build checkpoint must check default method/entry absence,
+T4-only API and Backup controls, both TUI feature combinations and the
+product+T4 runtime union. The union controls additionally deny normal pair
+methods from a false-origin owner and prevent close/Quit host effects after an
+unknown pair outcome. Existing ignored resource/VM cases remain ignored.
+Strict format/lint, packaging/version tests and full final combined gates are
+required; a source label or historical green predecessor is not their result.
+Exact head, commands, outcomes and artifact producer options belong to the
+assembly PR. New combined installed and owner manual cards start UNRUN.
+
+Historical beta.2's final checked source is
+`06f9bc1ca416421948c0678e7c6b3ea3596368e7`, merged as `1a73f386` via #702.
+The earlier artifact checkpoints above remain historical rather than being
+relabeled as the final beta.2 or beta.3 build.
+
 Before experimental activation on the development VM, review exact rebuilt
 application/helper/DNS-pair identity and existing provisioning/admission paths.
-The VM master owns that separately selected installed pass. Repeat affected
+The sole designated operator owns that separately selected installed pass. Repeat affected
 EN/RU close/receipt and current backup/restore/ordinary-restart checks on the
 combined binaries; keep prior-head negative and positive evidence intact.
 Product fault cuts, public/default UI activation, physical sleep/network and

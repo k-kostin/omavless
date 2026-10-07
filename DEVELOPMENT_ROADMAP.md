@@ -2,7 +2,17 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.8 internal assembly, 2026-10-07:** owner renewed `beta/0.9.8` to combine
+**0.9.8 next internal candidate, 2026-10-07:** `0.9.8-beta.3` selects the real
+opt-in Backup TUI #705 with normal private-pair API #701 on the checked beta.2
+baseline. New combined gates and installed/manual acceptance remain distinct;
+default packages and ordinary TUI selection stay unchanged. Restore UI/new
+preview, new K1 lifecycle WIP and stale-Confirm follow-up are not added.
+The [scope](docs/development/BETA_098.md),
+[manual card](docs/testing/BETA_098_MANUAL_PLAN.md) and
+[writer/VM handoff #706](https://github.com/k-kostin/omavless/issues/706) own
+the boundaries. Main/RC/tag/Marketplace are not part of this internal assembly.
+
+**0.9.8 beta.2 baseline, 2026-10-07:** owner renewed `beta/0.9.8` to combine
 the checked retained backup/restore and opt-in selective-close checkpoints on
 the 0.9.7 maintenance base. Version `0.9.8-beta.2`; no default feature activation.
 The [selection](docs/development/BETA_098.md) and

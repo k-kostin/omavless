@@ -2,6 +2,24 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.8-beta.3 — internal Backup client candidate
+
+- Add an explicitly selected TUI Backup flow: bounded destination, two masked
+  passphrase fields, scope/credential warning, confirmation and cancellation.
+- Integrate the normal private-pair API under the existing developer opt-in.
+  Exclusive publication refuses an existing destination; uncertain outcomes do
+  not silently retry. Default packages and ordinary TUI selection are unchanged.
+- Extend combined-feature regressions: compilation alone cannot advertise
+  Backup/Restore or close authority, and an unknown pair operation blocks
+  connection-close and Quit before host effects.
+- Add an assisted manual test card for the actual Backup screen. Restore API is
+  present in the opt-in build, but Restore UI and newer digest-bound preview
+  work are not part of this candidate.
+
+Combined candidate gates and installed/manual checks remain separately tracked;
+this version label is not a passing gate or a public release. Main, RC,
+immutable assets and Marketplace are unchanged.
+
 ## 0.9.8-beta.2 — internal integration only
 
 - Combine the opt-in selective connection-close client and retained private

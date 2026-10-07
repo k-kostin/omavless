@@ -46,6 +46,15 @@ cargo test --locked -p omavless-runtime --features developer-conditional-close -
 cargo test --locked -p omavless-runtime --lib managed_close_receipt::tests
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib release_pair::tests
 cargo test --locked -p omavless-runtime --lib managed_pair::tests
+# Backup-only is a distinct artifact configuration, not inferred from the
+# product+T4 union below. These are ordinary source controls; VM gates stay ignored.
+cargo test --locked -p omavless-tui --features private-backup
+cargo test --locked -p omavless-tui --features developer-conditional-close,private-backup
+cargo clippy --locked -p omavless-tui --all-targets --features developer-conditional-close,private-backup -- -D warnings
+cargo check --locked -p omavless-runtime --no-default-features --features t4-manager-actor-service
+cargo clippy --locked -p omavless-runtime --all-targets --features t4-manager-actor-service -- -D warnings
+cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service normal_pair
+cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service private_backup
 # Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
 # Run ordinary synthetic/private-file tests only; all VM/resource gates stay ignored.
 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service

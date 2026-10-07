@@ -3985,6 +3985,8 @@ mod tests {
         for method in developer_connection_close::METHODS.iter().copied().chain([
             developer_current_restore::METHOD,
             developer_current_restore::BACKUP_METHOD,
+            "backup.create",
+            "backup.restore",
         ]) {
             assert!(!methods.iter().any(|value| value == method));
         }
@@ -4001,6 +4003,20 @@ mod tests {
         let refused_restore = server.dispatch(&restore).unwrap();
         assert_eq!(refused_restore["error"]["code"], "capability_unavailable");
         assert_eq!(refused_restore["revision"], 0);
+        for (method, confirmation) in [
+            ("backup.create", "export-current-private-pair"),
+            ("backup.restore", "replace-current-private-pair"),
+        ] {
+            let request = make_request(
+                "pair", method,
+                json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password",
+                    "confirmation":confirmation,"instanceId":server.instance_id,
+                    "operationId":"pair-no-authority","expectedRevision":0}),
+            ).unwrap();
+            let refused = server.dispatch(&request).unwrap();
+            assert_eq!(refused["error"]["code"], "capability_unavailable");
+            assert_eq!(refused["revision"], 0);
+        }
         for method in developer_connection_close::METHODS {
             let request =
                 make_request("close", method, json!({"instanceId":server.instance_id})).unwrap();
@@ -4015,6 +4031,52 @@ mod tests {
             baseline
         );
         assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(all(
+        feature = "product-image-witness",
+        feature = "t4-manager-actor-service"
+    ))]
+    #[test]
+    fn beta098_unknown_pair_blocks_close_and_quit_without_host_effects() {
+        let base = temporary_base("beta098-pair-block");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let before = calls.load(Ordering::Relaxed);
+        assert!(owner.rust_ownership_available());
+        owner.batch_coordinator().host_mut().close_registration =
+            lifecycle::CloseRegistration::Product;
+        owner.batch_coordinator().record_unknown_pair_for_test();
+        assert!(!owner.rust_ownership_available());
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let close = make_request(
+            "close",
+            "development.connections.snapshot",
+            json!({"instanceId":server.instance_id}),
+        )
+        .unwrap();
+        let refused_close = server.dispatch(&close).unwrap();
+        assert_eq!(refused_close["ok"], false);
+        assert_eq!(refused_close["error"]["code"], "manual_recovery_required");
+        assert!(refused_close.get("result").is_none());
+        let quit = make_request("quit", "runtime.quit", json!({"instanceId":server.instance_id,"expectedRevision":0,"operationId":"quit-after-unknown"})).unwrap();
+        let refused_quit = server.dispatch(&quit).unwrap();
+        assert_eq!(refused_quit["ok"], false);
+        assert_eq!(refused_quit["error"]["code"], "capability_unavailable");
+        assert!(refused_quit.get("result").is_none());
+        assert!(!server.quit_requested.load(Ordering::Acquire));
+        assert!(!*server.quit_gate.read().unwrap());
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }

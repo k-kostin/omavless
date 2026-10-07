@@ -723,6 +723,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             false
         }
     }
+    #[cfg(all(test, feature = "t4-manager-actor-service"))]
+    pub(crate) fn record_unknown_pair_for_test(&mut self) {
+        // Synthetic scheduler state only: no current-owner issuer, archive,
+        // engine, host operation or reconstructed effect authority.
+        let crate::pair_operation::Admission::Reserved(token) = self
+            .coordinator
+            .reserve_pair(
+                "beta3-unknown",
+                self.revision(),
+                crate::mutation::MutationDigest::new([17; 32]),
+            )
+            .unwrap()
+        else {
+            panic!("synthetic pair reservation missing");
+        };
+        self.coordinator
+            .finish_pair(token, crate::pair_operation::Outcome::Unknown)
+            .unwrap();
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn normal_pair_replay(
         &self,
