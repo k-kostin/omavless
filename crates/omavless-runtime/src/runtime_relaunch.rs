@@ -228,20 +228,9 @@ impl Host for Installed {
         while Instant::now() < end {
             // Bind the authenticated runtime to the fixed unit and installed
             // executable, not merely another same-user socket responder.
-            if !ready_peer(&paths) {
-                std::thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-            if let Ok(hello) =
-                crate::call(&paths, "system.hello", serde_json::json!({"versions":[1]}))
-                && hello["ok"] == true
-                && hello["result"]["runtimeOwnership"] == true
-                && let Ok(status) = crate::call(&paths, "status.get", serde_json::json!({}))
-                && status["ok"] == true
-                && status["result"]["runtimeOwnership"] == true
-                && status["result"]["desired"] == "disconnected"
-                && status["result"]["actual"] == "disconnected"
-                && status["result"]["transition"].is_null()
+            if let Some(hello) = ready_reply(&paths, "system.hello", end)
+                && let Some(status) = ready_reply(&paths, "status.get", end)
+                && ready_pair(&hello, &status)
             {
                 return Ok(());
             }
@@ -251,25 +240,73 @@ impl Host for Installed {
     }
 }
 use std::os::unix::fs::OpenOptionsExt;
-fn ready_peer(paths: &RuntimePaths) -> bool {
+fn ready_reply(paths: &RuntimePaths, method: &str, end: Instant) -> Option<serde_json::Value> {
+    let stream = ready_peer(paths, end)?;
+    let remaining = end.checked_duration_since(Instant::now())?;
+    if remaining.is_zero() {
+        return None;
+    }
+    crate::call_stream_with_timeout(
+        stream,
+        Uid::current().as_raw(),
+        method,
+        if method == "system.hello" {
+            serde_json::json!({"versions":[1]})
+        } else {
+            serde_json::json!({})
+        },
+        remaining,
+    )
+    .ok()
+}
+fn ready_pair(hello: &serde_json::Value, status: &serde_json::Value) -> bool {
+    let instance = hello["result"]["instanceId"].as_str();
+    hello["ok"] == true
+        && hello["result"]["runtimeOwnership"] == true
+        && instance.is_some_and(|value| !value.is_empty())
+        && status["ok"] == true
+        && status["result"]["instanceId"].as_str() == instance
+        && status["result"]["runtimeOwnership"] == true
+        && status["result"]["desired"] == "disconnected"
+        && status["result"]["actual"] == "disconnected"
+        && status["result"]["transition"].is_null()
+}
+fn connect_ready(path: &std::path::Path) -> Option<std::os::unix::net::UnixStream> {
+    use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
+    use std::os::fd::AsRawFd;
+    // Backlog saturation refuses immediately; only read-only readiness polls
+    // may repeat. No launch is repeated after an uncertain result.
+    let fd = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::SOCK_NONBLOCK | SockFlag::SOCK_CLOEXEC,
+        None,
+    )
+    .ok()?;
+    connect(fd.as_raw_fd(), &UnixAddr::new(path).ok()?).ok()?;
+    let stream = std::os::unix::net::UnixStream::from(fd);
+    stream.set_nonblocking(false).ok()?;
+    Some(stream)
+}
+fn ready_peer(paths: &RuntimePaths, end: Instant) -> Option<std::os::unix::net::UnixStream> {
     use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
-    use std::os::unix::net::UnixStream;
+    if Instant::now() >= end {
+        return None;
+    }
     let uid = Uid::current().as_raw();
     if crate::validate_client_directory(&paths.directory, uid).is_err() {
-        return false;
+        return None;
     }
     let Ok(socket) = fs::symlink_metadata(&paths.socket) else {
-        return false;
+        return None;
     };
     use std::os::unix::fs::FileTypeExt;
     if !socket.file_type().is_socket() || socket.uid() != uid || socket.mode() & 0o7777 != 0o600 {
-        return false;
+        return None;
     }
-    let Ok(stream) = UnixStream::connect(&paths.socket) else {
-        return false;
-    };
+    let stream = connect_ready(&paths.socket)?;
     let Ok(peer) = getsockopt(&stream, PeerCredentials) else {
-        return false;
+        return None;
     };
     let mut query = systemctl();
     query.args([
@@ -279,9 +316,15 @@ fn ready_peer(paths: &RuntimePaths) -> bool {
         "--no-pager",
         "--property=ActiveState,MainPID",
     ]);
-    let Ok(raw) = crate::production_observation::bounded_fixed_query(query, Duration::from_secs(2))
-    else {
-        return false;
+    let remaining = end.checked_duration_since(Instant::now())?;
+    if remaining.is_zero() {
+        return None;
+    }
+    let Ok(raw) = crate::production_observation::bounded_fixed_query(
+        query,
+        remaining.min(Duration::from_secs(2)),
+    ) else {
+        return None;
     };
     let mut lines = raw.lines().collect::<Vec<_>>();
     lines.sort_unstable();
@@ -293,15 +336,15 @@ fn ready_peer(paths: &RuntimePaths) -> bool {
                 format!("MainPID={}", peer.pid()),
             ]
     {
-        return false;
+        return None;
     }
     let (Ok(running), Ok(current)) = (
         fs::metadata(format!("/proc/{}/exe", peer.pid())),
         fs::metadata("/proc/self/exe"),
     ) else {
-        return false;
+        return None;
     };
-    running.dev() == current.dev() && running.ino() == current.ino()
+    (running.dev() == current.dev() && running.ino() == current.ino()).then_some(stream)
 }
 pub fn can_start() -> bool {
     Installed { apply: false }.admit().is_ok()
@@ -313,6 +356,110 @@ pub fn start() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ready_replies_require_same_nonempty_instance_and_owned_off() {
+        let hello = serde_json::json!({"ok":true,"result":{"instanceId":"test-owner", "runtimeOwnership":true}});
+        let status = serde_json::json!({"ok":true,"result":{"instanceId":"test-owner", "runtimeOwnership":true,
+            "desired":"disconnected", "actual":"disconnected", "transition":null}});
+        assert!(ready_pair(&hello, &status));
+        for (key, value) in [
+            ("instanceId", serde_json::json!("successor")),
+            ("runtimeOwnership", serde_json::json!(false)),
+            ("desired", serde_json::json!("connected")),
+            ("actual", serde_json::json!("unknown")),
+            ("transition", serde_json::json!({"phase":"connecting"})),
+        ] {
+            let mut altered = status.clone();
+            altered["result"][key] = value;
+            assert!(!ready_pair(&hello, &altered));
+        }
+        for empty in [serde_json::Value::Null, serde_json::json!("")] {
+            let mut h = hello.clone();
+            let mut s = status.clone();
+            h["result"]["instanceId"] = empty.clone();
+            s["result"]["instanceId"] = empty;
+            assert!(!ready_pair(&h, &s));
+        }
+    }
+    #[test]
+    fn saturated_backlog_refuses_without_blocking() {
+        use nix::sys::socket::{
+            AddressFamily, Backlog, SockFlag, SockType, UnixAddr, bind, listen, socket,
+        };
+        use std::os::fd::AsRawFd;
+        let root = crate::test_temp::directory("relaunch-backlog").unwrap();
+        let path = root.join("s");
+        let fd = socket(
+            AddressFamily::Unix,
+            SockType::Stream,
+            SockFlag::SOCK_CLOEXEC,
+            None,
+        )
+        .unwrap();
+        bind(fd.as_raw_fd(), &UnixAddr::new(&path).unwrap()).unwrap();
+        listen(&fd, Backlog::new(1).unwrap()).unwrap();
+        let start = Instant::now();
+        let mut retained = vec![];
+        let mut refused = false;
+        for _ in 0..8 {
+            if let Some(stream) = connect_ready(&path) {
+                retained.push(stream);
+            } else {
+                refused = true;
+                break;
+            }
+        }
+        assert!(refused);
+        assert!(start.elapsed() < Duration::from_secs(1));
+        drop(retained);
+        drop(fd);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn retained_stream_does_not_reconnect_to_replaced_path() {
+        use omavless_control_protocol::{
+            FrameKind, decode_request, encode_response, read_unary_frame, write_unary_frame,
+        };
+        use std::os::unix::net::UnixListener;
+        let root = crate::test_temp::directory("relaunch-retained").unwrap();
+        let path = root.join("s");
+        let listener = UnixListener::bind(&path).unwrap();
+        let stream = connect_ready(&path).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        fs::remove_file(&path).unwrap();
+        let successor = UnixListener::bind(&path).unwrap();
+        successor.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let request =
+                decode_request(&read_unary_frame(&mut peer, FrameKind::Request).unwrap()).unwrap();
+            let response = omavless_control_protocol::success_response(
+                request["id"].as_str().unwrap(),
+                0,
+                serde_json::json!({"instanceId":"original"}),
+            )
+            .unwrap();
+            write_unary_frame(
+                &mut peer,
+                &encode_response(&response).unwrap(),
+                FrameKind::Response,
+            )
+            .unwrap();
+        });
+        let reply = crate::call_stream_with_timeout(
+            stream,
+            Uid::current().as_raw(),
+            "status.get",
+            serde_json::json!({}),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(reply["result"]["instanceId"], "original");
+        assert!(successor.accept().is_err());
+        server.join().unwrap();
+        drop(successor);
+        drop(listener);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn stopped_query_rejects_pending_jobs_ambiguous_and_live_states() {
         let off = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nJob=\nMainPID=0\n";
