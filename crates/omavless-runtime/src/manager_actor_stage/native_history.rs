@@ -43,7 +43,7 @@ fn lookup_stamp(m: &nix::sys::stat::FileStat) -> Stamp {
         m.st_mode,
         m.st_uid,
         m.st_gid,
-        m.st_nlink,
+        crate::file_link_count::link_count_u64(m.st_nlink),
         m.st_size as u64,
         (m.st_mtime, m.st_mtime_nsec),
         (m.st_ctime, m.st_ctime_nsec),

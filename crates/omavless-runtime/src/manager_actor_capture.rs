@@ -487,7 +487,7 @@ fn named_matches(original: &Metadata, named: &FileStat, executable: bool) -> boo
         && original.gid() == named.st_gid
         && (!executable
             || (original.len() == named.st_size as u64
-                && original.nlink() == named.st_nlink
+                && original.nlink() == crate::file_link_count::link_count_u64(named.st_nlink)
                 && original.mtime() == named.st_mtime
                 && original.mtime_nsec() == named.st_mtime_nsec
                 && original.ctime() == named.st_ctime
