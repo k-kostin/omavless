@@ -85,6 +85,38 @@ use std::cell::RefCell;
 use std::fmt;
 use std::path::Path;
 
+#[cfg(feature = "t4-manager-actor-service")]
+fn normal_backup_outcome(
+    result: Result<(), backup_candidate::BackupCreateError>,
+) -> crate::pair_operation::Outcome {
+    use crate::backup_destination_candidate::PublishError;
+    use crate::backup_source_candidate::SnapshotError;
+    use crate::pair_operation::Outcome;
+    use backup_candidate::BackupCreateError;
+    match result {
+        Ok(()) => Outcome::Completed,
+        // These original variants precede publication, or are linkat EEXIST
+        // with no replacement. No authority-loss or ambiguous tail is waived.
+        Err(BackupCreateError::Source(SnapshotError::InvalidBackupInput))
+        | Err(BackupCreateError::Publish(PublishError::InvalidDestination)) => Outcome::InputDenied,
+        Err(BackupCreateError::Publish(PublishError::Exists)) => Outcome::DestinationExists,
+        Err(_) => Outcome::Unknown,
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn normal_restore_outcome(result: Result<(), NativeFirstError>) -> crate::pair_operation::Outcome {
+    use crate::pair_operation::Outcome;
+    match result {
+        Ok(()) => Outcome::Completed,
+        // The ONLY retained-engine Prepare return is open_existing, BEFORE
+        // installing the execution slot or acquiring its original lease.
+        // Wrong secret, corrupt/unsafe archive and changed read share one code.
+        Err(NativeFirstError::Prepare) => Outcome::InputDenied,
+        Err(NativeFirstError::Admission | NativeFirstError::StillFenced) => Outcome::Unknown,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeMutationOutcome {
     Connection(ConnectionTransactionOutcome),
@@ -586,6 +618,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 
     pub(crate) fn rust_ownership_available(&self) -> bool {
         #[cfg(feature = "t4-manager-actor-service")]
+        if self.coordinator.pair_abandoned() {
+            return false;
+        }
+        #[cfg(feature = "t4-manager-actor-service")]
         if let Some(origin) = &self.native_completed_origin {
             return self.required_ownership.is_some_and(|fence| {
                 fence.phase == OwnershipPhase::Rust
@@ -671,7 +707,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         // mutable host reference after an uncertain/StillFenced execution.
         #[cfg(feature = "t4-manager-actor-service")]
         assert!(
-            !self.held_restore_execution.unavailable(),
+            !self.retained_restore_busy(),
             "restore_execution_unavailable"
         );
         self.transaction.host_mut()
@@ -680,12 +716,60 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(super) fn retained_restore_busy(&self) -> bool {
         #[cfg(feature = "t4-manager-actor-service")]
         {
-            self.held_restore_execution.unavailable()
+            self.held_restore_execution.unavailable() || self.coordinator.pair_abandoned()
         }
         #[cfg(not(feature = "t4-manager-actor-service"))]
         {
             false
         }
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_pair_replay(
+        &self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+    ) -> Result<Option<crate::mutation::CachedOutcome>, CoordinatorError> {
+        self.coordinator
+            .replay_pair(request.operation_id(), request.digest(action))
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn execute_normal_pair(
+        &mut self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+    ) -> Result<crate::mutation::CachedOutcome, NativeOwnerError> {
+        if self
+            .batch
+            .as_ref()
+            .is_some_and(|batch| batch.active.is_some())
+        {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        self.check_batch_operation_id(Some(request.operation_id()))?;
+        self.invalidate_close_for_new_operation(Some(request.operation_id()));
+        let token = match self.coordinator.reserve_pair(
+            request.operation_id(),
+            request.revision(),
+            request.digest(action),
+        )? {
+            crate::pair_operation::Admission::Reserved(token) => token,
+            crate::pair_operation::Admission::Replay(result) => return Ok(result),
+        };
+        // One synchronous body under the existing owner mutex. A Running
+        // reservation is not the ordinary active mutation: the retained engine
+        // independently demands idle and consumes its OWN typed revision proof.
+        // Token Drop marks abandonment on unwind; no take/reinsert or retries.
+        let outcome = match action {
+            crate::private_pair_api::Action::Create => normal_backup_outcome(
+                self.create_backup_candidate(request.archive(), request.passphrase()),
+            ),
+            crate::private_pair_api::Action::Restore => normal_restore_outcome(
+                self.execute_first_restore_completed(request.archive(), request.passphrase()),
+            ),
+        };
+        self.coordinator
+            .finish_pair(token, outcome)
+            .map_err(Into::into)
     }
 
     /// Validate a network-backed subscription request before the caller
@@ -3570,6 +3654,141 @@ mod tests {
         );
         assert!(!root.join("unowned.ovb").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_actual_input_denials_allow_a_later_distinct_backup() {
+        use crate::private_pair_api::{Action, Request};
+        const CREATE: &str = "backup.create";
+        const RESTORE: &str = "backup.restore";
+        let (root, store, mut owner) = private_support_fixture("pair-denial");
+        let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(&store, portable).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, include_bytes!("../../../templates/default.yaml")).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let original = fs::read(&store).unwrap();
+        let original_template = fs::read(&template).unwrap();
+        let metadata = |path: &Path| {
+            let m = fs::symlink_metadata(path).unwrap();
+            (
+                m.dev(),
+                m.ino(),
+                m.uid(),
+                m.gid(),
+                m.mode(),
+                m.nlink(),
+                m.len(),
+                m.mtime(),
+                m.mtime_nsec(),
+                m.ctime(),
+                m.ctime_nsec(),
+            )
+        };
+        let original_metadata = (metadata(&store), metadata(&template));
+        let make = |method, id, archive: &Path, passphrase| {
+            Request::parse(method, &json!({"schema":1,"archive":archive,"passphrase":passphrase,
+                "confirmation": if method==CREATE {"export-current-private-pair"} else {"replace-current-private-pair"},
+                "instanceId":"local-file-control","operationId":id,"expectedRevision":0})).unwrap().0
+        };
+        let archive = root.join("first.ovb");
+        let password = "synthetic passphrase only";
+        let create = make(CREATE, "first", &archive, password);
+        assert!(
+            owner
+                .execute_normal_pair(&create, Action::Create)
+                .unwrap()
+                .error
+                .is_none()
+        );
+        let ciphertext = fs::read(&archive).unwrap();
+        let exists = make(CREATE, "existing", &archive, password);
+        let result = owner.execute_normal_pair(&exists, Action::Create).unwrap();
+        assert_eq!(result.error, Some(StableErrorCode::Conflict));
+        assert_eq!(
+            owner.normal_pair_replay(&exists, Action::Create).unwrap(),
+            Some(result)
+        );
+        assert_eq!(fs::read(&archive).unwrap(), ciphertext);
+        let wrong = make(RESTORE, "wrong", &archive, "wrong synthetic passphrase");
+        assert_eq!(
+            owner
+                .execute_normal_pair(&wrong, Action::Restore)
+                .unwrap()
+                .error,
+            Some(StableErrorCode::InvalidArgument)
+        );
+        // Real archive permission guard, not a synthetic Result classifier.
+        fs::set_permissions(&archive, fs::Permissions::from_mode(0o400)).unwrap();
+        let unsafe_input = make(RESTORE, "readonly", &archive, password);
+        assert_eq!(
+            owner
+                .execute_normal_pair(&unsafe_input, Action::Restore)
+                .unwrap()
+                .error,
+            Some(StableErrorCode::InvalidArgument)
+        );
+        assert!(!owner.retained_restore_busy());
+        assert!(!owner.held_restore_execution.unavailable());
+        assert!(!owner.held_restore_execution.occupied());
+        assert!(!owner.coordinator.pair_abandoned());
+        assert_eq!(owner.coordinator.revision(), 0);
+        assert!(
+            !owner
+                .transaction
+                .cutover_paths()
+                .state_directory
+                .join("restore-pair.pending")
+                .exists()
+        );
+        let later = make(CREATE, "later", &root.join("later.ovb"), password);
+        assert!(
+            owner
+                .execute_normal_pair(&later, Action::Create)
+                .unwrap()
+                .error
+                .is_none()
+        );
+        assert_eq!(fs::read(&store).unwrap(), original);
+        assert_eq!(fs::read(&template).unwrap(), original_template);
+        assert_eq!((metadata(&store), metadata(&template)), original_metadata);
+        assert!(!crate::pending_private_transaction::pending_at(
+            &owner.transaction.cutover_paths().state_directory
+        ));
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_unknown_error_taxonomy_stays_sticky() {
+        use crate::backup_destination_candidate::PublishError;
+        use crate::backup_source_candidate::SnapshotError;
+        use crate::pair_operation::Outcome;
+        use backup_candidate::BackupCreateError;
+        for error in [
+            BackupCreateError::OwnershipUnavailable,
+            BackupCreateError::Busy,
+            BackupCreateError::RecoveryRequired,
+            BackupCreateError::Source(SnapshotError::SourceChanged),
+            BackupCreateError::Source(SnapshotError::UnsafeSource),
+            BackupCreateError::Source(SnapshotError::Admission),
+            BackupCreateError::Source(SnapshotError::SealingUnavailable),
+            BackupCreateError::Publish(PublishError::Unavailable),
+            BackupCreateError::Publish(PublishError::Ambiguous),
+        ] {
+            assert!(matches!(
+                normal_backup_outcome(Err(error)),
+                Outcome::Unknown
+            ));
+        }
+        for error in [NativeFirstError::Admission, NativeFirstError::StillFenced] {
+            assert!(matches!(
+                normal_restore_outcome(Err(error)),
+                Outcome::Unknown
+            ));
+        }
     }
 
     #[test]

@@ -169,6 +169,56 @@ pub(crate) enum NativeCompletedRead {
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_private_pair_available(&self) -> bool {
+        self.current_origin.as_ref().is_some_and(|origin| matches!(self.ownership,
+            ProductionOwnership::Committed { rust_generation, .. } if rust_generation == origin.generation))
+            && !self.coordinator.retained_restore_busy()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_private_pair(
+        &mut self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+    ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
+    {
+        use omavless_control_protocol::StableErrorCode;
+        let origin = self
+            .current_origin
+            .as_ref()
+            .ok_or(StableErrorCode::CapabilityUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation==origin.generation)
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        // Exact replay is only historical result DATA in this SAME current
+        // instance. It does not run the engine or regain lost owner authority.
+        if let Some(result) = self
+            .coordinator
+            .normal_pair_replay(request, action)
+            .map_err(|e| e.stable_code())?
+        {
+            return Ok((result, true));
+        }
+        if request.revision() != self.revision() {
+            return Err(StableErrorCode::Conflict);
+        }
+        if !self.rust_ownership_available() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        if action == crate::private_pair_api::Action::Restore {
+            let desired = self
+                .desired_for_status()
+                .map_err(|_| StableErrorCode::CapabilityUnavailable)?;
+            if desired.connected || self.actual() != ActualState::Disconnected {
+                return Err(StableErrorCode::CapabilityUnavailable);
+            }
+        }
+        self.coordinator
+            .execute_normal_pair(request, action)
+            .map(|result| (result, false))
+            .map_err(|e| e.stable_code())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
         self.coordinator.refuse_unpublished_intent_pause(revision)
     }

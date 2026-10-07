@@ -109,7 +109,11 @@ pub mod native_host;
 pub mod native_probe_resolver;
 mod onboarding_protocol;
 pub mod owner;
+#[cfg(feature = "t4-manager-actor-service")]
+mod pair_operation;
 pub mod plugin_action;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod private_pair_api;
 pub mod private_store_transaction;
 pub mod probe_executor;
 pub mod production_cutover;
@@ -402,6 +406,14 @@ fn developer_current_error_code(error: production_owner::ProductionOwnerError) -
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair_available(&self) -> bool;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair(
+        &mut self,
+        request: &private_pair_api::Request,
+        action: private_pair_api::Action,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode>;
     #[cfg(feature = "t4-manager-actor-service")]
     fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool;
     #[cfg(feature = "t4-manager-actor-service")]
@@ -732,6 +744,18 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair_available(&self) -> bool {
+        self.owner.normal_private_pair_available()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair(
+        &mut self,
+        request: &private_pair_api::Request,
+        action: private_pair_api::Action,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode> {
+        self.owner.normal_private_pair(request, action)
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
         self.owner.refuse_unpublished_intent_pause(revision)
@@ -1447,10 +1471,10 @@ impl RuntimeServer {
             let frame = zeroize::Zeroizing::new(frame);
             let request = decode_request(&frame)?;
             #[cfg(feature = "t4-manager-actor-service")]
-            if request["method"]
-                .as_str()
-                .is_some_and(developer_current_restore::private_method)
-                && frame.len() > developer_current_restore::MAX_INPUT
+            if request["method"].as_str().is_some_and(|method| {
+                developer_current_restore::private_method(method)
+                    || private_pair_api::is_method(method)
+            }) && frame.len() > developer_current_restore::MAX_INPUT
             {
                 return Err(omavless_control_protocol::ProtocolError::new(
                     StableErrorCode::InvalidArgument,
@@ -1516,11 +1540,58 @@ impl RuntimeServer {
         #[cfg(feature = "t4-manager-actor-service")]
         if request["method"]
             .as_str()
+            .is_some_and(private_pair_api::is_method)
+        {
+            return self.dispatch_private_pair(request);
+        }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if request["method"]
+            .as_str()
             .is_some_and(developer_current_restore::private_method)
         {
             return self.dispatch_developer_current_restore(request);
         }
         self.dispatch_admitted(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_private_pair(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let (input, action) = match private_pair_api::Request::parse(
+            request["method"].as_str().unwrap_or(""),
+            &request["params"],
+        ) {
+            Ok(input) => input,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        if input.instance() != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(dispatcher) => dispatcher,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        match owner.normal_private_pair(&input, action) {
+            Ok((result, replayed)) => match result.error {
+                None => success_response(
+                    id,
+                    result.revision,
+                    json!({"completed":true,"replayed":replayed,"scope":"privatePair"}),
+                ),
+                Some(error) => error_response(id, result.revision, error, false, None),
+            },
+            Err(error) => error_response(id, owner.revision(), error, false, None),
+        }
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
@@ -2483,6 +2554,14 @@ fn dispatch_native(
             })
         }
         "capabilities.get" if empty_params(request) => {
+            #[cfg(feature = "t4-manager-actor-service")]
+            let pair_methods = if runtime_ownership && owner.normal_private_pair_available() {
+                private_pair_api::METHODS
+            } else {
+                &[]
+            };
+            #[cfg(not(feature = "t4-manager-actor-service"))]
+            let pair_methods: &[&str] = &[];
             let methods: Vec<_> = READ_ONLY_METHODS
                 .iter()
                 .chain(
@@ -2503,6 +2582,7 @@ fn dispatch_native(
                         .into_iter()
                         .flatten(),
                 )
+                .chain(pair_methods)
                 .copied()
                 .filter(|method| *method != "startup.configure" || owner.startup_available())
                 .collect();
@@ -3282,6 +3362,87 @@ mod tests {
 
     #[cfg(feature = "t4-manager-actor-service")]
     #[test]
+    fn normal_pair_real_handler_refuses_false_factory_foreign_busy_and_invalid_frames() {
+        let base = temporary_base("normal-pair-rpc");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let before_store = fs::read(base.join("config/profiles.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        let request=make_request("pair","backup.create",json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password","confirmation":"export-current-private-pair","instanceId":server.instance_id,"operationId":"pair-1","expectedRevision":0})).unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        let mut foreign = request.clone();
+        foreign["params"]["instanceId"] = "foreign".into();
+        assert_eq!(
+            server.dispatch(&foreign).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        let guard = server.dispatcher.lock().unwrap();
+        assert_eq!(server.dispatch(&request).unwrap()["error"]["code"], "busy");
+        drop(guard);
+        let capabilities = server
+            .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+            .unwrap();
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|method| !matches!(method.as_str(), Some("backup.create" | "backup.restore")))
+        );
+        let frame = encode_request(&request).unwrap();
+        let duplicate = String::from_utf8(frame.clone())
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        let mut oversized = frame[..frame.len() - 1].to_vec();
+        oversized.resize(developer_current_restore::MAX_INPUT, b' ');
+        oversized.push(b'\n');
+        assert!(decode_request(&oversized).is_ok());
+        for (raw, error) in [
+            (frame.as_slice(), "capability_unavailable"),
+            (duplicate.as_bytes(), "invalid_request"),
+            (oversized.as_slice(), "invalid_argument"),
+        ] {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, raw).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let result =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(result["error"]["code"], error);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        let mut private = request.clone();
+        developer_current_restore::wipe_request(&mut private);
+        assert!(private["params"].get("passphrase").is_none());
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            before_store
+        );
+        assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
     fn developer_current_typed_preflight_is_the_only_no_effect_error() {
         use production_owner::ProductionOwnerError;
         assert_eq!(
@@ -3463,6 +3624,14 @@ mod tests {
             "unknown_method"
         );
         assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.backup_current"));
+        for method in ["backup.create", "backup.restore"] {
+            let request = make_request("absent", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "unknown_method"
+            );
+            assert!(!NATIVE_MUTATION_METHODS.contains(&method));
+        }
         for method in [
             "developer.pause_current_intent",
             "developer.abort_current_intent",

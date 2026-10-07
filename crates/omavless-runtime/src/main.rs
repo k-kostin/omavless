@@ -73,6 +73,23 @@ fn run() -> Result<(), CliError> {
     #[cfg(feature = "t4-manager-actor-service")]
     if arguments
         .first()
+        .is_some_and(|argument| argument == "backup")
+    {
+        if !omavless_runtime::private_pair_api::arguments_admitted(&arguments) {
+            return Err("private_pair_arguments_refused".into());
+        }
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("private_pair_private_stdin_required".into());
+        }
+        let marker =
+            omavless_runtime::private_pair_api::from_private_input(&arguments, io::stdin().lock())
+                .map_err(CliError::from)?;
+        println!("{marker}");
+        return Ok(());
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    if arguments
+        .first()
         .is_some_and(|argument| argument == "developer")
     {
         if !omavless_runtime::developer_current_restore::arguments_admitted(&arguments) {
