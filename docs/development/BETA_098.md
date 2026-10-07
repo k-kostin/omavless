@@ -52,6 +52,57 @@ pending. Apply the [manual-acceptance rule](BETA_MANUAL_ACCEPTANCE.md) and
 [actual 0.9.8 test plan](../testing/BETA_098_MANUAL_PLAN.md). This does not
 activate missing client/runtime paths or claim unrun installed checks PASS.
 
+### Beta.4 installed ordinary-entry and Restore checkpoint
+
+Installed x86_64 native source is
+`09f238ff142c13201569e514fed1ab3b636b5829`, frontend source
+`a2e5b6473be44a242a1ac7e0e58e42dae73c353e` (test-only successor; inspected
+runtime-input equivalence). Native ELF SHA256 is
+`0b5ea3602c4b0d6677c401630fe85ca7fbb2042bb8db109b1c579cf8cc4e9869`;
+matched DNS source receipt SHA256 is
+`0749076d6c46419c5df1397f03689be52baae38cbbb62c44110755aa17085c4f`.
+Normal two-package update and frontend installer completed with original exit0.
+
+Agent-operated real plugin Open app, client-only close and same-button reopen
+pass: actual argv is `omavless tui`, no developer selector, visible `b/F2`,
+working Backup editor, Settings Restore and working Restore editor. Pair/Desired
+were unchanged by these actions. This replaces, rather than borrows acceptance
+from, the earlier dedicated-launcher workaround.
+
+The same installed ordinary client exercised wrong-key refusal, authenticated
+Preview and Cancel (unchanged whole pair/metadata/Desired/revision). A normal
+semantic rename changed one disposable local profile and advanced revision to1.
+One original UI Restore then returned Completed and advanced it exactly to2;
+independent canonical JSON and template comparison matched the archived original,
+the earlier profile label returned, startup remained Off and Desired stayed
+unchanged. A separately known read-only refusal during fast VM key delivery was
+not counted as success: fixed CLI Preview authenticated the same input; slower
+verified VM input reached the real confirmation before the one Restore submit.
+No uncertain mutation was resent. Original successful reply and private captures
+are retained outside Git.
+
+After that known outcome, client-only close and normal runtime stop/start pass:
+fresh instance is owned disconnected, restored pair/Desired hashes unchanged,
+no TUN. Revision is per instance (new instance starts at0), not falsely preserved
+across restart. Existing durable history was retained; no history-count increment
+claim is inferred from an unrecorded baseline. No Connect, root broker activation,
+enrollment, foreign-VPN change or physical-host modification occurred. The VM's
+inactive managed DNS broker remains a separate connection/setup limitation.
+
+Exact09f local `tests/run.sh` passed688 cases with2 opt-in skips and Node/QML
+contracts; runtime T4 library passed1440 with64 explicitly ignored host/resource
+cases. Both normal-entry feature configurations, affected strict Clippy and the
+combined TUI pass. These are not full `run-rust.sh`, connected network, ARM-installed,
+fault/replay/second-Restore or public-release acceptance. Remaining candidate CI
+belongs to its exact head, not this installed proof.
+
+The next integration queue is based on the
+[read-only PR/cache inventory](https://github.com/k-kostin/omavless/issues/706#issuecomment-6046610211):
+finish bounded beta gates and runtime relaunch, curate useful workflow changes,
+reconcile already-included/equivalent PRs, and keep unfinished frontier work
+explicitly separate before an owner-authorized RC/main update. Cached binaries
+are evidence/artifacts, never substitutes for included source or working features.
+
 The next October 7 assembly continues checked `beta/0.9.8` from exact
 `1a73f386ce0c78a9e5a7c4c5cedc2eec98bd6963` (#702) through a separate narrow
 integration branch. The VM master has stopped all feature writers and handed
