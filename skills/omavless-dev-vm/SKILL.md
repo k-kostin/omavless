@@ -32,6 +32,12 @@ guest/SSH and unlock helpers. Inspect a helper once and retain its hash and
 supported target; re-review changed selection or behavior, not unchanged code
 on every reboot. Do not replace it with an improvised host-wide automation.
 
+At a new installed baseline, discover the actual package paths, service names,
+CLI help and compositor version before using remembered commands. Cache those
+facts for that baseline. In particular, an interface change can make an old
+window dispatcher return textual errors despite a zero shell exit; confirm the
+requested window geometry or service state, not merely command completion.
+
 Before installing an experimental bundle, compare the whole app, core, broker,
 receipt/schema, enrollment policy and fixture pins with the selected scenario.
 The same architecture, core version or informal qualification label does not
