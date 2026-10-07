@@ -143,9 +143,10 @@ Documentation successors are not the tested runtime source.
 
 The fresh disposable thin-copy boot was `4ce16f29-8d21-4fc6-b950-daf8c3dcbc66`.
 The genuine current owner was Off with configured default routing, onboarding
-complete and startup disabled. Each of 25 fixed phases had its separately
-observed expected original exit followed by observer0: original0 except the
-predeclared fresh-ID Restore denial's original2. The private pair, credentials,
+complete and startup disabled. All 25 fixed phases had their expected original
+exit: original0 except the predeclared fresh-ID Restore denial's original2.
+Preparation emits its own data-only record; the remaining 24 originals were
+followed by separate observer0. The private pair, credentials,
 captures and exact instance IDs remain outside Git.
 
 | Selected boundary | Original / separate observer | Scoped result |
