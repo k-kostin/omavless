@@ -137,6 +137,64 @@ fn protected_data_identity_never_masks_a_link_increment() {
     }
 }
 
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn protected_identity_diagnostic_classifies_all_fields_without_changing_predicate() {
+    use crate::protected_native_diagnostic::{self as diagnostic, PostGuard, PostIdentity};
+    let (_root, host, _) = fixture();
+    let original = DirectoryIdentity::of(&fs::metadata(&host.paths.data_directory).unwrap());
+    assert_eq!(
+        original.first_difference(original),
+        PostIdentity::NotRecorded
+    );
+    diagnostic::mark(diagnostic::Cut::NotEntered);
+    diagnostic::post_identity_rejected(PostIdentity::Nlink);
+    assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+    for (field, expected) in [
+        PostIdentity::Dev,
+        PostIdentity::Ino,
+        PostIdentity::Mode,
+        PostIdentity::Uid,
+        PostIdentity::Gid,
+        PostIdentity::Nlink,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let _scope = diagnostic::post_scope();
+        assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+        diagnostic::post_mark(PostGuard::IntervalDataIdentity);
+        // Same predicate as the actual held/named check: equality records none.
+        let unchanged = original;
+        if unchanged != original {
+            diagnostic::post_identity_rejected(unchanged.first_difference(original));
+        }
+        assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+        let mut changed = original;
+        match field {
+            0 => changed.dev += 1,
+            1 => changed.ino += 1,
+            2 => changed.mode ^= 1,
+            3 => changed.uid += 1,
+            4 => changed.gid += 1,
+            _ => changed.nlink += 1,
+        }
+        assert!(changed != original);
+        assert_eq!(changed.first_difference(original), expected);
+        if changed != original {
+            diagnostic::post_identity_rejected(changed.first_difference(original));
+        }
+        assert_eq!(diagnostic::post_identity(), expected);
+        diagnostic::post_identity_rejected(PostIdentity::Dev);
+        assert_eq!(diagnostic::post_identity(), expected);
+        // A later field difference cannot hide the earlier field category.
+        changed.nlink += 1;
+        assert_eq!(changed.first_difference(original), expected);
+    }
+    diagnostic::mark(diagnostic::Cut::NotEntered);
+    assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+}
+
 #[test]
 fn protected_home_old_late_child_link_semantics_are_explicit() {
     let home = std::env::var_os("HOME").expect("HOME-backed fixture required");

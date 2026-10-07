@@ -671,3 +671,36 @@ service, admission or network action. A separate HOME child-mkdir control report
 unchanged; that branch is not real-filesystem `+1` reproduction. Native execution,
 whole K1 acceptance and product/release activation remain separate exact-head
 gates, and all earlier NONPASS native outcomes retain their original identity.
+
+### Test-only strict identity failure projection successor
+
+The `netguard-native-scenario` test-only diagnostic now records the first failed
+data-directory identity field: `dev`, `ino`, `mode`, `uid`, `gid` or `nlink`.
+`not_recorded` remains explicit when no such rejection was observed. The actual
+held-then-named comparison and its `Observation` refusal are unchanged. Only
+inside its rejecting branch does the active post-interval diagnostic classify
+the already captured metadata, in the same six-field order; it performs no
+additional metadata, path or actor query and exposes no field value.
+
+The existing seventh `K1_NATIVE_POSTCHECK_DIAGNOSTIC` frame gains that one closed
+token after guard/refusal. There is no eighth frame. This grammar belongs to a
+fresh exact source/test ELF; the older two-token seventh frame is not silently
+interpreted as the new schema. An `interval_data_identity` guard without a
+failed-field token does not establish a link-count cause, particularly on a
+btrfs baseline with link count1. Earlier native NONPASS evidence remains intact.
+
+The local SOURCE-only supervisor successor, outside Git and still unbound,
+retains its exact returned native child's original stderr capture FD and initial
+metadata. On failure it attempts one bounded `fstat`/`pread`/`fstat` snapshot of
+that same descriptor, accepts only the complete seven-frame closed grammar and
+serializes only those finite labels. Missing role, unsafe metadata, oversized or
+changing bytes, incomplete/unknown grammar and output failure grant no authority.
+The failure path remains parked with the original graph retained. It never calls
+the success-oriented contents/zero/status helpers, opens a new path, queries a
+PID, reaps, closes, cleans up or retries. Snapshot stability is not writer
+finality, original completion, native success or recovery permission.
+
+The next native selection requires a newly frozen exact source head and fresh
+ELF, a genuine new boot, all transitive fixture/source/artifact pins and a
+separately reviewed bound supervisor. It must not reuse the older selected ELF.
+SOURCE tests and diagnostic projection alone do not satisfy native acceptance.

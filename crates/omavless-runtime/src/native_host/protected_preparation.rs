@@ -166,6 +166,28 @@ struct DirectoryIdentity {
     nlink: u64,
 }
 impl DirectoryIdentity {
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    fn first_difference(self, original: Self) -> crate::protected_native_diagnostic::PostIdentity {
+        use crate::protected_native_diagnostic::PostIdentity;
+        // Diagnostic-only classification of already captured values, after the
+        // unchanged production predicate rejected. Match its field order.
+        if self.dev != original.dev {
+            PostIdentity::Dev
+        } else if self.ino != original.ino {
+            PostIdentity::Ino
+        } else if self.mode != original.mode {
+            PostIdentity::Mode
+        } else if self.uid != original.uid {
+            PostIdentity::Uid
+        } else if self.gid != original.gid {
+            PostIdentity::Gid
+        } else if self.nlink != original.nlink {
+            PostIdentity::Nlink
+        } else {
+            PostIdentity::NotRecorded
+        }
+    }
+
     fn of(metadata: &Metadata) -> Self {
         Self {
             dev: metadata.dev(),
@@ -844,6 +866,11 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
                 crate::protected_native_diagnostic::PostGuard::IntervalDataIdentity,
             );
             if DirectoryIdentity::of(&current) != DirectoryIdentity::of(original) {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_identity_rejected(
+                    DirectoryIdentity::of(&current)
+                        .first_difference(DirectoryIdentity::of(original)),
+                );
                 return Err(HostStepError::Observation);
             }
         }

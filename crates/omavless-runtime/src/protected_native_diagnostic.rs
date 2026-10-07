@@ -86,6 +86,44 @@ thread_local! {
     static READ_ACTIVE: Cell<bool> = const { Cell::new(false) };
     static POST_ACTIVE: Cell<bool> = const { Cell::new(false) };
     static POST: Cell<(PostGuard, PostRefusal)> = const { Cell::new((PostGuard::NotEntered, PostRefusal::NotRecorded)) };
+    static POST_IDENTITY: Cell<PostIdentity> = const { Cell::new(PostIdentity::NotRecorded) };
+}
+
+/// First failed strict identity field, never its value or a private path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PostIdentity {
+    NotRecorded,
+    Dev,
+    Ino,
+    Mode,
+    Uid,
+    Gid,
+    Nlink,
+}
+impl PostIdentity {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::NotRecorded => "not_recorded",
+            Self::Dev => "dev",
+            Self::Ino => "ino",
+            Self::Mode => "mode",
+            Self::Uid => "uid",
+            Self::Gid => "gid",
+            Self::Nlink => "nlink",
+        }
+    }
+}
+pub(crate) fn post_identity_rejected(field: PostIdentity) {
+    if POST_ACTIVE.get()
+        && POST.get().0 == PostGuard::IntervalDataIdentity
+        && POST_IDENTITY.get() == PostIdentity::NotRecorded
+        && field != PostIdentity::NotRecorded
+    {
+        POST_IDENTITY.set(field);
+    }
+}
+pub(crate) fn post_identity() -> PostIdentity {
+    POST_IDENTITY.get()
 }
 
 /// Source-closed post-interval checks; no payload, path, PID or authority.
@@ -180,6 +218,7 @@ impl Drop for PostScope {
 pub(crate) fn post_scope() -> PostScope {
     let old = POST_ACTIVE.replace(true);
     POST.set((PostGuard::NotEntered, PostRefusal::NotRecorded));
+    POST_IDENTITY.set(PostIdentity::NotRecorded);
     PostScope(old)
 }
 pub(crate) fn post_mark(guard: PostGuard) {
@@ -198,6 +237,56 @@ pub(crate) fn post_refusal(reason: PostRefusal) {
 }
 pub(crate) fn post() -> (PostGuard, PostRefusal) {
     POST.get()
+}
+
+#[test]
+fn postcheck_identity_frame_is_closed_scoped_and_thread_local() {
+    mark(Cut::NotEntered);
+    let fields = [
+        PostIdentity::NotRecorded,
+        PostIdentity::Dev,
+        PostIdentity::Ino,
+        PostIdentity::Mode,
+        PostIdentity::Uid,
+        PostIdentity::Gid,
+        PostIdentity::Nlink,
+    ];
+    assert_eq!(
+        fields.map(PostIdentity::token),
+        ["not_recorded", "dev", "ino", "mode", "uid", "gid", "nlink"]
+    );
+    {
+        let _scope = post_scope();
+        post_identity_rejected(PostIdentity::Dev);
+        assert_eq!(post_identity(), PostIdentity::NotRecorded);
+        post_mark(PostGuard::IntervalDataIdentity);
+        post_identity_rejected(PostIdentity::Nlink);
+        std::thread::spawn(|| assert_eq!(post_identity(), PostIdentity::NotRecorded))
+            .join()
+            .unwrap();
+        assert_eq!(post_identity(), PostIdentity::Nlink);
+    }
+    post_identity_rejected(PostIdentity::Dev);
+    assert_eq!(post_identity(), PostIdentity::Nlink);
+    let _scope = post_scope();
+    assert_eq!(post_identity(), PostIdentity::NotRecorded);
+    let source = include_str!("native_host/protected_preparation.rs");
+    let rejection = source
+        .split("if DirectoryIdentity::of(&current) != DirectoryIdentity::of(original) {")
+        .nth(1)
+        .unwrap()
+        .split("return Err(HostStepError::Observation);")
+        .next()
+        .unwrap();
+    assert_eq!(rejection.matches("post_identity_rejected(").count(), 1);
+    assert!(!rejection.contains("metadata()") && !rejection.contains("symlink_metadata"));
+    let output = include_str!("production_owner/protected_native_vm_tests.rs");
+    assert_eq!(
+        output
+            .matches("K1_NATIVE_POSTCHECK_DIAGNOSTIC {} {} {}")
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -439,6 +528,7 @@ pub(crate) fn mark(cut: Cut) {
         crate::login_transaction::diagnostic::reset();
         POST_ACTIVE.set(false);
         POST.set((PostGuard::NotEntered, PostRefusal::NotRecorded));
+        POST_IDENTITY.set(PostIdentity::NotRecorded);
         READINESS.set((
             Endpoint::NotEntered,
             ReadinessPhase::NotEntered,
