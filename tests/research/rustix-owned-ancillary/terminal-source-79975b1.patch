@@ -1,0 +1,398 @@
+diff --git a/rustix-1.1.5/src/backend/libc/net/syscalls.rs b/rustix-1.1.5/src/backend/libc/net/syscalls.rs
+index e913814..3bb9dd3 100644
+--- a/rustix-1.1.5/src/backend/libc/net/syscalls.rs
++++ b/rustix-1.1.5/src/backend/libc/net/syscalls.rs
+@@ -216,6 +216,53 @@ pub(crate) fn recvmsg(
+     })
+ }
+ 
++// Linux/x64-only additive private experiment, never the ordinary recvmsg path.
++#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
++fn terminal_header_count<T: TryFrom<usize>>(count: usize) -> Option<T> {
++    T::try_from(count).ok()
++}
++
++#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
++pub(crate) fn recvmsg_retained_snapshot(
++    sockfd: BorrowedFd<'_>,
++    iov: &mut [IoSliceMut<'_>],
++    control: &mut [MaybeUninit<u8>],
++    flags: RecvFlags,
++) -> (io::Result<usize>, usize, ReturnFlags) {
++    let mut header = super::msghdr::zero_msghdr();
++    header.msg_iov = iov.as_mut_ptr().cast();
++    // GNU uses size_t, while musl uses c_int. Refuse unrepresentable input
++    // before syscall entry instead of silently narrowing or truncating it.
++    header.msg_iovlen = match terminal_header_count(iov.len()) {
++        Some(count) => count,
++        None => return (Err(io::Errno::INVAL), 0, ReturnFlags::empty()),
++    };
++    header.msg_control = control.as_mut_ptr().cast();
++    header.msg_controllen = match terminal_header_count(control.len()) {
++        Some(count) => count,
++        None => return (Err(io::Errno::INVAL), 0, ReturnFlags::empty()),
++    };
++    // SAFETY: same live exclusive memory/one-call contract as the raw backend.
++    // No address copyout; scalar fields are opaque snapshots on Err, not a
++    // promise that header.msg_controllen bytes form installed owning records.
++    let result = unsafe {
++        ret_send_recv(c::recvmsg(borrowed_fd(sockfd), &mut header,
++            bitflags_bits!(flags)))
++    };
++    (result, header.msg_controllen as usize,
++        ReturnFlags::from_bits_retain(bitcast!(header.msg_flags)))
++}
++
++#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
++#[test]
++fn terminal_header_count_refuses_narrowing_without_syscall() {
++    assert_eq!(terminal_header_count::<i32>(0), Some(0));
++    assert_eq!(terminal_header_count::<i32>(i32::MAX as usize), Some(i32::MAX));
++    assert_eq!(terminal_header_count::<i32>(i32::MAX as usize + 1), None);
++    assert_eq!(terminal_header_count::<i32>(usize::MAX), None);
++    assert_eq!(terminal_header_count::<usize>(usize::MAX), Some(usize::MAX));
++}
++
+ #[cfg(not(any(
+     windows,
+     target_os = "espidf",
+diff --git a/rustix-1.1.5/src/backend/linux_raw/net/syscalls.rs b/rustix-1.1.5/src/backend/linux_raw/net/syscalls.rs
+index 488e08f..b388482 100644
+--- a/rustix-1.1.5/src/backend/linux_raw/net/syscalls.rs
++++ b/rustix-1.1.5/src/backend/linux_raw/net/syscalls.rs
+@@ -277,6 +277,30 @@ pub(crate) fn recvmsg(
+     })
+ }
+ 
++// Additive private experiment: unlike recvmsg, snapshot scalar outputs even on
++// Err. No address copyout, no legacy ancillary length/Drop, no error decoding.
++#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
++pub(crate) fn recvmsg_retained_snapshot(
++    sockfd: BorrowedFd<'_>,
++    iov: &mut [IoSliceMut<'_>],
++    control: &mut [MaybeUninit<u8>],
++    flags: RecvFlags,
++) -> (io::Result<usize>, usize, ReturnFlags) {
++    let mut header = super::msghdr::zero_msghdr();
++    header.msg_iov = iov.as_mut_ptr().cast();
++    header.msg_iovlen = iov.len() as _;
++    header.msg_control = control.as_mut_ptr().cast();
++    header.msg_controllen = control.len() as _;
++    // SAFETY: private caller supplies a live exclusive aligned control slice
++    // and live exclusive iov buffers for this sole synchronous syscall. Scalar
++    // snapshots are initialized fields; on Err they are NOT a valid prefix.
++    let result = unsafe {
++        ret_usize(syscall!(__NR_recvmsg, sockfd, by_mut(&mut header), flags))
++    };
++    (result, header.msg_controllen as usize,
++        ReturnFlags::from_bits_retain(header.msg_flags))
++}
++
+ #[inline]
+ pub(crate) fn sendmsg(
+     sockfd: BorrowedFd<'_>,
+diff --git a/rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs b/rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs
+index 55043a4..5050ff7 100644
+--- a/rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs
++++ b/rustix-1.1.5/src/net/send_recv/owned_ancillary_preallocated.rs
+@@ -6,6 +6,10 @@
+ //! Unknown FD classes and malformed boundary tails remain explicitly unowned.
+ use super::*;
+ 
++#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
++#[path = "owned_ancillary_terminal.rs"]
++pub mod terminal;
++
+ #[cfg(all(test, feature = "std", feature = "event", feature = "fs",
+     feature = "pipe", feature = "process", target_arch = "x86_64"))]
+ #[path = "owned_ancillary_preallocated_kernel_control.rs"]
+diff --git a/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs b/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs
+new file mode 100644
+index 0000000..80a9be8
+--- /dev/null
++++ b/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs
+@@ -0,0 +1,284 @@
++// SPDX-License-Identifier: MIT
++//! Additive Linux/x64 terminal envelope; not a generic error-FD recovery API.
++//! Every attempted outcome preserves prepared scratch and frame capacities.
++//! Err snapshots never enter the descriptor decoder or authorize RawFd adoption.
++use super::*;
++use core::mem::ManuallyDrop;
++
++/// Scalar outcome of one permanently consumed attempt.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum TerminalStatus {
++    /// Successful backend result with bounded reported control length.
++    Completed {
++        /// Payload byte count returned by the successful backend.
++        bytes: usize,
++    },
++    /// Opaque syscall error. Installed-but-unreported descriptors remain unknown.
++    SyscallFailed(io::Errno),
++    /// Successful backend violated the supplied control bound. Never decode.
++    InvalidSuccessLength {
++        /// Payload byte count accompanying the invalid control-length result.
++        bytes: usize,
++    },
++}
++
++/// Initialized scalar fields, not a receipt or an initialized owning prefix.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct ScalarSnapshot {
++    /// Exact supplied control capacity (distinct from the observed field).
++    pub supplied_control_bytes: usize,
++    /// Post-call field; may still equal its input capacity on Err.
++    pub observed_control_length_field: usize,
++    /// Post-call bits; not validated protocol flags on Err.
++    pub observed_flags_field: ReturnFlags,
++}
++
++/// Consuming preparation. The original API and backend contracts are unchanged.
++pub struct PreparedTerminalReceiver {
++    receiver: PreparedReceiver,
++}
++
++/// Retain this WHOLE envelope before inspecting status or refusing semantics.
++/// No raw bytes, raw descriptors, recovery, retry or receive entry is exported.
++/// On error this retains memory, NOT ownership of unreported installed FDs.
++pub struct TerminalEnvelope {
++    status: TerminalStatus,
++    snapshot: ScalarSnapshot,
++    storage: Vec<MaybeUninit<u8>>,
++    frame: OwnedRecvMsg,
++}
++
++impl TerminalEnvelope {
++    /// Return the terminal status without decoding an error control snapshot.
++    pub fn status(&self) -> TerminalStatus { self.status }
++    /// Return opaque scalar fields; they do not establish an owning prefix.
++    pub fn scalar_snapshot(&self) -> ScalarSnapshot { self.snapshot }
++    /// Only a bounded successful backend can produce a decoded frame.
++    pub fn completed_frame(&self) -> Option<&OwnedRecvMsg> {
++        if matches!(self.status, TerminalStatus::Completed { .. }) {
++            Some(&self.frame)
++        } else {
++            None
++        }
++    }
++    /// Storage size only; it is not a kernel reported length or FD count.
++    pub fn retained_scratch_bytes(&self) -> usize { self.storage.len() }
++}
++
++// Consumption precedes backend entry. An unexpected unwind retains allocations
++// rather than disposing a possibly written receive context; no retry/reuse path.
++fn sealed_call<T, R>(value: T, call: impl FnOnce(&mut T) -> R) -> (T, R) {
++    let mut held = ManuallyDrop::new(value);
++    let result = call(&mut held);
++    (ManuallyDrop::into_inner(held), result)
++}
++
++impl PreparedTerminalReceiver {
++    /// All five fallible reservations occur before entry. Initialize full scratch
++    /// separately from kernel-reported length; never infer writes from zeroes.
++    pub fn prepare(bytes: usize) -> Result<Self, PreparationError> {
++        let mut receiver = PreparedReceiver::prepare(bytes)?;
++        for byte in &mut receiver.storage { *byte = MaybeUninit::new(0); }
++        Ok(Self { receiver })
++    }
++
++    /// One original borrowed socket, no address output, no PEEK/retry.
++    /// Safe exclusive slices provide live memory but are NOT an attestation that
++    /// a kernel/user-memory write cannot fault. Fault models remain conditional.
++    pub fn receive(self, socket: BorrowedFd<'_>, iov: &mut [IoSliceMut<'_>],
++        flags: RecvFlags) -> Result<TerminalEnvelope, ReceiveError>
++    {
++        self.attempt(flags, |raw| {
++            crate::backend::net::syscalls::recvmsg_retained_snapshot(socket, iov, raw, flags)
++        })
++    }
++
++    // Private source-test seam, never a public raw parser/backend injection API.
++    fn attempt(self, flags: RecvFlags,
++        backend: impl FnOnce(&mut [MaybeUninit<u8>])
++            -> (io::Result<usize>, usize, ReturnFlags))
++        -> Result<TerminalEnvelope, ReceiveError>
++    {
++        if !supported_flags(flags) { return Err(ReceiveError::Flags); }
++        let receiver = self.receiver;
++        let header = unsafe { c::CMSG_LEN(0) } as usize;
++        let align = align_of::<c::cmsghdr>();
++        if header < size_of::<c::cmsghdr>() || header == 0
++            || !align.is_power_of_two() || size_of::<c::c_int>() != 4
++            || receiver.frame._control.capacity() < receiver.bytes
++            || receiver.frame.records.capacity() < receiver.bytes / header
++            || receiver.frame.rights.capacity() < receiver.bytes / 4
++            || receiver.frame.pidfds.capacity() < receiver.bytes / 4
++            || !receiver.frame._control.is_empty() || !receiver.frame.records.is_empty()
++            || !receiver.frame.rights.is_empty() || !receiver.frame.pidfds.is_empty()
++        { return Err(ReceiveError::Preparation); }
++        let offset = receiver.storage.as_ptr().align_offset(align);
++        let end = offset.checked_add(receiver.bytes).ok_or(ReceiveError::Preparation)?;
++        if receiver.storage.get(offset..end).is_none() {
++            return Err(ReceiveError::Preparation);
++        }
++        let supplied = receiver.bytes;
++        let (receiver, (result, length, flags_field)) = sealed_call(receiver, |value| {
++            backend(&mut value.storage[offset..end])
++        });
++        let PreparedReceiver { mut storage, bytes: _, frame } = receiver;
++        let snapshot = ScalarSnapshot { supplied_control_bytes: supplied,
++            observed_control_length_field: length, observed_flags_field: flags_field };
++        match result {
++            Err(errno) => Ok(TerminalEnvelope { status: TerminalStatus::SyscallFailed(errno),
++                snapshot, storage, frame }),
++            Ok(bytes) if length > supplied => Ok(TerminalEnvelope {
++                status: TerminalStatus::InvalidSuccessLength { bytes },
++                snapshot, storage, frame }),
++            Ok(bytes) => {
++                let mut control = RecvAncillaryBuffer::new(&mut storage[offset..end]);
++                // Success-only trusted backend invariant. Error field values are
++                // never passed to legacy Drop/parse, even if apparently bounded.
++                control.length = length;
++                let mut frame = frame;
++                frame.message = RecvMsg { bytes, flags: flags_field, address: None };
++                let frame = decode_control(frame, &mut control);
++                // Decoder consumed/disarmed the only legacy view.
++                drop(control);
++                Ok(TerminalEnvelope { status: TerminalStatus::Completed { bytes },
++                    snapshot, storage, frame })
++            }
++        }
++    }
++}
++
++#[cfg(all(test, feature = "std"))]
++mod tests {
++    use super::*;
++    use std::cell::Cell;
++    use std::rc::Rc;
++
++    fn pointers(value: &PreparedReceiver) -> [*const (); 5] {
++        [value.storage.as_ptr().cast(), value.frame._control.as_ptr().cast(),
++            value.frame.records.as_ptr().cast(), value.frame.rights.as_ptr().cast(),
++            value.frame.pidfds.as_ptr().cast()]
++    }
++    fn capacities(value: &PreparedReceiver) -> [usize; 5] {
++        [value.storage.capacity(), value.frame._control.capacity(),
++            value.frame.records.capacity(), value.frame.rights.capacity(),
++            value.frame.pidfds.capacity()]
++    }
++    fn envelope_pointers(value: &TerminalEnvelope) -> [*const (); 5] {
++        [value.storage.as_ptr().cast(), value.frame._control.as_ptr().cast(),
++            value.frame.records.as_ptr().cast(), value.frame.rights.as_ptr().cast(),
++            value.frame.pidfds.as_ptr().cast()]
++    }
++    fn envelope_capacities(value: &TerminalEnvelope) -> [usize; 5] {
++        [value.storage.capacity(), value.frame._control.capacity(),
++            value.frame.records.capacity(), value.frame.rights.capacity(),
++            value.frame.pidfds.capacity()]
++    }
++
++    #[test]
++    fn whole_scratch_is_initialized_without_claiming_reported_length() {
++        let value = PreparedTerminalReceiver::prepare(256).unwrap();
++        for byte in &value.receiver.storage {
++            // Preparation explicitly initialized every byte, including slack.
++            assert_eq!(unsafe { byte.assume_init() }, 0);
++        }
++        assert!(value.receiver.frame._control.is_empty());
++        assert!(value.receiver.frame.records.is_empty());
++    }
++
++    #[test]
++    fn error_after_synthetic_writes_retains_exact_storage_and_all_capacities() {
++        let value = PreparedTerminalReceiver::prepare(256).unwrap();
++        let before = pointers(&value.receiver);
++        let caps = capacities(&value.receiver);
++        let count = Cell::new(0);
++        let envelope = value.attempt(RecvFlags::DONTWAIT, |raw| {
++            count.set(count.get() + 1);
++            // Opaque pattern only. No invented descriptor/header is adopted.
++            raw[0] = MaybeUninit::new(0xa5);
++            raw[raw.len() - 1] = MaybeUninit::new(0x5a);
++            (Err(io::Errno::FAULT), raw.len(), ReturnFlags::CTRUNC)
++        }).unwrap();
++        assert_eq!(count.get(), 1);
++        assert_eq!(envelope.status(), TerminalStatus::SyscallFailed(io::Errno::FAULT));
++        assert_eq!(before, envelope_pointers(&envelope));
++        assert_eq!(caps, envelope_capacities(&envelope));
++        let offset = envelope.storage.as_ptr().align_offset(align_of::<c::cmsghdr>());
++        assert_eq!(unsafe { envelope.storage[offset].assume_init() }, 0xa5);
++        assert_eq!(unsafe { envelope.storage[offset + 255].assume_init() }, 0x5a);
++        assert!(envelope.completed_frame().is_none());
++        assert!(envelope.frame.rights.is_empty() && envelope.frame.pidfds.is_empty());
++        assert_eq!(envelope.scalar_snapshot().observed_control_length_field, 256);
++    }
++
++    #[test]
++    fn all_error_length_relations_stay_opaque_without_decoder_or_owners() {
++        for length in [0, 1, 15, 16, 255, 256, 257, usize::MAX] {
++            let value = PreparedTerminalReceiver::prepare(256).unwrap();
++            let envelope = value.attempt(RecvFlags::CMSG_CLOEXEC, |raw| {
++                raw[0] = MaybeUninit::new(0xff);
++                (Err(io::Errno::INVAL), length, ReturnFlags::from_bits_retain(u32::MAX))
++            }).unwrap();
++            assert_eq!(envelope.scalar_snapshot().observed_control_length_field, length);
++            assert_eq!(envelope.scalar_snapshot().supplied_control_bytes, 256);
++            assert!(envelope.completed_frame().is_none());
++            assert!(envelope.frame.records.is_empty() && envelope.frame._control.is_empty());
++            assert!(envelope.frame.rights.is_empty() && envelope.frame.pidfds.is_empty());
++        }
++    }
++
++    #[test]
++    fn success_with_unbounded_length_is_quarantined_not_decoded() {
++        let value = PreparedTerminalReceiver::prepare(16).unwrap();
++        let envelope = value.attempt(RecvFlags::empty(), |_| {
++            (Ok(1), 17, ReturnFlags::empty())
++        }).unwrap();
++        assert_eq!(envelope.status(), TerminalStatus::InvalidSuccessLength { bytes: 1 });
++        assert!(envelope.completed_frame().is_none());
++        assert!(envelope.frame.records.is_empty() && envelope.frame.rights.is_empty());
++    }
++
++    #[test]
++    fn empty_success_preserves_storage_and_has_only_success_frame_access() {
++        let value = PreparedTerminalReceiver::prepare(256).unwrap();
++        let before = pointers(&value.receiver);
++        let caps = capacities(&value.receiver);
++        let envelope = value.attempt(RecvFlags::DONTWAIT | RecvFlags::CMSG_CLOEXEC,
++            |_| (Ok(0), 0, ReturnFlags::empty())).unwrap();
++        assert_eq!(envelope.status(), TerminalStatus::Completed { bytes: 0 });
++        assert_eq!(before, envelope_pointers(&envelope));
++        assert_eq!(caps, envelope_capacities(&envelope));
++        let frame = envelope.completed_frame().unwrap();
++        assert!(frame.records().is_empty() && frame.rights().is_empty());
++        assert_eq!(frame.message().address, None);
++    }
++
++    #[test]
++    fn unsupported_flags_refuse_before_backend_entry() {
++        for flag in [RecvFlags::PEEK, RecvFlags::OOB, RecvFlags::TRUNC, RecvFlags::WAITALL] {
++            let count = Cell::new(0);
++            let value = PreparedTerminalReceiver::prepare(256).unwrap();
++            assert!(matches!(value.attempt(flag, |_| {
++                count.set(count.get() + 1);
++                (Ok(0), 0, ReturnFlags::empty())
++            }), Err(ReceiveError::Flags)));
++            assert_eq!(count.get(), 0);
++        }
++    }
++
++    #[test]
++    fn unexpected_backend_unwind_does_not_drop_or_reuse_attempt_context() {
++        struct Probe(Rc<Cell<usize>>);
++        impl Drop for Probe { fn drop(&mut self) { self.0.set(self.0.get() + 1); } }
++        let drops = Rc::new(Cell::new(0));
++        let entries = Cell::new(0);
++        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++            let _ = sealed_call(Probe(drops.clone()), |_| {
++                entries.set(entries.get() + 1);
++                panic!("synthetic source seam");
++            });
++        }));
++        assert!(result.is_err());
++        assert_eq!(entries.get(), 1);
++        assert_eq!(drops.get(), 0);
++    }
++}

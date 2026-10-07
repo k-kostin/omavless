@@ -28,6 +28,138 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVATION_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_PATH_BYTES: usize = 4096;
 
+/// Captured only from the actual parent-owned host. All controller reads and
+/// executable hashing happen after moving this out of the owner mutex.
+pub(crate) struct CloseObservation {
+    session: crate::conditional_close_candidate::Session,
+    facts: CloseFacts,
+}
+pub(crate) struct CloseFacts {
+    readiness: ConfigReadiness,
+    proc_root: PathBuf,
+    sys_class_net: PathBuf,
+    config_directory: PathBuf,
+    uid: u32,
+    tun_identity: Option<(String, u64)>,
+    auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
+    pid: u32,
+    #[cfg(test)]
+    fixture: Option<CloseFixture>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum CloseFixture {
+    OwnedLoopback,
+    PassiveOwnedLoopback,
+}
+
+impl CloseObservation {
+    pub(crate) fn session(&self) -> &crate::conditional_close_candidate::Session {
+        &self.session
+    }
+    pub(crate) fn session_mut(&mut self) -> &mut crate::conditional_close_candidate::Session {
+        &mut self.session
+    }
+    #[cfg(test)]
+    pub(crate) fn into_session(mut self) -> crate::conditional_close_candidate::Session {
+        self.session.attach_observation(self.facts);
+        self.session
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_permit(
+        &self,
+    ) -> Option<crate::conditional_close_candidate::CandidateEffectPermit> {
+        match self.facts.fixture {
+            Some(CloseFixture::OwnedLoopback) => {
+                Some(crate::conditional_close_candidate::CandidateEffectPermit::owned_fixture())
+            }
+            Some(CloseFixture::PassiveOwnedLoopback) | None => None,
+        }
+    }
+
+    pub(crate) fn observe(&mut self) -> Result<(), HostStepError> {
+        self.facts.observe(&mut self.session)
+    }
+}
+impl CloseFacts {
+    pub(crate) fn observe(
+        &self,
+        session: &mut crate::conditional_close_candidate::Session,
+    ) -> Result<(), HostStepError> {
+        session
+            .prepare_executable()
+            .map_err(|_| HostStepError::Observation)?;
+        if !session.proves_live() {
+            return Err(HostStepError::Observation);
+        }
+        let named = processes_named_strict(&self.proc_root, "mihomo")
+            .map_err(|_| HostStepError::Observation)?;
+        let auxiliary = self
+            .auxiliary
+            .verified_pid()
+            .map_err(|_| HostStepError::Observation)?;
+        if named
+            .iter()
+            .filter(|pid| **pid != self.pid && Some(**pid) != auxiliary)
+            .count()
+            != 0
+        {
+            return Err(HostStepError::Observation);
+        }
+        let inventory = crate::tun_scope::inventory(&self.sys_class_net)?;
+        let configured = crate::tun_scope::configured_devices(&self.config_directory, self.uid)?;
+        let scoped = configured.as_ref().map_or(inventory.len(), |devices| {
+            inventory.intersection(devices).count()
+        });
+        if scoped != usize::from(self.tun_identity.is_some()) {
+            return Err(HostStepError::Observation);
+        }
+        let mut config = None;
+        if !self
+            .readiness
+            .ready_with(Instant::now() + Duration::from_secs(3), |endpoint| {
+                let result = session.read_fixed(endpoint);
+                if endpoint == omavless_mihomo::ReadOnlyEndpoint::Configs {
+                    config = result.clone();
+                }
+                result
+            })
+        {
+            return Err(HostStepError::Observation);
+        }
+        let config = config.ok_or(HostStepError::Observation)?;
+        match &self.tun_identity {
+            Some((device, index)) => {
+                if crate::traffic::controller_device(&config) != Some(device)
+                    || !inventory.contains(device)
+                    || crate::tun_scope::device_index(&self.sys_class_net, device)? != *index
+                {
+                    return Err(HostStepError::Observation);
+                }
+            }
+            None => {
+                #[cfg(test)]
+                if self.fixture.is_none() || config["tun"]["enable"] != false {
+                    return Err(HostStepError::Observation);
+                }
+                #[cfg(not(test))]
+                return Err(HostStepError::Observation);
+            }
+        }
+        if !session.proves_live()
+            || named
+                != processes_named_strict(&self.proc_root, "mihomo")
+                    .map_err(|_| HostStepError::Observation)?
+            || inventory != crate::tun_scope::inventory(&self.sys_class_net)?
+            || configured != crate::tun_scope::configured_devices(&self.config_directory, self.uid)?
+        {
+            return Err(HostStepError::Observation);
+        }
+        Ok(())
+    }
+}
+
 /// Stable host paths resolved by package policy, never by an IPC request.
 /// This type intentionally has no `Debug` implementation.
 pub struct NativeHostPaths {
@@ -192,6 +324,7 @@ fn remove_owned_file(path: &Path, uid: u32, socket: bool) -> Result<(), HostStep
 /// never be formatted or serialized.
 pub struct NativeLifecycleHost {
     paths: NativeHostPaths,
+    drop_paths: DropPaths,
     uid: u32,
     core: Option<OwnedCore>,
     core_diagnostics: Option<crate::core_diagnostics::DiagnosticReader>,
@@ -204,9 +337,142 @@ pub struct NativeLifecycleHost {
     // Retained across stop until disappearance is proved. A replacement at
     // the same configured name cannot silently become our connected device.
     tun_identity: Option<(String, u64)>,
+    #[cfg(test)]
+    close_fixture: Option<CloseFixture>,
+}
+
+enum DropPaths {
+    Cleanup,
+    Preserve,
+}
+
+/// Sealed observation-only use of the actual native observer. No inner host,
+/// auxiliary slot or resource handle escapes, and no lifecycle effect delegates.
+/// Its fresh inner host never owns a core or staged file, so destruction must
+/// not remove another operation's same-user controller/staging names.
+pub(crate) struct ObservationOnlyNativeHost {
+    inner: NativeLifecycleHost,
+}
+
+impl ObservationOnlyNativeHost {
+    pub(crate) fn new(paths: NativeHostPaths, uid: u32) -> Result<Self, HostStepError> {
+        let mut inner = NativeLifecycleHost::new(paths, uid)?;
+        inner.drop_paths = DropPaths::Preserve;
+        Ok(Self { inner })
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl NativeLifecycleHost {
+    pub(crate) fn new_retained_completion(
+        paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::new(paths, uid)?;
+        host.drop_paths = DropPaths::Preserve;
+        Ok(host)
+    }
+}
+
+impl LifecycleHost for ObservationOnlyNativeHost {
+    fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
+        self.inner.observe(desired)
+    }
+    fn fresh_observation(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<NativeLocalObservation, HostStepError> {
+        self.inner.fresh_observation(desired)
+    }
+    fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn prepare(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn start_prepared(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn commit_prepared(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn stop_owned(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Cleanup)
+    }
+    fn discard_prepared(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Cleanup)
+    }
 }
 
 impl NativeLifecycleHost {
+    #[cfg(test)]
+    pub(crate) fn owned_close_fixture(
+        paths: NativeHostPaths,
+        uid: u32,
+        core: OwnedCore,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::new(paths, uid)?;
+        host.install_owned_close_fixture(core)?;
+        Ok(host)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_owned_close_fixture(
+        &mut self,
+        core: OwnedCore,
+    ) -> Result<(), HostStepError> {
+        if self.core.is_some()
+            || self.profile_id.is_some()
+            || self.readiness.is_some()
+            || self.close_fixture.is_some()
+        {
+            return Err(HostStepError::Observation);
+        }
+        self.core = Some(core);
+        self.profile_id = Some("00000000-0000-4000-8000-000000000001".into());
+        self.readiness = Some(ConfigReadiness::new(
+            crate::desired::RoutingMode::Direct,
+            "DIRECT".into(),
+        ));
+        self.close_fixture = Some(CloseFixture::OwnedLoopback);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn verify_close_fixture(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<(), HostStepError> {
+        if self.close_fixture.is_none() {
+            return Err(HostStepError::Observation);
+        }
+        self.capture_connection_close(desired)?.observe()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn owned_rule_close_fixture(
+        paths: NativeHostPaths,
+        uid: u32,
+        core: OwnedCore,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::owned_close_fixture(paths, uid, core)?;
+        host.readiness = Some(ConfigReadiness::new(
+            crate::desired::RoutingMode::Rule,
+            "DIRECT".into(),
+        ));
+        Ok(host)
+    }
+    #[cfg(test)]
+    pub(crate) fn passive_owned_close_fixture(
+        paths: NativeHostPaths,
+        uid: u32,
+        core: OwnedCore,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::owned_close_fixture(paths, uid, core)?;
+        host.close_fixture = Some(CloseFixture::PassiveOwnedLoopback);
+        Ok(host)
+    }
+
     pub fn new(paths: NativeHostPaths, uid: u32) -> Result<Self, HostStepError> {
         let all_paths_valid = [
             &paths.core,
@@ -235,6 +501,7 @@ impl NativeLifecycleHost {
         }
         Ok(Self {
             paths,
+            drop_paths: DropPaths::Cleanup,
             uid,
             core: None,
             core_diagnostics: None,
@@ -245,12 +512,51 @@ impl NativeLifecycleHost {
             ping_slot: std::sync::Arc::default(),
             auxiliary: std::sync::Arc::default(),
             tun_identity: None,
+            #[cfg(test)]
+            close_fixture: None,
         })
     }
 
     #[must_use]
     pub fn core_pid(&self) -> Option<u32> {
         self.core.as_ref().and_then(OwnedCore::pid)
+    }
+
+    pub(crate) fn capture_connection_close(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<CloseObservation, HostStepError> {
+        if !desired.connected || self.profile_id.as_deref() != Some(desired.profile_id.as_str()) {
+            return Err(HostStepError::Observation);
+        }
+        let readiness = self
+            .readiness
+            .as_ref()
+            .filter(|expected| expected.mode == desired.mode)
+            .ok_or(HostStepError::Observation)?
+            .clone();
+        let core = self.core.as_mut().ok_or(HostStepError::Observation)?;
+        let pid = core.pid().ok_or(HostStepError::Observation)?;
+        let mut session = crate::conditional_close_candidate::Session::bind(core, self.uid)
+            .map_err(|_| HostStepError::Observation)?;
+        session
+            .capture_executable(&self.paths.core)
+            .map_err(|_| HostStepError::Observation)?;
+        Ok(CloseObservation {
+            session,
+            facts: CloseFacts {
+                readiness,
+                proc_root: self.paths.proc_root.clone(),
+                sys_class_net: self.paths.sys_class_net.clone(),
+                config_directory: self.paths.config_directory.clone(),
+                uid: self.uid,
+                tun_identity: self.tun_identity.clone(),
+                auxiliary: self.auxiliary.clone(),
+                pid,
+                #[cfg(test)]
+                fixture: self.close_fixture,
+            },
+        })
     }
 
     /// Startup only, while canonical runtime and migration ownership are held.
@@ -889,8 +1195,10 @@ impl Drop for NativeLifecycleHost {
                 .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
             let _ = core.stop(timeout);
         }
-        let _ = self.remove_controller();
-        let _ = remove_owned_file(&self.paths.staged_config, self.uid, false);
+        if matches!(self.drop_paths, DropPaths::Cleanup) {
+            let _ = self.remove_controller();
+            let _ = remove_owned_file(&self.paths.staged_config, self.uid, false);
+        }
         if self.active_install_attempted {
             let _ = self.restore_previous_config();
         }
@@ -944,6 +1252,85 @@ mod tests {
         );
         let host = NativeLifecycleHost::new(paths, uid).unwrap();
         (root, host)
+    }
+
+    #[test]
+    fn observation_only_host_preserves_unowned_names_and_refuses_all_effects() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        for refuse in [false, true] {
+            let (root, initial) = observation_fixture();
+            drop(initial);
+            let uid = nix::unistd::Uid::current().as_raw();
+            let paths = NativeHostPaths::new(
+                root.join("core"),
+                root.join("data"),
+                root.join("config"),
+                root.join("runtime"),
+                root.join("proc"),
+                root.join("sys"),
+            );
+            let staged = paths.staged_config.clone();
+            let controller = paths.controller_socket.clone();
+            fs::write(&staged, b"synthetic-unowned-staging").unwrap();
+            let staged_identity = fs::metadata(&staged).unwrap();
+            let listener = UnixListener::bind(&controller).unwrap();
+            let socket_identity = fs::symlink_metadata(&controller).unwrap();
+            let mut host = ObservationOnlyNativeHost::new(paths, uid).unwrap();
+            assert!(host.auxiliary_slot().is_none());
+            assert!(host.probe_paths().is_none());
+            assert!(host.route_core_identity().is_none());
+            assert!(host.connection_preflight().is_err());
+            assert!(host.prepare(&DesiredState::default()).is_err());
+            assert!(host.validate_startup(&DesiredState::default()).is_err());
+            assert!(host.start_prepared().is_err());
+            assert!(host.commit_prepared().is_err());
+            assert!(host.stop_owned().is_err());
+            assert!(host.discard_prepared().is_err());
+            if refuse {
+                fs::remove_dir(root.join("proc")).unwrap();
+                assert!(host.fresh_observation(&DesiredState::default()).is_err());
+            } else {
+                assert!(
+                    !host
+                        .fresh_observation(&DesiredState::default())
+                        .unwrap()
+                        .owned_core_running
+                );
+                assert_eq!(
+                    host.observe(&DesiredState::default()).unwrap().core_count,
+                    0
+                );
+            }
+            drop(host);
+            assert_eq!(fs::read(&staged).unwrap(), b"synthetic-unowned-staging");
+            assert!(crate::restore_staging_candidate::same_member(
+                &staged_identity,
+                &fs::metadata(&staged).unwrap()
+            ));
+            assert!(crate::restore_staging_candidate::same_member(
+                &socket_identity,
+                &fs::symlink_metadata(&controller).unwrap()
+            ));
+            let client = UnixStream::connect(&controller).unwrap();
+            let peer = listener.accept().unwrap().0;
+            drop((client, peer, listener));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn ordinary_host_drop_keeps_existing_path_cleanup_policy() {
+        use std::os::unix::net::UnixListener;
+        let (root, host) = observation_fixture();
+        let staged = host.paths.staged_config.clone();
+        let controller = host.paths.controller_socket.clone();
+        fs::write(&staged, b"synthetic-staging").unwrap();
+        let listener = UnixListener::bind(&controller).unwrap();
+        drop(host);
+        assert!(!staged.exists());
+        assert!(!controller.exists());
+        drop(listener);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

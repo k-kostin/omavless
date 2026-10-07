@@ -1,0 +1,34 @@
+diff --git a/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs b/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs
+index f482b8b..80a9be8 100644
+--- a/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs
++++ b/rustix-1.1.5/src/net/send_recv/owned_ancillary_terminal.rs
+@@ -9,11 +9,17 @@ use core::mem::ManuallyDrop;
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum TerminalStatus {
+     /// Successful backend result with bounded reported control length.
+-    Completed { bytes: usize },
++    Completed {
++        /// Payload byte count returned by the successful backend.
++        bytes: usize,
++    },
+     /// Opaque syscall error. Installed-but-unreported descriptors remain unknown.
+     SyscallFailed(io::Errno),
+     /// Successful backend violated the supplied control bound. Never decode.
+-    InvalidSuccessLength { bytes: usize },
++    InvalidSuccessLength {
++        /// Payload byte count accompanying the invalid control-length result.
++        bytes: usize,
++    },
+ }
+ 
+ /// Initialized scalar fields, not a receipt or an initialized owning prefix.
+@@ -43,7 +49,9 @@ pub struct TerminalEnvelope {
+ }
+ 
+ impl TerminalEnvelope {
++    /// Return the terminal status without decoding an error control snapshot.
+     pub fn status(&self) -> TerminalStatus { self.status }
++    /// Return opaque scalar fields; they do not establish an owning prefix.
+     pub fn scalar_snapshot(&self) -> ScalarSnapshot { self.snapshot }
+     /// Only a bounded successful backend can produce a decoded frame.
+     pub fn completed_frame(&self) -> Option<&OwnedRecvMsg> {

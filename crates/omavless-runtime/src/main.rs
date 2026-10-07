@@ -70,6 +70,39 @@ impl From<&str> for CliError {
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    #[cfg(feature = "t4-manager-actor-service")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "developer")
+    {
+        if !omavless_runtime::developer_current_restore::arguments_admitted(&arguments) {
+            return Err("developer_current_restore_arguments_refused".into());
+        }
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("developer_current_restore_private_stdin_required".into());
+        }
+        let marker = omavless_runtime::developer_current_restore::from_private_input(
+            &arguments,
+            io::stdin().lock(),
+        )
+        .map_err(CliError::from)?;
+        println!("{marker}");
+        return Ok(());
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "restore")
+    {
+        if !omavless_runtime::restore_abort_cli::arguments_admitted(&arguments) {
+            return Err(
+                "Usage: omavless restore abort --confirm-rollback (private JSON on stdin)".into(),
+            );
+        }
+        omavless_runtime::restore_abort_cli::abort_from_private_input(io::stdin().lock())
+            .map_err(|error| CliError::Message(error.to_string()))?;
+        println!("OLD restored; recovery fence remains. Normal startup is still blocked.");
+        return Ok(());
+    }
     #[cfg(feature = "tui")]
     if arguments == ["tui", "--available"] {
         println!("omavless.tui.v1");
@@ -119,7 +152,7 @@ fn run() -> Result<(), CliError> {
         #[cfg(feature = "tui")]
         println!("  tui                             terminal controls; close leaves VPN unchanged");
         println!(
-            "{USAGE}\n  import preview                  read private input from stdin; private UI output"
+            "{USAGE}\n  import preview                  read private input from stdin; private UI output\n  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
         );
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");

@@ -20,6 +20,11 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [T4 root-observed private Abort process loss](../development/T4_ROOT_OBSERVED_PROCESS_GUARD.md#exact-head-execution--2026-10-04):
+  exact-source five-case synthetic SIGKILL/re-entry and bounded whole-invocation
+  preservation evidence; not installed restore, power-loss or product T4 PASS.
+  The earlier [inner PASS / outer NONPASS](../development/T4_FIRST_ABORT_PROCESS_REENTRY.md#exact-head-execution-and-retained-nonpass)
+  remains independent retained evidence.
 - [0.9.7 RC ledger](../development/RC_097.md): maintenance selection and
   explicit package, installed-rendering and publication gates; not a new
   installed or public acceptance claim.

@@ -14,6 +14,42 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
+fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without_effects() {
+    let base = runtime_base();
+    for args in [
+        vec!["restore", "abort"],
+        vec![
+            "restore",
+            "abort",
+            "--confirm-rollback",
+            "synthetic-private-value",
+        ],
+    ] {
+        let output = isolated_command(&base).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-private-value"));
+    }
+    for (input, expected) in [
+        (b"synthetic-private-value".to_vec(), "Invalid private restore-abort input\n"),
+        (vec![b'x'; 32769], "Invalid private restore-abort input\n"),
+        (br#"{"schema":1,"archive":"/synthetic-private-archive","passphrase":"synthetic-private-value"}"#.to_vec(),
+            "Restore abort requires an existing safe, stopped runtime\n"),
+    ] {
+        let mut child = isolated_command(&base).args(["restore", "abort", "--confirm-rollback"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let written = child.stdin.take().unwrap().write_all(&input);
+        assert!(written.is_ok() || written.is_err_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe));
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, expected.as_bytes());
+        assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    }
+    fs::remove_dir(base).unwrap();
+}
+
+#[test]
 fn removal_watcher_refuses_all_external_parameters_before_host_effects() {
     let base = runtime_base();
     for private in ["private-token", "--force", "$(private)"] {
@@ -957,6 +993,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "subscription delete SUBSCRIPTION_ID",
         "subscription refresh SUBSCRIPTION_ID",
         "import preview",
+        "restore abort --confirm-rollback",
     ] {
         assert!(help.contains(command));
     }

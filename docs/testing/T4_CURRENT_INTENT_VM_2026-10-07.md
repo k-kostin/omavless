@@ -1,0 +1,332 @@
+# T4 installed-current positive Intent pause / same-held Abort
+
+ROOT alone selected this agent-attended disposable VM gate. It uses genuine
+normal installed `bind_current()` / `ProductionNativeOwner::current()` and
+normal user-manager/login admission, not fixture constructors or receipts.
+No physical host, human-attended acceptance, default Restore activation,
+arbitrary uncertain recovery, main or release acceptance is claimed.
+
+## Exact scope
+
+- Runtime/package source: `6fe6dd2924dec6d8aab9b2df44e94e74fa719199`.
+  Authority changes are source `524a2b44` plus publication helper `6ab1edd7`;
+  final `6fe6dd29` changes only the DNS journal singleton TEST fixture.
+- Normal installed ELF: 8,959,280 bytes; SHA-256
+  `c463c3393034e73b02cbb110021f5b2d800005f5c4c9a80ab3d826a26f89a4a4`.
+- Development package: `omavless-0.0.0.r1128.g6fe6dd2924de-1-x86_64.pkg.tar.zst`;
+  SHA-256 `84c3570af2284ecd21520889a1853948118c6a441153726e0303d11116a662ae`.
+- Fresh thin VM branch boot: `28052616-3ae2-4f65-aa39-9db173ecabc6`.
+  Its original whole disk stayed stopped/preserved; Current34 audit was not deleted.
+- Compatible WHOLE LegacyMeta2 package: SHA-256
+  `c07892bb4b3cf581a6d644bac458ca8c7bc852dfcbf492dfa4320fe556da4a07`.
+  Core/broker/receipt compatibility used normal package validation, not a
+  qualified-K1 receipt swap. No DNS broker start/enrollment was selected for T4.
+
+PRIMARY and independent source reviews cleared the complete custody delta and
+private publication successor before selection. Local controls passed: related
+restore19 plus identical-pair1; private parser/dispatcher7; default absence1;
+production shared-write failure1; strict feature/default Clippy and fmt/diff.
+The source-only runner used 12 pure controls and BOOT-only comparison; package
+inspection covered all 20 public members, types/modes/hashes and unchanged units.
+These checks are separate evidence, not new whole-dependency attestation.
+
+Before effects ROOT observed all 11 selected pending/history names absent.
+The normal pair was owned Off, with stored preset empty and onboarding true.
+ROOT privately captured the original config/state (`956c41`, 0600/single), then
+deliberately selected the normal `roscomvpn-default` keep-mode preset
+(`c8a295` original0; `9f8363` positive revision1/ownedOff). This intentional
+preference setup is distinct from Restore proof: the unconfigured original pair
+was not silently normalized, and it remains privately preserved.
+
+## Original commands and separate observations
+
+Every listed application/service command completed original SSH/process exit0.
+Every observation below was separately selected and completed exit0. Workflow
+observed files are correlation only; none substitutes for original completion.
+
+| Phase | Original / observation | Established fact |
+| --- | --- | --- |
+| Prepare | `8bbca0` | New private scope and inputs only |
+| Hello | `d1da99` / `709ef9` | Genuine current instance and ownership |
+| Status | `fe7976` / `397061` | Owned Off |
+| Profiles | `29fe70` / `5cf611` | Initial private API projection |
+| Export | `4c855b` / `95d10d` | Actual pair encrypted to new private archive |
+| Pause | `418e5e` / `2cd05e` | Positive original Intent checkpoint marker |
+| Paused hello | `b7b6c6` / `4d7eb0` | SAME instance/revision; ownership unavailable |
+| Abort | `72f405` / `d724a2` | Exact same-held OLD/Aborted completion marker |
+| Post-status | `be54db` / `d77d5d` | Owned Off; revision advanced exactly once |
+| Post-profiles | `becacc` / `159cab` | Profile API projection equal |
+| Snapshot | `63300a` / `a39907` | Onboarding already true |
+| Onboarding | `ce4ea6` / `318726` | Exact five-field applied reply; unchanged revision |
+| Planned replay | `4ff275` / `97a9a0` | Same request and unchanged revision |
+| Final status | `c8d15a` / `6a64e6` | Owned Off |
+| Normal stop | `aafd95` / `5a84f3` | Normal user runtime stop0 |
+| Stopped read | `486eb9` / `a8ae1d` | Inactive/dead, both PIDs0, success/status0 |
+| Normal start | `52c1c4` / `8ddecc` | Independently earned normal startup |
+| New hello | `bf99d6` / `4d92dd` | Changed genuine instance with ownership |
+| New status | `0ca751` / `ab8132` | Owned Off |
+| New profiles | `5dfc0c` / `e10072` | Profile API projection equal after restart |
+
+The positive pause is a distinct supported state BEFORE the first live rename,
+not an `execute_native` error. Its original lease, boundary, authenticated
+plaintext, Intent and engine stayed in the SAME installed holder. Abort consumed
+that state before fallible checks; it verified the unchanged held/named OLD pair,
+published Aborted, performed terminal-specific retirement/history disposition
+and moved the ONE original migration lease into the ordinary retaining destination.
+No MIXED recapture, fake NEW/Committed proof or lease reacquisition was used.
+The paused ownership-unavailable result is expected, not a renewed authority grant.
+
+NoChange and replay have the same five-field `plugin.action` wire shape;
+same instance/operation/digest/PRErevision plus reached coordinator semantics
+supports the planned replay path, not a new wire replay attestation. Profile
+projection equality is not a public dump or a cryptographic claim about every
+credential. Engine original-byte readbacks retain their own source contract.
+Private originals, ciphertext, passphrases and raw logs stay outside Git.
+
+## Limits and remaining guarantees
+
+The older [NEW/Committed Current34/35 checkpoint](T4_INSTALLED_CURRENT_VM_2026-10-06.md)
+remains bound to exact runtime `9b7f33d9`, including preserved Current29/30/31
+negatives and the stale onboarding observer/correct read-only continuation.
+It is not retrospectively a `6fe` result. The old docs494 CI singleton failure
+also remains NONPASS; the separate test-only directory-link accounting fix and
+focused controls do not make that historical whole CI run green.
+
+This gate closes the installed controlled-positive Intent→SAME-held OLD/Aborted
+continuation with ordinary use and genuine restart. It does NOT close recovery
+from real throw/late/unknown I/O or lost owner after revocation. Those remain
+irrevocably unavailable; no automatic Abort or cold-record decoder grant exists.
+Other unknown/late/owner-loss cases,
+late fresh-recovery interruption/OLD-Intent finalization and separately earned
+product recovery still need their exact supported gate. Repeat Restore/history
+policy, wider portable data scope and reviewed product UI/default activation
+also remain separate. No all-syscall or fatal descriptor-survival claim is made.
+
+## Current42 status producer, authentication and publication loss
+
+This later checkpoint is exact normal runtime `4603904ecf5493855de360ee2676d96c411fced3`,
+not a retrospective Current36 result. Installed ELF is 8,963,448 bytes / SHA-256
+`f266b8913877ed3ba6dcdf36a197c9873a8dc887feb9025231d43ffdd3ba710d`;
+normal development package SHA-256
+`e566c324f42157ea4f6ddf397f1db66ed6adcf54545f303ef6bdd32aee901796`.
+ROOT alone operated the disposable VM boot
+`86baf95e-5015-4a30-bc5f-9858e8288513`, compatible whole LegacyMeta2 and genuine
+normal user-manager/login/current construction. Actual ordinary DNS broker was
+active PID798 on this boot; the old Current36 broker-inactive fact was not reused.
+No broker, network, TUN, profile, receipt or archive rewrite was part of these cuts.
+
+Current38's original sender exit2 remains UNKNOWN, with all postphases stopped.
+Current39 read-only file guards passed; Current41 then identified an actual
+`directory_refresh` refusal after normal hello/status, with no effecting request.
+Faithful local real RuntimeServer/RuntimePaths/client reproduction showed
+`status.get` reached `read_desired` and chmod0700 changed the held state-directory
+ctime even when mode was already0700. The source correction keeps all nine fields:
+strict snapshot first, real ownership recomputation, then actual/transition
+projection under the same dispatcher mutex and retained-origin loan. Missing,
+0755 and symlink entry states refuse without repair; startup/mutation/hello
+behavior remains unchanged. A candidate projection ordering finding in unselected
+`613a7984` was closed by `4603904e` and status-FIRST promotion/sticky-stale controls.
+An external race after snapshot can still reach unchanged ownership preparation;
+this is not a globally zero-read-side-effects claim.
+
+PRIMARY and independent affected source reviews preceded the new package and
+exact helper selections. Seven helper controls, strict Clippy, three selector
+controls and literal image/boot comparisons are source evidence only. Both exact
+real-RPC regressions passed in default and feature builds. The accidental broad
+source filter's 9-pass/4-fail result remains NONPASS; its four failed cases passed
+individually under a fresh short HOME fixture root with the same test ELF, without
+changing assertions or production guards. This is not a whole-suite reassignment.
+
+Every original command and separate observation below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Strict read-only current preflight | `d9456e` / `984fa8` | All current guards valid, category frame, read-only RPC, no effecting request or admission |
+| Wrong-passphrase rejection | `3830e5` / `7b73ac` | Exact nonretryable denial; SAME instance/revision, owned Off, held bytes, nine-field directories, pending absence and profiles unchanged |
+| Publication preparation | `436fc0`, `979b5c`, `07e027` | Fresh public source/private capture scope only |
+| Baseline unit/hello/status/cursor | `88a054`, `a2318e`, `2726f4`, `d2d3c0` / `fbc240` | Original PID3283/invocation/instance/revision/cursor correlation, not authority grants |
+| One loss sender | `1f3a7e` | Read shutdown before request byte0; all six fixed phase labels, no reply read or automatic continuation |
+| Fixed journal / sealed adjudication | `1f0b80` / `a2651a` | Exactly one source-closed seal diagnostic matched to the SAME original daemon |
+| Separately selected live reads | `c59f32`, `51c67a`, `5c2b03` / `2063c3` | SAME live daemon/epoch/revision, ownership unavailable and Off |
+
+The authentication rejection is before holder/lease/Boundary installation. The
+publication case is different: the server's original response-write failure
+consumed the SAME positive Intent pause, revoked its engine, made the holder
+unavailable and independently blocked the transaction before the fixed diagnostic.
+Sender completion, client loss, a generic error or unavailable hello alone would
+not have proved this. ROOT independently required original sender0, journal0,
+strict sealed observer0 and live continuity; no observer file granted authority.
+
+No Abort, forward or ordinary mutation/refusal probe was selected after sealing.
+Source/actual evidence closes this installed nonfatal publication-loss consequence,
+not fatal descriptor survival, late reactivation, unknown/cold recovery, default
+Restore activation or whole T4. Private inputs, plaintext, ciphertext, archives
+and raw captures remain outside Git. Administrative preservation/poweroff is
+separate from product recovery and cannot be used as a passed cleanup step.
+
+## Current43 typed denials and new authenticated OLD/Intent Abort
+
+ROOT alone operated the preserved compatible disposable VM boot
+`6b0d1741-3acc-4cc1-9a58-a32bfa9e0be2`. Normal installed runtime is exact
+`d0ab2e1601dc7f0f7663b0e2ccda3e4d092a356e`, ELF8,962,728 bytes / SHA-256
+`4f9115e1a2be9508a4ac08d7aa6554317f279d136a2174788a2e169b47c40a9e`.
+The distinct no-default developer-feature recovery test image is exact source
+`688094027a463915f0f0b652da25eabd29deccf7`, ELF25,145,696 bytes / SHA-256
+`4415c300659e67b73beedefba80d8c977c4acadfe2f7189ba2050d4d7d8edb2e`.
+The installed daemon was not rebuilt or silently relabeled as688. Whole
+LegacyMeta2 compatibility, genuine normal login/current construction and the
+existing private audit history were earned/preserved separately.
+
+PRIMARY and independent source/driver/preparation/publication reviews preceded
+selection. The author compiled/sealed images but did not execute them or access
+the VM. Twelve publication-script pure controls and literal-only boot/image-pin
+comparisons were source evidence, not original-process outcomes. The sender
+image was1,100,368 bytes / SHA-256
+`fd8172f81e198edbb476637f66f8141b625657ff07cd227fe945949a7e3f7d6d`.
+Private inputs, archive, profiles, template and raw captures remain outside Git.
+
+All originals and the distinct observations below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Preparation/export | `e39dba`, `037df3` / `21db7b`; `235bc3` / `bfd62e` | Fresh fixed private archive/request from genuine current backup; original instance/revision correlation only |
+| Publication baseline | `2c972a` | Original unit/hello/status/cursor correlation, not an authority grant |
+| Strict read-only preflight | `6cafe6` / `042b53` | Current guards valid; normal hello/status only, no effecting request |
+| One loss sender | `aaa853` | Complete six-label prefix; read shutdown before request byte0, no reply or retry |
+| After-cursor journal/seal | `f43932` / `7c200a` | Source-closed original publication seal, not client-loss inference |
+| SAME live continuation reads | `25e62c`, `0c1e18`, `d96d01` / `336ab3` | Same daemon/instance/revision, unavailable Off |
+| New Pause denial | `a59217` / `2e6d99` | Exact nonretryable capability_unavailable; original facts unchanged |
+| New Abort denial | `969abf` / `47ef3a` | Exact nonretryable capability_unavailable; original facts unchanged |
+| New Backup denial | `79bab5` / `d1380c` | Exact nonretryable capability_unavailable; original facts unchanged |
+| New Restore denial | `e98f42` / `0f07e5` | Exact nonretryable capability_unavailable; original facts unchanged |
+| Known normal runtime stop | `c9a699` / `7fa69e`, `7b5a6e` | Canonical unit inactive/dead, both PIDs0, success/status0 |
+| New authenticated OLD/Intent Abort | `e79972` / `e4ef79` | Original recovery test0 plus exact marker/successful harness; AbortedStillFenced |
+
+The four denials prove only that each newly requested operation refused before
+entry. They do not make the preceding sealed operation effect-free, resumable or
+retriable. Exact private held/named bytes, full-nine-field directories and
+normal projections were checked against the same original facts, including
+preserved staged data, Intent, archive/request and audit history.
+
+Only after the known normal daemon stop0 did a new preinstalled recovery holder
+authenticate the archive and positively acquire the existing original migration
+and singleton locks. It did not copy the former live holder, create/recreate a
+lock, reconnect the old socket or accept observer files as authority. Normal
+RuntimeServer Drop had removed its own socket; the reviewed closed SocketAbsent
+origin admitted only nofollow ENOENT after the new exclusive existing lock and
+rechecked the original parent/lock/absence at every origin, including before
+catalogue capture. Real managers/inventory and original boundaries were rechecked.
+
+The bound live OLD pair was neither copied nor renamed. Recovery verified and
+synced those original files/directory, exclusively published the exact matching
+Aborted record, read back Intent/Aborted and unchanged OLD bytes/inodes, then ran
+the final fresh origin fence. It retained the original lease/graph and left
+Stage/Intent/Aborted present. The existing audit history was unchanged. The
+known State-directory change was only the reported terminal publication, not a
+generic drift exemption.
+Lease/descriptor retention here is during the original test operation; its
+known normal exit0 does not attest live descriptor custody or authority after exit.
+
+This closes installed nonfatal publication sealing, typed new-entry refusal and
+same-boot newly authenticated OLD/Intent→AbortedStillFenced. It does **not** close
+terminal retirement, repeated immutable history, ordinary admission after this
+recovery, missing volatile locks/cold bootstrap, default Backup/Restore, product
+UI, fatal descriptor survival or whole T4. The earlier Current38 UNKNOWN and
+all historical failed originals remain unchanged; this was a new explicit scope.
+
+## Current44 retained completion and independent normal admission
+
+ROOT alone selected this successor on the SAME preserved Current43 boot
+`6b0d1741-3acc-4cc1-9a58-a32bfa9e0be2`, after the known Current43 original
+OLD/Intent recovery exited0. Completion source is
+`0f2a1b8a46ad8e5ffef46660e99b5a663226d332`; its distinct no-default
+developer-feature test ELF is25,159,752 bytes / SHA-256
+`a1514ab9bc0df59865d45bc4560c084339dcdb603bb8649387bcf912fd808116`.
+Normal installed runtime remained exact d0ab/image4f9115e1 during this gate;
+it was not relabeled as the new completion test or history-eight normal package.
+PRIMARY and independent affected reviews preceded selection. Local history7,
+Current43pure3, related terminal/late-effect controls and strict default/feature
+source gates are separate evidence; ignored selectors were not run by the author.
+
+All selected originals and separate adjudications below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Fresh fixed completion preparation | `b76194` | New test/capture names; no replacement of the preceding Current43 originals |
+| One retained Aborted completion | `11219d` / `788721` original completion; `d43f46` adjudication | Fresh authentication/existing exclusive leases, SAME terminal retirement/disposition, exact marker and one successful harness |
+| Independently selected normal start | `5acdda` / `7dd3fa` readiness | New normal daemon PID5373/invocation, socket present; not an inference from the test marker |
+| New normal hello | `cf0ee1` | Changed genuine instance `14fd-18dc21e600b2271d`, current ownership true |
+| Normal status | `bffa05` / `78e963` explicit assertion | Actual and Desired disconnected, ownership true |
+| Normal profile list | Original exit0, privately captured |37 profiles; the completion test had checked the exact original whole private projection |
+
+The completer freshly acquired the existing lock inodes, authenticated the
+actual archive, retained exact OLD/Aborted proof and selected absent audit slot1
+before retirement effects. Incumbent slot0 and all OLD bytes/inodes were preserved.
+Receipt, terminal/stage retirement, closure/ticket/Complete and NOREPLACE history
+disposition used the SAME held engine; its original lease moved once into the
+preinstalled ordinary retaining destination. Pending names were absent and both
+history0/1 remained private0600/single/386-byte files after the known original0.
+Descriptor/lease custody here is during the original completion operation, not
+authority surviving its subsequent normal process exit.
+
+Only then did ROOT independently start the normal installed daemon, which earned
+its genuine current/login/private-pair/singleton admission without decoding audit
+history as a grant, recreating recovery locks or copying receipts. Two initial
+read-only status adjudications assumed an incorrect Desired representation/literal
+and did not verify their predicates; the later explicit source-faithful assertion
+`78e963` completed0. Those observer errors are preserved, not runtime failures or
+retrospectively passed observations. Profile count is37, not an empty-list claim.
+
+This closes the actual same-boot interrupted OLD/Aborted terminal completion into
+a second immutable audit entry and separately earned normal current/listener
+admission. It does **not** attest installed history-eight repetition, default
+Backup/Restore or UI activation, cold/missing-lock bootstrap, uncertain completion
+replay, fatal descriptor survival, AUTO/K1 acceptance or whole T4. The new normal
+history-eight package and further originals remain separately selected identities.
+
+### Installed history-eight repetitions after separately earned current startup
+
+ROOT subsequently installed the exact normal source0f2 package on the same
+compatible disposable VM, separately from the preceding completion-test image.
+Normal ELF is8,983,696 bytes / SHA-256
+`3c84a877a272145133558b8805f2768b27783f52d2b5b0c855bfdb68f472baa6`;
+package `omavless-0.0.0.r1137.g0f2a1b8a46ad-1-x86_64.pkg.tar.zst`
+is3,347,475 bytes / SHA-256
+`d40867bf40d01c78c7adaabefee2ebb0d2bec4bbe62f0c7c15caca86d838d67f`.
+The author performed only locked/offline compile, independent image sealing and
+inert full20-member archive/type/mode/byte inspection, not installation or VM use.
+Unchanged normal runtime/login units and compatible whole LegacyMeta2 were retained.
+
+Every selected original and separate observation below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Normal package installation/readback | `87b480` / `882cd8`; `d8ccf3` readback | Exact installed normal0f2 image, not d0ab/test-image substitution |
+| First fresh normal current | Stop `398f00` / `b94cbf`; start `507448`; readiness `7a43db`; hello `780f04`; Off `e4b486`; profiles `b74874` | Independently earned genuine current admission before repetition |
+| One first installed repeat | `d36d52` / `59dc03` | Exact completion marker/empty stderr, history0..2 private0600/single/386-byte, pending names absent |
+| First-repeat normal postchecks | `438641`; `4f636a` | Whole private profile projection equal; owned Off |
+| Separate normal stop/start | `2614fd` / `bcff15`; `9d5273` / `f36182` | Inactive/socket absent, then new PID6032/invocation and readiness |
+| Second fresh current | `5c6c48`; `25171f` | Newly earned ownership and Off before the second repetition |
+| One second installed repeat | `c1d4e7` / `f623db` | Exact completion marker/empty stderr, history0..3 private0600/single/386-byte, pending names absent |
+| Second-repeat normal postchecks | `ba1fc1`; `ad84ab` | Whole private profile projection equal; owned Off |
+| Final separate normal stop/start | `636c34` / `e469cc`; `1169bd` / `eb1ca1` | Known inactive/socket absent, then new PID6246/invocation and normal readiness |
+| Final normal current postchecks | `747874`; `5fb7a0`; `b3c4e3` | Fresh ownership, owned Off and exact whole private profile projection equal after the second repeat |
+
+Each fixed normal client used only the schema/archive/passphrase whitelist from
+the privately held Current43 request through stdin, never secret argv or old
+request correlation as authority. The CLI obtained the actual new daemon's own
+hello/status instance and revision. Each original performed genuine current
+NEW/Committed completion, retirement and consuming disposition into the next
+absent immutable audit slot; prior histories were neither overwritten nor purged.
+The normal user-manager restart between repetitions independently re-earned
+current/login/singleton/private-pair admission. This is not a grant to run a
+second Restore from the SAME already-borrowed Original lease or to rearm an old
+occupied/faulted holder. Unknown/nonzero originals were not retried or promoted.
+
+These two installed repetitions establish the selected finite history behavior
+beyond the former second-Restore collision. Eight total fixed slots remain an
+explicit ceiling: exhaustion, holes, malformed entries, replacement/collision
+and late failure are scoped local source controls, not eight newly executed VM
+restores or an unlimited-history guarantee. Default Backup/Restore/UI activation,
+cold/missing-lock bootstrap, unknown completion replay, fatal descriptor survival,
+AUTO/K1 and whole-T4 acceptance remain outside this agent-attended VM scope.

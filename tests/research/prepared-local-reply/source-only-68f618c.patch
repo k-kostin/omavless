@@ -1,0 +1,269 @@
+diff --git a/crates/omavless-runtime/src/restore_abort_prepared_local_reply.rs b/crates/omavless-runtime/src/restore_abort_prepared_local_reply.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..c2ffd381c4ab7729655901ae7d092e4abf2fdc0d
+--- /dev/null
++++ b/crates/omavless-runtime/src/restore_abort_prepared_local_reply.rs
+@@ -0,0 +1,248 @@
++// SPDX-License-Identifier: MIT
++//! Private driver-only local composition; no authenticated root/child parent.
++//! Current Process/LocalParent partial acquisition and backend error ownership
++//! remain gaps. No ordinary product manifest enables this source-only module.
++use super::*;
++use prepared_rustix::fs::fstat;
++use prepared_rustix::io::{fcntl_getfd, FdFlags};
++use prepared_rustix::net::{
++    OwnedAncillaryRecord, OwnedRecvMsg, ReceivedCredentials,
++    preallocated::PreparedReceiver,
++};
++use prepared_rustix::net::{
++    AddressFamily, SocketFlags, SocketType, RecvFlags, ReturnFlags,
++    SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg, socketpair, sockopt,
++};
++use std::io::{IoSlice, IoSliceMut};
++use std::mem::{ManuallyDrop, MaybeUninit};
++use std::ops::{Deref, DerefMut};
++use std::os::fd::{AsFd, OwnedFd};
++
++const NONCE: &[u8] = b"T4_PREPARED_LOCAL_REPLY_V1";
++const MAX_NAME: usize = 4096;
++
++struct Retained<T>(ManuallyDrop<T>);
++impl<T> Retained<T> { fn new(value: T) -> Self { Self(ManuallyDrop::new(value)) } }
++impl<T> Deref for Retained<T> {
++    type Target = T;
++    fn deref(&self) -> &T { &self.0 }
++}
++impl<T> DerefMut for Retained<T> { fn deref_mut(&mut self) -> &mut T { &mut self.0 } }
++
++// Outer slots are fallibly allocated BEFORE descriptor acquisition. This does
++// NOT retrofit ownership into failures internal to Process/LocalParent capture.
++fn slot<T>() -> Result<Retained<Vec<T>>> {
++    let mut value = Vec::new();
++    value.try_reserve_exact(1).map_err(|_| ())?;
++    Ok(Retained::new(value))
++}
++
++fn bytes(count: usize) -> Result<Vec<u8>> {
++    let mut value = Vec::new();
++    value.try_reserve_exact(count).map_err(|_| ())?;
++    value.resize(count, 0);
++    Ok(value)
++}
++
++#[derive(Clone, Copy)]
++struct Sealed(bool);
++impl Sealed {
++    fn new() -> Self { Self(false) }
++    fn begin(&mut self, end: Instant) -> Result<()> {
++        if self.0 { return Err(()); }
++        self.0 = true;
++        if Instant::now() >= end { return Err(()); }
++        Ok(())
++    }
++}
++
++fn payload_shape(bytes: &[u8], name: &[u8]) -> bool {
++    !name.is_empty() && name.len() <= MAX_NAME
++        && bytes.len() == NONCE.len() + name.len()
++        && bytes.starts_with(NONCE) && bytes[NONCE.len()..] == *name
++}
++
++fn record_shape(records: &[OwnedAncillaryRecord], credentials: ReceivedCredentials,
++                rights: usize, pidfds: usize, boundary: bool, flags: ReturnFlags) -> bool {
++    !boundary && rights == 3 && pidfds == 0
++        && (flags - (ReturnFlags::CMSG_CLOEXEC | ReturnFlags::EOR)).is_empty()
++        && records == [OwnedAncillaryRecord::Credentials(credentials),
++            OwnedAncillaryRecord::Rights { first: 0, end: 3, payload_bytes: 12, exact_shape: true }]
++}
++
++fn gate(end: Instant) -> Result<()> {
++    if Instant::now() < end { Ok(()) } else { Err(()) }
++}
++
++// Safe library fstat of the BORROWED received original. No RawFd adoption,
++// duplicate File, /proc/fd reopen or reconstructed process identity.
++fn compare_original(received: &OwnedFd, original: &File, image: bool, end: Instant) -> Result<()> {
++    gate(end)?;
++    let a = fstat(received).map_err(|_| ())?;
++    gate(end)?;
++    let b = original.metadata().map_err(|_| ())?;
++    gate(end)?;
++    if a.st_dev as u64 != b.dev() || a.st_ino as u64 != b.ino()
++        || a.st_mode as u32 != b.mode() || a.st_uid != b.uid() || a.st_gid != b.gid()
++        || !fcntl_getfd(received).map_err(|_| ())?.contains(FdFlags::CLOEXEC)
++    { return Err(()); }
++    gate(end)?;
++    if image && (a.st_size as u64 != b.len() || a.st_nlink as u64 != b.nlink()
++        || a.st_mtime != b.mtime() || a.st_mtime_nsec as i64 != b.mtime_nsec()
++        || a.st_ctime != b.ctime() || a.st_ctime_nsec as i64 != b.ctime_nsec())
++    { return Err(()); }
++    gate(end)
++}
++
++#[test]
++#[ignore = "SOURCE ONLY new no-child composition requires FULL reviews and ROOT recipe"]
++fn fresh_local_parent_prepared_reply_once() {
++    let end = Instant::now() + Duration::from_secs(8);
++    let mut roots = slot::<File>().unwrap();
++    let mut parents = slot::<Rc<LocalParent>>().unwrap();
++    let mut bundles = slot::<Bundle>().unwrap();
++    let mut pairs = slot::<(OwnedFd, OwnedFd)>().unwrap();
++    let mut frames = slot::<OwnedRecvMsg>().unwrap();
++    let mut currents = slot::<Process>().unwrap();
++    let prepared = PreparedReceiver::prepare(256).unwrap();
++    let mut namespaces = Retained::new(Vec::<File>::new());
++    namespaces.try_reserve_exact(2).unwrap();
++    let mut payload = bytes(NONCE.len() + MAX_NAME).unwrap();
++    let mut data = bytes(NONCE.len() + MAX_NAME + 1).unwrap();
++    let capacities = (roots.capacity(), parents.capacity(), bundles.capacity(),
++        pairs.capacity(), frames.capacity(), currents.capacity(), payload.capacity(), data.capacity(), namespaces.capacity());
++    gate(end).unwrap();
++    roots.push(File::open("/proc").unwrap()); gate(end).unwrap();
++    let pid = std::process::id();
++    let mut budget = Budget::new(); budget.until = budget.until.min(end);
++    parents.push(LocalParent::capture_local(roots[0].try_clone().unwrap(), pid, &mut budget).unwrap());
++    gate(end).unwrap();
++    let parent = &parents[0];
++    let mut sealed = Sealed::new(); sealed.begin(end).unwrap();
++    let mut budget = Budget::new(); budget.until = budget.until.min(end);
++    bundles.push(parent.consult(&roots[0], pid, &parent.original.directory,
++        parent.original.start, &mut budget).unwrap());
++    gate(end).unwrap();
++    let bundle = &bundles[0];
++    let name = bundle.executable_name.as_ref().unwrap();
++    assert!(!name.is_empty() && name.len() <= MAX_NAME);
++    let length = NONCE.len() + name.len();
++    payload[..NONCE.len()].copy_from_slice(NONCE);
++    payload[NONCE.len()..length].copy_from_slice(name);
++    pairs.push(socketpair(AddressFamily::UNIX, SocketType::SEQPACKET,
++        SocketFlags::CLOEXEC | SocketFlags::NONBLOCK, None).unwrap());
++    gate(end).unwrap();
++    let (sender, receiver) = &pairs[0];
++    assert!(!sockopt::socket_passcred(sender).unwrap() && !sockopt::socket_passcred(receiver).unwrap());
++    gate(end).unwrap();
++    sockopt::set_socket_passcred(receiver, true).unwrap(); gate(end).unwrap();
++    let originals = [bundle.executable.as_ref().unwrap().as_fd(),
++        bundle.pid_namespace.as_ref().unwrap().as_fd(), bundle.user_namespace.as_ref().unwrap().as_fd()];
++    let mut scratch = [MaybeUninit::uninit(); prepared_rustix::cmsg_space!(ScmRights(3))];
++    let mut outgoing = SendAncillaryBuffer::new(&mut scratch);
++    assert!(outgoing.push(SendAncillaryMessage::ScmRights(&originals)));
++    gate(end).unwrap();
++    assert_eq!(sendmsg(sender, &[IoSlice::new(&payload[..length])], &mut outgoing,
++        SendFlags::DONTWAIT | SendFlags::NOSIGNAL).unwrap(), length);
++    gate(end).unwrap();
++    // On backend Err no owners are guessed or recovered: selection is NONPASS
++    // and permanently STOP. The all-installed-FD error guarantee is unsupported.
++    frames.push(prepared.receive(receiver.as_fd(), &mut [IoSliceMut::new(&mut data)],
++        RecvFlags::DONTWAIT | RecvFlags::CMSG_CLOEXEC).unwrap());
++    gate(end).unwrap();
++    let frame = &frames[0];
++    let pointers = (frame.records().as_ptr(), frame.rights().as_ptr(), frame.pidfds().as_ptr());
++    let credentials = ReceivedCredentials { pid: pid as i32,
++        uid: nix::unistd::getuid().as_raw(), gid: nix::unistd::getgid().as_raw() };
++    assert!(record_shape(frame.records(), credentials, frame.rights().len(),
++        frame.pidfds().len(), frame.boundary_error().is_some(), frame.message().flags));
++    assert!(frame.message().bytes <= data.len()
++        && payload_shape(&data[..frame.message().bytes], name));
++    gate(end).unwrap();
++    for (index, original) in [bundle.executable.as_ref().unwrap(),
++        bundle.pid_namespace.as_ref().unwrap(), bundle.user_namespace.as_ref().unwrap()].iter().enumerate()
++    { compare_original(&frame.rights()[index], original, index == 0, end).unwrap(); }
++    // Still the unchanged LOCAL parent seam, not a received-FD constructor.
++    let mut budget = Budget::new(); budget.until = budget.until.min(end);
++    currents.push(Process::capture_inner(&roots[0], pid, &mut budget, Some(parent.clone())).unwrap());
++    gate(end).unwrap();
++    let mut budget = Budget::new(); budget.until = budget.until.min(end);
++    currents[0].recheck(&roots[0], &mut budget).unwrap(); gate(end).unwrap();
++    compare_original(&frame.rights()[0], &currents[0].executable, true, end).unwrap();
++    for (index, name) in ["ns/pid", "ns/user"].into_iter().enumerate() {
++        let mut budget = Budget::new(); budget.until = budget.until.min(end);
++        namespaces.push(currents[0].current_namespace(&roots[0], name, &mut budget).unwrap());
++        gate(end).unwrap();
++        compare_original(&frame.rights()[index + 1], &namespaces[index], false, end).unwrap();
++    }
++    assert_eq!(pointers, (frame.records().as_ptr(), frame.rights().as_ptr(), frame.pidfds().as_ptr()));
++    assert_eq!(capacities, (roots.capacity(), parents.capacity(), bundles.capacity(),
++        pairs.capacity(), frames.capacity(), currents.capacity(), payload.capacity(), data.capacity(), namespaces.capacity()));
++    assert!(sealed.begin(end).is_err());
++    assert_eq!(namespaces.len(), 2);
++    gate(end).unwrap();
++    // No retry/query/cleanup; retained originals stay until process exit.
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    fn credentials() -> ReceivedCredentials { ReceivedCredentials { pid: 7, uid: 1000, gid: 1000 } }
++    fn records() -> [OwnedAncillaryRecord; 2] {
++        [OwnedAncillaryRecord::Credentials(credentials()), OwnedAncillaryRecord::Rights {
++            first: 0, end: 3, payload_bytes: 12, exact_shape: true }]
++    }
++    #[test]
++    fn exact_payload_and_name() {
++        assert!(payload_shape(&[NONCE, b"public"].concat(), b"public"));
++        assert!(!payload_shape(NONCE, b""));
++        assert!(!payload_shape(&[NONCE, b"public", b"x"].concat(), b"public"));
++        assert!(!payload_shape(&[b"wrong".as_slice(), b"public".as_slice()].concat(), b"public"));
++        assert!(!payload_shape(&[NONCE, b"public"].concat(), b"other"));
++    }
++    #[test]
++    fn heterogeneous_prefix_operands_are_byte_slices() {
++        // Compile regression: fixed byte arrays have different lengths (5/6).
++        // Explicit borrowed slice operands erase only the array-length type,
++        // not any payload bytes or the negative protocol check above.
++        let operands: [&[u8]; 2] = [b"wrong".as_slice(), b"public".as_slice()];
++        assert_eq!(operands.concat().as_slice(), b"wrongpublic");
++    }
++    #[test]
++    fn exact_known_record_shape() { assert!(record_shape(&records(), credentials(), 3, 0, false, ReturnFlags::empty())); }
++    #[test]
++    fn credentials_and_order_refuse() {
++        let mut bad = credentials(); bad.pid += 1;
++        assert!(!record_shape(&records(), bad, 3, 0, false, ReturnFlags::empty()));
++        let mut swapped = records(); swapped.swap(0, 1);
++        assert!(!record_shape(&swapped, credentials(), 3, 0, false, ReturnFlags::empty()));
++    }
++    #[test]
++    fn count_boundary_and_flags_refuse() {
++        for rights in [0, 2, 4] { assert!(!record_shape(&records(), credentials(), rights, 0, false, ReturnFlags::empty())); }
++        assert!(!record_shape(&records(), credentials(), 3, 1, false, ReturnFlags::empty()));
++        assert!(!record_shape(&records(), credentials(), 3, 0, true, ReturnFlags::empty()));
++        for flag in [ReturnFlags::TRUNC, ReturnFlags::CTRUNC] { assert!(!record_shape(&records(), credentials(), 3, 0, false, flag)); }
++    }
++    #[test]
++    fn malformed_unknown_and_extra_records_refuse() {
++        let mut values = records().to_vec();
++        values.push(OwnedAncillaryRecord::Unknown { level: 9, kind: 9, payload_bytes: 4 });
++        assert!(!record_shape(&values, credentials(), 3, 0, false, ReturnFlags::empty()));
++        values = records().to_vec();
++        values[1] = OwnedAncillaryRecord::Rights { first: 0, end: 3, payload_bytes: 13, exact_shape: false };
++        assert!(!record_shape(&values, credentials(), 3, 0, false, ReturnFlags::empty()));
++    }
++    #[test]
++    fn late_and_second_entry_are_sealed() {
++        let mut sealed = Sealed::new(); assert!(sealed.begin(Instant::now()).is_err());
++        assert!(sealed.begin(Instant::now() + Duration::from_secs(1)).is_err());
++        let mut sealed = Sealed::new(); let end = Instant::now() + Duration::from_secs(1);
++        assert!(sealed.begin(end).is_ok()); assert!(sealed.begin(end).is_err());
++    }
++    #[test]
++    fn preparation_slots_remain_empty_without_descriptors() {
++        let slots = slot::<OwnedFd>().unwrap(); assert!(slots.is_empty() && slots.capacity() >= 1);
++        assert!(PreparedReceiver::prepare(65_537).is_err());
++    }
++}
+diff --git a/crates/omavless-runtime/src/restore_abort_retained_parent_prototype.rs b/crates/omavless-runtime/src/restore_abort_retained_parent_prototype.rs
+index 52c6025daad23ff326483cf5e9ae625309c5b03b..edbcdb952392b919ec1290d3e7402d8a5a81868e 100644
+--- a/crates/omavless-runtime/src/restore_abort_retained_parent_prototype.rs
++++ b/crates/omavless-runtime/src/restore_abort_retained_parent_prototype.rs
+@@ -11,6 +11,10 @@ use std::rc::Rc;
+ #[path = "restore_abort_retained_parent_kernel_smoke.rs"]
+ mod kernel_smoke;
+ 
++#[cfg(feature = "prepared-local-reply")]
++#[path = "restore_abort_prepared_local_reply.rs"]
++mod prepared_local_reply;
++
+ pub(super) struct Bundle {
+     pub(super) executable: Option<File>,
+     pub(super) executable_name: Option<Zeroizing<Vec<u8>>>,

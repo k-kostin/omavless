@@ -22,7 +22,11 @@ fn pending_path(paths: &DesiredPaths) -> PathBuf {
 /// Existence, malformed shape, unsafe file or inaccessible state all block.
 /// Never parse private payload or infer that a crashed transaction completed.
 pub(crate) fn pending(paths: &DesiredPaths) -> bool {
-    !matches!(std::fs::symlink_metadata(pending_path(paths)),Err(error) if error.kind()==std::io::ErrorKind::NotFound)
+    pending_at(&paths.directory)
+}
+
+pub(crate) fn pending_at(directory: &Path) -> bool {
+    !matches!(std::fs::symlink_metadata(directory.join("routing-preset.pending.json")),Err(error) if error.kind()==std::io::ErrorKind::NotFound)
 }
 
 fn bundled(preset: &str) -> Option<&'static str> {

@@ -1,0 +1,2379 @@
+// SPDX-License-Identifier: MIT
+//! Inactive actual-owner close research. No method/permit/package activation.
+//! Controller work is moved out of this owner; the worker never calls it back.
+
+use super::*;
+use crate::conditional_close_candidate::{Cancellation, ObservedRow, Scheduler, Worker};
+use crate::desired::{DesiredState, read_desired};
+use crate::mutation::{
+    ExternalCloseAdmission, ExternalCloseOutcome, ExternalCloseReceipt, ExternalCloseToken,
+    MutationDigest,
+};
+use crate::native_host::{CloseObservation, NativeLifecycleHost};
+use omavless_store::read_private_utf8;
+use std::collections::BTreeSet;
+use std::io::Read;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+const CONFIRMATION_LIFETIME: Duration = Duration::from_secs(5);
+const ENTROPY_LIMIT: usize = 1024;
+
+#[derive(Clone)]
+struct Context {
+    instance: String,
+    ownership: OwnershipFence,
+    revision: u64,
+    desired: DesiredState,
+    desired_paths: DesiredPaths,
+    cutover_paths: crate::cutover::CutoverPaths,
+    store_path: PathBuf,
+    config_path: PathBuf,
+    store: String,
+    config: String,
+    uid: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::OwnedCore;
+    use crate::desired::{RoutingMode, write_desired};
+    use crate::long_operation::LongOperationError;
+    use crate::native_host::NativeHostPaths;
+    use serde_json::json;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
+
+    static FIXTURES: Mutex<()> = Mutex::new(());
+    const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
+    // Fixed owned subprocess/private Unix controller. No public listener,
+    // provider, TUN, DNS, service, shell effect or injected owner facts.
+    const CONTROLLER: &str = r#"#!/usr/bin/python3
+import argparse,json,os,socket,time
+p=argparse.ArgumentParser();p.add_argument('-d');p.add_argument('-f');a=p.parse_args()
+root=a.d;variant=open(a.f).readline().strip().removeprefix('# fixture-variant:')
+s=socket.socket(socket.AF_UNIX);s.bind(root+'/mihomo.sock');os.chmod(root+'/mihomo.sock',0o600);s.listen(8)
+while True:
+ c,_=s.accept();c.settimeout(3);raw=b''
+ while b'\r\n\r\n' not in raw and len(raw)<8192:
+  b=c.recv(1024)
+  if not b:break
+  raw+=b
+  if raw.startswith(b'POST ') and b'\r\n\r\n' not in raw:
+   with open(root+'/partial-entered.tmp','wb') as f:f.write(raw)
+   os.replace(root+'/partial-entered.tmp',root+'/partial-entered')
+ if not raw:c.close();continue
+ line=raw.split(b'\r\n',1)[0];status=200
+ if line.startswith(b'GET /version '):body={'version':'owned-fixture'}
+ elif line.startswith(b'GET /configs '):
+  if os.path.exists(root+'/exec-replace'):os.execl('/usr/bin/sleep','sleep','30')
+  if os.path.exists(root+'/stall-read'):
+   open(root+'/read-entered','wb').close();until=time.monotonic()+8
+   while not os.path.exists(root+'/release') and time.monotonic()<until:time.sleep(.002)
+  body={'mode':'rule' if variant.startswith('rule-') else 'direct','tun':{'enable':False}}
+ elif line.startswith(b'GET /rules '):body={'rules':[]}
+ elif line.startswith(b'GET /providers/rules '):body={'providers':{'owned-fixture':{'vehicleType':'HTTP'}}} if variant.startswith('rule-') else {'providers':{}}
+ elif line.startswith(b'GET /proxies '):body={'proxies':{'DIRECT':{}}}
+ elif line.startswith(b'GET /connections/conditional-capabilities '):body={'abi':1,'ready':True}
+ elif line.startswith(b'GET /connections '):
+  rows=[{'id':'11111111-1111-4111-8111-111111111111','omavlessCloseToken':'42','metadata':{'host':'same.invalid','destinationPort':'443','network':'tcp'},'chains':['DIRECT']},{'id':'22222222-2222-4222-8222-222222222222','omavlessCloseToken':'43','metadata':{'host':'same.invalid','destinationPort':'443','network':'tcp'},'chains':['DIRECT']}]
+  if os.path.exists(root+'/reverse'):rows.reverse()
+  if os.path.exists(root+'/removed'):rows=rows[1:]
+  if os.path.exists(root+'/reused'):rows[0]['omavlessCloseToken']='44'
+  if os.path.exists(root+'/display-drift'):rows[0]['metadata']['host']='changed.invalid'
+  body={'connections':rows}
+ elif line.startswith(b'POST /connections/'):
+  with open(root+'/effects','ab') as f:f.write(b'2\n' if b'22222222-' in line else b'1\n')
+  open(root+'/effect-entered','wb').close()
+  if variant=='stall-reply':
+   until=time.monotonic()+8
+   while not os.path.exists(root+'/release') and time.monotonic()<until:time.sleep(.002)
+  if variant=='drop':c.close();continue
+  status=204;body=None
+ else:status=400;body=None
+ data=b'' if body is None else json.dumps(body).encode()
+ try:c.sendall(('HTTP/1.0 '+str(status)+' OK\r\nContent-Length: '+str(len(data))+'\r\n\r\n').encode()+data)
+ except OSError:pass
+ c.close()
+"#;
+
+    struct Fixture {
+        root: PathBuf,
+        owner: OfflineNativeCoordinator<NativeLifecycleHost>,
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.owner.invalidate_connection_close();
+            let _ = self.owner.host_mut().stop_owned();
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+    fn write(path: &Path, bytes: &[u8], mode: u32) {
+        fs::write(path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+    fn fixture(variant: &str) -> Fixture {
+        let root = crate::test_temp::directory("owner-close").unwrap();
+        let runtime = root.join("r");
+        let config = root.join("c");
+        let state = root.join("s");
+        for path in [&runtime, &config, &state] {
+            fs::create_dir(path).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let uid = nix::unistd::Uid::current().as_raw();
+        let exe = root.join("core.py");
+        write(&exe, CONTROLLER.as_bytes(), 0o700);
+        let store = json!({"version":3,"activeId":PROFILE,"lastId":PROFILE,
+            "profiles":[{"id":PROFILE,"name":"DIRECT","uri":"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp","protocol":"vless","favorite":false}],
+            "subscriptions":[],"routingPreset":"custom","customRules":[],"rulesUpdatedAt":0,
+            "startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"onboardingComplete":true});
+        write(
+            &config.join("profiles.json"),
+            store.to_string().as_bytes(),
+            0o600,
+        );
+        write(
+            &config.join("config.yaml"),
+            format!("# fixture-variant:{variant}\ntun:\n  enable: false\n").as_bytes(),
+            0o600,
+        );
+        write(
+            &config.join("route-template.yaml"),
+            b"tun:\n  enable: false\n",
+            0o600,
+        );
+        let desired_paths = DesiredPaths::below(&state);
+        write_desired(
+            &desired_paths,
+            uid,
+            &DesiredState {
+                connected: true,
+                profile_id: PROFILE.into(),
+                mode: if variant.starts_with("rule-") {
+                    RoutingMode::Rule
+                } else {
+                    RoutingMode::Direct
+                },
+                schema_version: 1,
+                generation: 7,
+            },
+        )
+        .unwrap();
+        let cutover = crate::cutover::CutoverPaths::below(&runtime, &state, uid);
+        write(
+            &cutover.ownership_marker,
+            br#"{"schemaVersion":1,"generation":2,"phase":"rust"}"#,
+            0o600,
+        );
+        let socket = runtime.join("mihomo.sock");
+        let mut core =
+            OwnedCore::spawn(&exe, &runtime, &config.join("config.yaml"), &socket).unwrap();
+        core.wait_ready(Duration::from_secs(5)).unwrap();
+        let paths = NativeHostPaths::new(
+            exe,
+            config.clone(),
+            config.clone(),
+            runtime,
+            PathBuf::from("/proc"),
+            PathBuf::from("/sys/class/net"),
+        );
+        let host = if variant.starts_with("rule-") {
+            NativeLifecycleHost::owned_rule_close_fixture(paths, uid, core)
+        } else if variant == "passive-ok" {
+            NativeLifecycleHost::passive_owned_close_fixture(paths, uid, core)
+        } else {
+            NativeLifecycleHost::owned_close_fixture(paths, uid, core)
+        }
+        .unwrap();
+        let mut owner = OfflineNativeCoordinator::new_ownership_gated(
+            host,
+            desired_paths,
+            &config.join("profiles.json"),
+            cutover,
+            uid,
+            2,
+        );
+        owner
+            .initialize_batch_operations("actual-owner-close-fixture")
+            .unwrap();
+        owner
+            .transaction
+            .lifecycle_mut()
+            .adopt_owned_close_fixture()
+            .unwrap();
+        Fixture { root, owner }
+    }
+    fn snapshot(fixture: &mut Fixture) -> Vec<CloseDisplayRow> {
+        let discovery = fixture.owner.capture_connection_close().unwrap();
+        let observed = discovery.observe().unwrap();
+        fixture.owner.retain_connection_close(observed).unwrap()
+    }
+    fn receipt(fixture: &mut Fixture) -> ExternalCloseReceipt {
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            if let Some(receipt) = fixture.owner.poll_connection_close().unwrap() {
+                return receipt;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "bounded actual owner close did not terminalize"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    fn marker(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while !path.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "owned controller marker timed out"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    fn disconnect(
+        owner: &mut OfflineNativeCoordinator<NativeLifecycleHost>,
+        operation_id: &str,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let request = omavless_control_protocol::make_request(
+            "disconnect",
+            "connection.disconnect",
+            json!({"operationId":operation_id,"expectedRevision":owner.revision()}),
+        )
+        .unwrap();
+        owner.execute_connection(crate::mutation_protocol::parse_owner_request(&request).unwrap())
+    }
+
+    #[test]
+    fn actual_owner_shared_scheduler_invalidates_capture_but_preserves_exact_replay() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let digest = MutationDigest::from_semantic_bytes(b"fixed-historical-scheduling-fixture");
+        // The typed historical profile/connection alternatives enter this same
+        // schedule method after their own retained proof, without ordinary admit.
+        let admission = fixture
+            .owner
+            .schedule(
+                MutationKind::Other,
+                Some("historical-fixture"),
+                Some(0),
+                digest,
+            )
+            .unwrap();
+        let Admission::Execute(token) = admission else {
+            panic!("expected new scheduling");
+        };
+        assert!(fixture.owner.connection_close.pending.is_none());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(
+            fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .is_err()
+        );
+        let cached = fixture
+            .owner
+            .coordinator
+            .finish(token, crate::mutation::MutationResult::NoChange)
+            .unwrap();
+
+        let successor = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(successor[1].handle)
+            .unwrap();
+        assert!(matches!(fixture.owner.schedule(
+            MutationKind::Other,
+            Some("historical-fixture"),
+            Some(0),
+            digest,
+        ).unwrap(), Admission::Replay(receipt) if receipt == cached));
+        let retained = fixture.owner.connection_close.pending.as_ref().unwrap();
+        assert_eq!(retained.handle, successor[1].handle);
+        assert_eq!(retained.ticket, confirmation.ticket);
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+
+    #[test]
+    fn actual_owner_shared_scheduler_cancels_detached_effect_before_host_publication() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+        fixture
+            .owner
+            .confirm_connection_close(
+                "close-before-history",
+                0,
+                rows[0].handle,
+                confirmation.ticket,
+            )
+            .unwrap();
+        marker(&fixture.root.join("r/read-entered"));
+        let cancellation = fixture
+            .owner
+            .connection_close
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .clone();
+        let admission = fixture
+            .owner
+            .schedule(
+                MutationKind::Other,
+                Some("historical-after-close"),
+                Some(0),
+                MutationDigest::from_semantic_bytes(b"fixed-historical-scheduling-after-close"),
+            )
+            .unwrap();
+        let Admission::Execute(token) = admission else {
+            panic!("expected new scheduling");
+        };
+        assert!(cancellation.is_cancelled());
+        let cancelled = Instant::now();
+        assert_eq!(
+            receipt(&mut fixture).outcome,
+            ExternalCloseOutcome::RefusedBeforeWrite
+        );
+        assert!(cancelled.elapsed() < Duration::from_secs(1));
+        assert!(!fixture.root.join("r/effects").exists());
+        assert!(fixture.owner.desired().unwrap().connected);
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+        fixture
+            .owner
+            .coordinator
+            .abort_active_uncached(token)
+            .unwrap();
+    }
+
+    #[test]
+    fn actual_owner_typed_batch_entry_revokes_capture_but_known_retry_preserves_successor() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::batch_tests::foreign_empty_context_fixture;
+        let (_foreign, mut context) = foreign_empty_context_fixture();
+        let mut fixture = fixture("ok");
+        let request = |id: &str| json!({"api":"omavless.control","version":1,"id":"fixed-batch-entry","method":"subscriptions.refresh_all","params":{"instanceId":"actual-owner-close-fixture","operationId":id}});
+        let rows = snapshot(&mut fixture);
+        fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        // The genuine foreign Off witness must refuse. Nevertheless this new
+        // mutation intent revokes old close authority BEFORE typed lock/proof
+        // admission, through the same body as ordinary batch entry.
+        assert!(
+            fixture
+                .owner
+                .start_subscription_batch_research(&request("new-typed-batch"), &mut context)
+                .is_err()
+        );
+        assert!(fixture.owner.connection_close.pending.is_none());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(!fixture.root.join("r/effects").exists());
+
+        // A real ordinary empty batch creates a retained terminal registry
+        // entry. A later exact ID retry must not revoke newer confirmation,
+        // even when the supplied typed historical proof itself refuses.
+        let known = request("known-empty-batch");
+        let job = fixture
+            .owner
+            .start_subscription_batch(&known)
+            .unwrap()
+            .unwrap();
+        fixture
+            .owner
+            .complete_subscription_batch(job, || panic!("empty batch must not read clock"))
+            .unwrap();
+        let successor = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(successor[1].handle)
+            .unwrap();
+        assert!(
+            fixture
+                .owner
+                .start_subscription_batch_research(&known, &mut context)
+                .is_err()
+        );
+        let pending = fixture.owner.connection_close.pending.as_ref().unwrap();
+        assert_eq!(pending.handle, successor[1].handle);
+        assert_eq!(pending.ticket, confirmation.ticket);
+        assert!(!fixture.root.join("r/effects").exists());
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+    }
+
+    #[test]
+    fn actual_owner_typed_batch_entry_cancels_detached_close_before_proof_refusal() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::batch_tests::foreign_empty_context_fixture;
+        let (_foreign, mut context) = foreign_empty_context_fixture();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+        fixture
+            .owner
+            .confirm_connection_close(
+                "close-before-typed-batch",
+                0,
+                rows[0].handle,
+                confirmation.ticket,
+            )
+            .unwrap();
+        marker(&fixture.root.join("r/read-entered"));
+        let cancellation = fixture
+            .owner
+            .connection_close
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .clone();
+        let request = json!({"api":"omavless.control","version":1,"id":"fixed-batch-entry","method":"subscriptions.refresh_all","params":{"instanceId":"actual-owner-close-fixture","operationId":"new-typed-after-close"}});
+        assert!(
+            fixture
+                .owner
+                .start_subscription_batch_research(&request, &mut context)
+                .is_err()
+        );
+        assert!(cancellation.is_cancelled());
+        assert_eq!(
+            receipt(&mut fixture).outcome,
+            ExternalCloseOutcome::RefusedBeforeWrite
+        );
+        assert!(!fixture.root.join("r/effects").exists());
+        assert!(fixture.owner.desired().unwrap().connected);
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+    }
+
+    #[derive(Clone, Copy)]
+    enum TypedFamily {
+        Connection,
+        Profile,
+    }
+    use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::{
+        HistoricalConnection, HistoricalProfile, batch_tests::with_foreign_retained_context,
+    };
+    enum TypedContext<'a> {
+        Connection(HistoricalConnection<'a>),
+        Profile(HistoricalProfile<'a>),
+    }
+    fn with_typed_context(family: TypedFamily, callback: impl FnOnce(TypedContext<'_>)) {
+        // Prepare the genuine foreign proof before capturing or starting a
+        // close. Fixture setup must not consume the worker's cancellation
+        // deadline and turn expiry into a false revocation result.
+        with_foreign_retained_context(|retained| {
+            callback(match family {
+                TypedFamily::Connection => {
+                    TypedContext::Connection(retained.into_connection().unwrap())
+                }
+                TypedFamily::Profile => TypedContext::Profile(retained.into_profile().unwrap()),
+            })
+        });
+    }
+    fn typed_request(family: TypedFamily, forbidden: bool, id: &str) -> serde_json::Value {
+        let (method, params) = match (family, forbidden) {
+            (TypedFamily::Connection, false) => (
+                "connection.disconnect",
+                json!({"operationId":id,"expectedRevision":0}),
+            ),
+            (TypedFamily::Connection, true) => (
+                "routing.set_mode",
+                json!({"mode":"direct","operationId":id,"expectedRevision":0}),
+            ),
+            (TypedFamily::Profile, false) => (
+                "profiles.favorite",
+                json!({"profileId":PROFILE,"enabled":true,"operationId":id,"expectedRevision":0}),
+            ),
+            (TypedFamily::Profile, true) => (
+                "profiles.rename",
+                json!({"profileId":PROFILE,"name":"Fixed","operationId":id,"expectedRevision":0}),
+            ),
+        };
+        json!({"api":"omavless.control","version":1,"id":"fixed-typed-entry","method":method,"params":params})
+    }
+    fn refused_typed_entry(
+        fixture: &mut Fixture,
+        family: TypedFamily,
+        forbidden: bool,
+        id: &str,
+        context: &mut TypedContext<'_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let request = typed_request(family, forbidden, id);
+        match context {
+            TypedContext::Connection(context) => fixture.owner.execute_connection_research(
+                crate::mutation_protocol::parse_owner_request(&request).unwrap(),
+                context,
+            ),
+            TypedContext::Profile(context) => {
+                fixture.owner.execute_profile_research(&request, context)
+            }
+        }
+    }
+    fn typed_capture_case(family: TypedFamily, forbidden: bool) {
+        let _fixtures = FIXTURES.lock().unwrap();
+        with_typed_context(family, |mut context| {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            assert!(
+                refused_typed_entry(
+                    &mut fixture,
+                    family,
+                    forbidden,
+                    "new-typed-refusal",
+                    &mut context
+                )
+                .is_err()
+            );
+            assert!(fixture.owner.connection_close.pending.is_none());
+            assert!(fixture.owner.connection_close.snapshot.is_none());
+            assert!(!fixture.root.join("r/effects").exists());
+        });
+    }
+    #[test]
+    fn actual_owner_typed_connection_entry_revokes_capture_before_proof_refusal() {
+        typed_capture_case(TypedFamily::Connection, false);
+    }
+    #[test]
+    fn actual_owner_typed_connection_entry_revokes_capture_before_kind_refusal() {
+        typed_capture_case(TypedFamily::Connection, true);
+    }
+    #[test]
+    fn actual_owner_typed_profile_entry_revokes_capture_before_proof_refusal() {
+        typed_capture_case(TypedFamily::Profile, false);
+    }
+    #[test]
+    fn actual_owner_typed_profile_entry_revokes_capture_before_kind_refusal() {
+        typed_capture_case(TypedFamily::Profile, true);
+    }
+    fn typed_stalled_case(family: TypedFamily) {
+        let _fixtures = FIXTURES.lock().unwrap();
+        with_typed_context(family, |mut context| {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            let config = fs::read(fixture.root.join("c/config.yaml")).unwrap();
+            let desired_path = fixture.owner.transaction.desired_paths().file.clone();
+            let desired = fs::read(&desired_path).unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "close-before-typed-refusal",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket,
+                )
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            let cancellation = fixture
+                .owner
+                .connection_close
+                .cancellation
+                .as_ref()
+                .unwrap()
+                .clone();
+            assert!(
+                !cancellation.is_cancelled(),
+                "close must still be live before the tested entry"
+            );
+            assert!(
+                refused_typed_entry(
+                    &mut fixture,
+                    family,
+                    false,
+                    "new-typed-after-close",
+                    &mut context
+                )
+                .is_err()
+            );
+            assert!(cancellation.is_cancelled());
+            assert_eq!(
+                receipt(&mut fixture).outcome,
+                ExternalCloseOutcome::RefusedBeforeWrite
+            );
+            assert!(!fixture.root.join("r/effects").exists());
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("c/config.yaml")).unwrap(),
+                config
+            );
+            assert_eq!(fs::read(&desired_path).unwrap(), desired);
+        });
+    }
+    #[test]
+    fn actual_owner_typed_connection_entry_cancels_stalled_close_before_refusal() {
+        typed_stalled_case(TypedFamily::Connection);
+    }
+    #[test]
+    fn actual_owner_typed_profile_entry_cancels_stalled_close_before_refusal() {
+        typed_stalled_case(TypedFamily::Profile);
+    }
+    fn typed_known_case(family: TypedFamily) {
+        let _fixtures = FIXTURES.lock().unwrap();
+        with_typed_context(family, |mut context| {
+            let mut fixture = fixture("ok");
+            let request = typed_request(family, false, "known-typed-operation");
+            match family {
+                TypedFamily::Profile => {
+                    fixture.owner.execute_profile(&request).unwrap();
+                }
+                TypedFamily::Connection => {
+                    // Establish the exact semantic cached coordinator entry without
+                    // disconnecting the fixture core. This is registry evidence,
+                    // not a completed real Disconnect/lifecycle claim.
+                    let (action, id, revision, digest) =
+                        crate::mutation_protocol::parse_owner_request(&request)
+                            .unwrap()
+                            .into_parts();
+                    let Admission::Execute(token) = fixture
+                        .owner
+                        .schedule(action.kind(), id.as_deref(), revision, digest)
+                        .unwrap()
+                    else {
+                        panic!("new exact operation");
+                    };
+                    fixture
+                        .owner
+                        .coordinator
+                        .finish(token, crate::mutation::MutationResult::NoChange)
+                        .unwrap();
+                }
+            }
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[1].handle)
+                .unwrap();
+            assert!(
+                refused_typed_entry(
+                    &mut fixture,
+                    family,
+                    false,
+                    "known-typed-operation",
+                    &mut context
+                )
+                .is_err()
+            );
+            let pending = fixture.owner.connection_close.pending.as_ref().unwrap();
+            assert_eq!(pending.handle, rows[1].handle);
+            assert_eq!(pending.ticket, confirmation.ticket);
+            assert!(fixture.owner.connection_close.snapshot.is_some());
+            assert!(!fixture.root.join("r/effects").exists());
+        });
+    }
+    #[test]
+    fn actual_owner_typed_connection_known_entry_preserves_successor_without_bypassing_proof() {
+        typed_known_case(TypedFamily::Connection);
+    }
+    #[test]
+    fn actual_owner_typed_profile_known_entry_preserves_successor_without_bypassing_proof() {
+        typed_known_case(TypedFamily::Profile);
+    }
+
+    #[test]
+    fn actual_owner_admitted_startup_invalidates_capture_before_pending_refusal() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let paths = fixture.owner.transaction.desired_paths().clone();
+        write(
+            &paths.directory.join("routing-preset.pending.json"),
+            b"fixed",
+            0o600,
+        );
+        let lease = fixture.owner.transaction.acquire_lock().unwrap();
+        assert!(
+            fixture
+                .owner
+                .reconcile_startup_admitted(
+                    &lease,
+                    &mut crate::startup_admission::StartupAdmission::ordinary(),
+                )
+                .is_err()
+        );
+        assert!(fixture.owner.connection_close.pending.is_none());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+
+    #[test]
+    fn actual_owner_late_restore_fence_refuses_detached_post_without_context_byte_drift() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for (name, entry_type) in [
+            "routing-preset.pending.json",
+            crate::restore_staging_candidate::PENDING_DIRECTORY,
+            "restore-decision.intent",
+            "restore-decision.terminal",
+            "restore-finalization.pending",
+            crate::restore_closure_model::CLOSURE_MEMBER,
+            crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+            crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+        ]
+        .into_iter()
+        .flat_map(|name| ["file", "directory", "symlink"].map(|entry_type| (name, entry_type)))
+        {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let desired = fixture.owner.desired().unwrap();
+            let config = fs::read(fixture.root.join("c/config.yaml")).unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "close-before-fence",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket,
+                )
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            // An independently serialized private transaction need not change
+            // desired/store/config/ownership bytes or call this owner's admit.
+            // Its actual existence fence must still be checked before the POST.
+            {
+                let _lease = fixture.owner.transaction.acquire_lock().unwrap();
+                let member = fixture
+                    .owner
+                    .transaction
+                    .desired_paths()
+                    .directory
+                    .join(name);
+                match entry_type {
+                    "file" => write(&member, b"malformed-but-still-a-fence", 0o600),
+                    "directory" => fs::create_dir(member).unwrap(),
+                    "symlink" => std::os::unix::fs::symlink("missing-member", member).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            write(&fixture.root.join("r/release"), b"fixed", 0o600);
+            let result = receipt(&mut fixture);
+            assert_eq!(result.outcome, ExternalCloseOutcome::RefusedBeforeWrite);
+            assert_eq!(result.revision, 0);
+            assert!(!fixture.root.join("r/effects").exists());
+            assert!(fixture.owner.capture_connection_close().is_err());
+            assert!(
+                fs::symlink_metadata(
+                    fixture
+                        .owner
+                        .transaction
+                        .desired_paths()
+                        .directory
+                        .join(name)
+                )
+                .is_ok()
+            );
+            assert_eq!(fixture.owner.desired().unwrap(), desired);
+            assert_eq!(
+                fs::read(fixture.root.join("c/config.yaml")).unwrap(),
+                config
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+        }
+    }
+
+    #[test]
+    fn actual_owner_late_restore_fence_after_post_retains_unknown_without_replay_effect() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for entry_type in ["file", "directory", "symlink"] {
+            let mut fixture = fixture("stall-reply");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let desired = fixture.owner.desired().unwrap();
+            let config = fs::read(fixture.root.join("c/config.yaml")).unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "fence-after-post",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket,
+                )
+                .unwrap();
+            marker(&fixture.root.join("r/effect-entered"));
+            let member = fixture
+                .owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+            {
+                let _lease = fixture.owner.transaction.acquire_lock().unwrap();
+                match entry_type {
+                    "file" => write(&member, b"malformed-but-still-a-fence", 0o600),
+                    "directory" => fs::create_dir(&member).unwrap(),
+                    "symlink" => std::os::unix::fs::symlink("missing-member", &member).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            write(&fixture.root.join("r/release"), b"fixed", 0o600);
+            let result = receipt(&mut fixture);
+            assert_eq!(result.outcome, ExternalCloseOutcome::Unknown);
+            assert_eq!(result.revision, 1);
+            assert_eq!(
+                fixture
+                    .owner
+                    .confirm_connection_close(
+                        "fence-after-post",
+                        0,
+                        rows[0].handle,
+                        confirmation.ticket,
+                    )
+                    .unwrap(),
+                Some(result)
+            );
+            assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+            assert!(fixture.owner.capture_connection_close().is_err());
+            assert!(fs::symlink_metadata(&member).is_ok());
+            assert_eq!(fixture.owner.desired().unwrap(), desired);
+            assert_eq!(
+                fs::read(fixture.root.join("c/config.yaml")).unwrap(),
+                config
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+        }
+    }
+
+    #[test]
+    fn actual_owner_snapshot_confirm_typed_receipt_and_expired_exact_replay() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let desired = fixture.owner.desired().unwrap();
+        let rows = snapshot(&mut fixture);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].display, rows[1].display);
+        assert_ne!(rows[0].handle, rows[1].handle);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[1].handle)
+            .unwrap();
+        assert_eq!(confirmation.display, rows[1].display);
+        write(&fixture.root.join("r/reverse"), b"fixed", 0o600);
+        assert!(
+            fixture
+                .owner
+                .confirm_connection_close("close-one", 0, rows[1].handle, confirmation.ticket)
+                .unwrap()
+                .is_none()
+        );
+        let result = receipt(&mut fixture);
+        assert_eq!(
+            result,
+            ExternalCloseReceipt {
+                outcome: ExternalCloseOutcome::Closed,
+                revision: 1
+            }
+        );
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"2\n");
+        assert_eq!(fixture.owner.desired().unwrap(), desired);
+        fixture.owner.invalidate_connection_close();
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("close-one", 0, rows[1].handle, confirmation.ticket)
+                .unwrap(),
+            Some(result)
+        );
+        assert!(
+            fixture
+                .owner
+                .confirm_connection_close("close-one", 0, rows[0].handle, confirmation.ticket)
+                .is_err()
+        );
+        assert!(disconnect(&mut fixture.owner, "close-one").is_err());
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"2\n");
+    }
+
+    #[test]
+    fn actual_owner_unknown_is_retained_without_vpn_recovery_or_resend_and_disconnect_remains_available()
+     {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("drop");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let before = fixture.owner.desired().unwrap();
+        fixture
+            .owner
+            .confirm_connection_close("unknown-close", 0, rows[0].handle, confirmation.ticket)
+            .unwrap();
+        let result = receipt(&mut fixture);
+        assert_eq!(result.outcome, ExternalCloseOutcome::Unknown);
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+        assert_eq!(fixture.owner.desired().unwrap(), before);
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("unknown-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap(),
+            Some(result)
+        );
+        disconnect(&mut fixture.owner, "urgent-disconnect").unwrap();
+        assert!(!fixture.owner.desired().unwrap().connected);
+        assert_eq!(fixture.owner.actual(), ActualState::Disconnected);
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+    }
+
+    #[test]
+    fn actual_owner_disconnect_cancels_stalled_read_or_reply_before_lifecycle_effects() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for after_write in [false, true] {
+            let mut fixture = fixture(if after_write { "stall-reply" } else { "ok" });
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            if !after_write {
+                write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            }
+            fixture
+                .owner
+                .confirm_connection_close("cancelled-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            marker(&fixture.root.join(if after_write {
+                "r/effect-entered"
+            } else {
+                "r/read-entered"
+            }));
+            let started = Instant::now();
+            assert_eq!(fixture.owner.revision(), 0);
+            disconnect(&mut fixture.owner, "disconnect-wins").unwrap();
+            assert!(started.elapsed() < Duration::from_secs(1));
+            let result = receipt(&mut fixture);
+            assert_eq!(
+                result.outcome,
+                if after_write {
+                    ExternalCloseOutcome::Unknown
+                } else {
+                    ExternalCloseOutcome::RefusedBeforeWrite
+                }
+            );
+            assert_eq!(fixture.owner.revision(), 1);
+            assert!(!fixture.owner.desired().unwrap().connected);
+            assert_eq!(
+                fixture
+                    .owner
+                    .confirm_connection_close(
+                        "cancelled-close",
+                        0,
+                        rows[0].handle,
+                        confirmation.ticket
+                    )
+                    .unwrap(),
+                Some(result)
+            );
+            if after_write {
+                assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+            } else {
+                assert!(!fixture.root.join("r/effects").exists());
+            }
+        }
+    }
+
+    #[test]
+    fn actual_owner_expiry_ticket_replacement_and_durable_drift_refuse_before_post() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for drift in [
+            "expiry",
+            "ticket",
+            "store",
+            "config",
+            "desired",
+            "ownership",
+            "pending",
+            "executable",
+            "display",
+            "reuse",
+            "removed",
+        ] {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let expiry = fixture
+                .owner
+                .connection_close
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .expiry;
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            assert_eq!(
+                fixture
+                    .owner
+                    .connection_close
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .expiry,
+                expiry
+            );
+            match drift {
+                "expiry" => {
+                    fixture
+                        .owner
+                        .connection_close
+                        .snapshot
+                        .as_mut()
+                        .unwrap()
+                        .expiry = Instant::now()
+                }
+                "ticket" => {
+                    fixture
+                        .owner
+                        .prepare_connection_close(rows[1].handle)
+                        .unwrap();
+                }
+                "store" => {
+                    let path = fixture.root.join("c/profiles.json");
+                    let mut value: Value =
+                        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    value["rulesUpdatedAt"] = json!(1);
+                    write(&path, value.to_string().as_bytes(), 0o600);
+                }
+                "config" => write(&fixture.root.join("c/config.yaml"), b"changed", 0o600),
+                "desired" => {
+                    let mut desired = fixture.owner.desired().unwrap();
+                    desired.generation += 1;
+                    write_desired(
+                        fixture.owner.transaction.desired_paths(),
+                        fixture.owner.uid(),
+                        &desired,
+                    )
+                    .unwrap();
+                }
+                "ownership" => write(
+                    &fixture.root.join("s/omavless/ownership.json"),
+                    br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+                    0o600,
+                ),
+                "pending" => write(
+                    &fixture.root.join("s/omavless/routing-preset.pending.json"),
+                    b"pending",
+                    0o600,
+                ),
+                "executable" => {
+                    fs::rename(
+                        fixture.root.join("core.py"),
+                        fixture.root.join("retained-script"),
+                    )
+                    .unwrap();
+                    write(&fixture.root.join("core.py"), CONTROLLER.as_bytes(), 0o700);
+                }
+                "display" => write(&fixture.root.join("r/display-drift"), b"fixed", 0o600),
+                "reuse" => write(&fixture.root.join("r/reused"), b"fixed", 0o600),
+                "removed" => write(&fixture.root.join("r/removed"), b"fixed", 0o600),
+                _ => unreachable!(),
+            }
+            if fixture
+                .owner
+                .confirm_connection_close("drift-close", 0, rows[0].handle, confirmation.ticket)
+                .is_ok()
+            {
+                assert_eq!(
+                    receipt(&mut fixture).outcome,
+                    ExternalCloseOutcome::RefusedBeforeWrite,
+                    "{drift}"
+                );
+            }
+            assert!(!fixture.root.join("r/effects").exists(), "{drift}");
+        }
+    }
+    fn long_request(method: &str, id: &str, revision: u64) -> Value {
+        omavless_control_protocol::make_request("fixed-long", method,
+            json!({"instanceId":"actual-owner-close-fixture", "operationId":id, "expectedRevision":revision})).unwrap()
+    }
+
+    #[test]
+    fn actual_owner_close_ids_conflict_with_ordinary_batch_probe_and_provider() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        fixture
+            .owner
+            .confirm_connection_close("common-id", 0, rows[0].handle, confirmation.ticket)
+            .unwrap();
+        let closed = receipt(&mut fixture);
+        assert!(matches!(
+            disconnect(&mut fixture.owner, "common-id"),
+            Err(NativeOwnerError::Coordinator(
+                CoordinatorError::OperationConflict
+            ))
+        ));
+        let request = long_request("subscriptions.refresh_all", "common-id", 1);
+        assert!(matches!(
+            fixture.owner.start_subscription_batch(&request),
+            Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict
+            ))
+        ));
+        let request = long_request("profiles.probe", "common-id", 1);
+        assert!(matches!(
+            fixture.owner.start_subscription_probe(&request),
+            Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict
+            ))
+        ));
+        let request = long_request("routing.refresh_providers", "common-id", 1);
+        assert!(matches!(
+            fixture.owner.preflight_provider_refresh(&request),
+            Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict
+            ))
+        ));
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("common-id", 0, rows[0].handle, confirmation.ticket)
+                .unwrap(),
+            Some(closed)
+        );
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+    }
+
+    #[test]
+    fn actual_owner_ordinary_batch_and_probe_ids_cannot_be_reused_for_close() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for method in [
+            "connection.disconnect",
+            "subscriptions.refresh_all",
+            "profiles.probe",
+        ] {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            match method {
+                "connection.disconnect" => {
+                    disconnect(&mut fixture.owner, "first-family").unwrap();
+                }
+                "subscriptions.refresh_all" => {
+                    assert!(
+                        fixture
+                            .owner
+                            .start_subscription_batch(&long_request(method, "first-family", 0))
+                            .unwrap()
+                            .is_some()
+                    );
+                }
+                "profiles.probe" => {
+                    assert!(
+                        fixture
+                            .owner
+                            .start_subscription_probe(&long_request(method, "first-family", 0))
+                            .unwrap()
+                            .is_some()
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                matches!(
+                    fixture.owner.confirm_connection_close(
+                        "first-family",
+                        0,
+                        rows[0].handle,
+                        confirmation.ticket
+                    ),
+                    Err(NativeOwnerError::Coordinator(
+                        CoordinatorError::OperationConflict
+                    ))
+                ),
+                "{method}"
+            );
+            assert!(!fixture.root.join("r/effects").exists(), "{method}");
+        }
+    }
+
+    #[test]
+    fn actual_owner_long_admission_cancels_before_contended_migration_lease() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for method in [
+            "subscriptions.refresh_all",
+            "profiles.probe",
+            "routing.refresh_providers",
+            "shutdown",
+            "recovery",
+        ] {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close("stalled-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            let paths = fixture.owner.transaction.cutover_paths().clone();
+            let lease = MigrationLock::acquire(&paths, fixture.owner.uid()).unwrap();
+            let start = Instant::now();
+            let request = long_request(method, "competing-family", 0);
+            match method {
+                "subscriptions.refresh_all" => {
+                    assert!(fixture.owner.start_subscription_batch(&request).is_err());
+                }
+                "profiles.probe" => {
+                    assert!(fixture.owner.start_subscription_probe(&request).is_err());
+                }
+                "routing.refresh_providers" => {
+                    assert!(fixture.owner.preflight_provider_refresh(&request).is_err());
+                }
+                "shutdown" => {
+                    let _ = fixture.owner.stop_batch_operations();
+                }
+                "recovery" => fixture.owner.mark_auxiliary_recovery_required(),
+                _ => unreachable!(),
+            }
+            assert!(start.elapsed() < Duration::from_millis(250), "{method}");
+            drop(lease);
+            assert_eq!(
+                receipt(&mut fixture).outcome,
+                ExternalCloseOutcome::RefusedBeforeWrite,
+                "{method}"
+            );
+            assert!(fixture.owner.desired().unwrap().connected, "{method}");
+            assert!(!fixture.root.join("r/effects").exists(), "{method}");
+        }
+    }
+
+    #[test]
+    fn actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for (partial, timeout) in [(false, false), (false, true), (true, false)] {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let session = fixture
+                .owner
+                .connection_close
+                .snapshot
+                .as_mut()
+                .unwrap()
+                .observation
+                .session_mut();
+            session.pause_proof_after(usize::from(partial), Arc::clone(&barrier));
+            if partial {
+                session.partial_effect_chunks(16);
+            }
+            fixture
+                .owner
+                .confirm_connection_close("proof-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            barrier.wait(); // real migration lease acquired, before effect gate
+            if partial {
+                marker(&fixture.root.join("r/partial-entered"));
+                let prefix = fs::read(fixture.root.join("r/partial-entered")).unwrap();
+                assert_eq!(prefix.len(), 16);
+                assert!(prefix.starts_with(b"POST "));
+            }
+            let cancellation = fixture
+                .owner
+                .connection_close
+                .cancellation
+                .as_ref()
+                .unwrap()
+                .clone();
+            let owner = std::thread::spawn(move || {
+                let start = Instant::now();
+                let result = disconnect(&mut fixture.owner, "proof-disconnect");
+                (fixture, result, start.elapsed())
+            });
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while !cancellation.is_cancelled() {
+                assert!(Instant::now() < deadline);
+                std::thread::yield_now();
+            }
+            if !timeout {
+                // The owner is waiting only for this exact proof lease, not
+                // holding the lifetime gate or waiting on controller I/O.
+                std::thread::sleep(Duration::from_millis(5));
+                assert!(!owner.is_finished());
+                barrier.wait();
+            }
+            let (mut fixture, result, elapsed) = owner.join().unwrap();
+            assert!(elapsed < Duration::from_millis(250));
+            if timeout {
+                assert!(matches!(result, Err(NativeOwnerError::OwnershipBusy)));
+                assert!(fixture.owner.desired().unwrap().connected);
+                assert_eq!(fixture.owner.actual(), ActualState::Connected);
+                assert!(!fixture.root.join("r/effects").exists());
+                barrier.wait();
+            } else {
+                assert!(matches!(
+                    result.unwrap(),
+                    NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+                ));
+                assert!(!fixture.owner.desired().unwrap().connected);
+            }
+            let result = receipt(&mut fixture);
+            assert_eq!(
+                result.outcome,
+                if partial {
+                    ExternalCloseOutcome::Unknown
+                } else {
+                    ExternalCloseOutcome::RefusedBeforeWrite
+                }
+            );
+            if timeout {
+                assert!(matches!(
+                    disconnect(&mut fixture.owner, "proof-disconnect").unwrap(),
+                    NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+                ));
+            }
+            assert_eq!(fixture.owner.revision(), 1);
+            assert_eq!(
+                fixture
+                    .owner
+                    .confirm_connection_close("proof-close", 0, rows[0].handle, confirmation.ticket)
+                    .unwrap(),
+                Some(result)
+            );
+            assert!(!fixture.root.join("r/effects").exists());
+        }
+    }
+
+    #[test]
+    fn actual_owned_bytes_and_abi_do_not_mint_normal_package_attestation() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("passive-ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let result = fixture
+            .owner
+            .confirm_connection_close("passive-close", 0, rows[0].handle, confirmation.ticket)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            result,
+            ExternalCloseReceipt {
+                outcome: ExternalCloseOutcome::MissingAttestation,
+                revision: 0
+            }
+        );
+        assert!(!fixture.root.join("r/effects").exists());
+        fixture.owner.invalidate_connection_close();
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("passive-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap(),
+            Some(result)
+        );
+    }
+
+    #[test]
+    fn actual_owner_confirmation_after_old_discovery_budget_does_not_renew_expiry() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let original = fixture
+            .owner
+            .connection_close
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .expiry;
+        std::thread::sleep(Duration::from_millis(3100));
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        assert_eq!(
+            fixture
+                .owner
+                .connection_close
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .expiry,
+            original
+        );
+        fixture
+            .owner
+            .confirm_connection_close("late-confirm", 0, rows[0].handle, confirmation.ticket)
+            .unwrap();
+        assert_eq!(receipt(&mut fixture).outcome, ExternalCloseOutcome::Closed);
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+    }
+
+    #[test]
+    fn actual_owner_same_pid_exec_permanently_revokes_old_image_binding() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let pid = fixture.owner.host().core_pid().unwrap();
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        write(&fixture.root.join("r/exec-replace"), b"fixed", 0o600);
+        fixture
+            .owner
+            .confirm_connection_close("exec-close", 0, rows[0].handle, confirmation.ticket)
+            .unwrap();
+        assert_eq!(
+            receipt(&mut fixture).outcome,
+            ExternalCloseOutcome::RefusedBeforeWrite
+        );
+        assert_eq!(fixture.owner.host().core_pid(), Some(pid));
+        assert!(fixture.owner.capture_connection_close().is_err());
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+
+    fn provider_job(fixture: &mut Fixture, id: &str) -> NativeProviderRefresh {
+        use crate::provider_refresh::RuleProviderTransport;
+        let request = long_request("routing.refresh_providers", id, fixture.owner.revision());
+        let ProviderRefreshAdmission::Discover(snapshot) =
+            fixture.owner.preflight_provider_refresh(&request).unwrap()
+        else {
+            panic!("actual provider discovery expected");
+        };
+        let transport = crate::provider_refresh::UnixRuleProviderTransport::new(
+            &fixture.root.join("r"),
+            fixture.owner.uid(),
+        );
+        let targets = transport.discover(Duration::from_secs(1)).unwrap();
+        assert_eq!(targets.len(), 1);
+        fixture
+            .owner
+            .start_provider_refresh(&request, snapshot, targets)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn actual_owned_rule_provider_reservation_conflicts_with_close_id() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("rule-ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let _job = provider_job(&mut fixture, "provider-first");
+        assert!(matches!(
+            fixture.owner.confirm_connection_close(
+                "provider-first",
+                0,
+                rows[0].handle,
+                confirmation.ticket
+            ),
+            Err(NativeOwnerError::Coordinator(
+                CoordinatorError::OperationConflict
+            ))
+        ));
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+
+    #[test]
+    fn actual_owner_late_long_completions_cancel_before_publication_and_cannot_restore_state() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for method in [
+            "subscriptions.refresh_all",
+            "profiles.probe",
+            "routing.refresh_providers",
+        ] {
+            let mut fixture = fixture(if method == "routing.refresh_providers" {
+                "rule-ok"
+            } else {
+                "ok"
+            });
+            let request = long_request(method, "old-work", 0);
+            let mut batch = None;
+            let mut probe = None;
+            let mut provider = None;
+            let ticket = match method {
+                "subscriptions.refresh_all" => {
+                    let job = fixture
+                        .owner
+                        .start_subscription_batch(&request)
+                        .unwrap()
+                        .unwrap();
+                    let ticket = job.supervisor_ticket();
+                    batch = Some(job);
+                    ticket
+                }
+                "profiles.probe" => {
+                    let job = fixture
+                        .owner
+                        .start_subscription_probe(&request)
+                        .unwrap()
+                        .unwrap();
+                    let ticket = job.supervisor_ticket();
+                    probe = Some(job);
+                    ticket
+                }
+                "routing.refresh_providers" => {
+                    let job = provider_job(&mut fixture, "old-work");
+                    let ticket = job.supervisor_ticket();
+                    provider = Some(job);
+                    ticket
+                }
+                _ => unreachable!(),
+            };
+            fixture.owner.abort_subscription_batch(ticket).unwrap();
+            let desired = fixture.owner.desired().unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close("new-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            match method {
+                "subscriptions.refresh_all" => assert!(
+                    fixture
+                        .owner
+                        .complete_subscription_batch(batch.take().unwrap(), || panic!(
+                            "stale job clock"
+                        ))
+                        .is_err()
+                ),
+                "profiles.probe" => assert!(
+                    fixture
+                        .owner
+                        .complete_subscription_probe(
+                            probe.take().unwrap(),
+                            Err(StableErrorCode::InternalError)
+                        )
+                        .is_err()
+                ),
+                "routing.refresh_providers" => assert!(
+                    fixture
+                        .owner
+                        .complete_provider_refresh(
+                            provider.take().unwrap(),
+                            || panic!("stale job clock"),
+                            || panic!("stale identity callback")
+                        )
+                        .is_err()
+                ),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                receipt(&mut fixture).outcome,
+                ExternalCloseOutcome::RefusedBeforeWrite,
+                "{method}"
+            );
+            assert_eq!(fixture.owner.revision(), 0);
+            assert_eq!(fixture.owner.desired().unwrap(), desired);
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+            assert!(!fixture.root.join("r/effects").exists());
+        }
+    }
+
+    #[test]
+    fn actual_owner_composed_core_selected_close_optin() {
+        use sha2::{Digest, Sha256};
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        let Some(executable) = std::env::var_os("OMAVLESS_TEST_OWNER_CONDITIONAL_CORE") else {
+            return;
+        };
+        let _fixtures = FIXTURES.lock().unwrap();
+        let executable = PathBuf::from(executable);
+        let metadata = fs::symlink_metadata(&executable).unwrap();
+        assert!(metadata.is_file() && !metadata.file_type().is_symlink());
+        assert_eq!(metadata.nlink(), 1);
+        assert_eq!(metadata.mode() & 0o022, 0);
+        assert_eq!(
+            format!("{:x}", Sha256::digest(fs::read(&executable).unwrap())),
+            "3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544"
+        );
+        let after = fs::symlink_metadata(&executable).unwrap();
+        assert_eq!(
+            (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+                metadata.len()
+            ),
+            (
+                after.dev(),
+                after.ino(),
+                after.ctime(),
+                after.ctime_nsec(),
+                after.len()
+            )
+        );
+        let mut fixture = fixture("ok");
+        fixture.owner.invalidate_connection_close();
+        fixture.owner.host_mut().stop_owned().unwrap();
+        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mixed = reservation.local_addr().unwrap().port();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let target = listener.local_addr().unwrap().port();
+        assert_ne!(mixed, target);
+        drop(reservation);
+        listener.set_nonblocking(true).unwrap();
+        let echo = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut peers = Vec::new();
+            while peers.len() < 2 && Instant::now() < deadline {
+                let Ok((mut peer, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(2));
+                    continue;
+                };
+                peers.push(std::thread::spawn(move || {
+                    peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                    let mut bytes = [0; 256];
+                    while let Ok(count) = peer.read(&mut bytes) {
+                        if count == 0 || peer.write_all(&bytes[..count]).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            assert_eq!(peers.len(), 2);
+            for peer in peers {
+                peer.join().unwrap();
+            }
+        });
+        let runtime = fixture.root.join("r");
+        let config = fixture.root.join("c");
+        let socket = runtime.join("mihomo.sock");
+        let paths = NativeHostPaths::new(
+            executable.clone(),
+            config.clone(),
+            config.clone(),
+            runtime.clone(),
+            PathBuf::from("/proc"),
+            PathBuf::from("/sys/class/net"),
+        );
+        // Drop the stopped predecessor before the successor creates its socket.
+        // Host cleanup deliberately still owns this private controller path.
+        *fixture.owner.host_mut() = NativeLifecycleHost::new(paths, fixture.owner.uid()).unwrap();
+        write(&config.join("config.yaml"), format!("mixed-port: {mixed}\nexternal-controller-unix: {}\nallow-lan: false\nbind-address: 127.0.0.1\nmode: direct\nlog-level: silent\ntun:\n  enable: false\ndns:\n  enable: false\nrules:\n  - MATCH,DIRECT\n", socket.display()).as_bytes(), 0o600);
+        let mut core =
+            OwnedCore::spawn(&executable, &runtime, &config.join("config.yaml"), &socket).unwrap();
+        core.wait_ready(Duration::from_secs(10)).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let loaded = Instant::now() + Duration::from_secs(5);
+        loop {
+            let result = omavless_mihomo::controller_get(
+                &socket,
+                omavless_mihomo::ReadOnlyEndpoint::Configs,
+                Duration::from_millis(250),
+                16384,
+            );
+            if result.is_ok_and(|r| {
+                r.status == 200
+                    && r.payload["mode"] == "direct"
+                    && r.payload["mixed-port"] == mixed
+                    && r.payload["tun"]["enable"] == false
+            }) {
+                break;
+            }
+            assert!(Instant::now() < loaded);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        fixture
+            .owner
+            .host_mut()
+            .install_owned_close_fixture(core)
+            .unwrap();
+        fixture
+            .owner
+            .transaction
+            .lifecycle_mut()
+            .adopt_owned_close_fixture()
+            .unwrap();
+        let mut clients = Vec::new();
+        for _ in 0..2 {
+            let mut client = TcpStream::connect(("127.0.0.1", mixed)).unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            client
+                .write_all(
+                    format!(
+                        "CONNECT 127.0.0.1:{target} HTTP/1.1\r\nHost: 127.0.0.1:{target}\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                client.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+                assert!(header.len() < 8192);
+            }
+            assert!(header.starts_with(b"HTTP/1.1 200 "));
+            client.write_all(b"before").unwrap();
+            let mut bytes = [0; 6];
+            client.read_exact(&mut bytes).unwrap();
+            assert_eq!(&bytes, b"before");
+            clients.push(client);
+        }
+        let desired = fixture.owner.desired().unwrap();
+        let rows = snapshot(&mut fixture);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].display, rows[1].display);
+        assert_ne!(rows[0].handle, rows[1].handle);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        fixture
+            .owner
+            .confirm_connection_close(
+                "real-selected-close",
+                0,
+                rows[0].handle,
+                confirmation.ticket,
+            )
+            .unwrap();
+        let closed = receipt(&mut fixture);
+        assert_eq!(
+            closed,
+            ExternalCloseReceipt {
+                outcome: ExternalCloseOutcome::Closed,
+                revision: 1
+            }
+        );
+        assert_eq!(fixture.owner.desired().unwrap(), desired);
+        fixture.owner.invalidate_connection_close();
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "real-selected-close",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket
+                )
+                .unwrap(),
+            Some(closed)
+        );
+        let mut alive = 0;
+        let mut terminated = 0;
+        for client in &mut clients {
+            let _ = client.write_all(b"after");
+            let mut bytes = [0; 5];
+            match client.read(&mut bytes) {
+                Ok(0) => terminated += 1,
+                Ok(n) => {
+                    client.read_exact(&mut bytes[n..]).unwrap();
+                    assert_eq!(&bytes, b"after");
+                    alive += 1;
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                    ) =>
+                {
+                    terminated += 1
+                }
+                Err(_) => panic!("closed tunnel must terminate; unrelated tunnel must echo"),
+            }
+        }
+        assert_eq!((terminated, alive), (1, 1));
+        drop(clients);
+        fixture.owner.host_mut().stop_owned().unwrap();
+        echo.join().unwrap();
+    }
+
+    #[test]
+    fn actual_owner_128_uncertain_receipts_never_evict_or_admit_129th_effect() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("drop");
+        let mut first = None;
+        for index in 0..128 {
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let id = format!("bounded-close-{index}");
+            let revision = fixture.owner.revision();
+            fixture
+                .owner
+                .confirm_connection_close(&id, revision, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            // A pending reservation is non-evicting too, and does not grant
+            // another operation authority merely because no receipt exists.
+            assert!(matches!(
+                fixture.owner.confirm_connection_close(
+                    "parallel-close",
+                    revision,
+                    rows[0].handle,
+                    confirmation.ticket
+                ),
+                Err(NativeOwnerError::Coordinator(CoordinatorError::Busy))
+            ));
+            let result = receipt(&mut fixture);
+            assert_eq!(result.outcome, ExternalCloseOutcome::Unknown);
+            if index == 0 {
+                first = Some((rows[0].handle, confirmation.ticket, result));
+            }
+        }
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        assert!(matches!(
+            fixture.owner.confirm_connection_close(
+                "overflow-close",
+                128,
+                rows[0].handle,
+                confirmation.ticket
+            ),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::Busy))
+        ));
+        fixture.owner.invalidate_connection_close();
+        let (handle, ticket, original) = first.unwrap();
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("bounded-close-0", 0, handle, ticket)
+                .unwrap(),
+            Some(original)
+        );
+        assert_eq!(fixture.owner.revision(), 128);
+        assert_eq!(
+            fs::read(fixture.root.join("r/effects")).unwrap(),
+            b"1\n".repeat(128)
+        );
+        assert!(fixture.owner.desired().unwrap().connected);
+    }
+}
+
+/// Immutable owner-issued receipt, never a caller-selected proof or boolean.
+/// Each write tries the cooperative durable lease and compares actual bytes.
+pub(crate) struct EffectProof(Context);
+impl EffectProof {
+    pub(crate) fn lease(&self) -> Result<MigrationLock, ()> {
+        let context = &self.0;
+        let lease = MigrationLock::acquire(&context.cutover_paths, context.uid).map_err(|_| ())?;
+        let marker = crate::cutover::read_marker_existing(&context.cutover_paths, context.uid)
+            .map_err(|_| ())?;
+        if marker.phase() != context.ownership.phase
+            || marker.generation() != context.ownership.generation
+            || read_desired(&context.desired_paths, context.uid).map_err(|_| ())? != context.desired
+            || crate::pending_private_transaction::pending(&context.desired_paths)
+            || read_private_utf8(&context.store_path, context.uid).map_err(|_| ())? != context.store
+            || read_private_utf8(&context.config_path, context.uid).map_err(|_| ())?
+                != context.config
+        {
+            return Err(());
+        }
+        Ok(lease)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct OpaqueToken([u8; 32]);
+impl fmt::Debug for OpaqueToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("OpaqueCloseToken([private])")
+    }
+}
+
+pub(crate) struct CloseDisplayRow {
+    pub(crate) handle: OpaqueToken,
+    pub(crate) display: Value,
+}
+pub(crate) struct CloseConfirmation {
+    pub(crate) ticket: OpaqueToken,
+    pub(crate) display: Value,
+}
+struct RetainedRow {
+    handle: OpaqueToken,
+    observed: Option<ObservedRow>,
+}
+struct Snapshot {
+    context: Context,
+    expiry: Instant,
+    observation: CloseObservation,
+    rows: Vec<RetainedRow>,
+}
+struct Pending {
+    handle: OpaqueToken,
+    ticket: OpaqueToken,
+}
+struct ActiveClose {
+    token: ExternalCloseToken,
+    worker: Worker,
+}
+#[derive(Default)]
+pub(super) struct CloseState {
+    discovery: Option<Arc<()>>,
+    snapshot: Option<Snapshot>,
+    pending: Option<Pending>,
+    issued: BTreeSet<OpaqueToken>,
+    cancellation: Option<Cancellation>,
+    scheduler: Scheduler,
+    active: Option<ActiveClose>,
+}
+impl CloseState {
+    fn entropy(&mut self) -> Result<OpaqueToken, NativeOwnerError> {
+        if self.issued.len() >= ENTROPY_LIMIT {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        let mut bytes = [0; 32];
+        // Fixed kernel CSPRNG device, never symlink/fallback or caller path.
+        let mut source = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK | nix::libc::O_CLOEXEC)
+            .open("/dev/urandom")
+            .map_err(|_| NativeOwnerError::Invariant)?;
+        let metadata = source.metadata().map_err(|_| NativeOwnerError::Invariant)?;
+        if !metadata.file_type().is_char_device()
+            || metadata.uid() != 0
+            || metadata.rdev() != nix::libc::makedev(1, 9)
+        {
+            return Err(NativeOwnerError::Invariant);
+        }
+        source
+            .read_exact(&mut bytes)
+            .map_err(|_| NativeOwnerError::Invariant)?;
+        let token = OpaqueToken(bytes);
+        if bytes == [0; 32] || !self.issued.insert(token) {
+            return Err(NativeOwnerError::Invariant);
+        }
+        Ok(token)
+    }
+    pub(super) fn invalidate(&mut self) {
+        // Lifetime gate cancellation linearizes BEFORE any competing owner
+        // changes state/revision or attempts a migration lease.
+        if let Some(cancellation) = self.cancellation.take()
+            && !cancellation.cancel_and_drain()
+        {
+            // Keep exact cancellation authority for a later explicit
+            // retry if bounded proof draining timed out.
+            self.cancellation = Some(cancellation);
+        }
+        if let Some(active) = &self.active {
+            active.worker.cancel();
+        }
+        self.pending = None;
+        self.snapshot = None;
+        self.discovery = None;
+    }
+}
+
+pub(crate) struct CloseDiscovery {
+    identity: Arc<()>,
+    context: Context,
+    expiry: Instant,
+    observation: CloseObservation,
+}
+pub(crate) struct CloseDiscovered {
+    identity: Arc<()>,
+    context: Context,
+    expiry: Instant,
+    observation: CloseObservation,
+    rows: Vec<ObservedRow>,
+}
+impl CloseDiscovery {
+    /// Run outside the actual owner's mutex AND migration lease.
+    pub(crate) fn observe(mut self) -> Result<CloseDiscovered, NativeOwnerError> {
+        self.observation
+            .observe()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        let rows = self
+            .observation
+            .session_mut()
+            .discover_rows()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        self.observation
+            .observe()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        if Instant::now() >= self.expiry {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok(CloseDiscovered {
+            identity: self.identity,
+            context: self.context,
+            expiry: self.expiry,
+            observation: self.observation,
+            rows,
+        })
+    }
+}
+
+impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(super) fn invalidate_connection_close(&mut self) {
+        self.connection_close.invalidate();
+    }
+}
+
+impl OfflineNativeCoordinator<NativeLifecycleHost> {
+    fn close_context(&self) -> Result<Context, NativeOwnerError> {
+        let ownership = self
+            .required_ownership
+            .filter(|fence| fence.phase == OwnershipPhase::Rust)
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        let state = self
+            .batch
+            .as_ref()
+            .filter(|state| !state.stopped && state.active.is_none())
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if self.coordinator.active()
+            || self.coordinator.queued() != 0
+            || self.actual() != ActualState::Connected
+            || self.transaction.blocked()
+            || crate::pending_private_transaction::pending(self.transaction.desired_paths())
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        if !self
+            .transaction
+            .ownership_matches(ownership.phase, ownership.generation)
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let desired = self
+            .transaction
+            .desired()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        if !desired.connected {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let store_path = self.transaction.store_path();
+        crate::private_store_transaction::validate_store_path(store_path, self.uid())
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        let store = read_private_utf8(store_path, self.uid())
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        omavless_domain::private_store::parse_private_store(&store)
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        let config_path = store_path
+            .parent()
+            .ok_or(NativeOwnerError::Invariant)?
+            .join("config.yaml");
+        let config = read_private_utf8(&config_path, self.uid())
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        if config.len() > omavless_domain::config::MAX_TEMPLATE_BYTES {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok(Context {
+            instance: state.instance.clone(),
+            ownership,
+            revision: self.revision(),
+            desired,
+            desired_paths: self.transaction.desired_paths().clone(),
+            cutover_paths: self.transaction.cutover_paths().clone(),
+            store_path: store_path.to_owned(),
+            config_path,
+            store,
+            config,
+            uid: self.uid(),
+        })
+    }
+
+    fn close_context_matches(&self, expected: &Context) -> Result<(), NativeOwnerError> {
+        let actual = self.close_context()?;
+        if actual.instance != expected.instance
+            || actual.ownership != expected.ownership
+            || actual.revision != expected.revision
+            || actual.desired != expected.desired
+            || actual.store != expected.store
+            || actual.config != expected.config
+        {
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict,
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn capture_connection_close(&mut self) -> Result<CloseDiscovery, NativeOwnerError> {
+        self.invalidate_connection_close();
+        if self.connection_close.active.is_some() {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        let _lease = self.batch_lock()?;
+        let context = self.close_context()?;
+        let observation = self
+            .host_mut()
+            .capture_connection_close(&context.desired)
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        self.connection_close.cancellation = Some(observation.session().cancellation());
+        let identity = Arc::new(());
+        self.connection_close.discovery = Some(Arc::clone(&identity));
+        Ok(CloseDiscovery {
+            identity,
+            context,
+            expiry: Instant::now() + CONFIRMATION_LIFETIME,
+            observation,
+        })
+    }
+
+    pub(crate) fn retain_connection_close(
+        &mut self,
+        mut discovered: CloseDiscovered,
+    ) -> Result<Vec<CloseDisplayRow>, NativeOwnerError> {
+        if !self
+            .connection_close
+            .discovery
+            .as_ref()
+            .is_some_and(|identity| Arc::ptr_eq(identity, &discovered.identity))
+        {
+            // A late result may never cancel or replace a newer capture.
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let _lease = self.batch_lock()?;
+        self.close_context_matches(&discovered.context)?;
+        if Instant::now() >= discovered.expiry
+            || !discovered.observation.session_mut().proves_live()
+        {
+            self.invalidate_connection_close();
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let mut rows = Vec::with_capacity(discovered.rows.len());
+        let mut displayed = Vec::with_capacity(discovered.rows.len());
+        for observed in discovered.rows {
+            let handle = self.connection_close.entropy()?;
+            displayed.push(CloseDisplayRow {
+                handle,
+                display: observed.display.clone(),
+            });
+            rows.push(RetainedRow {
+                handle,
+                observed: Some(observed),
+            });
+        }
+        self.connection_close.snapshot = Some(Snapshot {
+            context: discovered.context,
+            expiry: discovered.expiry,
+            observation: discovered.observation,
+            rows,
+        });
+        self.connection_close.discovery = None;
+        Ok(displayed)
+    }
+
+    pub(crate) fn prepare_connection_close(
+        &mut self,
+        handle: OpaqueToken,
+    ) -> Result<CloseConfirmation, NativeOwnerError> {
+        self.connection_close.pending = None;
+        let _lease = self.batch_lock()?;
+        let snapshot = self
+            .connection_close
+            .snapshot
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        self.close_context_matches(&snapshot.context)?;
+        if Instant::now() >= snapshot.expiry {
+            self.invalidate_connection_close();
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let display = snapshot
+            .rows
+            .iter()
+            .find(|row| row.handle == handle)
+            .and_then(|row| row.observed.as_ref())
+            .ok_or(NativeOwnerError::RecordNotFound)?
+            .display
+            .clone();
+        let ticket = self.connection_close.entropy()?;
+        self.connection_close.pending = Some(Pending { handle, ticket });
+        Ok(CloseConfirmation { ticket, display })
+    }
+
+    pub(crate) fn confirm_connection_close(
+        &mut self,
+        operation_id: &str,
+        expected_revision: u64,
+        handle: OpaqueToken,
+        ticket: OpaqueToken,
+    ) -> Result<Option<ExternalCloseReceipt>, NativeOwnerError> {
+        let mut semantic = b"omavless-owner-single-conditional-close-v1\0".to_vec();
+        let instance = self
+            .batch
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?
+            .instance
+            .as_bytes();
+        semantic.extend_from_slice(&(instance.len() as u64).to_be_bytes());
+        semantic.extend_from_slice(instance);
+        semantic.extend_from_slice(&handle.0);
+        semantic.extend_from_slice(&ticket.0);
+        semantic.extend_from_slice(&expected_revision.to_be_bytes());
+        let long_id = self
+            .batch
+            .as_ref()
+            .is_some_and(|state| state.registry.has_operation_id(operation_id));
+        let token = match self.coordinator.reserve_external_close(
+            operation_id,
+            expected_revision,
+            MutationDigest::from_semantic_bytes(&semantic),
+            long_id,
+        )? {
+            ExternalCloseAdmission::Replay(receipt) => return Ok(Some(receipt)),
+            ExternalCloseAdmission::Reserved(token) => token,
+        };
+        let result = self.confirm_connection_close_reserved(handle, ticket, &token);
+        match result {
+            Ok(None) => Ok(None),
+            Ok(Some(outcome)) => self
+                .coordinator
+                .finish_external_close(&token, outcome)
+                .map(Some)
+                .map_err(Into::into),
+            Err(error) => {
+                self.invalidate_connection_close();
+                self.coordinator
+                    .finish_external_close(&token, ExternalCloseOutcome::RefusedBeforeWrite)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn confirm_connection_close_reserved(
+        &mut self,
+        handle: OpaqueToken,
+        ticket: OpaqueToken,
+        token: &ExternalCloseToken,
+    ) -> Result<Option<ExternalCloseOutcome>, NativeOwnerError> {
+        let _lease = self.batch_lock()?;
+        let pending = self
+            .connection_close
+            .pending
+            .take()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if pending.handle != handle || pending.ticket != ticket {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let mut snapshot = self
+            .connection_close
+            .snapshot
+            .take()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        self.close_context_matches(&snapshot.context)?;
+        if Instant::now() >= snapshot.expiry || !snapshot.observation.session_mut().proves_live() {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let selected = snapshot
+            .rows
+            .iter_mut()
+            .find(|row| row.handle == handle)
+            .and_then(|row| row.observed.take())
+            .ok_or(NativeOwnerError::RecordNotFound)?;
+        // Passive bytes/ABI are NOT conditional package attestation. Only the
+        // cfg(test) fixed owned fixture constructor can exercise the effect.
+        #[cfg(test)]
+        if let Some(permit) = snapshot.observation.fixture_permit() {
+            let mut session = snapshot.observation.into_session();
+            session.authorize_effect(
+                EffectProof(snapshot.context),
+                snapshot.expiry,
+                selected.display,
+            );
+            let worker = self
+                .connection_close
+                .scheduler
+                .start(session, selected.target, permit)
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            self.connection_close.active = Some(ActiveClose {
+                token: token.clone(),
+                worker,
+            });
+            return Ok(None);
+        }
+        let _ = (selected, token);
+        Ok(Some(ExternalCloseOutcome::MissingAttestation))
+    }
+
+    pub(crate) fn poll_connection_close(
+        &mut self,
+    ) -> Result<Option<ExternalCloseReceipt>, NativeOwnerError> {
+        let Some(active) = self.connection_close.active.as_mut() else {
+            return Ok(None);
+        };
+        let Some(outcome) = active.worker.poll() else {
+            return Ok(None);
+        };
+        let active = self
+            .connection_close
+            .active
+            .take()
+            .ok_or(NativeOwnerError::Invariant)?;
+        self.connection_close.cancellation = None;
+        self.coordinator
+            .finish_external_close(&active.token, outcome.into())
+            .map(Some)
+            .map_err(Into::into)
+    }
+}
