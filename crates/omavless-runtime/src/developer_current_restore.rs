@@ -78,7 +78,7 @@ fn classify_response_field(response: &Value, field: &str) -> Result<(), ReplyDis
     // unrecognized outcome may follow effects. No retry or no-effect claim.
     Err(ReplyDisposition::Unknown)
 }
-struct PrivateText(Zeroizing<String>);
+pub(crate) struct PrivateText(pub(crate) Zeroizing<String>);
 impl<'de> Deserialize<'de> for PrivateText {
     fn deserialize<D: Deserializer<'de>>(input: D) -> Result<Self, D::Error> {
         String::deserialize(input).map(|text| Self(Zeroizing::new(text)))
@@ -133,7 +133,7 @@ impl AbortRequest {
         self.expected_revision
     }
 }
-fn valid_private(schema: u8, archive: &str, passphrase: &str) -> bool {
+pub(crate) fn valid_private(schema: u8, archive: &str, passphrase: &str) -> bool {
     schema == 1
         && !archive.is_empty()
         && archive.len() <= 4096
@@ -202,7 +202,9 @@ impl Request {
     }
 }
 pub(crate) fn wipe_request(request: &mut Value) {
-    if request["method"].as_str().is_some_and(private_method)
+    if request["method"]
+        .as_str()
+        .is_some_and(|method| private_method(method) || crate::private_pair_api::is_method(method))
         && let Some(params) = request["params"].as_object_mut()
         && let Some(Value::String(secret)) = params.remove("passphrase")
     {

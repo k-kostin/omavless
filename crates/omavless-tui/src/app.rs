@@ -11,6 +11,14 @@ use std::time::{Duration, Instant};
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
+    #[cfg(feature = "private-backup")]
+    pub backup_enabled: bool,
+    #[cfg(feature = "private-backup")]
+    pub backup: Option<crate::private_backup::Workspace>,
+    #[cfg(feature = "private-backup")]
+    pub backup_open: bool,
+    #[cfg(feature = "private-backup")]
+    pub(crate) backup_request: Option<crate::private_backup::Request>,
     pub jobs_enabled: bool,
     pub job: Option<crate::job_ui::Session>,
     pub settings: crate::settings::Settings,
@@ -68,6 +76,8 @@ pub enum Confirmation {
 }
 #[derive(PartialEq, Eq, Debug)]
 pub enum Action {
+    #[cfg(feature = "private-backup")]
+    SubmitBackup,
     StartJob,
     PollJob,
     CancelJob,
@@ -121,6 +131,14 @@ impl App {
     }
     pub fn new(locale: Locale) -> Self {
         Self {
+            #[cfg(feature = "private-backup")]
+            backup_enabled: false,
+            #[cfg(feature = "private-backup")]
+            backup: None,
+            #[cfg(feature = "private-backup")]
+            backup_open: false,
+            #[cfg(feature = "private-backup")]
+            backup_request: None,
             jobs_enabled: false,
             job: None,
             settings: crate::settings::Settings::new(locale),
@@ -356,6 +374,45 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Action::Close;
         }
+        #[cfg(feature = "private-backup")]
+        {
+            self.refresh_backup_context(now);
+            if self.backup_open {
+                return self.backup_key(key, now);
+            }
+            if self.backup_unresolved() {
+                match key.code {
+                    KeyCode::Char('q') => return Action::Close,
+                    KeyCode::Char(',') => self.page = crate::inspection::Page::Settings,
+                    KeyCode::Char('b') => self.backup_open = true,
+                    KeyCode::Char('r') => return Action::Refresh,
+                    KeyCode::Tab | KeyCode::BackTab => {
+                        let next = self.page.next(
+                            key.code == KeyCode::BackTab
+                                || key.modifiers.contains(KeyModifiers::SHIFT),
+                        );
+                        self.leave_private_connections(next);
+                        self.page = next;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('l' | 't' | '0')
+                        if self.page == crate::inspection::Page::Settings =>
+                    {
+                        match key.code {
+                            KeyCode::Char('l') => self.settings.next_language(),
+                            KeyCode::Char('t') => self.settings.next_theme(),
+                            _ => self.settings.reset(),
+                        }
+                        self.locale = self.settings.locale();
+                        self.palette = self.settings.palette();
+                    }
+                    _ => (),
+                }
+                return Action::None;
+            }
+        }
         if self.actions_enabled && !self.viewport_ready {
             if key.code == KeyCode::Char('q') {
                 return Action::Close;
@@ -498,6 +555,20 @@ impl App {
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
                 self.operator_query.clear();
+                return Action::None;
+            }
+            #[cfg(feature = "private-backup")]
+            if self.page == crate::inspection::Page::Settings
+                && key.code == KeyCode::Char('b')
+                && self.backup_available(now)
+            {
+                if let Some(snapshot) = &self.snapshot {
+                    self.backup = crate::private_backup::Workspace::new(
+                        &snapshot.metadata.instance_id,
+                        snapshot.revision,
+                    );
+                    self.backup_open = self.backup.is_some();
+                }
                 return Action::None;
             }
             if self.page == crate::inspection::Page::Settings
@@ -815,6 +886,112 @@ impl App {
                     && (kind == Kind::Disconnect
                         || matches!(s.status(), Status::Connected | Status::Disconnected))
             })
+    }
+
+    #[cfg(feature = "private-backup")]
+    pub fn backup_available(&self, now: Instant) -> bool {
+        self.backup_enabled
+            && self.viewport_ready
+            && self.fresh(now)
+            && !self.running
+            && !self.unknown
+            && self.pending.is_none()
+            && !self.job.as_ref().is_some_and(|j| j.blocks_actions())
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.capabilities.private_backup
+                    && matches!(s.status(), Status::Connected | Status::Disconnected)
+            })
+    }
+    #[cfg(feature = "private-backup")]
+    pub(crate) fn backup_unresolved(&self) -> bool {
+        self.backup.as_ref().is_some_and(|w| {
+            matches!(
+                w.state(),
+                crate::private_backup::State::Submitted | crate::private_backup::State::Unknown
+            )
+        })
+    }
+    #[cfg(feature = "private-backup")]
+    pub(crate) fn refresh_backup_context(&mut self, now: Instant) {
+        let available = self.backup_available(now);
+        let context = self
+            .snapshot
+            .as_ref()
+            .map(|s| (s.metadata.instance_id.clone(), s.revision));
+        if let Some(w) = &mut self.backup {
+            w.observe_deadline(now);
+            let (instance, revision) = context
+                .as_ref()
+                .map_or(("", 0), |(id, rev)| (id.as_str(), *rev));
+            w.check_header(instance, revision, available);
+        }
+    }
+    #[cfg(feature = "private-backup")]
+    fn backup_key(&mut self, key: KeyEvent, now: Instant) -> Action {
+        use crate::private_backup::State;
+        let Some(w) = &mut self.backup else {
+            return Action::None;
+        };
+        if key.code == KeyCode::Esc {
+            w.cancel(); // Submitted/Unknown are retained, not cancelled.
+            self.backup_open = false;
+            self.notice = "";
+            return Action::None;
+        }
+        if matches!(w.state(), State::Submitted | State::Unknown) {
+            return if key.code == KeyCode::Char('q') {
+                Action::Close
+            } else {
+                Action::None
+            };
+        }
+        if !self.viewport_ready || key.kind != KeyEventKind::Press {
+            return Action::None;
+        }
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return Action::None;
+        }
+        match (w.state(), key.code) {
+            (State::Editing, KeyCode::Tab) => w.next_field(),
+            (State::Editing, KeyCode::BackTab) => w.previous_field(),
+            (State::Editing, KeyCode::Backspace) => w.backspace(),
+            (State::Editing, KeyCode::Char(ch)) => {
+                w.push(ch);
+            }
+            (State::Editing, KeyCode::Enter) => {
+                if !w.confirm() {
+                    self.notice = "tui.backup_invalid";
+                } else {
+                    self.notice = "";
+                }
+            }
+            (State::Confirming, KeyCode::Enter) => {
+                if let Some(operation) = actions::operation_id() {
+                    self.backup_request = w.submit_at(operation, now);
+                    if self.backup_request.is_some() {
+                        return Action::SubmitBackup;
+                    }
+                }
+                w.cancel();
+                self.notice = "tui.backup_unavailable";
+            }
+            (_, KeyCode::Char('q')) => return Action::Close,
+            _ => (),
+        }
+        Action::None
+    }
+    #[cfg(feature = "private-backup")]
+    pub fn take_backup_request(&mut self) -> Option<crate::private_backup::Request> {
+        self.backup_request.take()
+    }
+    #[cfg(feature = "private-backup")]
+    pub fn finish_backup(&mut self, result: crate::private_backup::Completion) {
+        if let Some(w) = &mut self.backup {
+            w.accept(result);
+        }
     }
 
     fn can_acknowledge(&self, now: Instant) -> bool {

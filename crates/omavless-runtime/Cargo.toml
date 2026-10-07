@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["tui"]
 tui = ["dep:omavless-tui"]
-t4-manager-actor-service = ["dep:rustix", "nix/resource"]
+t4-manager-actor-service = ["dep:rustix", "nix/resource", "omavless-tui?/private-backup"]
 # Development VM only; same-UID semantic close IPC is absent in default builds.
 developer-conditional-close = ["omavless-tui?/developer-conditional-close"]
 # Separate default-off current-image helper and explicit development daemon mode.

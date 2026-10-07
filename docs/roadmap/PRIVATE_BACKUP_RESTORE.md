@@ -7,6 +7,15 @@ continues Draft #658; the first real scenario is a fixed PID1 observation,
 not backup/restore admission. This does not accept or relax the historical
 caller-local Bundle contract or change this product's activation gates.
 
+The [opt-in normal private-pair API](../development/T4_PRIVATE_PAIR_NORMAL_API.md)
+uses the retained engine and bounded replay metadata. Its exact source `4983f392`
+passed a separately selected agent-attended installed Off private-pair sequence:
+export, ordinary synthetic data import, Restore, historical replay, fresh-ID
+denial with usable unchanged state, Backup and independently earned normal
+restart. The owning API contract preserves the failed predecessor and exact
+scope46 evidence. This does not activate default methods, a Settings picker,
+Restore UX, whole settings or SLEEP/network/OS-transfer guarantees.
+
 Status: ordinary product activation remains **not approved**. The historical
 inactive envelope/transaction foundations below are now supplemented by the
 explicit developer-feature checkpoint, not default Backup/Restore registration,
