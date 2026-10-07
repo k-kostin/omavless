@@ -129,6 +129,11 @@ is retained and the successful control uses a fresh short HOME temp root,
 without changing runtime path guards. Initial test-only compile typos are also
 retained; neither failure was guest/product acceptance.
 
+Public CI for documentation head `d35a9ca43a7402547f7c413a38170f789cf2f855`
+also completed: Test (47m30s), package and package-arm64 all PASS. Test run
+`37577244259` and package run `37577244301` are CI evidence for that exact head,
+not a replacement for the separately tested runtime `4983f392` or scope46.
+
 ### Installed scope46, 2026-10-07
 
 ROOT alone selected all VM installation, normal units, originals and separate
