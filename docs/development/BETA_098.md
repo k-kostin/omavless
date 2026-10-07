@@ -108,6 +108,20 @@ test results or the remaining whole-product acceptance requirements.
 
 ## October 7 combined acceptance and handoff
 
+The first combined hosted candidate `7bba8a47` failed one unignored synthetic
+reader control (1464 pass / one failure / 75 ignored). It incorrectly used the
+VM's fixed UID/GID for a file created by the hosted runner's own user. A pinned
+old test image reproduced the same refusal in an isolated UID/GID1001 namespace;
+the actual hosted predicate was not separately logged. The test-only successor
+separates the generic fixture's real owner from the unchanged fixed1000 VM
+reader entry and retains independent wrong-UID/GID negatives and every original
+mode/link/size/canonical/xattr/byte/name/directory check. This failure remains
+failure, not "flaky" or installed recovery evidence. No VM selector was executed.
+New exact-head package builds are required after this crate-file change: the
+strict protected-input comparator cannot re-label the older4594 packages even
+though the changed module is test-only. The final assembly PR owns actual gates
+and newly built artifact identities; the older pairs remain their own snapshot.
+
 This assembly runs the full source/Rust gates and explicit combined-feature
 check, strict all-target Clippy and ordinary library tests. All existing ignored
 VM/resource/privileged tests remain ignored; there is no blanket ignored run.
