@@ -1,8 +1,12 @@
 """Source-only controls. No exported Rust function, ELF, socket or child runs."""
 import importlib.util
+import base64
+import copy
 import hashlib
+from io import BytesIO
 import json
 import re
+import zlib
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -17,6 +21,65 @@ def module(name):
 
 a = module('adapt')
 p = module('prepare')
+
+HISTORICAL_COMMIT = '358756d30ed408259deb96be53c8ec2c53c2d96e'
+HISTORICAL_SNAPSHOT_SHA = 'd09163664bbd6f968edc95066385cdc52b67d836e047f5e56a3976c2d16b5ae5'
+# Public source DATA for these historical source controls, never an exporter or
+# executable input. Preserve the already accepted successor pins exactly.
+HISTORICAL = {
+    'authority_composition.rs': (7314, 'c43a5dc3b9b49283f1a396e0ad8fe1fa89285ec99bd517b8f991451e616b2c91'),
+    'launch_acquisition.rs': (8583, '033e9f826fa8522a360a972c109f986e221fe0986505b704b2eedc2cfb4f2d72'),
+    'kernel_observer.rs': (35254, 'ffb0e395607c8e21c25e1e2f5a89f929689bd5ba0fe5252ca852479ee6a8b4f7'),
+    'kernel_inventory.rs': (13669, '6665ffc491c0e4efd5e03bc3b07e236289c3f354d205ab93d890678da1cbbc10'),
+    'kernel_chain_observer.rs': (20833, '1d1c6fe007f862cc0306e7534141d69d1d16454fd2bd8a5dc0b7cfc1bb9185d7'),
+    'kernel_rule_wire.rs': (11495, '52d39aef99eb1c4bc99d26fffc3798ba286ab23a4a7af36e43a6554a46c89097'),
+}
+MAX_SNAPSHOT_BYTES = 65536
+MAX_SOURCE_BYTES = 65536
+MAX_COMPRESSED_BYTES = 16384
+
+def unique(rows):
+    result = {}
+    for key, value in rows:
+        if key in result: raise ValueError('historical_duplicate')
+        result[key] = value
+    return result
+
+def decode_historical(data):
+    if type(data) is not dict or set(data) != {'schema', 'commit', 'adapter_base', 'members'} \
+            or type(data['schema']) is not int or data['schema'] != 1 \
+            or data['commit'] != HISTORICAL_COMMIT or data['adapter_base'] != a.BASE \
+            or type(data['members']) is not dict or data['members'].keys() != a.PINS.keys():
+        raise ValueError('historical_catalogue')
+    sources = {}
+    for name, (size, sha) in HISTORICAL.items():
+        row = data['members'][name]
+        if type(row) is not dict or set(row) != {'size', 'sha256', 'zlib_base64'} \
+                or type(row['size']) is not int or row['size'] != size \
+                or not 0 < size <= MAX_SOURCE_BYTES or row['sha256'] != sha \
+                or type(row['zlib_base64']) is not str \
+                or len(row['zlib_base64']) > 4 * ((MAX_COMPRESSED_BYTES + 2) // 3):
+            raise ValueError('historical_member')
+        compressed = base64.b64decode(row['zlib_base64'], validate=True)
+        if len(compressed) > MAX_COMPRESSED_BYTES: raise ValueError('historical_compressed_bound')
+        decoder = zlib.decompressobj()
+        # The immutable declared size/bounds were checked BEFORE allocation;
+        # neither a forged size nor a compressed bomb can allocate unboundedly.
+        raw = decoder.decompress(compressed, size + 1)
+        if len(raw) != size or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail \
+                or hashlib.sha256(raw).hexdigest() != sha:
+            raise ValueError('historical_source_pin')
+        sources[name] = raw
+    return sources
+
+def historical_inputs():
+    with (HERE / 'historical_inputs.json').open('rb') as source:
+        raw = source.read(MAX_SNAPSHOT_BYTES + 1)
+    if len(raw) > MAX_SNAPSHOT_BYTES or hashlib.sha256(raw).hexdigest() != HISTORICAL_SNAPSHOT_SHA:
+        raise ValueError('historical_snapshot_pin')
+    data = json.loads(raw, object_pairs_hook=unique,
+                      parse_constant=lambda _: (_ for _ in ()).throw(ValueError('historical_nonfinite')))
+    return decode_historical(data)
 
 def pinned_original(name, raw):
     # The new opt-in service does NOT replace the historical exporter. Reverse
@@ -91,18 +154,75 @@ def pinned_original(name, raw):
 class Controls(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # CI's shallow checkout need not contain BASE. All six public originals
-        # are admitted by exact pins; the fixed cfg(test)-only addition is
-        # explicitly removed after complete-source admission, never skipped.
-        # Developer export still requires its immutable BASE.
-        cls.sources = {name: pinned_original(name,
-                       (ROOT / 'crates/omavless-netguard/src' / name).read_bytes())
-                       for name in a.PINS}
+        # Shallow CI consumes original historical DATA, not the current branch's
+        # unrelated implementation. The complete historical snapshot and each
+        # original/projected pin remain exact; developer export still uses BASE.
+        cls.historical = historical_inputs()
+        cls.sources = {name: pinned_original(name, raw) for name, raw in cls.historical.items()}
         cls.adapted = a.adapt(cls.sources)
+
+    def test_historical_snapshot_is_exact_public_git_blob_data_not_a_current_export(self):
+        self.assertEqual(set(self.historical), set(a.PINS))
+        self.assertEqual(a.BASE, 'e6488ed5c39486a5f967859c20a0b84859ae4b5d')
+        for name, (size, sha) in HISTORICAL.items():
+            self.assertEqual(len(self.historical[name]), size)
+            self.assertEqual(hashlib.sha256(self.historical[name]).hexdigest(), sha)
+            self.assertEqual(hashlib.sha256(self.sources[name]).hexdigest(), a.PINS[name])
+        self.assertNotIn('historical_inputs', (HERE / 'prepare.py').read_text())
+        self.assertIn("adapter.BASE+':'+n", (HERE / 'prepare.py').read_text())
+
+    def test_snapshot_artifact_size_hash_duplicate_and_catalogue_fail_closed(self):
+        raw = (HERE / 'historical_inputs.json').read_bytes()
+        for changed in (raw + b' ', raw[:10], b'X' * (MAX_SNAPSHOT_BYTES + 1)):
+            with patch.object(Path, 'open', return_value=BytesIO(changed)):
+                with self.assertRaises(ValueError): historical_inputs()
+        with self.assertRaises(ValueError):
+            json.loads('{"schema":1,"schema":1}', object_pairs_hook=unique)
+        data = json.loads(raw)
+        for changed in ({**data, 'schema': True}, {**data, 'commit': '0' * 40},
+                        {**data, 'adapter_base': HISTORICAL_COMMIT}, {**data, 'extra': 0},
+                        {**data, 'members': {}}):
+            with self.assertRaises(ValueError): decode_historical(changed)
+
+    def test_declared_sizes_and_encoded_bounds_refuse_before_decompress_allocation(self):
+        original = json.loads((HERE / 'historical_inputs.json').read_bytes())
+        name = next(iter(original['members']))
+        for size in (True, -1, 0, MAX_SOURCE_BYTES + 1, original['members'][name]['size'] + 1):
+            data = copy.deepcopy(original);data['members'][name]['size'] = size
+            with patch.object(zlib, 'decompressobj') as decoder:
+                with self.assertRaises(ValueError): decode_historical(data)
+                decoder.assert_not_called()
+        data = copy.deepcopy(original)
+        data['members'][name]['zlib_base64'] = 'X' * (4 * ((MAX_COMPRESSED_BYTES + 2) // 3) + 1)
+        with patch.object(zlib, 'decompressobj') as decoder:
+            with self.assertRaises(ValueError): decode_historical(data)
+            decoder.assert_not_called()
+
+    def test_compressed_truncation_trailing_checksum_and_bomb_cannot_become_original(self):
+        original = json.loads((HERE / 'historical_inputs.json').read_bytes())
+        name = next(iter(original['members']))
+        compressed = base64.b64decode(original['members'][name]['zlib_base64'])
+        for changed in (compressed[:-1], compressed + b'ignored',
+                        zlib.compress(b'X' * HISTORICAL[name][0]),
+                        zlib.compress(b'X' * (MAX_SOURCE_BYTES * 8))):
+            data = copy.deepcopy(original)
+            data['members'][name]['zlib_base64'] = base64.b64encode(changed).decode()
+            with self.assertRaises(ValueError): decode_historical(data)
+        data = copy.deepcopy(original);data['members'][name]['sha256'] = '0' * 64
+        with patch.object(zlib, 'decompressobj') as decoder:
+            with self.assertRaises(ValueError): decode_historical(data)
+            decoder.assert_not_called()
+
+    def test_modern_cold_graph_is_not_reinterpreted_as_historical_authority(self):
+        current = {name: (ROOT / 'crates/omavless-netguard/src' / name).read_bytes() for name in a.PINS}
+        with self.assertRaises(ValueError): a.adapt(current)
+        for name in ('authority_composition.rs', 'launch_acquisition.rs'):
+            self.assertNotEqual(current[name], self.historical[name])
+            with self.assertRaises(ValueError): pinned_original(name, current[name])
 
     def test_successor_projection_refuses_any_other_source_change(self):
         name = 'kernel_inventory.rs'
-        raw = (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+        raw = self.historical[name]
         self.assertEqual(pinned_original(name, raw), self.sources[name])
         self.assertEqual(pinned_original(name, self.sources[name]), self.sources[name])
         for changed in (raw + b' ', raw.replace(b'#[cfg(test)]', b'#[cfg(any())]', 1),
@@ -110,7 +230,7 @@ class Controls(unittest.TestCase):
             with self.assertRaises(ValueError):
                 pinned_original(name, changed)
         for name in ('launch_acquisition.rs', 'kernel_observer.rs', 'authority_composition.rs'):
-            raw = (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+            raw = self.historical[name]
             self.assertEqual(pinned_original(name, raw), self.sources[name])
             for changed in (raw + b' ', raw.replace(b'netguard-service-core', b'unreviewed-feature', 1)):
                 with self.assertRaises(ValueError):
@@ -127,7 +247,7 @@ class Controls(unittest.TestCase):
 
     def test_diagnostic_successor_requires_complete_exact_source(self):
         name = 'launch_acquisition.rs'
-        raw = (ROOT / 'crates/omavless-netguard/src' / name).read_bytes()
+        raw = self.historical[name]
         self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          '033e9f826fa8522a360a972c109f986e221fe0986505b704b2eedc2cfb4f2d72')
         prior = raw
