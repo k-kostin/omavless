@@ -353,13 +353,33 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
             );
         result.map_err(|_| self.poison())?;
         self.local(|e| {
-            if e.read()? != desired {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            let _post_scope = crate::protected_native_diagnostic::post_scope();
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::DesiredRead,
+            );
+            let current = e.read()?;
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::DesiredEquality,
+            );
+            if current != desired {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_refusal(
+                    crate::protected_native_diagnostic::PostRefusal::DesiredChanged,
+                );
                 return Err(LifecycleError::ManualRecoveryRequired);
             }
             e.host
                 .recheck_interval(&desired)
                 .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
-            e.verify_connected(&desired)
+            e.verify_connected(&desired)?;
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::Completed,
+            );
+            Ok(())
         })?;
         #[cfg(all(test, feature = "netguard-native-scenario"))]
         crate::protected_native_diagnostic::site(

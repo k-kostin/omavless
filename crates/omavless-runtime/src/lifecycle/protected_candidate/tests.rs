@@ -385,6 +385,87 @@ fn diagnostic_origin_calls_distinguish_reserve_arm_write_and_start_without_extra
 
 #[cfg(feature = "netguard-native-scenario")]
 #[test]
+fn successful_origin_local18_can_precede_retained_interval_postcheck_refusal() {
+    use crate::protected_native_diagnostic::{
+        self as d, ControllerPhase, Cut, Endpoint, ReadinessPhase, Site,
+    };
+    d::mark(Cut::NotEntered);
+    let f = Fixture::new(0, None);
+    let mut initial = f.candidate(Some("interval_postcheck"), None);
+    let owned = initial.owned.take();
+    let calls = RefCell::new(Vec::new());
+    let mut origin = || {
+        d::enter_origin();
+        d::mark(Cut::OriginLogin);
+        // Models a successful checker observation, NOT a genuine receipt or
+        // authority. The later mock host refusal is a separate operation.
+        let _login = crate::login_transaction::diagnostic::begin();
+        calls.borrow_mut().push(d::origin());
+        Ok(())
+    };
+    origin().unwrap();
+    let mut candidate = ProtectedCandidate {
+        owned,
+        phase: Phase::Fresh,
+        admission: None,
+        interval: None,
+        origin: Some(&mut origin),
+    };
+    candidate.connect_full("fixture").unwrap();
+    // A prior readonly observation remains stale through unrelated fences.
+    {
+        let _scope = d::readiness_scope();
+        d::readiness_mark(Endpoint::Proxies, ReadinessPhase::FinalDeadline);
+        d::controller_mark(ControllerPhase::Exchange);
+    }
+    assert!(candidate.observe_interval().is_err());
+    assert_eq!(d::origin(), (Site::Local, 18));
+    assert_eq!(d::last(), Cut::OriginLogin);
+    assert_eq!(
+        crate::login_transaction::diagnostic::last(),
+        (
+            crate::login_transaction::diagnostic::Reason::NoFailure,
+            crate::login_transaction::diagnostic::Io::None
+        )
+    );
+    assert_eq!(
+        d::readiness(),
+        (
+            Endpoint::Proxies,
+            ReadinessPhase::FinalDeadline,
+            ControllerPhase::Exchange
+        )
+    );
+    assert_eq!(
+        &calls.borrow()[12..],
+        &[
+            (Site::Local, 13),
+            (Site::Local, 14),
+            (Site::Local, 15),
+            (Site::Local, 16),
+            (Site::IntervalBefore, 17),
+            (Site::Local, 18)
+        ]
+    );
+    let log = f.log.borrow();
+    assert!(log.contains(&"interval_complete"));
+    assert!(log.contains(&"interval_postcheck"));
+    assert!(!log.contains(&"stop") && !log.contains(&"disarm"));
+    drop(log);
+    assert_eq!(candidate.phase, Phase::Poisoned);
+    assert_eq!(f.root.borrow().marker, Marker::Armed(1));
+    // Mock host refusal has no native subguard; the caller records the last
+    // desired-equality check, demonstrating why native reached hooks matter.
+    assert_eq!(
+        d::post(),
+        (d::PostGuard::DesiredEquality, d::PostRefusal::NotRecorded)
+    );
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
+}
+
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
 fn diagnostic_distinguishes_origin_read_empty_eligibility_and_status_cuts() {
     use crate::protected_native_diagnostic::{Cut, last, mark};
 

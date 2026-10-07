@@ -84,6 +84,224 @@ thread_local! {
     static ORIGIN: Cell<(Site, u8)> = const { Cell::new((Site::Initial, 0)) };
     static READINESS: Cell<(Endpoint, ReadinessPhase, ControllerPhase)> = const { Cell::new((Endpoint::NotEntered, ReadinessPhase::NotEntered, ControllerPhase::NotEntered)) };
     static READ_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    static POST_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    static POST: Cell<(PostGuard, PostRefusal)> = const { Cell::new((PostGuard::NotEntered, PostRefusal::NotRecorded)) };
+}
+
+/// Source-closed post-interval checks; no payload, path, PID or authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PostGuard {
+    NotEntered,
+    DesiredRead,
+    DesiredEquality,
+    IntervalState,
+    IntervalPair,
+    IntervalPackage,
+    IntervalPolicy,
+    IntervalStoreRead,
+    IntervalStoreDigest,
+    IntervalCoreFile,
+    IntervalConfigFile,
+    IntervalDataMetadata,
+    IntervalDataIdentity,
+    ConnectedObservation,
+    CoreRunning,
+    CoreIntent,
+    CoreReadiness,
+    TunVerify,
+    VisibleCoreCount,
+    ManagedTunCount,
+    ConnectedReconcile,
+    Completed,
+}
+impl PostGuard {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::NotEntered => "not_entered",
+            Self::DesiredRead => "desired_read",
+            Self::DesiredEquality => "desired_equality",
+            Self::IntervalState => "interval_state",
+            Self::IntervalPair => "interval_pair",
+            Self::IntervalPackage => "interval_package",
+            Self::IntervalPolicy => "interval_policy",
+            Self::IntervalStoreRead => "interval_store_read",
+            Self::IntervalStoreDigest => "interval_store_digest",
+            Self::IntervalCoreFile => "interval_core_file",
+            Self::IntervalConfigFile => "interval_config_file",
+            Self::IntervalDataMetadata => "interval_data_metadata",
+            Self::IntervalDataIdentity => "interval_data_identity",
+            Self::ConnectedObservation => "connected_observation",
+            Self::CoreRunning => "core_running",
+            Self::CoreIntent => "core_intent",
+            Self::CoreReadiness => "core_readiness",
+            Self::TunVerify => "tun_verify",
+            Self::VisibleCoreCount => "visible_core_count",
+            Self::ManagedTunCount => "managed_tun_count",
+            Self::ConnectedReconcile => "connected_reconcile",
+            Self::Completed => "completed",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PostRefusal {
+    NotRecorded,
+    DesiredChanged,
+    ObservationError,
+    CoreNotRunning,
+    ReadinessFalse,
+    TunUnverified,
+    CoreCountMismatch,
+    TunCountMismatch,
+    ProfileMismatch,
+    OtherReconcile,
+}
+impl PostRefusal {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::NotRecorded => "not_recorded",
+            Self::DesiredChanged => "desired_changed",
+            Self::ObservationError => "observation_error",
+            Self::CoreNotRunning => "core_not_running",
+            Self::ReadinessFalse => "readiness_false",
+            Self::TunUnverified => "tun_unverified",
+            Self::CoreCountMismatch => "core_count_mismatch",
+            Self::TunCountMismatch => "tun_count_mismatch",
+            Self::ProfileMismatch => "profile_mismatch",
+            Self::OtherReconcile => "other_reconcile",
+        }
+    }
+}
+pub(crate) struct PostScope(bool);
+impl Drop for PostScope {
+    fn drop(&mut self) {
+        POST_ACTIVE.set(self.0);
+    }
+}
+pub(crate) fn post_scope() -> PostScope {
+    let old = POST_ACTIVE.replace(true);
+    POST.set((PostGuard::NotEntered, PostRefusal::NotRecorded));
+    PostScope(old)
+}
+pub(crate) fn post_mark(guard: PostGuard) {
+    if POST_ACTIVE.get() {
+        POST.set((guard, POST.get().1));
+    }
+}
+pub(crate) fn post_refusal(reason: PostRefusal) {
+    // Existing observation Err is terminal and supersedes an earlier observed
+    // false flag. Otherwise retain the first cached unsatisfied category.
+    if POST_ACTIVE.get()
+        && (POST.get().1 == PostRefusal::NotRecorded || reason == PostRefusal::ObservationError)
+    {
+        POST.set((POST.get().0, reason));
+    }
+}
+pub(crate) fn post() -> (PostGuard, PostRefusal) {
+    POST.get()
+}
+
+#[test]
+fn postcheck_categories_are_scoped_resettable_and_thread_local() {
+    mark(Cut::NotEntered);
+    post_mark(PostGuard::DesiredRead);
+    assert_eq!(post(), (PostGuard::NotEntered, PostRefusal::NotRecorded));
+    {
+        let _scope = post_scope();
+        post_mark(PostGuard::CoreReadiness);
+        post_refusal(PostRefusal::ReadinessFalse);
+        post_mark(PostGuard::VisibleCoreCount);
+        post_refusal(PostRefusal::CoreCountMismatch);
+        assert_eq!(
+            post(),
+            (PostGuard::VisibleCoreCount, PostRefusal::ReadinessFalse)
+        );
+        post_refusal(PostRefusal::ObservationError);
+        assert_eq!(post().1, PostRefusal::ObservationError);
+        std::thread::spawn(|| {
+            assert_eq!(post(), (PostGuard::NotEntered, PostRefusal::NotRecorded));
+            let _scope = post_scope();
+            post_mark(PostGuard::DesiredEquality);
+        })
+        .join()
+        .unwrap();
+        assert_eq!(post().0, PostGuard::VisibleCoreCount);
+    }
+    let retained = post();
+    post_mark(PostGuard::Completed);
+    assert_eq!(post(), retained);
+    mark(Cut::NotEntered);
+    assert_eq!(post(), (PostGuard::NotEntered, PostRefusal::NotRecorded));
+}
+
+#[test]
+fn postcheck_hooks_preserve_reached_check_order_and_are_test_feature_only() {
+    let candidate = include_str!("lifecycle/protected_candidate.rs");
+    let body = candidate
+        .split("let _post_scope =")
+        .nth(1)
+        .unwrap()
+        .split("Site::IntervalAfter")
+        .next()
+        .unwrap();
+    for token in [
+        "e.read()?",
+        "if current != desired",
+        ".recheck_interval(&desired)",
+        "e.verify_connected(&desired)?",
+    ] {
+        assert_eq!(body.matches(token).count(), 1);
+    }
+    let positions = [
+        "e.read()?",
+        "if current != desired",
+        ".recheck_interval(&desired)",
+        "e.verify_connected(&desired)?",
+    ]
+    .map(|s| body.find(s).unwrap());
+    assert!(positions.windows(2).all(|w| w[0] < w[1]));
+    let source = include_str!("native_host/protected_preparation.rs");
+    let body = source
+        .split("fn recheck_interval(")
+        .nth(1)
+        .unwrap()
+        .split("fn prepare_admitted(")
+        .next()
+        .unwrap();
+    let checks = [
+        ".verify_protected()?",
+        ".recheck(\n                self.paths",
+        "if bound.policy.version",
+        "read_private_utf8(&self.paths.store",
+        "Sha256::digest(store.as_bytes())",
+        ".recheck(&self.paths.core)",
+        ".recheck(&self.paths.config_directory.join(STAGING))",
+        "bound.data.file.metadata()",
+        "fs::symlink_metadata(&self.paths.data_directory)",
+    ];
+    let positions = checks.map(|s| {
+        assert_eq!(body.matches(s).count(), 1);
+        body.find(s).unwrap()
+    });
+    assert!(positions.windows(2).all(|w| w[0] < w[1]));
+    for source in [
+        include_str!("lifecycle.rs"),
+        candidate,
+        include_str!("native_host.rs"),
+        source,
+        include_str!("production_owner/protected_native_vm_tests.rs"),
+    ] {
+        for (at, _) in source.match_indices("crate::protected_native_diagnostic::post_") {
+            let prefix = &source[..at];
+            let guard = prefix.rfind("#[cfg(all(test, feature = \"netguard-native-scenario\"))]");
+            assert!(guard.is_some_and(|p| at - p < 1700));
+        }
+    }
+    let output = include_str!("production_owner/protected_native_vm_tests.rs");
+    assert_eq!(output.matches("K1_NATIVE_POSTCHECK_DIAGNOSTIC").count(), 1);
+    assert!(
+        output.find("K1_NATIVE_READINESS_DIAGNOSTIC").unwrap()
+            < output.find("K1_NATIVE_POSTCHECK_DIAGNOSTIC").unwrap()
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -219,6 +437,8 @@ pub(crate) fn mark(cut: Cut) {
     if cut == Cut::NotEntered {
         ORIGIN.set((Site::Initial, 0));
         crate::login_transaction::diagnostic::reset();
+        POST_ACTIVE.set(false);
+        POST.set((PostGuard::NotEntered, PostRefusal::NotRecorded));
         READINESS.set((
             Endpoint::NotEntered,
             ReadinessPhase::NotEntered,

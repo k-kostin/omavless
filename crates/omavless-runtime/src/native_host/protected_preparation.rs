@@ -702,6 +702,10 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         interval.complete().map_err(|_| HostStepError::Observation)
     }
     fn recheck_interval(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalState,
+        );
         let preparation = self
             .protected_preparation
             .as_ref()
@@ -720,11 +724,19 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         {
             return Err(HostStepError::Observation);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalPair,
+        );
         self.paths
             .managed_pair
             .as_ref()
             .ok_or(HostStepError::Observation)?
             .verify_protected()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalPackage,
+        );
         bound
             .package
             .as_ref()
@@ -736,32 +748,60 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
                     .ok_or(HostStepError::Observation)?,
                 &bound.core.file,
             )?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalPolicy,
+        );
         if bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
             || bound.policy.config != bound.config.digest
         {
             return Err(HostStepError::Observation);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalStoreRead,
+        );
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| HostStepError::Observation)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalStoreDigest,
+        );
         if <[u8; 32]>::from(Sha256::digest(store.as_bytes())) != bound.store_digest {
             return Err(HostStepError::Observation);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalCoreFile,
+        );
         bound
             .core
             .recheck(&self.paths.core)
             .map_err(|_| HostStepError::Observation)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalConfigFile,
+        );
         bound
             .config
             .recheck(&self.paths.config_directory.join(STAGING))
             .map_err(|_| HostStepError::Observation)?;
         // Runtime may legitimately create its cache. Retain original directory
         // identity/ownership, not pre-start size or timestamps as a fake proof.
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalDataMetadata,
+        );
         for current in [
             bound.data.file.metadata(),
             fs::symlink_metadata(&self.paths.data_directory),
         ] {
             let current = current.map_err(|_| HostStepError::Observation)?;
             let original = &bound.data.metadata;
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::IntervalDataIdentity,
+            );
             if current.dev() != original.dev()
                 || current.ino() != original.ino()
                 || current.mode() != original.mode()

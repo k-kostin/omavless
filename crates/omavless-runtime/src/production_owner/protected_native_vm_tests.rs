@@ -187,6 +187,14 @@ fn installed_current_owner_protected_roundtrip() {
                     readiness.token(),
                     controller.token()
                 );
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                let (guard, refusal) = crate::protected_native_diagnostic::post();
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                eprintln!(
+                    "K1_NATIVE_POSTCHECK_DIAGNOSTIC {} {}",
+                    guard.token(),
+                    refusal.token()
+                );
             });
             // Never turn a failed constructor/roundtrip into a retry, cleanup,
             // original-child completion or guessed ownership. ROOT may choose
