@@ -214,6 +214,7 @@
   "tui.operator_keys":{"en":"/: local filter  c: clear filter  arrows/j/k: scroll  r: reload  Esc: diagnostics","ru":"/: локальный фильтр  c: очистить  стрелки/j/k: прокрутка  r: перечитать  Esc: диагностика"},
   "tui.operator_search_exit":{"en":"Enter/Esc: finish typing; q closes UI after that, without changing VPN","ru":"Enter/Esc: завершить ввод; затем q закроет окно без изменения VPN"},
   "tui.page_keys":{"en":"Tab/Shift+Tab: page   ,: settings","ru":"Tab/Shift+Tab: страница   ,: настройки"},
+  "tui.page_backup_keys":{"en":"Tab: pages   ,: settings   b/F2: encrypted Backup","ru":"Tab: страницы   ,: настройки   b/F2: зашифрованная копия"},
   "tui.settings":{"en":"TUI settings","ru":"Настройки TUI"},
   "tui.settings_scope":{"en":"Changes apply immediately to this TUI window only, until it closes.","ru":"Изменения применяются сразу и только в этом окне TUI, до его закрытия."},
   "tui.settings_local":{"en":"Local appearance only — no VPN or plugin changes","ru":"Только оформление — VPN и плагин не меняются"},

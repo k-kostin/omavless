@@ -68,6 +68,59 @@ fn joined(text: &str) -> String {
 }
 
 #[test]
+fn backup_is_discoverable_and_opens_from_profiles_activity_and_settings() {
+    for locale in [Locale::En, Locale::Ru] {
+        for page in [Page::Profiles, Page::Activity, Page::Settings] {
+            for key in [
+                KeyCode::Char('b'),
+                KeyCode::Char('B'),
+                KeyCode::Char('и'),
+                KeyCode::Char('И'),
+                KeyCode::F(2),
+            ] {
+                let mut app = App::new(locale);
+                let now = Instant::now();
+                app.actions_enabled = true;
+                app.backup_enabled = true;
+                sample(&mut app, now);
+                app.page = page;
+                let text = render(&app, now, 70, 24);
+                assert!(text.contains(locale.text("tui.page_backup_keys")));
+                assert!(text.contains(locale.text("tui.action_close_hint")));
+                assert_eq!(press(&mut app, key, now), Action::None);
+                assert!(app.backup_open);
+                assert!(app.page == Page::Settings);
+                assert!(app.take_backup_request().is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn backup_entry_preserves_search_and_unavailable_admission() {
+    let mut app = App::new(Locale::En);
+    let now = Instant::now();
+    app.actions_enabled = true;
+    app.backup_enabled = true;
+    sample(&mut app, now);
+    app.searching = true;
+    press(&mut app, KeyCode::Char('b'), now);
+    assert_eq!(app.query, "b");
+    assert!(!app.backup_open);
+    app.searching = false;
+    app.snapshot.as_mut().unwrap().capabilities.private_backup = false;
+    press(&mut app, KeyCode::F(2), now);
+    assert!(!app.backup_open);
+    assert_eq!(app.notice, "tui.backup_unavailable");
+    assert!(app.take_backup_request().is_none());
+    app.backup_enabled = false;
+    let text = render(&app, now, 70, 24);
+    assert!(!text.contains("b/F2"));
+    press(&mut app, KeyCode::F(2), now);
+    assert!(!app.backup_open);
+}
+
+#[test]
 fn settings_backup_shortcut_and_complete_scope_fit_minimum_viewport() {
     for locale in [Locale::En, Locale::Ru] {
         let (mut app, now) = open(locale);

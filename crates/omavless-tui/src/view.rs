@@ -425,7 +425,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             "tui.profile_check_keys"
         })));
     }
-    footer.push(Line::from(tr("tui.page_keys")));
+    footer.push(Line::from(tr(page_keys_key(app))));
     footer.push(Line::from(tr(if app.searching && app.actions_enabled {
         "tui.action_search_exit"
     } else if app.searching {
@@ -438,7 +438,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     // Fixed rows: long private names/search must never push the exit hint away.
     if app.page != crate::inspection::Page::Profiles && app.confirmation.is_none() {
         footer = vec![
-            Line::from(tr("tui.page_keys")),
+            Line::from(tr(page_keys_key(app))),
             Line::from(tr(if app.page == crate::inspection::Page::Jobs {
                 "tui.job_keys"
             } else if app.page == crate::inspection::Page::Subscriptions
@@ -1509,6 +1509,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         }
         Page::Profiles | Page::Activity | Page::Settings | Page::Jobs => Vec::new(),
     }
+}
+
+fn page_keys_key(_app: &App) -> &'static str {
+    #[cfg(feature = "private-backup")]
+    if _app.backup_enabled {
+        return "tui.page_backup_keys";
+    }
+    "tui.page_keys"
 }
 
 fn settings_scope_key(_app: &App) -> &'static str {

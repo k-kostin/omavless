@@ -10,6 +10,11 @@ use std::time::{Duration, Instant};
 
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
+#[cfg(feature = "private-backup")]
+fn backup_navigation_key(code: KeyCode) -> bool {
+    matches!(code, KeyCode::F(2) | KeyCode::Char('b' | 'B' | 'и' | 'И'))
+}
+
 pub struct App {
     #[cfg(feature = "private-backup")]
     pub backup_enabled: bool,
@@ -384,7 +389,7 @@ impl App {
                 match key.code {
                     KeyCode::Char('q') => return Action::Close,
                     KeyCode::Char(',') => self.page = crate::inspection::Page::Settings,
-                    KeyCode::Char('b') => self.backup_open = true,
+                    code if backup_navigation_key(code) => self.backup_open = true,
                     KeyCode::Char('r') => return Action::Refresh,
                     KeyCode::Tab | KeyCode::BackTab => {
                         let next = self.page.next(
@@ -558,16 +563,22 @@ impl App {
                 return Action::None;
             }
             #[cfg(feature = "private-backup")]
-            if self.page == crate::inspection::Page::Settings
-                && key.code == KeyCode::Char('b')
-                && self.backup_available(now)
-            {
-                if let Some(snapshot) = &self.snapshot {
-                    self.backup = crate::private_backup::Workspace::new(
-                        &snapshot.metadata.instance_id,
-                        snapshot.revision,
-                    );
-                    self.backup_open = self.backup.is_some();
+            if self.backup_enabled && backup_navigation_key(key.code) {
+                if self.backup_available(now) {
+                    if let Some(snapshot) = &self.snapshot {
+                        self.backup = crate::private_backup::Workspace::new(
+                            &snapshot.metadata.instance_id,
+                            snapshot.revision,
+                        );
+                        if self.backup.is_some() {
+                            self.leave_private_connections(crate::inspection::Page::Settings);
+                            self.page = crate::inspection::Page::Settings;
+                            self.backup_open = true;
+                            self.notice = "";
+                        }
+                    }
+                } else {
+                    self.notice = "tui.backup_unavailable";
                 }
                 return Action::None;
             }

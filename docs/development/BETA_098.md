@@ -90,6 +90,16 @@ work. Main, accepted public 0.9.5 RC1 and Marketplace are unchanged.
 
 ## Beta.3 installed Backup checkpoint, 2026-10-07
 
+Owner hands-on follow-up: Settings-only `b` was not discoverable/reachable from
+the main Profiles or Activity page. The earlier agent pass did not establish
+that user navigation scenario; it is not called owner PASS. A narrow opt-in
+successor exposes `b/F2` in the existing page legend and opens the same editor
+from normal pages, with uppercase/Russian physical-key aliases. Search/modals,
+original-outcome handling, current-capability/freshness and minimum-size guards
+remain unchanged. No new export or runtime/backend action is introduced by
+navigation. Source/installed evidence for this successor belongs to its owning
+PR; the exact older source below remains the executed archive checkpoint.
+
 The integrator's separately selected x86_64 Omarchy VM tested runtime source
 `8de29a164e885f398dbb926c69fd377af4764869` with default `tui` plus only
 `t4-manager-actor-service`. Its experimental ELF SHA256 is
