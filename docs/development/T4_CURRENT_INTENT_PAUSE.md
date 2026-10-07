@@ -68,11 +68,16 @@ That write is best-effort/nonpanicking: stderr failure cannot replace the
 original publication error or unwind/poison the SAME owner mutex after sealing.
 A nonmatching revision,
 missing/poisoned holder, nonpaused request or repeated callback cannot emit it.
-This new-image publication-loss scenario is **not yet VM accepted**; Current36
-at immutable6fe remains only its controlled positive publication/Abort proof.
+The later installed Current42 gate at exact runtime `4603904e` accepted this
+source-closed publication-loss seal with separately observed SAME live daemon;
+see the [Current42 extension](../testing/T4_CURRENT_INTENT_VM_2026-10-07.md#current42-status-producer-authentication-and-publication-loss).
+Current36 at immutable6fe remains its separate controlled positive Abort proof.
 Client loss, unavailable hello and Intent presence alone cannot distinguish an
 ordinary resumable pause from this sealed state. Without the exact source-closed
 consequence, the result remains UNKNOWN with no Abort/forward/retry.
+Typed post-seal refusal probes and separately authenticated fresh-context recovery
+were not selected in Current42. The sealed holder cannot be rearmed or replaced
+by a stopped-owner/cold-record decoder grant.
 
 No descriptor role or file-capacity envelope is added. The one bounded holder
 adds an opaque Arc identity, one fixed-size original Intent record, and the

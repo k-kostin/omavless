@@ -96,8 +96,70 @@ This gate closes the installed controlled-positive Intent→SAME-held OLD/Aborte
 continuation with ordinary use and genuine restart. It does NOT close recovery
 from real throw/late/unknown I/O or lost owner after revocation. Those remain
 irrevocably unavailable; no automatic Abort or cold-record decoder grant exists.
-Installed wrong-passphrase denial, unknown/late/publication/owner-loss cases,
+Other unknown/late/owner-loss cases,
 late fresh-recovery interruption/OLD-Intent finalization and separately earned
 product recovery still need their exact supported gate. Repeat Restore/history
 policy, wider portable data scope and reviewed product UI/default activation
 also remain separate. No all-syscall or fatal descriptor-survival claim is made.
+
+## Current42 status producer, authentication and publication loss
+
+This later checkpoint is exact normal runtime `4603904ecf5493855de360ee2676d96c411fced3`,
+not a retrospective Current36 result. Installed ELF is 8,963,448 bytes / SHA-256
+`f266b8913877ed3ba6dcdf36a197c9873a8dc887feb9025231d43ffdd3ba710d`;
+normal development package SHA-256
+`e566c324f42157ea4f6ddf397f1db66ed6adcf54545f303ef6bdd32aee901796`.
+ROOT alone operated the disposable VM boot
+`86baf95e-5015-4a30-bc5f-9858e8288513`, compatible whole LegacyMeta2 and genuine
+normal user-manager/login/current construction. Actual ordinary DNS broker was
+active PID798 on this boot; the old Current36 broker-inactive fact was not reused.
+No broker, network, TUN, profile, receipt or archive rewrite was part of these cuts.
+
+Current38's original sender exit2 remains UNKNOWN, with all postphases stopped.
+Current39 read-only file guards passed; Current41 then identified an actual
+`directory_refresh` refusal after normal hello/status, with no effecting request.
+Faithful local real RuntimeServer/RuntimePaths/client reproduction showed
+`status.get` reached `read_desired` and chmod0700 changed the held state-directory
+ctime even when mode was already0700. The source correction keeps all nine fields:
+strict snapshot first, real ownership recomputation, then actual/transition
+projection under the same dispatcher mutex and retained-origin loan. Missing,
+0755 and symlink entry states refuse without repair; startup/mutation/hello
+behavior remains unchanged. A candidate projection ordering finding in unselected
+`613a7984` was closed by `4603904e` and status-FIRST promotion/sticky-stale controls.
+An external race after snapshot can still reach unchanged ownership preparation;
+this is not a globally zero-read-side-effects claim.
+
+PRIMARY and independent affected source reviews preceded the new package and
+exact helper selections. Seven helper controls, strict Clippy, three selector
+controls and literal image/boot comparisons are source evidence only. Both exact
+real-RPC regressions passed in default and feature builds. The accidental broad
+source filter's 9-pass/4-fail result remains NONPASS; its four failed cases passed
+individually under a fresh short HOME fixture root with the same test ELF, without
+changing assertions or production guards. This is not a whole-suite reassignment.
+
+Every original command and separate observation below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Strict read-only current preflight | `d9456e` / `984fa8` | All current guards valid, category frame, read-only RPC, no effecting request or admission |
+| Wrong-passphrase rejection | `3830e5` / `7b73ac` | Exact nonretryable denial; SAME instance/revision, owned Off, held bytes, nine-field directories, pending absence and profiles unchanged |
+| Publication preparation | `436fc0`, `979b5c`, `07e027` | Fresh public source/private capture scope only |
+| Baseline unit/hello/status/cursor | `88a054`, `a2318e`, `2726f4`, `d2d3c0` / `fbc240` | Original PID3283/invocation/instance/revision/cursor correlation, not authority grants |
+| One loss sender | `1f3a7e` | Read shutdown before request byte0; all six fixed phase labels, no reply read or automatic continuation |
+| Fixed journal / sealed adjudication | `1f0b80` / `a2651a` | Exactly one source-closed seal diagnostic matched to the SAME original daemon |
+| Separately selected live reads | `c59f32`, `51c67a`, `5c2b03` / `2063c3` | SAME live daemon/epoch/revision, ownership unavailable and Off |
+
+The authentication rejection is before holder/lease/Boundary installation. The
+publication case is different: the server's original response-write failure
+consumed the SAME positive Intent pause, revoked its engine, made the holder
+unavailable and independently blocked the transaction before the fixed diagnostic.
+Sender completion, client loss, a generic error or unavailable hello alone would
+not have proved this. ROOT independently required original sender0, journal0,
+strict sealed observer0 and live continuity; no observer file granted authority.
+
+No Abort, forward or ordinary mutation/refusal probe was selected after sealing.
+Source/actual evidence closes this installed nonfatal publication-loss consequence,
+not fatal descriptor survival, late reactivation, unknown/cold recovery, default
+Restore activation or whole T4. Private inputs, plaintext, ciphertext, archives
+and raw captures remain outside Git. Administrative preservation/poweroff is
+separate from product recovery and cannot be used as a passed cleanup step.
