@@ -75,6 +75,18 @@ fn run() -> Result<(), CliError> {
         .first()
         .is_some_and(|argument| argument == "backup")
     {
+        if omavless_runtime::private_pair_api::preview_arguments_admitted(&arguments) {
+            if std::io::IsTerminal::is_terminal(&io::stdin()) {
+                return Err("private_pair_private_stdin_required".into());
+            }
+            let output = omavless_runtime::private_pair_api::preview_from_private_input(
+                &arguments,
+                io::stdin().lock(),
+            )
+            .map_err(CliError::from)?;
+            println!("{output}");
+            return Ok(());
+        }
         if !omavless_runtime::private_pair_api::arguments_admitted(&arguments) {
             return Err("private_pair_arguments_refused".into());
         }
