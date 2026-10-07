@@ -233,3 +233,100 @@ terminal retirement, repeated immutable history, ordinary admission after this
 recovery, missing volatile locks/cold bootstrap, default Backup/Restore, product
 UI, fatal descriptor survival or whole T4. The earlier Current38 UNKNOWN and
 all historical failed originals remain unchanged; this was a new explicit scope.
+
+## Current44 retained completion and independent normal admission
+
+ROOT alone selected this successor on the SAME preserved Current43 boot
+`6b0d1741-3acc-4cc1-9a58-a32bfa9e0be2`, after the known Current43 original
+OLD/Intent recovery exited0. Completion source is
+`0f2a1b8a46ad8e5ffef46660e99b5a663226d332`; its distinct no-default
+developer-feature test ELF is25,159,752 bytes / SHA-256
+`a1514ab9bc0df59865d45bc4560c084339dcdb603bb8649387bcf912fd808116`.
+Normal installed runtime remained exact d0ab/image4f9115e1 during this gate;
+it was not relabeled as the new completion test or history-eight normal package.
+PRIMARY and independent affected reviews preceded selection. Local history7,
+Current43pure3, related terminal/late-effect controls and strict default/feature
+source gates are separate evidence; ignored selectors were not run by the author.
+
+All selected originals and separate adjudications below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Fresh fixed completion preparation | `b76194` | New test/capture names; no replacement of the preceding Current43 originals |
+| One retained Aborted completion | `11219d` / `788721` original completion; `d43f46` adjudication | Fresh authentication/existing exclusive leases, SAME terminal retirement/disposition, exact marker and one successful harness |
+| Independently selected normal start | `5acdda` / `7dd3fa` readiness | New normal daemon PID5373/invocation, socket present; not an inference from the test marker |
+| New normal hello | `cf0ee1` | Changed genuine instance `14fd-18dc21e600b2271d`, current ownership true |
+| Normal status | `bffa05` / `78e963` explicit assertion | Actual and Desired disconnected, ownership true |
+| Normal profile list | Original exit0, privately captured |37 profiles; the completion test had checked the exact original whole private projection |
+
+The completer freshly acquired the existing lock inodes, authenticated the
+actual archive, retained exact OLD/Aborted proof and selected absent audit slot1
+before retirement effects. Incumbent slot0 and all OLD bytes/inodes were preserved.
+Receipt, terminal/stage retirement, closure/ticket/Complete and NOREPLACE history
+disposition used the SAME held engine; its original lease moved once into the
+preinstalled ordinary retaining destination. Pending names were absent and both
+history0/1 remained private0600/single/386-byte files after the known original0.
+Descriptor/lease custody here is during the original completion operation, not
+authority surviving its subsequent normal process exit.
+
+Only then did ROOT independently start the normal installed daemon, which earned
+its genuine current/login/private-pair/singleton admission without decoding audit
+history as a grant, recreating recovery locks or copying receipts. Two initial
+read-only status adjudications assumed an incorrect Desired representation/literal
+and did not verify their predicates; the later explicit source-faithful assertion
+`78e963` completed0. Those observer errors are preserved, not runtime failures or
+retrospectively passed observations. Profile count is37, not an empty-list claim.
+
+This closes the actual same-boot interrupted OLD/Aborted terminal completion into
+a second immutable audit entry and separately earned normal current/listener
+admission. It does **not** attest installed history-eight repetition, default
+Backup/Restore or UI activation, cold/missing-lock bootstrap, uncertain completion
+replay, fatal descriptor survival, AUTO/K1 acceptance or whole T4. The new normal
+history-eight package and further originals remain separately selected identities.
+
+### Installed history-eight repetitions after separately earned current startup
+
+ROOT subsequently installed the exact normal source0f2 package on the same
+compatible disposable VM, separately from the preceding completion-test image.
+Normal ELF is8,983,696 bytes / SHA-256
+`3c84a877a272145133558b8805f2768b27783f52d2b5b0c855bfdb68f472baa6`;
+package `omavless-0.0.0.r1137.g0f2a1b8a46ad-1-x86_64.pkg.tar.zst`
+is3,347,475 bytes / SHA-256
+`d40867bf40d01c78c7adaabefee2ebb0d2bec4bbe62f0c7c15caca86d838d67f`.
+The author performed only locked/offline compile, independent image sealing and
+inert full20-member archive/type/mode/byte inspection, not installation or VM use.
+Unchanged normal runtime/login units and compatible whole LegacyMeta2 were retained.
+
+Every selected original and separate observation below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Normal package installation/readback | `87b480` / `882cd8`; `d8ccf3` readback | Exact installed normal0f2 image, not d0ab/test-image substitution |
+| First fresh normal current | Stop `398f00` / `b94cbf`; start `507448`; readiness `7a43db`; hello `780f04`; Off `e4b486`; profiles `b74874` | Independently earned genuine current admission before repetition |
+| One first installed repeat | `d36d52` / `59dc03` | Exact completion marker/empty stderr, history0..2 private0600/single/386-byte, pending names absent |
+| First-repeat normal postchecks | `438641`; `4f636a` | Whole private profile projection equal; owned Off |
+| Separate normal stop/start | `2614fd` / `bcff15`; `9d5273` / `f36182` | Inactive/socket absent, then new PID6032/invocation and readiness |
+| Second fresh current | `5c6c48`; `25171f` | Newly earned ownership and Off before the second repetition |
+| One second installed repeat | `c1d4e7` / `f623db` | Exact completion marker/empty stderr, history0..3 private0600/single/386-byte, pending names absent |
+| Second-repeat normal postchecks | `ba1fc1`; `ad84ab` | Whole private profile projection equal; owned Off |
+| Final separate normal stop/start | `636c34` / `e469cc`; `1169bd` / `eb1ca1` | Known inactive/socket absent, then new PID6246/invocation and normal readiness |
+| Final normal current postchecks | `747874`; `5fb7a0`; `b3c4e3` | Fresh ownership, owned Off and exact whole private profile projection equal after the second repeat |
+
+Each fixed normal client used only the schema/archive/passphrase whitelist from
+the privately held Current43 request through stdin, never secret argv or old
+request correlation as authority. The CLI obtained the actual new daemon's own
+hello/status instance and revision. Each original performed genuine current
+NEW/Committed completion, retirement and consuming disposition into the next
+absent immutable audit slot; prior histories were neither overwritten nor purged.
+The normal user-manager restart between repetitions independently re-earned
+current/login/singleton/private-pair admission. This is not a grant to run a
+second Restore from the SAME already-borrowed Original lease or to rearm an old
+occupied/faulted holder. Unknown/nonzero originals were not retried or promoted.
+
+These two installed repetitions establish the selected finite history behavior
+beyond the former second-Restore collision. Eight total fixed slots remain an
+explicit ceiling: exhaustion, holes, malformed entries, replacement/collision
+and late failure are scoped local source controls, not eight newly executed VM
+restores or an unlimited-history guarantee. Default Backup/Restore/UI activation,
+cold/missing-lock bootstrap, unknown completion replay, fatal descriptor survival,
+AUTO/K1 and whole-T4 acceptance remain outside this agent-attended VM scope.

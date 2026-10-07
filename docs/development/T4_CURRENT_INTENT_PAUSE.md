@@ -269,8 +269,10 @@ There is no automatic replay, old-engine rearming, collision recovery, cold
 bootstrap or history disposal permission. An independently started normal
 RuntimeServer must earn its existing current marker/Desired/login/private-pair/
 singleton admission after the successful original completer exits; history is
-not its authority. Installed repetition and that normal admission remain pending
-until separately reviewed/selected exact-source originals complete.
+not its authority. The Current44 gate
+below separately records the selected retained completion, normal admission and
+two installed repetitions across separately earned normal current instances;
+neither source controls nor plain history decoding supplies that acceptance.
 
 Finite local controls cover all0..8 prefix/capacity cases, original drift/type/
 mode/link/bytes/attributes/absence predicates, unknown vocabulary, reported-open
@@ -295,8 +297,20 @@ necessary separate ROOT observation, not a marker-only conclusion.
 Only after that original exits0 may ROOT independently start the normal
 installed daemon and adjudicate its genuine `current()`/login/status/profile
 admission. There is no in-test rebind, lease recreation, receipt copy, history
-cleanup or automatic follow-on. Both that new admission and installed repeated
-Restore with the new eight-slot runtime remain unselected SOURCE scenarios.
+cleanup or automatic follow-on. Current44 completed this exact selector at source
+`0f2a1b8a` with original0 and the separately selected normal d0ab daemon admission.
+Incumbent history0 and new history1 were retained; actual normal profiles numbered37
+with the original whole projection checked. See the
+[scoped Current44 report](../testing/T4_CURRENT_INTENT_VM_2026-10-07.md#current44-retained-completion-and-independent-normal-admission).
+The subsequently installed normal0f2 runtime/image3c84a877 performed two positive
+NEW/Committed repetitions into slots2/3, with a known normal stop/start and freshly
+earned genuine current admission between them. Both originals and separate
+postchecks completed0; the whole private profile projection remained equal.
+That installed scope is separate from the test ELF and does not permit nested
+Restore from its SAME already-borrowed Original lease. The eight-slot ceiling
+and exhaustion refusal remain explicit; no overwrite/purge, unlimited history,
+default activation or cold-recovery grant is inferred. See the report's distinct
+installed-repetition subsection for exact original/image identities.
 
 In the historical Current36 pause-only baseline, no descriptor role or
 file-capacity envelope was added. That one bounded holder
