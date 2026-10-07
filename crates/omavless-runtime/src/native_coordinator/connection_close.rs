@@ -3117,6 +3117,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .batch
             .as_ref()
             .is_some_and(|state| state.registry.has_operation_id(operation_id));
+        #[cfg(feature = "product-image-witness")]
+        if self.host().close_registration() == crate::lifecycle::CloseRegistration::Product {
+            return Ok(self.coordinator.reserve_product_external_close(
+                operation_id,
+                expected_revision,
+                MutationDigest::from_semantic_bytes(&semantic),
+                long_id,
+            )?);
+        }
         Ok(self.coordinator.reserve_external_close(
             operation_id,
             expected_revision,

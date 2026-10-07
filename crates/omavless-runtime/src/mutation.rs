@@ -413,6 +413,61 @@ impl MutationCoordinator {
         Ok(ExternalCloseAdmission::Reserved(token))
     }
 
+    /// Product preview confirmations with an older revision cannot enter an
+    /// effect. Retain that proven refusal in the SAME non-evicting namespace so
+    /// a lost response can be resolved by receipt, never by resending Confirm.
+    /// This wrapper never relaxes ordinary admission or returns a new token on
+    /// its stale path. Future revisions remain errors, not fabricated receipts.
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn reserve_product_external_close(
+        &mut self,
+        operation_id: &str,
+        expected_revision: u64,
+        digest: MutationDigest,
+        long_operation_id_in_use: bool,
+    ) -> Result<ExternalCloseAdmission, CoordinatorError> {
+        match self.reserve_external_close(
+            operation_id,
+            expected_revision,
+            digest,
+            long_operation_id_in_use,
+        ) {
+            Err(CoordinatorError::RevisionConflict) if expected_revision < self.revision => {
+                // The original admission already checked valid IDs, all replay
+                // namespaces and digest equality BEFORE its revision refusal.
+                // Keep its remaining capacity/serialization fences as well.
+                if self.revision == MAX_REVISION {
+                    return Err(CoordinatorError::RevisionExhausted);
+                }
+                if self.active.is_some()
+                    || !self.queue.is_empty()
+                    || self.external_closes.len() == EXTERNAL_CLOSE_LIMIT
+                    || self
+                        .external_closes
+                        .iter()
+                        .any(|entry| entry.receipt.is_none())
+                {
+                    return Err(CoordinatorError::Busy);
+                }
+                let receipt = ExternalCloseReceipt {
+                    outcome: ExternalCloseOutcome::RefusedBeforeWrite,
+                    revision: self.revision,
+                };
+                self.external_closes.push(ExternalCloseEntry {
+                    operation_id: OperationId::parse(operation_id)?,
+                    digest,
+                    // Metadata identity only: never returned to the effect
+                    // scheduler; its entry is already terminal at publication.
+                    token: ExternalCloseToken(Arc::new(())),
+                    base_revision: self.revision,
+                    receipt: Some(receipt),
+                });
+                Ok(ExternalCloseAdmission::Replay(receipt))
+            }
+            result => result,
+        }
+    }
+
     pub(crate) fn finish_external_close(
         &mut self,
         token: &ExternalCloseToken,
@@ -671,6 +726,136 @@ mod tests {
 
     fn digest(value: u8) -> MutationDigest {
         MutationDigest::new([value; 32])
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_stale_close_is_terminal_data_replay_not_an_effect_reservation() {
+        let mut coordinator = MutationCoordinator {
+            revision: 2,
+            ..MutationCoordinator::default()
+        };
+        let expected = ExternalCloseReceipt {
+            outcome: ExternalCloseOutcome::RefusedBeforeWrite,
+            revision: 2,
+        };
+        assert!(matches!(
+            coordinator.reserve_product_external_close("stale", 1, digest(9), false),
+            Ok(ExternalCloseAdmission::Replay(receipt)) if receipt == expected
+        ));
+        assert_eq!(coordinator.revision(), 2);
+        assert_eq!(coordinator.external_closes.len(), 1);
+        assert_eq!(
+            coordinator.external_close_receipt("stale").unwrap(),
+            Some(Some(expected))
+        );
+        assert!(
+            !coordinator.external_close_reservation_current(&coordinator.external_closes[0].token)
+        );
+        coordinator.revision = 3;
+        assert!(matches!(
+            coordinator.reserve_product_external_close("stale", 1, digest(9), false),
+            Ok(ExternalCloseAdmission::Replay(receipt)) if receipt == expected
+        ));
+        assert_eq!(coordinator.external_closes.len(), 1);
+        assert!(matches!(
+            coordinator.reserve_product_external_close("stale", 1, digest(10), false),
+            Err(CoordinatorError::OperationConflict)
+        ));
+        assert!(matches!(
+            coordinator.reserve_external_close("ordinary-stale", 1, digest(9), false),
+            Err(CoordinatorError::RevisionConflict)
+        ));
+        assert!(matches!(
+            coordinator.reserve_product_external_close("future", 4, digest(9), false),
+            Err(CoordinatorError::RevisionConflict)
+        ));
+        assert!(matches!(
+            coordinator.reserve_product_external_close("current", 3, digest(9), false),
+            Ok(ExternalCloseAdmission::Reserved(_))
+        ));
+        assert_eq!(coordinator.external_closes.len(), 2);
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_stale_close_keeps_namespace_capacity_and_serialization_fences() {
+        for state in [
+            "queued",
+            "active",
+            "unfinished",
+            "full",
+            "ordinary-id",
+            "long-id",
+            "malformed",
+            "exhausted",
+        ] {
+            let mut coordinator = MutationCoordinator {
+                revision: 1,
+                ..MutationCoordinator::default()
+            };
+            let operation = if state == "malformed" {
+                "contains space"
+            } else {
+                "stale"
+            };
+            let wanted = match state {
+                "queued" | "active" | "ordinary-id" => {
+                    let id = if state == "ordinary-id" {
+                        "stale"
+                    } else {
+                        "mutation"
+                    };
+                    coordinator
+                        .submit(request(MutationKind::Other, Some(id), Some(1), 1))
+                        .unwrap();
+                    if state == "active" {
+                        coordinator.begin_next().unwrap();
+                    }
+                    if state == "ordinary-id" {
+                        CoordinatorError::OperationConflict
+                    } else {
+                        CoordinatorError::Busy
+                    }
+                }
+                "unfinished" => {
+                    coordinator
+                        .reserve_external_close("original", 1, digest(1), false)
+                        .unwrap();
+                    CoordinatorError::Busy
+                }
+                "full" => {
+                    for index in 0..EXTERNAL_CLOSE_LIMIT {
+                        coordinator
+                            .reserve_product_external_close(
+                                &format!("stale-{index}"),
+                                0,
+                                digest(1),
+                                false,
+                            )
+                            .unwrap();
+                    }
+                    CoordinatorError::Busy
+                }
+                "long-id" => CoordinatorError::OperationConflict,
+                "malformed" => CoordinatorError::InvalidOperationId,
+                _ => {
+                    coordinator.revision = MAX_REVISION;
+                    CoordinatorError::RevisionExhausted
+                }
+            };
+            let count = coordinator.external_closes.len();
+            let revision = coordinator.revision();
+            assert!(
+                matches!(
+                    coordinator.reserve_product_external_close(operation, 0, digest(9), state == "long-id"),
+                    Err(error) if error == wanted
+                ),
+                "{state}"
+            );
+            assert_eq!(coordinator.external_closes.len(), count, "{state}");
+            assert_eq!(coordinator.revision(), revision, "{state}");
+        }
     }
 
     #[test]

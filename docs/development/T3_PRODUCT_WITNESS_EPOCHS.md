@@ -674,6 +674,47 @@ The earlier SOURCE7 attempt reached legitimate English Closed and remains
 NONPASS for target-loss refusal. Its known cleanup is retained separately;
 it is not reclassified by the corrected fixture or newer source evidence.
 
+## Product stale-Confirm terminal refusal candidate
+
+This successor changes only the explicitly selected Product close admission.
+It does not change the tested `0b55a1a6` runtime, default registration, helper,
+root enrollment, image qualification, wire schema or five-second confirmation
+window. Installed SOURCE8 evidence remains attached to its original image.
+
+Previously, a normal mutation advancing revision after Prepare caused Confirm
+to return revision conflict before reserving any close entry. The effect was
+correctly refused, but the client retained uncertainty because no terminal
+receipt existed. A later receipt lookup could not resolve that particular
+pre-admission refusal. Generic errors are still not interpreted as effect
+outcomes by the client.
+
+The Product-only reservation wrapper first delegates to unchanged ordinary
+admission, preserving exact replay, ID namespaces and semantic digest collision
+checks. Only its fresh older-revision refusal can publish an already-terminal
+`RefusedBeforeWrite` entry in the same bounded, non-evicting 128-entry history.
+Revision exhaustion, active/queued mutation, unfinished close and full history
+still refuse. Future revisions remain ordinary conflicts. No new effect token
+is returned, revision does not advance, and no image discovery, migration lease,
+controller request or lifecycle operation follows this branch. A retained entry
+is outcome DATA, not permission to close anything.
+
+The existing strict receipt projection lets EN/RU clients resolve either the
+original response or an explicit receipt lookup after a lost reply. Both end
+the spent window without refresh, resend, retargeting or generic-error recovery.
+Changed handle, ticket or expected revision under the same ID still conflicts.
+Legacy/developer and default admission keep their original path.
+
+The new real-owner scheduler regression reproduces the original revision
+conflict with the Product route absent and passes with this route present.
+Focused Product source controls and EN/RU original/lost-response client controls
+pass. The owner regression advances the actual scheduler and invalidates its
+old preview; it is not installed evidence of the normal favorite handler.
+The first broad filtered run also exposed the existing Unix-socket length limit
+under a long HOME temporary path; the same code passes all 23 focused controls
+with a short HOME temporary root. No `/tmp` quota or socket guard is bypassed.
+Installed competing-mutation confirmation and its original outcome remain to
+be checked against a separately built, reviewed and enrolled successor image.
+
 ### Remaining T3/C1 completion gates
 
 The [client evidence matrix](T3_DEVELOPER_CLOSE_CLIENT.md#evidence-matrix),

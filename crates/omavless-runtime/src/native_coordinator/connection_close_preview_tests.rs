@@ -34,6 +34,56 @@ fn fresh_confirm(fixture: &mut Fixture, operation: &str, row: &CloseDisplayRow) 
 }
 
 #[test]
+fn product_preview_older_confirm_has_retained_refusal_without_fresh_acquisition() {
+    use crate::mutation::{BeginOutcome, MutationKind, MutationRequest, MutationResult};
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = product_preview_fixture();
+    let rows = retain_inert_preview(&mut fixture);
+    let confirmation = fixture.owner.prepare_connection_close(rows[0].handle).unwrap();
+    let revision = fixture.owner.revision();
+    let before = fixture.owner.host().product_history_for_test();
+    fixture.owner.coordinator.submit(MutationRequest::new(
+        MutationKind::Other, Some("metadata-change"), Some(revision),
+        MutationDigest::from_semantic_bytes(b"fixed-test-metadata"),
+    ).unwrap()).unwrap();
+    let BeginOutcome::Started(active) = fixture.owner.coordinator.begin_next().unwrap() else {
+        panic!("original metadata scheduler admission required");
+    };
+    fixture.owner.coordinator.finish(active.token, MutationResult::Success).unwrap();
+    fixture.owner.invalidate_connection_close();
+    let current = fixture.owner.revision();
+    assert_eq!(current, revision + 1);
+    let result = fixture.owner.admit_product_confirm(
+        "stale-confirm", revision, rows[0].handle, confirmation.ticket,
+    ).unwrap();
+    let ProductConfirmAdmission::Replay(receipt) = result else {
+        panic!("stale confirmation must never acquire a fresh image");
+    };
+    assert_eq!(receipt.outcome, ExternalCloseOutcome::RefusedBeforeWrite);
+    assert_eq!(receipt.revision, current);
+    assert_eq!(fixture.owner.connection_close_receipt("stale-confirm").unwrap(), Some(Some(receipt)));
+    assert!(matches!(
+        fixture.owner.admit_product_confirm("stale-confirm", revision, rows[0].handle, confirmation.ticket),
+        Ok(ProductConfirmAdmission::Replay(replayed)) if replayed == receipt
+    ));
+    for (requested_revision, handle, ticket) in [
+        (current, rows[0].handle, confirmation.ticket),
+        (revision, rows[1].handle, confirmation.ticket),
+        (revision, rows[0].handle, OpaqueToken([0x55; 32])),
+    ] {
+        assert!(matches!(
+            fixture.owner.admit_product_confirm("stale-confirm", requested_revision, handle, ticket),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::OperationConflict))
+        ));
+    }
+    assert_eq!(fixture.owner.revision(), current);
+    assert_eq!(fixture.owner.host().product_history_for_test(), before);
+    assert!(!fixture.root.join("r/effects").exists());
+    assert!(fixture.owner.connection_close.discovery.is_none());
+    assert!(fixture.owner.connection_close.snapshot.is_none());
+}
+
+#[test]
 fn product_preview_delayed_human_has_no_session_then_fresh_exact_close_and_replay() {
     use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
     let _fixtures = FIXTURES.lock().unwrap();
