@@ -9,6 +9,12 @@ unpublished source integration is not public release acceptance.
 
 ## Scope and ownership
 
+Owner clarification, 2026-10-07: this internal beta may include runnable
+experimental features with programmatic gates passed and human acceptance
+pending. Apply the [manual-acceptance rule](BETA_MANUAL_ACCEPTANCE.md) and
+[actual 0.9.8 test plan](../testing/BETA_098_MANUAL_PLAN.md). This does not
+activate missing client/runtime paths or claim unrun installed checks PASS.
+
 The October 7 assembly continues existing `beta/0.9.8` from exact
 `a04dfde8f8907767a47310861ee47b78ab4597d6` through one separate assembly PR.
 Feature writers keep their branches and the VM master keeps exclusive VM

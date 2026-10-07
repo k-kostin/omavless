@@ -91,6 +91,23 @@ Retain it during cleanup; new work follows the selected development candidate
 and ultimately an owner-authorized main update. See the
 [retirement sequence](LEGACY_RETIREMENT.md).
 
+### Internal beta with human acceptance pending (owner decision, 2026-10-07)
+
+Internal beta may include runnable experimental features whose declared exact-
+head programmatic checks and affected review pass while bounded hands-on
+acceptance remains. Mark them manual-validation pending and attach an
+[agent-assisted test card](../development/BETA_MANUAL_ACCEPTANCE.md): user
+plugin/TUI actions, visible expectations, agent's reviewed observations/direct
+questions, stop conditions and restoration. The beta is the environment for
+obtaining that evidence, not a reward only after it already exists.
+
+Missing client/runtime wiring, unresolved safety/ownership/recovery and unknown
+prior effects are not human-only gaps. Prepare actual matching artifacts and
+required capability setup before the user's quick interaction session; do not
+replace guarantees with a green icon or ask the user to debug internal protocols.
+Retain separate machine/fault/hardware gates and all release/main authorization.
+Current example: [0.9.8 manual plan](../testing/BETA_098_MANUAL_PLAN.md).
+
 ## 2. Short-lived branch roles
 
 New task branches use `dev/`, regardless of whether a human or agent writes them:
