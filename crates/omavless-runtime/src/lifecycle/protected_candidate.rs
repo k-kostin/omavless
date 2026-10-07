@@ -7,7 +7,10 @@
 use super::*;
 use omavless_netguard::protocol::{Health, Mode, POLICY_VERSION, Protection, Request, Response};
 
-trait ProtectionPort {
+#[cfg(feature = "netguard-normal-lifecycle")]
+pub(crate) mod normal;
+
+pub(crate) trait ProtectionPort {
     /// No retry/reconnect. Error includes unknown delivery, timeout, late reply
     /// or channel loss; an error response is not a no-effect certificate.
     fn exchange(&mut self, request: Request) -> Result<Response, ()>;

@@ -59,9 +59,87 @@ pub(crate) struct PreparedPrivateStoreWrite {
 pub(crate) struct PreparedPointerMutation {
     prepared: PreparedPrivateStoreWrite,
     pub(crate) pruned: usize,
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    protected_profile: Option<String>,
+}
+
+/// Private, predeclared DATA derived only from an original fixed pointer plan.
+/// Not a lease, write receipt or permission to recapture a changed store.
+#[cfg(feature = "netguard-normal-lifecycle")]
+pub(crate) struct ProtectedPointerDigests {
+    original: [u8; 32],
+    output: [u8; 32],
+    profile: Option<String>,
+}
+
+#[cfg(feature = "netguard-normal-lifecycle")]
+impl ProtectedPointerDigests {
+    pub(crate) fn original(&self) -> [u8; 32] {
+        self.original
+    }
+    pub(crate) fn output(&self) -> [u8; 32] {
+        self.output
+    }
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.profile.as_deref()
+    }
+}
+
+/// Borrows the SAME original plan AND continuously retained operation lease.
+/// Construction and each later recheck require its exact completed bytes.
+#[cfg(feature = "netguard-normal-lifecycle")]
+pub(crate) struct VerifiedProtectedPointer<'a> {
+    plan: &'a PreparedPointerMutation,
+    lease: &'a MigrationLock,
+    paths: &'a CutoverPaths,
+}
+
+#[cfg(feature = "netguard-normal-lifecycle")]
+impl VerifiedProtectedPointer<'_> {
+    pub(crate) fn recheck(&self) -> Result<(), PrivateStoreWriteError> {
+        self.plan
+            .prepared
+            .verify_outcome_locked(self.lease, self.paths, false)
+    }
+    pub(crate) fn digests(&self) -> ProtectedPointerDigests {
+        self.plan.protected_digests()
+    }
 }
 
 impl PreparedPointerMutation {
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    pub(crate) fn protected_digests(&self) -> ProtectedPointerDigests {
+        use sha2::{Digest, Sha256};
+        ProtectedPointerDigests {
+            original: Sha256::digest(&self.prepared.original).into(),
+            output: Sha256::digest(if self.prepared.changed {
+                &self.prepared.candidate
+            } else {
+                &self.prepared.original
+            })
+            .into(),
+            profile: self.protected_profile.clone(),
+        }
+    }
+
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    pub(crate) fn commit_protected<'a>(
+        &'a self,
+        lease: &'a MigrationLock,
+        paths: &'a CutoverPaths,
+    ) -> Result<(PreparedWrite, VerifiedProtectedPointer<'a>), PrivateStoreWriteError> {
+        // This proof is returned ONLY by the SAME original checked write, not
+        // by observing matching output bytes without a completed invocation.
+        let write = self.commit_locked(lease, paths)?;
+        let completed = VerifiedProtectedPointer {
+            plan: self,
+            lease,
+            paths,
+        };
+        completed.recheck()?;
+        Ok((write, completed))
+    }
+
     #[cfg(test)]
     pub(crate) fn research_matches_output(&self, bytes: &[u8], restored: bool) -> bool {
         bytes
@@ -253,13 +331,23 @@ pub(crate) fn prepare_pointer_mutation(
     uid: u32,
     target: CompatibilityPointerTarget,
 ) -> Result<PreparedPointerMutation, PrivateStoreWriteError> {
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    let protected_profile = match &target {
+        CompatibilityPointerTarget::Connected { profile_id } => Some(profile_id.clone()),
+        CompatibilityPointerTarget::Disconnected { .. } => None,
+    };
     let mut pruned = 0;
     let prepared = prepare_private_store_write(store_path, uid, |input| {
         let mutation = apply_compatibility_pointer_update(input, target)?;
         pruned = mutation.pruned;
         Ok((mutation.payload().to_vec(), mutation.changed))
     })?;
-    Ok(PreparedPointerMutation { prepared, pruned })
+    Ok(PreparedPointerMutation {
+        prepared,
+        pruned,
+        #[cfg(feature = "netguard-normal-lifecycle")]
+        protected_profile,
+    })
 }
 
 #[cfg(test)]

@@ -52,6 +52,12 @@ struct RenderedPolicy {
     version: PolicyVersion,
     config: [u8; 32],
 }
+
+#[cfg(feature = "netguard-normal-lifecycle")]
+pub(super) struct PointerBinding {
+    digests: crate::private_store_transaction::ProtectedPointerDigests,
+    committed: bool,
+}
 // Static development-only decision, no flag, argument or imported receipt.
 // Rule42 qualified this exact policy/core/package; the retained package holder
 // below still enforces that closed identity. Native integration and product
@@ -100,9 +106,19 @@ struct Bound {
     config: HeldFile,
     data: HeldDirectory,
     scratch: Option<interval::Scratch>,
+    interval_required: bool,
     policy: RenderedPolicy,
     package: Option<crate::managed_pair::ProtectedPackage>,
     capacity: PreparationCapacity,
+}
+impl Bound {
+    fn recheck_prepared_scratch(&self) -> Result<(), ()> {
+        match (&self.scratch, self.interval_required) {
+            (Some(scratch), true) => scratch.recheck(),
+            (None, false) => Ok(()),
+            _ => Err(()),
+        }
+    }
 }
 struct AcquiredBound(Option<Bound>);
 impl Drop for AcquiredBound {
@@ -517,6 +533,14 @@ impl NativeLifecycleHost {
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| PreparationError::Refused)?;
         let store_digest = Sha256::digest(store.as_bytes()).into();
+        #[cfg(feature = "netguard-normal-lifecycle")]
+        if self.protected_pointer_binding.as_ref().is_some_and(|binding| {
+            binding.committed
+                || binding.digests.original() != store_digest
+                || binding.digests.profile() != Some(desired.profile_id.as_str())
+        }) {
+            return Err(PreparationError::Changed);
+        }
         let mut profiles = parse_private_store(&store)
             .map_err(|_| PreparationError::Refused)?
             .into_profile_probe_profiles(Some(&desired.profile_id))
@@ -556,8 +580,18 @@ impl NativeLifecycleHost {
         }
         // Ordinary current paths alias data and config. Publish the owned child
         // directory BEFORE capturing data's original nlink, never rebase it.
-        let scratch = interval::Scratch::prepare(&self.paths.config_directory, self.uid)
-            .map_err(|_| PreparationError::OutcomeUnknown)?;
+        #[cfg(feature = "netguard-normal-lifecycle")]
+        let interval_required = self.protected_pointer_binding.is_none();
+        #[cfg(not(feature = "netguard-normal-lifecycle"))]
+        let interval_required = true;
+        let scratch = if interval_required {
+            Some(
+                interval::Scratch::prepare(&self.paths.config_directory, self.uid)
+                    .map_err(|_| PreparationError::OutcomeUnknown)?,
+            )
+        } else {
+            None
+        };
         capacity.check()?;
         let bound = Bound {
             desired: desired.clone(),
@@ -565,7 +599,8 @@ impl NativeLifecycleHost {
             core,
             config,
             data: HeldDirectory::capture(&self.paths.data_directory, self.uid)?,
-            scratch: Some(scratch),
+            scratch,
+            interval_required,
             policy,
             package: None,
             capacity,
@@ -618,10 +653,7 @@ impl NativeLifecycleHost {
         }
         bound.data.recheck(&self.paths.data_directory)?;
         bound
-            .scratch
-            .as_ref()
-            .ok_or(PreparationError::Changed)?
-            .recheck()
+            .recheck_prepared_scratch()
             .map_err(|_| PreparationError::Changed)?;
         bound
             .config
@@ -699,7 +731,7 @@ impl NativeLifecycleHost {
                         .data
                         .recheck(&self.paths.data_directory)
                         .map_err(|_| ())?;
-                    bound.scratch.as_ref().ok_or(())?.recheck()?;
+                    bound.recheck_prepared_scratch()?;
                     bound.config.recheck(&staged).map_err(|_| ())
                 },
             )
@@ -729,6 +761,75 @@ impl NativeLifecycleHost {
 mod tests;
 
 impl NativeLifecycleHost {
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    pub(crate) fn predeclare_protected_pointer(
+        &mut self,
+        digests: crate::private_store_transaction::ProtectedPointerDigests,
+    ) -> Result<(), HostStepError> {
+        if self.protected_pointer_binding.is_some()
+            || self.protected_preparation.is_some()
+            || digests.profile().is_none()
+        {
+            return Err(HostStepError::Prepare);
+        }
+        self.protected_pointer_binding = Some(PointerBinding {
+            digests,
+            committed: false,
+        });
+        Ok(())
+    }
+
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    pub(crate) fn protected_pointer_committed(
+        &mut self,
+        completed: &crate::private_store_transaction::VerifiedProtectedPointer<'_>,
+    ) -> Result<(), HostStepError> {
+        completed.recheck().map_err(|_| HostStepError::Commit)?;
+        let expected = completed.digests();
+        let binding = self
+            .protected_pointer_binding
+            .as_mut()
+            .ok_or(HostStepError::Commit)?;
+        let bound = self
+            .protected_preparation
+            .as_ref()
+            .and_then(|prepared| prepared.bound.as_ref())
+            .ok_or(HostStepError::Commit)?;
+        if binding.committed
+            || binding.digests.original() != expected.original()
+            || binding.digests.output() != expected.output()
+            || binding.digests.profile() != expected.profile()
+            || bound.store_digest != expected.original()
+            || expected.profile() != Some(bound.desired.profile_id.as_str())
+        {
+            return Err(HostStepError::Commit);
+        }
+        // Select ONLY the predeclared exact output of the reported original
+        // write. Neither immutable digest is recaptured/rebased from live data.
+        binding.committed = true;
+        let desired = bound.desired.clone();
+        crate::lifecycle::protected_candidate::ProtectedHost::recheck_interval(self, &desired)?;
+        completed.recheck().map_err(|_| HostStepError::Commit)
+    }
+
+    fn protected_store_matches(&self, bound: &Bound, store: &[u8]) -> bool {
+        #[cfg(feature = "netguard-normal-lifecycle")]
+        if let Some(binding) = &self.protected_pointer_binding {
+            if binding.digests.original() != bound.store_digest
+                || binding.digests.profile() != Some(bound.desired.profile_id.as_str())
+            {
+                return false;
+            }
+            let expected = if binding.committed {
+                binding.digests.output()
+            } else {
+                bound.store_digest
+            };
+            return <[u8; 32]>::from(Sha256::digest(store)) == expected;
+        }
+        <[u8; 32]>::from(Sha256::digest(store)) == bound.store_digest
+    }
+
     pub(super) fn protected_eligibility(&self) -> Result<(), HostStepError> {
         if self.protected_preparation.is_some()
             || self.core.is_some()
@@ -752,6 +853,16 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
     type Admission = ArmAdmission;
     type Interval = interval::Interval;
     fn begin_interval(&mut self, desired: &DesiredState) -> Result<Self::Interval, HostStepError> {
+        // A selected normal lifecycle never admits the development traffic
+        // worker, even if both build features happen to be compiled together.
+        if self
+            .protected_preparation
+            .as_ref()
+            .and_then(|p| p.bound.as_ref())
+            .is_none_or(|bound| !bound.interval_required)
+        {
+            return Err(HostStepError::Observation);
+        }
         self.recheck_interval(desired)?;
         let scratch = self
             .protected_preparation
@@ -830,7 +941,7 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         crate::protected_native_diagnostic::post_mark(
             crate::protected_native_diagnostic::PostGuard::IntervalStoreDigest,
         );
-        if <[u8; 32]>::from(Sha256::digest(store.as_bytes())) != bound.store_digest {
+        if !self.protected_store_matches(bound, store.as_bytes()) {
             return Err(HostStepError::Observation);
         }
         #[cfg(all(test, feature = "netguard-native-scenario"))]

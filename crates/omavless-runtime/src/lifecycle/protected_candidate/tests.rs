@@ -8,6 +8,91 @@ use std::{
     rc::Rc,
 };
 
+#[cfg(feature = "netguard-normal-lifecycle")]
+mod normal_controls {
+    use super::*;
+    use crate::lifecycle::protected_candidate::normal::NormalSession;
+
+    fn original(f: &Fixture, cut: Option<&'static str>) -> (LifecycleExecutor<Host>, NormalSession<Port>) {
+        let mut candidate = f.candidate(cut, None);
+        let (executor, port) = candidate.owned.take().unwrap();
+        let Executor::Owned(executor) = executor else {
+            panic!("fixed inert fixture owns its executor");
+        };
+        (executor, NormalSession::for_test(port))
+    }
+
+    #[test]
+    fn normal_separate_operations_keep_same_port_and_never_run_traffic_interval() {
+        let f = Fixture::new(4, Some(8));
+        let (mut executor, mut session) = original(&f, None);
+        assert!(session.is_fresh());
+        let connected = session.connect(&mut executor, "fixture", &mut || Ok(())).unwrap();
+        assert_eq!(connected.generation, 9);
+        assert!(session.is_armed() && session.retention_required());
+        assert_eq!(executor.actual(), ActualState::Connected);
+        let closed = session.disconnect(&mut executor, &mut || Ok(())).unwrap();
+        assert_eq!(closed.generation, 10);
+        assert!(session.is_closed() && !session.retention_required());
+        assert_eq!(executor.actual(), ActualState::Disconnected);
+        assert_eq!(f.root.borrow().marker, Marker::Closed(9));
+        assert!(!f.log.borrow().contains(&"interval_begin"));
+        assert!(!f.log.borrow().contains(&"interval_complete"));
+        assert!(f.log.borrow().contains(&"interval_recheck"));
+        drop(session);
+        drop(executor);
+        assert_eq!(f.drops.get(), 2);
+    }
+
+    #[test]
+    fn normal_armed_second_connect_never_resends_or_retargets() {
+        let f = Fixture::new(0, None);
+        let (mut executor, mut session) = original(&f, None);
+        session.connect(&mut executor, "fixture", &mut || Ok(())).unwrap();
+        let before = f.log.borrow().clone();
+        assert!(session.connect(&mut executor, "another", &mut || Ok(())).is_err());
+        assert_eq!(*f.log.borrow(), before);
+        assert!(session.is_armed());
+        drop(session);
+        assert_eq!(f.drops.get(), 0);
+        // Model the required outer registered-owner custody, not a promise
+        // that forgetting a borrowed reference retains the actual executor.
+        std::mem::forget(executor);
+        assert_eq!(f.drops.get(), 0);
+    }
+
+    #[test]
+    fn normal_live_binding_refusal_never_stops_or_disarms_and_slot_stays_sealed() {
+        let f = Fixture::new(0, None);
+        let (mut executor, mut session) = original(&f, Some("interval_recheck"));
+        session.connect(&mut executor, "fixture", &mut || Ok(())).unwrap();
+        assert!(session.disconnect(&mut executor, &mut || Ok(())).is_err());
+        assert!(session.retention_required() && !session.is_armed() && !session.is_closed());
+        assert!(!f.log.borrow().contains(&"stop"));
+        assert!(!f.log.borrow().contains(&"disarm"));
+        let before = f.log.borrow().clone();
+        assert!(session.disconnect(&mut executor, &mut || Ok(())).is_err());
+        assert_eq!(*f.log.borrow(), before);
+        drop(session);
+        std::mem::forget(executor);
+        assert_eq!(f.drops.get(), 0);
+    }
+
+    #[test]
+    fn normal_origin_unwind_latches_before_original_port_is_borrowed() {
+        let f = Fixture::new(0, None);
+        let (mut executor, mut session) = original(&f, None);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            session.connect(&mut executor, "fixture", &mut || panic!("fixed original cut"))
+        }));
+        assert!(result.is_err() && session.retention_required());
+        assert!(f.log.borrow().is_empty());
+        drop(session);
+        std::mem::forget(executor);
+        assert_eq!(f.drops.get(), 0);
+    }
+}
+
 struct Host {
     log: Rc<RefCell<Vec<&'static str>>>,
     drops: Rc<Cell<u8>>,

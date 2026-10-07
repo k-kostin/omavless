@@ -342,6 +342,8 @@ pub struct NativeLifecycleHost {
     tun_identity: Option<(String, u64)>,
     #[cfg(feature = "netguard-runtime-candidate")]
     protected_preparation: Option<protected_preparation::Preparation>,
+    #[cfg(feature = "netguard-normal-lifecycle")]
+    protected_pointer_binding: Option<protected_preparation::PointerBinding>,
     #[cfg(test)]
     close_fixture: Option<CloseFixture>,
 }
@@ -455,6 +457,8 @@ impl NativeLifecycleHost {
             tun_identity: None,
             #[cfg(feature = "netguard-runtime-candidate")]
             protected_preparation: None,
+            #[cfg(feature = "netguard-normal-lifecycle")]
+            protected_pointer_binding: None,
             #[cfg(test)]
             close_fixture: None,
         })
