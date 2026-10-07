@@ -151,16 +151,20 @@ setup_status() {
           || { printf 'needs_attention\n'; return; }
         if jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == true' \
           >/dev/null 2>&1 <<< "$selected"; then
-          if user_runtime_stopped; then
+          # Preserve the existing stopped-broker repair path. Starting the
+          # user runtime first would make that stricter path unavailable.
+          if ! system_broker_available; then
+            if user_runtime_stopped && no_managed_tun && system_broker_stopped && no_broker_socket; then
+              printf 'needs_broker_stopped\n'
+            else printf 'needs_broker\n'; fi
+          elif user_runtime_stopped; then
             if runtime_start_available; then
               printf 'needs_runtime_start\n'; return
             fi
             printf 'needs_attention\n'; return
+          else
+            printf 'ready\n'
           fi
-          if system_broker_available; then printf 'ready\n'
-          elif user_runtime_stopped && no_managed_tun && system_broker_stopped && no_broker_socket; then
-            printf 'needs_broker_stopped\n'
-          else printf 'needs_broker\n'; fi
         elif jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
           >/dev/null 2>&1 <<< "$selected"; then
           if ! system_broker_available; then printf 'needs_broker\n'

@@ -176,7 +176,7 @@ user_runtime_stopped() { return 0; }
 runtime_start_available() { return 0; }
 no_broker_socket() { return 0; }
 setup_status
-''').stdout, "needs_runtime_start\n")
+''').stdout, "needs_broker_stopped\n")
         self.assertEqual(self.run_shell(fixture + '''
 pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; }
 user_runtime_stopped() { return 1; }
@@ -200,10 +200,29 @@ native_target() { echo rust; }
 pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; }
 user_runtime_stopped() { return 0; }
 runtime_start_available() { return 0; }
+system_broker_available() { return 0; }
 '''
         self.assertEqual(self.run_shell(fixture + "setup_status").stdout, "needs_runtime_start\n")
         self.assertEqual(self.run_shell(fixture + "setup_components").stdout, "needs_runtime_start\tpresent\n")
         self.assertEqual(self.run_shell(fixture + "runtime_start_available() { return 1; }; setup_status").stdout, "needs_attention\n")
+        result = self.run_shell(fixture + '''
+system_broker_available() { return 1; }
+system_broker_stopped() { return 0; }
+no_broker_socket() { return 0; }
+runtime_start_available() { echo UNEXPECTED_RUNTIME_START_PROBE >&2; return 0; }
+setup_status
+''')
+        self.assertEqual(result.stdout, "needs_broker_stopped\n")
+        self.assertEqual(result.stderr, "")
+        result = self.run_shell(fixture + '''
+system_broker_available() { return 1; }
+system_broker_stopped() { return 0; }
+no_broker_socket() { return 0; }
+no_managed_tun() { return 1; }
+setup_status
+''')
+        self.assertEqual(result.stdout, "needs_broker\n")
+        self.assertEqual(result.stderr, "")
 
     def test_component_inventory_reports_only_fixed_presence(self):
         for state in ("ready", "needs_package", "needs_activation", "needs_companion",

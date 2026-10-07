@@ -1135,6 +1135,9 @@ one in readiness fixtures or silently expand the public protocol to fit a client
 An actual native-dispatch regression retains that wire shape. Independently authorized
 concurrent actions/manual offline writes are not an atomic no-connect guarantee;
 a post-start observation is not rollback or proof that no such action occurred.
+The frontend keeps the existing stopped-broker setup path ahead of application
+start when both are stopped. It must not make that stricter repair action
+unreachable by starting the user service first; no broker guard is relaxed.
 
 ### Full Quit ordering and failure boundary
 
