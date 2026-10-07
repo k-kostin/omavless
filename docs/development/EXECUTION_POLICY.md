@@ -264,3 +264,14 @@ an otherwise valid VM run. Diagnose harness failure separately from product
 failure, preserve the failed scope, and verify the narrow successor before
 selecting a fresh scope. Do not continue past an unresolved observation merely
 because the underlying command returned success.
+
+Define a negative fixture's trigger at the product's actual observation boundary.
+For example, TCP EOF in one direction does not prove that a bidirectional relay
+has left its connection catalogue. Close only the fixture-owned endpoint's
+required direction, retain its original identity, and earn bounded catalogue
+absence through the ordinary data API before selecting the negative operation.
+That observation is not a new effect permission: retain the original preview and
+let the product's fresh conditional check decide the result. Keep a previous
+legitimate success distinct from the intended refusal scenario; fix the fixture,
+not the product's safety deadline or authorization boundary, when the trigger was
+incomplete.
