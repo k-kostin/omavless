@@ -151,16 +151,20 @@ setup_status() {
           || { printf 'needs_attention\n'; return; }
         if jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == true' \
           >/dev/null 2>&1 <<< "$selected"; then
-          if user_runtime_stopped; then
+          # Preserve the existing stopped-broker repair path. Starting the
+          # user runtime first would make that stricter path unavailable.
+          if ! system_broker_available; then
+            if user_runtime_stopped && no_managed_tun && system_broker_stopped && no_broker_socket; then
+              printf 'needs_broker_stopped\n'
+            else printf 'needs_broker\n'; fi
+          elif user_runtime_stopped; then
             if runtime_start_available; then
               printf 'needs_runtime_start\n'; return
             fi
             printf 'needs_attention\n'; return
+          else
+            printf 'ready\n'
           fi
-          if system_broker_available; then printf 'ready\n'
-          elif user_runtime_stopped && no_managed_tun && system_broker_stopped && no_broker_socket; then
-            printf 'needs_broker_stopped\n'
-          else printf 'needs_broker\n'; fi
         elif jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
           >/dev/null 2>&1 <<< "$selected"; then
           if ! system_broker_available; then printf 'needs_broker\n'
@@ -355,6 +359,16 @@ prepare_application() {
   enable_runtime || return 1
 }
 
+setup_completion() {
+  local completed
+  completed=$(setup_status) || return 1
+  case "$completed" in
+    ready) say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».' ;;
+    needs_runtime_start) say 'Components are prepared. Return to the plugin and start OmaVLESS; no VPN connection was started.' 'Компоненты готовы. Вернитесь в плагин и запустите OmaVLESS; VPN не подключался.' ;;
+    *) return 1 ;;
+  esac
+}
+
 setup_main() {
   [[ $# -ge 1 && $# -le 2 ]] || return 2
   case "${2:-en}" in en|ru) setup_locale=${2:-en} ;; *) return 2 ;; esac
@@ -441,8 +455,7 @@ setup_main() {
       fi
       prepare_application || exit 1
     fi
-    [[ $(setup_status) == ready ]] || exit 1
-    say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».'
+    setup_completion || exit 1
     say 'After connecting, omavless runtime test checks HTTPS on the current route. It is not a VPN leak test.' \
         'После подключения omavless runtime test проверяет HTTPS на текущем маршруте. Это не проверка утечки VPN.'
   ) || {

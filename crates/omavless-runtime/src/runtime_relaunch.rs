@@ -230,7 +230,8 @@ impl Host for Installed {
             // executable, not merely another same-user socket responder.
             if let Some(hello) = ready_reply(&paths, "system.hello", end)
                 && let Some(status) = ready_reply(&paths, "status.get", end)
-                && ready_pair(&hello, &status)
+                && let Some(after) = ready_reply(&paths, "system.hello", end)
+                && ready_triplet(&hello, &status, &after)
             {
                 return Ok(());
             }
@@ -240,8 +241,9 @@ impl Host for Installed {
     }
 }
 use std::os::unix::fs::OpenOptionsExt;
-fn ready_reply(paths: &RuntimePaths, method: &str, end: Instant) -> Option<serde_json::Value> {
-    let stream = ready_peer(paths, end)?;
+type ReadyReply = (serde_json::Value, i32);
+fn ready_reply(paths: &RuntimePaths, method: &str, end: Instant) -> Option<ReadyReply> {
+    let (stream, pid) = ready_peer(paths, end)?;
     let remaining = end.checked_duration_since(Instant::now())?;
     if remaining.is_zero() {
         return None;
@@ -258,17 +260,30 @@ fn ready_reply(paths: &RuntimePaths, method: &str, end: Instant) -> Option<serde
         remaining,
     )
     .ok()
+    .map(|reply| (reply, pid))
 }
-fn ready_pair(hello: &serde_json::Value, status: &serde_json::Value) -> bool {
+pub(crate) fn ready_triplet(hello: &ReadyReply, status: &ReadyReply, after: &ReadyReply) -> bool {
+    if hello.1 <= 0 || hello.1 != status.1 || status.1 != after.1 {
+        return false;
+    }
+    let (hello, status, after) = (&hello.0, &status.0, &after.0);
     let instance = hello["result"]["instanceId"].as_str();
     hello["ok"] == true
         && hello["result"]["runtimeOwnership"] == true
         && instance.is_some_and(|value| !value.is_empty())
+        && after["ok"] == true
+        && after["result"]["runtimeOwnership"] == true
+        && after["result"]["instanceId"].as_str() == instance
+        && hello["revision"].as_u64().is_some()
+        && hello["revision"] == status["revision"]
+        && status["revision"] == after["revision"]
         && status["ok"] == true
-        && status["result"]["instanceId"].as_str() == instance
         && status["result"]["runtimeOwnership"] == true
         && status["result"]["desired"] == "disconnected"
         && status["result"]["actual"] == "disconnected"
+        && status["result"]
+            .as_object()
+            .is_some_and(|value| value.contains_key("transition"))
         && status["result"]["transition"].is_null()
 }
 fn connect_ready(path: &std::path::Path) -> Option<std::os::unix::net::UnixStream> {
@@ -288,7 +303,7 @@ fn connect_ready(path: &std::path::Path) -> Option<std::os::unix::net::UnixStrea
     stream.set_nonblocking(false).ok()?;
     Some(stream)
 }
-fn ready_peer(paths: &RuntimePaths, end: Instant) -> Option<std::os::unix::net::UnixStream> {
+fn ready_peer(paths: &RuntimePaths, end: Instant) -> Option<(std::os::unix::net::UnixStream, i32)> {
     use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
     if Instant::now() >= end {
         return None;
@@ -344,7 +359,8 @@ fn ready_peer(paths: &RuntimePaths, end: Instant) -> Option<std::os::unix::net::
     ) else {
         return None;
     };
-    (running.dev() == current.dev() && running.ino() == current.ino()).then_some(stream)
+    (running.dev() == current.dev() && running.ino() == current.ino())
+        .then_some((stream, peer.pid()))
 }
 pub fn can_start() -> bool {
     Installed { apply: false }.admit().is_ok()
@@ -357,13 +373,27 @@ pub fn start() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn ready_replies_require_same_nonempty_instance_and_owned_off() {
-        let hello = serde_json::json!({"ok":true,"result":{"instanceId":"test-owner", "runtimeOwnership":true}});
-        let status = serde_json::json!({"ok":true,"result":{"instanceId":"test-owner", "runtimeOwnership":true,
+    fn ready_replies_require_same_peer_nonempty_hello_instance_revision_and_owned_off() {
+        let hello = serde_json::json!({"ok":true,"revision":0,"result":{"instanceId":"test-owner", "runtimeOwnership":true}});
+        // The real status.get schema deliberately does not include instanceId.
+        let status = serde_json::json!({"ok":true,"revision":0,"result":{"runtimeOwnership":true,
             "desired":"disconnected", "actual":"disconnected", "transition":null}});
-        assert!(ready_pair(&hello, &status));
+        let pair = |h: &serde_json::Value, s: &serde_json::Value, a: &serde_json::Value| {
+            ready_triplet(&(h.clone(), 123), &(s.clone(), 123), &(a.clone(), 123))
+        };
+        assert!(pair(&hello, &status, &hello));
+        let mut successor = hello.clone();
+        successor["result"]["instanceId"] = "successor".into();
+        assert!(!pair(&hello, &status, &successor));
+        assert!(!ready_triplet(
+            &(hello.clone(), 123),
+            &(status.clone(), 456),
+            &(hello.clone(), 123)
+        ));
+        let mut revised = status.clone();
+        revised["revision"] = 1.into();
+        assert!(!pair(&hello, &revised, &hello));
         for (key, value) in [
-            ("instanceId", serde_json::json!("successor")),
             ("runtimeOwnership", serde_json::json!(false)),
             ("desired", serde_json::json!("connected")),
             ("actual", serde_json::json!("unknown")),
@@ -371,14 +401,14 @@ mod tests {
         ] {
             let mut altered = status.clone();
             altered["result"][key] = value;
-            assert!(!ready_pair(&hello, &altered));
+            assert!(!pair(&hello, &altered, &hello));
         }
         for empty in [serde_json::Value::Null, serde_json::json!("")] {
             let mut h = hello.clone();
             let mut s = status.clone();
             h["result"]["instanceId"] = empty.clone();
             s["result"]["instanceId"] = empty;
-            assert!(!ready_pair(&h, &s));
+            assert!(!pair(&h, &s, &h));
         }
     }
     #[test]

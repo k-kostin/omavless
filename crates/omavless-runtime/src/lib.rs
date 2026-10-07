@@ -4565,6 +4565,36 @@ mod tests {
     }
 
     #[test]
+    fn relaunch_readiness_uses_real_native_dispatch_schema_not_invented_status_identity() {
+        let base = temporary_base("relaunch-real-schema");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let server = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        let hello = || {
+            server
+                .dispatch(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap())
+                .unwrap()
+        };
+        let before = hello();
+        let status = server
+            .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+            .unwrap();
+        let after = hello();
+        assert!(status["result"]["instanceId"].is_null());
+        let pid = i32::try_from(std::process::id()).unwrap();
+        assert!(crate::runtime_relaunch::ready_triplet(
+            &(before, pid),
+            &(status, pid),
+            &(after, pid)
+        ));
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn full_quit_connected_socket_exits_successfully_and_releases_owner_without_external_signal() {
         let base = temporary_base("full-quit-socket");
         let (mut owner, _, _) = native_owner_fixture(&base);
