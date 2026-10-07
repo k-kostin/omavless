@@ -14,7 +14,7 @@ use nix::sys::socket::{
 use nix::sys::stat::{FchmodatFlags, Mode, fchmod, fchmodat, mkdirat};
 use nix::unistd::{Gid, fchown, fchownat};
 use std::fs::File;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixListener;
 use std::path::Path;
@@ -93,10 +93,17 @@ fn bind_private(path: &Path) -> Result<UnixListener> {
         None,
     )
     .map_err(|_| PublishError::Ambiguous)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let fd = std::mem::ManuallyDrop::new(fd);
     let address = UnixAddr::new(path).map_err(|_| PublishError::Ambiguous)?;
     bind(fd.as_raw_fd(), &address).map_err(|_| PublishError::Ambiguous)?;
-    listen(&fd, Backlog::new(8).map_err(|_| PublishError::Ambiguous)?)
-        .map_err(|_| PublishError::Ambiguous)?;
+    listen(
+        &fd.as_fd(),
+        Backlog::new(8).map_err(|_| PublishError::Ambiguous)?,
+    )
+    .map_err(|_| PublishError::Ambiguous)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let fd = std::mem::ManuallyDrop::into_inner(fd);
     Ok(UnixListener::from(fd))
 }
 
@@ -195,6 +202,8 @@ fn publish_under_mode(
     before_publish: impl FnOnce() -> bool,
     manager_created: bool,
 ) -> Result<AdmittedListener> {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let parent = std::mem::ManuallyDrop::new(parent);
     parent_is_safe(&parent, owner)?;
     if path.file_name().and_then(|name| name.to_str()) != Some(LEAF)
         || path
@@ -218,7 +227,7 @@ fn publish_under_mode(
     same_entry(&parent, &named_parent)?;
 
     if !manager_created {
-        match mkdirat(&parent, DIR, Mode::from_bits_truncate(0o700)) {
+        match mkdirat(parent.as_fd(), DIR, Mode::from_bits_truncate(0o700)) {
             Ok(()) => (),
             Err(Errno::EEXIST) => return Err(PublishError::UnsafeOrExisting),
             Err(_) => return Err(PublishError::Ambiguous),
@@ -227,8 +236,11 @@ fn publish_under_mode(
     // From here an uncertain failure retains private artifacts for explicit
     // recovery. Unlinking could erase a replacement created by another owner.
     let directory = File::from(
-        openat(&parent, DIR, DIRECTORY, Mode::empty()).map_err(|_| PublishError::Ambiguous)?,
+        openat(parent.as_fd(), DIR, DIRECTORY, Mode::empty())
+            .map_err(|_| PublishError::Ambiguous)?,
     );
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let directory = std::mem::ManuallyDrop::new(directory);
     private_directory(&directory, owner)?;
     if manager_created {
         // Exact trusted installed invocation is checked by the service before
@@ -241,7 +253,11 @@ fn publish_under_mode(
         }
     }
     let listener = bind_private(path)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let listener = std::mem::ManuallyDrop::new(listener);
     let entry = socket_entry(&directory, owner.0)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let entry = std::mem::ManuallyDrop::new(entry);
     still_named(&parent, &directory, &entry, owner.0)?;
     private_directory(&directory, owner)?;
     if !before_access() {
@@ -251,7 +267,7 @@ fn publish_under_mode(
     // Prepare the socket while the directory is inaccessible to its group.
     still_named(&parent, &directory, &entry, owner.0)?;
     fchownat(
-        &directory,
+        directory.as_fd(),
         LEAF,
         None,
         Some(Gid::from_raw(group)),
@@ -260,7 +276,7 @@ fn publish_under_mode(
     .map_err(|_| PublishError::Ambiguous)?;
     still_named(&parent, &directory, &entry, owner.0)?;
     fchmodat(
-        &directory,
+        directory.as_fd(),
         LEAF,
         Mode::from_bits_truncate(0o660),
         FchmodatFlags::NoFollowSymlink,
@@ -273,19 +289,41 @@ fn publish_under_mode(
         return Err(PublishError::Ambiguous);
     }
     still_named(&parent, &directory, &entry, owner.0)?;
-    fchown(&directory, None, Some(Gid::from_raw(group))).map_err(|_| PublishError::Ambiguous)?;
+    fchown(directory.as_fd(), None, Some(Gid::from_raw(group)))
+        .map_err(|_| PublishError::Ambiguous)?;
     let meta = directory.metadata().map_err(|_| PublishError::Ambiguous)?;
     if (meta.uid(), meta.gid()) != (owner.0, group) || meta.mode() & 0o7777 != 0o700 {
         return Err(PublishError::Ambiguous);
     }
     let admission_directory = directory.try_clone().map_err(|_| PublishError::Ambiguous)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let admission_directory = std::mem::ManuallyDrop::new(admission_directory);
     let admission_entry = entry.try_clone().map_err(|_| PublishError::Ambiguous)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let admission_entry = std::mem::ManuallyDrop::new(admission_entry);
     if !before_publish() {
         return Err(PublishError::Ambiguous);
     }
     // Last step opens group traversal. A failed final admission attempts to
     // close the *pinned original* again, never a freshly resolved pathname.
-    fchmod(&directory, Mode::from_bits_truncate(0o750)).map_err(|_| PublishError::Ambiguous)?;
+    fchmod(directory.as_fd(), Mode::from_bits_truncate(0o750))
+        .map_err(|_| PublishError::Ambiguous)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    {
+        // All reported prefix descriptors survive final admission refusal.
+        // No uncertain unlink or chmod-back masks the actual publication.
+        let admitted = AdmittedListener::open_published_pinned_retaining(
+            std::mem::ManuallyDrop::into_inner(listener),
+            std::mem::ManuallyDrop::into_inner(parent),
+            std::mem::ManuallyDrop::into_inner(admission_directory),
+            std::mem::ManuallyDrop::into_inner(admission_entry),
+            path,
+            owner,
+            group,
+        );
+        admitted.map_err(|_| PublishError::Ambiguous)
+    }
+    #[cfg(not(feature = "netguard-cold-bootstrap"))]
     let admitted = AdmittedListener::open_published_pinned(
         listener,
         parent,
@@ -295,6 +333,7 @@ fn publish_under_mode(
         owner,
         group,
     );
+    #[cfg(not(feature = "netguard-cold-bootstrap"))]
     admitted.map_err(|_| {
         let _ = fchmod(&directory, Mode::from_bits_truncate(0o700));
         PublishError::Ambiguous

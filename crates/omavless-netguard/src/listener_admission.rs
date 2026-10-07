@@ -7,6 +7,7 @@
 use nix::fcntl::{OFlag, openat};
 use nix::sys::stat::Mode;
 use std::fs::File;
+use std::os::fd::AsFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixListener;
 use std::path::Path;
@@ -28,6 +29,21 @@ pub(crate) enum ListenerError {
 
 const REFUSE: ListenerError = ListenerError::UnsafeOrUnavailable;
 type Result<T> = std::result::Result<T, ListenerError>;
+
+#[cfg(feature = "netguard-cold-bootstrap")]
+type Retained<T> = std::mem::ManuallyDrop<T>;
+#[cfg(not(feature = "netguard-cold-bootstrap"))]
+type Retained<T> = T;
+fn retain<T>(value: T) -> Retained<T> {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    {
+        std::mem::ManuallyDrop::new(value)
+    }
+    #[cfg(not(feature = "netguard-cold-bootstrap"))]
+    {
+        value
+    }
+}
 
 fn ancestor(file: &File, owner: (u32, u32)) -> Result<()> {
     let meta = file.metadata().map_err(|_| REFUSE)?;
@@ -75,16 +91,48 @@ fn same(a: &File, b: &File) -> Result<()> {
 /// group's numeric GID; group-name resolution is a later gate. Replacement of
 /// the observed entry never becomes a new authority for this instance.
 pub(crate) struct AdmittedListener {
-    listener: UnixListener,
-    parent: Option<File>,
-    directory: Option<File>,
-    leaf: Option<File>,
+    listener: Retained<UnixListener>,
+    parent: Option<Retained<File>>,
+    directory: Option<Retained<File>>,
+    leaf: Option<Retained<File>>,
     parent_owner: (u32, u32),
     owner_uid: u32,
     group: u32,
 }
 
 impl AdmittedListener {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn open_published_pinned_retaining(
+        listener: UnixListener,
+        parent: File,
+        directory: File,
+        leaf: File,
+        expected_path: &Path,
+        owner: (u32, u32),
+        group: u32,
+    ) -> Result<Self> {
+        let admitted = std::mem::ManuallyDrop::new(Self {
+            listener: retain(listener),
+            parent: Some(retain(parent)),
+            directory: Some(retain(directory)),
+            leaf: Some(retain(leaf)),
+            parent_owner: owner,
+            owner_uid: owner.0,
+            group,
+        });
+        ancestor(admitted.parent.as_ref().ok_or(REFUSE)?, owner)?;
+        if admitted
+            .listener
+            .local_addr()
+            .map_err(|_| REFUSE)?
+            .as_pathname()
+            != Some(expected_path)
+        {
+            return Err(REFUSE);
+        }
+        admitted.validate()?;
+        Ok(std::mem::ManuallyDrop::into_inner(admitted))
+    }
     /// Accept only the descriptors pinned by the private-bind publisher.
     /// Reopening the path here would allow an already replaced socket and
     /// directory to be treated as the publisher's own entry.
@@ -102,10 +150,10 @@ impl AdmittedListener {
             return Err(REFUSE);
         }
         let admitted = Self {
-            listener,
-            parent: Some(parent),
-            directory: Some(directory),
-            leaf: Some(leaf),
+            listener: retain(listener),
+            parent: Some(retain(parent)),
+            directory: Some(retain(directory)),
+            leaf: Some(retain(leaf)),
             parent_owner: owner,
             owner_uid: owner.0,
             group,
@@ -143,10 +191,10 @@ impl AdmittedListener {
             File::from(openat(&directory, LEAF, SOCKET_PATH, Mode::empty()).map_err(|_| REFUSE)?);
         check_socket_path(&leaf, parent_owner.0, group)?;
         let admitted = Self {
-            listener,
-            parent: Some(parent),
-            directory: Some(directory),
-            leaf: Some(leaf),
+            listener: retain(listener),
+            parent: Some(retain(parent)),
+            directory: Some(retain(directory)),
+            leaf: Some(retain(leaf)),
             parent_owner,
             owner_uid: parent_owner.0,
             group,
@@ -166,11 +214,12 @@ impl AdmittedListener {
         check_directory(directory_fd, self.owner_uid, self.group)?;
         check_socket_path(leaf_fd, self.owner_uid, self.group)?;
         let current_directory =
-            File::from(openat(parent, DIR, DIRECTORY, Mode::empty()).map_err(|_| REFUSE)?);
+            File::from(openat(parent.as_fd(), DIR, DIRECTORY, Mode::empty()).map_err(|_| REFUSE)?);
         check_directory(&current_directory, self.owner_uid, self.group)?;
         same(directory_fd, &current_directory)?;
-        let current_leaf =
-            File::from(openat(directory_fd, LEAF, SOCKET_PATH, Mode::empty()).map_err(|_| REFUSE)?);
+        let current_leaf = File::from(
+            openat(directory_fd.as_fd(), LEAF, SOCKET_PATH, Mode::empty()).map_err(|_| REFUSE)?,
+        );
         check_socket_path(&current_leaf, self.owner_uid, self.group)?;
         same(leaf_fd, &current_leaf)
     }
@@ -182,7 +231,7 @@ impl AdmittedListener {
     #[cfg(test)]
     pub(crate) fn unchecked_for_test(listener: UnixListener) -> Self {
         Self {
-            listener,
+            listener: retain(listener),
             parent: None,
             directory: None,
             leaf: None,

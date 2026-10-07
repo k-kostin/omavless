@@ -137,6 +137,122 @@ impl<C: CanonicalCreator> EffectPort for BoundEffects<C> {
     }
 }
 
+#[cfg(feature = "netguard-cold-bootstrap")]
+impl<C: CanonicalCreator> crate::locked_state::ColdBootPort for BoundEffects<C> {
+    fn begin_cold_create(&mut self) -> Result<(), EffectError> {
+        self.check(Boundary::Admission)?;
+        self.sealed = true;
+        self.creator.begin_cold_create()?;
+        self.sealed = false;
+        Ok(())
+    }
+    fn cold_fence(&mut self) -> Result<(), EffectError> {
+        self.check(Boundary::Admission)
+    }
+}
+
+#[cfg(feature = "netguard-cold-bootstrap")]
+pub(crate) trait StartupReadyPort: EffectPort {
+    fn notify_ready(&mut self) -> Result<(), EffectError>;
+}
+#[cfg(feature = "netguard-cold-bootstrap")]
+impl<C: CanonicalCreator> StartupReadyPort for BoundEffects<C> {
+    fn notify_ready(&mut self) -> Result<(), EffectError> {
+        if self.sealed {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        self.sealed = true;
+        self.creator.notify_ready()?;
+        self.sealed = false;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "netguard-cold-bootstrap")]
+struct StartupParts<C: CanonicalCreator> {
+    state: LockedState,
+    bound: BoundEffects<C>,
+}
+
+/// Installed BEFORE any cold mutation. This exact lock/creator graph survives
+/// refusal, unwind or ordinary Drop. It is moved once, never reconstructed from
+/// a returned status, decoded receipt, namespace projection or creator handle.
+#[cfg(feature = "netguard-cold-bootstrap")]
+pub(crate) struct StartupAuthority<C: CanonicalCreator> {
+    held: ManuallyDrop<StartupParts<C>>,
+    prepared: bool,
+    attempted: bool,
+}
+#[cfg(feature = "netguard-cold-bootstrap")]
+impl<C: CanonicalCreator> StartupAuthority<C> {
+    pub(crate) fn new(state: LockedState, creator: AcquiredCreator<C>) -> Self {
+        Self {
+            held: ManuallyDrop::new(StartupParts {
+                state,
+                bound: BoundEffects::new(creator),
+            }),
+            prepared: false,
+            attempted: false,
+        }
+    }
+    pub(crate) fn prepare(&mut self) -> Result<(), EffectError> {
+        if self.attempted {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        self.attempted = true;
+        let StartupParts { state, bound } = &mut *self.held;
+        let namespace = bound.admit();
+        if bound.sealed || !matches!(namespace, NamespaceObservation::Canonical(_)) {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        let status = state
+            .prepare_cold_boot(namespace, bound)
+            .map_err(|_| EffectError::UnavailableOrUncertain)?;
+        if state
+            .request(crate::protocol::Request::Status {}, namespace, bound)
+            .map_err(|_| EffectError::UnavailableOrUncertain)?
+            != status
+        {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        // All final cold state/current-manager guards precede publication.
+        // This irreversible phase transfer does NOT send READY or allow accept.
+        bound.sealed = true;
+        bound.creator.consume_startup()?;
+        bound.sealed = false;
+        self.prepared = true;
+        Ok(())
+    }
+    pub(crate) fn into_session(
+        self,
+        listener: AdmittedListener,
+    ) -> std::io::Result<AuthoritySession<C>> {
+        // Retain both arguments BEFORE even a preparation refusal. Extracting
+        // the SAME graph into from_admitted_retaining has no fallible step; its
+        // first action installs the whole SessionOwner before listener setup.
+        let transfer = ManuallyDrop::new((self, listener));
+        if !transfer.0.prepared {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
+        let (startup, listener) = ManuallyDrop::into_inner(transfer);
+        let StartupParts { state, bound } = ManuallyDrop::into_inner(startup.held);
+        let owner = SessionOwner::from_admitted_retaining(listener, state, bound, |bound| {
+            bound.namespace()
+        })?;
+        Ok(AuthoritySession {
+            owner,
+            sealed: true,
+            boot_pending: true,
+        })
+    }
+    #[cfg(test)]
+    pub(crate) fn release_synthetic(self) {
+        let parts = ManuallyDrop::into_inner(self.held);
+        parts.bound.creator.release_synthetic();
+        drop(parts.state);
+    }
+}
+
 /// Holds one listener, one enrollment/store lock and the inseparable provider.
 /// There is deliberately no clean-shutdown/recovery API yet. Drop retains the
 /// whole owner for process lifetime, including after an unwind: it cannot
@@ -145,6 +261,8 @@ impl<C: CanonicalCreator> EffectPort for BoundEffects<C> {
 pub(crate) struct AuthoritySession<C: CanonicalCreator> {
     owner: ManuallyDrop<SessionOwner<BoundEffects<C>>>,
     sealed: bool,
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    boot_pending: bool,
 }
 
 impl<C: CanonicalCreator> AuthoritySession<C> {
@@ -163,6 +281,7 @@ impl<C: CanonicalCreator> AuthoritySession<C> {
         }
         progress
     }
+    #[cfg(any(not(feature = "netguard-cold-bootstrap"), test))]
     pub(crate) fn from_admitted(
         listener: AdmittedListener,
         state: LockedState,
@@ -173,8 +292,21 @@ impl<C: CanonicalCreator> AuthoritySession<C> {
             |owner| Self {
                 owner,
                 sealed: false,
+                #[cfg(feature = "netguard-cold-bootstrap")]
+                boot_pending: false,
             },
         )
+    }
+
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn publish_ready(&mut self) -> Result<(), EffectError> {
+        if !self.boot_pending || !self.sealed {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        self.boot_pending = false; // Any attempted delivery permanently consumes it.
+        self.owner.publish_startup_ready()?;
+        self.sealed = false;
+        Ok(())
     }
 
     pub(crate) fn poll_one(&mut self) -> SessionProgress {

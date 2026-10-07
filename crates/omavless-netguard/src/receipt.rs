@@ -73,6 +73,11 @@ impl Receipt {
         self.enrolled_uid
     }
 
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn epoch(self) -> HostEpoch {
+        self.epoch
+    }
+
     pub(crate) fn encode(self) -> Result<Vec<u8>, DecodeError> {
         let (phase, table_handle) = match self.state {
             ReceiptState::PendingCreate => ("pending_create", 0),

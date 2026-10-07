@@ -7,6 +7,13 @@ still-live original creator and cannot recover a cold orphan. The historical
 design below remains the owning provenance argument; product orphan
 adjudication/healthy recovery and actual crash packet evidence remain open.
 
+The default-off [cold-bootstrap successor](K1_COLD_BOOT_RECONCILIATION.md) is a
+distinct SOURCE experiment: different-boot Armed/terminal-Live plus complete
+current absence may earn a NEW exclusive FullVpn creator before READY and
+NetworkManager. It does not adopt or remove an old/present table, manufacture
+Closed, repair pending storage, reset high-water or change the default service
+classifier. Its installed reboot/ordering and physical gates are not accepted.
+
 Status: inactive design and synthetic counterexample tests, not accepted recovery
 policy or a root adapter. Follows [receipt storage](K1_RECEIPT_STORE.md). No
 production behavior, root command, service, nft operation, VM configuration or

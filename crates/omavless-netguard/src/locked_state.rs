@@ -18,6 +18,12 @@ use std::os::unix::net::UnixStream;
 
 const REFUSED: ErrorCode = ErrorCode::ManualRecoveryRequired;
 
+#[cfg(feature = "netguard-cold-bootstrap")]
+#[path = "locked_state_cold_boot.rs"]
+mod cold_boot;
+#[cfg(feature = "netguard-cold-bootstrap")]
+pub(crate) use cold_boot::ColdBootPort;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Point {
     BeforePending,
@@ -70,7 +76,10 @@ impl LockedState {
     /// Restart never imports Live/Pending ownership. Preserve all records and
     /// answer bounded errors, without querying a policy-shaped orphan. A
     /// retired fence may proceed to normal read-only absence/epoch checks.
-    #[cfg(feature = "netguard-service-core")]
+    #[cfg(all(
+        feature = "netguard-service-core",
+        any(not(feature = "netguard-cold-bootstrap"), test)
+    ))]
     pub(crate) fn seal_cold_state(&mut self) {
         let marker = self.receipts.root().and_then(|root| root.checked_marker());
         let receipt = self.receipts.read();
@@ -470,7 +479,10 @@ impl LockedState {
     }
 }
 
-#[cfg(feature = "netguard-service-core")]
+#[cfg(all(
+    feature = "netguard-service-core",
+    any(not(feature = "netguard-cold-bootstrap"), test)
+))]
 fn cold_state_may_inspect(marker: Option<Marker>, receipt: ReceiptRead) -> bool {
     matches!(
         (marker, receipt),
@@ -529,6 +541,11 @@ mod tests {
     }
     mod kernel_crash {
         include!("locked_state_kernel_crash.rs");
+    }
+
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    mod cold_boot_controls {
+        include!("locked_state_cold_boot_tests.rs");
     }
 
     mod exchange {

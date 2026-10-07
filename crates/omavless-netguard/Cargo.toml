@@ -17,6 +17,8 @@ serde_json = "1.0"
 [features]
 # Explicit private-fork adoption; not an upstream API release or default runtime.
 netguard-service-core = ["dep:nix-netguard", "dep:zbus", "nix/dir"]
+# Explicit early-boot experiment; never selected by the default service build.
+netguard-cold-bootstrap = ["netguard-service-core"]
 netguard-client-candidate = ["nix/poll"]
 netguard-client-diagnostics = ["netguard-client-candidate"]
 netguard-service-diagnostics = ["netguard-service-core"]

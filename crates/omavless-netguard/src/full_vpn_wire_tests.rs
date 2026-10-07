@@ -161,6 +161,33 @@ fn link_mask() -> Vec<u8> {
 }
 
 #[test]
+fn cold_full_policy_has_no_conntrack_established_or_ct_mark_grant() {
+    // The independent decoder rejects every unknown expression, including ct.
+    // META_MARK is the current skb mark, not a conntrack-mark/state load. With
+    // no core/TUN these fixed exceptions do not invent VPN connectivity; there
+    // is no blanket established-flow accept or conntrack-mark restoration.
+    let rules = decode(11, 71);
+    assert_eq!(rules.len(), 10);
+    assert_eq!(
+        rules[2],
+        vec![
+            Expr::Meta(3),
+            eq(&0x4f4d4101_u32.to_ne_bytes()),
+            Expr::Verdict(1)
+        ]
+    );
+    assert_eq!(rules[9], vec![Expr::Verdict(0)]);
+    assert_eq!(
+        rules
+            .iter()
+            .flatten()
+            .filter(|e| matches!(e, Expr::Meta(3)))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn independently_decodes_every_fixed_expression_and_protocol_dependency() {
     use Expr::*;
     let expected = vec![

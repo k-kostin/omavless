@@ -20,7 +20,13 @@ use std::time::Duration;
 use zbus::blocking::{Connection, connection::Builder};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
 
+#[cfg(not(feature = "netguard-cold-bootstrap"))]
 pub(crate) const SERVICE_UNIT: &[u8] = include_bytes!("../systemd/omavless-netguard.service");
+#[cfg(feature = "netguard-cold-bootstrap")]
+pub(crate) const SERVICE_UNIT: &[u8] = include_bytes!("../systemd/omavless-netguard-cold.service");
+#[cfg(feature = "netguard-cold-bootstrap")]
+#[path = "launch_cold_origin.rs"]
+mod cold;
 const FRAGMENT: &str = "/usr/lib/systemd/system/omavless-netguard.service";
 const UNIT_NAME: &str = "omavless-netguard.service";
 const MANAGER: &str = "org.freedesktop.systemd1";
@@ -178,6 +184,8 @@ struct InstalledOrigin {
     namespace_id: u64,
     package_group: PackageGroup,
     manager_namespaces: ManagerNamespaceAnchors,
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    cold: cold::ColdOrigin,
 }
 impl InstalledOrigin {
     fn call<T: serde::Serialize + Type, R: DeserializeOwned + Type>(
@@ -282,7 +290,10 @@ impl InstalledOrigin {
             unit.get::<Vec<u8>>("InvocationID")? == self.invocation,
         )?;
         let service = self.properties("org.freedesktop.systemd1.Service")?;
+        #[cfg(not(feature = "netguard-cold-bootstrap"))]
         service.text("Type", "exec")?;
+        #[cfg(feature = "netguard-cold-bootstrap")]
+        service.text("Type", "notify")?;
         service.text("User", "root")?;
         service.text("Group", "root")?;
         service.predicate(
@@ -394,6 +405,8 @@ impl InstalledOrigin {
         trace::emit(Phase::OriginalNamespaces, Event::Begin, None);
         self.manager_namespaces.recheck()?;
         trace::emit(Phase::OriginalNamespaces, Event::Pass, None);
+        #[cfg(feature = "netguard-cold-bootstrap")]
+        self.cold.recheck(self, &unit, &service)?;
         Ok(())
     }
 }
@@ -411,6 +424,33 @@ fn active_watchdog_disabled(service: &Properties) -> Result<bool> {
     Ok(service.get::<u64>("WatchdogUSec")? == 0)
 }
 impl OriginalVerifier for InstalledOrigin {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn begin_cold_create(&mut self, originals: LaunchBorrow<'_>) -> Result<()> {
+        require(self.cold.phase == cold::Phase::Inspect)?;
+        self.cold.phase = cold::Phase::Cold;
+        self.recheck(originals)
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn consume_startup(&mut self, originals: LaunchBorrow<'_>) -> Result<()> {
+        require(matches!(
+            self.cold.phase,
+            cold::Phase::Inspect | cold::Phase::Cold
+        ))?;
+        self.recheck(originals)?;
+        self.cold.phase = cold::Phase::Prepared;
+        Ok(())
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn notify_ready(&mut self, originals: LaunchBorrow<'_>) -> Result<()> {
+        require(self.cold.phase == cold::Phase::Prepared)?;
+        // Normal original guards, not re-admission of NM-inactive permission.
+        self.recheck(originals)?;
+        self.cold.phase = cold::Phase::Attempted;
+        self.cold.send_ready()?;
+        self.cold.phase = cold::Phase::Active;
+        // Positive READY cannot be retracted: no fallible post-send admission.
+        Ok(())
+    }
     fn recheck(&mut self, originals: LaunchBorrow<'_>) -> Result<()> {
         trace::step(Phase::EffectiveUnit, || self.recheck_installed())?;
         for fd in [originals.anchor, originals.thread_namespace] {
@@ -528,6 +568,8 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
     let fragment = root_file(FRAGMENT)?;
     let executable = root_file(EXECUTABLE)?;
     let package_group = PackageGroup::open_fixed().map_err(|_| REFUSE)?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let cold = cold::ColdOrigin::acquire(&bus, &owner)?;
     let verifier = InstalledOrigin {
         bus,
         manager_owner: owner,
@@ -540,6 +582,8 @@ pub(crate) fn acquire_fixed_service() -> Result<AcquiredCreator<LiveCreator>> {
         namespace_id: ns_id,
         package_group,
         manager_namespaces,
+        #[cfg(feature = "netguard-cold-bootstrap")]
+        cold,
     };
     trace::emit(Phase::OriginFiles, Event::Pass, None);
     trace::step(Phase::EffectiveUnit, || verifier.recheck_installed())?;

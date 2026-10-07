@@ -4,6 +4,11 @@ mod authority_composition_controls {
     use std::cell::RefCell;
     use std::rc::Rc;
 
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    mod startup_controls {
+        include!("locked_state_cold_authority_tests.rs");
+    }
+
     #[derive(Default)]
     struct Control {
         fail: Option<Boundary>,

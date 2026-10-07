@@ -29,6 +29,12 @@ ROOT alone selects VM installation/manager/effect scenarios after complete
 primary and independent boundary review. Ordinary source gates follow the
 [approved execution policy](EXECUTION_POLICY.md).
 
+The separate default-off [cold-bootstrap SOURCE successor](K1_COLD_BOOT_RECONCILIATION.md)
+adds only different-boot Armed/terminal-Live plus independently complete absence
+→ NEW causal FullVpn ownership before notify/NM startup. It does not alter the
+default exec unit, old cold classifier, same-epoch orphan refusal or historical
+developer-VM results below. Its exact installed/reboot ordering is unaccepted.
+
 ## Exact source and dependency boundary
 
 `omavless-netguard` has an explicitly selected `netguard-service-core` feature
