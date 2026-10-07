@@ -4,10 +4,14 @@ Beta.4 entry successor: the selected internal build includes the reviewed T4
 feature and ordinary `omavless tui` selects both private-pair adapters. The
 normal plugin Open app is the owner-facing entry; no developer argument is
 required. Explicit selector entries below retain their source/test history.
-Stable/default-feature builds remain unchanged. New ordinary-entry installed
-acceptance is pending and must include actual plugin launch, close and reopen.
+Stable/default-feature builds remain unchanged. The original beta.4 installed
+ordinary-entry/Completed Restore evidence is recorded in the
+[beta ledger](BETA_098.md#beta4-installed-ordinary-entry-and-restore-checkpoint).
+Later bounded ordinary-entry/relaunch checks and remaining gates belong to
+[internal RC1 #715](https://github.com/k-kostin/omavless/pull/715); they do not
+relabel that earlier Restore mutation or close whole T4 acceptance.
 
-Status: source-ready for the next explicit installed slot, not installed
+Historical source-transfer status: source-ready for the next explicit installed slot, not installed
 acceptance or default activation. This
 bounded cycle depends on Backup assembly #707 at
 `8de29a164e885f398dbb926c69fd377af4764869` and its exact opt-in API/Backup UI.
