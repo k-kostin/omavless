@@ -1,7 +1,7 @@
 # T3 product witness epochs
 
-Status: default-off candidate based on `5cfbf2fd`, with the exact617 scoped
-installed Product two-epoch VM checkpoint below. Public/default activation,
+Status: default-off candidate based on `5cfbf2fd`, with separate exact617 backend
+and exact B installed EN/RU Product VM checkpoints below. Public/default activation,
 reboot/upgrade/host-family closure are not implied. The existing
 [original-image contract](T3_IMAGE_WITNESS.md) and its exact installed-development
 checkpoint remain authoritative for the unchanged path. Earlier acceptance is
@@ -93,7 +93,9 @@ Every normal config/start/commit/stop/discard after first use permanently revoke
 this candidate factory; initial normal connection setup before first use remains
 available. This first cut supports explicit subsequent operations on the SAME
 original core incarnation after Closed or proven before-effect retirement, not
-reconnect/upgrade adoption. Actual sequential-session evidence is still pending.
+reconnect/upgrade adoption. At this first-cut source checkpoint, actual
+sequential-session evidence was pending; the later exact617 and B results below
+record their own tested boundaries.
 
 The following baseline paragraphs describe exact617's historical live-session
 retirement, not the current SOURCE A terminal-only path below. Its installed
@@ -188,7 +190,12 @@ Session through A before the owner publishes any rows. During human inspection
 the preview holds only bounded display, controller ID/generation-token data,
 same-core lifetime/binding and original image/package file identities. It holds
 no Session, channel/current-image FD, effect proof or worker; the normal owner
-still independently owns its core. None of these copied facts grants permission.
+still independently owns its core. Its shared `Arc<Lifetime>` is an original
+core identity gate whose type may hold a reservation/stream: positive original
+Finish and whole Session Drop clear the old reservation before publication.
+These preview facts do not grant acquisition or effect permission. A lost
+publication `try_lock` leaves the original slot sticky Busy and nonrenewable;
+it is not an explicit Refused receipt or permission to reconstruct the result.
 
 Prepare creates only an opaque modal ticket under the unchanged five-second
 confirmation lifetime. Confirm reserves the original non-evicting external
@@ -212,10 +219,11 @@ remain required. Only preview idle time has no mutation timer; modal five-second
 expiry, request budgets, Unknown's receipt-only behavior and the one-shot Closed
 window stay unchanged. English/Russian wording now describes explicit Product
 preview instead of falsely claiming that no qualified pair is adopted. Dynamic
-provider/endpoint/controller data is not translated. No rendered environment is
-available to this source author: actual EN/RU delayed-human, modal/cancel/close
-and constrained rendering checks remain ROOT-only and pending at an exact new
-installed image. Old617/GUI UNKNOWN and earlier positive receipts remain separate.
+provider/endpoint/controller data is not translated. At the SOURCE checkpoint,
+actual EN/RU delayed-human, modal/cancel/close and constrained rendering were
+ROOT-only and pending. The exact B installed checkpoint below now records the
+affected results and remaining gaps. Old617/GUI UNKNOWN and earlier positive
+receipts remain separate.
 
 Behavioral fixtures use the original owned subprocess/controller/coordinator
 with explicitly cfg(test) memory image/Finish callbacks. They do not establish
@@ -504,9 +512,111 @@ cold-boot activation, witness-context renewal or blanket default acceptance.
 No Product Session was created by that ordinary owner; a later explicitly
 selected Product owner is a new genuine operation after known ordinary stop.
 
-Next affected UI gate: actual installed617 semantic TUI EN/RU against the SAME
-genuine Product daemon, exact selected connection versus connected profile,
+At this exact617 checkpoint, the next affected UI gate was its semantic TUI
+EN/RU against the SAME genuine Product daemon, exact selected connection versus
+connected profile,
 Escape no effect, one confirmation/receipt-only resolution, next explicit window
 after known Closed, constrained rendering and normal UI exit without VPN change.
 Cold ordinary startup and root-attended image-upgrade/re-enrollment require
 their own actual boundaries; no repair or renewal of poisoned old epochs.
+
+## Exact B installed EN/RU Product checkpoint — 2026-10-07
+
+Tested application SOURCE is `0b55a1a6e2b2a93c8e4e72ef7fd6f10a93891df2`,
+not a later documentation head. The runtime was 8,805,616 bytes/SHA256
+`30d91c7a077c48dff6c242254c7b49103b6763628b488ccd836448d3d884cfdd`;
+the sealed normal inert package was 3,521,659 bytes/SHA256
+`2d242cdd4b2ae48140a8c61111089db300b262dc9006d3ba6e2ca1e2a79d2053`.
+All 24 archive members, exact schema4/source/runtime/helper identity and payload
+bytes/modes were inspected before installation. The unchanged helper remains
+604,760 bytes/SHA256
+`43294cedccd858ea68402a33c0295581a45bd3a3e29d922e5f4f0471168ea877`,
+with the exact43af TasksMax2 unit and COMPLETE three-patch LegacyMeta companion
+identities recorded above. No two-patch consent or K1 authority was promoted.
+
+ROOT alone operated the disposable x86_64 Omarchy VM, boot
+`b38bbb14-f405-4830-853e-c2b27dbba697`. Normal pacman installation returned
+original exit0 and exact root755/single-link runtime readback matched. The old whole
+Product enrollment directory was independently preserved through reviewed ADMIN
+atomic NOREPLACE rename, then genuine new Product image enrollment ran. This
+administrative preservation is not product recovery or old context completion.
+Standard HOME, genuine login/current manager/ownership and original PID/user/net
+views remained; only the public synthetic config was privately mounted over its
+retained real underlay. No record edit/copy, fake owner, alternate HOME or fixture
+effect permit supplied authority.
+
+SOURCE5 and its fixed binder carried the reviewed SOURCE4 graph with only the
+new runtime pin, fresh scope names and dependent source pins. Full normalized
+AST comparison, 13 UI controls and 6 inert binder controls passed before selection;
+ROOT reviewed the complete delta and the actually bound 12-member closure. The
+unchanged live print/sleep2 Foot preflight preceded Connect. Supervisor/daemon
+capture ceiling 262144 and Foot's finite 512MiB per-file ceiling remained distinct;
+neither UI waiting nor rendering increased Session3s/modal5s/request2s budgets.
+
+One original GUI5 run, 68504/result214560, returned exit0 with the exact
+`T3_PRODUCT_ORIGINAL_FOOT_TUI_DAEMON_AND_TARGET_RESULTS_VERIFIED` marker after
+all original-status and postcondition checks. It used one genuine Product daemon,
+original owned core, helper and broker with three synthetic echo streams A/B/C.
+ROOT inspected actual installed Foot/TUI rendering and verified focus before input.
+
+English preview remained usable after reading for more than 3 seconds. The actual
+row order was A/C/B; the selected target was B, not a presumed row index or the
+connected profile. An initial slow Escape after the unchanged 5s modal lifetime
+correctly expired without Confirm; it was not counted as a valid cancel. A new
+explicit refresh and valid x/Escape cancel retained B in the actionable preview
+without confirmation. One freshly prepared x/Enter confirmation submitted B once; Pending
+resolved to Closed only through explicit `u` reading its original receipt.
+Ordinary q exit proved original Foot/TUI WNOWAIT0 and reap0 before admitting the
+Russian window, with B EOF, A/C echo and unchanged desired On bytes.
+
+Russian selected C from the fresh A/C preview. Valid modal/Escape cancel preserved
+C, then one fresh x/Enter confirmation and original-receipt-only `u` resolved to
+Closed. The actual 620x360 Russian spent-window capture showed readable wrapped
+header and complete footer without overlap. English full-size rendering was
+inspected; constrained English and constrained actionable/modal states were not
+separately captured. Screenshots alone were not the close result.
+
+After ordinary Russian q exit, the whole original run proved C EOF/A echo,
+unchanged desired bytes during both closes, same core/helper/broker/package/
+login/namespace/config underlay/foreign nft state, all four FD samples within
+helper64/native256 envelopes and the declared terminal plateau. Normal native
+Disconnect then proved Off/no Meta and restored original mode; semantic runtime
+Quit completed the original daemon and flow with WNOWAIT0/reap0. Separate actual
+readback confirmed no Meta/omavless0, core or runtime control socket, and canonical
+runtime inactive/PID0/success0. Helper3058 and broker3061 remained active; their
+service activity is not a helper exit0 or copied native-drain attestation.
+
+After completion, separate ADMIN preservation of the successful scope returned
+original0 (archive94475/result687237). Exact unit readback before poweroff again
+showed helper3058/broker3061 active, canonical runtime inactive/status0 and no TUN.
+Separately selected normal guest poweroff36754/result4d91b8 returned exit0;
+the original QEMU13676/resultcd55b2 exited0 and original serial81111 reached EOF0.
+This records administrative evidence preservation and VM handoff, not product
+rollback, recovery or a new helper/native operation.
+
+This closes the scoped exact B installed Product EN/RU selective-close and normal
+cleanup gate. Old GUI1/GUI2/GUI3 failures remain NONPASS/UNKNOWN, including the old
+617 read-time expiry refusal and earlier Foot failures. No unchanged historical
+receipt, developer-class rendering or snapshot reset is reassigned to B. Private
+captures and chronology remain outside Git. Public/default activation, whole
+T3/C1, cold startup/reboot/upgrade, ARM64/NixOS, K1 and release/main/Marketplace
+acceptance do not follow from this result.
+
+### Remaining T3/C1 completion gates
+
+The [client evidence matrix](T3_DEVELOPER_CLOSE_CLIENT.md#evidence-matrix),
+[original-image matrix](T3_IMAGE_WITNESS.md) and
+[TUI operator contract](../roadmap/TUI_APP.md#12-operator-expansion) remain the
+owning scope. The next real checkpoints are:
+
+| Boundary | Remaining exact-candidate evidence |
+| --- | --- |
+| Product fault cuts | Wrong UID/parent, dead original child, retained source/runtime/core/package/enrollment drift, helper expiry/loss and late Finish/publication must refuse without renewal; earlier developer-class or memory controls do not prove B's real Product class. |
+| Real client ambiguity/concurrency | Lost UI response, sticky Unknown, actual owner/revision change, competing normal mutation/Disconnect and fresh-selected generation/tuple drift through the Product client; receipt-only resolution must not resend or retarget. |
+| Installed UI matrix | Constrained EN and actionable/modal constrained states; actual client-loss/signal/resize during pending/unresolved work. The RU spent-window resize above proves only that state. |
+| Default startup and lifetime | B's ordinary no-flag cold startup/no-advertise/no-route, reboot and root-attended image upgrade/re-enrollment, plus defined capacity exhaustion/restart behavior. A new administrative enrollment is not accepted product recovery or old-token revival. |
+| Distribution/host scope | Separately selected normal public registration, qualified pair/helper distribution and release/frontend installation; applicable ARM64 and NixOS package/service/generation gates remain unrun. Source/package CI cannot supply those installed results. |
+| Whole T3/C1 workspace | Complete the declared privacy-aware connection/process/chain and adjacent operator-view matrix against the shared runtime, including truncation/stale/unavailable/privacy and client concurrency. One selected-close slice does not close that broader ledger. |
+
+These are remaining obligations, not authorization to activate or publish them.
+Preserve accepted R6/read-only RC work; no unchanged migration gate is reopened.
