@@ -1,17 +1,23 @@
 # Current delivery status
 
-Updated 2026-10-02. This is the compact current-state entry point; the detailed
+Updated 2026-10-07. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.8 assembly:** `beta/0.9.8` starts from 0.9.7 source merge
-  `c4e800425243c1b02165f82153e4bf418fe465e6`. Version `0.9.8-beta.1`, empty
-  unpublished pins. The [selection](../development/BETA_098.md) reserves T4
-  review for the session's end; internal primitives are not a backup/restore
-  product. Installed checks are risk-based, not a repeat of every predecessor's
-  distribution gate. Main and Marketplace stay on stable 0.8.2.
+- **0.9.8 internal assembly:** [#702](https://github.com/k-kostin/omavless/pull/702)
+  continues existing beta from `a04dfde8` with exact #690 retained restore and
+  #694 opt-in selective-close checkpoints, version `0.9.8-beta.2`. Both pin maps
+  remain empty. The [selection](../development/BETA_098.md) records complete
+  source histories, merge safeguards, dormant dependencies and exclusions.
+  Ordinary runtime does not gain default Backup/Restore UI or close authority.
+  Both architecture app/DNS/frontend triples were assembled and inspected from
+  exact executable-source checkpoint `4594a487`; combined test outcomes belong
+  to #702, not to prior installed-head reports. VM master retains the separately
+  scheduled combined installed gate. Background subscriptions/resume #700,
+  product K1/S1/P4 and GUI are not selected. Main, frozen 0.9.7 RC and Marketplace
+  stay unchanged; internal beta is not a release or whole T3/T4 closure.
 
 - **0.9.7 maintenance RC source selected via #438:** selected 0.9.6 read-side
   scope plus #435's honest Connections loading state and a small Settings

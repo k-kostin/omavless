@@ -114,6 +114,15 @@ VM/resource/privileged tests remain ignored; there is no blanket ignored run.
 Source gate uses the separately reviewed HOME-backed offline fixture launcher.
 No installed GUI or live/network result is claimed for this combined candidate.
 Exact executed source, artifacts and actual outcomes belong to the assembly PR.
+The actual both-architecture app/DNS/frontend artifact checkpoint is
+`4594a48703a49b8c40e8f710e54ca230f707fd08`, before documentation-only status
+reconciliation. The strict pair inspector verifies exact app/core/broker ELF
+architecture, source receipts, package scripts/units, payload digests and empty
+bootstrap pins. Newer documentation/frontend pairing must independently prove
+the protected runtime-input tree unchanged; do not relabel package provenance.
+Full local offline source failure remains recorded: inherited HOME-direct tests
+cannot write in the read-only-HOME source launcher. The ordinary hosted source
+gate passed at the artifact checkpoint without weakening those tests/guards.
 
 Before experimental activation on the development VM, review exact rebuilt
 application/helper/DNS-pair identity and existing provisioning/admission paths.
