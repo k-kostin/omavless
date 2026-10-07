@@ -94,10 +94,12 @@ class Metadata(unittest.TestCase):
         self.assertIn('[dev-dependencies]\nzbus = "=5.19.0"', cargo)
         manifest = tomllib.loads(cargo)
         self.assertEqual(manifest['dependencies']['zbus'], {'version': '=5.19.0', 'optional': True})
-        # The separately contracted fixed client adds only opt-in nix/poll.
-        # Keep the complete map exact: no default service/client activation.
+        # Keep the complete map exact, including the separately contracted
+        # default-off cold bootstrap. No service/client is enabled by default.
+        self.assertNotIn('default', manifest['features'])
         self.assertEqual(manifest['features'], {
             'netguard-service-core': ['dep:nix-netguard', 'dep:zbus', 'nix/dir'],
+            'netguard-cold-bootstrap': ['netguard-service-core'],
             'netguard-client-candidate': ['nix/poll'],
             'netguard-client-diagnostics': ['netguard-client-candidate'],
             'netguard-service-diagnostics': ['netguard-service-core'],

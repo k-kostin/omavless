@@ -35,6 +35,19 @@ pub(crate) struct SessionOwner<K: EffectPort> {
 }
 
 impl<K: EffectPort> SessionOwner<K> {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn publish_startup_ready(&mut self) -> Result<(), crate::effect_port::EffectError>
+    where
+        K: crate::authority_composition::StartupReadyPort,
+    {
+        if self.authority_lost || self.listener_lost {
+            return Err(crate::effect_port::EffectError::UnavailableOrUncertain);
+        }
+        self.authority_lost = true;
+        self.kernel.notify_ready()?;
+        self.authority_lost = false;
+        Ok(())
+    }
     #[cfg(feature = "netguard-service-core")]
     pub(crate) fn recover_one(&mut self, stream: UnixStream) -> SessionProgress {
         use crate::protocol::Response;

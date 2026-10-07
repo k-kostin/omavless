@@ -139,6 +139,18 @@ The original #654 CI failure at 210fe14 was missing BASE in a shallow checkout:
 source controls now admit the current six unchanged originals by their SAME
 exact pins without fetching or skipping. Developer export still requires BASE.
 
+The later c4a8 cold-bootstrap implementation legitimately changes the current
+acquisition/authority graph; it is not a new input to this sealed exporter.
+Historical source-only controls now read `historical_inputs.json`: bounded
+compressed public source DATA from exact `358756d30ed408259deb96be53c8ec2c53c2d96e`.
+Its six Git-blob hashes are the already accepted service/diagnostic successors
+above; the unchanged strict projection verifies all resulting immutable e648
+BASE hashes. Whole catalogue/hash/size and bounded decompression reject malformed
+or changed inputs before any adaptation. Modern cold bytes still refuse; no
+runtime constructor, policy, executable, producer/selector pin or export BASE
+was changed. Shallow CI needs neither old Git history nor a current-source
+projection exception. This test-only DATA is never compiled or exported.
+
 Final scoped gates: external locked library/binary strict Clippy passed
 (`983187`); nine fixed protocol/return-retention/ELF controls passed (`ec9466`).
 Python 3.14 full source checks passed 696 tests with two opt-in skips, followed

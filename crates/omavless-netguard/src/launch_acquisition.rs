@@ -78,6 +78,19 @@ struct LaunchBorrow<'a> {
 /// check, root UID, PID 1, fixture or cached manager reply cannot implement it.
 trait OriginalVerifier {
     fn recheck(&mut self, originals: LaunchBorrow<'_>) -> Result<(), EffectError>;
+
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn begin_cold_create(&mut self, _originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        Err(EffectError::UnavailableOrUncertain)
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn consume_startup(&mut self, _originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        Err(EffectError::UnavailableOrUncertain)
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn notify_ready(&mut self, _originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        Err(EffectError::UnavailableOrUncertain)
+    }
 }
 
 struct Retained<C> {
@@ -96,6 +109,44 @@ pub(crate) struct AcquiredCreator<C: CanonicalCreator> {
 }
 
 impl<C: CanonicalCreator> AcquiredCreator<C> {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    fn startup_verifier(
+        &mut self,
+        operation: impl FnOnce(&mut dyn OriginalVerifier, LaunchBorrow<'_>) -> Result<(), EffectError>,
+    ) -> Result<(), EffectError> {
+        if self.sealed {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        self.sealed = true;
+        let originals = &mut self.retained.originals;
+        if thread::current().id() != originals.owner_thread {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        operation(
+            &mut *originals.verifier,
+            LaunchBorrow {
+                anchor: originals.anchor.as_fd(),
+                thread_namespace: originals.thread_namespace.as_fd(),
+                creator_socket: originals.creator_socket.as_fd(),
+                _same_thread: PhantomData,
+            },
+        )?;
+        // No fresh cold admission AFTER notification: READY cannot be unsent.
+        self.sealed = false;
+        Ok(())
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn begin_cold_create(&mut self) -> Result<(), EffectError> {
+        self.startup_verifier(|verifier, originals| verifier.begin_cold_create(originals))
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn consume_startup(&mut self) -> Result<(), EffectError> {
+        self.startup_verifier(|verifier, originals| verifier.consume_startup(originals))
+    }
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    pub(crate) fn notify_ready(&mut self) -> Result<(), EffectError> {
+        self.startup_verifier(|verifier, originals| verifier.notify_ready(originals))
+    }
     /// The original owners remain held throughout the callback, including any
     /// exchange/effect it performs. A panic leaves the latch set. The callback
     /// cannot extract a borrow or replace the held descriptors through this API.
@@ -180,6 +231,16 @@ impl<C: CanonicalCreator> AcquiredCreator<C> {
         Self::synthetic_controlled(creator, Rc::new(std::cell::Cell::new(false)))
     }
 
+    #[cfg(all(test, feature = "netguard-cold-bootstrap"))]
+    pub(crate) fn synthetic_startup(
+        creator: C,
+        control: Rc<std::cell::RefCell<SyntheticStartup>>,
+    ) -> Self {
+        let mut acquired = Self::synthetic(creator);
+        acquired.retained.originals.verifier = Box::new(SyntheticStartupVerifier(control));
+        acquired
+    }
+
     #[cfg(test)]
     pub(crate) fn synthetic_controlled(creator: C, lost: Rc<std::cell::Cell<bool>>) -> Self {
         let anchor = File::open("/dev/null").unwrap();
@@ -209,6 +270,75 @@ impl<C: CanonicalCreator> AcquiredCreator<C> {
 
 #[cfg(test)]
 struct SyntheticVerifier(Rc<std::cell::Cell<bool>>);
+
+#[cfg(all(test, feature = "netguard-cold-bootstrap"))]
+#[derive(Default)]
+pub(crate) struct SyntheticStartup {
+    pub lost: bool,
+    pub early_lost: bool,
+    pub cold: bool,
+    pub consumed: bool,
+    pub ready: bool,
+    pub begins: usize,
+    pub consumes: usize,
+    pub notifications: usize,
+    pub fail_notify: bool,
+    pub panic_consume: bool,
+}
+#[cfg(all(test, feature = "netguard-cold-bootstrap"))]
+struct SyntheticStartupVerifier(Rc<std::cell::RefCell<SyntheticStartup>>);
+#[cfg(all(test, feature = "netguard-cold-bootstrap"))]
+impl OriginalVerifier for SyntheticStartupVerifier {
+    fn recheck(&mut self, originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        let _ = (
+            originals.anchor,
+            originals.thread_namespace,
+            originals.creator_socket,
+        );
+        let control = self.0.borrow();
+        if control.lost || control.cold && control.early_lost {
+            Err(EffectError::UnavailableOrUncertain)
+        } else {
+            Ok(())
+        }
+    }
+    fn begin_cold_create(&mut self, originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        self.0.borrow_mut().begins += 1;
+        if self.0.borrow().consumed {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        self.0.borrow_mut().cold = true;
+        self.recheck(originals)
+    }
+    fn consume_startup(&mut self, originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        self.0.borrow_mut().consumes += 1;
+        assert!(
+            !self.0.borrow().panic_consume,
+            "synthetic final startup panic"
+        );
+        self.recheck(originals)?;
+        let mut control = self.0.borrow_mut();
+        if control.consumed {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        control.cold = false;
+        control.consumed = true;
+        Ok(())
+    }
+    fn notify_ready(&mut self, originals: LaunchBorrow<'_>) -> Result<(), EffectError> {
+        self.recheck(originals)?;
+        let mut control = self.0.borrow_mut();
+        if !control.consumed || control.notifications != 0 {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        control.notifications += 1;
+        if control.fail_notify {
+            return Err(EffectError::UnavailableOrUncertain);
+        }
+        control.ready = true;
+        Ok(())
+    }
+}
 #[cfg(test)]
 impl OriginalVerifier for SyntheticVerifier {
     fn recheck(&mut self, originals: LaunchBorrow<'_>) -> Result<(), EffectError> {

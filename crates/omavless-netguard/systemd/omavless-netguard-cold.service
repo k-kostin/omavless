@@ -1,0 +1,40 @@
+[Unit]
+Description=OmaVLESS opt-in early-boot NetGuard new-owner service
+Before=NetworkManager.service network-pre.target
+Wants=network-pre.target
+Requires=systemd-modules-load.service
+After=systemd-modules-load.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=infinity
+ExecStart=/usr/lib/omavless/omavless-netguard serve
+StandardInput=file:/proc/1/ns/net
+OpenFile=/proc/1/ns/user:k1-manager-userns:read-only
+OpenFile=/proc/1/ns/mnt:k1-manager-mntns:read-only
+OpenFile=/proc/1/ns/pid:k1-manager-pidns:read-only
+StandardOutput=null
+StandardError=journal
+User=root
+Group=root
+SupplementaryGroups=omavless-netguard
+NoNewPrivileges=yes
+RestrictNamespaces=yes
+PrivateNetwork=no
+PrivateUsers=no
+PrivateMounts=no
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+RuntimeDirectory=omavless-netguard
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
+KillMode=control-group
+Delegate=no
+FileDescriptorStoreMax=0
+WatchdogSec=0
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

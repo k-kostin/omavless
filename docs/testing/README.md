@@ -20,6 +20,11 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [K1 opt-in cold60/61 bootstrap](K1_COLD_BOOT_VM_2026-10-07.md):
+  exact new-owner service/fixture source, normal Arm192 and preserved-image cold
+  boot to current Full(None)/Liveop2 before NM; retained failed59 and explicit
+  default/product/physical/SLEEP/connectivity/fault limits.
+
 - [K1 Native57 current-owner VM roundtrip](K1_NATIVE57_VM_2026-10-07.md):
   exact development source/ELF/BOOT, successful original census/packet proof;
   preserved Native55/56 NONPASS and open product/cold/physical-host gates.

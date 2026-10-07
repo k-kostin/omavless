@@ -2,6 +2,7 @@
 //! Opt-in developer service. No install/start/enrollment action is performed.
 //! Entry accepts only fixed serve/recover operations, never shell commands,
 //! arbitrary paths, caller namespaces, handles or serialized authority tokens.
+#[cfg(not(feature = "netguard-cold-bootstrap"))]
 use crate::authority_composition::AuthoritySession;
 use crate::launch_acquisition::acquire_fixed_service;
 use crate::listener_publisher_candidate::publish_fixed_managed;
@@ -20,7 +21,7 @@ use nix::unistd::geteuid;
 use std::fs::File;
 use std::io::{IsTerminal, Read, Write};
 use std::mem::ManuallyDrop;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
@@ -34,6 +35,20 @@ const SOCKET_ENTRY: OFlag = OFlag::O_PATH
     .union(OFlag::O_NOFOLLOW)
     .union(OFlag::O_CLOEXEC);
 type Result<T> = std::result::Result<T, ()>;
+#[cfg(feature = "netguard-cold-bootstrap")]
+type Retained<T> = ManuallyDrop<T>;
+#[cfg(not(feature = "netguard-cold-bootstrap"))]
+type Retained<T> = T;
+fn retain<T>(value: T) -> Retained<T> {
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    {
+        ManuallyDrop::new(value)
+    }
+    #[cfg(not(feature = "netguard-cold-bootstrap"))]
+    {
+        value
+    }
+}
 fn require(value: bool) -> Result<()> {
     if value { Ok(()) } else { Err(()) }
 }
@@ -59,29 +74,33 @@ fn private(file: &File, directory: bool) -> Result<()> {
 /// common parent remains traversable. No existing admin/socket is adopted or
 /// unlinked. Retained pinned entries are checked before and after each client.
 struct RecoveryListener {
-    listener: UnixListener,
-    run: File,
-    parent: File,
-    admin: File,
-    leaf: File,
-    group: PackageGroup,
+    listener: Retained<UnixListener>,
+    run: Retained<File>,
+    parent: Retained<File>,
+    admin: Retained<File>,
+    leaf: Retained<File>,
+    group: Retained<PackageGroup>,
 }
 impl RecoveryListener {
     fn publish() -> Result<Self> {
-        let group = PackageGroup::open_fixed().map_err(|_| ())?;
+        let group = retain(PackageGroup::open_fixed().map_err(|_| ())?);
         group.validate().map_err(|_| ())?;
-        let run = File::from(open("/run", DIRECTORY, Mode::empty()).map_err(|_| ())?);
+        let run = retain(File::from(
+            open("/run", DIRECTORY, Mode::empty()).map_err(|_| ())?,
+        ));
         let m = run.metadata().map_err(|_| ())?;
         require(m.is_dir() && (m.uid(), m.gid()) == (0, 0) && m.mode() & 0o022 == 0)?;
-        let parent = File::from(
-            openat(&run, "omavless-netguard", DIRECTORY, Mode::empty()).map_err(|_| ())?,
-        );
+        let parent = retain(File::from(
+            openat(run.as_fd(), "omavless-netguard", DIRECTORY, Mode::empty()).map_err(|_| ())?,
+        ));
         let m = parent.metadata().map_err(|_| ())?;
         require(
             m.is_dir() && (m.uid(), m.gid()) == (0, group.gid()) && m.mode() & 0o7777 == 0o750,
         )?;
-        mkdirat(&parent, "admin", Mode::from_bits_truncate(0o700)).map_err(|_| ())?;
-        let admin = File::from(openat(&parent, "admin", DIRECTORY, Mode::empty()).map_err(|_| ())?);
+        mkdirat(parent.as_fd(), "admin", Mode::from_bits_truncate(0o700)).map_err(|_| ())?;
+        let admin = retain(File::from(
+            openat(parent.as_fd(), "admin", DIRECTORY, Mode::empty()).map_err(|_| ())?,
+        ));
         private(&admin, true)?;
         let fd = socket(
             AddressFamily::Unix,
@@ -90,20 +109,24 @@ impl RecoveryListener {
             None,
         )
         .map_err(|_| ())?;
+        #[cfg(feature = "netguard-cold-bootstrap")]
+        let fd = ManuallyDrop::new(fd);
         bind(
             fd.as_raw_fd(),
             &UnixAddr::new(RECOVERY_PATH).map_err(|_| ())?,
         )
         .map_err(|_| ())?;
-        listen(&fd, Backlog::new(1).map_err(|_| ())?).map_err(|_| ())?;
-        let listener = UnixListener::from(fd);
-        let leaf = File::from(
-            openat(&admin, "recovery.sock", SOCKET_ENTRY, Mode::empty()).map_err(|_| ())?,
-        );
+        listen(&fd.as_fd(), Backlog::new(1).map_err(|_| ())?).map_err(|_| ())?;
+        #[cfg(feature = "netguard-cold-bootstrap")]
+        let fd = ManuallyDrop::into_inner(fd);
+        let listener = retain(UnixListener::from(fd));
+        let leaf = retain(File::from(
+            openat(admin.as_fd(), "recovery.sock", SOCKET_ENTRY, Mode::empty()).map_err(|_| ())?,
+        ));
         let m = leaf.metadata().map_err(|_| ())?;
         require(m.file_type().is_socket() && (m.uid(), m.gid()) == (0, 0) && m.nlink() == 1)?;
         fchmodat(
-            &admin,
+            admin.as_fd(),
             "recovery.sock",
             Mode::from_bits_truncate(0o600),
             FchmodatFlags::NoFollowSymlink,
@@ -129,7 +152,13 @@ impl RecoveryListener {
         let current_run = File::from(open("/run", DIRECTORY, Mode::empty()).map_err(|_| ())?);
         same(&self.run, &current_run)?;
         let parent = File::from(
-            openat(&self.run, "omavless-netguard", DIRECTORY, Mode::empty()).map_err(|_| ())?,
+            openat(
+                self.run.as_fd(),
+                "omavless-netguard",
+                DIRECTORY,
+                Mode::empty(),
+            )
+            .map_err(|_| ())?,
         );
         same(&self.parent, &parent)?;
         let m = self.parent.metadata().map_err(|_| ())?;
@@ -137,12 +166,19 @@ impl RecoveryListener {
             m.is_dir() && (m.uid(), m.gid()) == (0, self.group.gid()) && m.mode() & 0o7777 == 0o750,
         )?;
         private(&self.admin, true)?;
-        let admin =
-            File::from(openat(&self.parent, "admin", DIRECTORY, Mode::empty()).map_err(|_| ())?);
+        let admin = File::from(
+            openat(self.parent.as_fd(), "admin", DIRECTORY, Mode::empty()).map_err(|_| ())?,
+        );
         same(&self.admin, &admin)?;
         private(&self.leaf, false)?;
         let leaf = File::from(
-            openat(&self.admin, "recovery.sock", SOCKET_ENTRY, Mode::empty()).map_err(|_| ())?,
+            openat(
+                self.admin.as_fd(),
+                "recovery.sock",
+                SOCKET_ENTRY,
+                Mode::empty(),
+            )
+            .map_err(|_| ())?,
         );
         same(&self.leaf, &leaf)?;
         require(
@@ -193,21 +229,41 @@ fn progress_refusal(progress: SessionProgress) {
 
 fn serve() -> Result<()> {
     let creator = acquire_fixed_service().map_err(|_| ())?;
-    let mut state = ManuallyDrop::new(trace::step(Phase::StateOpen, || {
+    let state = trace::step(Phase::StateOpen, || {
         LockedState::open_fixed().map_err(|_| ())
-    })?);
+    })?;
+    #[cfg(not(feature = "netguard-cold-bootstrap"))]
+    let mut state = ManuallyDrop::new(state);
+    #[cfg(not(feature = "netguard-cold-bootstrap"))]
     state.seal_cold_state();
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let mut startup = crate::authority_composition::StartupAuthority::new(state, creator);
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    startup.prepare().map_err(|_| ())?;
     let listener = trace::step(Phase::ControlPublished, || {
         publish_fixed_managed().map_err(|_| ())
     })?;
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    let listener = ManuallyDrop::new(listener);
     let recovery = ManuallyDrop::new(trace::step(
         Phase::RecoveryPublished,
         RecoveryListener::publish,
     )?);
     let mut session = ManuallyDrop::new(trace::step(Phase::AuthorityAssembled, || {
-        AuthoritySession::from_admitted(listener, ManuallyDrop::into_inner(state), creator)
-            .map_err(|_| ())
+        #[cfg(not(feature = "netguard-cold-bootstrap"))]
+        {
+            AuthoritySession::from_admitted(listener, ManuallyDrop::into_inner(state), creator)
+                .map_err(|_| ())
+        }
+        #[cfg(feature = "netguard-cold-bootstrap")]
+        {
+            startup
+                .into_session(ManuallyDrop::into_inner(listener))
+                .map_err(|_| ())
+        }
     })?);
+    #[cfg(feature = "netguard-cold-bootstrap")]
+    session.publish_ready().map_err(|_| ())?;
     trace::finish();
     loop {
         service_cut!(RecoveryAccept);
