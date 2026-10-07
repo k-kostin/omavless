@@ -172,13 +172,15 @@ read files. Owner assessment/required OS authorization remain separate.
 
 1. **Prepare and prove re-entry first.** Inspect one exact compatible bundle,
    fresh boot/normal admission and owned Off. Launch through the reproducible
-   beta.4 entry; actual client must be `tui --developer-private-restore`, BOTH
-   preview/bound-Restore capabilities and visible Backup/Restore controls.
-   Close the TUI only and reopen through that SAME entry; confirm the same
-   variant/controls and unchanged runtime/Desired. Ordinary Open app or a
-   one-off terminal window does not establish this gate. Wrong selector stops
-   preparation, not a request for the owner to find the missing feature.
-2. **No-effect cases.** Use only synthetic current pair A and authenticated
+   **normal plugin Open app / `omavless tui`** in the internal-beta build with
+   compiled T4 support: BOTH preview/bound-Restore capabilities and visible
+   Backup/Restore controls, no hidden CLI selector. Close the TUI only and reopen
+   through that SAME normal entry; confirm the same variant/controls and unchanged
+   runtime/Desired. A one-off dev window or desktop acceptance launcher cannot
+   substitute for this product entry. Missing actions stop preparation, not a
+   request for the owner to find the hidden feature. This is the owner's new
+   beta criterion; the earlier explicitly selected #708 source remains historical.
+2. **No-effect cases.** Use only synthetic current pair A (startup disabled) and authenticated
    archive B. Capture A's pair/projection/revision/history/Desired/startup and
    unrelated service/network baseline. Wrong password sends Preview only and
    refuses; correct Preview shows archive counts/scope, then Cancel. Independently
@@ -193,7 +195,9 @@ read files. Owner assessment/required OS authorization remain separate.
    is required before claiming restart acceptance; it must not be replaced by
    closing a window or an old PID. EN/RU70x24 are the affected visual contrasts.
 
-The common prepare/reopen guard and runtime relaunch fix are owned by the
-neighboring assembly agent, not implemented by this source-transfer branch.
+The normal-beta adapter selection, common prepare/reopen guard and runtime
+relaunch fix are owned by the neighboring assembly agent, not implemented by
+this source-transfer branch. Stable builds without compiled T4 stay unchanged;
+ordinary beta access does not remove current-origin/Off/capability/UNKNOWN guards.
 Default/public activation, installed Restore, ARM and owner manual judgment
 remain separate gates. Do not include unfinished relaunch as a ready feature.
