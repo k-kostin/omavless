@@ -5,10 +5,12 @@ All notable changes to OmaVLESS are documented here.
 ## 0.9.8-beta.4 — internal Restore assembly in progress
 
 - Retain installed-checked beta.3 Backup and its repeatable VM-only entry.
-- Prepare the source-ready authenticated Restore client for combined integration
+- Integrate the source-ready authenticated Restore client for combined integration
   and installed acceptance; do not claim that pending gate passed.
 - Keep relaunch-after-disable work separate until its own executable checks pass.
 - No main/release/Marketplace promotion; experimental selectors stay explicit.
+- Expose selected internal-beta Backup/Restore through normal Open app/TUI,
+  without per-invocation flags; stable/default-feature release builds unchanged.
 
 ## 0.9.8-beta.3 — internal Backup client candidate
 

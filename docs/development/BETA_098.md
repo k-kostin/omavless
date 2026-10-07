@@ -18,17 +18,28 @@ evidence and the repeatable desktop-entry gate remain separately identified
 below. Current assembly writer owns `dev/098-beta4-assembly`; the VM master
 owns only the source-only Restore transfer branch until explicit VM handoff.
 
-Beta.4 selects authenticated Preview/Cancel/Restore from #708 at
+Beta.4 includes authenticated Preview/Cancel/Restore from #708 at
 `b33d2f5b783e308be0f74ad6e5531fe4c1573f3f`, after the transfer resolves the
 known conflict with #709's global Backup navigation and preserves both original
-unresolved-operation guards. That transfer and installed Restore are pending,
-not implied by this version bump. Relaunch after plugin disable/full shutdown
+unresolved-operation guards. Source transfer
+`ae973ab7c629f60f86b60417e78e2e37c72298e8` is now integrated; installed Restore
+remains pending, not implied by the version bump. Relaunch after plugin disable/full shutdown
 is an optional later included checkpoint only after implementation and its own
 no-autoconnect/current-login executable gate. K1, S1, P4, automatic background
 work and GUI remain excluded.
 
+Owner clarified that normal Open app must expose selected beta functionality,
+not require hidden per-invocation flags. The closed package build selector
+`packaging/release/client-features.sh` selects the reviewed T4 feature only for
+`0.9.8-beta.4`, not stable/RC/other beta versions. That selected build's ordinary
+`omavless tui` supplies both existing Backup and Restore adapters. Source-only
+helper flags remain compatibility/research entries, not the owner test path.
+The runtime still checks current owner/capability/Off/unknown predicates;
+client visibility is not operation authority. Stable builds without the feature
+remain unchanged. No K1/Product image-witness feature is selected.
+
 Agent-owned next gates: combined source/feature checks; matching experimental
-bundle inspection; explicit Restore-entry close/reopen; wrong-key no-effect;
+bundle inspection; normal plugin Open app close/reopen; wrong-key no-effect;
 authenticated preview and Cancel with unchanged state; one original successful
 Restore with independent pair/history/revision readback; normal restart after
 a known outcome. Unknown stops dependent mutations. Human review is optional

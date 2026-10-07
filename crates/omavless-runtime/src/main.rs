@@ -68,6 +68,29 @@ impl From<&str> for CliError {
     }
 }
 
+#[cfg(feature = "tui")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrivatePairTui {
+    Backup,
+    Restore,
+}
+
+#[cfg(feature = "tui")]
+fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePairTui> {
+    if !cfg!(feature = "t4-manager-actor-service") {
+        return None;
+    }
+    // The selected development build exposes its supported client features
+    // through ordinary Open app. Stable/default builds lack this feature.
+    if arguments == ["tui"] || arguments == ["tui", "--developer-private-restore"] {
+        return Some(PrivatePairTui::Restore);
+    }
+    if arguments == ["tui", "--developer-private-backup"] {
+        return Some(PrivatePairTui::Backup);
+    }
+    None
+}
+
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     #[cfg(feature = "t4-manager-actor-service")]
@@ -147,9 +170,7 @@ fn run() -> Result<(), CliError> {
         .map_err(CliError::Terminal);
     }
     #[cfg(all(feature = "tui", feature = "t4-manager-actor-service"))]
-    if arguments == ["tui", "--developer-private-backup"]
-        || arguments == ["tui", "--developer-private-restore"]
-    {
+    if let Some(selection) = private_pair_tui_entry(&arguments) {
         let uid = nix::unistd::Uid::current();
         if uid.is_root() || uid != nix::unistd::Uid::effective() {
             return Err("Private Backup/Restore requires an ordinary user".into());
@@ -158,7 +179,7 @@ fn run() -> Result<(), CliError> {
         let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let backup_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
-        if arguments == ["tui", "--developer-private-restore"] {
+        if selection == PrivatePairTui::Restore {
             let restore_paths =
                 RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
             return omavless_tui::run_full_private_restore(
@@ -203,7 +224,7 @@ fn run() -> Result<(), CliError> {
         .map_err(CliError::Terminal);
     }
     #[cfg(feature = "tui")]
-    if arguments == ["tui"] {
+    if arguments == ["tui"] && private_pair_tui_entry(&arguments).is_none() {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
@@ -767,6 +788,48 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn normal_tui_uses_the_selected_build_not_a_hidden_user_selector() {
+        let args = |parts: &[&str]| {
+            parts
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        };
+        #[cfg(feature = "t4-manager-actor-service")]
+        {
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui"])),
+                Some(PrivatePairTui::Restore)
+            );
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui", "--developer-private-backup"])),
+                Some(PrivatePairTui::Backup)
+            );
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui", "--developer-private-restore"])),
+                Some(PrivatePairTui::Restore)
+            );
+        }
+        #[cfg(not(feature = "t4-manager-actor-service"))]
+        for parts in [
+            &["tui"][..],
+            &["tui", "--developer-private-backup"],
+            &["tui", "--developer-private-restore"],
+        ] {
+            assert_eq!(private_pair_tui_entry(&args(parts)), None);
+        }
+        for parts in [
+            &["tui", "--available"][..],
+            &["tui", "--developer-private-restore", "extra"],
+            &["daemon"],
+            &["status"],
+        ] {
+            assert_eq!(private_pair_tui_entry(&args(parts)), None);
+        }
+    }
 
     #[test]
     fn semantic_lifecycle_transport_error_requires_status_reconciliation() {

@@ -1,5 +1,12 @@
 # Experimental preview-bound Restore through TUI
 
+Beta.4 entry successor: the selected internal build includes the reviewed T4
+feature and ordinary `omavless tui` selects both private-pair adapters. The
+normal plugin Open app is the owner-facing entry; no developer argument is
+required. Explicit selector entries below retain their source/test history.
+Stable/default-feature builds remain unchanged. New ordinary-entry installed
+acceptance is pending and must include actual plugin launch, close and reopen.
+
 Status: source-ready for the next explicit installed slot, not installed
 acceptance or default activation. This
 bounded cycle depends on Backup assembly #707 at

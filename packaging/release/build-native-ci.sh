@@ -20,17 +20,21 @@ product_version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.tom
 IFS=$'\t' read -r version_mode arch_version < <(bash packaging/release/version-mode.sh "$product_version")
 assembly_flags=()
 [[ $version_mode != stable ]] || assembly_flags=(--stable)
+client_features=$(bash packaging/release/client-features.sh "$product_version")
+client_build_flags=()
+[[ -z $client_features ]] || client_build_flags=(--features "$client_features")
 export CARGO_TARGET_DIR="$build_root/target"
 rustup toolchain install 1.98.0 --profile minimal --component clippy,rustfmt
 {
   printf 'runtimeSourceCommit=%s\n' "$runtime_source"
   printf 'builderSourceCommit=%s\n' "$(git -C "$checkout" rev-parse HEAD)"
+  printf 'clientFeatures=%s\n' "${client_features:-default}"
   uname -m
   rustc -Vv
   cargo -V
   pacman -Q glibc gcc binutils rustup
 } > "$artifacts/build-provenance.txt"
-cargo build --release --locked -p omavless-runtime --bin omavless 2>&1 | tee "$artifacts/build.log"
+cargo build --release --locked -p omavless-runtime --bin omavless "${client_build_flags[@]}" 2>&1 | tee "$artifacts/build.log"
 "$CARGO_TARGET_DIR/release/omavless" --help > "$artifacts/cli-help.txt"
 [[ $("$CARGO_TARGET_DIR/release/omavless" tui --available) == omavless.tui.v1 ]]
 readelf -h "$CARGO_TARGET_DIR/release/omavless" > "$artifacts/elf-header.txt"

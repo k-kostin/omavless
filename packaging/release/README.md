@@ -108,7 +108,11 @@ On the matching Arch architecture, first run the normal gates and build the
 reviewed clean commit with the locked toolchain. For example:
 
 ```sh
-cargo build --release --locked -p omavless-runtime --bin omavless
+product_version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+client_features=$(bash packaging/release/client-features.sh "$product_version")
+client_build_flags=()
+[[ -z $client_features ]] || client_build_flags=(--features "$client_features")
+cargo build --release --locked -p omavless-runtime --bin omavless "${client_build_flags[@]}"
 ```
 
 Cargo may obtain locked build dependencies if they are not already cached; use

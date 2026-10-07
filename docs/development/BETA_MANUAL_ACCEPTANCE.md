@@ -38,16 +38,26 @@ is weakened by this policy.
 
 ### Preparation must survive the user's normal entry
 
+Owner clarification after the beta.3 handoff failure: a runnable function
+selected for the developer beta must be reachable through ordinary Open app /
+`omavless tui`, without a hidden per-invocation developer flag. The reviewed
+beta build may select development features at compile time; stable/RC defaults
+remain independent. An exceptional research-only entry is explicitly excluded
+from ordinary beta functionality, not presented as the beta's ready feature.
+The package producer and actual client entry must select the same declared
+features; test both version/build selection and loaded normal-client behavior.
+
 Before handing off any feature, test the actual entry that the owner will use,
 not just an agent-created window. Check installed executable/frontend identity,
 the selected client mode and required capability. A matching version or binary
 alone does not establish that a feature is enabled in the running client.
 Close only that client, reopen through the same declared entry, inspect the
 rendered legend/action and exercise its navigation again. If an experimental
-entry differs from ordinary Open app, provide a persistent, clearly named
-VM-only launcher and explain the distinction; do not silently change production
-defaults. `tools/omavless-beta-backup.desktop` is one such explicit entry, not
-a production package payload or an installer.
+entry differs from ordinary Open app, do not call the ordinary beta feature
+ready. A persistent clearly named VM-only launcher may support excluded research,
+but does not satisfy normal beta integration. Do not silently change stable
+production defaults. `tools/omavless-beta-backup.desktop` retains the earlier
+beta.3 workaround as development evidence, not the intended beta.4 user entry.
 
 The agent performs all safely automatable interaction, filesystem and outcome
 checks within the owner's authorized environment. Human participation is for
