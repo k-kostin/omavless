@@ -130,6 +130,105 @@ pub fn serve_development() -> Result<()> {
 pub fn serve_development_runtime() -> Result<()> {
     serve(Class::InstalledRuntime)
 }
+/// Default-off product-class provider. It does not enroll, install or remove
+/// anything. Only the fixed held root record chooses its one nonroot UID.
+#[cfg(feature = "product-epochs")]
+pub fn serve_product_epochs() -> Result<()> {
+    serve(Class::Product)
+}
+
+#[cfg(feature = "product-epochs")]
+const MAX_EPOCHS: usize = 128;
+#[cfg(feature = "product-epochs")]
+struct EpochHistory {
+    // Never evict prior positive terminal sequences to admit another channel.
+    finished: [Option<u32>; MAX_EPOCHS],
+    count: usize,
+    active: bool,
+    poisoned: bool,
+}
+#[cfg(feature = "product-epochs")]
+impl EpochHistory {
+    fn new() -> Self {
+        Self {
+            finished: [None; MAX_EPOCHS],
+            count: 0,
+            active: false,
+            poisoned: false,
+        }
+    }
+    fn idle(&self) -> Result<()> {
+        if self.poisoned || self.active || self.count == MAX_EPOCHS {
+            Err(Error::Refused)
+        } else {
+            Ok(())
+        }
+    }
+    fn reserve(&mut self) -> Result<()> {
+        self.idle()?;
+        self.active = true;
+        Ok(())
+    }
+    fn complete(&mut self, terminal: Result<u32>) -> Result<()> {
+        // Consume before inspecting a returned result. Every accepted-context
+        // error is sticky, including a late send/metadata/expiry failure.
+        let active = self.active;
+        self.active = false;
+        self.poisoned = true;
+        let sequence = terminal?;
+        if !active || self.count == MAX_EPOCHS || sequence == 0 {
+            return Err(Error::Refused);
+        }
+        self.finished[self.count] = Some(sequence);
+        self.count += 1;
+        self.poisoned = false;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "product-epochs")]
+fn product_idle(
+    fd: &OwnedFd,
+    roots: &kernel::Roots,
+    class: Class,
+    id: (u64, u64),
+    history: &EpochHistory,
+) -> Result<()> {
+    loop {
+        // No Binding, Session, capability or request exists during these
+        // bounded polls. Root/source drift refuses rather than recapturing.
+        history.idle()?;
+        let deadline = Instant::now() + REQUEST_BUDGET;
+        roots.check(deadline)?;
+        access(class, roots.uid, id)?;
+        let mut row = [PollFd::new(fd, PollFlags::IN)];
+        let count = poll(
+            &mut row,
+            Some(&Timespec {
+                tv_sec: 1,
+                tv_nsec: 0,
+            }),
+        )
+        .map_err(|_| Error::Unavailable)?;
+        roots.check(deadline)?;
+        access(class, roots.uid, id)?;
+        kernel::tick(deadline)?;
+        if idle_ready(history, count, row[0].revents())? {
+            return Ok(());
+        }
+    }
+}
+#[cfg(feature = "product-epochs")]
+fn idle_ready(history: &EpochHistory, count: usize, flags: PollFlags) -> Result<bool> {
+    history.idle()?;
+    if count == 0 && flags.is_empty() {
+        Ok(false)
+    } else if count == 1 && flags == PollFlags::IN {
+        Ok(true)
+    } else {
+        Err(Error::Refused)
+    }
+}
 fn serve(class: Class) -> Result<()> {
     privilege()?;
     // Read-only observed resources may be dropped on error; no effect/Bundle
@@ -181,8 +280,25 @@ fn serve(class: Class) -> Result<()> {
     access(class, roots.uid, id)?;
     net::listen(&fd, 1).map_err(|_| Error::Unavailable)?;
     eprintln!("image_witness_listener_ready");
-    listener_wait(&fd, Instant::now() + IDLE_BUDGET)?;
-    let accepted = net::accept_with(&fd, SocketFlags::CLOEXEC | SocketFlags::NONBLOCK)
+    #[cfg(feature = "product-epochs")]
+    if class.product() {
+        let mut history = EpochHistory::new();
+        loop {
+            product_idle(&fd, &roots, class, id, &history)?;
+            // Capacity consumed before accept/peer pidfd/child acquisition.
+            history.reserve()?;
+            // All original per-channel descriptors are dropped at this
+            // function's return, BEFORE completion makes admission idle.
+            let terminal = run_session(&fd, &roots, class, id);
+            history.complete(terminal)?;
+        }
+    }
+    run_session(&fd, &roots, class, id).map(|_| ())
+}
+
+fn run_session(fd: &OwnedFd, roots: &kernel::Roots, class: Class, id: (u64, u64)) -> Result<u32> {
+    listener_wait(fd, Instant::now() + IDLE_BUDGET)?;
+    let accepted = net::accept_with(fd, SocketFlags::CLOEXEC | SocketFlags::NONBLOCK)
         .map_err(|_| Error::Unavailable)?;
     access(class, roots.uid, id)?;
     let deadline = Instant::now() + REQUEST_BUDGET;
@@ -212,7 +328,7 @@ fn serve(class: Class) -> Result<()> {
         let (raw, rights) = endpoint.receive(false, deadline)?;
         let (kind, seq) = protocol::decode(raw)?;
         sequence.consume(kind, seq, rights.is_some())?;
-        access(class, 1000, id)?;
+        access(class, roots.uid, id)?;
         endpoint.check(deadline)?;
         match kind {
             Kind::Observe => {
@@ -226,15 +342,99 @@ fn serve(class: Class) -> Result<()> {
                 eprintln!("image_witness_current_image_sent");
             }
             Kind::Finish => {
+                if class.product() {
+                    // Same original roots/rows/current exe at final positive
+                    // retirement; never turn old facts into a new grant.
+                    drop(binding.observe(deadline)?);
+                    access(class, roots.uid, id)?;
+                    endpoint.check(deadline)?;
+                }
                 endpoint.send(&protocol::frame(Kind::Ack, seq), None, deadline)?;
+                if class.product() {
+                    kernel::tick(deadline)?;
+                }
                 eprintln!("image_witness_positive_finished");
-                return Ok(());
+                return Ok(seq);
             }
             _ => {
                 sequence.poison();
                 return Err(Error::Refused);
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "product-epochs"))]
+mod epoch_tests {
+    use super::*;
+
+    #[test]
+    fn idle_slices_exist_only_without_an_accepted_context() {
+        let mut history = EpochHistory::new();
+        for _ in 0..100 {
+            assert!(!idle_ready(&history, 0, PollFlags::empty()).unwrap());
+        }
+        assert!(idle_ready(&history, 1, PollFlags::IN).unwrap());
+        history.reserve().unwrap();
+        assert!(idle_ready(&history, 0, PollFlags::empty()).is_err());
+        assert!(idle_ready(&history, 1, PollFlags::IN).is_err());
+        assert!(history.reserve().is_err());
+        // An accepted channel uses the original finite idle/request budgets.
+        assert_eq!(IDLE_BUDGET, Duration::from_secs(30));
+        assert_eq!(REQUEST_BUDGET, Duration::from_secs(2));
+        history.complete(Err(Error::Expired)).unwrap_err();
+        assert!(history.reserve().is_err());
+    }
+
+    #[test]
+    fn two_positive_terminals_and_capacity_have_no_eviction_or_parallel_admission() {
+        let mut history = EpochHistory::new();
+        for n in 0..MAX_EPOCHS {
+            history.reserve().unwrap();
+            assert!(history.reserve().is_err());
+            history.complete(Ok(n as u32 + 1)).unwrap();
+            assert_eq!(history.finished[0], Some(1));
+            assert_eq!(history.finished[n], Some(n as u32 + 1));
+        }
+        assert_eq!(history.count, MAX_EPOCHS);
+        assert!(history.idle().is_err());
+        assert!(history.reserve().is_err());
+        assert_eq!(history.finished[0], Some(1));
+    }
+
+    #[test]
+    fn every_accepted_error_blocks_next_admission_without_repair() {
+        for error in [
+            Error::Expired,
+            Error::Refused,
+            Error::Unavailable,
+            Error::ChannelLost,
+        ] {
+            let mut history = EpochHistory::new();
+            history.reserve().unwrap();
+            assert_eq!(history.complete(Err(error)), Err(error));
+            assert!(history.idle().is_err());
+            assert!(history.reserve().is_err());
+            // Even a late success cannot convert that original failure.
+            assert!(history.complete(Ok(1)).is_err());
+            assert!(history.reserve().is_err());
+        }
+    }
+
+    #[test]
+    fn invalid_terminal_and_bad_poll_never_create_idle_permission() {
+        let mut history = EpochHistory::new();
+        assert!(history.complete(Ok(1)).is_err());
+        assert!(history.idle().is_err());
+        for flags in [
+            PollFlags::ERR,
+            PollFlags::HUP,
+            PollFlags::NVAL,
+            PollFlags::IN | PollFlags::HUP,
+        ] {
+            assert!(idle_ready(&EpochHistory::new(), 1, flags).is_err());
+        }
+        assert!(idle_ready(&EpochHistory::new(), 2, PollFlags::IN).is_err());
     }
 }
 
@@ -247,6 +447,7 @@ pub struct Client {
     next: u32,
     terminal: bool,
     class: Class,
+    uid: u32,
 }
 impl Client {
     pub fn bind_original(child: OwnedFd, caller: Instant) -> Result<Self> {
@@ -257,11 +458,15 @@ impl Client {
     pub fn bind_original_runtime(child: OwnedFd, caller: Instant) -> Result<Self> {
         Self::bind_class(child, caller, Class::InstalledRuntime)
     }
+    #[cfg(feature = "product-epochs")]
+    pub fn bind_original_product(child: OwnedFd, caller: Instant) -> Result<Self> {
+        Self::bind_class(child, caller, Class::Product)
+    }
     fn bind_class(child: OwnedFd, caller: Instant, class: Class) -> Result<Self> {
         let deadline = until(caller);
         kernel::tick(deadline)?;
         let uid = rustix::process::getuid().as_raw();
-        if uid != 1000 || rustix::process::geteuid().as_raw() != uid {
+        if !class.admits_uid(uid) || rustix::process::geteuid().as_raw() != uid {
             return Err(Error::Refused);
         }
         let id = node(class, 0o660)?;
@@ -300,6 +505,7 @@ impl Client {
             next: 1,
             terminal: false,
             class,
+            uid,
         })
     }
     pub fn observe(&mut self, caller: Instant) -> Result<File> {
@@ -313,7 +519,7 @@ impl Client {
                 return Err(Error::Refused);
             }
             kernel::alive(&self.child, deadline)?;
-            access(self.class, 1000, self.node)?;
+            access(self.class, self.uid, self.node)?;
             self.endpoint.check(deadline)?;
             self.endpoint
                 .send(&protocol::frame(Kind::Observe, self.next), None, deadline)?;
@@ -332,7 +538,7 @@ impl Client {
                 return Err(Error::Refused);
             }
             self.endpoint.check(deadline)?;
-            access(self.class, 1000, self.node)?;
+            access(self.class, self.uid, self.node)?;
             kernel::tick(deadline)?;
             kernel::alive(&self.child, deadline)?;
             self.next = self.next.checked_add(1).ok_or(Error::Refused)?;
@@ -351,7 +557,7 @@ impl Client {
         self.terminal = true;
         let deadline = until(caller);
         self.endpoint.check(deadline)?;
-        access(self.class, 1000, self.node)?;
+        access(self.class, self.uid, self.node)?;
         self.endpoint
             .send(&protocol::frame(Kind::Finish, self.next), None, deadline)?;
         let (raw, fd) = self.endpoint.receive(false, deadline)?;

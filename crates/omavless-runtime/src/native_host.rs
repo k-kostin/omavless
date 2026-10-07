@@ -76,12 +76,16 @@ enum CloseImageCapture {
     Witness,
     #[cfg(feature = "developer-image-witness")]
     InstalledRuntimeWitness,
+    #[cfg(feature = "product-image-witness")]
+    ProductWitness,
 }
 
 pub(crate) enum CloseImageSelection {
     Direct,
     #[cfg(feature = "developer-image-witness")]
     InstalledDevelopment,
+    #[cfg(feature = "product-image-witness")]
+    Product,
 }
 
 #[cfg(feature = "developer-image-witness")]
@@ -89,6 +93,86 @@ enum DevelopmentImageState {
     Disabled,
     Available,
     Consumed,
+}
+
+#[cfg(feature = "product-image-witness")]
+struct ProductImageEpochs {
+    issued: usize,
+    // Nonevicting original lifetime/session identities, never an image cache.
+    history: Vec<crate::conditional_close_candidate::Cancellation>,
+    active: Option<crate::conditional_close_candidate::Cancellation>,
+    poisoned: bool,
+}
+#[cfg(feature = "product-image-witness")]
+impl ProductImageEpochs {
+    const LIMIT: usize = 128;
+    fn new() -> Result<Self, HostStepError> {
+        let mut history = Vec::new();
+        history
+            .try_reserve_exact(Self::LIMIT)
+            .map_err(|_| HostStepError::Prepare)?;
+        Ok(Self {
+            issued: 0,
+            history,
+            active: None,
+            poisoned: false,
+        })
+    }
+    fn admission(&self) -> crate::lifecycle::CloseEpochAdmission {
+        use crate::lifecycle::CloseEpochAdmission;
+        if self.poisoned
+            || self.issued == Self::LIMIT
+            || self
+                .history
+                .iter()
+                .any(|original| !original.epoch_lifetime_available())
+        {
+            CloseEpochAdmission::Refused
+        } else if self.active.is_some() {
+            CloseEpochAdmission::Busy
+        } else {
+            CloseEpochAdmission::Ready
+        }
+    }
+    fn reserve(&mut self) -> Result<(), HostStepError> {
+        if self.admission() != crate::lifecycle::CloseEpochAdmission::Ready {
+            return Err(HostStepError::Observation);
+        }
+        // Reserve/latch before original source/controller/child acquisition.
+        self.issued += 1;
+        self.poisoned = true;
+        Ok(())
+    }
+    fn captured(&mut self, original: crate::conditional_close_candidate::Cancellation) {
+        self.history.push(original.clone());
+        self.active = Some(original);
+        self.poisoned = false;
+    }
+    fn complete(&mut self, original: &crate::conditional_close_candidate::CloseEpochCompletion) {
+        if !self.poisoned
+            && self
+                .active
+                .as_ref()
+                .is_some_and(|expected| original.admits(expected))
+        {
+            self.active = None;
+        } else {
+            // Wrong/late identity, refused/Unknown outcome, old lifetime poison
+            // or missing real drain cannot renew this factory.
+            self.poisoned = true;
+            if let Some(active) = &self.active {
+                active.cancel();
+            }
+        }
+    }
+    fn revoke_if_used(&mut self) {
+        if self.issued != 0 {
+            self.poisoned = true;
+            if let Some(original) = &self.active {
+                original.cancel();
+            }
+        }
+    }
 }
 
 impl CloseObservation {
@@ -390,9 +474,41 @@ pub struct NativeLifecycleHost {
     image_fixture_attempted: bool,
     #[cfg(feature = "developer-image-witness")]
     development_image: DevelopmentImageState,
+    #[cfg(feature = "product-image-witness")]
+    product_image: Option<ProductImageEpochs>,
+    #[cfg(all(test, feature = "product-image-witness"))]
+    product_preview_fixture: bool,
 }
 
 impl NativeLifecycleHost {
+    #[cfg(all(test, feature = "product-image-witness"))]
+    pub(crate) fn install_product_preview_fixture_for_test(&mut self) {
+        assert!(matches!(
+            self.close_fixture,
+            Some(CloseFixture::OwnedLoopback)
+        ));
+        assert!(self.core.as_ref().and_then(OwnedCore::pid).is_some());
+        self.product_image = Some(ProductImageEpochs::new().unwrap());
+        self.product_preview_fixture = true;
+    }
+    #[cfg(all(test, feature = "product-image-witness"))]
+    pub(crate) fn install_product_epoch_from_fixture_session(
+        &mut self,
+        original: crate::conditional_close_candidate::Cancellation,
+    ) {
+        // Memory provider callback tests only. Not root enrollment/package
+        // evidence and not used by ordinary current() or an actual helper gate.
+        let mut epochs = ProductImageEpochs::new().unwrap();
+        epochs.reserve().unwrap();
+        epochs.captured(original);
+        self.product_image = Some(epochs);
+    }
+
+    #[cfg(all(test, feature = "product-image-witness"))]
+    pub(crate) fn product_history_for_test(&self) -> (usize, usize) {
+        let epochs = self.product_image.as_ref().unwrap();
+        (epochs.issued, epochs.history.len())
+    }
     #[cfg(test)]
     pub(crate) fn owned_close_fixture(
         paths: NativeHostPaths,
@@ -654,6 +770,10 @@ impl NativeLifecycleHost {
             image_fixture_attempted: false,
             #[cfg(feature = "developer-image-witness")]
             development_image: DevelopmentImageState::Disabled,
+            #[cfg(feature = "product-image-witness")]
+            product_image: None,
+            #[cfg(all(test, feature = "product-image-witness"))]
+            product_preview_fixture: false,
         })
     }
 
@@ -685,6 +805,36 @@ impl NativeLifecycleHost {
             CloseImageSelection::Direct => Self::new(paths, uid),
             #[cfg(feature = "developer-image-witness")]
             CloseImageSelection::InstalledDevelopment => Self::new_development_image(paths, uid),
+            #[cfg(feature = "product-image-witness")]
+            CloseImageSelection::Product => Self::new_product_image(paths, uid),
+        }
+    }
+
+    /// Default-off SOURCE selection. No runtime flag/enrollment writer grants
+    /// this mode. The fixed helper independently authenticates its root UID.
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn new_product_image(
+        paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<Self, HostStepError> {
+        if uid == 0
+            || uid == u32::MAX
+            || paths.core != Path::new(crate::managed_pair::RELEASE_CORE)
+            || !paths.require_managed_pair
+            || paths.managed_pair.is_none()
+        {
+            return Err(HostStepError::Prepare);
+        }
+        let epochs = ProductImageEpochs::new()?;
+        let mut host = Self::new(paths, uid)?;
+        host.product_image = Some(epochs);
+        Ok(host)
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    fn revoke_product_image(&mut self) {
+        if let Some(epochs) = &mut self.product_image {
+            epochs.revoke_if_used();
         }
     }
 
@@ -697,6 +847,35 @@ impl NativeLifecycleHost {
         &mut self,
         desired: &DesiredState,
     ) -> Result<CloseObservation, HostStepError> {
+        #[cfg(feature = "product-image-witness")]
+        if let Some(epochs) = &mut self.product_image {
+            epochs.reserve()?;
+            #[cfg(test)]
+            let observation = if self.product_preview_fixture {
+                let mut observation =
+                    self.capture_original_close(desired, CloseImageCapture::Direct)?;
+                let image = observation.session().original_image_for_test();
+                observation
+                    .session_mut()
+                    .install_image_probe_for_test(Box::new(move |_| {
+                        Ok(image.try_clone().unwrap())
+                    }));
+                observation
+                    .session_mut()
+                    .install_image_finish_probe_for_test(Box::new(|_| Ok(())));
+                observation
+            } else {
+                self.capture_original_close(desired, CloseImageCapture::ProductWitness)?
+            };
+            #[cfg(not(test))]
+            let observation =
+                self.capture_original_close(desired, CloseImageCapture::ProductWitness)?;
+            self.product_image
+                .as_mut()
+                .ok_or(HostStepError::Observation)?
+                .captured(observation.session().cancellation());
+            return Ok(observation);
+        }
         #[cfg(all(test, feature = "developer-image-witness"))]
         if matches!(self.close_fixture, Some(CloseFixture::PreparedImage)) {
             let Some(mut prepared) = self.prepared_image.take() else {
@@ -753,6 +932,10 @@ impl NativeLifecycleHost {
             #[cfg(feature = "developer-image-witness")]
             CloseImageCapture::InstalledRuntimeWitness => {
                 session.capture_executable_via_runtime_witness(&self.paths.core)
+            }
+            #[cfg(feature = "product-image-witness")]
+            CloseImageCapture::ProductWitness => {
+                session.capture_executable_via_product_witness(&self.paths.core)
             }
         }
         .map_err(|_| HostStepError::Observation)?;
@@ -942,6 +1125,76 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&self) -> crate::lifecycle::CloseRegistration {
+        use crate::lifecycle::CloseRegistration;
+        #[cfg(feature = "product-image-witness")]
+        {
+            if self.product_image.is_some() {
+                return CloseRegistration::Product;
+            }
+            if !matches!(self.development_image, DevelopmentImageState::Disabled) {
+                return CloseRegistration::Developer;
+            }
+            #[cfg(test)]
+            if self.close_fixture.is_some() {
+                return CloseRegistration::Developer;
+            }
+            CloseRegistration::Disabled
+        }
+        #[cfg(not(feature = "product-image-witness"))]
+        {
+            CloseRegistration::Developer
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn matches_close_retirement(&self, original: &CloseObservation) -> bool {
+        self.product_image.as_ref().is_some_and(|epochs| {
+            !epochs.poisoned
+                && epochs
+                    .active
+                    .as_ref()
+                    .is_some_and(|expected| expected.same_epoch(&original.session().cancellation()))
+        })
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn complete_close_retirement(
+        &mut self,
+        original: &crate::conditional_close_candidate::CloseEpochRetirement,
+    ) {
+        if let Some(epochs) = &mut self.product_image {
+            if !epochs.poisoned
+                && epochs
+                    .active
+                    .as_ref()
+                    .is_some_and(|expected| original.admits(expected))
+            {
+                epochs.active = None;
+            } else {
+                epochs.revoke_if_used();
+            }
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn refuse_close_epoch(&mut self) {
+        self.revoke_product_image();
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn close_epoch_admission(&self) -> crate::lifecycle::CloseEpochAdmission {
+        self.product_image.as_ref().map_or(
+            crate::lifecycle::CloseEpochAdmission::Legacy,
+            ProductImageEpochs::admission,
+        )
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn complete_close_epoch(
+        &mut self,
+        original: &crate::conditional_close_candidate::CloseEpochCompletion,
+    ) {
+        if let Some(epochs) = &mut self.product_image {
+            epochs.complete(original);
+        }
+    }
     fn capture_connection_close(
         &mut self,
         desired: &DesiredState,
@@ -1229,6 +1482,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        #[cfg(feature = "product-image-witness")]
+        self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
         self.revoke_prepared_image();
         self.connection_preflight()?;
@@ -1297,6 +1552,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn start_prepared(&mut self) -> Result<(), HostStepError> {
+        #[cfg(feature = "product-image-witness")]
+        self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
         self.revoke_prepared_image();
         if !self.auxiliary.mutation_safe() {
@@ -1351,6 +1608,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn commit_prepared(&mut self) -> Result<(), HostStepError> {
+        #[cfg(feature = "product-image-witness")]
+        self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
         self.revoke_prepared_image();
         if self.core.is_none() || self.profile_id.is_none() {
@@ -1371,6 +1630,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn stop_owned(&mut self) -> Result<(), HostStepError> {
+        #[cfg(feature = "product-image-witness")]
+        self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
         self.revoke_prepared_image();
         if !self.auxiliary.mutation_safe() {
@@ -1396,6 +1657,8 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn discard_prepared(&mut self) -> Result<(), HostStepError> {
+        #[cfg(feature = "product-image-witness")]
+        self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
         self.revoke_prepared_image();
         remove_owned_file(&self.paths.staged_config, self.uid, false)?;
@@ -1438,6 +1701,47 @@ mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_compiled_ordinary_host_registration_is_disabled_until_explicit_selection() {
+        use crate::lifecycle::CloseRegistration;
+        let (root, mut host) = observation_fixture();
+        assert!(host.close_registration() == CloseRegistration::Disabled);
+        host.development_image = DevelopmentImageState::Available;
+        assert!(host.close_registration() == CloseRegistration::Developer);
+        host.development_image = DevelopmentImageState::Disabled;
+        host.product_image = Some(ProductImageEpochs::new().unwrap());
+        assert!(host.close_registration() == CloseRegistration::Product);
+        // Selection publishes implementation only, never acquires/enrolls or
+        // constructs a proof/current-image/conditional effect permission.
+        assert_eq!(host.product_history_for_test(), (0, 0));
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_epoch_reservation_capacity_and_mutation_refusal_precede_acquisition() {
+        use crate::lifecycle::CloseEpochAdmission;
+        let mut epochs = ProductImageEpochs::new().unwrap();
+        assert!(epochs.history.capacity() >= ProductImageEpochs::LIMIT);
+        assert!(epochs.admission() == CloseEpochAdmission::Ready);
+        // Initial ordinary connection setup does not spend a close epoch.
+        epochs.revoke_if_used();
+        assert!(epochs.admission() == CloseEpochAdmission::Ready);
+        epochs.reserve().unwrap();
+        assert_eq!(epochs.issued, 1);
+        assert!(epochs.admission() == CloseEpochAdmission::Refused);
+        assert!(epochs.reserve().is_err());
+        assert_eq!(epochs.issued, 1);
+        assert!(epochs.history.is_empty());
+        let mut full = ProductImageEpochs::new().unwrap();
+        full.issued = ProductImageEpochs::LIMIT;
+        assert!(full.reserve().is_err());
+        assert_eq!(full.issued, ProductImageEpochs::LIMIT);
+        assert!(full.history.is_empty());
+    }
 
     fn root(label: &str) -> (PathBuf, u32) {
         let nonce = SystemTime::now()

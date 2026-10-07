@@ -1,5 +1,10 @@
 # T3 default-off original-child executable witness
 
+The separate [product witness epoch candidate](T3_PRODUCT_WITNESS_EPOCHS.md)
+records the default-off root-enrolled UID/listener successor and its remaining
+explicit runtime retirement/factory integration. It does not promote the actual
+development results below to product distribution or repeated operation proof.
+
 Developer-only concrete read-only helper, passive tests and same-Session effect gate. No default close
 method, effect permit, installer, unit/enrollment creation or service activation.
 The prior capless package-path gates remain exact4d/e452/7def evidence; they do

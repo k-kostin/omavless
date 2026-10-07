@@ -36,6 +36,25 @@ pub enum HostStepError {
     Cleanup,
 }
 
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum CloseEpochAdmission {
+    Legacy,
+    Ready,
+    Busy,
+    Refused,
+}
+
+#[cfg(feature = "developer-conditional-close")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum CloseRegistration {
+    Disabled,
+    Developer,
+    Product,
+}
+
 impl fmt::Display for HostStepError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -75,6 +94,41 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    #[cfg(feature = "developer-conditional-close")]
+    #[doc(hidden)]
+    fn close_registration(&self) -> CloseRegistration {
+        #[cfg(feature = "product-image-witness")]
+        return CloseRegistration::Disabled;
+        #[cfg(not(feature = "product-image-witness"))]
+        return CloseRegistration::Developer;
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn close_epoch_admission(&self) -> CloseEpochAdmission {
+        CloseEpochAdmission::Legacy
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn complete_close_epoch(
+        &mut self,
+        _original: &crate::conditional_close_candidate::CloseEpochCompletion,
+    ) {
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn matches_close_retirement(&self, _original: &crate::native_host::CloseObservation) -> bool {
+        false
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn complete_close_retirement(
+        &mut self,
+        _original: &crate::conditional_close_candidate::CloseEpochRetirement,
+    ) {
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
+    fn refuse_close_epoch(&mut self) {}
     /// Unsupported hosts cannot manufacture an observation or a close permit.
     /// This seam does not expose any IPC action by itself.
     #[doc(hidden)]

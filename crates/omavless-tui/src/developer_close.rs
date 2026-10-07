@@ -26,6 +26,12 @@ const LIFE: Duration = Duration::from_secs(5);
 const MIN_WIDTH: u16 = 70;
 const MIN_HEIGHT: u16 = 24;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CloseView {
+    LiveSession,
+    InertPreview,
+}
+
 // No Debug/Serialize: original instance, handles/ticket and private display stay
 // in this window and the authenticated socket. They never enter activity logs.
 #[derive(Clone)]
@@ -85,6 +91,7 @@ pub struct Workspace {
     unknown: bool,
     terminal: bool,
     notice: &'static str,
+    view: CloseView,
 }
 
 fn opaque(text: &str) -> bool {
@@ -165,6 +172,7 @@ impl Workspace {
             unknown: false,
             terminal: false,
             notice: "tui.dev_close_refresh",
+            view: CloseView::LiveSession,
         }
     }
     fn call(&mut self, phase: Phase, method: &'static str, params: Value) -> Call {
@@ -231,10 +239,17 @@ impl Workspace {
         }
         if key.code == KeyCode::Esc {
             if self.prepared {
-                self.notice = "tui.dev_close_select";
+                self.notice = if self.view == CloseView::InertPreview {
+                    "tui.product_close_select"
+                } else {
+                    "tui.dev_close_select"
+                };
             }
             self.pending = None;
             self.prepared = false;
+            if self.view == CloseView::InertPreview {
+                self.started = None;
+            }
             return Input::None;
         }
         if !wide || !self.enabled || self.rows.is_empty() {
@@ -266,6 +281,9 @@ impl Workspace {
             }
             KeyCode::Up | KeyCode::Char('k') => self.selected = self.selected.saturating_sub(1),
             KeyCode::Char('x') => {
+                if self.view == CloseView::InertPreview {
+                    self.started = Some(now);
+                }
                 let handle = self.rows[self.selected].handle.clone();
                 return Input::Send(self.call(
                     Phase::Prepare,
@@ -340,6 +358,14 @@ impl Workspace {
                 return Some(self.call(Phase::Capabilities, "capabilities.get", json!({})));
             }
             Phase::Capabilities => {
+                self.view = match value["result"].get("connectionCloseView") {
+                    None => CloseView::LiveSession,
+                    Some(v) if v == "inert-preview-v1" => CloseView::InertPreview,
+                    _ => {
+                        self.refuse();
+                        return None;
+                    }
+                };
                 let methods = value["result"]["methods"].as_array();
                 let all = value["result"]["runtimeOwnership"] == true
                     && methods.is_some_and(|m| {
@@ -420,10 +446,17 @@ impl Workspace {
         self.revision = revision;
         self.selected = 0;
         self.enabled = true;
+        if self.view == CloseView::InertPreview {
+            self.started = None;
+        }
         self.notice = if self.rows.is_empty() {
             "tui.dev_close_empty"
         } else {
-            "tui.dev_close_select"
+            if self.view == CloseView::InertPreview {
+                "tui.product_close_select"
+            } else {
+                "tui.dev_close_select"
+            }
         };
         true
     }
@@ -521,9 +554,13 @@ impl Workspace {
         ])
         .areas(frame.area());
         frame.render_widget(
-            Paragraph::new(tr("tui.dev_close_scope"))
-                .wrap(Wrap { trim: false })
-                .block(Block::default().borders(Borders::ALL).title("OmaVLESS")),
+            Paragraph::new(tr(if self.view == CloseView::InertPreview {
+                "tui.product_close_scope"
+            } else {
+                "tui.dev_close_scope"
+            }))
+            .wrap(Wrap { trim: false })
+            .block(Block::default().borders(Borders::ALL).title("OmaVLESS")),
             head,
         );
         let expired = !self.submitted
@@ -761,6 +798,85 @@ mod tests {
             now,
         );
         assert!(workspace.prepared);
+    }
+
+    fn ready_product_preview(workspace: &mut Workspace, now: Instant) {
+        let _ = send(workspace.input(key(KeyCode::Char('r')), now, true));
+        workspace
+            .accept(
+                ok(json!({"version":1,"runtimeOwnership":true,"instanceId":"owner"})),
+                now,
+            )
+            .unwrap();
+        workspace
+            .accept(
+                ok(json!({"runtimeOwnership":true,"methods":METHODS,
+            "connectionCloseView":"inert-preview-v1"})),
+                now,
+            )
+            .unwrap();
+        workspace.accept(ok(snapshot()), now);
+    }
+
+    #[test]
+    fn product_inert_preview_can_wait_but_modal_is_bounded_and_no_effect_is_implicit() {
+        let now = Instant::now();
+        let mut workspace = Workspace::new(Locale::En);
+        ready_product_preview(&mut workspace, now);
+        assert!(workspace.enabled && workspace.started.is_none());
+        assert_eq!(workspace.notice, "tui.product_close_select");
+        let later = now + Duration::from_secs(60);
+        workspace.expire(later);
+        assert!(workspace.enabled && workspace.rows.len() == 2);
+        let call = send(workspace.input(key(KeyCode::Char('x')), later, true));
+        assert_eq!(call.method(), METHODS[1]);
+        let handle = call.params()["handle"].clone();
+        workspace.accept(
+            ok(json!({"schemaVersion":1,"scope":SCOPE,"instanceId":"owner",
+            "handle":handle,"ticket":"3".repeat(64),"display":workspace.rows[0].display})),
+            later,
+        );
+        assert!(workspace.prepared && !workspace.submitted);
+        assert!(matches!(
+            workspace.input(key(KeyCode::Esc), later, true),
+            Input::None
+        ));
+        assert!(workspace.started.is_none() && workspace.enabled && !workspace.submitted);
+        prepared(&mut workspace, later);
+        assert!(matches!(
+            workspace.input(key(KeyCode::Enter), later + Duration::from_secs(6), true),
+            Input::None
+        ));
+        assert!(!workspace.submitted);
+    }
+
+    #[test]
+    fn product_preview_localized_scope_is_distinct_and_unknown_view_is_unavailable() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            let mut workspace = Workspace::new(locale);
+            ready_product_preview(&mut workspace, now);
+            let mut terminal = Terminal::new(TestBackend::new(90, 30)).unwrap();
+            terminal.draw(|f| workspace.draw(f, now)).unwrap();
+            let view = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>();
+            assert!(!view.contains(locale.text("tui.dev_close_scope")));
+            assert!(!view.contains("Missing translation"));
+            assert!(workspace.view == CloseView::InertPreview);
+        }
+        let mut workspace = Workspace::new(Locale::En);
+        workspace.phase = Some(Phase::Capabilities);
+        workspace.accept(
+            ok(json!({"runtimeOwnership":true,"methods":METHODS,
+            "connectionCloseView":"unknown"})),
+            now,
+        );
+        assert!(!workspace.enabled && workspace.notice == "tui.dev_close_unavailable");
     }
     fn receipt(workspace: &Workspace, outcome: Option<&str>) -> Value {
         json!({"schemaVersion":1,"scope":SCOPE,"instanceId":"owner",

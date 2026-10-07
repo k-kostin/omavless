@@ -1,4 +1,6 @@
 {
+  "tui.product_close_scope":{"en":"OPT-IN PRODUCT PREVIEW — final confirmation freshly rechecks this exact owned connection. VPN intent is unchanged.","ru":"ПРЕДПРОСМОТР ПРОДУКТА ПО ЯВНОМУ ДОПУСКУ — при подтверждении заново проверяется именно это соединение своего ядра. Намерение VPN не меняется."},
+  "tui.product_close_select":{"en":"Choose an exact connection. This preview reserves nothing; confirmation rechecks it before closing.","ru":"Выберите точное соединение. Предпросмотр ничего не резервирует; перед закрытием оно проверяется заново."},
   "tui.dev_close_scope":{"en":"DEVELOPMENT ONLY — close one selected owned-core connection. VPN intent is unchanged; this is not product pair adoption.","ru":"ТОЛЬКО ДЛЯ РАЗРАБОТКИ — закрыть одно выбранное соединение своего ядра. Намерение VPN не меняется; это не допуск пары в продукт."},
   "tui.dev_close_rows":{"en":"Private connection targets","ru":"Приватные цели соединений"},
   "tui.dev_close_selected":{"en":"Selected connection (full target):","ru":"Выбранное соединение (полная цель):"},

@@ -26,10 +26,12 @@ use std::time::{Duration, Instant};
 #[path = "conditional_package_evidence.rs"]
 mod package_evidence;
 
-const MAX_ROWS: usize = 128;
+pub(crate) const MAX_ROWS: usize = 128;
 const MAX_SNAPSHOT: usize = 256 * 1024;
 const MAX_REPLY: usize = 16 * 1024;
 const BUDGET: Duration = Duration::from_secs(3);
+#[cfg(feature = "product-image-witness")]
+const RETIREMENT_BUDGET: Duration = Duration::from_secs(3);
 const PROOF_DRAIN_BUDGET: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +96,41 @@ struct Target {
 pub(crate) struct ObservedRow {
     pub(crate) target: BoundTarget,
     pub(crate) display: serde_json::Value,
+}
+
+/// Inert comparison data: never a BoundTarget or effect permit, and never
+/// exported raw controller identifiers. Only a fresh observed row may match.
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct PreviewRow {
+    target: Target,
+    pub(crate) display: serde_json::Value,
+}
+#[cfg(feature = "product-image-witness")]
+impl ObservedRow {
+    pub(crate) fn into_preview(self) -> PreviewRow {
+        PreviewRow {
+            target: self.target.target,
+            display: self.display,
+        }
+    }
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct PreviewOrigin {
+    binding: Binding,
+    lifetime: Arc<Lifetime>,
+    image: FileIdentity,
+    source: FileIdentity,
+    package: Option<package_evidence::release_pair::Fingerprint>,
+}
+#[cfg(feature = "product-image-witness")]
+impl PreviewOrigin {
+    fn same_metadata(&self, actual: &Self) -> bool {
+        self.binding == actual.binding
+            && Arc::ptr_eq(&self.lifetime, &actual.lifetime)
+            && self.image == actual.image
+            && self.source == actual.source
+            && self.package == actual.package
+    }
 }
 
 #[derive(Deserialize)]
@@ -260,6 +297,8 @@ enum WitnessClass {
     #[cfg(test)]
     Tests,
     InstalledRuntime,
+    #[cfg(feature = "product-image-witness")]
+    Product,
 }
 #[cfg(feature = "developer-image-witness")]
 enum ImageWitness {
@@ -353,7 +392,19 @@ fn remaining(deadline: Instant) -> Result<Duration, Outcome> {
 enum Phase {
     BeforeEffect,
     EffectAttempted,
+    #[cfg(feature = "product-image-witness")]
+    Retiring,
     Finished(Outcome),
+}
+impl Phase {
+    fn accepts_proof(self) -> bool {
+        match self {
+            Self::BeforeEffect | Self::EffectAttempted => true,
+            Self::Finished(_) => false,
+            #[cfg(feature = "product-image-witness")]
+            Self::Retiring => false,
+        }
+    }
 }
 struct Reservation {
     identity: Arc<()>,
@@ -435,6 +486,14 @@ pub(crate) struct Cancellation {
     identity: Arc<()>,
 }
 impl Cancellation {
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn same_epoch(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity) && Arc::ptr_eq(&self.lifetime, &other.lifetime)
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn epoch_lifetime_available(&self) -> bool {
+        self.lifetime.gate.lock().is_ok_and(|gate| gate.live)
+    }
     pub(crate) fn cancel(&self) {
         let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(r) = &mut gate.reservation
@@ -536,10 +595,14 @@ pub(crate) struct Session {
     image_witness: Option<ImageWitness>,
     #[cfg(feature = "developer-image-witness")]
     pending_executable: Option<PendingExecutable>,
+    #[cfg(feature = "product-image-witness")]
+    product_witness_finished: bool,
     #[cfg(all(test, feature = "developer-image-witness"))]
     image_probe: Option<ImageProbe>,
     #[cfg(all(test, feature = "developer-image-witness"))]
     image_finish_probe: Option<ImageFinishProbe>,
+    #[cfg(all(test, feature = "product-image-witness"))]
+    retirement_budget: Option<Duration>,
     #[cfg(feature = "developer-conditional-close")]
     developer_pair: Option<package_evidence::developer_pair::Evidence>,
     #[cfg(feature = "developer-conditional-close")]
@@ -563,6 +626,46 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn preview_origin(&self) -> Result<PreviewOrigin, Outcome> {
+        let image = self
+            .executable
+            .as_ref()
+            .ok_or(Outcome::RefusedBeforeWrite)?;
+        #[cfg(not(test))]
+        if self.qualified_pair.is_none() {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        #[cfg(test)]
+        if self.qualified_pair.is_none() && self.image_probe.is_none() {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        Ok(PreviewOrigin {
+            binding: self.binding,
+            lifetime: Arc::clone(&self.lifetime),
+            image: image.image_identity,
+            source: image.source_identity,
+            package: self
+                .qualified_pair
+                .as_ref()
+                .map(|pair| pair.preview_fingerprint()),
+        })
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn matches_preview(
+        &self,
+        expected: &PreviewOrigin,
+        row: &ObservedRow,
+        selected: &PreviewRow,
+    ) -> bool {
+        self.preview_origin()
+            .is_ok_and(|actual| expected.same_metadata(&actual))
+            && row.target.binding == self.binding
+            && Arc::ptr_eq(&row.target.session_identity, &self.identity)
+            && row.target.target.id == selected.target.id
+            && row.target.target.token == selected.target.token
+            && row.display == selected.display
+    }
     pub(crate) fn bind(core: &mut OwnedCore, uid: u32) -> Result<Self, Outcome> {
         if !core.running().is_ok_and(|v| v) {
             return Err(Outcome::RefusedBeforeWrite);
@@ -614,10 +717,14 @@ impl Session {
             image_witness: None,
             #[cfg(feature = "developer-image-witness")]
             pending_executable: None,
+            #[cfg(feature = "product-image-witness")]
+            product_witness_finished: false,
             #[cfg(all(test, feature = "developer-image-witness"))]
             image_probe: None,
             #[cfg(all(test, feature = "developer-image-witness"))]
             image_finish_probe: None,
+            #[cfg(all(test, feature = "product-image-witness"))]
+            retirement_budget: None,
             #[cfg(feature = "developer-conditional-close")]
             developer_pair: None,
             #[cfg(feature = "developer-conditional-close")]
@@ -727,6 +834,11 @@ impl Session {
         self.image_probe = Some(probe);
     }
     #[cfg(all(test, feature = "developer-image-witness"))]
+    pub(crate) fn fail_installed_image_probe_for_test(&mut self) {
+        assert!(self.image_witness.is_none() && self.image_probe.is_some());
+        self.image_probe = Some(Box::new(|_| Err(Outcome::RefusedBeforeWrite)));
+    }
+    #[cfg(all(test, feature = "developer-image-witness"))]
     pub(crate) fn original_image_for_test(&self) -> File {
         self.executable.as_ref().unwrap().image.try_clone().unwrap()
     }
@@ -755,6 +867,11 @@ impl Session {
     #[cfg(all(test, feature = "developer-image-witness"))]
     pub(crate) fn image_deadline_for_test(&mut self, until: Instant) {
         self.deadline = Some(until);
+    }
+    #[cfg(all(test, feature = "product-image-witness"))]
+    pub(crate) fn retirement_budget_for_test(&mut self, budget: Duration) {
+        assert!(budget <= RETIREMENT_BUDGET);
+        self.retirement_budget = Some(budget);
     }
     #[cfg(all(test, feature = "developer-image-witness"))]
     pub(crate) fn pause_before_finish(&mut self, barrier: Arc<std::sync::Barrier>) {
@@ -798,6 +915,12 @@ impl Session {
                             }
                             WitnessClass::InstalledRuntime => {
                                 omavless_image_witness::Client::bind_original_runtime(
+                                    original, deadline,
+                                )
+                            }
+                            #[cfg(feature = "product-image-witness")]
+                            WitnessClass::Product => {
+                                omavless_image_witness::Client::bind_original_product(
                                     original, deadline,
                                 )
                             }
@@ -923,27 +1046,16 @@ impl Session {
         #[cfg(feature = "developer-image-witness")]
         if finalizing && self.image_witness_selected() {
             let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
-            #[cfg(test)]
-            let result = if let Some(probe) = &mut self.image_finish_probe {
-                probe(deadline)
-            } else if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
-                client
-                    .finish(deadline)
-                    .map_err(|_| Outcome::RefusedBeforeWrite)
-            } else {
-                Ok(())
-            };
-            #[cfg(not(test))]
-            let result = if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
-                client
-                    .finish(deadline)
-                    .map_err(|_| Outcome::RefusedBeforeWrite)
-            } else {
-                Err(Outcome::RefusedBeforeWrite)
-            };
-            if result.is_err() {
+            if self.finish_image_witness(deadline).is_err() {
                 self.revoke_image();
                 return Err(Outcome::RefusedBeforeWrite);
+            }
+            #[cfg(feature = "product-image-witness")]
+            {
+                // Not authority by itself: the SAME original worker combines
+                // this with definitive phase + zero flights and publishes only
+                // AFTER this whole Session's fields have dropped.
+                self.product_witness_finished = true;
             }
         }
         #[cfg(not(feature = "developer-image-witness"))]
@@ -998,13 +1110,18 @@ impl Session {
         if self.lifetime.pid != self.binding.pid
             || !self.lifetime.running(gate)
             || !gate.reservation.as_ref().is_some_and(|r| {
-                Arc::ptr_eq(&r.identity, &self.identity)
-                    && !r.cancelled
-                    && !matches!(r.phase, Phase::Finished(_))
+                Arc::ptr_eq(&r.identity, &self.identity) && !r.cancelled && r.phase.accepts_proof()
             })
         {
             return Err(refuse);
         }
+        self.check_original_files(gate)
+    }
+
+    // Local original checks shared by proof and terminal-only retirement. No
+    // helper RPC/current-image capture, effect permission or deadline renewal.
+    fn check_original_files(&self, gate: &mut Gate) -> Result<(), Outcome> {
+        let refuse = Outcome::RefusedBeforeWrite;
         let path = &self.path;
         let parent = path.parent().ok_or(refuse)?;
         for metadata in [self.directory.metadata(), fs::symlink_metadata(parent)] {
@@ -1249,6 +1366,138 @@ impl Session {
         }
     }
 
+    #[cfg(feature = "developer-image-witness")]
+    fn finish_image_witness(&mut self, deadline: Instant) -> Result<(), Outcome> {
+        #[cfg(test)]
+        if let Some(probe) = &mut self.image_finish_probe {
+            return probe(deadline);
+        }
+        if let Some(ImageWitness::Bound(client)) = &mut self.image_witness {
+            client
+                .finish(deadline)
+                .map_err(|_| Outcome::RefusedBeforeWrite)
+        } else {
+            #[cfg(test)]
+            return Ok(());
+            #[cfg(not(test))]
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+    }
+
+    /// Detached terminal-only completion of this SAME before-effect session.
+    /// Clock expiry alone may be retired; poison/cancel/authorization/attempt
+    /// may not. The old mutation deadline is never changed or used as authority.
+    /// No owner/migration lock may be held by the caller.
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn retire_before_effect(mut self) -> Result<CloseEpochRetirement, Outcome> {
+        let original = self.cancellation();
+        let budget = RETIREMENT_BUDGET;
+        #[cfg(test)]
+        let budget = self.retirement_budget.unwrap_or(budget);
+        let deadline = Instant::now() + budget;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if self.effect_proof.is_some()
+                || !self.image_witness_selected()
+                || self.deadline.is_none()
+                || self.executable.is_none()
+            {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            remaining(deadline)?;
+            {
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_locked(&mut gate)?;
+                if !gate
+                    .reservation
+                    .as_ref()
+                    .is_some_and(|r| matches!(r.phase, Phase::BeforeEffect) && r.proofs == 0)
+                {
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
+                gate.reservation.as_mut().unwrap().phase = Phase::Retiring;
+            }
+            // Consume before the fallible terminal RPC. No ordinary proof,
+            // authorization or effect method accepts Retiring.
+            remaining(deadline)?;
+            {
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_retirement_locked(&mut gate)?;
+            }
+            self.finish_image_witness(deadline)?;
+            remaining(deadline)?;
+            {
+                let mut gate = self
+                    .lifetime
+                    .gate
+                    .lock()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?;
+                self.check_retirement_locked(&mut gate)?;
+                let reservation = gate
+                    .reservation
+                    .as_mut()
+                    .ok_or(Outcome::RefusedBeforeWrite)?;
+                reservation.cancelled = true;
+                reservation.phase = Phase::Finished(Outcome::RefusedBeforeWrite);
+                reservation.stream = None;
+            }
+            let gate = self
+                .lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            if !gate.live
+                || !gate.reservation.as_ref().is_some_and(|r| {
+                    Arc::ptr_eq(&r.identity, &self.identity)
+                        && matches!(r.phase, Phase::Finished(Outcome::RefusedBeforeWrite))
+                        && r.cancelled
+                        && r.proofs == 0
+                })
+            {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            Ok(())
+        }));
+        if !matches!(result, Ok(Ok(()))) {
+            self.revoke_image();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        drop(self); // ALL original session/channel/source fields, not ACK alone
+        if remaining(deadline).is_err() {
+            original.lifetime.revoke();
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        Ok(CloseEpochRetirement { original, deadline })
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    fn check_retirement_locked(&self, gate: &mut Gate) -> Result<(), Outcome> {
+        if self.lifetime.pid != self.binding.pid
+            || !self.lifetime.running(gate)
+            || !gate.reservation.as_ref().is_some_and(|r| {
+                Arc::ptr_eq(&r.identity, &self.identity)
+                    && matches!(r.phase, Phase::Retiring)
+                    && !r.cancelled
+                    && r.proofs == 0
+            })
+        {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        self.check_original_files(gate)
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn refuse_retirement(&self) {
+        self.revoke_image();
+    }
+
     fn finish(&mut self, candidate: Outcome) -> Outcome {
         // Definitive acceptance also proves the durable owner receipt outside
         // the gate, with its nonblocking lease retained through terminalization.
@@ -1407,6 +1656,14 @@ impl Session {
         source_path: &Path,
     ) -> Result<(), Outcome> {
         self.capture_executable_via_class(source_path, WitnessClass::InstalledRuntime)
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn capture_executable_via_product_witness(
+        &mut self,
+        source_path: &Path,
+    ) -> Result<(), Outcome> {
+        self.capture_executable_via_class(source_path, WitnessClass::Product)
     }
 
     #[cfg(feature = "developer-image-witness")]
@@ -1763,8 +2020,74 @@ impl Drop for Slot {
 }
 pub(crate) struct Worker {
     cancellation: Cancellation,
-    result: std::sync::mpsc::Receiver<Outcome>,
+    result: std::sync::mpsc::Receiver<WorkerResult>,
     thread: Option<std::thread::JoinHandle<()>>,
+}
+struct WorkerResult {
+    outcome: Outcome,
+    #[cfg(feature = "product-image-witness")]
+    product_retired: bool,
+}
+
+/// Constructed only from this original worker's after-Drop publication. No
+/// Clone, wire/boolean constructor or caller-selected session identity.
+#[cfg(feature = "product-image-witness")]
+pub struct CloseEpochCompletion {
+    outcome: Outcome,
+    original: Cancellation,
+    retired: bool,
+}
+#[cfg(feature = "product-image-witness")]
+pub struct CloseEpochRetirement {
+    original: Cancellation,
+    deadline: Instant,
+}
+#[cfg(feature = "product-image-witness")]
+impl CloseEpochRetirement {
+    pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
+        remaining(self.deadline).is_ok()
+            && Arc::ptr_eq(&self.original.identity, &expected.identity)
+            && Arc::ptr_eq(&self.original.lifetime, &expected.lifetime)
+            && self.original.lifetime.gate.lock().is_ok_and(|gate| {
+                gate.live && gate.reservation.is_none() && remaining(self.deadline).is_ok()
+            })
+    }
+    pub(crate) fn retirement_deadline(&self) -> Instant {
+        self.deadline
+    }
+}
+#[cfg(feature = "product-image-witness")]
+impl CloseEpochCompletion {
+    pub(crate) fn outcome(&self) -> Outcome {
+        self.outcome
+    }
+    pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
+        self.retired
+            && self.outcome == Outcome::Closed
+            && Arc::ptr_eq(&self.original.identity, &expected.identity)
+            && Arc::ptr_eq(&self.original.lifetime, &expected.lifetime)
+            && self.original.lifetime.gate.lock().is_ok_and(|gate| {
+                // Original session/stream fields and counted flights have gone;
+                // observed lifetime poison may never be renewed.
+                gate.live && gate.reservation.is_none()
+            })
+    }
+}
+
+#[cfg(feature = "product-image-witness")]
+impl Session {
+    fn product_retirement_ready(&self, outcome: Outcome) -> bool {
+        self.product_witness_finished
+            && outcome == Outcome::Closed
+            && self.lifetime.gate.lock().is_ok_and(|gate| {
+                gate.live
+                    && gate.reservation.as_ref().is_some_and(|r| {
+                        Arc::ptr_eq(&r.identity, &self.identity)
+                            && matches!(r.phase, Phase::Finished(Outcome::Closed))
+                            && r.proofs == 0
+                    })
+            })
+    }
 }
 impl Scheduler {
     pub(crate) fn start(
@@ -1802,11 +2125,17 @@ impl Scheduler {
                     Ok(outcome) => outcome,
                     Err(_) => session.finish(Outcome::Unknown),
                 };
+                #[cfg(feature = "product-image-witness")]
+                let product_retired = session.product_retirement_ready(outcome);
                 // Release retained descriptors and this exact reservation
                 // before result publication or worker-slot release.
                 drop(session);
                 drop(slot);
-                let _ = sender.try_send(outcome);
+                let _ = sender.try_send(WorkerResult {
+                    outcome,
+                    #[cfg(feature = "product-image-witness")]
+                    product_retired,
+                });
                 #[cfg(test)]
                 if let Some(barrier) = after_publish {
                     barrier.wait();
@@ -1825,7 +2154,19 @@ impl Worker {
     pub(crate) fn cancel(&self) {
         self.cancellation.cancel();
     }
+    #[cfg(any(test, not(feature = "product-image-witness")))]
     pub(crate) fn poll(&mut self) -> Option<Outcome> {
+        self.poll_original().map(|result| result.outcome)
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn poll_epoch(&mut self) -> Option<CloseEpochCompletion> {
+        self.poll_original().map(|result| CloseEpochCompletion {
+            outcome: result.outcome,
+            original: self.cancellation.clone(),
+            retired: result.product_retired,
+        })
+    }
+    fn poll_original(&mut self) -> Option<WorkerResult> {
         let result = self.result.try_recv().ok();
         if self
             .thread
@@ -1919,6 +2260,65 @@ mod tests {
     // Serialize their fixture lifetime; core-side concurrent confirmation is
     // independently exercised by the Go race matrix, not this host fixture.
     static FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn inert_preview_origin_metadata_rejects_every_identity_component_change() {
+        // DATA comparison only: neither numeric model nor Arc is live authority.
+        let lifetime = Arc::new(Lifetime::new(17));
+        let identity = FileIdentity {
+            inode: (1, 2),
+            size: 64,
+            mode: 0o100755,
+            owner: 0,
+            change: (1, 0),
+            modified: (1, 0),
+        };
+        let make = || PreviewOrigin {
+            binding: Binding {
+                pid: 17,
+                uid: 1000,
+                directory: (1, 3),
+                socket: (1, 4),
+            },
+            lifetime: Arc::clone(&lifetime),
+            image: identity,
+            source: identity,
+            package: Some(package_evidence::release_pair::Fingerprint::data_for_test(
+                identity,
+            )),
+        };
+        let original = make();
+        assert!(original.same_metadata(&make()));
+        for cut in [
+            "pid",
+            "uid",
+            "directory",
+            "socket",
+            "lifetime",
+            "image",
+            "source",
+            "package",
+        ] {
+            let mut other = make();
+            match cut {
+                "pid" => other.binding.pid += 1,
+                "uid" => other.binding.uid += 1,
+                "directory" => other.binding.directory.1 += 1,
+                "socket" => other.binding.socket.1 += 1,
+                "lifetime" => other.lifetime = Arc::new(Lifetime::new(17)),
+                "image" => other.image.inode.1 += 1,
+                "source" => other.source.inode.1 += 1,
+                _ => {
+                    let mut changed = identity;
+                    changed.change.0 += 1;
+                    other.package = Some(
+                        package_evidence::release_pair::Fingerprint::data_for_test(changed),
+                    );
+                }
+            }
+            assert!(!original.same_metadata(&other), "{cut}");
+        }
+    }
     #[test]
     fn strict_targets_refuse_duplicates_noncanonical_tokens_and_arbitrary_paths() {
         assert!(

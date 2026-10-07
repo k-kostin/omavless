@@ -66,6 +66,30 @@ The native R6 path is accepted; use the
 [installation/recovery guide](../../docs/user/NATIVE_INSTALL.md) and retain its
 exact host evidence and limitations.
 
+## Opt-in product-image development payload
+
+The explicit five-argument local mode is:
+
+```text
+build-local-package.sh BUILD_DIR RUNTIME_ELF SOURCE_SHA --product-image-witness HELPER_ELF
+```
+
+Both separately prebuilt native ELF inputs are inspected, not executed. Schema4
+identity records runtime/helper hashes and explicit opt-in selection; this is
+caller-supplied source provenance, not toolchain attestation. The payload adds
+`/usr/lib/omavless-image/omavless-image-witness` and its inactive root system unit,
+with no Install target or automatic restart. Existing runtime/login user units
+are byte-identical and normal daemon does not expose close in a product-feature
+build without explicit mode. The development dependency is the managed DNS
+package; native admission still requires its distinct close-qualified evidence.
+
+Installation does not enroll, enable/start the helper, change profiles/ownership,
+or select product mode. After review, ROOT separately selects fixed root
+`--enroll-product UID`, helper service startup and foreground
+`omavless daemon --product-image-witness`. See the
+[epoch/enrollment contract](../../docs/development/T3_PRODUCT_WITNESS_EPOCHS.md).
+No host or release acceptance follows from inert staging.
+
 ## Candidate and stable assembly
 
 The optional fourth argument `--candidate` selects only the checked-in Cargo

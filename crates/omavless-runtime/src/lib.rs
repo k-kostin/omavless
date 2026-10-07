@@ -387,6 +387,35 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_preview(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::ClosePreviewReady,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError>;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::CloseConfirmedDiscovery,
+    ) -> std::result::Result<
+        Option<mutation::ExternalCloseReceipt>,
+        native_coordinator::NativeOwnerError,
+    >;
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&mut self) -> lifecycle::CloseRegistration;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_retired(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::CloseRetired,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<
+        native_coordinator::connection_close::CloseDiscovery,
+        native_coordinator::NativeOwnerError,
+    >;
     #[cfg(feature = "developer-conditional-close")]
     fn developer_close(
         &mut self,
@@ -709,6 +738,45 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_preview(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::ClosePreviewReady,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError> {
+        self.retain_product_close_preview(result)
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::CloseConfirmedDiscovery,
+    ) -> std::result::Result<
+        Option<mutation::ExternalCloseReceipt>,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.owner
+            .batch_coordinator()
+            .complete_product_confirm(result)
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&mut self) -> lifecycle::CloseRegistration {
+        self.owner.batch_coordinator().host().close_registration()
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_retired(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::CloseRetired,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<
+        native_coordinator::connection_close::CloseDiscovery,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.retire_developer_close(result)
+    }
     #[cfg(feature = "developer-conditional-close")]
     fn developer_close(
         &mut self,
@@ -1297,6 +1365,18 @@ impl RuntimeServer {
         Self::bind_with_owner_factory(
             paths,
             production_owner::ProductionNativeOwner::current_development_image,
+        )
+    }
+
+    /// Optional SOURCE candidate through the SAME ordinary current owner. No
+    /// default CLI flag, service activation, enrollment or repeated-operation
+    /// acceptance is implied by construction; every snapshot still needs fresh
+    /// original image/controller/package proof and terminal/drain admission.
+    #[cfg(feature = "product-image-witness")]
+    pub fn bind_current_product_image(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(
+            paths,
+            production_owner::ProductionNativeOwner::current_product_image,
         )
     }
 
@@ -2238,7 +2318,12 @@ fn dispatch_native(
         },
         "capabilities.get" if empty_params(request) => {
             #[cfg(feature = "developer-conditional-close")]
-            let development_methods = developer_connection_close::METHODS;
+            let development_methods = match owner.close_registration() {
+                lifecycle::CloseRegistration::Disabled => &[][..],
+                lifecycle::CloseRegistration::Developer | lifecycle::CloseRegistration::Product => {
+                    developer_connection_close::METHODS
+                }
+            };
             #[cfg(not(feature = "developer-conditional-close"))]
             let development_methods: &[&str] = &[];
             let methods: Vec<_> = READ_ONLY_METHODS
@@ -2270,11 +2355,20 @@ fn dispatch_native(
                 .copied()
                 .filter(|method| *method != "startup.configure" || owner.startup_available())
                 .collect();
-            json!({
+            let result = json!({
                 "runtimeOwnership": runtime_ownership,
                 "mutations": runtime_ownership,
                 "methods": methods
-            })
+            });
+            #[cfg(feature = "product-image-witness")]
+            let result = {
+                let mut result = result;
+                if owner.close_registration() == lifecycle::CloseRegistration::Product {
+                    result["connectionCloseView"] = json!("inert-preview-v1");
+                }
+                result
+            };
+            result
         }
         "status.get" | "capabilities.get" => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
@@ -2533,6 +2627,8 @@ mod tests {
     const SUBSCRIPTION_ID: &str = "10000000-0000-4000-8000-000000000001";
 
     struct FakeHost {
+        #[cfg(feature = "product-image-witness")]
+        close_registration: lifecycle::CloseRegistration,
         auxiliary: Option<Arc<auxiliary_core::AuxiliarySlot>>,
         probe_paths: Option<(PathBuf, PathBuf)>,
         observation: OwnedObservation,
@@ -2586,6 +2682,10 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        #[cfg(feature = "product-image-witness")]
+        fn close_registration(&self) -> lifecycle::CloseRegistration {
+            self.close_registration
+        }
         fn probe_paths(&self) -> Option<(PathBuf, PathBuf)> {
             self.probe_paths.clone()
         }
@@ -2983,6 +3083,8 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            #[cfg(feature = "product-image-witness")]
+            close_registration: lifecycle::CloseRegistration::Disabled,
             auxiliary: None,
             probe_paths: None,
             lifecycle_effects: Arc::new(AtomicUsize::new(0)),
@@ -3042,7 +3144,13 @@ mod tests {
     fn developer_close_socket_is_semantic_and_unsupported_hosts_refuse() {
         let base = temporary_base("dev-close");
         let paths = RuntimePaths::below(&base.join("runtime"));
-        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        #[allow(unused_mut)] // explicit selection is absent without product feature
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        #[cfg(feature = "product-image-witness")]
+        {
+            owner.batch_coordinator().host_mut().close_registration =
+                lifecycle::CloseRegistration::Developer;
+        }
         let mut server = RuntimeServer::bind(paths.clone()).unwrap();
         server.register_native_owner(
             owner,
@@ -3097,6 +3205,69 @@ mod tests {
         assert_eq!(status["revision"], 0);
         worker.join().unwrap();
         assert_eq!(calls.load(Ordering::Relaxed), count_before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_preview_view_hint_comes_from_actual_registered_server_serialization() {
+        let base = temporary_base("product-view-wire");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().close_registration =
+            lifecycle::CloseRegistration::Product;
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+        let wire = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(wire["ok"], true);
+        assert_eq!(wire["result"]["connectionCloseView"], "inert-preview-v1");
+        for method in developer_connection_close::METHODS {
+            assert!(
+                wire["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v == method)
+            );
+        }
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_compiled_ordinary_socket_does_not_advertise_or_route_close() {
+        let base = temporary_base("ordinary-no-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let instance = server.instance_id.clone();
+        let before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        for method in developer_connection_close::METHODS {
+            assert!(
+                !caps["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|value| value == method)
+            );
+            let reply = call(&paths, method, json!({"instanceId": instance})).unwrap();
+            assert_eq!(reply["error"]["code"], "unknown_method");
+        }
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), before);
         fs::remove_dir_all(base).unwrap();
     }
 

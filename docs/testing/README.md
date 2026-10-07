@@ -20,6 +20,10 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [Exact B Product target-loss gate](T3_PRODUCT_TARGET_LOSS_2026-10-07.md):
+  scoped x86_64 installed generic refusal after actual target disappearance,
+  fresh selected close and normal original cleanup; no finer wire-cause claim
+  or default/whole-T3 acceptance.
 - [0.9.7 RC ledger](../development/RC_097.md): maintenance selection and
   explicit package, installed-rendering and publication gates; not a new
   installed or public acceptance claim.

@@ -21,6 +21,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "product-image-witness")]
+include!("connection_close_preview.rs");
+
 const CONFIRMATION_LIFETIME: Duration = Duration::from_secs(5);
 const ENTROPY_LIMIT: usize = 1024;
 
@@ -58,6 +61,8 @@ mod tests {
     include!("connection_close_image_witness.rs");
     #[cfg(feature = "developer-image-witness")]
     include!("connection_close_image_flight_tests.rs");
+    #[cfg(feature = "product-image-witness")]
+    include!("connection_close_preview_tests.rs");
     #[cfg(feature = "developer-conditional-close")]
     #[test]
     #[ignore = "ROOT-reviewed fresh normal-package-path qualification namespace only"]
@@ -2571,6 +2576,7 @@ struct Snapshot {
 struct Pending {
     handle: OpaqueToken,
     ticket: OpaqueToken,
+    expiry: Instant,
 }
 struct ActiveClose {
     token: ExternalCloseToken,
@@ -2585,6 +2591,10 @@ pub(super) struct CloseState {
     cancellation: Option<Cancellation>,
     scheduler: Scheduler,
     active: Option<ActiveClose>,
+    #[cfg(feature = "product-image-witness")]
+    retiring: Option<Arc<()>>,
+    #[cfg(feature = "product-image-witness")]
+    preview: Option<InertPreview>,
 }
 impl CloseState {
     fn entropy(&mut self) -> Result<OpaqueToken, NativeOwnerError> {
@@ -2630,6 +2640,10 @@ impl CloseState {
         self.pending = None;
         self.snapshot = None;
         self.discovery = None;
+        #[cfg(feature = "product-image-witness")]
+        {
+            self.preview = None;
+        }
     }
 }
 
@@ -2638,6 +2652,8 @@ pub(crate) struct CloseDiscovery {
     context: Context,
     expiry: Instant,
     observation: CloseObservation,
+    #[cfg(feature = "product-image-witness")]
+    product_preview: bool,
 }
 pub(crate) struct CloseDiscovered {
     identity: Arc<()>,
@@ -2645,6 +2661,46 @@ pub(crate) struct CloseDiscovered {
     expiry: Instant,
     observation: CloseObservation,
     rows: Vec<ObservedRow>,
+}
+
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct CloseRetirement {
+    identity: Arc<()>,
+    snapshot: Snapshot,
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct CloseRetired {
+    identity: Arc<()>,
+    context: Context,
+    original: crate::conditional_close_candidate::CloseEpochRetirement,
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) enum CloseSnapshotAdmission {
+    Discover(CloseDiscovery),
+    Retire(CloseRetirement),
+}
+#[cfg(feature = "product-image-witness")]
+impl CloseRetirement {
+    /// Only one owner-installed task owns this SAME old snapshot. Errors revoke
+    /// its original lifetime; they never yield a new-session or retry permit.
+    pub(crate) fn retire(self) -> Result<CloseRetired, NativeOwnerError> {
+        let Snapshot {
+            context,
+            expiry: _,
+            observation,
+            rows,
+        } = self.snapshot;
+        drop(rows); // all old handles/targets are gone, never a new selection
+        let original = observation
+            .into_session()
+            .retire_before_effect()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        Ok(CloseRetired {
+            identity: self.identity,
+            context,
+            original,
+        })
+    }
 }
 impl CloseDiscovery {
     /// Run outside the actual owner's mutex AND migration lease.
@@ -2677,6 +2733,99 @@ impl CloseDiscovery {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn admit_connection_close_snapshot(
+        &mut self,
+    ) -> Result<CloseSnapshotAdmission, NativeOwnerError> {
+        if self.connection_close.retiring.is_some() {
+            if self.host().close_epoch_admission() == crate::lifecycle::CloseEpochAdmission::Refused
+            {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Busy {
+            return self
+                .capture_connection_close()
+                .map(CloseSnapshotAdmission::Discover);
+        }
+        if self.connection_close.active.is_some() || self.connection_close.discovery.is_some() {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        let _lease = self.batch_lock()?;
+        let snapshot = self
+            .connection_close
+            .snapshot
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if let Err(error) = self.close_context_matches(&snapshot.context) {
+            self.host_mut().refuse_close_epoch();
+            return Err(error);
+        }
+        if !self.host().matches_close_retirement(&snapshot.observation) {
+            self.host_mut().refuse_close_epoch();
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let identity = Arc::new(());
+        // Install the nonreusable owner slot BEFORE moving the old Session.
+        self.connection_close.retiring = Some(Arc::clone(&identity));
+        self.connection_close.pending = None;
+        let snapshot = self
+            .connection_close
+            .snapshot
+            .take()
+            .ok_or(NativeOwnerError::Invariant)?;
+        Ok(CloseSnapshotAdmission::Retire(CloseRetirement {
+            identity,
+            snapshot,
+        }))
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn complete_connection_close_retirement(
+        &mut self,
+        result: Result<CloseRetired, NativeOwnerError>,
+    ) -> Result<CloseDiscovery, NativeOwnerError> {
+        let result = (|| {
+            let retired = result?;
+            if !self
+                .connection_close
+                .retiring
+                .as_ref()
+                .is_some_and(|identity| Arc::ptr_eq(identity, &retired.identity))
+                || Instant::now() >= retired.original.retirement_deadline()
+            {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            let _lease = self.batch_lock()?;
+            self.close_context_matches(&retired.context)?;
+            if Instant::now() >= retired.original.retirement_deadline() {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            self.host_mut().complete_close_retirement(&retired.original);
+            if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Ready {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(retired.original.retirement_deadline())
+        })();
+        match result {
+            Ok(deadline) if Instant::now() < deadline => (),
+            Ok(_) => {
+                self.host_mut().refuse_close_epoch();
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Err(error) => {
+                self.host_mut().refuse_close_epoch();
+                // Retiring stays occupied, including Busy/late/context drift.
+                return Err(error);
+            }
+        }
+        self.connection_close.retiring = None;
+        // This is the explicit Snapshot request's next stage, not a retry of
+        // old authority. Capture checks capacity/context again before acquisition.
+        self.capture_connection_close()
+    }
+
     pub(super) fn invalidate_connection_close(&mut self) {
         self.connection_close.invalidate();
     }
@@ -2762,6 +2911,46 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(crate) fn capture_connection_close(&mut self) -> Result<CloseDiscovery, NativeOwnerError> {
+        self.capture_connection_close_inner(None)
+    }
+
+    fn capture_connection_close_inner(
+        &mut self,
+        confirmation: Option<&ExternalCloseToken>,
+    ) -> Result<CloseDiscovery, NativeOwnerError> {
+        #[cfg(not(feature = "product-image-witness"))]
+        let _ = confirmation;
+        #[cfg(feature = "product-image-witness")]
+        if confirmation
+            .is_some_and(|token| !self.coordinator.external_close_reservation_current(token))
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        #[cfg(feature = "product-image-witness")]
+        let preview_requested = confirmation.is_none();
+        #[cfg(feature = "product-image-witness")]
+        let product = match self.host().close_epoch_admission() {
+            crate::lifecycle::CloseEpochAdmission::Legacy => false,
+            crate::lifecycle::CloseEpochAdmission::Ready => true,
+            crate::lifecycle::CloseEpochAdmission::Busy => {
+                return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+            }
+            crate::lifecycle::CloseEpochAdmission::Refused => {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+        };
+        #[cfg(feature = "product-image-witness")]
+        if product
+            && preview_requested
+            && (!self.coordinator.close_receipt_capacity_available()
+                || self.connection_close.issued.len()
+                    > ENTROPY_LIMIT - (crate::conditional_close_candidate::MAX_ROWS + 1))
+        {
+            // Reserve room for a complete maximum-row snapshot AND its one
+            // confirmation before source/controller/pidfd/helper acquisition.
+            // Never evict previous opaque handles/tickets to create authority.
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
         self.invalidate_connection_close();
         if self.connection_close.active.is_some() {
             return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
@@ -2775,11 +2964,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.connection_close.cancellation = Some(observation.session().cancellation());
         let identity = Arc::new(());
         self.connection_close.discovery = Some(Arc::clone(&identity));
+        #[cfg(feature = "product-image-witness")]
+        let product_preview = product && preview_requested;
+        #[cfg(feature = "product-image-witness")]
+        if product_preview {
+            self.connection_close.retiring = Some(Arc::clone(&identity));
+        }
         Ok(CloseDiscovery {
             identity,
             context,
             expiry: Instant::now() + CONFIRMATION_LIFETIME,
             observation,
+            #[cfg(feature = "product-image-witness")]
+            product_preview,
         })
     }
 
@@ -2835,6 +3032,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         handle: OpaqueToken,
     ) -> Result<CloseConfirmation, NativeOwnerError> {
         self.connection_close.pending = None;
+        #[cfg(feature = "product-image-witness")]
+        if self.connection_close.preview.is_some() {
+            return self.prepare_product_preview(handle);
+        }
         let _lease = self.batch_lock()?;
         let snapshot = self
             .connection_close
@@ -2854,8 +3055,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .ok_or(NativeOwnerError::RecordNotFound)?
             .display
             .clone();
+        let expiry = snapshot.expiry;
         let ticket = self.connection_close.entropy()?;
-        self.connection_close.pending = Some(Pending { handle, ticket });
+        self.connection_close.pending = Some(Pending {
+            handle,
+            ticket,
+            expiry,
+        });
         Ok(CloseConfirmation { ticket, display })
     }
 
@@ -2866,6 +3072,35 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         handle: OpaqueToken,
         ticket: OpaqueToken,
     ) -> Result<Option<ExternalCloseReceipt>, NativeOwnerError> {
+        let token =
+            match self.reserve_connection_close(operation_id, expected_revision, handle, ticket)? {
+                ExternalCloseAdmission::Replay(receipt) => return Ok(Some(receipt)),
+                ExternalCloseAdmission::Reserved(token) => token,
+            };
+        let result = self.confirm_connection_close_reserved(handle, ticket, &token);
+        match result {
+            Ok(None) => Ok(None),
+            Ok(Some(outcome)) => self
+                .coordinator
+                .finish_external_close(&token, outcome)
+                .map(Some)
+                .map_err(Into::into),
+            Err(error) => {
+                self.invalidate_connection_close();
+                self.coordinator
+                    .finish_external_close(&token, ExternalCloseOutcome::RefusedBeforeWrite)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn reserve_connection_close(
+        &mut self,
+        operation_id: &str,
+        expected_revision: u64,
+        handle: OpaqueToken,
+        ticket: OpaqueToken,
+    ) -> Result<ExternalCloseAdmission, NativeOwnerError> {
         let mut semantic = b"omavless-owner-single-conditional-close-v1\0".to_vec();
         let instance = self
             .batch
@@ -2882,30 +3117,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .batch
             .as_ref()
             .is_some_and(|state| state.registry.has_operation_id(operation_id));
-        let token = match self.coordinator.reserve_external_close(
+        Ok(self.coordinator.reserve_external_close(
             operation_id,
             expected_revision,
             MutationDigest::from_semantic_bytes(&semantic),
             long_id,
-        )? {
-            ExternalCloseAdmission::Replay(receipt) => return Ok(Some(receipt)),
-            ExternalCloseAdmission::Reserved(token) => token,
-        };
-        let result = self.confirm_connection_close_reserved(handle, ticket, &token);
-        match result {
-            Ok(None) => Ok(None),
-            Ok(Some(outcome)) => self
-                .coordinator
-                .finish_external_close(&token, outcome)
-                .map(Some)
-                .map_err(Into::into),
-            Err(error) => {
-                self.invalidate_connection_close();
-                self.coordinator
-                    .finish_external_close(&token, ExternalCloseOutcome::RefusedBeforeWrite)?;
-                Err(error)
-            }
-        }
+        )?)
     }
 
     fn confirm_connection_close_reserved(
@@ -3012,19 +3229,28 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let Some(active) = self.connection_close.active.as_mut() else {
             return Ok(None);
         };
+        #[cfg(not(feature = "product-image-witness"))]
         let Some(outcome) = active.worker.poll() else {
             return Ok(None);
         };
+        #[cfg(feature = "product-image-witness")]
+        let Some(completed) = active.worker.poll_epoch() else {
+            return Ok(None);
+        };
+        #[cfg(feature = "product-image-witness")]
+        let outcome = completed.outcome();
         let active = self
             .connection_close
             .active
             .take()
             .ok_or(NativeOwnerError::Invariant)?;
         self.connection_close.cancellation = None;
-        self.coordinator
-            .finish_external_close(&active.token, outcome.into())
-            .map(Some)
-            .map_err(Into::into)
+        let receipt = self
+            .coordinator
+            .finish_external_close(&active.token, outcome.into())?;
+        #[cfg(feature = "product-image-witness")]
+        self.host_mut().complete_close_epoch(&completed);
+        Ok(Some(receipt))
     }
 
     #[cfg(feature = "developer-conditional-close")]
