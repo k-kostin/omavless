@@ -305,6 +305,94 @@ fn native_intent_pause_identical_pair_uses_aborted_not_committed_proof() {
 
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
+fn normal_pair_completed_restore_replays_then_denies_nested_entry_without_poisoning() {
+    use crate::private_pair_api::{Action, Request};
+    let mut f = Fixture::new();
+    let input = |method: &str, id, revision, destination: &Path| {
+        Request::parse(method, &serde_json::json!({"schema":1,"archive":destination,
+            "passphrase":std::str::from_utf8(PASSWORD).unwrap(),
+            "confirmation":if method=="backup.restore" {"replace-current-private-pair"} else {"export-current-private-pair"},
+            "instanceId":"local-engine-control","operationId":id,"expectedRevision":revision})).unwrap().0
+    };
+    let first = input("backup.restore", "first-restore", 0, &f.backup);
+    let result = f
+        .owner
+        .execute_normal_pair(&first, Action::Restore)
+        .unwrap();
+    assert!(result.error.is_none());
+    assert_eq!(result.revision, 1);
+    assert!(!f.owner.transaction.original_lease_vacant());
+    let before = fs::read(&f.store).unwrap();
+    let inode = fs::metadata(&f.store).unwrap().ino();
+    let history = fs::read(f.state().join("restore-disposition.history")).unwrap();
+    assert_eq!(
+        f.owner
+            .execute_normal_pair(&first, Action::Restore)
+            .unwrap(),
+        result
+    );
+    let nested = input("backup.restore", "fresh-restore", 1, &f.backup);
+    assert_eq!(
+        f.owner.execute_normal_pair(&nested, Action::Restore),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    );
+    assert!(
+        !f.owner
+            .coordinator
+            .operation_id_in_use("fresh-restore")
+            .unwrap()
+    );
+    assert!(!f.owner.retained_restore_busy());
+    assert!(!f.owner.coordinator.pair_abandoned());
+    assert!(!crate::pending_private_transaction::pending_at(&f.state()));
+    assert_eq!(f.owner.revision(), 1);
+    assert_eq!(fs::read(&f.store).unwrap(), before);
+    assert_eq!(fs::metadata(&f.store).unwrap().ino(), inode);
+    assert_eq!(
+        fs::read(f.state().join("restore-disposition.history")).unwrap(),
+        history
+    );
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    // Unrelated read-only export borrows that SAME installed ordinary lease.
+    let export = f.root.join("after-completion.ovb");
+    let backup = input("backup.create", "next-backup", 1, &export);
+    assert!(
+        f.owner
+            .execute_normal_pair(&backup, Action::Create)
+            .unwrap()
+            .error
+            .is_none()
+    );
+    assert_eq!(f.owner.revision(), 1);
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    let onboarding = crate::make_request(
+        "ordinary-after-pair",
+        "onboarding.complete",
+        serde_json::json!({"operationId":"ordinary-after-pair","expectedRevision":1}),
+    )
+    .unwrap();
+    assert!(matches!(
+        f.owner.execute_onboarding(&onboarding).unwrap(),
+        NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+    ));
+    assert_eq!(f.owner.revision(), 2);
+    assert_eq!(
+        f.owner
+            .execute_normal_pair(&first, Action::Restore)
+            .unwrap(),
+        result
+    );
+    assert!(!f.owner.retained_restore_busy());
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
 fn native_committed_completion_retains_new_pair_and_one_original_ordinary_lease() {
     let mut f = Fixture::new();
     let original = f.owner.transaction.acquire_lock().unwrap();

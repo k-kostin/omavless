@@ -738,6 +738,18 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         request: &crate::private_pair_api::Request,
         action: crate::private_pair_api::Action,
     ) -> Result<crate::mutation::CachedOutcome, NativeOwnerError> {
+        // Historical result data first, never an engine invocation or grant.
+        if let Some(result) = self.normal_pair_replay(request, action)? {
+            return Ok(result);
+        }
+        if action == crate::private_pair_api::Action::Restore
+            && !self.transaction.original_lease_vacant()
+        {
+            // The occupied original keeper cannot yield a second owned Flock.
+            // Refuse before reservation, authentication, slot install or effects;
+            // do not poison that still-usable ordinary owner as UNKNOWN.
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
         if self
             .batch
             .as_ref()

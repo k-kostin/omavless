@@ -91,6 +91,12 @@ not eight VM executions or the durable history limit. Exhaustion refuses before
 backend work, without eviction or audit purge. A fresh daemon independently
 earns startup/reconciliation, never copies cached authority. Owned-only original
 lease admission and nested Original-borrowed Restore refusal remain unchanged.
+A new Restore ID with an occupied original lease keeper returns
+`capability_unavailable` before result reservation or engine entry. It leaves
+ordinary Backup/mutation eligibility unchanged; exact historical Restore replay
+remains first and never runs the engine. This is not a second owning lease or
+same-daemon repeated Restore grant. Capability advertisement is descriptive,
+not a reservation or bypass of this per-request predicate.
 
 ## Gates and next acceptance
 
@@ -103,11 +109,15 @@ exercise wrong-passphrase, archive `0400` and existing-destination denials,
 then a valid different-ID Backup on the same coordinator. They assert no held
 Restore slot, unchanged whole live bytes/metadata/revision, no pending members
 and no lifecycle calls. This local backend control is not a genuine-current
-factory substitution or installed normal-API acceptance.
+factory substitution or installed normal-API acceptance. A separate actual local
+retained-engine control performs NEW/Committed completion and original lease
+transfer, exact replay, fresh-ID nested refusal without reservation, a different
+Backup borrowing the same original lease, and an ordinary onboarding mutation.
+The older cached Restore result remains historical data after that mutation.
 Default dispatch must still reject both methods. Full changed custody/security
 review precedes any VM selection.
 
-Focused SOURCE gates: `normal_pair` 9 PASS, `pair_operation::tests` 3 PASS,
+Focused SOURCE gates: `normal_pair` 10 PASS, `pair_operation::tests` 3 PASS,
 `mutation::tests` 28 PASS (overlapping filters, not a summed total), and the
 default-dispatch absence regression 1 PASS. Strict runtime all-target Clippy
 passes for no-default plus opt-in, default plus opt-in, and default without
