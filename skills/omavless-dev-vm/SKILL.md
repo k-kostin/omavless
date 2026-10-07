@@ -66,6 +66,30 @@ is administrative recovery, never proof of product rollback.
 
 ## Handoff and retention
 
+### Graphical preflight before a short confirmation window
+
+Check the actual guest pixels, monitor scale/DPMS, focused window and terminal
+rows/columns **before** requesting an expiring product confirmation. Quickshell
+can own the lock layer: `hyprctl activewindow` may still name the obscured app,
+and `loginctl` alone does not prove the rendered screen is unlocked. Observe the
+password prompt and unlock normally; do not send app keys to a covered window.
+
+For an authorized unattended development guest, inspect its installed
+`omarchy-toggle-idle` command and record `status`; the normal `stay-awake` mode
+prevents idle lock/screensaver during the test. Restore the prior mode afterwards.
+This changes only the selected guest's ordinary idle preference, not encryption,
+manual authentication or formal human-attended acceptance. If DPMS is off, use
+the guest's installed brightness/display command and verify a new rendered frame.
+Do not stop lock services or edit the physical host's idle configuration.
+
+Retain the effective scale, window rectangle, font and terminal size with visual
+evidence. Matching coarse character dimensions does not prove identical glyph
+rasterization; a fresh setup can require new independently reviewed references.
+Measure the real observe/capture/input path with no product keys first. Separate
+no-key diagnostic time from the native confirmation deadline, and never extend
+that deadline or weaken image checks to make a slow operator pass. A failed
+driver's keys-sent marker is not a native outcome; preserve its original result.
+
 For firewall or routing experiments, establish a private bidirectional serial
 console and bounded private capture **before** changing guest networking. SSH
 may be blocked by the protection being tested. Prefer a Unix-socket QEMU
