@@ -124,7 +124,12 @@ volatile lock files after reboot likewise remain unavailable, not repaired from
 history or Aborted bytes. These limitations keep cold bootstrap and repeated
 ordinary completion outside this source cut.
 
-#### Installed current43 source driver (not yet selected)
+#### Installed current43 driver and exact accepted scope
+
+The separately selected installed gate completed at exact normal runtime
+`d0ab2e16` and recovery test source `68809402`; see the
+[Current43 evidence](../testing/T4_CURRENT_INTENT_VM_2026-10-07.md#current43-typed-denials-and-new-authenticated-oldintent-abort).
+Its result is AbortedStillFenced, not history disposition or ordinary admission.
 
 The feature-and-test-only `native_current_recovery_vm_tests` has five separately
 selected originals, not a dispatcher, startup factory or automatic scenario.

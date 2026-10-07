@@ -163,3 +163,73 @@ not fatal descriptor survival, late reactivation, unknown/cold recovery, default
 Restore activation or whole T4. Private inputs, plaintext, ciphertext, archives
 and raw captures remain outside Git. Administrative preservation/poweroff is
 separate from product recovery and cannot be used as a passed cleanup step.
+
+## Current43 typed denials and new authenticated OLD/Intent Abort
+
+ROOT alone operated the preserved compatible disposable VM boot
+`6b0d1741-3acc-4cc1-9a58-a32bfa9e0be2`. Normal installed runtime is exact
+`d0ab2e1601dc7f0f7663b0e2ccda3e4d092a356e`, ELF8,962,728 bytes / SHA-256
+`4f9115e1a2be9508a4ac08d7aa6554317f279d136a2174788a2e169b47c40a9e`.
+The distinct no-default developer-feature recovery test image is exact source
+`688094027a463915f0f0b652da25eabd29deccf7`, ELF25,145,696 bytes / SHA-256
+`4415c300659e67b73beedefba80d8c977c4acadfe2f7189ba2050d4d7d8edb2e`.
+The installed daemon was not rebuilt or silently relabeled as688. Whole
+LegacyMeta2 compatibility, genuine normal login/current construction and the
+existing private audit history were earned/preserved separately.
+
+PRIMARY and independent source/driver/preparation/publication reviews preceded
+selection. The author compiled/sealed images but did not execute them or access
+the VM. Twelve publication-script pure controls and literal-only boot/image-pin
+comparisons were source evidence, not original-process outcomes. The sender
+image was1,100,368 bytes / SHA-256
+`fd8172f81e198edbb476637f66f8141b625657ff07cd227fe945949a7e3f7d6d`.
+Private inputs, archive, profiles, template and raw captures remain outside Git.
+
+All originals and the distinct observations below completed exit0:
+
+| Cut | Original / separate observation | Exact scope |
+| --- | --- | --- |
+| Preparation/export | `e39dba`, `037df3` / `21db7b`; `235bc3` / `bfd62e` | Fresh fixed private archive/request from genuine current backup; original instance/revision correlation only |
+| Publication baseline | `2c972a` | Original unit/hello/status/cursor correlation, not an authority grant |
+| Strict read-only preflight | `6cafe6` / `042b53` | Current guards valid; normal hello/status only, no effecting request |
+| One loss sender | `aaa853` | Complete six-label prefix; read shutdown before request byte0, no reply or retry |
+| After-cursor journal/seal | `f43932` / `7c200a` | Source-closed original publication seal, not client-loss inference |
+| SAME live continuation reads | `25e62c`, `0c1e18`, `d96d01` / `336ab3` | Same daemon/instance/revision, unavailable Off |
+| New Pause denial | `a59217` / `2e6d99` | Exact nonretryable capability_unavailable; original facts unchanged |
+| New Abort denial | `969abf` / `47ef3a` | Exact nonretryable capability_unavailable; original facts unchanged |
+| New Backup denial | `79bab5` / `d1380c` | Exact nonretryable capability_unavailable; original facts unchanged |
+| New Restore denial | `e98f42` / `0f07e5` | Exact nonretryable capability_unavailable; original facts unchanged |
+| Known normal runtime stop | `c9a699` / `7fa69e`, `7b5a6e` | Canonical unit inactive/dead, both PIDs0, success/status0 |
+| New authenticated OLD/Intent Abort | `e79972` / `e4ef79` | Original recovery test0 plus exact marker/successful harness; AbortedStillFenced |
+
+The four denials prove only that each newly requested operation refused before
+entry. They do not make the preceding sealed operation effect-free, resumable or
+retriable. Exact private held/named bytes, full-nine-field directories and
+normal projections were checked against the same original facts, including
+preserved staged data, Intent, archive/request and audit history.
+
+Only after the known normal daemon stop0 did a new preinstalled recovery holder
+authenticate the archive and positively acquire the existing original migration
+and singleton locks. It did not copy the former live holder, create/recreate a
+lock, reconnect the old socket or accept observer files as authority. Normal
+RuntimeServer Drop had removed its own socket; the reviewed closed SocketAbsent
+origin admitted only nofollow ENOENT after the new exclusive existing lock and
+rechecked the original parent/lock/absence at every origin, including before
+catalogue capture. Real managers/inventory and original boundaries were rechecked.
+
+The bound live OLD pair was neither copied nor renamed. Recovery verified and
+synced those original files/directory, exclusively published the exact matching
+Aborted record, read back Intent/Aborted and unchanged OLD bytes/inodes, then ran
+the final fresh origin fence. It retained the original lease/graph and left
+Stage/Intent/Aborted present. The existing audit history was unchanged. The
+known State-directory change was only the reported terminal publication, not a
+generic drift exemption.
+Lease/descriptor retention here is during the original test operation; its
+known normal exit0 does not attest live descriptor custody or authority after exit.
+
+This closes installed nonfatal publication sealing, typed new-entry refusal and
+same-boot newly authenticated OLD/Intent→AbortedStillFenced. It does **not** close
+terminal retirement, repeated immutable history, ordinary admission after this
+recovery, missing volatile locks/cold bootstrap, default Backup/Restore, product
+UI, fatal descriptor survival or whole T4. The earlier Current38 UNKNOWN and
+all historical failed originals remain unchanged; this was a new explicit scope.
