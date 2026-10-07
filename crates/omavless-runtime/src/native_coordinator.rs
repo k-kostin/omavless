@@ -565,6 +565,17 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.transaction.desired()
     }
 
+    pub(crate) fn desired_for_status(
+        &self,
+    ) -> Result<crate::desired::DesiredState, ConnectionTransactionError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.native_completed_origin.is_some() {
+            // Keep the SAME installed completion origin's exact loan checks.
+            return self.desired();
+        }
+        self.transaction.desired_for_status()
+    }
+
     pub(crate) fn store_path(&self) -> &Path {
         self.transaction.store_path()
     }

@@ -523,7 +523,7 @@ trait NativeRuntimeOwner: Send {
     );
     fn revision(&self) -> u64;
     fn runtime_ownership(&mut self) -> bool;
-    fn status(&self, runtime_ownership: bool) -> Result<Value>;
+    fn status(&self) -> Result<Value>;
     fn profiles(&self) -> Result<Value>;
     fn subscriptions(&self) -> Result<Value>;
     fn subscription_edit_input(
@@ -1075,10 +1075,10 @@ where
         self.owner.rust_ownership_available()
     }
 
-    fn status(&self, runtime_ownership: bool) -> Result<Value> {
+    fn status(&self) -> Result<Value> {
         let desired = self
             .owner
-            .desired()
+            .desired_for_status()
             .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
         let actual = match self.owner.actual() {
             lifecycle::ActualState::Disconnected => "disconnected",
@@ -1094,8 +1094,7 @@ where
             "actual": actual,
             "activeProfileId": if desired.connected { desired.profile_id.as_str() } else { "" },
             "mode": desired.mode.as_str(),
-            "transition": self.owner.transition(),
-            "runtimeOwnership": runtime_ownership
+            "transition": self.owner.transition()
         }))
     }
 
@@ -2424,6 +2423,25 @@ fn dispatch_native(
     let id = request["id"].as_str().unwrap_or("invalid");
     let method = request["method"].as_str().unwrap_or_default();
     let revision = owner.revision();
+    if method == "status.get" {
+        if !empty_params(request) {
+            return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
+        }
+        // Strict existing-state snapshot first: the ordinary ownership recheck
+        // can bootstrap a missing marker directory. A read-only status must
+        // refuse that invalid snapshot before any such preparation is reached.
+        let mut status = match owner.status() {
+            Ok(status) => status,
+            Err(_) => {
+                return error_response(id, revision, StableErrorCode::InternalError, false, None);
+            }
+        };
+        let Some(fields) = status.as_object_mut() else {
+            return error_response(id, revision, StableErrorCode::InternalError, false, None);
+        };
+        fields.insert("runtimeOwnership".into(), json!(owner.runtime_ownership()));
+        return success_response(id, revision, status);
+    }
     let runtime_ownership = owner.runtime_ownership();
     let result = match method {
         "system.hello" => {
@@ -2453,12 +2471,6 @@ fn dispatch_native(
                 "runtimeOwnership": runtime_ownership
             })
         }
-        "status.get" if empty_params(request) => match owner.status(runtime_ownership) {
-            Ok(status) => status,
-            Err(_) => {
-                return error_response(id, revision, StableErrorCode::InternalError, false, None);
-            }
-        },
         "capabilities.get" if empty_params(request) => {
             let methods: Vec<_> = READ_ONLY_METHODS
                 .iter()
@@ -8355,6 +8367,137 @@ mod tests {
         assert_eq!(response["error"]["code"], "unknown_method");
         assert!(!rendered.contains("private.example"));
         assert!(!rendered.contains("password"));
+    }
+
+    #[test]
+    fn current_status_rpc_preserves_held_state_directory_and_refuses_repair() {
+        const CHILD: &str = "OMAVLESS_T4_STATUS_DIRECTORY_TEST_CHILD";
+        if let Some(base) = std::env::var_os(CHILD) {
+            let base = PathBuf::from(base);
+            assert!(base.is_absolute());
+            assert!(
+                base.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("ovt-status-ctime-"))
+            );
+            let original = fs::symlink_metadata(&base).unwrap();
+            assert!(original.is_dir());
+            assert_eq!(original.uid(), Uid::current().as_raw());
+            assert_eq!(original.mode() & 0o7777, 0o700);
+            assert!(fs::read_dir(&base).unwrap().next().is_none());
+            let (owner, _, host_calls) = native_owner_fixture(&base);
+            let paths = RuntimePaths::current().unwrap();
+            assert_eq!(paths, RuntimePaths::below(&base.join("runtime")));
+            let desired = DesiredPaths::below(&base.join("state"));
+            let desired_bytes = fs::read(&desired.file).unwrap();
+            let host_baseline = host_calls.load(Ordering::Relaxed);
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+            let held = OpenOptions::new()
+                .read(true)
+                .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY).bits())
+                .open(&desired.directory)
+                .unwrap();
+            let stamp = |m: fs::Metadata| {
+                [
+                    m.dev(),
+                    m.ino(),
+                    u64::from(m.mode()),
+                    u64::from(m.uid()),
+                    u64::from(m.gid()),
+                    m.nlink(),
+                    m.len(),
+                    (m.mtime() as u64)
+                        .wrapping_mul(1_000_000_000)
+                        .wrapping_add(m.mtime_nsec() as u64),
+                    (m.ctime() as u64)
+                        .wrapping_mul(1_000_000_000)
+                        .wrapping_add(m.ctime_nsec() as u64),
+                ]
+            };
+            let before = stamp(held.metadata().unwrap());
+            // Ensure a filesystem-clock tick, not a service/network effect.
+            thread::sleep(Duration::from_millis(20));
+            let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+            assert_eq!(hello["ok"], true);
+            assert_eq!(hello["result"]["runtimeOwnership"], true);
+            assert_eq!(stamp(held.metadata().unwrap()), before);
+            let status = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(status["ok"], true);
+            assert_eq!(status["result"]["desired"], "disconnected");
+            assert_eq!(status["result"]["actual"], "disconnected");
+            assert_eq!(
+                status["result"],
+                json!({"desired":"disconnected","actual":"disconnected","activeProfileId":"","mode":"rule","transition":null,"runtimeOwnership":true})
+            );
+            assert_eq!(status["revision"], hello["revision"]);
+            let after = stamp(held.metadata().unwrap());
+            assert_eq!(&after[..8], &before[..8]);
+            assert_eq!(after[8], before[8]); // status must not chmod even to same mode
+            assert_eq!(
+                stamp(fs::symlink_metadata(&desired.directory).unwrap()),
+                after
+            );
+            assert_eq!(fs::read(&desired.file).unwrap(), desired_bytes);
+            assert_eq!(host_calls.load(Ordering::Relaxed), host_baseline);
+
+            // A mode violation is refused, not repaired to an apparently valid
+            // new directory snapshot by a read-only status request.
+            fs::set_permissions(&desired.directory, fs::Permissions::from_mode(0o755)).unwrap();
+            let invalid = stamp(held.metadata().unwrap());
+            let refused = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["error"]["code"], "internal_error");
+            assert_eq!(stamp(held.metadata().unwrap()), invalid);
+            assert_eq!(
+                stamp(fs::symlink_metadata(&desired.directory).unwrap()),
+                invalid
+            );
+            assert_eq!(fs::read(&desired.file).unwrap(), desired_bytes);
+
+            // Move only our synthetic original directory aside. Missing and
+            // symlink names must remain missing/symlink, without creation.
+            let displaced = base.join("held-state");
+            fs::rename(&desired.directory, &displaced).unwrap();
+            let moved = stamp(held.metadata().unwrap());
+            let refused = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["error"]["code"], "internal_error");
+            assert!(!desired.directory.exists());
+            assert_eq!(stamp(held.metadata().unwrap()), moved);
+            std::os::unix::fs::symlink(&displaced, &desired.directory).unwrap();
+            let link = stamp(fs::symlink_metadata(&desired.directory).unwrap());
+            let refused = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["error"]["code"], "internal_error");
+            assert_eq!(
+                stamp(fs::symlink_metadata(&desired.directory).unwrap()),
+                link
+            );
+            assert_eq!(fs::read_link(&desired.directory).unwrap(), displaced);
+            assert_eq!(stamp(held.metadata().unwrap()), moved);
+            assert_eq!(host_calls.load(Ordering::Relaxed), host_baseline);
+            worker.join().unwrap();
+            drop(held);
+            fs::remove_dir_all(base).unwrap(); // owned, positively completed test fixture only
+            return;
+        }
+        let parent = std::env::var_os("OMAVLESS_T4_STATUS_FIXTURE_PARENT")
+            .map_or_else(std::env::temp_dir, PathBuf::from);
+        let base = crate::test_temp::directory_under(&parent, "status-ctime").unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::current_status_rpc_preserves_held_state_directory_and_refuses_repair",
+                "--nocapture",
+            ])
+            .env(CHILD, &base)
+            .env("XDG_RUNTIME_DIR", base.join("runtime"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(!base.exists());
     }
 
     #[test]

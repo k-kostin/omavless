@@ -7,7 +7,7 @@
 //! registers itself; only the committed production owner may expose it.
 
 use crate::cutover::{CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, read_marker};
-use crate::desired::{DesiredPaths, DesiredState, read_desired};
+use crate::desired::{DesiredPaths, DesiredState, read_desired, read_desired_snapshot};
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleExecutor, LifecycleHost};
 use crate::mutation::{
     BeginOutcome, CachedOutcome, CoordinatorError, MutationCoordinator, MutationRequest,
@@ -235,6 +235,11 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
 
     pub(crate) fn desired(&self) -> Result<DesiredState, ConnectionTransactionError> {
         read_desired(&self.desired_paths, self.uid).map_err(|_| ConnectionTransactionError::Store)
+    }
+
+    pub(crate) fn desired_for_status(&self) -> Result<DesiredState, ConnectionTransactionError> {
+        read_desired_snapshot(&self.desired_paths, self.uid)
+            .map_err(|_| ConnectionTransactionError::Store)
     }
 
     pub(crate) fn desired_paths(&self) -> &DesiredPaths {

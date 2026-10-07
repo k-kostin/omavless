@@ -651,9 +651,18 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.login_ready = ready;
     }
 
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn desired(&self) -> Result<crate::desired::DesiredState, ProductionOwnerError> {
         self.coordinator
             .desired()
+            .map_err(|_| ProductionOwnerError::RecoveryFailed)
+    }
+
+    pub(crate) fn desired_for_status(
+        &self,
+    ) -> Result<crate::desired::DesiredState, ProductionOwnerError> {
+        self.coordinator
+            .desired_for_status()
             .map_err(|_| ProductionOwnerError::RecoveryFailed)
     }
 
