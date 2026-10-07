@@ -217,6 +217,8 @@ enum FirstOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum FirstError {
     Prepare,
+    #[cfg(feature = "t4-manager-actor-service")]
+    CiphertextMismatch,
     Admission,
     /// Effects may have occurred; no automatic recovery or retry.
     StillFenced,

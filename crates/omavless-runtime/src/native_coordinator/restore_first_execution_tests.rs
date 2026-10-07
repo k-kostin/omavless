@@ -393,6 +393,74 @@ fn normal_pair_completed_restore_replays_then_denies_nested_entry_without_poison
 
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
+fn previewed_pair_same_count_replacement_denied_before_slot_then_matching_real_completion() {
+    use crate::private_pair_api::{PreviewedRestoreRequest, ciphertext_hex};
+    let mut f = Fixture::new();
+    let (_, digest) = crate::backup_destination_candidate::open_existing_with_digest(
+        &f.backup,
+        f.owner.uid(),
+        PASSWORD,
+    )
+    .unwrap();
+    let original_store = fs::read(&f.store).unwrap();
+    let original_inode = fs::metadata(&f.store).unwrap().ino();
+    let incoming = open_existing(&f.backup, f.owner.uid(), PASSWORD).unwrap();
+    let other =
+        omavless_domain::private_backup::seal(incoming.store(), incoming.template(), PASSWORD)
+            .unwrap();
+    private(&f.backup, &other);
+    let make = |id, revision, digest: &[u8; 32]| {
+        PreviewedRestoreRequest::parse(&serde_json::json!({"schema":1,"archive":f.backup,
+        "passphrase":std::str::from_utf8(PASSWORD).unwrap(),"confirmation":"replace-previewed-current-private-pair",
+        "instanceId":"local-engine-control","operationId":id,"expectedRevision":revision,"expectedCiphertextDigest":ciphertext_hex(digest)})).unwrap()
+    };
+    let stale = make("stale-envelope", 0, &digest);
+    let denied = f.owner.execute_previewed_pair(&stale).unwrap();
+    assert_eq!(
+        denied.error,
+        Some(omavless_control_protocol::StableErrorCode::InvalidArgument)
+    );
+    assert_eq!(f.owner.revision(), 0);
+    assert!(!f.owner.held_restore_execution.occupied());
+    assert!(f.owner.transaction.original_lease_vacant());
+    assert!(!f.owner.retained_restore_busy());
+    assert!(!crate::pending_private_transaction::pending_at(&f.state()));
+    assert_eq!(fs::read(&f.store).unwrap(), original_store);
+    assert_eq!(fs::metadata(&f.store).unwrap().ino(), original_inode);
+    let (_, actual) = crate::backup_destination_candidate::open_existing_with_digest(
+        &f.backup,
+        f.owner.uid(),
+        PASSWORD,
+    )
+    .unwrap();
+    assert_ne!(digest, actual);
+    let first = make("matching-envelope", 0, &actual);
+    let result = f.owner.execute_previewed_pair(&first).unwrap();
+    assert!(result.error.is_none());
+    assert_eq!(result.revision, 1);
+    assert_eq!(f.owner.execute_previewed_pair(&first).unwrap(), result);
+    assert!(!f.owner.transaction.original_lease_vacant());
+    assert!(
+        MigrationLock::acquire_existing(f.owner.transaction.cutover_paths(), f.owner.uid())
+            .is_err()
+    );
+    let nested = make("fresh-bound", 1, &actual);
+    assert_eq!(
+        f.owner.execute_previewed_pair(&nested),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    );
+    assert!(
+        !f.owner
+            .coordinator
+            .operation_id_in_use("fresh-bound")
+            .unwrap()
+    );
+    assert!(!f.owner.retained_restore_busy());
+    assert!(!crate::pending_private_transaction::pending_at(&f.state()));
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+#[test]
 fn native_committed_completion_retains_new_pair_and_one_original_ordinary_lease() {
     let mut f = Fixture::new();
     let original = f.owner.transaction.acquire_lock().unwrap();
