@@ -93,6 +93,11 @@ semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
 
+For internal beta selection with hands-on evidence still pending, follow
+[agent-assisted human acceptance](BETA_MANUAL_ACCEPTANCE.md). Prepare runnable
+features and their test cards; do not conflate missing implementation or unsafe
+ownership with a human-only UI check.
+
 Native checkpoint, 2026-09-13: R6 is closed under the explicitly revised
 owner scope in [the local closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md).
 Enabled Last/pinned login acceptance remains [AUTO-1](../roadmap/LOGIN_AUTOCONNECT_FOLLOWUP.md),
