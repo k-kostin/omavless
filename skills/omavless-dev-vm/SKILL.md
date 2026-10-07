@@ -32,6 +32,14 @@ guest/SSH and unlock helpers. Inspect a helper once and retain its hash and
 supported target; re-review changed selection or behavior, not unchanged code
 on every reboot. Do not replace it with an improvised host-wide automation.
 
+Before installing an experimental bundle, compare the whole app, core, broker,
+receipt/schema, enrollment policy and fixture pins with the selected scenario.
+The same architecture, core version or informal qualification label does not
+prove compatibility. Inspect the app's actual receipt/ABI admission and retain
+the complete matched packages; never swap one component or change frozen test
+pins to make an unrelated bundle fit. Use separate known-Off images when the
+selected scenarios require different bundles.
+
 ## Encrypted reboot: successful repeatable sequence
 
 1. Establish that the selected QEMU process belongs to the current user and
