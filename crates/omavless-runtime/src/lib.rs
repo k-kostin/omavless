@@ -523,7 +523,7 @@ trait NativeRuntimeOwner: Send {
     );
     fn revision(&self) -> u64;
     fn runtime_ownership(&mut self) -> bool;
-    fn status(&self) -> Result<Value>;
+    fn status(&mut self) -> Result<Value>;
     fn profiles(&self) -> Result<Value>;
     fn subscriptions(&self) -> Result<Value>;
     fn subscription_edit_input(
@@ -1075,11 +1075,14 @@ where
         self.owner.rust_ownership_available()
     }
 
-    fn status(&self) -> Result<Value> {
+    fn status(&mut self) -> Result<Value> {
         let desired = self
             .owner
             .desired_for_status()
             .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        // Snapshot refusal must precede any ownership preparation. On success,
+        // promotion/staleness is resolved before projecting actual/transition.
+        let runtime_ownership = self.owner.rust_ownership_available();
         let actual = match self.owner.actual() {
             lifecycle::ActualState::Disconnected => "disconnected",
             lifecycle::ActualState::Starting => "starting",
@@ -1094,7 +1097,8 @@ where
             "actual": actual,
             "activeProfileId": if desired.connected { desired.profile_id.as_str() } else { "" },
             "mode": desired.mode.as_str(),
-            "transition": self.owner.transition()
+            "transition": self.owner.transition(),
+            "runtimeOwnership": runtime_ownership
         }))
     }
 
@@ -2430,16 +2434,12 @@ fn dispatch_native(
         // Strict existing-state snapshot first: the ordinary ownership recheck
         // can bootstrap a missing marker directory. A read-only status must
         // refuse that invalid snapshot before any such preparation is reached.
-        let mut status = match owner.status() {
+        let status = match owner.status() {
             Ok(status) => status,
             Err(_) => {
                 return error_response(id, revision, StableErrorCode::InternalError, false, None);
             }
         };
-        let Some(fields) = status.as_object_mut() else {
-            return error_response(id, revision, StableErrorCode::InternalError, false, None);
-        };
-        fields.insert("runtimeOwnership".into(), json!(owner.runtime_ownership()));
         return success_response(id, revision, status);
     }
     let runtime_ownership = owner.runtime_ownership();
@@ -8342,6 +8342,42 @@ mod tests {
 
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn candidate_status_first_projects_promoted_and_sticky_stale_ownership() {
+        for (phase, expected_owned, expected_transition) in [
+            (OwnershipPhase::Rust, true, Value::Null),
+            (OwnershipPhase::Legacy, false, json!("staleCandidate")),
+        ] {
+            let parent = std::env::var_os("OMAVLESS_T4_STATUS_FIXTURE_PARENT")
+                .map_or_else(std::env::temp_dir, PathBuf::from);
+            let base = crate::test_temp::directory_under(&parent, "status-first").unwrap();
+            let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+            let baseline = calls.load(Ordering::Relaxed);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+            write_marker(&cutover, phase, 2);
+            // No hello/capabilities call may promote or stale the candidate
+            // before this FIRST status projection reaches the actual owner.
+            let status = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(status["ok"], true);
+            assert_eq!(status["result"]["runtimeOwnership"], expected_owned);
+            assert_eq!(status["result"]["transition"], expected_transition);
+            assert_eq!(status["result"]["actual"], "disconnected");
+            assert_eq!(status["revision"], 0);
+            if !expected_owned {
+                write_marker(&cutover, OwnershipPhase::Rust, 2);
+            }
+            let repeated = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(repeated["result"]["runtimeOwnership"], expected_owned);
+            assert_eq!(repeated["result"]["transition"], expected_transition);
+            assert_eq!(calls.load(Ordering::Relaxed), baseline);
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap(); // completed known-created fixture only
+        }
     }
 
     #[test]
