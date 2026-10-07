@@ -42,6 +42,13 @@ pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
 }
 
 pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
+    #[cfg(feature = "private-backup")]
+    if app.backup_open
+        && let Some(backup) = &app.backup
+    {
+        draw_private_backup(frame, app, backup);
+        return;
+    }
     let tr = |key| app.locale.text(key);
     let status = app.status(now);
     let status_text = if app.running {
@@ -478,7 +485,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 {
                     "tui.operator_search_exit"
                 } else if app.page == crate::inspection::Page::Settings {
-                    "tui.settings_local"
+                    settings_scope_key(app)
                 } else if app.page == crate::inspection::Page::Subscriptions
                     && app
                         .snapshot
@@ -527,6 +534,29 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Line::from(tr("tui.auth_hint")),
             Line::from(tr("tui.action_close_hint")),
         ];
+    }
+    #[cfg(feature = "private-backup")]
+    if app.backup_unresolved() {
+        footer = vec![
+            Line::from(tr("tui.backup_pending_entry")),
+            Line::from(tr("tui.backup_unresolved_keys")),
+            Line::from(tr(
+                if app
+                    .backup
+                    .as_ref()
+                    .is_some_and(|w| w.state() == crate::private_backup::State::Unknown)
+                {
+                    "tui.backup_unknown"
+                } else {
+                    "tui.backup_submitted"
+                },
+            )),
+        ];
+        frame.render_widget(
+            Paragraph::new(footer).wrap(Wrap { trim: false }),
+            sections[2],
+        );
+        return;
     }
     frame.render_widget(Paragraph::new(footer), sections[2]);
 }
@@ -609,7 +639,8 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         } else {
             tr(app.settings.language.key()).into()
         };
-        return vec![
+        #[allow(unused_mut)] // augmented only in the explicit Backup client build
+        let mut settings = vec![
             Line::from(tr("tui.settings_scope")),
             Line::from(""),
             field("tui.settings_language", language),
@@ -620,6 +651,19 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             Line::from(""),
             Line::from(tr("tui.settings_reset")),
         ];
+        #[cfg(feature = "private-backup")]
+        if app.backup_enabled {
+            settings.push(Line::from(""));
+            settings.push(Line::from(tr("tui.backup_scope")));
+            settings.push(Line::from(tr(if app.backup_unresolved() {
+                "tui.backup_pending_entry"
+            } else if app.backup_available(now) {
+                "tui.backup_entry"
+            } else {
+                "tui.backup_unavailable"
+            })));
+        }
+        return settings;
     }
     // Session history remains readable when the daemon is unavailable/stale;
     // the separate header continues to describe current freshness/health.
@@ -1465,4 +1509,96 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         }
         Page::Profiles | Page::Activity | Page::Settings | Page::Jobs => Vec::new(),
     }
+}
+
+fn settings_scope_key(_app: &App) -> &'static str {
+    #[cfg(feature = "private-backup")]
+    if _app.backup_enabled {
+        return "tui.settings_private_backup";
+    }
+    "tui.settings_local"
+}
+
+#[cfg(feature = "private-backup")]
+fn draw_private_backup(frame: &mut Frame, app: &App, backup: &crate::private_backup::Workspace) {
+    use crate::private_backup::{Field, State};
+    let tr = |key| app.locale.text(key);
+    let area = frame.area();
+    let mut lines = vec![
+        Line::from(tr("tui.backup_scope")),
+        Line::from(tr("tui.backup_private")),
+        Line::from(tr("tui.backup_loss")),
+        Line::from(""),
+    ];
+    let field = |name, value: &str, selected: Field| {
+        Line::from(format!(
+            "{}{}: {}",
+            if backup.state() == State::Editing && backup.field() == selected {
+                "> "
+            } else {
+                "  "
+            },
+            tr(name),
+            value
+        ))
+    };
+    lines.push(field(
+        "tui.backup_destination",
+        backup.destination(),
+        Field::Destination,
+    ));
+    match backup.state() {
+        State::Editing => {
+            lines.push(field(
+                "tui.backup_passphrase",
+                backup.masked(Field::Passphrase),
+                Field::Passphrase,
+            ));
+            lines.push(field(
+                "tui.backup_repeat",
+                backup.masked(Field::Repeat),
+                Field::Repeat,
+            ));
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.backup_edit_keys")));
+        }
+        State::Confirming => {
+            lines.push(Line::from(tr("tui.backup_matched")));
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.backup_confirm")));
+        }
+        state => {
+            lines.push(Line::from(tr(match state {
+                State::Submitted => "tui.backup_submitted",
+                State::Completed => "tui.backup_completed",
+                State::Denied => "tui.backup_denied",
+                State::Unknown => "tui.backup_unknown",
+                _ => "tui.backup_changed",
+            })));
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.backup_return")));
+        }
+    }
+    if !app.notice.is_empty() {
+        lines.push(Line::from(tr(app.notice)));
+    }
+    let content = if area.width >= 70 && area.height >= 24 {
+        lines
+    } else {
+        vec![
+            Line::from(tr("tui.action_resize")),
+            Line::from(tr("tui.backup_return")),
+        ]
+    };
+    frame.render_widget(
+        Paragraph::new(content)
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(tr("tui.backup_title")),
+            )
+            .style(app.palette.normal()),
+        area,
+    );
 }

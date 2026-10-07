@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+private-backup = ["dep:zeroize"]
+
 [dependencies]
 omavless-domain = { path = "../omavless-domain" }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
@@ -14,6 +17,11 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 signal-hook = "0.3"
 nix = { version = "0.30", features = ["fs"] }
+zeroize = { version = "1.8", optional = true }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "private_backup_preview"
+required-features = ["private-backup"]

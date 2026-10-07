@@ -125,6 +125,35 @@ fn run() -> Result<(), CliError> {
         println!("omavless.tui.v1");
         return Ok(());
     }
+    #[cfg(all(feature = "tui", feature = "t4-manager-actor-service"))]
+    if arguments == ["tui", "--developer-private-backup"] {
+        let uid = nix::unistd::Uid::current();
+        if uid.is_root() || uid != nix::unistd::Uid::effective() {
+            return Err("Private Backup requires an ordinary user".into());
+        }
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let backup_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::run_full_private_backup(
+            move |request| {
+                call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::call_plugin_action(&action_paths, request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                call(&job_paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
+            },
+        )
+        .map_err(CliError::Terminal);
+    }
     #[cfg(feature = "tui")]
     if arguments == ["tui"] {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;

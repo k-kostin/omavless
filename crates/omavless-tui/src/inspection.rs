@@ -4,6 +4,8 @@ use serde_json::Value;
 
 #[derive(Clone, Copy, Default)]
 pub struct Capabilities {
+    #[cfg(feature = "private-backup")]
+    pub private_backup: bool,
     pub profile_details: bool,
     pub traffic: bool,
     pub diagnostics: bool,
@@ -24,6 +26,8 @@ impl Capabilities {
     pub fn parse(methods: &[Value]) -> Self {
         let has = |method| methods.iter().any(|value| value == method);
         Self {
+            #[cfg(feature = "private-backup")]
+            private_backup: has("backup.create"),
             profile_details: has("profiles.details"),
             traffic: has("runtime.traffic"),
             diagnostics: has("diagnostics.summary"),
