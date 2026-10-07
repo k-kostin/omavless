@@ -23,6 +23,13 @@ fn write_private(path: &Path, bytes: &[u8]) {
 
 fn fixture() -> (tempfile::TempDir, NativeLifecycleHost, DesiredState) {
     let root = tempfile::tempdir().unwrap();
+    fixture_at(root, false)
+}
+
+pub(super) fn fixture_at(
+    root: tempfile::TempDir,
+    alias_data_config: bool,
+) -> (tempfile::TempDir, NativeLifecycleHost, DesiredState) {
     let uid = nix::unistd::getuid().as_raw();
     for name in ["config", "data", "runtime", "proc", "sys"] {
         fs::create_dir(root.path().join(name)).unwrap();
@@ -33,7 +40,8 @@ fn fixture() -> (tempfile::TempDir, NativeLifecycleHost, DesiredState) {
     fs::set_permissions(root.path().join("core"), fs::Permissions::from_mode(0o700)).unwrap();
     let paths = NativeHostPaths::new(
         root.path().join("core"),
-        root.path().join("data"),
+        root.path()
+            .join(if alias_data_config { "config" } else { "data" }),
         root.path().join("config"),
         root.path().join("runtime"),
         root.path().join("proc"),
@@ -56,30 +64,166 @@ fn fixture() -> (tempfile::TempDir, NativeLifecycleHost, DesiredState) {
     (root, host, desired)
 }
 
-fn stage(host: &mut NativeLifecycleHost, desired: &DesiredState) -> Result<(), PreparationError> {
+pub(super) fn stage(
+    host: &mut NativeLifecycleHost,
+    desired: &DesiredState,
+) -> Result<(), PreparationError> {
     // Test-only identity injection. No managed package admission is forged.
     let core = HeldFile::capture(&host.paths.core, host.uid, 0o700, MAX_CORE)?;
     host.prepare_bound_candidate(desired, core)
 }
 
 #[test]
-fn coverage_issuer_has_no_accepted_digest_or_native_spawn() {
-    for digest in [[0; 32], [1; 32], [255; 32]] {
-        assert!(matches!(
-            issue_coverage(digest, None),
-            Err(PreparationError::Unsupported)
-        ));
-    }
+fn qualified_policy_decision_cannot_admit_an_unbound_package_or_spawn() {
+    assert_eq!(approved_policy_decision(), Ok(()));
     let (_root, mut host, desired) = fixture();
     stage(&mut host, &desired).unwrap();
     assert!(matches!(
         host.admit_prepared_protection(&desired),
-        Err(PreparationError::Unsupported)
+        Err(PreparationError::Refused)
     ));
     let preparation = host.protected_preparation.as_ref().unwrap();
     assert!(!preparation.admitted && !preparation.started);
     assert!(preparation.bound.is_some());
     assert!(host.core.is_none());
+}
+
+#[test]
+fn protected_policy_token_binds_exact_renderer_and_changes_refuse() {
+    let (_root, mut host, desired) = fixture();
+    stage(&mut host, &desired).unwrap();
+    let bound = host
+        .protected_preparation
+        .as_mut()
+        .unwrap()
+        .bound
+        .as_mut()
+        .unwrap();
+    assert!(bound.policy.version == PolicyVersion::RuleTcpVerifiedTlsDohV1);
+    assert_eq!(bound.policy.config, bound.config.digest);
+    bound.policy.config[0] ^= 1;
+    assert_eq!(
+        host.recheck_protected_candidate(&desired),
+        Err(PreparationError::Changed)
+    );
+    assert!(host.core.is_none());
+}
+
+#[test]
+fn protected_preparation_capacity_reserves_whole_graph_and_peak() {
+    assert!(PreparationCapacity::from_inventory(239, 256).is_ok());
+    assert!(PreparationCapacity::from_inventory(240, 1024).is_err());
+    assert!(PreparationCapacity::from_inventory(20, 36).is_err());
+    assert!(PreparationCapacity::from_inventory(usize::MAX, u64::MAX).is_err());
+}
+
+#[test]
+fn protected_data_identity_never_masks_a_link_increment() {
+    let (_root, host, _) = fixture();
+    let original = DirectoryIdentity::of(&fs::metadata(&host.paths.data_directory).unwrap());
+    let mut changed = original;
+    changed.nlink += 1;
+    assert!(changed != original);
+    for field in 0..5 {
+        let mut changed = original;
+        match field {
+            0 => changed.dev += 1,
+            1 => changed.ino += 1,
+            2 => changed.mode ^= 1,
+            3 => changed.uid += 1,
+            _ => changed.gid += 1,
+        }
+        assert!(changed != original);
+    }
+}
+
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn protected_identity_diagnostic_classifies_all_fields_without_changing_predicate() {
+    use crate::protected_native_diagnostic::{self as diagnostic, PostGuard, PostIdentity};
+    let (_root, host, _) = fixture();
+    let original = DirectoryIdentity::of(&fs::metadata(&host.paths.data_directory).unwrap());
+    assert_eq!(
+        original.first_difference(original),
+        PostIdentity::NotRecorded
+    );
+    diagnostic::mark(diagnostic::Cut::NotEntered);
+    diagnostic::post_identity_rejected(PostIdentity::Nlink);
+    assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+    for (field, expected) in [
+        PostIdentity::Dev,
+        PostIdentity::Ino,
+        PostIdentity::Mode,
+        PostIdentity::Uid,
+        PostIdentity::Gid,
+        PostIdentity::Nlink,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let _scope = diagnostic::post_scope();
+        assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+        diagnostic::post_mark(PostGuard::IntervalDataIdentity);
+        // Same predicate as the actual held/named check: equality records none.
+        let unchanged = original;
+        if unchanged != original {
+            diagnostic::post_identity_rejected(unchanged.first_difference(original));
+        }
+        assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+        let mut changed = original;
+        match field {
+            0 => changed.dev += 1,
+            1 => changed.ino += 1,
+            2 => changed.mode ^= 1,
+            3 => changed.uid += 1,
+            4 => changed.gid += 1,
+            _ => changed.nlink += 1,
+        }
+        assert!(changed != original);
+        assert_eq!(changed.first_difference(original), expected);
+        if changed != original {
+            diagnostic::post_identity_rejected(changed.first_difference(original));
+        }
+        assert_eq!(diagnostic::post_identity(), expected);
+        diagnostic::post_identity_rejected(PostIdentity::Dev);
+        assert_eq!(diagnostic::post_identity(), expected);
+        // A later field difference cannot hide the earlier field category.
+        changed.nlink += 1;
+        assert_eq!(changed.first_difference(original), expected);
+    }
+    diagnostic::mark(diagnostic::Cut::NotEntered);
+    assert_eq!(diagnostic::post_identity(), PostIdentity::NotRecorded);
+}
+
+#[test]
+fn protected_home_old_late_child_link_semantics_are_explicit() {
+    let home = std::env::var_os("HOME").expect("HOME-backed fixture required");
+    let root = tempfile::Builder::new()
+        .prefix(".omavless-k1-late-child-")
+        .tempdir_in(home)
+        .unwrap();
+    let before = DirectoryIdentity::of(&fs::metadata(root.path()).unwrap());
+    fs::create_dir(root.path().join("inert-child")).unwrap();
+    let after = DirectoryIdentity::of(&fs::metadata(root.path()).unwrap());
+    if after.nlink == before.nlink + 1 {
+        assert!(after != before);
+    } else {
+        assert_eq!(after.nlink, before.nlink);
+        eprintln!("K1_HOME_CHILD_NLINK_INCREMENT_UNAVAILABLE");
+    }
+}
+
+#[test]
+fn protected_issuer_is_after_original_validation_and_restored_bound() {
+    // Owning placement regression, not fabricated original-process evidence.
+    let source = include_str!("../protected_preparation.rs");
+    let start = source.find("fn admit_prepared_protection(").unwrap();
+    let body = &source[start..source[start..].find("#[cfg(test)]").unwrap() + start];
+    let complete = body.find(".complete(").unwrap();
+    let restore = body.find(".bound = Some(bound)").unwrap();
+    let issuer = body.find("issue_coverage(").unwrap();
+    assert!(complete < restore && restore < issuer);
+    assert!(body.find("approved_policy_decision()?").unwrap() < complete);
 }
 
 #[test]
@@ -204,7 +348,7 @@ fn source_preparation_is_not_an_arm_capability_or_ordinary_start() {
     assert!(host.recheck_protected_candidate(&desired).is_ok());
     assert!(matches!(
         host.admit_prepared_protection(&desired),
-        Err(PreparationError::Unsupported)
+        Err(PreparationError::Refused)
     ));
     assert!(host.start_prepared().is_err());
     assert!(host.core.is_none() && host.profile_id.is_none() && host.readiness.is_none());
@@ -331,6 +475,26 @@ fn collision_or_publication_failure_never_overwrites_or_admits_retry() {
     );
     assert!(host.protected_preparation.as_ref().unwrap().bound.is_none());
     assert!(fs::read(&path).unwrap() == b"existing-private-candidate");
+    assert_eq!(stage(&mut host, &desired), Err(PreparationError::Refused));
+    assert!(host.admit_prepared_protection(&desired).is_err());
+}
+
+#[test]
+fn protected_scratch_collision_is_terminal_before_validation_or_arm() {
+    let (_root, mut host, desired) = fixture();
+    let scratch = host.paths.config_directory.join(".k1-native-interval");
+    fs::create_dir(&scratch).unwrap();
+    write_private(&scratch.join("existing"), b"owned inert collision\n");
+    assert_eq!(
+        stage(&mut host, &desired),
+        Err(PreparationError::OutcomeUnknown)
+    );
+    assert!(host.protected_preparation.as_ref().unwrap().bound.is_none());
+    assert!(host.core.is_none());
+    assert_eq!(
+        fs::read(scratch.join("existing")).unwrap(),
+        b"owned inert collision\n"
+    );
     assert_eq!(stage(&mut host, &desired), Err(PreparationError::Refused));
     assert!(host.admit_prepared_protection(&desired).is_err());
 }

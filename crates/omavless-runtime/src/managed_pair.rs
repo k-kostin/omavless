@@ -73,6 +73,11 @@ pub(crate) struct ProtectedPairIdentity {
     broker: [u8; 32],
 }
 
+#[cfg(feature = "netguard-runtime-candidate")]
+mod protected;
+#[cfg(feature = "netguard-runtime-candidate")]
+pub(crate) use protected::ProtectedPackage;
+
 fn safe_file(path: &Path, owner: u32, mode: u32, max_bytes: u64) -> Result<File, HostStepError> {
     let parent = fs::symlink_metadata(path.parent().ok_or(HostStepError::Prepare)?)
         .map_err(|_| HostStepError::Prepare)?;

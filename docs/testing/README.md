@@ -20,6 +20,10 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [K1 Native57 current-owner VM roundtrip](K1_NATIVE57_VM_2026-10-07.md):
+  exact development source/ELF/BOOT, successful original census/packet proof;
+  preserved Native55/56 NONPASS and open product/cold/physical-host gates.
+
 - [0.9.7 RC ledger](../development/RC_097.md): maintenance selection and
   explicit package, installed-rendering and publication gates; not a new
   installed or public acceptance claim.

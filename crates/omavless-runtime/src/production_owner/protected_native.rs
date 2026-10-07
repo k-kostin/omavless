@@ -106,7 +106,8 @@ impl Singleton {
 
 impl ProductionNativeOwner<NativeLifecycleHost> {
     /// Only an explicit in-crate developer scenario may consume these originals.
-    /// The closed issuer means current code refuses before validation or Arm.
+    /// The private issuer requires qualified policy/package and original
+    /// validation; this entry cannot supply an external coverage token.
     #[allow(dead_code)]
     pub(crate) fn protected_developer_roundtrip(
         self,
@@ -120,16 +121,28 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
             .original
             .as_mut()
             .ok_or(LifecycleError::ManualRecoveryRequired)?;
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::OwnerEligibility,
+        );
         if !matches!(owner.ownership, ProductionOwnership::Committed { .. })
             || owner.actual() != ActualState::Disconnected
         {
             return Err(LifecycleError::ManualRecoveryRequired);
         }
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::SingletonCapture,
+        );
         let singleton = Singleton::capture(
             server,
             owner.coordinator.protected_native_paths(),
             owner.coordinator.uid(),
         )?;
+        #[cfg(test)]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::MigrationAcquire,
+        );
         *lease = Some(owner.coordinator.protected_native_lock()?);
         let lock = lease
             .as_ref()

@@ -26,7 +26,8 @@ is unchanged. All three families may receive ordinary package compatibility
 checks, but protected eligibility and its immediate pre-Arm recheck require
 the distinct four-patch family. `ProtectedPairIdentity` still binds the exact
 receipt/core/broker digest triple. Neither family recognition nor a decoded
-receipt is socket coverage. `issue_coverage` remains unconditionally Unsupported.
+receipt is socket coverage. The pre-validator policy decision remains
+unconditionally Unsupported; the later private constructor is unreachable.
 
 `ProductionNativeOwner::protected_developer_roundtrip` is private, feature-only
 and unregistered. It consumes an already constructed real owner and its real
@@ -103,8 +104,8 @@ ProtectedCandidate still exclusively owns the same executor and protection port.
    identities and bytes, store digest, exact desired state and data-directory
    identity. This supersedes #674's two-record-handle count: the bound record now
    also retains one data-directory descriptor. The count is not peak descriptors.
-3. Ask the private coverage issuer for this exact core and pair identity (receipt,
-   core and broker digests). **The issuer always returns Unsupported.** No digest
+3. Ask the private policy decision gate for this exact core and pair identity.
+   **The gate always returns Unsupported.** No digest
    is currently admitted, no caller boolean/JSON receipt overrides this, and no
    real validator can be spawned by the current candidate. Neither package
    provenance nor readiness supplies socket coverage.
@@ -216,7 +217,7 @@ remain separate; this plan neither executes nor grants those effects.
 The private same-owner roundtrip now places one move-only traffic interval
 between protected readiness/commit and explicit disconnect. This is not a new
 owner, service, public callback, observation receipt or caller-provided approval.
-`issue_coverage` still returns `Unsupported`, so this source cannot reach Arm or
+The pre-validator policy decision still returns `Unsupported`, so this source cannot reach Arm or
 execute the interval through the native driver. ROOT must separately approve
 exact-core qualification and review an issuer change before activation.
 
@@ -352,3 +353,374 @@ actual protected core Rule mode. All three existing NativeLifecycleHost intent
 checks (close capture, fresh observation and lifecycle observation) use that
 mapping; ordinary readiness still requires literal mode equality. Mode matching
 alone never grants controller/TUN readiness or coverage.
+
+## Private Rule issuance structure (still closed)
+
+The Rule issuer continuation retains a private move-only renderer token with
+policy version `RuleTcpVerifiedTlsDohV1` and the exact staged config digest.
+Only the closed canonical renderer constructs it. No arbitrary JSON decoder,
+caller boolean, observer/test receipt or public token can select this policy.
+
+A protected-only package holder captures the original selected-user600 selector,
+root755 broker and root644 receipt, checking full named/held metadata and bytes
+on every recheck. It admits only the exact897ada/4bbba/c6e triple documented
+above after strict four-family verification. The original core is the existing
+Bound file; its exact security.capability bytes are read through that descriptor
+with feature-only rustix/fs. Ordinary package detection is unchanged. Same-byte
+replacement of any captured member refuses; this is new original-file custody,
+not a guarantee previously supplied by ManagedPair's path/hash snapshot.
+
+Before staging/acquisition a bounded capacity record counts the whole current
+process inventory and reserves16 additional roles within256 and the unchanged
+RLIMIT_NOFILE. These cover three package originals, config/data/publication and
+validator plumbing plus transient reads; they are not merely a persistent FD
+count. The later interval separately reserves its existing24 roles against the
+then-current whole graph. Neither admission raises limits or evicts originals.
+
+The no-argument `approved_policy_decision` still returns Unsupported before any
+validator spawn. Thus this source cannot execute validation or Arm through the
+native driver. Downstream structure now constructs Coverage only after the
+same Validation owner returns original observed/reaped zero with held/package
+postchecks; its actual Child adapter uses try_wait, not WNOWAIT. Bound is restored
+into the same host before any late fallible issuance step. An acquisition guard
+retains Bound on a spawn error/unwind. A private nonescaping validated view then
+binds exact policy version/config/core/package into Coverage and ArmAdmission.
+Immediate pre-Arm/start and interval checks retain the same original binding.
+
+Enabling requires a separate accepted Rule-policy decision and full source
+review. The old Global matrix, actual Rule validator, new UDP/ICMP case outcomes,
+and native observer/interval proof remain separately scoped evidence. No current
+nonzero/unknown observation becomes acceptance by this structural source change.
+There is no native activation, ordinary-default change or successful test-only
+substitution of an installed package. Focused controls use inert files and
+memory: exact-member mismatch, same-byte inode replacement, mutation/mode/link,
+missing capabilities, token mismatch, capacity refusal, closed entry and owning
+post-validator constructor placement; inherited validator/lifecycle fault cuts
+remain applicable. Ignored VM selectors must remain unselected by source gates.
+
+This structural checkpoint passed53 protected-filter tests (three VM selectors
+ignored), strict all-target feature Clippy, strict all-target ordinary-default
+Clippy, scoped runtime formatting and diff checks. The successful Coverage path
+was not exercised with a real installed package; no core/validator, service,
+socket traffic, privileged operation or VM action was selected. The optional
+rustix dependency reuses the existing locked1.1.5 version; no new version or
+default feature is introduced.
+
+## Qualified development Rule decision (successor to the closed checkpoint)
+
+The private static decision now permits only the existing development feature's
+closed Rule policy, after independent qualification on the disposable x86_64 VM.
+Exact Rule renderer head: `f1f575d13e7a43a04f73dbc4bdfde20ad3c6a008`.
+The original success, non-DNS UDP rejection and ICMP no-network runs all exited
+zero with complete target socket census and original child completion. Every
+case included DNS/HTTPS success; rejection cases delivered exactly one inner
+probe with no corresponding forbidden outer packet. The unconditional
+wrong-peer DROP rule rejected six packets before each probe window, with no
+increment during the probe. This is not a zero-rejected-traffic or kernel-RST
+origin claim. Existing loopback and established SSH exceptions remain explicit.
+
+The earlier Rule41 refusal and old Global matrix retain their original outcomes
+and guarantees. Runtime observer output is qualification evidence, not an input,
+receipt, token or executable authority for the native issuer. The static
+decision introduces no flag or caller-controlled permission. The original
+ProtectedPackage still enforces the exact qualified core/broker/receipt triple,
+capabilities, retained file identities and package policy. Original validator
+zero/reaping and restored same-host Bound postchecks still precede private
+Coverage construction; a synthetic or absent package refuses before spawning.
+
+The ignored installed-native launcher uses a valid fixed UUID record ID, with
+`k1-native-fixed` only its fixture display name. A normal-store-parser regression
+prevents restoring the invalid old display-name-as-ID. No parser relaxation or
+product registration is introduced. Native Arm/start/stop/Disarm, repeated-cycle
+and fault/leak acceptance are still required; neither this decision nor pure
+controls establish those results. Ordinary defaults and release behavior remain
+unchanged.
+
+### Installed-native refusal and diagnostic successor
+
+The first composed installed-native attempt used source
+`eaeac0fa3c5802c0c269b9c92dce5da0ef5b96c6` and test ELF SHA256
+`64019a7c110a34fdae649b7505642c56a43c4664e4bb305647822d59f56a64e9`.
+The genuine current-owner constructor completed, but its protected roundtrip
+refused before a core exec. No Arm/start/traffic/Disarm acceptance follows.
+The original supervisor retained the uncertain graph. Later shutdown was
+separate disposable-VM administration; the original SSH ended255, not a
+successful original completion, cleanup or product recovery.
+
+The successor adds only test-and-feature-gated, thread-local, closed source
+labels. Each label precedes an existing operation; there are no extra probes,
+callbacks, retries, authority inputs or altered custody/budgets. Failure prints
+one last-entered label only after whole-owner retention. It is not an exact
+failed-predicate diagnosis. A print panic cannot bypass the existing park.
+Default production builds do not contain this diagnostic module.
+
+Focused diagnostic controls passed56 tests, with three explicit VM selectors
+ignored, both with one and two test threads. Strict feature/test and default
+library Clippy and scoped formatting/diff checks passed. An earlier unrestricted
+parallel invocation had three existing preparation tests fail with Changed;
+that invocation remains NONPASS. Process-wide FD inventory can interfere across
+concurrent fixtures, but the failing predicate was not captured, so the cause is
+not claimed as established. Serial gates do not waive the unchanged production
+256-FD bound or count as a passing unrestricted parallel suite.
+
+### First exchange localization (development successor)
+
+Later disposable-VM attempts kept the original nonpassing outcomes. Native44
+refused on the private fixture prelude; Native45 never released its native
+barrier because the observer's TUN module hooks were unavailable. These are
+not runtime Arm/start results. Native46 added early read-only module/BTF
+preflight and separately loaded the module by ordinary VM administration.
+
+Native46 used the same runtime `2f2586fc0f3aba48ed215922add4f195cf970483`
+and ELF `7cd8844a32763629ebf00ba119f48e55d80aa9f84a5a3c2dce56c3b58b090ea9`.
+Its current owner passed construction, but the first FixedClient Status exchange
+refused before validator/core execution. The closed last-entered label was
+`status_exchange`, not `status_interpretation`. Ordinary service startup reached
+READY, published the required endpoint modes/group, and had an empty retained
+state domain. This does not prove whether transport, endpoint validation or
+decoded response verification failed; no new Status/Recover was sent.
+
+The new explicit `netguard-client-diagnostics` feature distinguishes those
+existing client operations through thread-local closed source labels. It is
+selected only by the private native developer scenario, not defaults or the
+service feature. The ignored launcher prints the last client label only after
+whole-owner retention. No response payload, errno, new probe, retry, deadline
+change or authority input is introduced. Like the earlier labels, this is the
+last operation entered, not necessarily its exact failed predicate. The
+earlier attempt remains NONPASS; a separately admitted exact successor and
+original completion are still required.
+
+### Post-startup service refusal localization
+
+The next exact developer interval passed client endpoint/peer checks and wrote
+its first request, but stopped at `read_prefix` without any core exec. READY is
+only startup evidence: every original idle/accept/exchange boundary still
+rechecks retained manager/package/namespace authority, and refusal parks the
+whole service with its listener retained. Neither transport timeout nor an open
+socket proves a particular failed predicate or allows resending the request.
+
+The explicit default-off `netguard-service-diagnostics` successor retains only
+thread-local closed source-stage labels and the first already-computed origin
+failure frame after startup. Marking introduces no I/O, new manager/kernel
+query or authority input. Immediately before the existing terminal park it
+writes one finite stage/reason frame and, if present, that finite origin frame.
+There is no per-idle output; repeated terminal reporting is suppressed before
+the first write. Failed or partial output parks without retry/unwind/teardown.
+Existing guards, latches, budgets, listener and recovery semantics are unchanged.
+The original failed interval remains NONPASS. A separately admitted exact
+service/native successor must establish the actual failure and any later fix;
+these diagnostics are not themselves K1 acceptance.
+
+### Original-envelope diagnostic slice
+
+The Native50 attempt remains unknown/nonpassing. Its last-entered
+`origin_envelope` label does not identify which envelope predicate refused or
+which repeated invocation reached it. The separate test-only successor splits
+the existing short-circuit expression into the same four checks, in order:
+original migration lock, ownership marker, pending transaction fence, login
+receipt. Each has a closed pre-operation label; no predicate is evaluated twice
+and no new syscall, authority input or fallback is introduced.
+
+The ignored launcher preserves its existing three diagnostic lines and appends
+`K1_NATIVE_ORIGIN_DIAGNOSTIC <site> <ordinal>` inside the same catch-unwind after
+whole-owner custody retention. The thread-local ordinal increments only at the
+existing origin closure entry and saturates at255. Sites are fixed initial,
+local, status, arm, disarm, preparation, interval_before and interval_after.
+They are source locations, not successful effects or identity/generation data.
+On the straight-line connect path ordinals7/8/9/10 enter the reserved-Desired
+write, Arm exchange, connected-Desired write and owned-core start respectively;
+an error branch is interpreted from its exact source, never from that mapping
+alone. Ordinal saturation has no effect on execution. Reset and thread isolation
+are tested. Default/non-test builds contain neither this state nor the output.
+
+No failed Native50 context is resumed, no installed run is accepted, and no
+timeout, custody rule, pending fence, package qualification or issuer changes.
+The serial protected filter passed59 controls with three VM selectors ignored;
+strict headless scenario all-target and ordinary-default library Clippy, scoped
+formatting and diff checks passed. The new actual mock-candidate call-sequence
+control checks the above ordinals through connect, interval and explicit close.
+An initial redundant match fallback produced a compiler warning; it was removed
+before the final strict gates. These are SOURCE controls, not real native effects.
+
+### Nested startup-receipt diagnostic (SOURCE only)
+
+Native51 remains NONPASS/unknown. Its closed `origin_login`, `local`, ordinal10
+labels reach the startup-receipt check before owned-core start. A later fixed
+read-only projection found a consumed receipt matching the Rust ownership
+generation and absent pending members; that does not reconstruct the original
+failed read or prove process descriptor exhaustion. Desired/NetGuard generation
+advances are distinct from ownership generation; this checker has no clock or
+user-manager epoch query.
+
+The successor observes failure branches of the existing startup checker and
+its original receipt reader, only in the native test executable. It performs no
+additional read, query, retry or guard evaluation. An invocation-scoped
+thread-local observation resets at checker entry, records only the first closed
+failure class, and deactivates on return/unwind. Other login calls cannot replace
+that record. The existing four diagnostic lines remain; a fifth fixed line,
+`K1_NATIVE_LOGIN_DIAGNOSTIC <reason> <io-class>`, is emitted only inside the
+existing post-retention catch-unwind. `no_failure` means no recorded branch,
+not a successful operation receipt. Phase/generation mismatch is deliberately
+one class, preserving the original combined short-circuit predicate.
+
+Existing metadata errors can expose finite errno classes without another
+syscall. The store reader erases open/read errno into its existing `Io` error;
+`store_io_opaque` explicitly preserves that uncertainty, never claims EMFILE.
+No raw error, path, receipt field, epoch or generation is printed. Default and
+non-test builds have neither observation state nor output. Real filesystem
+controls invoke the actual startup checker for consumed/absent receipts,
+Desired-only advancement, ownership mismatch, pending phase, malformed/schema/
+UTF-8/mode failures and pending-before-receipt short circuit. They are local
+SOURCE controls, not native admission or recovery of an earlier VM attempt.
+
+Focused serial gates passed21 login controls and59 protected controls with three
+VM selectors ignored. Strict headless-scenario all-target and ordinary-default
+library Clippy, scoped formatting and diff checks passed. The first test compile
+refused an ambiguous diagnostic-module import; the explicit module path fixed
+that test-only error before the final gates. No VM invocation or release/native
+ELF rebuild is included in this SOURCE checkpoint.
+
+### Development VM prerequisites before network-preparation admission
+
+The disposable VM's ordinary prerequisites must be verified **before** selecting
+the fixed network-preparation recipe, not discovered through repeated effecting
+wrappers. A fresh boot alone does not imply these prerequisites are ready:
+
+- Confirm the exact newly admitted boot, inactive normal runtime, absent fixed
+  TUN/link/netns/recipe scope paths, and the unchanged pinned service image.
+- Confirm `/sys/module/tun` is the admitted root-owned directory and
+  `/sys/kernel/btf/tun` the admitted root-owned regular BTF file, neither writable
+  by group/others. If absent, the VM operator may separately authorize the fixed
+  ordinary `modprobe tun` action, then verify both paths. Never substitute a
+  missing BTF file or weaken the module/type/ownership checks.
+- Confirm the normal user login-prepare unit completed successfully for this
+  boot and its genuine `/run/user/1000/omavless-login.receipt` exists with the
+  required user ownership, single-link0600 shape and bounded size. Do not copy
+  an old receipt or manufacture a current one. Preparation's metadata check is
+  readiness only: the normal Rust constructor still checks the original startup
+  receipt, ownership generation and pending fences.
+- Confirm the genuine installed native driver and its ordinary prerequisites:
+  the exact selected test ELF and managed core/package identity, the normal
+  DNS broker's enrolled fixed device/policy and active service, and NetGuard's
+  original enrolled service with its pinned image. Both fixed control endpoints
+  must be actual root-owned mode0660 sockets. A genuine current login-prepare
+  receipt, DNS enrollment and NetGuard enrollment are separate prerequisites;
+  none is manufactured by the fixture or inferred from a fresh boot.
+
+The fixed network-preparation successor now checks the pinned NetGuard public
+image, then the exact root-owned0755 DNS-broker image with its bounded size,
+group and xattr policy, and both fixed socket metadata shapes before the current
+receipt, scope publication and first network command. Its bounded read-only
+preflight does not send a request, construct the native owner, prepare a login,
+enroll a service or grant Arm/cleanup/retry authority. A separately completed
+ordinary VM module/service preparation and original-zero network preparation
+establish only those prerequisites. The local frozen supervisor and preflight
+remain outside Git; they are neither installed product code nor native lifecycle
+acceptance. The original current-owner constructor remains an effecting operation
+under its own whole-owner custody guard.
+
+In the fixed recipe, module/BTF checks precede service-image and receipt checks;
+receipt absence alone cannot explain a refusal when the earlier module checks
+also fail. A known original exit2 at `PREFLIGHT`, with `attempted=false`, proves
+the wrapper did not enter its `NETWORK_COMMAND`/spawn path. It does **not** alone
+prove no filesystem publication: the scope mkdir immediately precedes that
+phase assignment. A separately admitted bounded scope/link/netns absence check,
+the unchanged no-cleanup source and no intervening removal premise are required
+before classifying an exact refusal as pre-effect and admitting a new ordinary
+preparation. Read-only builder descriptors may have existed; do not claim all
+descriptor custody from this classification.
+
+This does not permit retrying a parked native original, compensate an uncertain
+effect, adopt old durable/kernel state or declare native completion. Preserve
+each refused preparation and its original result separately from a later newly
+admitted preparation, and require the latter's original zero before selecting
+the one retained foreground native run. Native effect selection remains solely
+with the VM operator; preparation never executes the native root through SSH.
+
+### Preparation-first interval scratch portability successor
+
+Ordinary `NativeHostPaths::current` uses the same config/data directory. The old
+interval created its `.k1-native-interval` child after capturing that directory's
+original identity. On filesystems where child `mkdir` increments the parent's
+link count, the unchanged strict post-interval check could refuse the program's
+own publication. This is a bounded portability defect, not an established cause
+of an earlier btrfs native refusal.
+
+The source successor exclusively publishes and captures the private scratch
+before `Bound.data` captures its original. Its move-only holder survives every
+failed acquisition or abandoned prefix and transfers once into the existing
+interval holder. Later traffic captures are regular files inside that original
+scratch. No original link count is rebased, masked or permitted to drift; device,
+inode, full mode, UID, GID and link count remain exact for both held and named
+data-directory observations. The pre-validator, validation and pre-interval
+checks also recheck the same scratch original. Collision, metadata drift or
+failure supplies no overwrite, unlink, cleanup or retry permission.
+
+The additional held scratch role raises the preparation reservation from16 to17
+without changing the256 aggregate bound or RLIMIT_NOFILE. The interval's existing
+24-role reservation includes the already held scratch through its whole-process
+inventory and then consumes that descriptor. Private captures and the scratch
+remain owned by the original prepared/interval graph; uncertain graph retention
+and fatal-process-loss limits are unchanged.
+
+Deterministic controls reject a `+1` link-count change and every other identity
+field change. A real HOME-backed ordinary aliased config/data fixture exercises
+the actual staging and capture-file code without an executable core, socket,
+service, admission or network action. A separate HOME child-mkdir control reports
+`K1_HOME_CHILD_NLINK_INCREMENT_UNAVAILABLE` when that filesystem keeps the count
+unchanged; that branch is not real-filesystem `+1` reproduction. Native execution,
+whole K1 acceptance and product/release activation remain separate exact-head
+gates, and all earlier NONPASS native outcomes retain their original identity.
+
+### Test-only strict identity failure projection successor
+
+The `netguard-native-scenario` test-only diagnostic now records the first failed
+data-directory identity field: `dev`, `ino`, `mode`, `uid`, `gid` or `nlink`.
+`not_recorded` remains explicit when no such rejection was observed. The actual
+held-then-named comparison and its `Observation` refusal are unchanged. Only
+inside its rejecting branch does the active post-interval diagnostic classify
+the already captured metadata, in the same six-field order; it performs no
+additional metadata, path or actor query and exposes no field value.
+
+The existing seventh `K1_NATIVE_POSTCHECK_DIAGNOSTIC` frame gains that one closed
+token after guard/refusal. There is no eighth frame. This grammar belongs to a
+fresh exact source/test ELF; the older two-token seventh frame is not silently
+interpreted as the new schema. An `interval_data_identity` guard without a
+failed-field token does not establish a link-count cause, particularly on a
+btrfs baseline with link count1. Earlier native NONPASS evidence remains intact.
+
+At this source checkpoint the local supervisor successor was outside Git and
+still unbound (the later Native57 selection is recorded below). It
+retains its exact returned native child's original stderr capture FD and initial
+metadata. On failure it attempts one bounded `fstat`/`pread`/`fstat` snapshot of
+that same descriptor, accepts only the complete seven-frame closed grammar and
+serializes only those finite labels. Missing role, unsafe metadata, oversized or
+changing bytes, incomplete/unknown grammar and output failure grant no authority.
+The failure path remains parked with the original graph retained. It never calls
+the success-oriented contents/zero/status helpers, opens a new path, queries a
+PID, reaps, closes, cleans up or retries. Snapshot stability is not writer
+finality, original completion, native success or recovery permission.
+
+The next native selection requires a newly frozen exact source head and fresh
+ELF, a genuine new boot, all transitive fixture/source/artifact pins and a
+separately reviewed bound supervisor. It must not reuse the older selected ELF.
+SOURCE tests and diagnostic projection alone do not satisfy native acceptance.
+
+### Exact Native57 development VM checkpoint
+
+The separately selected Native57 original passed on source
+`da335801fd4105df0946d8d2ea422e85a1035f8c`, fresh test ELF SHA256
+`07967da35916aa44dff1d80dcbd0601ccbf56c890fbd42ce046c003d521d5b30`,
+BOOT `f2d2893c-da88-4686-8e99-32751c6c68fe`. ROOT observed the complete original-
+zero census/packet proof and SAME foreground serial return. See the
+[sanitized exact-source report](../testing/K1_NATIVE57_VM_2026-10-07.md).
+
+This closes only that single current-owner validation/Arm/connect/traffic/
+stop-empty/Disarm/final-Status developer composition gate. Native55/56 remain
+NONPASS and their identity diagnostic is not assigned a link-count cause.
+The old genuinely Armed/stale-Live image remains preserved; fresh administrator
+provisioning did not implement cold reconciliation or satisfy armed boot.
+Repeated-cycle/fault, product/default activation and physical-host gates remain
+open. Successful fixtures were not automatically cleaned; the later separately
+admitted poweroff/whole-image retention is an administrator boundary, not
+product recovery. No cleanup/retry or main/release permission follows here.

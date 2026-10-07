@@ -2,7 +2,8 @@
 //! Unregistered candidate owns the same executor, not another runtime owner.
 //! Explicit developer composition uses the fixed client; no product constructor
 //! is registered. Mock replies establish conformance, never kernel authority.
-//! Native coverage issuance remains closed before any real validation or Arm.
+//! Native coverage issuance requires the qualified private policy, original
+//! validation and same-owner postchecks before any Arm.
 use super::*;
 use omavless_netguard::protocol::{Health, Mode, POLICY_VERSION, Protection, Request, Response};
 
@@ -126,6 +127,8 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
         effect: impl FnOnce(&mut LifecycleExecutor<H>) -> Result<T, LifecycleError>,
     ) -> Result<T, LifecycleError> {
         self.phase = Phase::InFlight; // consumed BEFORE any callback/effect/panic
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(crate::protected_native_diagnostic::Site::Local);
         self.origin_check()?;
         let result = effect(
             &mut self
@@ -138,7 +141,19 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
     }
     fn exchange(&mut self, request: Request) -> Result<Response, LifecycleError> {
         self.phase = Phase::InFlight;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(match request {
+            Request::Status {} => crate::protected_native_diagnostic::Site::Status,
+            Request::Arm { .. } => crate::protected_native_diagnostic::Site::Arm,
+            Request::Disarm { .. } => crate::protected_native_diagnostic::Site::Disarm,
+        });
         self.origin_check()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        if request == (Request::Status {}) {
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::StatusExchange,
+            );
+        }
         let result = self
             .owned
             .as_mut()
@@ -161,7 +176,13 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
         if self.phase != Phase::Fresh {
             return Err(self.poison());
         }
-        let current = self.local(|e| e.read())?;
+        let current = self.local(|e| {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::DesiredRead,
+            );
+            e.read()
+        })?;
         if current.connected {
             return Err(self.poison());
         } // replacement/startup unsupported
@@ -172,17 +193,34 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
             ..current.clone()
         };
         target.validate().map_err(|_| self.poison())?;
-        self.local(|e| e.verify_empty(&current))?;
         self.local(|e| {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::EmptyObservation,
+            );
+            e.verify_empty(&current)
+        })?;
+        self.local(|e| {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::ProtectedEligibility,
+            );
             e.host
                 .protected_preflight(&target)
                 .map_err(|_| LifecycleError::InvalidRequest)
         })?;
-        let Some(Protection::Disarmed { closed_generation }) =
-            Self::healthy(self.exchange(Request::Status {})?)
-        else {
+        let status = self.exchange(Request::Status {})?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StatusInterpretation,
+        );
+        let Some(Protection::Disarmed { closed_generation }) = Self::healthy(status) else {
             return Err(self.poison());
         };
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::GenerationReservation,
+        );
         target.generation = current
             .generation
             .max(closed_generation.unwrap_or(0))
@@ -192,7 +230,15 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
         // Reserve headroom for explicit disconnected intent as well. No wraps,
         // recycled attempts or trusted floor invented from a wire omission.
         self.phase = Phase::InFlight;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(
+            crate::protected_native_diagnostic::Site::Preparation,
+        );
         self.origin_check()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::HostPreparation,
+        );
         let prepared = self
             .owned
             .as_mut()
@@ -289,6 +335,10 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
                 .map_err(|_| LifecycleError::ManualRecoveryRequired)
         })?;
         self.interval = Some(interval);
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(
+            crate::protected_native_diagnostic::Site::IntervalBefore,
+        );
         self.origin_check()?;
         let result = self
             .owned
@@ -303,14 +353,38 @@ impl<H: ProtectedHost, P: ProtectionPort> ProtectedCandidate<'_, H, P> {
             );
         result.map_err(|_| self.poison())?;
         self.local(|e| {
-            if e.read()? != desired {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            let _post_scope = crate::protected_native_diagnostic::post_scope();
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::DesiredRead,
+            );
+            let current = e.read()?;
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::DesiredEquality,
+            );
+            if current != desired {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_refusal(
+                    crate::protected_native_diagnostic::PostRefusal::DesiredChanged,
+                );
                 return Err(LifecycleError::ManualRecoveryRequired);
             }
             e.host
                 .recheck_interval(&desired)
                 .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
-            e.verify_connected(&desired)
+            e.verify_connected(&desired)?;
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::Completed,
+            );
+            Ok(())
         })?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::site(
+            crate::protected_native_diagnostic::Site::IntervalAfter,
+        );
         self.origin_check()?;
         self.phase = Phase::Armed(generation);
         Ok(())

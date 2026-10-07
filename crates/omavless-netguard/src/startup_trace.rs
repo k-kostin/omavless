@@ -164,6 +164,11 @@ fn admit_write(frame: &[u8], write: impl FnOnce(&[u8]) -> Option<usize>) -> bool
 }
 pub(crate) fn emit(phase: Phase, event: Event, property: Option<&str>) {
     if !ACTIVE.load(Ordering::Relaxed) {
+        #[cfg(feature = "netguard-service-diagnostics")]
+        if !matches!(event, Event::Begin | Event::Pass) {
+            let (bytes, length) = frame(phase, event, property);
+            crate::service_diagnostic::remember_origin(bytes, length);
+        }
         return;
     }
     let (bytes, n) = frame(phase, event, property);

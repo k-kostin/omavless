@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: MIT
+use super::super::{
+    DirectoryIdentity,
+    tests::{fixture_at, stage},
+};
 use super::*;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
 
@@ -175,4 +179,86 @@ fn aggregate_capacity_counts_old_graph_and_temporary_roles() {
     assert!(Capacity::from_inventory(232, 255).is_err());
     assert!(Capacity::from_inventory(usize::MAX, u64::MAX).is_err());
     assert_eq!(PEAK_INTERVAL_FDS, 24);
+}
+
+#[test]
+fn protected_home_aliased_data_original_is_after_scratch_publication() {
+    let home = std::env::var_os("HOME").expect("HOME-backed fixture required");
+    let root = tempfile::Builder::new()
+        .prefix(".omavless-k1-portability-")
+        .tempdir_in(home)
+        .unwrap();
+    let (_root, mut host, desired) = fixture_at(root, true);
+    stage(&mut host, &desired).unwrap();
+    let bound = host
+        .protected_preparation
+        .as_mut()
+        .unwrap()
+        .bound
+        .as_mut()
+        .unwrap();
+    let mut scratch = bound.scratch.take().unwrap();
+    scratch.recheck().unwrap();
+    let (_, path) = scratch.original.as_ref().unwrap();
+    assert_eq!(path.parent(), Some(host.paths.data_directory.as_path()));
+    assert!(path.is_dir());
+    let before = DirectoryIdentity::of(&bound.data.metadata);
+    assert!(before == DirectoryIdentity::of(&fs::metadata(&host.paths.data_directory).unwrap()));
+    // Only ordinary inert regular files; no child exec, socket or admission.
+    let out = Capture::create(path.join("traffic.out"), host.uid).unwrap();
+    let err = Capture::create(path.join("traffic.err"), host.uid).unwrap();
+    out.file.write_at(b"fixed inert capture\n", 0).unwrap();
+    assert_eq!(out.whole().unwrap(), b"fixed inert capture\n");
+    assert_eq!(err.whole().unwrap(), b"");
+    assert!(before == DirectoryIdentity::of(&fs::metadata(&host.paths.data_directory).unwrap()));
+    assert!(bound.scratch.is_none());
+    assert!(bound.scratch.take().is_none());
+    // Positive fixture-only completion releases these known synthetic originals.
+    drop(scratch.original.take());
+}
+
+#[test]
+fn prepared_scratch_collision_and_replacement_refuse_without_cleanup() {
+    use std::os::fd::AsRawFd;
+    let home = std::env::var_os("HOME").expect("HOME-backed fixture required");
+    let root = tempfile::Builder::new()
+        .prefix(".omavless-k1-scratch-")
+        .tempdir_in(home)
+        .unwrap();
+    let uid = nix::unistd::getuid().as_raw();
+    let scratch = Scratch::prepare(root.path(), uid).unwrap();
+    let (directory, path) = scratch.original.as_ref().unwrap();
+    let original = directory.file.as_raw_fd();
+    assert!(Scratch::prepare(root.path(), uid).is_err());
+    assert!(path.is_dir());
+    fs::rename(path, root.path().join("old-scratch")).unwrap();
+    fs::DirBuilder::new().mode(0o700).create(path).unwrap();
+    assert!(scratch.recheck().is_err());
+    drop(scratch);
+    assert!(fs::metadata(format!("/proc/self/fd/{original}")).is_ok());
+    // Original known inert fixture only, never an uncertain VM actor/resource.
+    nix::unistd::close(original).unwrap();
+}
+
+#[test]
+fn prepared_scratch_mode_drift_and_unwind_retain_original() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::PermissionsExt;
+    let home = std::env::var_os("HOME").expect("HOME-backed fixture required");
+    let root = tempfile::Builder::new()
+        .prefix(".omavless-k1-scratch-unwind-")
+        .tempdir_in(home)
+        .unwrap();
+    let scratch = Scratch::prepare(root.path(), nix::unistd::getuid().as_raw()).unwrap();
+    let (directory, path) = scratch.original.as_ref().unwrap();
+    let original = directory.file.as_raw_fd();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o750)).unwrap();
+    assert!(scratch.recheck().is_err());
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = scratch;
+        panic!("known inert scratch unwind");
+    }));
+    assert!(result.is_err());
+    assert!(fs::metadata(format!("/proc/self/fd/{original}")).is_ok());
+    nix::unistd::close(original).unwrap();
 }

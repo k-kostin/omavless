@@ -353,8 +353,38 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
     }
 
     fn verify_connected(&mut self, desired: &DesiredState) -> Result<(), LifecycleError> {
-        let observed = self.observe_or_manual(desired)?;
-        if reconcile(desired, observed) != ReconcileAction::AdoptConnected {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::ConnectedObservation,
+        );
+        let result = self.observe_or_manual(desired);
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        if result.is_err() {
+            crate::protected_native_diagnostic::post_refusal(
+                crate::protected_native_diagnostic::PostRefusal::ObservationError,
+            );
+        }
+        let observed = result?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::ConnectedReconcile,
+        );
+        let action = reconcile(desired, observed);
+        if action != ReconcileAction::AdoptConnected {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_refusal(if !observed.service_active {
+                crate::protected_native_diagnostic::PostRefusal::CoreNotRunning
+            } else if !observed.controller_ready {
+                crate::protected_native_diagnostic::PostRefusal::ReadinessFalse
+            } else if observed.core_count != 1 {
+                crate::protected_native_diagnostic::PostRefusal::CoreCountMismatch
+            } else if observed.tun_count != 1 {
+                crate::protected_native_diagnostic::PostRefusal::TunCountMismatch
+            } else if !observed.active_profile_matches {
+                crate::protected_native_diagnostic::PostRefusal::ProfileMismatch
+            } else {
+                crate::protected_native_diagnostic::PostRefusal::OtherReconcile
+            });
             return Err(LifecycleError::RecoveryFailed);
         }
         Ok(())

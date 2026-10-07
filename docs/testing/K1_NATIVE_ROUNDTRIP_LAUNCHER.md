@@ -41,7 +41,13 @@ adoption, guessed cleanup, child reaping or recovery. This guard retains the
 resources constructors actually reported, not arbitrary unreported backend
 descriptors, and cannot survive a fatal loss of its process.
 
-## Gates still required before VM selection
+## Original pre-selection gates (historical source checkpoint)
+
+The initial source checkpoint below predates narrow-issuer qualification.
+The later [exact Native57 VM report](K1_NATIVE57_VM_2026-10-07.md) records one
+successful real current-owner roundtrip and complete original census/packet
+proof. It does not replace these provenance requirements or close the separate
+repeated-cycle/fault, whole-product, cold-boot or physical-host gates.
 
 This source has no successful coverage constructor. Actual execution remains
 blocked until the separately reviewed narrow issuer and controlled-peer

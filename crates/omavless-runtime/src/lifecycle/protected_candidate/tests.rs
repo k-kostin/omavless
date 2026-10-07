@@ -323,6 +323,203 @@ struct Fixture {
     root: Rc<RefCell<Observation>>,
 }
 
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn diagnostic_origin_calls_distinguish_reserve_arm_write_and_start_without_extra_checks() {
+    use crate::protected_native_diagnostic::{self as diagnostic, Cut, Site};
+    diagnostic::mark(Cut::NotEntered);
+    let f = Fixture::new(0, None);
+    let mut initial = f.candidate(None, None);
+    let owned = initial.owned.take();
+    let calls = RefCell::new(Vec::new());
+    let mut origin = || {
+        diagnostic::enter_origin();
+        calls.borrow_mut().push(diagnostic::origin());
+        Ok(())
+    };
+    // Same initial invocation as coordinator, then actual candidate call sites.
+    origin().unwrap();
+    let mut candidate = ProtectedCandidate {
+        owned,
+        phase: Phase::Fresh,
+        admission: None,
+        interval: None,
+        origin: Some(&mut origin),
+    };
+    candidate.connect_full("fixture").unwrap();
+    assert_eq!(
+        *calls.borrow(),
+        vec![
+            (Site::Initial, 1),
+            (Site::Local, 2),
+            (Site::Local, 3),
+            (Site::Local, 4),
+            (Site::Status, 5),
+            (Site::Preparation, 6),
+            (Site::Local, 7),
+            (Site::Arm, 8),
+            (Site::Local, 9),
+            (Site::Local, 10),
+            (Site::Local, 11),
+            (Site::Local, 12),
+        ]
+    );
+    candidate.observe_interval().unwrap();
+    candidate.disconnect().unwrap();
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .any(|(site, _)| *site == Site::IntervalBefore)
+    );
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .any(|(site, _)| *site == Site::IntervalAfter)
+    );
+    assert!(calls.borrow().iter().any(|(site, _)| *site == Site::Disarm));
+    drop(candidate);
+    assert_eq!(f.drops.get(), 3);
+}
+
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn successful_origin_local18_can_precede_retained_interval_postcheck_refusal() {
+    use crate::protected_native_diagnostic::{
+        self as d, ControllerPhase, Cut, Endpoint, ReadinessPhase, Site,
+    };
+    d::mark(Cut::NotEntered);
+    let f = Fixture::new(0, None);
+    let mut initial = f.candidate(Some("interval_postcheck"), None);
+    let owned = initial.owned.take();
+    let calls = RefCell::new(Vec::new());
+    let mut origin = || {
+        d::enter_origin();
+        d::mark(Cut::OriginLogin);
+        // Models a successful checker observation, NOT a genuine receipt or
+        // authority. The later mock host refusal is a separate operation.
+        let _login = crate::login_transaction::diagnostic::begin();
+        calls.borrow_mut().push(d::origin());
+        Ok(())
+    };
+    origin().unwrap();
+    let mut candidate = ProtectedCandidate {
+        owned,
+        phase: Phase::Fresh,
+        admission: None,
+        interval: None,
+        origin: Some(&mut origin),
+    };
+    candidate.connect_full("fixture").unwrap();
+    // A prior readonly observation remains stale through unrelated fences.
+    {
+        let _scope = d::readiness_scope();
+        d::readiness_mark(Endpoint::Proxies, ReadinessPhase::FinalDeadline);
+        d::controller_mark(ControllerPhase::Exchange);
+    }
+    assert!(candidate.observe_interval().is_err());
+    assert_eq!(d::origin(), (Site::Local, 18));
+    assert_eq!(d::last(), Cut::OriginLogin);
+    assert_eq!(
+        crate::login_transaction::diagnostic::last(),
+        (
+            crate::login_transaction::diagnostic::Reason::NoFailure,
+            crate::login_transaction::diagnostic::Io::None
+        )
+    );
+    assert_eq!(
+        d::readiness(),
+        (
+            Endpoint::Proxies,
+            ReadinessPhase::FinalDeadline,
+            ControllerPhase::Exchange
+        )
+    );
+    assert_eq!(
+        &calls.borrow()[12..],
+        &[
+            (Site::Local, 13),
+            (Site::Local, 14),
+            (Site::Local, 15),
+            (Site::Local, 16),
+            (Site::IntervalBefore, 17),
+            (Site::Local, 18)
+        ]
+    );
+    let log = f.log.borrow();
+    assert!(log.contains(&"interval_complete"));
+    assert!(log.contains(&"interval_postcheck"));
+    assert!(!log.contains(&"stop") && !log.contains(&"disarm"));
+    drop(log);
+    assert_eq!(candidate.phase, Phase::Poisoned);
+    assert_eq!(f.root.borrow().marker, Marker::Armed(1));
+    // Mock host refusal has no native subguard; the caller records the last
+    // desired-equality check, demonstrating why native reached hooks matter.
+    assert_eq!(
+        d::post(),
+        (d::PostGuard::DesiredEquality, d::PostRefusal::NotRecorded)
+    );
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
+}
+
+#[cfg(feature = "netguard-native-scenario")]
+#[test]
+fn diagnostic_distinguishes_origin_read_empty_eligibility_and_status_cuts() {
+    use crate::protected_native_diagnostic::{Cut, last, mark};
+
+    let f = Fixture::new(0, None);
+    let mut initial = f.candidate(None, None);
+    let (Executor::Owned(executor), port) = initial.owned.take().unwrap() else {
+        panic!("fixed owned fixture");
+    };
+    let mut origin = || {
+        mark(Cut::OriginEnvelope);
+        Err(LifecycleError::ManualRecoveryRequired)
+    };
+    let mut candidate = ProtectedCandidate {
+        owned: Some((Executor::Owned(executor), port)),
+        phase: Phase::Fresh,
+        admission: None,
+        interval: None,
+        origin: Some(&mut origin),
+    };
+    assert!(candidate.connect_full("fixture").is_err());
+    assert_eq!(last(), Cut::OriginEnvelope);
+    assert!(f.log.borrow().is_empty());
+    assert_eq!(candidate.phase, Phase::Poisoned);
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
+
+    let f = Fixture::new(0, None);
+    let mut candidate = f.candidate(None, None);
+    // A missing Desired file legitimately reads as the default Off intent.
+    // Malformed bytes, not absence, exercise the actual read-refusal boundary.
+    std::fs::write(&f.paths.file, b"{").unwrap();
+    assert!(candidate.connect_full("fixture").is_err());
+    assert_eq!(last(), Cut::DesiredRead);
+    assert!(f.log.borrow().is_empty());
+    drop(candidate);
+    assert_eq!(f.drops.get(), 0);
+
+    for (host_cut, port_cut, expected) in [
+        (Some("empty"), None, Cut::EmptyObservation),
+        (Some("preflight"), None, Cut::ProtectedEligibility),
+        (None, Some("status_manual"), Cut::StatusInterpretation),
+    ] {
+        let f = Fixture::new(0, None);
+        let mut candidate = f.candidate(host_cut, port_cut);
+        assert!(candidate.connect_full("fixture").is_err());
+        assert_eq!(last(), expected);
+        assert!(!f.log.borrow().contains(&"prepare"));
+        assert!(!f.log.borrow().contains(&"arm"));
+        assert_eq!(candidate.phase, Phase::Poisoned);
+        drop(candidate);
+        assert_eq!(f.drops.get(), 0);
+    }
+}
+
 #[test]
 fn borrowed_same_executor_checks_original_fence_and_never_compensates() {
     for fail_at in 1..=48 {

@@ -8,6 +8,8 @@
 mod backup_destination_candidate;
 mod backup_source_candidate;
 mod pending_private_transaction;
+#[cfg(all(test, feature = "netguard-native-scenario"))]
+mod protected_native_diagnostic;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;
 #[allow(dead_code)]

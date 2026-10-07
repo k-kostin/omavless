@@ -83,6 +83,39 @@ fn disarmed() -> Response {
         closed_generation: Some(7),
     })
 }
+
+#[cfg(feature = "netguard-client-diagnostics")]
+#[test]
+fn closed_diagnostics_distinguish_transport_response_and_postgate_without_extra_io() {
+    let mut backend = Mock::new(vec![framed(disarmed())]);
+    backend.fail_connect = true;
+    let counts = backend.counts.clone();
+    let mut client = Client::new(backend);
+    assert_eq!(client.exchange(Request::Status {}), Err(REFUSE));
+    assert_eq!(crate::client_diagnostic::last_token(), "connect");
+    assert_eq!(counts.connects.get(), 1);
+    assert_eq!(counts.writes.get(), 0);
+    drop(client); // existing Poisoned path retains original graph
+    assert_eq!(counts.socket_drops.get(), 0);
+
+    let backend = Mock::new(vec![vec![]]);
+    let mut client = Client::new(backend);
+    assert_eq!(client.exchange(Request::Status {}), Err(REFUSE));
+    assert_eq!(crate::client_diagnostic::last_token(), "read_prefix");
+
+    let response = Response::Status {
+        policy_version: protocol::POLICY_VERSION,
+        protection: Protection::Emergency {},
+        health: Health::ManualRecoveryRequired,
+    };
+    let mut client = Client::new(Mock::new(vec![framed(response)]));
+    assert_eq!(client.exchange(Request::Status {}), Err(REFUSE));
+    assert_eq!(crate::client_diagnostic::last_token(), "positive_response");
+
+    let mut client = Client::new(Mock::new(vec![framed(disarmed())]));
+    assert_eq!(client.exchange(Request::Status {}), Ok(disarmed()));
+    assert_eq!(crate::client_diagnostic::last_token(), "final_peer");
+}
 impl Mock {
     fn new(replies: Vec<Vec<u8>>) -> Self {
         Self {

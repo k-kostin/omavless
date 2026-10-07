@@ -55,21 +55,28 @@ fn named(parent: &File, name: &str, held: &File) -> Result<()> {
 }
 impl Endpoint {
     fn validate(&self) -> Result<()> {
+        diagnostic!(GroupValidate);
         self.group.validate().map_err(|_| REFUSE)?;
+        diagnostic!(RunValidate);
         safe_root(&self.run)?;
         let current = File::from(open("/run", DIR, Mode::empty()).map_err(|_| REFUSE)?);
         let a = current.metadata().map_err(|_| REFUSE)?;
         let b = self.run.metadata().map_err(|_| REFUSE)?;
+        diagnostic!(RunNamed);
         if (a.dev(), a.ino()) != (b.dev(), b.ino()) {
             return Err(REFUSE);
         }
+        diagnostic!(ParentNamed);
         named(&self.run, "omavless-netguard", &self.parent)?;
+        diagnostic!(ParentShape);
         let p = self.parent.metadata().map_err(|_| REFUSE)?;
         if !p.is_dir() || (p.uid(), p.gid()) != (0, self.group.gid()) || p.mode() & 0o7777 != 0o750
         {
             return Err(REFUSE);
         }
+        diagnostic!(LeafNamed);
         named(&self.parent, "control.sock", &self.leaf)?;
+        diagnostic!(LeafShape);
         let l = self.leaf.metadata().map_err(|_| REFUSE)?;
         if !l.file_type().is_socket()
             || l.nlink() != 1
@@ -89,11 +96,15 @@ impl Backend for Linux {
     }
     fn admit(&mut self) -> Result<Endpoint> {
         // Builder-local read-only FDs can drop on Err; no network operation yet.
+        diagnostic!(GroupOpen);
         let group = PackageGroup::open_fixed().map_err(|_| REFUSE)?;
+        diagnostic!(RunOpen);
         let run = File::from(open("/run", DIR, Mode::empty()).map_err(|_| REFUSE)?);
         safe_root(&run)?;
+        diagnostic!(ParentOpen);
         let parent =
             File::from(openat(&run, "omavless-netguard", DIR, Mode::empty()).map_err(|_| REFUSE)?);
+        diagnostic!(LeafOpen);
         let leaf = File::from(
             openat(
                 &parent,

@@ -1318,6 +1318,7 @@ dependencies = [
  "omavless-profile",
  "omavless-store",
  "omavless-tui",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

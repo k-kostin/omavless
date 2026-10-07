@@ -11,9 +11,19 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "crates/omavless-netguard/src/launch_acquisition.rs"
+# Exact production macro: diagnostics compile out in this default-feature
+# standalone crate, just as in the ordinary library. Do not stub owner logic.
+SERVICE_CUT = '''macro_rules! service_cut {
+    ($cut:ident) => {
+        #[cfg(feature = "netguard-service-diagnostics")]
+        crate::service_diagnostic::mark(crate::service_diagnostic::Stage::$cut);
+    };
+}
+'''
 PRELUDE = r'''
 #![allow(dead_code)]
 #![forbid(unsafe_code)]
+SERVICE_CUT_LITERAL
 mod effect_port {
     #[derive(Debug)] pub enum EffectError { UnavailableOrUncertain }
     pub struct EffectIdentity;
@@ -43,12 +53,15 @@ impl effect_port::EffectPort for Candidate {}
 
 class AcquisitionTypes(unittest.TestCase):
     def compile(self, body):
+        library = (SOURCE.parent / "lib.rs").read_text()
+        self.assertEqual(library.count(SERVICE_CUT), 1)
         with tempfile.TemporaryDirectory(prefix="k1-launch-types-") as temporary:
             path = Path(temporary)
             source = path / "check.rs"
             # Rust string escaping for a fixed repository path, not caller data.
             literal = '"' + str(SOURCE).replace('\\', '\\\\').replace('"', '\\"') + '"'
-            source.write_text(PRELUDE.replace("SOURCE_LITERAL", literal) + body)
+            source.write_text(PRELUDE.replace("SERVICE_CUT_LITERAL", SERVICE_CUT)
+                              .replace("SOURCE_LITERAL", literal) + body)
             return subprocess.run(
                 ["rustc", "--edition=2024", "--crate-type=lib", "--emit=metadata",
                  str(source), "-o", str(path / "check.rmeta")],
@@ -58,6 +71,7 @@ class AcquisitionTypes(unittest.TestCase):
     def rejected(self, body, diagnostic):
         result = self.compile(body)
         self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("cannot find macro", result.stderr)
         self.assertIn(diagnostic, result.stderr)
 
     def test_positive_actual_module_fixed_operations_compile(self):

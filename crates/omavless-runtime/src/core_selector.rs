@@ -31,14 +31,33 @@ enum Request<'a> {
 
 fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> Option<Value> {
     let remaining = || {
-        deadline
+        let value = deadline
             .checked_duration_since(Instant::now())
-            .filter(|d| !d.is_zero())
+            .filter(|d| !d.is_zero());
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        if value.is_none() {
+            crate::protected_native_diagnostic::controller_mark(
+                crate::protected_native_diagnostic::ControllerPhase::Timeout,
+            );
+        }
+        value
     };
     remaining()?;
     let uid = Uid::current().as_raw();
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    crate::protected_native_diagnostic::controller_mark(
+        crate::protected_native_diagnostic::ControllerPhase::ParentMetadata,
+    );
     let directory = fs::symlink_metadata(path.parent()?).ok()?;
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    crate::protected_native_diagnostic::controller_mark(
+        crate::protected_native_diagnostic::ControllerPhase::SocketMetadata,
+    );
     let before = fs::symlink_metadata(path).ok()?;
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    crate::protected_native_diagnostic::controller_mark(
+        crate::protected_native_diagnostic::ControllerPhase::MetadataPolicy,
+    );
     if !directory.is_dir()
         || directory.file_type().is_symlink()
         || directory.uid() != uid
@@ -52,6 +71,10 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
     {
         return None;
     }
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    crate::protected_native_diagnostic::controller_mark(
+        crate::protected_native_diagnostic::ControllerPhase::Exchange,
+    );
     let fd = socket(
         AddressFamily::Unix,
         SockType::Stream,
@@ -208,6 +231,44 @@ mod tests {
         atomic::{AtomicBool, Ordering},
     };
     use std::thread;
+
+    #[cfg(feature = "netguard-native-scenario")]
+    #[test]
+    fn protected_controller_diagnostic_uses_existing_metadata_or_timeout_without_connect() {
+        use crate::protected_native_diagnostic::{
+            self as diagnostic, ControllerPhase, Cut, Endpoint, ReadinessPhase,
+        };
+        let read = |path: &Path, deadline| {
+            read_configuration(
+                path,
+                std::process::id(),
+                omavless_mihomo::ReadOnlyEndpoint::Configs,
+                deadline,
+            )
+        };
+        diagnostic::mark(Cut::NotEntered);
+        {
+            let _scope = diagnostic::readiness_scope();
+            diagnostic::readiness_mark(Endpoint::Configs, ReadinessPhase::Read);
+            assert!(read(Path::new(""), Instant::now()).is_none());
+            assert_eq!(diagnostic::readiness().2, ControllerPhase::Timeout);
+            assert!(read(Path::new(""), Instant::now() + Duration::from_secs(1)).is_none());
+            assert_eq!(diagnostic::readiness().2, ControllerPhase::ParentMetadata);
+            let root = tempfile::tempdir().unwrap();
+            fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+            let leaf = root.path().join("not-a-controller");
+            assert!(read(&leaf, Instant::now() + Duration::from_secs(1)).is_none());
+            assert_eq!(diagnostic::readiness().2, ControllerPhase::SocketMetadata);
+            fs::write(&leaf, b"fixed inert file").unwrap();
+            fs::set_permissions(&leaf, fs::Permissions::from_mode(0o600)).unwrap();
+            assert!(read(&leaf, Instant::now() + Duration::from_secs(1)).is_none());
+            assert_eq!(diagnostic::readiness().2, ControllerPhase::MetadataPolicy);
+        }
+        // Same ordinary read cannot overwrite the scoped observation.
+        let prior = diagnostic::readiness();
+        assert!(read(Path::new(""), Instant::now()).is_none());
+        assert_eq!(diagnostic::readiness(), prior);
+    }
     use std::time::Duration;
 
     struct Controller {

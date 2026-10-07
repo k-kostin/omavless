@@ -934,11 +934,28 @@ impl LifecycleHost for NativeLifecycleHost {
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         let (own_pid, own_running, controller_ready) = match self.core.as_mut() {
             Some(core) => {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_mark(
+                    crate::protected_native_diagnostic::PostGuard::CoreRunning,
+                );
                 let running = core.running().map_err(|_| HostStepError::Observation)?;
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_mark(
+                    crate::protected_native_diagnostic::PostGuard::CoreReadiness,
+                );
                 let ready = if running {
                     self.readiness.as_ref().is_some_and(|expected| {
-                        expected.matches_intent(desired.mode)
-                            && core.configured_ready(OBSERVATION_TIMEOUT, expected)
+                        #[cfg(all(test, feature = "netguard-native-scenario"))]
+                        crate::protected_native_diagnostic::post_mark(
+                            crate::protected_native_diagnostic::PostGuard::CoreIntent,
+                        );
+                        expected.matches_intent(desired.mode) && {
+                            #[cfg(all(test, feature = "netguard-native-scenario"))]
+                            crate::protected_native_diagnostic::post_mark(
+                                crate::protected_native_diagnostic::PostGuard::CoreReadiness,
+                            );
+                            core.configured_ready(OBSERVATION_TIMEOUT, expected)
+                        }
                     })
                 } else {
                     false
@@ -948,15 +965,45 @@ impl LifecycleHost for NativeLifecycleHost {
             None => (None, false, false),
         };
         let tun_verified = if own_running && controller_ready {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::TunVerify,
+            );
             self.verify_tun(own_pid.ok_or(HostStepError::Observation)?)?
         } else {
             false
         };
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        if !own_running {
+            crate::protected_native_diagnostic::post_refusal(
+                crate::protected_native_diagnostic::PostRefusal::CoreNotRunning,
+            );
+        } else if !controller_ready {
+            crate::protected_native_diagnostic::post_refusal(
+                crate::protected_native_diagnostic::PostRefusal::ReadinessFalse,
+            );
+        } else if !tun_verified {
+            crate::protected_native_diagnostic::post_refusal(
+                crate::protected_native_diagnostic::PostRefusal::TunUnverified,
+            );
+        }
         Ok(OwnedObservation {
             service_active: own_running,
             controller_ready: controller_ready && tun_verified,
-            core_count: self.visible_core_count(own_pid, own_running)?,
-            tun_count: self.managed_tuns()?,
+            core_count: {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_mark(
+                    crate::protected_native_diagnostic::PostGuard::VisibleCoreCount,
+                );
+                self.visible_core_count(own_pid, own_running)?
+            },
+            tun_count: {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_mark(
+                    crate::protected_native_diagnostic::PostGuard::ManagedTunCount,
+                );
+                self.managed_tuns()?
+            },
             active_profile_matches: own_running
                 && controller_ready
                 && self.profile_id.as_deref() == Some(desired.profile_id.as_str()),

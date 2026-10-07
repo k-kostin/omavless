@@ -37,6 +37,24 @@ const RECEIPT_NAME: &str = "omavless-login.receipt";
 const MAX_RECEIPT_BYTES: u64 = 1024;
 const MAX_EPOCH_BYTES: usize = 128;
 
+#[cfg(all(test, feature = "netguard-native-scenario"))]
+pub(crate) mod diagnostic;
+
+// Compile away completely outside the private native test executable.
+macro_rules! login_failure {
+    ($reason:ident) => {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        diagnostic::record(diagnostic::Reason::$reason, diagnostic::Io::None);
+    };
+    ($reason:ident, $error:expr) => {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        diagnostic::record(
+            diagnostic::Reason::$reason,
+            diagnostic::Io::classify($error),
+        );
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoginTransactionError {
     InvalidInput,
@@ -169,7 +187,10 @@ fn private_optional(path: &Path, uid: u32, maximum: u64) -> Result<Option<String
     let before = match fs::symlink_metadata(path) {
         Ok(value) => value,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(LoginTransactionError::InvalidState),
+        Err(_error) => {
+            login_failure!(MetadataBefore, &_error);
+            return Err(LoginTransactionError::InvalidState);
+        }
     };
     let safe = |metadata: &fs::Metadata| {
         metadata.is_file()
@@ -178,10 +199,18 @@ fn private_optional(path: &Path, uid: u32, maximum: u64) -> Result<Option<String
             && metadata.len() <= maximum
     };
     if !safe(&before) {
+        login_failure!(MetadataUnsafe);
         return Err(LoginTransactionError::InvalidState);
     }
-    let raw = read_private_utf8(path, uid).map_err(|_| LoginTransactionError::InvalidState)?;
-    let after = fs::symlink_metadata(path).map_err(|_| LoginTransactionError::InvalidState)?;
+    let raw = read_private_utf8(path, uid).map_err(|_error| {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        diagnostic::store_failure(_error);
+        LoginTransactionError::InvalidState
+    })?;
+    let after = fs::symlink_metadata(path).map_err(|_error| {
+        login_failure!(MetadataAfter, &_error);
+        LoginTransactionError::InvalidState
+    })?;
     if !safe(&after)
         || before.dev() != after.dev()
         || before.ino() != after.ino()
@@ -189,6 +218,7 @@ fn private_optional(path: &Path, uid: u32, maximum: u64) -> Result<Option<String
         || raw.len() as u64 != after.len()
         || raw.len() as u64 > maximum
     {
+        login_failure!(MetadataChanged);
         return Err(LoginTransactionError::InvalidState);
     }
     Ok(Some(raw))
@@ -231,8 +261,10 @@ fn read_receipt(path: &Path, uid: u32) -> Result<Option<Receipt>> {
 }
 
 fn decode_receipt(raw: &str) -> Result<Receipt> {
-    let parsed: Receipt =
-        serde_json::from_str(raw).map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
+    let parsed: Receipt = serde_json::from_str(raw).map_err(|_| {
+        login_failure!(Decode);
+        LoginTransactionError::ManualRecoveryRequired
+    })?;
     if parsed.schema_version != 1
         || parsed.epoch_hash.len() != 64
         || !parsed
@@ -242,6 +274,7 @@ fn decode_receipt(raw: &str) -> Result<Receipt> {
         || parsed.ownership_generation == 0
         || parsed.ownership_generation > MAX_GENERATION
     {
+        login_failure!(Schema);
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     Ok(parsed)
@@ -256,10 +289,14 @@ pub(crate) fn check_startup_receipt(
     lock: &MigrationLock,
     committed_generation: Option<u64>,
 ) -> Result<()> {
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    let _diagnostic = diagnostic::begin();
     if !lock.authorizes(paths, uid) {
+        login_failure!(StartupLock);
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     if pending_private_transaction::pending_at(&paths.state_directory) {
+        login_failure!(Pending);
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     check_login_receipt_without_private_fence(paths, uid, lock, committed_generation)
@@ -275,6 +312,7 @@ pub(crate) fn check_login_receipt_without_private_fence(
     committed_generation: Option<u64>,
 ) -> Result<()> {
     if !lock.authorizes(paths, uid) {
+        login_failure!(ReceiptLock);
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
@@ -285,7 +323,10 @@ pub(crate) fn check_login_receipt_without_private_fence(
         {
             Ok(())
         }
-        Some(_) => Err(LoginTransactionError::ManualRecoveryRequired),
+        Some(_) => {
+            login_failure!(Identity);
+            Err(LoginTransactionError::ManualRecoveryRequired)
+        }
     }
 }
 

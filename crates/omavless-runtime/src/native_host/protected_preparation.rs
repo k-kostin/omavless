@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Private protected preparation/start on the original NativeLifecycleHost.
-//! Coverage issuance remains closed. Canonical source/validation/readiness are
+//! Coverage issuance is restricted to the qualified development Rule policy.
+//! Canonical source/validation/readiness are
 //! not socket-mark evidence; ordinary templates and staged paths stay separate.
 
 use super::*;
@@ -40,14 +41,48 @@ pub(crate) struct ArmAdmission {
 struct Coverage {
     core: [u8; 32],
     pair: crate::managed_pair::ProtectedPairIdentity,
+    policy: PolicyVersion,
+    config: [u8; 32],
 }
-// CLOSED: package provenance and config syntax do not establish networking or
-// complete socket coverage. Any future successful issuer requires ROOT review.
-fn issue_coverage(
-    _core: [u8; 32],
-    _pair: Option<crate::managed_pair::ProtectedPairIdentity>,
-) -> Result<Coverage, PreparationError> {
-    Err(PreparationError::Unsupported)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PolicyVersion {
+    RuleTcpVerifiedTlsDohV1,
+}
+struct RenderedPolicy {
+    version: PolicyVersion,
+    config: [u8; 32],
+}
+// Static development-only decision, no flag, argument or imported receipt.
+// Rule42 qualified this exact policy/core/package; the retained package holder
+// below still enforces that closed identity. Native integration and product
+// acceptance remain separate. Coverage is created only AFTER original
+// validation and the same Bound's postchecks, never by this decision alone.
+fn approved_policy_decision() -> Result<(), PreparationError> {
+    Ok(())
+}
+/// Only constructed locally AFTER original Validation::complete and restored
+/// host-owned Bound postchecks; cannot escape or outlive those originals.
+struct ValidatedPreparation<'a> {
+    bound: &'a Bound,
+    pair: &'a ManagedPair,
+}
+fn issue_coverage(validated: ValidatedPreparation<'_>) -> Result<Coverage, PreparationError> {
+    let bound = validated.bound;
+    let package = bound.package.as_ref().ok_or(PreparationError::Refused)?;
+    package
+        .recheck(validated.pair, &bound.core.file)
+        .map_err(|_| PreparationError::Changed)?;
+    if bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
+        || bound.policy.config != bound.config.digest
+    {
+        return Err(PreparationError::Changed);
+    }
+    Ok(Coverage {
+        core: bound.core.digest,
+        pair: package.identity(),
+        policy: bound.policy.version,
+        config: bound.config.digest,
+    })
 }
 
 /// No Debug, Clone, serialization, external constructor or copied receipt.
@@ -64,11 +99,105 @@ struct Bound {
     core: HeldFile,
     config: HeldFile,
     data: HeldDirectory,
+    scratch: Option<interval::Scratch>,
+    policy: RenderedPolicy,
+    package: Option<crate::managed_pair::ProtectedPackage>,
+    capacity: PreparationCapacity,
+}
+struct AcquiredBound(Option<Bound>);
+impl Drop for AcquiredBound {
+    fn drop(&mut self) {
+        if let Some(bound) = self.0.take() {
+            std::mem::forget(bound);
+        }
+    }
+}
+
+struct PreparationCapacity {
+    ceiling: usize,
+}
+impl PreparationCapacity {
+    fn inventory() -> Result<usize, PreparationError> {
+        fs::read_dir("/proc/self/fd")
+            .map_err(|_| PreparationError::Refused)?
+            .try_fold(0usize, |n, entry| {
+                entry.map_err(|_| PreparationError::Refused)?;
+                n.checked_add(1)
+                    .filter(|v| *v <= 256)
+                    .ok_or(PreparationError::Refused)
+            })
+    }
+    fn reserve() -> Result<Self, PreparationError> {
+        // Three package originals + staged/config/data/scratch/parent publication and
+        // validator null/exec-error plumbing, with transient iterator/hash margin.
+        let (soft, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
+            .map_err(|_| PreparationError::Refused)?;
+        Self::from_inventory(Self::inventory()?, soft)
+    }
+    fn from_inventory(count: usize, soft: u64) -> Result<Self, PreparationError> {
+        let ceiling = count.checked_add(17).ok_or(PreparationError::Refused)?;
+        if ceiling > 256 || ceiling as u64 > soft {
+            return Err(PreparationError::Refused);
+        }
+        Ok(Self { ceiling })
+    }
+    fn check(&self) -> Result<(), PreparationError> {
+        let (soft, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
+            .map_err(|_| PreparationError::Changed)?;
+        if Self::inventory()? > self.ceiling || soft < self.ceiling as u64 {
+            return Err(PreparationError::Changed);
+        }
+        Ok(())
+    }
 }
 
 struct HeldDirectory {
     file: File,
     metadata: Metadata,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirectoryIdentity {
+    dev: u64,
+    ino: u64,
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    nlink: u64,
+}
+impl DirectoryIdentity {
+    #[cfg(all(test, feature = "netguard-native-scenario"))]
+    fn first_difference(self, original: Self) -> crate::protected_native_diagnostic::PostIdentity {
+        use crate::protected_native_diagnostic::PostIdentity;
+        // Diagnostic-only classification of already captured values, after the
+        // unchanged production predicate rejected. Match its field order.
+        if self.dev != original.dev {
+            PostIdentity::Dev
+        } else if self.ino != original.ino {
+            PostIdentity::Ino
+        } else if self.mode != original.mode {
+            PostIdentity::Mode
+        } else if self.uid != original.uid {
+            PostIdentity::Uid
+        } else if self.gid != original.gid {
+            PostIdentity::Gid
+        } else if self.nlink != original.nlink {
+            PostIdentity::Nlink
+        } else {
+            PostIdentity::NotRecorded
+        }
+    }
+
+    fn of(metadata: &Metadata) -> Self {
+        Self {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            mode: metadata.mode(),
+            uid: metadata.uid(),
+            gid: metadata.gid(),
+            nlink: metadata.nlink(),
+        }
+    }
 }
 impl HeldDirectory {
     fn capture(path: &Path, uid: u32) -> Result<Self, PreparationError> {
@@ -205,7 +334,14 @@ impl HeldFile {
     }
 }
 
+#[cfg(test)]
 fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, PreparationError> {
+    render_bound(profile, controller).map(|(bytes, _)| bytes)
+}
+fn render_bound(
+    profile: CanonicalProfile,
+    controller: &Path,
+) -> Result<(Vec<u8>, RenderedPolicy), PreparationError> {
     let CanonicalProfile::Vless(vless) = &profile else {
         return Err(PreparationError::Unsupported);
     };
@@ -293,7 +429,11 @@ fn render(profile: CanonicalProfile, controller: &Path) -> Result<Vec<u8>, Prepa
     if bytes.len() as u64 > MAX_CONFIG {
         return Err(PreparationError::Refused);
     }
-    Ok(bytes)
+    let policy = RenderedPolicy {
+        version: PolicyVersion::RuleTcpVerifiedTlsDohV1,
+        config: Sha256::digest(&bytes).into(),
+    };
+    Ok((bytes, policy))
 }
 
 impl NativeLifecycleHost {
@@ -304,6 +444,10 @@ impl NativeLifecycleHost {
         &mut self,
         desired: &DesiredState,
     ) -> Result<(), PreparationError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::PackageVerify,
+        );
         let pair = self
             .paths
             .managed_pair
@@ -313,9 +457,29 @@ impl NativeLifecycleHost {
         if pair.core_path() != self.paths.core {
             return Err(PreparationError::Changed);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::CoreCapture,
+        );
         let core = HeldFile::capture(&self.paths.core, 0, 0o755, MAX_CORE)?;
         pair.verify().map_err(|_| PreparationError::Changed)?;
-        self.prepare_bound_candidate(desired, core)
+        self.prepare_bound_candidate(desired, core)?;
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(PreparationError::Refused)?;
+        let bound = self
+            .protected_preparation
+            .as_mut()
+            .and_then(|p| p.bound.as_mut())
+            .ok_or(PreparationError::Refused)?;
+        bound.capacity.check()?;
+        bound.package = Some(
+            pair.capture_protected(&bound.core.file)
+                .map_err(|_| PreparationError::Changed)?,
+        );
+        self.recheck_protected_candidate(desired)
     }
 
     fn prepare_bound_candidate(
@@ -323,6 +487,10 @@ impl NativeLifecycleHost {
         desired: &DesiredState,
         core: HeldFile,
     ) -> Result<(), PreparationError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::BoundEligibility,
+        );
         if self.protected_preparation.is_some()
             || self.core.is_some()
             || self.profile_id.is_some()
@@ -341,6 +509,11 @@ impl NativeLifecycleHost {
         {
             return Err(PreparationError::Refused);
         }
+        let capacity = PreparationCapacity::reserve()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::ProfileParse,
+        );
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| PreparationError::Refused)?;
         let store_digest = Sha256::digest(store.as_bytes()).into();
@@ -352,7 +525,11 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Refused);
         }
         let (_, profile) = profiles.pop().ok_or(PreparationError::Refused)?;
-        let bytes = render(profile, &self.paths.controller_socket)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::PolicyRender,
+        );
+        let (bytes, policy) = render_bound(profile, &self.paths.controller_socket)?;
         let path = self.paths.config_directory.join(STAGING);
         // Consume before create/write/sync. Errors are not retry authorization.
         self.protected_preparation = Some(Preparation {
@@ -377,12 +554,21 @@ impl NativeLifecycleHost {
         if config.digest != <[u8; 32]>::from(Sha256::digest(&bytes)) {
             return Err(PreparationError::Changed);
         }
+        // Ordinary current paths alias data and config. Publish the owned child
+        // directory BEFORE capturing data's original nlink, never rebase it.
+        let scratch = interval::Scratch::prepare(&self.paths.config_directory, self.uid)
+            .map_err(|_| PreparationError::OutcomeUnknown)?;
+        capacity.check()?;
         let bound = Bound {
             desired: desired.clone(),
             store_digest,
             core,
             config,
             data: HeldDirectory::capture(&self.paths.data_directory, self.uid)?,
+            scratch: Some(scratch),
+            policy,
+            package: None,
+            capacity,
         };
         self.protected_preparation
             .as_mut()
@@ -413,19 +599,44 @@ impl NativeLifecycleHost {
             return Err(PreparationError::Changed);
         }
         bound.core.recheck(&self.paths.core)?;
+        if bound.policy.config != bound.config.digest
+            || bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
+        {
+            return Err(PreparationError::Changed);
+        }
+        bound.capacity.check()?;
+        if let Some(package) = &bound.package {
+            package
+                .recheck(
+                    self.paths
+                        .managed_pair
+                        .as_ref()
+                        .ok_or(PreparationError::Changed)?,
+                    &bound.core.file,
+                )
+                .map_err(|_| PreparationError::Changed)?;
+        }
         bound.data.recheck(&self.paths.data_directory)?;
+        bound
+            .scratch
+            .as_ref()
+            .ok_or(PreparationError::Changed)?
+            .recheck()
+            .map_err(|_| PreparationError::Changed)?;
         bound
             .config
             .recheck(&self.paths.config_directory.join(STAGING))
     }
 
     /// Private post-prepare / pre-reservation-and-Arm consuming seam. The
-    /// coverage issuer is CLOSED; exact package/config bytes alone never admit.
+    /// exact package/config bytes alone never admit: original validation and
+    /// same-owner postchecks still precede private coverage issuance.
     fn admit_prepared_protection(
         &mut self,
         desired: &DesiredState,
     ) -> Result<ArmAdmission, PreparationError> {
         self.recheck_protected_candidate(desired)?;
+        approved_policy_decision()?;
         let preparation = self
             .protected_preparation
             .as_mut()
@@ -435,20 +646,25 @@ impl NativeLifecycleHost {
         }
         // Refuse BEFORE executing a real validator until its network behavior
         // and runtime coverage for this exact core/policy have been accepted.
-        let coverage = issue_coverage(
-            preparation
-                .bound
-                .as_ref()
-                .ok_or(PreparationError::Refused)?
-                .core
-                .digest,
-            self.paths
-                .managed_pair
-                .as_ref()
-                .map(ManagedPair::protected_identity),
-        )?;
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(PreparationError::Refused)?;
+        let candidate = preparation
+            .bound
+            .as_ref()
+            .ok_or(PreparationError::Refused)?;
+        candidate
+            .package
+            .as_ref()
+            .ok_or(PreparationError::Refused)?
+            .recheck(pair, &candidate.core.file)
+            .map_err(|_| PreparationError::Changed)?;
         preparation.admitted = true;
-        let bound = preparation.bound.take().ok_or(PreparationError::Refused)?;
+        let mut acquired = AcquiredBound(Some(
+            preparation.bound.take().ok_or(PreparationError::Refused)?,
+        ));
         let staged = self.paths.config_directory.join(STAGING);
         let deadline = Instant::now() + VALIDATION_TIMEOUT;
         let child = std::process::Command::new(&self.paths.core)
@@ -463,33 +679,48 @@ impl NativeLifecycleHost {
             .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|_| PreparationError::OutcomeUnknown)?;
-        let original = validation::Validation::new(child, bound);
+        // No fallible operation between the reported child and its whole owner.
+        let original = validation::Validation::new(child, acquired.0.take().expect("held bound"));
         let bound = original
             .complete(
                 deadline,
                 Instant::now,
                 || std::thread::sleep(Duration::from_millis(10)),
                 |bound| {
+                    bound.capacity.check().map_err(|_| ())?;
+                    bound
+                        .package
+                        .as_ref()
+                        .ok_or(())?
+                        .recheck(pair, &bound.core.file)
+                        .map_err(|_| ())?;
                     bound.core.recheck(&self.paths.core).map_err(|_| ())?;
                     bound
                         .data
                         .recheck(&self.paths.data_directory)
                         .map_err(|_| ())?;
+                    bound.scratch.as_ref().ok_or(())?.recheck()?;
                     bound.config.recheck(&staged).map_err(|_| ())
                 },
             )
             .map_err(|_| PreparationError::OutcomeUnknown)?;
+        self.protected_preparation
+            .as_mut()
+            .ok_or(PreparationError::Refused)?
+            .bound = Some(bound);
+        self.recheck_protected_candidate(desired)?;
+        let bound = self
+            .protected_preparation
+            .as_ref()
+            .and_then(|p| p.bound.as_ref())
+            .ok_or(PreparationError::Refused)?;
+        let coverage = issue_coverage(ValidatedPreparation { bound, pair })?;
         let admission = ArmAdmission {
             desired: desired.clone(),
             config: bound.config.digest,
             core: bound.core.digest,
             coverage,
         };
-        self.protected_preparation
-            .as_mut()
-            .ok_or(PreparationError::Refused)?
-            .bound = Some(bound);
-        self.recheck_protected_candidate(desired)?;
         Ok(admission)
     }
 }
@@ -522,13 +753,22 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
     type Interval = interval::Interval;
     fn begin_interval(&mut self, desired: &DesiredState) -> Result<Self::Interval, HostStepError> {
         self.recheck_interval(desired)?;
-        interval::Interval::begin(&self.paths.config_directory, self.uid)
-            .map_err(|_| HostStepError::Observation)
+        let scratch = self
+            .protected_preparation
+            .as_mut()
+            .and_then(|p| p.bound.as_mut())
+            .and_then(|b| b.scratch.take())
+            .ok_or(HostStepError::Observation)?;
+        interval::Interval::begin(scratch, self.uid).map_err(|_| HostStepError::Observation)
     }
     fn complete_interval(&mut self, interval: &mut Self::Interval) -> Result<(), HostStepError> {
         interval.complete().map_err(|_| HostStepError::Observation)
     }
     fn recheck_interval(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalState,
+        );
         let preparation = self
             .protected_preparation
             .as_ref()
@@ -547,39 +787,90 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         {
             return Err(HostStepError::Observation);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalPair,
+        );
         self.paths
             .managed_pair
             .as_ref()
             .ok_or(HostStepError::Observation)?
             .verify_protected()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalPackage,
+        );
+        bound
+            .package
+            .as_ref()
+            .ok_or(HostStepError::Observation)?
+            .recheck(
+                self.paths
+                    .managed_pair
+                    .as_ref()
+                    .ok_or(HostStepError::Observation)?,
+                &bound.core.file,
+            )?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalPolicy,
+        );
+        if bound.policy.version != PolicyVersion::RuleTcpVerifiedTlsDohV1
+            || bound.policy.config != bound.config.digest
+        {
+            return Err(HostStepError::Observation);
+        }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalStoreRead,
+        );
         let store = read_private_utf8(&self.paths.store, self.uid)
             .map_err(|_| HostStepError::Observation)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalStoreDigest,
+        );
         if <[u8; 32]>::from(Sha256::digest(store.as_bytes())) != bound.store_digest {
             return Err(HostStepError::Observation);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalCoreFile,
+        );
         bound
             .core
             .recheck(&self.paths.core)
             .map_err(|_| HostStepError::Observation)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalConfigFile,
+        );
         bound
             .config
             .recheck(&self.paths.config_directory.join(STAGING))
             .map_err(|_| HostStepError::Observation)?;
         // Runtime may legitimately create its cache. Retain original directory
         // identity/ownership, not pre-start size or timestamps as a fake proof.
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::post_mark(
+            crate::protected_native_diagnostic::PostGuard::IntervalDataMetadata,
+        );
         for current in [
             bound.data.file.metadata(),
             fs::symlink_metadata(&self.paths.data_directory),
         ] {
             let current = current.map_err(|_| HostStepError::Observation)?;
             let original = &bound.data.metadata;
-            if current.dev() != original.dev()
-                || current.ino() != original.ino()
-                || current.mode() != original.mode()
-                || current.uid() != original.uid()
-                || current.gid() != original.gid()
-                || current.nlink() != original.nlink()
-            {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::post_mark(
+                crate::protected_native_diagnostic::PostGuard::IntervalDataIdentity,
+            );
+            if DirectoryIdentity::of(&current) != DirectoryIdentity::of(original) {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                crate::protected_native_diagnostic::post_identity_rejected(
+                    DirectoryIdentity::of(&current)
+                        .first_difference(DirectoryIdentity::of(original)),
+                );
                 return Err(HostStepError::Observation);
             }
         }
@@ -619,13 +910,24 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
             || bound.config.digest != admission.config
             || bound.core.digest != admission.core
             || admission.coverage.core != admission.core
+            || admission.coverage.config != bound.config.digest
+            || admission.coverage.policy != bound.policy.version
+            || bound.policy.config != bound.config.digest
         {
             return Err(HostStepError::Prepare);
         }
         Ok(())
     }
     fn start_admitted(&mut self, admission: ArmAdmission) -> Result<(), HostStepError> {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StartAdmission,
+        );
         self.recheck_admission(&admission)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StartTunAbsent,
+        );
         if !self.ping_slot.revoke() || self.managed_tuns()? != 0 {
             return Err(HostStepError::Start);
         }
@@ -637,6 +939,10 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         self.readiness = Some(ConfigReadiness::protected_full(PROFILE.to_owned()));
         self.tun_identity = None;
         self.remove_controller()?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::CoreSpawn,
+        );
         let core = OwnedCore::spawn_protected(
             &self.paths.core,
             &self.paths.data_directory,
@@ -649,20 +955,43 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
         let core = self.core.as_mut().ok_or(HostStepError::Start)?;
         self.core_diagnostics = Some(core.diagnostic_reader());
         let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::ConfiguredWait,
+        );
         core.wait_configured(expected.startup_timeout(), expected)
             .map_err(|_| HostStepError::Start)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::ConfiguredPid,
+        );
         let pid = core.pid().ok_or(HostStepError::Start)?;
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::SecureOwned,
+        );
         if !crate::controller_permissions::secure_owned(
             &self.paths.controller_socket,
             pid,
             self.uid,
-        ) || !core.running().map_err(|_| HostStepError::Start)?
-        {
+        ) || !{
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            crate::protected_native_diagnostic::mark(
+                crate::protected_native_diagnostic::Cut::CoreRunning,
+            );
+            core.running().map_err(|_| HostStepError::Start)?
+        } {
             return Err(HostStepError::Start);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(crate::protected_native_diagnostic::Cut::TunCheck);
         if !self.verify_tun(pid)? {
             return Err(HostStepError::Start);
         }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        crate::protected_native_diagnostic::mark(
+            crate::protected_native_diagnostic::Cut::StartComplete,
+        );
         Ok(())
     }
     fn commit_protected(&mut self) -> Result<(), HostStepError> {

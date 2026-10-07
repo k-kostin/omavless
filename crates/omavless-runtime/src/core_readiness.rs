@@ -191,11 +191,15 @@ impl ConfigReadiness {
             ReadOnlyEndpoint::Rules => {
                 #[cfg(feature = "netguard-runtime-candidate")]
                 if self.protected {
+                    // Pinned Mihomo's getRules indexes each row; NetworkType
+                    // Payload returns NetWork.String() ("udp"), not the input
+                    // rule's uppercase "UDP" spelling. Admit only that exact
+                    // canonical API value, never case-fold arbitrary replies.
                     return payload["rules"].as_array().is_some_and(|rules| {
                         rules.len() == 2
                             && rules
                                 .iter()
-                                .zip([("Network", "UDP", "REJECT"), ("Match", "", "PROXY")])
+                                .zip([("Network", "udp", "REJECT"), ("Match", "", "PROXY")])
                                 .enumerate()
                                 .all(|(index, (rule, (kind, value, proxy)))| {
                                     rule["index"].as_u64() == Some(index as u64)
@@ -233,21 +237,77 @@ impl ConfigReadiness {
         deadline: Instant,
         mut read: impl FnMut(ReadOnlyEndpoint) -> Option<Value>,
     ) -> bool {
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        let _diagnostic_scope = self
+            .protected
+            .then(crate::protected_native_diagnostic::readiness_scope);
         for endpoint in [
             ReadOnlyEndpoint::Configs,
             ReadOnlyEndpoint::Rules,
             ReadOnlyEndpoint::RuleProviders,
             ReadOnlyEndpoint::Proxies,
         ] {
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            let diagnostic_endpoint = match endpoint {
+                ReadOnlyEndpoint::Configs => crate::protected_native_diagnostic::Endpoint::Configs,
+                ReadOnlyEndpoint::Rules => crate::protected_native_diagnostic::Endpoint::Rules,
+                ReadOnlyEndpoint::RuleProviders => {
+                    crate::protected_native_diagnostic::Endpoint::Providers
+                }
+                ReadOnlyEndpoint::Proxies => crate::protected_native_diagnostic::Endpoint::Proxies,
+                _ => crate::protected_native_diagnostic::Endpoint::NotEntered,
+            };
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            if self.protected {
+                crate::protected_native_diagnostic::readiness_mark(
+                    diagnostic_endpoint,
+                    crate::protected_native_diagnostic::ReadinessPhase::Deadline,
+                );
+            }
             if Instant::now() >= deadline {
                 return false;
             }
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            if self.protected {
+                crate::protected_native_diagnostic::readiness_mark(
+                    diagnostic_endpoint,
+                    crate::protected_native_diagnostic::ReadinessPhase::Read,
+                );
+            }
             let Some(payload) = read(endpoint) else {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                if self.protected {
+                    crate::protected_native_diagnostic::readiness_mark(
+                        diagnostic_endpoint,
+                        crate::protected_native_diagnostic::ReadinessPhase::ReadUnavailable,
+                    );
+                }
                 return false;
             };
+            #[cfg(all(test, feature = "netguard-native-scenario"))]
+            if self.protected {
+                crate::protected_native_diagnostic::readiness_mark(
+                    diagnostic_endpoint,
+                    crate::protected_native_diagnostic::ReadinessPhase::Policy,
+                );
+            }
             if !self.matches(endpoint, &payload) {
+                #[cfg(all(test, feature = "netguard-native-scenario"))]
+                if self.protected {
+                    crate::protected_native_diagnostic::readiness_mark(
+                        diagnostic_endpoint,
+                        crate::protected_native_diagnostic::ReadinessPhase::PolicyRejected,
+                    );
+                }
                 return false;
             }
+        }
+        #[cfg(all(test, feature = "netguard-native-scenario"))]
+        if self.protected {
+            crate::protected_native_diagnostic::readiness_mark(
+                crate::protected_native_diagnostic::Endpoint::Proxies,
+                crate::protected_native_diagnostic::ReadinessPhase::FinalDeadline,
+            );
         }
         Instant::now() < deadline
     }
@@ -290,6 +350,122 @@ fn dns_flag_key(line: &str) -> Option<usize> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[cfg(feature = "netguard-native-scenario")]
+    fn protected_payload(endpoint: ReadOnlyEndpoint) -> Value {
+        match endpoint {
+            ReadOnlyEndpoint::Configs => {
+                json!({"mode":"rule","routing-mark":omavless_netguard::nft::CORE_MARK,
+                "tun":{"enable":true,"device":"omavless0","auto-route":true,"auto-detect-interface":true,"strict-route":true,"disable-icmp-forwarding":true,
+                    "omavless-dns-broker":true,"disable-system-dns":true,"omavless-dns-ready":true}})
+            }
+            ReadOnlyEndpoint::Rules => {
+                json!({"rules":[{"index":0,"type":"Network","payload":"udp","proxy":"REJECT"},{"index":1,"type":"Match","payload":"","proxy":"PROXY"}]})
+            }
+            ReadOnlyEndpoint::RuleProviders => json!({"providers":{}}),
+            ReadOnlyEndpoint::Proxies => proxies(),
+            _ => Value::Null,
+        }
+    }
+
+    #[cfg(feature = "netguard-native-scenario")]
+    #[test]
+    fn protected_readiness_diagnostics_distinguish_existing_read_policy_and_deadline_cuts() {
+        use crate::protected_native_diagnostic::{
+            self as diagnostic, ControllerPhase, Cut, Endpoint, ReadinessPhase,
+        };
+        use std::time::Duration;
+        let expected = ConfigReadiness::protected_full("Synthetic".into());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        for (wanted, label) in [
+            (ReadOnlyEndpoint::Configs, Endpoint::Configs),
+            (ReadOnlyEndpoint::Rules, Endpoint::Rules),
+            (ReadOnlyEndpoint::RuleProviders, Endpoint::Providers),
+            (ReadOnlyEndpoint::Proxies, Endpoint::Proxies),
+        ] {
+            diagnostic::mark(Cut::NotEntered);
+            let mut seen = Vec::new();
+            assert!(!expected.ready_with(deadline, |endpoint| {
+                seen.push(endpoint);
+                if endpoint == wanted {
+                    diagnostic::controller_mark(ControllerPhase::ParentMetadata);
+                    None
+                } else {
+                    Some(protected_payload(endpoint))
+                }
+            }));
+            assert_eq!(seen.last(), Some(&wanted));
+            assert_eq!(
+                diagnostic::readiness(),
+                (
+                    label,
+                    ReadinessPhase::ReadUnavailable,
+                    ControllerPhase::ParentMetadata
+                )
+            );
+            diagnostic::mark(Cut::NotEntered);
+            let mut seen = Vec::new();
+            assert!(!expected.ready_with(deadline, |endpoint| {
+                seen.push(endpoint);
+                Some(if endpoint == wanted {
+                    Value::Null
+                } else {
+                    protected_payload(endpoint)
+                })
+            }));
+            assert_eq!(seen.last(), Some(&wanted));
+            assert_eq!(
+                diagnostic::readiness(),
+                (
+                    label,
+                    ReadinessPhase::PolicyRejected,
+                    ControllerPhase::NotEntered
+                )
+            );
+        }
+        diagnostic::mark(Cut::NotEntered);
+        assert!(!expected.ready_with(Instant::now(), |_| panic!(
+            "deadline must not call existing reader"
+        )));
+        assert_eq!(
+            diagnostic::readiness(),
+            (
+                Endpoint::Configs,
+                ReadinessPhase::Deadline,
+                ControllerPhase::NotEntered
+            )
+        );
+        diagnostic::mark(Cut::NotEntered);
+        let mut seen = Vec::new();
+        assert!(expected.ready_with(deadline, |endpoint| {
+            seen.push(endpoint);
+            Some(protected_payload(endpoint))
+        }));
+        assert_eq!(
+            seen,
+            [
+                ReadOnlyEndpoint::Configs,
+                ReadOnlyEndpoint::Rules,
+                ReadOnlyEndpoint::RuleProviders,
+                ReadOnlyEndpoint::Proxies
+            ]
+        );
+        assert_eq!(
+            diagnostic::readiness(),
+            (
+                Endpoint::Proxies,
+                ReadinessPhase::FinalDeadline,
+                ControllerPhase::NotEntered
+            )
+        );
+        // Ordinary readiness in a scenario build cannot overwrite the record.
+        let before = diagnostic::readiness();
+        assert!(
+            !ConfigReadiness::new(RoutingMode::Rule, "Synthetic".into())
+                .ready_with(deadline, |_| None)
+        );
+        assert_eq!(diagnostic::readiness(), before);
+    }
 
     const MANAGED: &str = "tun:\n  enable: true\n  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\ndns:\n  enable: true\n";
 
@@ -503,7 +679,7 @@ mod tests {
             }
         }
         let good = json!({"rules":[
-            {"index":0,"type":"Network","payload":"UDP","proxy":"REJECT","extra":{"disabled":false}},
+            {"index":0,"type":"Network","payload":"udp","proxy":"REJECT","extra":{"disabled":false}},
             {"index":1,"type":"Match","payload":"","proxy":"PROXY","extra":{"disabled":false}}
         ]});
         assert!(expected.matches(ReadOnlyEndpoint::Rules, &good));
@@ -547,6 +723,53 @@ mod tests {
         absent["proxies"].as_object_mut().unwrap().remove("PROXY");
         assert!(!expected.matches(ReadOnlyEndpoint::Proxies, &absent));
         assert!(!expected.matches(ReadOnlyEndpoint::Configs, &json!({"mode":"global"})));
+    }
+
+    #[cfg(feature = "netguard-runtime-candidate")]
+    #[test]
+    fn protected_network_api_payload_is_exact_canonical_udp_not_input_spelling() {
+        let expected = ConfigReadiness::protected_full("Synthetic".into());
+        // Pinned getRules -> NetworkType.Payload -> NetWork.String. Size and
+        // wrapper telemetry are not rule decisions; enabled state still is.
+        let api = json!({"rules":[
+            {"index":0,"type":"Network","payload":"udp","proxy":"REJECT","size":-1,
+                "extra":{"disabled":false,"hitCount":0,"missCount":0}},
+            {"index":1,"type":"Match","payload":"","proxy":"PROXY","size":-1,
+                "extra":{"disabled":false,"hitCount":0,"missCount":0}}
+        ]});
+        assert!(expected.matches(ReadOnlyEndpoint::Rules, &api));
+        for payload in [
+            json!("UDP"),
+            json!("Udp"),
+            json!("uDp"),
+            json!("tcp"),
+            json!("TCP"),
+            json!("udp "),
+            json!(" udp"),
+            json!(""),
+            Value::Null,
+            json!(false),
+            json!(["udp"]),
+            json!({"network":"udp"}),
+        ] {
+            let mut wrong = api.clone();
+            wrong["rules"][0]["payload"] = payload;
+            assert!(!expected.matches(ReadOnlyEndpoint::Rules, &wrong));
+        }
+        for (row, index) in [
+            (0, Value::Null),
+            (0, json!("0")),
+            (0, json!(false)),
+            (0, json!(0.0)),
+            (1, json!(0)),
+        ] {
+            let mut wrong = api.clone();
+            wrong["rules"][row]["index"] = index;
+            assert!(!expected.matches(ReadOnlyEndpoint::Rules, &wrong));
+        }
+        let mut absent = api.clone();
+        absent["rules"][0].as_object_mut().unwrap().remove("index");
+        assert!(!expected.matches(ReadOnlyEndpoint::Rules, &absent));
     }
 
     #[cfg(feature = "netguard-runtime-candidate")]
