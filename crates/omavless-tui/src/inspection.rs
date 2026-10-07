@@ -6,6 +6,8 @@ use serde_json::Value;
 pub struct Capabilities {
     #[cfg(feature = "private-backup")]
     pub private_backup: bool,
+    #[cfg(feature = "private-backup")]
+    pub private_restore: bool,
     pub profile_details: bool,
     pub traffic: bool,
     pub diagnostics: bool,
@@ -28,6 +30,8 @@ impl Capabilities {
         Self {
             #[cfg(feature = "private-backup")]
             private_backup: has("backup.create"),
+            #[cfg(feature = "private-backup")]
+            private_restore: has("backup.preview") && has("backup.restore_previewed"),
             profile_details: has("profiles.details"),
             traffic: has("runtime.traffic"),
             diagnostics: has("diagnostics.summary"),

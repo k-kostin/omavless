@@ -55,6 +55,7 @@ cargo check --locked -p omavless-runtime --no-default-features --features t4-man
 cargo clippy --locked -p omavless-runtime --all-targets --features t4-manager-actor-service -- -D warnings
 cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service normal_pair
 cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service backup_tui_
+cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service restore_tui_
 # Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
 # Run ordinary synthetic/private-file tests only; all VM/resource gates stay ignored.
 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service

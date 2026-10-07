@@ -340,6 +340,43 @@ fn create_tui_exchange(
     paths: &crate::RuntimePaths,
     request: &omavless_tui::private_backup::Request,
 ) -> crate::Result<Value> {
+    private_tui_exchange(
+        paths,
+        "backup.create",
+        || request.params(),
+        request.deadline(),
+    )
+}
+
+/// Closed Restore client request: preview or preview-bound Restore only. No
+/// raw RPC/method/timeout entry point is exposed to user input.
+#[cfg(feature = "tui")]
+pub fn restore_for_tui(
+    paths: &crate::RuntimePaths,
+    request: omavless_tui::private_restore::Request,
+) -> omavless_tui::private_restore::Completion {
+    let response = request
+        .remaining()
+        .ok_or(omavless_tui::model::ReadError::Unavailable)
+        .and_then(|_| {
+            private_tui_exchange(
+                paths,
+                request.method(),
+                || request.params(),
+                request.deadline(),
+            )
+            .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        });
+    request.settle(response)
+}
+
+#[cfg(feature = "tui")]
+fn private_tui_exchange(
+    paths: &crate::RuntimePaths,
+    method: &'static str,
+    params: impl FnOnce() -> Value,
+    end: std::time::Instant,
+) -> crate::Result<Value> {
     use crate::RuntimeError;
     use nix::sys::socket::{
         AddressFamily, SockFlag, SockType, UnixAddr, connect, getsockopt, socket,
@@ -352,7 +389,19 @@ fn create_tui_exchange(
             net::UnixStream,
         },
     };
-    let live = || request.remaining().ok_or(RuntimeError::Io);
+    // All callers are fixed typed adapters above. This private allowlist also
+    // prevents a later internal caller from silently broadening the transport.
+    if !matches!(
+        method,
+        "backup.create" | "backup.preview" | "backup.restore_previewed"
+    ) {
+        return Err(RuntimeError::Protocol);
+    }
+    let live = || {
+        end.checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(RuntimeError::Io)
+    };
     live()?;
     let uid = nix::unistd::Uid::current().as_raw();
     crate::validate_client_directory(&paths.directory, uid)?;
@@ -391,16 +440,12 @@ fn create_tui_exchange(
         .set_nonblocking(false)
         .map_err(|_| RuntimeError::Io)?;
     let id = format!("cli-{}", std::process::id());
-    let mut message =
-        omavless_control_protocol::make_request(&id, "backup.create", request.params())
-            .map_err(|_| RuntimeError::Protocol)?;
+    let mut message = omavless_control_protocol::make_request(&id, method, params())
+        .map_err(|_| RuntimeError::Protocol)?;
     let encoded = omavless_control_protocol::encode_request(&message);
     crate::developer_current_restore::wipe_request(&mut message);
     let frame = Zeroizing::new(encoded.map_err(|_| RuntimeError::Protocol)?);
-    let mut io = TuiDeadlineIo {
-        stream,
-        end: request.deadline(),
-    };
+    let mut io = TuiDeadlineIo { stream, end };
     omavless_control_protocol::write_unary_frame(
         &mut io,
         &frame,
@@ -594,6 +639,94 @@ mod tests {
             parse_ciphertext_digest(&ciphertext_hex(&[0xa5; 32])).unwrap(),
             [0xa5; 32]
         );
+    }
+    #[cfg(feature = "tui")]
+    #[test]
+    fn restore_tui_transport_is_closed_and_expiry_precedes_secret_serialization() {
+        let paths = crate::RuntimePaths::below(Path::new("/public/nonexistent-synthetic-runtime"));
+        for method in [
+            "backup.create",
+            "backup.preview",
+            "backup.restore_previewed",
+        ] {
+            assert_eq!(
+                private_tui_exchange(
+                    &paths,
+                    method,
+                    || panic!("no secret params after expiry"),
+                    std::time::Instant::now()
+                ),
+                Err(crate::RuntimeError::Io)
+            );
+        }
+        assert_eq!(
+            private_tui_exchange(
+                &paths,
+                "profiles.delete",
+                || panic!("closed selector must refuse"),
+                std::time::Instant::now() + std::time::Duration::from_secs(120)
+            ),
+            Err(crate::RuntimeError::Protocol)
+        );
+    }
+    #[cfg(feature = "tui")]
+    #[test]
+    fn restore_tui_real_preview_transport_false_factory_has_no_followon_restore() {
+        use omavless_tui::private_restore::{State, Workspace};
+        let base = crate::test_temp::directory("r-preview").unwrap();
+        let paths = crate::RuntimePaths::below(&base);
+        let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+        let mut editor = Workspace::new(&server.instance_id, 0).unwrap();
+        for ch in "/private/public-fixture.ovb".chars() {
+            assert!(editor.push(ch));
+        }
+        editor.next_field();
+        for ch in "synthetic-restore-secret".chars() {
+            assert!(editor.push(ch));
+        }
+        let request = editor.begin_preview().unwrap();
+        assert!(PreviewRequest::parse(&request.params()).is_ok());
+        let worker = std::thread::spawn(move || server.serve(Some(1)).unwrap());
+        editor.accept(restore_for_tui(&paths, request));
+        worker.join().unwrap();
+        assert_eq!(editor.state(), State::PreviewUnavailable);
+        assert!(editor.submit("no-followon".into()).is_none());
+        assert!(editor.begin_preview().is_none());
+        assert!(!base.join("profiles.json").exists());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+    #[cfg(feature = "tui")]
+    #[test]
+    fn restore_tui_synthetic_preview_data_does_not_grant_real_server_authority() {
+        use omavless_tui::private_restore::{State, Workspace};
+        let base = crate::test_temp::directory("r-submit").unwrap();
+        let paths = crate::RuntimePaths::below(&base);
+        let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+        let mut editor = Workspace::new(&server.instance_id, 0).unwrap();
+        for ch in "/private/public-fixture.ovb".chars() {
+            assert!(editor.push(ch));
+        }
+        editor.next_field();
+        for ch in "synthetic-restore-secret".chars() {
+            assert!(editor.push(ch));
+        }
+        // Local positive DATA-only rendering fixture. The real runtime has NO
+        // current owner and must reject this correlated request before entry.
+        let preview = editor.begin_preview().unwrap();
+        editor.accept(preview.settle(Ok(serde_json::json!({"ok":true,"revision":0,"result":{
+            "profiles":0,"subscriptions":0,"scope":"privatePair","ciphertextDigest":"a".repeat(64)
+        }}))));
+        assert_eq!(editor.state(), State::Confirming);
+        let request = editor.submit("r-submit-once".into()).unwrap();
+        assert!(PreviewedRestoreRequest::parse(&request.params()).is_ok());
+        assert_eq!(request.params()["expectedCiphertextDigest"], "a".repeat(64));
+        let worker = std::thread::spawn(move || server.serve(Some(1)).unwrap());
+        editor.accept(restore_for_tui(&paths, request));
+        worker.join().unwrap();
+        assert_eq!(editor.state(), State::Denied);
+        assert!(editor.submit("no-retry".into()).is_none());
+        assert!(!base.join("profiles.json").exists());
+        std::fs::remove_dir_all(base).unwrap();
     }
     #[cfg(feature = "tui")]
     #[test]

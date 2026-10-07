@@ -43,6 +43,13 @@ pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
 
 pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     #[cfg(feature = "private-backup")]
+    if app.restore_open
+        && let Some(restore) = &app.restore
+    {
+        draw_private_restore(frame, app, restore);
+        return;
+    }
+    #[cfg(feature = "private-backup")]
     if app.backup_open
         && let Some(backup) = &app.backup
     {
@@ -455,7 +462,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             } else if app.page == crate::inspection::Page::Subscriptions && app.actions_enabled {
                 "tui.subscription_page_keys"
             } else if app.page == crate::inspection::Page::Settings {
-                "tui.settings_keys"
+                settings_keys_key(app)
             } else if app.page == crate::inspection::Page::Diagnostics {
                 "tui.diagnostic_keys"
             } else if app.page == crate::inspection::Page::Host {
@@ -534,6 +541,18 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Line::from(tr("tui.auth_hint")),
             Line::from(tr("tui.action_close_hint")),
         ];
+    }
+    #[cfg(feature = "private-backup")]
+    if app.restore_unresolved() {
+        footer = vec![
+            Line::from(tr("tui.restore_pending_entry")),
+            Line::from(tr("tui.restore_unresolved_keys")),
+        ];
+        frame.render_widget(
+            Paragraph::new(footer).wrap(Wrap { trim: false }),
+            sections[2],
+        );
+        return;
     }
     #[cfg(feature = "private-backup")]
     if app.backup_unresolved() {
@@ -651,6 +670,18 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             Line::from(""),
             Line::from(tr("tui.settings_reset")),
         ];
+        #[cfg(feature = "private-backup")]
+        if app.restore_enabled {
+            settings.push(Line::from(""));
+            settings.push(Line::from(tr("tui.restore_scope")));
+            settings.push(Line::from(tr(if app.restore_unresolved() {
+                "tui.restore_pending_entry"
+            } else if app.restore_available(now) {
+                "tui.restore_entry"
+            } else {
+                "tui.restore_unavailable"
+            })));
+        }
         #[cfg(feature = "private-backup")]
         if app.backup_enabled {
             settings.push(Line::from(""));
@@ -1521,10 +1552,114 @@ fn page_keys_key(_app: &App) -> &'static str {
 
 fn settings_scope_key(_app: &App) -> &'static str {
     #[cfg(feature = "private-backup")]
+    if _app.restore_enabled {
+        return "tui.settings_private_restore";
+    }
+    #[cfg(feature = "private-backup")]
     if _app.backup_enabled {
         return "tui.settings_private_backup";
     }
     "tui.settings_local"
+}
+
+fn settings_keys_key(_app: &App) -> &'static str {
+    #[cfg(feature = "private-backup")]
+    if _app.restore_enabled {
+        return "tui.settings_restore_keys";
+    }
+    "tui.settings_keys"
+}
+
+#[cfg(feature = "private-backup")]
+fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_restore::Workspace) {
+    use crate::private_restore::{Field, State};
+    let tr = |key| app.locale.text(key);
+    let area = frame.area();
+    let mut lines = vec![
+        Line::from(tr("tui.restore_scope")),
+        Line::from(tr("tui.restore_private")),
+        Line::from(""),
+    ];
+    let field = |key, value: &str, selected| {
+        Line::from(format!(
+            "{}{}: {}",
+            if restore.state() == State::Editing && restore.field() == selected {
+                "> "
+            } else {
+                "  "
+            },
+            tr(key),
+            value
+        ))
+    };
+    lines.push(field(
+        "tui.restore_archive",
+        restore.archive(),
+        Field::Archive,
+    ));
+    match restore.state() {
+        State::Editing => {
+            lines.push(field(
+                "tui.backup_passphrase",
+                restore.masked(),
+                Field::Passphrase,
+            ));
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.restore_edit_keys")));
+        }
+        State::Confirming => {
+            if let Some((profiles, subscriptions)) = restore.counts() {
+                lines.push(Line::from(
+                    tr("tui.restore_counts")
+                        .replace("{profiles}", &profiles.to_string())
+                        .replace("{subscriptions}", &subscriptions.to_string()),
+                ));
+            }
+            lines.push(Line::from(tr("tui.restore_preview_data")));
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.restore_replace")));
+            lines.push(Line::from(tr("tui.restore_off")));
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.restore_confirm")));
+        }
+        state => {
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr(match state {
+                State::Previewing => "tui.restore_previewing",
+                State::Submitted => "tui.restore_submitted",
+                State::Completed => "tui.restore_completed",
+                State::Denied => "tui.restore_denied",
+                State::Unknown => "tui.restore_unknown",
+                State::PreviewUnavailable => "tui.restore_preview_unavailable",
+                State::Cancelled => "tui.restore_cancelled",
+                _ => "tui.restore_changed",
+            })));
+        }
+    }
+    if !app.notice.is_empty() {
+        lines.push(Line::from(tr(app.notice)));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(tr("tui.restore_return")));
+    let content = if area.width >= 70 && area.height >= 24 {
+        lines
+    } else {
+        vec![
+            Line::from(tr("tui.action_resize")),
+            Line::from(tr("tui.restore_return")),
+        ]
+    };
+    frame.render_widget(
+        Paragraph::new(content)
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(tr("tui.restore_title")),
+            )
+            .style(app.palette.normal()),
+        area,
+    );
 }
 
 #[cfg(feature = "private-backup")]
