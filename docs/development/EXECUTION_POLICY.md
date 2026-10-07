@@ -256,3 +256,11 @@ actually contains the affected implementation/test and its owning wiring.
 Do not import an absent research precursor just to make a cherry-pick apply.
 A source-only conflict is a normal diagnostic: preserve unrelated work,
 resolve or abort the carry, and retain each tested runtime's exact identity.
+
+For a sequential acceptance harness, mock only records earned by preceding
+completed phases. Add a first-observation control that refuses every other
+lookup: a convenient pre-populated mock can hide a self-dependency and waste
+an otherwise valid VM run. Diagnose harness failure separately from product
+failure, preserve the failed scope, and verify the narrow successor before
+selecting a fresh scope. Do not continue past an unresolved observation merely
+because the underlying command returned success.
