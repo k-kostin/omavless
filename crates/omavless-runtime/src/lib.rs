@@ -3811,6 +3811,7 @@ mod tests {
         let capabilities = make_request("caps", "capabilities.get", json!({})).unwrap();
         let reply = server.dispatch(&capabilities).unwrap();
         assert_eq!(reply["ok"], true);
+        assert_eq!(reply["revision"], 0);
         let methods = reply["result"]["methods"].as_array().unwrap();
         for method in developer_connection_close::METHODS.iter().copied().chain([
             developer_current_restore::METHOD,
@@ -3828,10 +3829,9 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(
-            server.dispatch(&restore).unwrap()["error"]["code"],
-            "capability_unavailable"
-        );
+        let refused_restore = server.dispatch(&restore).unwrap();
+        assert_eq!(refused_restore["error"]["code"], "capability_unavailable");
+        assert_eq!(refused_restore["revision"], 0);
         for method in developer_connection_close::METHODS {
             let request =
                 make_request("close", method, json!({"instanceId":server.instance_id})).unwrap();

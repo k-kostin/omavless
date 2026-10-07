@@ -7,8 +7,8 @@ umask 077
 
 setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
-release_version=0.9.8-beta.1
-package_version=0.9.8beta1
+release_version=0.9.8-beta.2
+package_version=0.9.8beta2
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
