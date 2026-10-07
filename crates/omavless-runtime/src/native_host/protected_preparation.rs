@@ -99,6 +99,7 @@ struct Bound {
     core: HeldFile,
     config: HeldFile,
     data: HeldDirectory,
+    scratch: Option<interval::Scratch>,
     policy: RenderedPolicy,
     package: Option<crate::managed_pair::ProtectedPackage>,
     capacity: PreparationCapacity,
@@ -127,14 +128,14 @@ impl PreparationCapacity {
             })
     }
     fn reserve() -> Result<Self, PreparationError> {
-        // Three package originals + staged/config/data/parent publication and
+        // Three package originals + staged/config/data/scratch/parent publication and
         // validator null/exec-error plumbing, with transient iterator/hash margin.
         let (soft, _) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE)
             .map_err(|_| PreparationError::Refused)?;
         Self::from_inventory(Self::inventory()?, soft)
     }
     fn from_inventory(count: usize, soft: u64) -> Result<Self, PreparationError> {
-        let ceiling = count.checked_add(16).ok_or(PreparationError::Refused)?;
+        let ceiling = count.checked_add(17).ok_or(PreparationError::Refused)?;
         if ceiling > 256 || ceiling as u64 > soft {
             return Err(PreparationError::Refused);
         }
@@ -153,6 +154,28 @@ impl PreparationCapacity {
 struct HeldDirectory {
     file: File,
     metadata: Metadata,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirectoryIdentity {
+    dev: u64,
+    ino: u64,
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    nlink: u64,
+}
+impl DirectoryIdentity {
+    fn of(metadata: &Metadata) -> Self {
+        Self {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            mode: metadata.mode(),
+            uid: metadata.uid(),
+            gid: metadata.gid(),
+            nlink: metadata.nlink(),
+        }
+    }
 }
 impl HeldDirectory {
     fn capture(path: &Path, uid: u32) -> Result<Self, PreparationError> {
@@ -509,12 +532,18 @@ impl NativeLifecycleHost {
         if config.digest != <[u8; 32]>::from(Sha256::digest(&bytes)) {
             return Err(PreparationError::Changed);
         }
+        // Ordinary current paths alias data and config. Publish the owned child
+        // directory BEFORE capturing data's original nlink, never rebase it.
+        let scratch = interval::Scratch::prepare(&self.paths.config_directory, self.uid)
+            .map_err(|_| PreparationError::OutcomeUnknown)?;
+        capacity.check()?;
         let bound = Bound {
             desired: desired.clone(),
             store_digest,
             core,
             config,
             data: HeldDirectory::capture(&self.paths.data_directory, self.uid)?,
+            scratch: Some(scratch),
             policy,
             package: None,
             capacity,
@@ -566,6 +595,12 @@ impl NativeLifecycleHost {
                 .map_err(|_| PreparationError::Changed)?;
         }
         bound.data.recheck(&self.paths.data_directory)?;
+        bound
+            .scratch
+            .as_ref()
+            .ok_or(PreparationError::Changed)?
+            .recheck()
+            .map_err(|_| PreparationError::Changed)?;
         bound
             .config
             .recheck(&self.paths.config_directory.join(STAGING))
@@ -642,6 +677,7 @@ impl NativeLifecycleHost {
                         .data
                         .recheck(&self.paths.data_directory)
                         .map_err(|_| ())?;
+                    bound.scratch.as_ref().ok_or(())?.recheck()?;
                     bound.config.recheck(&staged).map_err(|_| ())
                 },
             )
@@ -695,8 +731,13 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
     type Interval = interval::Interval;
     fn begin_interval(&mut self, desired: &DesiredState) -> Result<Self::Interval, HostStepError> {
         self.recheck_interval(desired)?;
-        interval::Interval::begin(&self.paths.config_directory, self.uid)
-            .map_err(|_| HostStepError::Observation)
+        let scratch = self
+            .protected_preparation
+            .as_mut()
+            .and_then(|p| p.bound.as_mut())
+            .and_then(|b| b.scratch.take())
+            .ok_or(HostStepError::Observation)?;
+        interval::Interval::begin(scratch, self.uid).map_err(|_| HostStepError::Observation)
     }
     fn complete_interval(&mut self, interval: &mut Self::Interval) -> Result<(), HostStepError> {
         interval.complete().map_err(|_| HostStepError::Observation)
@@ -802,13 +843,7 @@ impl crate::lifecycle::protected_candidate::ProtectedHost for NativeLifecycleHos
             crate::protected_native_diagnostic::post_mark(
                 crate::protected_native_diagnostic::PostGuard::IntervalDataIdentity,
             );
-            if current.dev() != original.dev()
-                || current.ino() != original.ino()
-                || current.mode() != original.mode()
-                || current.uid() != original.uid()
-                || current.gid() != original.gid()
-                || current.nlink() != original.nlink()
-            {
+            if DirectoryIdentity::of(&current) != DirectoryIdentity::of(original) {
                 return Err(HostStepError::Observation);
             }
         }

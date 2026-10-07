@@ -75,6 +75,56 @@ impl Drop for AcquiredFile {
         }
     }
 }
+
+/// Prepared before the data-directory original is captured. Its one original
+/// moves into the interval; every failed/abandoned prefix stays retained.
+pub(super) struct Scratch {
+    original: Option<(HeldDirectory, PathBuf)>,
+}
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        if let Some(original) = self.original.take() {
+            std::mem::forget(original);
+        }
+    }
+}
+impl Scratch {
+    pub(super) fn prepare(parent: &Path, uid: u32) -> Result<Self, ()> {
+        let path = parent.join(CAPTURE);
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&path)
+            .map_err(|_| ())?;
+        // The published directory is never removed on any failure. Retain an
+        // opened descriptor even when metadata/named-original checks fail.
+        let mut prefix = AcquiredFile(Some(
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_DIRECTORY)
+                .open(&path)
+                .map_err(|_| ())?,
+        ));
+        let metadata = prefix.0.as_ref().ok_or(())?.metadata().map_err(|_| ())?;
+        if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
+            return Err(());
+        }
+        let owner = Self {
+            original: Some((
+                HeldDirectory {
+                    file: prefix.0.take().ok_or(())?,
+                    metadata,
+                },
+                path,
+            )),
+        };
+        owner.recheck()?;
+        Ok(owner)
+    }
+    pub(super) fn recheck(&self) -> Result<(), ()> {
+        let (directory, path) = self.original.as_ref().ok_or(())?;
+        directory.recheck(path).map_err(|_| ())
+    }
+}
 impl Capture {
     fn create(path: PathBuf, uid: u32) -> Result<Self, ()> {
         let mut prefix = AcquiredFile(Some(
@@ -161,7 +211,7 @@ impl Drop for Interval {
     }
 }
 impl Interval {
-    pub(super) fn begin(parent: &Path, uid: u32) -> Result<Self, ()> {
+    pub(super) fn begin(mut scratch: Scratch, uid: u32) -> Result<Self, ()> {
         if uid != 1000
             || nix::unistd::getuid().as_raw() != uid
             || nix::unistd::geteuid().as_raw() != uid
@@ -175,7 +225,7 @@ impl Interval {
                 capacity: Capacity::reserve()?,
                 program: None,
                 directory: None,
-                path: parent.join(CAPTURE),
+                path: PathBuf::new(),
                 stdout: None,
                 stderr: None,
                 child: None,
@@ -186,6 +236,10 @@ impl Interval {
             completed: false,
         };
         let r = owner.original.as_mut().ok_or(())?;
+        scratch.recheck()?;
+        let (directory, path) = scratch.original.take().ok_or(())?;
+        r.directory = Some(directory);
+        r.path = path;
         for path in ["/usr", "/usr/lib", "/usr/lib/omavless-netguard"] {
             let m = fs::symlink_metadata(path).map_err(|_| ())?;
             if !m.is_dir() || m.uid() != 0 || m.mode() & 0o022 != 0 {
@@ -194,11 +248,6 @@ impl Interval {
         }
         r.program =
             Some(HeldFile::capture(Path::new(PROGRAM), 0, 0o755, MAX_CORE).map_err(|_| ())?);
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&r.path)
-            .map_err(|_| ())?;
-        r.directory = Some(HeldDirectory::capture(&r.path, uid).map_err(|_| ())?);
         r.stdout = Some(Capture::create(r.path.join("traffic.out"), uid)?);
         r.stderr = Some(Capture::create(r.path.join("traffic.err"), uid)?);
         r.capacity.check()?;

@@ -599,6 +599,25 @@ wrappers. A fresh boot alone does not imply these prerequisites are ready:
   an old receipt or manufacture a current one. Preparation's metadata check is
   readiness only: the normal Rust constructor still checks the original startup
   receipt, ownership generation and pending fences.
+- Confirm the genuine installed native driver and its ordinary prerequisites:
+  the exact selected test ELF and managed core/package identity, the normal
+  DNS broker's enrolled fixed device/policy and active service, and NetGuard's
+  original enrolled service with its pinned image. Both fixed control endpoints
+  must be actual root-owned mode0660 sockets. A genuine current login-prepare
+  receipt, DNS enrollment and NetGuard enrollment are separate prerequisites;
+  none is manufactured by the fixture or inferred from a fresh boot.
+
+The fixed network-preparation successor now checks the pinned NetGuard public
+image, then the exact root-owned0755 DNS-broker image with its bounded size,
+group and xattr policy, and both fixed socket metadata shapes before the current
+receipt, scope publication and first network command. Its bounded read-only
+preflight does not send a request, construct the native owner, prepare a login,
+enroll a service or grant Arm/cleanup/retry authority. A separately completed
+ordinary VM module/service preparation and original-zero network preparation
+establish only those prerequisites. The local frozen supervisor and preflight
+remain outside Git; they are neither installed product code nor native lifecycle
+acceptance. The original current-owner constructor remains an effecting operation
+under its own whole-owner custody guard.
 
 In the fixed recipe, module/BTF checks precede service-image and receipt checks;
 receipt absence alone cannot explain a refusal when the earlier module checks
@@ -617,3 +636,38 @@ each refused preparation and its original result separately from a later newly
 admitted preparation, and require the latter's original zero before selecting
 the one retained foreground native run. Native effect selection remains solely
 with the VM operator; preparation never executes the native root through SSH.
+
+### Preparation-first interval scratch portability successor
+
+Ordinary `NativeHostPaths::current` uses the same config/data directory. The old
+interval created its `.k1-native-interval` child after capturing that directory's
+original identity. On filesystems where child `mkdir` increments the parent's
+link count, the unchanged strict post-interval check could refuse the program's
+own publication. This is a bounded portability defect, not an established cause
+of an earlier btrfs native refusal.
+
+The source successor exclusively publishes and captures the private scratch
+before `Bound.data` captures its original. Its move-only holder survives every
+failed acquisition or abandoned prefix and transfers once into the existing
+interval holder. Later traffic captures are regular files inside that original
+scratch. No original link count is rebased, masked or permitted to drift; device,
+inode, full mode, UID, GID and link count remain exact for both held and named
+data-directory observations. The pre-validator, validation and pre-interval
+checks also recheck the same scratch original. Collision, metadata drift or
+failure supplies no overwrite, unlink, cleanup or retry permission.
+
+The additional held scratch role raises the preparation reservation from16 to17
+without changing the256 aggregate bound or RLIMIT_NOFILE. The interval's existing
+24-role reservation includes the already held scratch through its whole-process
+inventory and then consumes that descriptor. Private captures and the scratch
+remain owned by the original prepared/interval graph; uncertain graph retention
+and fatal-process-loss limits are unchanged.
+
+Deterministic controls reject a `+1` link-count change and every other identity
+field change. A real HOME-backed ordinary aliased config/data fixture exercises
+the actual staging and capture-file code without an executable core, socket,
+service, admission or network action. A separate HOME child-mkdir control reports
+`K1_HOME_CHILD_NLINK_INCREMENT_UNAVAILABLE` when that filesystem keeps the count
+unchanged; that branch is not real-filesystem `+1` reproduction. Native execution,
+whole K1 acceptance and product/release activation remain separate exact-head
+gates, and all earlier NONPASS native outcomes retain their original identity.
