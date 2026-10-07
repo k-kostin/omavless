@@ -9,6 +9,32 @@ unpublished source integration is not public release acceptance.
 
 ## Scope and ownership
 
+### Beta.4 assembly started, 2026-10-07
+
+Owner authorized continuing after the installed beta.3 Backup scenario without
+redundant manual keystrokes. Selected base is
+`a791fb2eb312ca2405ede194718146b49167b7ae` on `beta/0.9.8`: native UI/source
+evidence and the repeatable desktop-entry gate remain separately identified
+below. Current assembly writer owns `dev/098-beta4-assembly`; the VM master
+owns only the source-only Restore transfer branch until explicit VM handoff.
+
+Beta.4 selects authenticated Preview/Cancel/Restore from #708 at
+`b33d2f5b783e308be0f74ad6e5531fe4c1573f3f`, after the transfer resolves the
+known conflict with #709's global Backup navigation and preserves both original
+unresolved-operation guards. That transfer and installed Restore are pending,
+not implied by this version bump. Relaunch after plugin disable/full shutdown
+is an optional later included checkpoint only after implementation and its own
+no-autoconnect/current-login executable gate. K1, S1, P4, automatic background
+work and GUI remain excluded.
+
+Agent-owned next gates: combined source/feature checks; matching experimental
+bundle inspection; explicit Restore-entry close/reopen; wrong-key no-effect;
+authenticated preview and Cancel with unchanged state; one original successful
+Restore with independent pair/history/revision readback; normal restart after
+a known outcome. Unknown stops dependent mutations. Human review is optional
+product judgment, not a substitute for these automatable checks. Public package
+pins remain empty, no package publication or main/RC/Marketplace update occurs.
+
 Owner clarification, 2026-10-07: this internal beta may include runnable
 experimental features with programmatic gates passed and human acceptance
 pending. Apply the [manual-acceptance rule](BETA_MANUAL_ACCEPTANCE.md) and
@@ -70,7 +96,7 @@ refusals. #30 implementation, Draft status and XHTTP evidence stay intact.
 
 ## Checkpoint and release boundary
 
-Current source version `0.9.8-beta.3` / Arch `0.9.8beta3-1`; both package pin
+Current source version `0.9.8-beta.4` / Arch `0.9.8beta4-1`; both package pin
 maps stay empty. No old archive is relabeled. Baseline checks cover version/packaging
 coherence, full developer/Rust suites and affected EN/RU actual QML/TUI review.
 New combined source/build checks do not transfer earlier installed results to

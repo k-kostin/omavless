@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-control-protocol"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "omavless-parity",
  "serde",
@@ -1162,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-dns-broker"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "async-io",
  "futures-lite",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-dns-channel"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "nix",
  "omavless-dns-tun",
@@ -1192,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-dns-resolved"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "async-io",
  "futures-lite",
@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-dns-retention"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "async-io",
  "futures-lite",
@@ -1216,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-dns-transaction"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-dns-tun"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "libc",
  "rustix",
@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-domain"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-image-witness"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "nix",
  "rustix",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-mihomo"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "nix",
  "omavless-domain",
@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-netguard"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "nix",
  "serde",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-parity"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-profile"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -1298,7 +1298,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-runtime"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -1322,11 +1322,11 @@ dependencies = [
 
 [[package]]
 name = "omavless-store"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 
 [[package]]
 name = "omavless-tui"
-version = "0.9.8-beta.3"
+version = "0.9.8-beta.4"
 dependencies = [
  "nix",
  "omavless-domain",
