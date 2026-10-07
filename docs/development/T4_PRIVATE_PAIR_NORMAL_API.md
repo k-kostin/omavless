@@ -1,9 +1,11 @@
 # Opt-in normal private-pair API
 
-Status: SOURCE candidate atop `44bd54e`, not installed acceptance or default
-activation. It reuses the engine at exact `0f2a1b8a` and the
+Status: bounded agent-attended installed VM acceptance at exact API source
+`4983f392d15c123e76e7b71182b45715cf812652`, not default activation or whole T4.
+It is based on `44bd54e`, reuses the engine at exact `0f2a1b8a` and the
 [private backup contract](../roadmap/PRIVATE_BACKUP_RESTORE.md). Prior installed
-Current43/44 and repeated-cycle evidence does not accept this new RPC boundary.
+Current43/44 and repeated-cycle evidence does not substitute for this new RPC
+boundary's separately selected scope46 below.
 
 ## Closed vertical slice
 
@@ -98,7 +100,7 @@ remains first and never runs the engine. This is not a second owning lease or
 same-daemon repeated Restore grant. Capability advertisement is descriptive,
 not a reservation or bypass of this per-request predicate.
 
-## Gates and next acceptance
+## Source gates and installed acceptance
 
 Deterministic controls cover exact schema/digest, collision/replay/stale revision,
 exhaustion, unknown/unwind denial and no extra revision advance. A real local
@@ -127,8 +129,60 @@ is retained and the successful control uses a fresh short HOME temp root,
 without changing runtime path guards. Initial test-only compile typos are also
 retained; neither failure was guest/product acceptance.
 
-Installed normal API acceptance is pending: actual current export, a different
-synthetic ordinary-data mutation, Restore, exact replay, full pair/profile
-readback and independently admitted restart. No frontend, current/login/package,
-default activation, cold bootstrap or whole-T4 result follows from SOURCE tests.
-Root is sole VM operator; main merge/release are outside this cut.
+### Installed scope46, 2026-10-07
+
+ROOT alone selected all VM installation, normal units, originals and separate
+observers. Tested runtime is **only** source `4983f392d15c123e76e7b71182b45715cf812652`:
+normal default features plus the explicit opt-in. The installed ELF is 9,040,152
+bytes, SHA256 `50561640483c7c520f24eb8be4a3d0c4fc6bdeb336f05c5ebe617fab1a92edb6`;
+the normal package is 3,360,180 bytes, SHA256
+`86d0d37f8742a5097fa3b146cad0964ea59532266294a69abe4d35fde9784ca6`.
+Full twenty-member package inspection and the compatible whole LegacyMeta2
+bundle were separate prerequisites. No receipt or constructor was substituted.
+Documentation successors are not the tested runtime source.
+
+The fresh disposable thin-copy boot was `4ce16f29-8d21-4fc6-b950-daf8c3dcbc66`.
+The genuine current owner was Off with configured default routing, onboarding
+complete and startup disabled. Each of 25 fixed phases had its separately
+observed expected original exit followed by observer0: original0 except the
+predeclared fresh-ID Restore denial's original2. The private pair, credentials,
+captures and exact instance IDs remain outside Git.
+
+| Selected boundary | Original / separate observer | Scoped result |
+| --- | --- | --- |
+| Fresh preparation, hello, status, profiles, snapshot | `b691f8`; `f31de7/8ec170`, `3fc0c9/1cb4fe`, `e92ea6/550480`, `ceeb91/e9e6b3` | Genuine same-instance owned Off baseline and strict supported snapshot |
+| Export | `343fec/255ebf` | Normal typed Backup creates authenticated private archive |
+| Ordinary public synthetic import and readbacks | `314c74/4a261e`, `e79f7c/219606`, `c16093/2b6759` | One loopback profile added as data only, no activation; revision advances once |
+| Restore and readbacks | `92b6c3/62fac6`, `256dcd/0381bc`, `9076fd/e09721` | NEW/Committed completion; one further revision advance; whole original pair bytes and profile projection restored; incumbent audit preserved with exactly one new member |
+| Exact historical replay and status | `9f4c55/dc7bd4`, `f8688d/761731` | Same original input/ID, unchanged current revision; replay is result data, not a new grant |
+| Fresh-ID Restore denial and readbacks | `794ff2` original2 / `2b8d99`; `463b90/23f9a5`, `1ce6bd/bc1b64` | Exact grouped known-refusal marker; pair, profiles, history and usable owned Off state unchanged |
+| Different-ID Backup and final status | `beb12d/a1edda`, `e3c8cb/447283` | Backup remains supported after denial, no revision advance |
+| Normal stop, stopped, start | `43edf1/d99a87`, `645ee1/42f431`, `d3b0a3/cc3c56` | Canonical unit inactive/dead with zero PIDs and success; new ordinary start |
+| Independent readiness, hello, status, profiles | readiness `7322a1`; `90b600/66a086`, `da6744/73a3b9`, `ad8300/1c3c38` | New normal instance, owned Off; whole pair/profile/audit retained across independently earned restart |
+
+The normal canonical runtime changed from PID2419 to PID3571; readiness proved
+the new listener before the one new hello. PID/string equality is not authority.
+The denial CLI marker groups several known errors and does not attest an exact
+wire code. The reviewed source's occupied-keeper predicate and real local
+control establish the intended pre-entry `capability_unavailable` path; the VM
+result separately proves the grouped denial and unchanged/usable postconditions.
+Likewise, a positive CLI replay marker alone is not a wire replay attestation.
+
+The rejected source predecessor's audit-tuple rebasing and preparation deadline
+gaps remain preserved. Its fixed revision2 passed sixteen inert controls but
+the first scope45 status observer read its own not-yet-created observation:
+prepare `7197b0`, hello `52a3be/56a1dd`, status `f876d8` original0 followed by
+observer `f26c27` exit2/STOP. ROOT's read-only reproduction `afb321` confirmed
+the real Off predicate. No export/import/Restore began in that failed scope;
+its STOP was neither erased nor continued. Fresh revision3/scope46 uses the
+preceding hello revision, with seventeen source controls and independent review.
+ROOT's separate bound-versus-ZERO control failure `af9e96` and corrected-scope
+result `02b4ae` are retained as source-check history, not runtime results.
+
+This accepts one agent-attended, opt-in **private-pair** API sequence, not human
+or physical-host acceptance, whole settings, default/public activation, Settings
+picker/preview/passphrase UX, connected Restore, arbitrary custom templates,
+cold/unknown recovery, fatal descriptor survival or whole T4. SLEEP, network and
+OS resume/transfer keep their separate owning contracts and evidence. No such
+guarantee follows from this Off sequence. ROOT remains sole VM operator; main
+merge/release and default activation remain outside this cut.
