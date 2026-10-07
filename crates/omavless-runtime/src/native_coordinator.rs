@@ -723,7 +723,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             false
         }
     }
-    #[cfg(all(test, feature = "t4-manager-actor-service"))]
+    #[cfg(all(
+        test,
+        feature = "product-image-witness",
+        feature = "t4-manager-actor-service"
+    ))]
     pub(crate) fn record_unknown_pair_for_test(&mut self) {
         // Synthetic scheduler state only: no current-owner issuer, archive,
         // engine, host operation or reconstructed effect authority.
