@@ -9,7 +9,7 @@ pub fn response(request: Read) -> Value {
             json!({"instanceId":"fixture-runtime", "version":1, "runtimeOwnership":true})
         }
         Read::Capabilities => {
-            json!({"runtimeOwnership":true,"methods":["ui.snapshot","runtime.observation","runtime.traffic","diagnostics.summary"]})
+            json!({"runtimeOwnership":true,"methods":["ui.snapshot","runtime.observation","runtime.traffic","diagnostics.summary","diagnostics.rules","diagnostics.providers","diagnostics.export"]})
         }
         Read::Snapshot => json!({
             "schemaVersion":1,"scope":"private_ui_metadata","instanceId":"fixture-runtime",
@@ -25,6 +25,27 @@ pub fn response(request: Read) -> Value {
             "sample":{"identity":"a".repeat(64),"rxBytes":4096,"txBytes":8192,"sampledAtMs":1000}})
         }
         Read::Diagnostics => json!({"version":1,"rules":{"total":42},"providers":{"total":2}}),
+        Read::Rules => json!({"version":1,"rules":{"total":3,"shown":3,"truncated":false,"items":[
+            {"type":"DOMAIN","payload":"example.invalid","target":"VPN"},
+            {"type":"IP-CIDR","payload":"192.0.2.0/24","target":"DIRECT"},
+            {"type":"MATCH","payload":"","target":"REJECT"}
+        ]}}),
+        Read::Providers => {
+            json!({"version":1,"providers":{"total":2,"shown":2,"truncated":false,"items":[
+                {"name":"fixture-domains","behavior":"domain","updatedAt":"2026-09-28","ruleCount":12,"status":"loaded","refreshable":true},
+                {"name":"fixture-empty","behavior":"ipcidr","updatedAt":"","ruleCount":0,"status":"empty","refreshable":false}
+            ]}})
+        }
+        Read::HostSupport => json!({
+            "schemaVersion":3,"scope":"native_support",
+            "coverage":{"coreSetupVerified":true,"serviceEnablementVerified":true,
+                "fileReadiness":true,"loadedPolicyCounts":false},
+            "host":{"core":{"installed":true,"fileNetworkCapabilities":true,"tunDevicePresent":true},
+                "runtimeService":{"loaded":true,"active":true,"enabled":false,"ownsCurrentProcess":true},
+                "loginService":{"loaded":true,"active":false,"enabled":false,"ownsCurrentProcess":null},
+                "files":{"store":true,"template":true,"generatedConfig":true,"runtimeUnit":true,"loginUnit":true},
+                "configuredPolicy":null}
+        }),
         Read::ProfileDetails(_) => {
             json!({"version":1,"protocol":"vless","transport":"xhttp","security":"reality","server":"fixture.invalid:443","sni":"fixture.invalid"})
         }

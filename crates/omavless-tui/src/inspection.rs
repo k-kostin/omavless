@@ -7,6 +7,9 @@ pub struct Capabilities {
     pub profile_details: bool,
     pub traffic: bool,
     pub diagnostics: bool,
+    pub support: bool,
+    pub rules: bool,
+    pub providers: bool,
     pub subscription_refresh: bool,
     pub profile_probe: bool,
     pub subscription_probe: bool,
@@ -20,6 +23,9 @@ impl Capabilities {
             profile_details: has("profiles.details"),
             traffic: has("runtime.traffic"),
             diagnostics: has("diagnostics.summary"),
+            support: has("diagnostics.export"),
+            rules: has("diagnostics.rules"),
+            providers: has("diagnostics.providers"),
             subscription_refresh: has("subscriptions.refresh"),
             profile_probe: has("profiles.probe")
                 && has("profiles.probe_results")
@@ -124,6 +130,9 @@ pub enum Page {
     Traffic,
     Details,
     Diagnostics,
+    Host,
+    Rules,
+    Providers,
     Settings,
     Activity,
     Subscriptions,
@@ -138,6 +147,9 @@ impl Page {
             Self::Diagnostics,
             Self::Settings,
             Self::Activity,
+            Self::Host,
+            Self::Rules,
+            Self::Providers,
             Self::Jobs,
             Self::Subscriptions,
         ];
@@ -150,6 +162,9 @@ impl Page {
             Self::Traffic => "tui.traffic",
             Self::Details => "tui.details",
             Self::Diagnostics => "tui.diagnostics",
+            Self::Host => "tui.host",
+            Self::Rules => "tui.rules",
+            Self::Providers => "tui.providers",
             Self::Settings => "tui.settings",
             Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
@@ -233,6 +248,282 @@ impl Traffic {
 pub struct Diagnostics {
     pub rules: u64,
     pub providers: u64,
+}
+
+/// Private, bounded controller projections. These are display data, never
+/// shareable diagnostics: rule payloads can name user-selected destinations.
+#[derive(Clone)]
+pub struct Rule {
+    pub kind: String,
+    pub payload: String,
+    pub target: &'static str,
+}
+
+#[derive(Clone)]
+pub struct Rules {
+    pub total: u64,
+    pub truncated: bool,
+    pub items: Vec<Rule>,
+}
+
+#[derive(Clone)]
+pub struct Provider {
+    pub name: String,
+    pub behavior: String,
+    pub updated_at: String,
+    pub rule_count: Option<u64>,
+    pub status: &'static str,
+    pub refreshable: bool,
+}
+
+#[derive(Clone)]
+pub struct Providers {
+    pub total: u64,
+    pub truncated: bool,
+    pub items: Vec<Provider>,
+}
+
+#[derive(Clone)]
+pub struct HostSupport {
+    pub core_installed: Option<bool>,
+    pub core_capabilities: Option<bool>,
+    pub tun_device: Option<bool>,
+    pub runtime_unit_loaded: Option<bool>,
+    pub runtime_unit_active: Option<bool>,
+    pub runtime_unit_enabled: Option<bool>,
+    pub store_present: Option<bool>,
+    pub template_present: Option<bool>,
+    pub generated_config_present: Option<bool>,
+    pub package_runtime_unit_present: Option<bool>,
+    pub package_login_unit_present: Option<bool>,
+}
+
+fn nullable_bool(value: &Value) -> Option<Option<bool>> {
+    if value.is_null() {
+        Some(None)
+    } else {
+        value.as_bool().map(Some)
+    }
+}
+
+impl HostSupport {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let result = &value["result"];
+        if value["ok"] != true
+            || result["schemaVersion"] != 3
+            || result["scope"] != "native_support"
+        {
+            return None;
+        }
+        let host = result["host"].as_object()?;
+        for key in [
+            "core",
+            "runtimeService",
+            "loginService",
+            "files",
+            "configuredPolicy",
+        ] {
+            if !host.contains_key(key) {
+                return None;
+            }
+        }
+        let core = &result["host"]["core"];
+        let core_installed = if core.is_null() {
+            None
+        } else {
+            core.as_object()?;
+            let installed = core["installed"].as_bool()?;
+            let capabilities = core
+                .get("fileNetworkCapabilities")
+                .and_then(nullable_bool)?;
+            if !installed && capabilities != Some(false) {
+                return None;
+            }
+            Some(installed)
+        };
+        let core_capabilities = if core.is_null() {
+            None
+        } else {
+            core.get("fileNetworkCapabilities")
+                .and_then(nullable_bool)?
+        };
+        let tun_device = if core.is_null() {
+            None
+        } else {
+            core.get("tunDevicePresent").and_then(nullable_bool)?
+        };
+        let service = &result["host"]["runtimeService"];
+        let (runtime_unit_loaded, runtime_unit_active, runtime_unit_enabled) = if service.is_null()
+        {
+            (None, None, None)
+        } else {
+            service.as_object()?;
+            let loaded = service["loaded"].as_bool()?;
+            let active = service["active"].as_bool()?;
+            let enabled = service["enabled"].as_bool()?;
+            let owns = service["ownsCurrentProcess"].as_bool()?;
+            if (!loaded && (active || enabled)) || (owns && !active) {
+                return None;
+            }
+            (Some(loaded), Some(active), Some(enabled))
+        };
+        let login = &result["host"]["loginService"];
+        if !login.is_null() {
+            login.as_object()?;
+            let loaded = login["loaded"].as_bool()?;
+            let active = login["active"].as_bool()?;
+            let enabled = login["enabled"].as_bool()?;
+            if (!loaded && (active || enabled)) || !login["ownsCurrentProcess"].is_null() {
+                return None;
+            }
+        }
+        let files = &result["host"]["files"];
+        if !files.is_null() {
+            files.as_object()?;
+        }
+        let file = |key: &str| {
+            if files.is_null() {
+                Some(None)
+            } else {
+                files.get(key).and_then(nullable_bool)
+            }
+        };
+        let store_present = file("store")?;
+        let template_present = file("template")?;
+        let generated_config_present = file("generatedConfig")?;
+        let package_runtime_unit_present = file("runtimeUnit")?;
+        let package_login_unit_present = file("loginUnit")?;
+        let policy = &result["host"]["configuredPolicy"];
+        if !policy.is_null()
+            && (!["template", "active_config"].contains(&policy["basis"].as_str()?)
+                || policy["rules"].as_u64().filter(|n| *n <= 100_000).is_none()
+                || policy["providers"]
+                    .as_u64()
+                    .filter(|n| *n <= 1024)
+                    .is_none())
+        {
+            return None;
+        }
+        let coverage = &result["coverage"];
+        coverage.as_object()?;
+        if coverage["coreSetupVerified"].as_bool()?
+            != (core_installed.is_some() && core_capabilities.is_some() && tun_device.is_some())
+            || coverage["serviceEnablementVerified"].as_bool()?
+                != (!service.is_null() && !login.is_null())
+            || coverage["fileReadiness"].as_bool()?
+                != (!files.is_null()
+                    && [
+                        store_present,
+                        template_present,
+                        generated_config_present,
+                        package_runtime_unit_present,
+                        package_login_unit_present,
+                    ]
+                    .iter()
+                    .all(Option::is_some))
+            || coverage["loadedPolicyCounts"].as_bool()?
+        {
+            return None;
+        }
+        Some(Self {
+            core_installed,
+            core_capabilities,
+            tun_device,
+            runtime_unit_loaded,
+            runtime_unit_active,
+            runtime_unit_enabled,
+            store_present,
+            template_present,
+            generated_config_present,
+            package_runtime_unit_present,
+            package_login_unit_present,
+        })
+    }
+}
+
+fn bounded_text(value: &Value, max: usize) -> Option<String> {
+    let text = value.as_str()?;
+    (text.len() <= max).then(|| crate::model::display(text, max))
+}
+
+fn rows<'a>(
+    value: &'a Value,
+    key: &str,
+    maximum: usize,
+    total_max: u64,
+) -> Option<(u64, bool, &'a [Value])> {
+    if value["ok"] != true || value["result"]["version"] != 1 {
+        return None;
+    }
+    let projection = &value["result"][key];
+    let total = projection["total"].as_u64().filter(|n| *n <= total_max)?;
+    let items = projection["items"].as_array()?;
+    let shown = projection["shown"].as_u64()?;
+    let truncated = projection["truncated"].as_bool()?;
+    if items.len() > maximum
+        || shown != items.len() as u64
+        || shown > total
+        || truncated != (shown < total)
+    {
+        return None;
+    }
+    Some((total, truncated, items))
+}
+
+impl Rules {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let (total, truncated, raw) = rows(value, "rules", 2048, 2048)?;
+        let mut items = Vec::with_capacity(raw.len());
+        for item in raw {
+            let target = match item["target"].as_str()? {
+                "DIRECT" => "DIRECT",
+                "REJECT" => "REJECT",
+                "VPN" => "VPN",
+                _ => return None,
+            };
+            items.push(Rule {
+                kind: bounded_text(&item["type"], 80)?,
+                payload: bounded_text(&item["payload"], 512)?,
+                target,
+            });
+        }
+        Some(Self {
+            total,
+            truncated,
+            items,
+        })
+    }
+}
+
+impl Providers {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let (total, truncated, raw) = rows(value, "providers", 256, 256)?;
+        let mut items = Vec::with_capacity(raw.len());
+        for item in raw {
+            let count = item["ruleCount"]
+                .as_i64()
+                .filter(|n| (-1..=1_000_000_000).contains(n))?;
+            let status = match item["status"].as_str()? {
+                "unknown" if count == -1 => "unknown",
+                "empty" if count == 0 => "empty",
+                "loaded" if count > 0 => "loaded",
+                _ => return None,
+            };
+            items.push(Provider {
+                name: bounded_text(&item["name"], 160)?,
+                behavior: bounded_text(&item["behavior"], 80)?,
+                updated_at: bounded_text(&item["updatedAt"], 80)?,
+                rule_count: (count >= 0).then_some(count as u64),
+                status,
+                refreshable: item["refreshable"].as_bool()?,
+            });
+        }
+        Some(Self {
+            total,
+            truncated,
+            items,
+        })
+    }
 }
 impl Diagnostics {
     pub fn parse(value: &Value) -> Option<Self> {
