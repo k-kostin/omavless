@@ -10,7 +10,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
   normal-entry Backup/Restore, corrected explicit application relaunch and ARM64
   link-count portability on the beta.4 maintenance base. The
   [RC ledger](../development/RC_098.md) retains exact inputs, original failed
-  installed readiness and remaining candidate/package/host gates. Pins are
+  installed readiness and remaining candidate/package/host gates. Exact
+  `5e7d4258` has inspected offline pairs for both architectures and passing
+  native package CI; final full Test CI remains pending. Its
+  [installed x86_64 report](../testing/RC_098_VM_2026-10-08.md) passes normal
+  entry/navigation/reopen, known Quit → re-enable → actual Start and real cold
+  configured-Off Start with login preparation, preserved data and disabled
+  startup units. It is agent-operated, not ARM-installed, new Restore mutation,
+  whole T4 or public provisioning acceptance. Pins are
   empty; main, immutable releases and Marketplace are unchanged. This is not
   accepted/public RC or whole T3/T4 completion.
 
@@ -22,14 +29,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
   wrong-key refusal, unchanged Preview/Cancel, one original Completed Restore
   with independent pair/revision readback and known-Off ordinary restart.
   Agent-operated evidence is not owner manual, ARM-installed or fault acceptance.
-  Runtime relaunch after plugin shutdown is the separate #712 successor under
-  review and installed testing, not borrowed from that earlier bundle.
+  Runtime relaunch after plugin shutdown is included through #712/#714 in the
+  exact RC checkpoint above, not borrowed from that earlier bundle.
   See [selection](../development/BETA_098.md) and
-  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main/RC/Marketplace
-  are unchanged; there is one integration writer and at most one VM operator.
-  [The consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6047446461)
-  records 82 verified no-merge PR closures (78 literal included heads and four
-  inspected full-patch equivalents). Source/evidence branches and unique
+  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main, releases and
+  Marketplace are unchanged; beta.4 is retained history for the selected RC.
+  [The consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6048668247)
+  records 92 verified no-merge PR closures: the prior 82 plus ten historical
+  predecessors with unresolved requirements retained in open owning records.
+  Source/evidence branches and unique
   unfinished work are retained; administrative closure adds no acceptance.
 
 - **0.9.8 beta.2 baseline:** [#702](https://github.com/k-kostin/omavless/pull/702)
