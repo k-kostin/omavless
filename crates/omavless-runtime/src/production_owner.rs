@@ -1017,6 +1017,8 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
                 origin_preparing_generation: None,
             },
             login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
         }
     }
 

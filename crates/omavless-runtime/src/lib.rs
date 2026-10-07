@@ -3793,6 +3793,63 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
 
+    #[cfg(all(
+        feature = "product-image-witness",
+        feature = "t4-manager-actor-service"
+    ))]
+    #[test]
+    fn beta098_combined_features_do_not_create_restore_or_close_authority() {
+        let base = temporary_base("beta098-authority");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let before = calls.load(Ordering::Relaxed);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let capabilities = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let reply = server.dispatch(&capabilities).unwrap();
+        assert_eq!(reply["ok"], true);
+        let methods = reply["result"]["methods"].as_array().unwrap();
+        for method in developer_connection_close::METHODS.iter().copied().chain([
+            developer_current_restore::METHOD,
+            developer_current_restore::BACKUP_METHOD,
+        ]) {
+            assert!(!methods.iter().any(|value| value == method));
+        }
+        let restore = make_request(
+            "restore",
+            developer_current_restore::METHOD,
+            json!({
+                "schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password",
+                "confirmation":"replace-current-private-pair","instanceId":server.instance_id,
+                "expectedRevision":0,
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            server.dispatch(&restore).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        for method in developer_connection_close::METHODS {
+            let request =
+                make_request("close", method, json!({"instanceId":server.instance_id})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "unknown_method"
+            );
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
+        assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn socket_and_owner_are_private_and_singleton() {
         let base = temporary_base("owner");

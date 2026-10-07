@@ -46,5 +46,11 @@ cargo test --locked -p omavless-runtime --features developer-conditional-close -
 cargo test --locked -p omavless-runtime --lib managed_close_receipt::tests
 cargo test --locked -p omavless-runtime --features developer-conditional-close --lib release_pair::tests
 cargo test --locked -p omavless-runtime --lib managed_pair::tests
+# Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
+# Run ordinary synthetic/private-file tests only; all VM/resource gates stay ignored.
+cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service
+cargo clippy --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service -- -D warnings
+cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json
