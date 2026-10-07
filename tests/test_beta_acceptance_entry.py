@@ -3,6 +3,7 @@ import configparser
 from pathlib import Path
 import shlex
 import subprocess
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,10 +31,15 @@ class BetaAcceptanceEntryTests(unittest.TestCase):
 
     def test_selected_beta_package_contains_its_real_client_features(self):
         script = ROOT / "packaging/release/client-features.sh"
-        result = subprocess.run(["bash", str(script), "0.9.8-beta.4"], capture_output=True, text=True)
+        # Follow the actual candidate metadata, not a stale hard-coded beta
+        # label: a version bump must not silently drop the included features.
+        current = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+        result = subprocess.run(["bash", str(script), current], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "t4-manager-actor-service\n")
         for version in ["0.8.2", "0.9.8-rc.1", "0.9.8-beta.3", "0.9.8-beta.5"]:
+            if version == current:
+                continue
             result = subprocess.run(["bash", str(script), version], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
