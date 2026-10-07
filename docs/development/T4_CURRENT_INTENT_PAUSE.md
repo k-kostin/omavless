@@ -79,6 +79,51 @@ Typed post-seal refusal probes and separately authenticated fresh-context recove
 were not selected in Current42. The sealed holder cannot be rearmed or replaced
 by a stopped-owner/cold-record decoder grant.
 
+### Next source-only refusal and existing-lock recovery cut
+
+The private dispatcher preserves the original typed current-owner error. Only
+`OwnershipUnavailable` from current-origin/pause-eligibility preflight maps to
+the existing `capability_unavailable` response: the newly requested operation
+has not entered authentication, the retained engine or archive publication.
+This does not declare an earlier sealed operation effect-free or recoverable.
+Every other backend error retains `manual_recovery_required` and the private
+client's UNKNOWN interpretation. Transport loss is unchanged; no retry follows.
+
+The separate private `FreshRecovery::reconcile_old_intent` entry authenticates
+NEW from the original archive and acquires the existing migration and singleton
+locks positively in a new preinstalled holder. It accepts only a bound Intent
+with current OLD bytes (including the exact identical OLD/NEW case), original
+staged members/Ready and current marker/Desired/login bindings. Both normal
+manager units must be inactive and fresh real inventory empty at every origin
+fence. No old PID, live holder, decoded receipt or previous observer is authority.
+Missing locks, busy original singleton, changed bindings, preexisting terminal
+or replacement temporaries refuse; there is no create-lock/reboot repair.
+
+This OLD mode never copies or renames the unchanged live pair. It verifies and
+syncs the SAME retained OLD files and directory, exclusively writes/syncs the
+matching Aborted record, reads back Intent/Aborted and OLD, then performs the
+final fresh origin fence. Admission and uncertain errors retain the acquired
+prefix. Success remains **AbortedStillFenced** with Stage/Intent/Aborted present:
+no terminal retirement, history disposition, ordinary startup or default Restore
+activation is performed. Existing MIXED rollback and already-Aborted completion
+are separate closed modes, not fallbacks from this entry.
+
+The source controls classify exact OLD/Intent versus MIXED, NEW, foreign bytes,
+wrong archive identity, generation/Desired drift and terminal records. Real
+local filesystem controls exercise the lower exclusive Aborted writer with
+unchanged live inodes, pre/post-write gate refusal, deadline, named substitution
+and terminal collision. They do not attest the genuine manager/authentication
+issuer; an installed new-context gate still requires independent source review
+and separately selected original outcomes.
+
+The existing nonpending history is diagnostic, never an admission grant. This
+cut preserves it unchanged. A subsequent disposition cannot overwrite or delete
+it: repeated history requires a separately defined bounded collision/repetition
+policy, followed by current-state admission earned independently. Missing
+volatile lock files after reboot likewise remain unavailable, not repaired from
+history or Aborted bytes. These limitations keep cold bootstrap and repeated
+ordinary completion outside this source cut.
+
 No descriptor role or file-capacity envelope is added. The one bounded holder
 adds an opaque Arc identity, one fixed-size original Intent record, and the
 original scheduler revision/instance. It cannot hold a second pause or admit

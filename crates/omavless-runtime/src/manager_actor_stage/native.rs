@@ -264,6 +264,312 @@ fn mixed_intent_review(
     }
     Ok(chain)
 }
+
+fn old_intent_review(
+    intent: &[u8],
+    members: [&[u8]; 4],
+    current: [&[u8]; 2],
+    generation: u64,
+    desired: &[u8],
+) -> Result<DecisionChain, FirstError> {
+    let plan = planned_stage_identity(members).map_err(|_| FirstError::Admission)?;
+    let chain = DecisionChain::decode(intent, None).map_err(|_| FirstError::Admission)?;
+    let class = class_from_matches(
+        current[0] == members[0],
+        current[1] == members[1],
+        current[0] == members[2],
+        current[1] == members[3],
+    );
+    if current != [members[0], members[1]]
+        || !matches!(class, LivePairClass::Old | LivePairClass::Identical)
+        || chain.active().phase() != DecisionPhase::Intent
+        || chain
+            .active()
+            .review_inspection(generation, Some(desired), &plan, class)
+            != RecoveryReview::OldRollbackCandidate
+    {
+        return Err(FirstError::Admission);
+    }
+    Ok(chain)
+}
+
+#[cfg(test)]
+#[test]
+fn native_recovery_old_intent_requires_exact_old_and_bound_intent() {
+    let members: [&[u8]; 4] = [b"old-store", b"old-template", b"new-store", b"new-template"];
+    let desired =
+        br#"{"schemaVersion":1,"generation":0,"connected":false,"profileId":"","mode":"rule"}"#;
+    let intent = DecisionRecord::intent(
+        2,
+        Some(desired),
+        &planned_stage_identity(members).unwrap(),
+        [11; 16],
+    )
+    .unwrap();
+    assert!(
+        old_intent_review(
+            &intent.encode(),
+            members,
+            [members[0], members[1]],
+            2,
+            desired
+        )
+        .is_ok()
+    );
+    for current in [
+        [members[2], members[1]],
+        [members[0], members[3]],
+        [members[2], members[3]],
+        [b"foreign".as_slice(), members[1]],
+    ] {
+        assert!(old_intent_review(&intent.encode(), members, current, 2, desired).is_err());
+    }
+    for choice in [TerminalChoice::Commit, TerminalChoice::Abort] {
+        assert!(
+            old_intent_review(
+                &intent.terminal(choice).unwrap().encode(),
+                members,
+                [members[0], members[1]],
+                2,
+                desired
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        old_intent_review(
+            &intent.encode(),
+            members,
+            [members[0], members[1]],
+            3,
+            desired
+        )
+        .is_err()
+    );
+    assert!(
+        old_intent_review(
+            &intent.encode(),
+            members,
+            [members[0], members[1]],
+            2,
+            b"changed desired"
+        )
+        .is_err()
+    );
+    let mut changed = members;
+    changed[2] = b"other authenticated archive";
+    assert!(
+        old_intent_review(
+            &intent.encode(),
+            changed,
+            [members[0], members[1]],
+            2,
+            desired
+        )
+        .is_err()
+    );
+    let identical = [members[0], members[1], members[0], members[1]];
+    let identical_intent = DecisionRecord::intent(
+        2,
+        Some(desired),
+        &planned_stage_identity(identical).unwrap(),
+        [12; 16],
+    )
+    .unwrap();
+    assert!(
+        old_intent_review(
+            &identical_intent.encode(),
+            identical,
+            [members[0], members[1]],
+            2,
+            desired
+        )
+        .is_ok()
+    );
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeRecoveryMode {
+    MixedIntent,
+    OldIntent,
+    CompleteAborted,
+}
+
+#[cfg(test)]
+#[test]
+fn native_recovery_old_abort_real_files_keep_live_inodes_and_uncertain_prefix() {
+    use std::fs;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    struct LocalCut(&'static str);
+    impl NativeGate for LocalCut {
+        fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
+            if self.0 == "before"
+                || (self.0 == "after"
+                    && view.engine.lower.original[Slot::Terminal as usize].is_some())
+            {
+                return Err(FirstError::StillFenced);
+            }
+            Ok(())
+        }
+    }
+    for (index, case) in [
+        "positive",
+        "before",
+        "after",
+        "drift",
+        "collision",
+        "expired",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let root = std::env::temp_dir().join(format!("oi-{:x}-{index}", std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let config = root.join("config");
+        let state = root.join("state");
+        for path in [&config, &state] {
+            fs::DirBuilder::new().mode(0o700).create(path).unwrap();
+        }
+        let write = |path: &std::path::Path, bytes: &[u8]| {
+            let mut file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .unwrap();
+            file.write_all(bytes).unwrap();
+            file.sync_all().unwrap();
+            file
+        };
+        let members: [&[u8]; 4] = [b"OLD store", b"OLD template", b"NEW store", b"NEW template"];
+        let desired =
+            br#"{"schemaVersion":1,"generation":0,"connected":false,"profileId":"","mode":"rule"}"#;
+        let intent = DecisionRecord::intent(
+            2,
+            Some(desired),
+            &planned_stage_identity(members).unwrap(),
+            [13; 16],
+        )
+        .unwrap()
+        .encode();
+        let chain =
+            old_intent_review(&intent, members, [members[0], members[1]], 2, desired).unwrap();
+        let originals = [
+            write(&config.join(LIVE[0].1), members[0]),
+            write(&config.join(LIVE[1].1), members[1]),
+        ];
+        let intent_file = write(&state.join(INTENT), &intent);
+        let history_file = write(&state.join(NATIVE_HISTORY), b"existing audit evidence");
+        let history_before = history_file.metadata().unwrap();
+        let mut engine = NativeEngine::reserve();
+        engine.uid = Some(nix::unistd::getuid().as_raw());
+        engine.gid = Some(nix::unistd::getgid().as_raw());
+        engine.recovery = true;
+        engine.lower.io.native_admit().unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        for (slot, path) in [(Slot::Config, &config), (Slot::State, &state)] {
+            engine
+                .clone_file(slot, &File::open(path).unwrap(), true, until)
+                .unwrap();
+        }
+        for (index, (slot, _)) in LIVE.into_iter().enumerate() {
+            engine
+                .clone_file(slot, &originals[index], false, until)
+                .unwrap();
+            engine.read_original_live(index, until).unwrap();
+        }
+        engine
+            .clone_file(Slot::Intent, &intent_file, false, until)
+            .unwrap();
+        engine.expected[Slot::Intent as usize] =
+            Some((intent.len(), Sha256::digest(intent).into()));
+        let before = originals.each_ref().map(|file| file.metadata().unwrap());
+        if case == "drift" {
+            fs::rename(config.join(LIVE[0].1), config.join("displaced")).unwrap();
+            drop(write(&config.join(LIVE[0].1), members[0]));
+        }
+        if case == "collision" {
+            drop(write(&state.join(TERMINAL), b"foreign terminal"));
+        }
+        let deadline = if case == "expired" {
+            Instant::now()
+        } else {
+            until
+        };
+        // Exact lower production write/readback/gate path. This local gate
+        // controls effects only; it is NOT fresh host/manager/auth authority.
+        let result =
+            engine.publish_recovery_abort(&mut LocalCut(case), members, &intent, &chain, deadline);
+        assert_eq!(result.is_ok(), case == "positive");
+        if case == "after" {
+            assert!(engine.lower.io.test_retains_original(Slot::Terminal));
+            assert_eq!(
+                fs::read(state.join(TERMINAL)).unwrap(),
+                chain
+                    .active()
+                    .terminal(TerminalChoice::Abort)
+                    .unwrap()
+                    .encode()
+            );
+        } else if case == "positive" {
+            let terminal = fs::read(state.join(TERMINAL)).unwrap();
+            assert_eq!(
+                DecisionChain::decode(&intent, Some(&terminal))
+                    .unwrap()
+                    .active()
+                    .phase(),
+                DecisionPhase::Aborted
+            );
+            assert!(engine.lower.io.test_retains_original(Slot::Terminal));
+        } else if case == "collision" {
+            assert_eq!(fs::read(state.join(TERMINAL)).unwrap(), b"foreign terminal");
+        } else {
+            assert!(!state.join(TERMINAL).exists());
+        }
+        for (index, (slot, name)) in LIVE.into_iter().enumerate() {
+            let after = originals[index].metadata().unwrap();
+            if case == "drift" && index == 0 {
+                // The deliberate foreign rename changes ctime; refusal must
+                // retain that displaced original, not forge its old metadata.
+                assert_eq!(after.ino(), before[index].ino());
+                assert_eq!(after.nlink(), 1);
+                assert_eq!(
+                    engine.lower.original[slot as usize]
+                        .as_ref()
+                        .unwrap()
+                        .ctime(),
+                    before[index].ctime()
+                );
+            } else {
+                assert!(same_member(&before[index], &after));
+            }
+            assert!(engine.lower.io.test_retains_original(slot));
+            if case != "drift" {
+                assert_eq!(
+                    fs::metadata(config.join(name)).unwrap().ino(),
+                    before[index].ino()
+                );
+                assert_eq!(fs::read(config.join(name)).unwrap(), members[index]);
+            }
+            assert!(engine.lower.original[NATIVE_ROLLBACKS[index].0 as usize].is_none());
+            assert!(!config.join(NATIVE_ROLLBACKS[index].1).exists());
+        }
+        assert!(!engine.completed && !engine.disposition_done && !engine.history);
+        assert_eq!(
+            fs::read(state.join(NATIVE_HISTORY)).unwrap(),
+            b"existing audit evidence"
+        );
+        assert!(same_member(
+            &history_before,
+            &history_file.metadata().unwrap()
+        ));
+        assert!(crate::pending_private_transaction::pending_at(&state));
+        // Completed owned local synthetic controls only, never VM cleanup.
+        drop((engine, originals, intent_file, history_file));
+        fs::remove_dir_all(root).unwrap();
+    }
+}
 impl<H: LifecycleHost> NativeGate for NativeSessionOrigin<'_, H> {
     fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
         NativeSessionOrigin::check(self, view)
@@ -2155,14 +2461,23 @@ impl NativeEngine {
         origin: &mut NativeRecoveryOrigin<'_>,
         backup: &omavless_domain::private_backup::OpenedBackup,
     ) -> Result<(), FirstError> {
-        self.recover_native(origin, backup, false)
+        self.recover_native(origin, backup, NativeRecoveryMode::MixedIntent)
+    }
+    /// Distinct fresh OLD/Intent consumer. It preserves the held live inodes:
+    /// no unchanged-live rename, completion grant or former-holder reactivation.
+    pub(crate) fn reconcile_native_old_intent(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+    ) -> Result<(), FirstError> {
+        self.recover_native(origin, backup, NativeRecoveryMode::OldIntent)
     }
     pub(crate) fn complete_native_aborted(
         &mut self,
         origin: &mut NativeRecoveryOrigin<'_>,
         backup: &omavless_domain::private_backup::OpenedBackup,
     ) -> Result<(), FirstError> {
-        self.recover_native(origin, backup, true)
+        self.recover_native(origin, backup, NativeRecoveryMode::CompleteAborted)
     }
     /// Only the SAME positively paused Session engine can consume this path.
     /// Retained plaintext, original Intent and still-OLD live files are checked
@@ -2647,12 +2962,13 @@ impl NativeEngine {
         &mut self,
         origin: &mut NativeRecoveryOrigin<'_>,
         backup: &omavless_domain::private_backup::OpenedBackup,
-        complete: bool,
+        mode: NativeRecoveryMode,
     ) -> Result<(), FirstError> {
         if self.sealed || self.uid.is_some() {
             return Err(FirstError::StillFenced);
         }
         let until = Instant::now() + std::time::Duration::from_secs(45);
+        let complete = mode == NativeRecoveryMode::CompleteAborted;
         self.recovery = true; // consumed before every original acquisition
         let result = (|| {
             self.uid = Some(origin.uid());
@@ -2810,6 +3126,14 @@ impl NativeEngine {
                     return Err(FirstError::Admission);
                 }
                 chain
+            } else if mode == NativeRecoveryMode::OldIntent {
+                old_intent_review(
+                    &intent,
+                    members,
+                    current,
+                    origin.generation(),
+                    origin.desired_bytes(),
+                )?
             } else {
                 mixed_intent_review(
                     &intent,
@@ -2830,6 +3154,9 @@ impl NativeEngine {
                 ) {
                     Err(nix::errno::Errno::ENOENT) => {}
                     Ok(_) => {
+                        if mode == NativeRecoveryMode::OldIntent {
+                            return Err(FirstError::Admission);
+                        }
                         if self
                             .recover_member(
                                 Slot::Config,
@@ -2855,6 +3182,9 @@ impl NativeEngine {
             self.gate(origin, until)?;
             if let Some(terminal) = existing_terminal.as_ref() {
                 return self.retire_native_aborted(origin, members, &intent, terminal, until);
+            }
+            if mode == NativeRecoveryMode::OldIntent {
+                return self.publish_recovery_abort(origin, members, &intent, &chain, until);
             }
             // All admission/classification is complete before the first OLD copy.
             for index in 0..2 {
@@ -2929,55 +3259,88 @@ impl NativeEngine {
                 }
                 self.gate(origin, until)?;
             }
-            let terminal = chain
-                .active()
-                .terminal(TerminalChoice::Abort)
-                .map_err(|_| FirstError::StillFenced)?
-                .encode();
-            self.write(
-                Slot::State,
-                Slot::Terminal,
-                TERMINAL,
-                &terminal,
-                origin,
-                until,
-            )?;
-            let final_chain = DecisionChain::decode(&intent, Some(&terminal))
-                .map_err(|_| FirstError::StillFenced)?;
-            if final_chain.active().phase() != DecisionPhase::Aborted
-                || final_chain.active().review_inspection(
-                    origin.generation(),
-                    Some(origin.desired_bytes()),
-                    &plan,
-                    LivePairClass::Old,
-                ) != RecoveryReview::VerifyAbortedCandidate
-            {
-                return Err(FirstError::StillFenced);
-            }
-            for index in 0..2 {
-                self.lower
-                    .verify_member(
-                        Slot::Config,
-                        NATIVE_ROLLBACKS[index].0,
-                        LIVE[index].1,
-                        members[index],
-                        until,
-                    )
-                    .map_err(|_| FirstError::StillFenced)?;
-            }
-            self.lower
-                .verify_member(Slot::State, Slot::Intent, INTENT, &intent, until)
-                .map_err(|_| FirstError::StillFenced)?;
-            self.lower
-                .verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)
-                .map_err(|_| FirstError::StillFenced)?;
-            self.gate(origin, until) // final SAME fresh origin after all readbacks
+            self.publish_recovery_abort(origin, members, &intent, &chain, until)
         })();
         if result.is_err() {
             self.sealed = true;
             self.lower.revoke();
         }
         result
+    }
+
+    fn publish_recovery_abort(
+        &mut self,
+        origin: &mut impl NativeGate,
+        members: [&[u8]; 4],
+        intent: &[u8],
+        chain: &DecisionChain,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        // OLD mode still holds its original LIVE roles. MIXED mode has advanced
+        // only the two positively reported own renames to rollback roles.
+        for index in 0..2 {
+            let slot = if self.lower.live[index] == LiveRole::Renamed {
+                NATIVE_ROLLBACKS[index].0
+            } else {
+                LIVE[index].0
+            };
+            self.lower
+                .verify_member(Slot::Config, slot, LIVE[index].1, members[index], until)
+                .map_err(|_| FirstError::StillFenced)?;
+            for synced in [slot, Slot::Config] {
+                self.lower
+                    .io
+                    .perform(
+                        synced,
+                        || tick(until),
+                        |file| file.sync_all().map_err(|_| Unavailable),
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+            }
+            self.gate(origin, until)?;
+        }
+        self.check_original_bytes(until)?;
+        self.gate(origin, until)?;
+        let terminal = chain
+            .active()
+            .terminal(TerminalChoice::Abort)
+            .map_err(|_| FirstError::StillFenced)?
+            .encode();
+        self.write(
+            Slot::State,
+            Slot::Terminal,
+            TERMINAL,
+            &terminal,
+            origin,
+            until,
+        )?;
+        let final_chain =
+            DecisionChain::decode(intent, Some(&terminal)).map_err(|_| FirstError::StillFenced)?;
+        if final_chain.active().phase() != DecisionPhase::Aborted
+            || !chain.active().is_intent_of(final_chain.active())
+            || !final_chain.active().matches_stage_identity(
+                &planned_stage_identity(members).map_err(|_| FirstError::StillFenced)?,
+            )
+        {
+            return Err(FirstError::StillFenced);
+        }
+        for index in 0..2 {
+            let slot = if self.lower.live[index] == LiveRole::Renamed {
+                NATIVE_ROLLBACKS[index].0
+            } else {
+                LIVE[index].0
+            };
+            self.lower
+                .verify_member(Slot::Config, slot, LIVE[index].1, members[index], until)
+                .map_err(|_| FirstError::StillFenced)?;
+        }
+        self.lower
+            .verify_member(Slot::State, Slot::Intent, INTENT, intent, until)
+            .map_err(|_| FirstError::StillFenced)?;
+        self.lower
+            .verify_member(Slot::State, Slot::Terminal, TERMINAL, &terminal, until)
+            .map_err(|_| FirstError::StillFenced)?;
+        self.gate(origin, until) // final SAME fresh origin after all readbacks
     }
 
     fn read_original_live(

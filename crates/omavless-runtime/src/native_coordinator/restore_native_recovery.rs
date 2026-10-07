@@ -9,6 +9,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
 static RECOVERY_RESERVED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FreshRecoveryMode {
+    MixedIntent,
+    OldIntent,
+    CompleteAborted,
+}
+
 #[cfg(test)]
 #[test]
 fn native_fresh_recovery_reserves_one_original_and_retains_after_handle_loss() {
@@ -1043,7 +1050,28 @@ impl FreshRecovery {
             desired_paths,
             host_paths,
             uid,
-            false,
+            FreshRecoveryMode::MixedIntent,
+        )
+    }
+    /// New authentication plus the existing released original operation and
+    /// singleton locks. OLD/Intent ends AbortedStillFenced, never ordinary owner.
+    pub(crate) fn reconcile_old_intent(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.reconcile(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::OldIntent,
         )
     }
     pub(crate) fn complete_aborted(
@@ -1062,7 +1090,7 @@ impl FreshRecovery {
             desired_paths,
             host_paths,
             uid,
-            true,
+            FreshRecoveryMode::CompleteAborted,
         )
     }
     #[cfg(test)]
@@ -1093,7 +1121,7 @@ impl FreshRecovery {
                 .dispatch_native_completed_read(crate::production_owner::NativeCompletedRead::Store)
                 .is_ok_and(|v| v["profiles"] == 0 && v["subscriptions"] == 0)
     }
-    #[allow(clippy::too_many_arguments)] // two private closed entry modes, no public selector
+    #[allow(clippy::too_many_arguments)] // private closed entry modes, no public selector
     fn reconcile(
         &mut self,
         source: &Path,
@@ -1102,7 +1130,7 @@ impl FreshRecovery {
         desired_paths: DesiredPaths,
         host_paths: NativeHostPaths,
         uid: u32,
-        complete: bool,
+        mode: FreshRecoveryMode,
     ) -> Result<(), FirstError> {
         if self.attempted {
             return Err(FirstError::StillFenced);
@@ -1192,7 +1220,7 @@ impl FreshRecovery {
             uid,
         };
         let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
-        if complete {
+        if mode == FreshRecoveryMode::CompleteAborted {
             engine.complete_native_aborted(&mut origin, backup)?;
             let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
             let proof = NativeCompletedOff {
@@ -1237,6 +1265,8 @@ impl FreshRecovery {
                 })
                 .map_err(|_| FirstError::StillFenced)?;
             Ok(())
+        } else if mode == FreshRecoveryMode::OldIntent {
+            engine.reconcile_native_old_intent(&mut origin, backup)
         } else {
             engine.reconcile_native_mixed(&mut origin, backup)
         }

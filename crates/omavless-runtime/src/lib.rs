@@ -388,6 +388,19 @@ enum RuntimeDispatcher {
     Native(Box<dyn NativeRuntimeOwner>),
 }
 
+#[cfg(feature = "t4-manager-actor-service")]
+fn developer_current_error_code(error: production_owner::ProductionOwnerError) -> StableErrorCode {
+    // Only the current-origin preflight returns this typed error before the
+    // operation is entered. Authentication, engine and publication errors must
+    // remain uncertain; never infer no effect from a generic backend refusal.
+    match error {
+        production_owner::ProductionOwnerError::OwnershipUnavailable => {
+            StableErrorCode::CapabilityUnavailable
+        }
+        _ => StableErrorCode::ManualRecoveryRequired,
+    }
+}
+
 trait NativeRuntimeOwner: Send {
     #[cfg(feature = "t4-manager-actor-service")]
     fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool;
@@ -395,22 +408,22 @@ trait NativeRuntimeOwner: Send {
     fn developer_current_pause(
         &mut self,
         request: &developer_current_restore::Request,
-    ) -> std::result::Result<(), ()>;
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_abort(
         &mut self,
         request: &developer_current_restore::AbortRequest,
-    ) -> std::result::Result<(), ()>;
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_restore(
         &mut self,
         request: &developer_current_restore::Request,
-    ) -> std::result::Result<(), ()>;
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_backup(
         &mut self,
         request: &developer_current_restore::Request,
-    ) -> std::result::Result<(), ()>;
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -727,31 +740,29 @@ where
     fn developer_current_pause(
         &mut self,
         request: &developer_current_restore::Request,
-    ) -> std::result::Result<(), ()> {
-        self.owner.developer_current_pause(request).map_err(|_| ())
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_pause(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_abort(
         &mut self,
         request: &developer_current_restore::AbortRequest,
-    ) -> std::result::Result<(), ()> {
-        self.owner.developer_current_abort(request).map_err(|_| ())
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_abort(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_backup(
         &mut self,
         request: &developer_current_restore::Request,
-    ) -> std::result::Result<(), ()> {
-        self.owner.developer_current_backup(request).map_err(|_| ())
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_backup(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_restore(
         &mut self,
         request: &developer_current_restore::Request,
-    ) -> std::result::Result<(), ()> {
-        self.owner
-            .developer_current_restore(request)
-            .map_err(|_| ())
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_restore(request)
     }
     fn usage_transport(&self) -> SharedSubscriptionTransport {
         self.transport.clone()
@@ -1546,7 +1557,15 @@ impl RuntimeServer {
                     } else {
                         let result = owner.developer_current_pause(input);
                         let revision = owner.revision();
-                        if result.is_ok() {
+                        if let Err(error) = result {
+                            error_response(
+                                id,
+                                revision,
+                                developer_current_error_code(error),
+                                false,
+                                None,
+                            )
+                        } else {
                             return developer_current_restore::publish_positive_pause_response(
                                 success_response(id, revision, json!({"intentPaused":true})),
                                 stream,
@@ -1561,14 +1580,6 @@ impl RuntimeServer {
                                     }
                                 },
                             );
-                        } else {
-                            error_response(
-                                id,
-                                revision,
-                                StableErrorCode::ManualRecoveryRequired,
-                                false,
-                                None,
-                            )
                         }
                     }
                 } else {
@@ -1640,10 +1651,10 @@ impl RuntimeServer {
                     json!({"completed":true})
                 },
             ),
-            Err(()) => error_response(
+            Err(error) => error_response(
                 id,
                 owner.revision(),
-                StableErrorCode::ManualRecoveryRequired,
+                developer_current_error_code(error),
                 false,
                 None,
             ),
@@ -1680,10 +1691,10 @@ impl RuntimeServer {
         }
         match owner.developer_current_abort(&input) {
             Ok(()) => success_response(id, owner.revision(), json!({"completed":true})),
-            Err(()) => error_response(
+            Err(error) => error_response(
                 id,
                 owner.revision(),
-                StableErrorCode::ManualRecoveryRequired,
+                developer_current_error_code(error),
                 false,
                 None,
             ),
@@ -3271,6 +3282,27 @@ mod tests {
 
     #[cfg(feature = "t4-manager-actor-service")]
     #[test]
+    fn developer_current_typed_preflight_is_the_only_no_effect_error() {
+        use production_owner::ProductionOwnerError;
+        assert_eq!(
+            developer_current_error_code(ProductionOwnerError::OwnershipUnavailable),
+            StableErrorCode::CapabilityUnavailable
+        );
+        for error in [
+            ProductionOwnerError::Busy,
+            ProductionOwnerError::HostUnavailable,
+            ProductionOwnerError::RecoveryFailed,
+            ProductionOwnerError::ManualRecoveryRequired,
+        ] {
+            assert_eq!(
+                developer_current_error_code(error),
+                StableErrorCode::ManualRecoveryRequired
+            );
+        }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
     fn developer_current_restore_rpc_false_factory_stale_busy_and_frame_controls_have_no_effect() {
         let base = temporary_base("current-restore-rpc");
         let (owner, _, calls) = native_owner_fixture(&base);
@@ -3294,6 +3326,7 @@ mod tests {
         assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::METHOD));
         let response = server.dispatch(&request).unwrap();
         assert_eq!(response["ok"], false); // initialize is NEVER a current issuer
+        assert_eq!(response["error"]["code"], "capability_unavailable");
         let mut backup = request.clone();
         backup["method"] = developer_current_restore::BACKUP_METHOD.into();
         assert_eq!(
@@ -3301,12 +3334,18 @@ mod tests {
             "invalid_argument"
         );
         backup["params"]["confirmation"] = "export-current-private-pair".into();
-        assert_eq!(server.dispatch(&backup).unwrap()["ok"], false); // same current issuer requirement
+        assert_eq!(
+            server.dispatch(&backup).unwrap()["error"]["code"],
+            "capability_unavailable"
+        ); // same current issuer requirement
         assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::BACKUP_METHOD));
         let mut pause = request.clone();
         pause["method"] = developer_current_restore::PAUSE_METHOD.into();
         pause["params"]["confirmation"] = "pause-current-private-intent".into();
-        assert_eq!(server.dispatch(&pause).unwrap()["ok"], false);
+        assert_eq!(
+            server.dispatch(&pause).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
         let abort = make_request(
             "abort",
             developer_current_restore::ABORT_METHOD,
@@ -3314,7 +3353,10 @@ mod tests {
                 "instanceId":server.instance_id,"expectedRevision":0}),
         )
         .unwrap();
-        assert_eq!(server.dispatch(&abort).unwrap()["ok"], false);
+        assert_eq!(
+            server.dispatch(&abort).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
         for original in [&pause, &abort] {
             let mut changed = original.clone();
             changed["params"]["instanceId"] = "foreign".into();
@@ -3367,9 +3409,11 @@ mod tests {
             .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
         assert!(decode_request(duplicate.as_bytes()).is_err());
         // Reach the actual credential/frame/handle path, not just the parser.
+        let pause_frame = encode_request(&pause).unwrap();
         for (raw, expected) in [
             (duplicate.as_bytes(), "invalid_request"),
             (oversized.as_slice(), "invalid_argument"),
+            (pause_frame.as_slice(), "capability_unavailable"),
         ] {
             let (mut client, mut incoming) = UnixStream::pair().unwrap();
             client
