@@ -68,6 +68,21 @@ fn joined(text: &str) -> String {
 }
 
 #[test]
+fn settings_backup_shortcut_and_complete_scope_fit_minimum_viewport() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = open(locale);
+        press(&mut app, KeyCode::Esc, now);
+        assert!(!app.backup_open);
+        let footer = locale.text("tui.settings_private_backup");
+        assert!(footer.contains("b:"));
+        let text = render(&app, now, 70, 24);
+        assert!(text.lines().any(|line| line.contains(footer)));
+        assert!(text.contains(locale.text("tui.action_close_hint")));
+        assert!(app.take_backup_request().is_none());
+    }
+}
+
+#[test]
 fn default_invocation_no_adapter_or_missing_capability_never_opens() {
     let mut app = App::new(Locale::En);
     let now = Instant::now();

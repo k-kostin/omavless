@@ -88,6 +88,55 @@ publishing assets or repeating every predecessor's clean installation. Public
 package/download/first-use and supported-host gates remain separate release
 work. Main, accepted public 0.9.5 RC1 and Marketplace are unchanged.
 
+## Beta.3 installed Backup checkpoint, 2026-10-07
+
+The integrator's separately selected x86_64 Omarchy VM tested runtime source
+`8de29a164e885f398dbb926c69fd377af4764869` with default `tui` plus only
+`t4-manager-actor-service`. Its experimental ELF SHA256 is
+`78cc8020b692a2204c8a8afd596a24062d1b837b147eeed6021d7e924cba96b8`;
+application package SHA256 is
+`30eb4531e3f16ace7abc11ffc6f88046536161128a01c3147bb37b3b3370c6e3`.
+The matching beta.3 DNS package/frontend were inspected and installed, not a
+Product image-witness bundle or a relabelled older package. All five hosted
+checks and the full local combined Rust runner passed at that exact source.
+
+Actual normal current-owner admission, startup Off and disconnected state were
+verified before the real Foot/TUI path. Preparation replaced only disposable
+test data while the runtime was stopped; inherited data and the sealed backing
+image remain private. Two synthetic profiles, one `example.invalid` subscription
+and a supported default routing template were used, never a real store as a
+destructive fixture. The first preparation preflight correctly refused an
+absent last-profile reference; the corrected fixture passed before runtime start.
+
+Agent-operated installed results, distinct from human acceptance:
+
+- EN editor/confirmation at 70×24: full destination, masks and credential/lost-
+  passphrase/no-overwrite warnings are visible. Empty input cannot confirm.
+- Cancel returns to Settings without an archive or data change; re-entry has
+  empty secret fields.
+- One original EN Create displayed Completed. A separately reviewed read-only
+  domain oracle authenticated the archive as the exact pre-operation private
+  pair and refused a wrong passphrase; it did not invoke Restore or write data.
+- One new RU request for that existing destination displayed Denied. The
+  archive's ciphertext hash and full metadata were unchanged, with no overwrite
+  or automatic resend. A grouped UI refusal is not an exact wire-code claim.
+- Independent sampled comparisons proved unchanged private-pair bytes and
+  metadata, Desired/ownership/bridge/history, revision and owned Off state.
+  Fixed pending markers were absent. Original Ctrl+C closed only the TUI,
+  with client exit0 and the same healthy disconnected runtime remaining.
+
+The installed pass found a clipped RU Settings footer and an undiscoverable
+Backup shortcut when the entry was below the 70×24 viewport. The narrow
+successor shortens the opt-in EN/RU footer and exposes `b` there; its regression
+requires the complete scope and shortcut to fit, without changing admission or
+runtime behavior. Exact successor build/render results belong to #707, not to
+the older execution evidence above. Original failures/captures stay private.
+
+This is Backup-only, agent-attended integration, not owner hands-on acceptance,
+Restore UI, connected export, fresh-public installation, ARM experimental
+activation or whole T4. The [manual card](../testing/BETA_098_MANUAL_PLAN.md)
+remains the bounded owner check; main/RC/release/Marketplace are unchanged.
+
 ## Historical beta.1 baseline checkpoint evidence
 
 Runtime/package source: `931809c48cf25956889963c0578437d074cee3fa`.

@@ -232,7 +232,7 @@
   "tui.backup_unavailable":{"en":"Private backup is currently unavailable. No new request can be sent.","ru":"Личная резервная копия сейчас недоступна. Новый запрос нельзя отправить."},
   "tui.backup_pending_entry":{"en":"[b] View the original Backup outcome — no resend","ru":"[b] Исходный результат копирования — без повтора запроса"},
   "tui.backup_unresolved_keys":{"en":"Tab/r: read data   ,: Settings   b: original Backup   q: close UI only. No new mutations.","ru":"Tab/r: чтение данных   ,: настройки   b: исходная копия   q: закрыть только интерфейс. Изменения запрещены."},
-  "tui.settings_private_backup":{"en":"Appearance is local; private Backup requires its separate confirmation.","ru":"Оформление меняется только в этом окне; личная копия требует отдельного подтверждения."},
+  "tui.settings_private_backup":{"en":"Local appearance; b: encrypted backup (confirm separately)","ru":"Оформление локально; b: зашифрованная копия (с подтверждением)"},
   "tui.backup_title":{"en":"Encrypted private configuration backup","ru":"Зашифрованная копия личной конфигурации"},
   "tui.backup_scope":{"en":"Profiles, subscriptions and the supported routing template only. Requested VPN settings are unchanged.","ru":"Только профили, подписки и поддерживаемый шаблон маршрутизации. Настройки подключения VPN не меняются."},
   "tui.backup_private":{"en":"The encrypted archive contains reusable VPN credentials. Keep it private.","ru":"Зашифрованный архив содержит действующие учётные данные VPN. Не передавайте его посторонним."},
