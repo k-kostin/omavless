@@ -28,7 +28,7 @@ mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
-#[cfg(all(test, feature = "t4-manager-actor-service"))]
+#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::NativeSessionOrigin;

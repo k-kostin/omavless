@@ -42,6 +42,21 @@ fn execute(host: &mut impl Host) -> Result<()> {
     host.start_runtime()?;
     host.verify_ready()
 }
+/// Recovery may start an already admitted ordinary Off runtime, never create a
+/// login receipt, enable startup or take the PrepareLogin branch.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) fn start_recovered_off() -> Result<()> {
+    let mut installed = Installed { apply: true };
+    execute_recovered_off(&mut installed)
+}
+#[cfg(feature = "t4-manager-actor-service")]
+fn execute_recovered_off(host: &mut impl Host) -> Result<()> {
+    if host.admit()? != Admission::Current {
+        return Err(Refused);
+    }
+    host.start_runtime()?;
+    host.verify_ready()
+}
 fn classify(consumed: bool, configured: bool, enabled: bool) -> Result<Admission> {
     if consumed {
         Ok(Admission::Current)
@@ -528,6 +543,33 @@ mod tests {
             self.calls.push("verify");
             Ok(())
         }
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn recovered_off_start_never_prepares_login_or_retries_uncertain_start() {
+        for admission in [Ok(Admission::PrepareLogin), Err(Refused)] {
+            let mut host = Fake {
+                admissions: vec![admission],
+                calls: vec![],
+                fail: false,
+            };
+            assert!(execute_recovered_off(&mut host).is_err());
+            assert_eq!(host.calls, ["admit"]);
+        }
+        let mut failed = Fake {
+            admissions: vec![Ok(Admission::Current)],
+            calls: vec![],
+            fail: true,
+        };
+        assert!(execute_recovered_off(&mut failed).is_err());
+        assert_eq!(failed.calls, ["admit", "runtime"]);
+        let mut ready = Fake {
+            admissions: vec![Ok(Admission::Current)],
+            calls: vec![],
+            fail: false,
+        };
+        assert!(execute_recovered_off(&mut ready).is_ok());
+        assert_eq!(ready.calls, ["admit", "runtime", "verify"]);
     }
     #[test]
     fn only_real_consumed_receipt_allows_enabled_preferences() {
