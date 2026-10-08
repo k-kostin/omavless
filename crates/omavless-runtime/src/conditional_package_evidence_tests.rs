@@ -23,7 +23,7 @@ fn parse(v: &serde_json::Value, arch: &str) -> Result<[u8; 32]> {
 fn scratch() -> tempfile::TempDir {
     tempfile::Builder::new()
         .prefix("close-object-")
-        .tempdir_in(std::env::var_os("HOME").unwrap())
+        .tempdir_in(crate::test_temp::home_parent().unwrap())
         .unwrap()
 }
 fn write(path: &Path, bytes: &[u8], mode: u32) {
