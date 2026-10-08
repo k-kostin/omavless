@@ -1117,13 +1117,16 @@ fn recovery_unit_record(
         }
         service_record(&original, false)?;
     } else {
-        // Validate the bounded pre-Stop record without claiming it is stopped.
-        decimal(fields.remove("MainPID").ok_or(())?.as_bytes())?;
-        decimal(fields.remove("ControlPID").ok_or(())?.as_bytes())?;
-        if !matches!(
-            fields.remove("ActiveState"),
-            Some("inactive" | "failed" | "activating" | "active" | "deactivating")
-        ) || fields.remove("SubState").is_none_or(str::is_empty)
+        // Lost-owner qualification can cancel a queued automatic restart, but
+        // cannot Stop a live main/control process or a currently starting unit.
+        if decimal(fields.remove("MainPID").ok_or(())?.as_bytes())? != 0
+            || decimal(fields.remove("ControlPID").ok_or(())?.as_bytes())? != 0
+            || !matches!(
+                (fields.remove("ActiveState"), fields.remove("SubState")),
+                (Some("inactive"), Some("dead"))
+                    | (Some("failed"), Some("failed"))
+                    | (Some("activating"), Some("auto-restart"))
+            )
             || !fields.is_empty()
         {
             return Err(());
@@ -1297,35 +1300,22 @@ impl OldRecoveryOwner {
             return Err(());
         }
         self.attempted = true;
-        let result = (|| {
-            let mut budget = Budget::new();
-            self.owner.namespace_boundary(&mut budget)?;
-            proc_visibility(&self.owner.root, &self.owner.myself, &mut budget)?;
-            self.owner.manager.recheck(&self.owner.root, &mut budget)?;
-            self.owner.manager_executable.recheck()?;
-            self.owner.myself.recheck(&self.owner.root, &mut budget)?;
-            let manager =
-                self.queries
-                    .run(FixedRecoveryCommand::Manager, self.owner.uid, &mut budget)?;
-            if recovery_manager_record(&manager)? != self.owner.manager.pid {
-                return Err(());
-            }
-            let runtime =
-                self.queries
-                    .run(FixedRecoveryCommand::Runtime, self.owner.uid, &mut budget)?;
-            // Effective manager properties include loaded unit and drop-ins.
-            // Require their loaded source to be current before the one Stop.
-            self.queries.check_unit(&runtime, true, false)?;
-            let stopped = self.queries.run(
-                FixedRecoveryCommand::StopRuntime,
-                self.owner.uid,
-                &mut budget,
-            )?;
-            if !stopped.is_empty() {
-                return Err(());
-            }
-            self.owner.observe_inner(Some(&self.queries))
-        })();
+        let result = qualify_lost_owner(
+            // Reuse the complete original observation BEFORE Stop: all daemon
+            // candidates, canonical listeners and live legacy operations must
+            // be absent. Only runtime failed/queued-restart state is permitted.
+            || self.owner.observe_inner(Some(&self.queries), false),
+            || {
+                let mut budget = Budget::new();
+                let stopped = self.queries.run(
+                    FixedRecoveryCommand::StopRuntime,
+                    self.owner.uid,
+                    &mut budget,
+                )?;
+                if stopped.is_empty() { Ok(()) } else { Err(()) }
+            },
+            || self.owner.observe_inner(Some(&self.queries), true),
+        );
         self.owner.refused.set(result.is_err());
         self.qualified = result.is_ok();
         result
@@ -1335,13 +1325,24 @@ impl OldRecoveryOwner {
         if !self.qualified
             || self.queries.refused.get()
             || !checked_once(&self.owner.refused, || {
-                self.owner.observe_inner(Some(&self.queries))
+                self.owner.observe_inner(Some(&self.queries), true)
             })
         {
             return Err(());
         }
         Ok(())
     }
+}
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+fn qualify_lost_owner(
+    before: impl FnOnce() -> Result<()>,
+    stop: impl FnOnce() -> Result<()>,
+    after: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    before()?;
+    stop()?;
+    after()
 }
 
 fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
@@ -1569,12 +1570,13 @@ impl StoppedOwner {
     }
 
     fn observe(&self) -> Result<()> {
-        self.observe_inner(None)
+        self.observe_inner(None, true)
     }
 
     fn observe_inner(
         &self,
         #[allow(unused_variables)] old: Option<&OldRecoveryQueries>,
+        runtime_off: bool,
     ) -> Result<()> {
         let mut budget = Budget::new();
         checkpoint!(NamespaceBoundary);
@@ -1628,7 +1630,8 @@ impl StoppedOwner {
                 checkpoint!(RuntimeUnitRecord);
             }
             if let Some(queries) = old {
-                queries.check_unit(&reply, unit == "omavless-runtime.service", true)?;
+                let runtime = unit == "omavless-runtime.service";
+                queries.check_unit(&reply, runtime, !runtime || runtime_off)?;
             } else {
                 service_record(&reply, false)?;
             }
@@ -1722,9 +1725,88 @@ mod tests {
             .replace("SubState=dead", "SubState=failed");
         assert!(recovery_unit_record(queued.as_bytes(), true, false).is_ok());
         assert!(recovery_unit_record(queued.as_bytes(), true, true).is_err());
+        let restarting = queued
+            .replace("ActiveState=failed", "ActiveState=activating")
+            .replace("SubState=failed", "SubState=auto-restart");
+        assert!(recovery_unit_record(restarting.as_bytes(), true, false).is_ok());
+        for live in [
+            queued.replace("MainPID=0", "MainPID=42"),
+            queued.replace("ControlPID=0", "ControlPID=42"),
+            queued
+                .replace("ActiveState=failed", "ActiveState=active")
+                .replace("SubState=failed", "SubState=running"),
+            restarting.replace("SubState=auto-restart", "SubState=start"),
+        ] {
+            assert!(recovery_unit_record(live.as_bytes(), true, false).is_err());
+        }
         let legacy = b"LoadState=not-found\nNeedDaemonReload=no\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nJob=\n";
         assert!(recovery_unit_record(legacy, false, true).is_ok());
         assert!(recovery_unit_record(legacy, true, true).is_err());
+        let legacy_queued = std::str::from_utf8(legacy)
+            .unwrap()
+            .replace("Job=\n", "Job=42\n");
+        assert!(recovery_unit_record(legacy_queued.as_bytes(), false, true).is_err());
+    }
+
+    #[test]
+    fn old_recovery_lost_owner_inventory_must_finish_before_fixed_stop() {
+        let calls = RefCell::new(Vec::new());
+        assert!(
+            qualify_lost_owner(
+                || {
+                    calls.borrow_mut().push("before");
+                    Err(())
+                },
+                || {
+                    calls.borrow_mut().push("stop");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("after");
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(*calls.borrow(), ["before"]);
+        calls.borrow_mut().clear();
+        assert!(
+            qualify_lost_owner(
+                || {
+                    calls.borrow_mut().push("before");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("stop");
+                    Err(())
+                },
+                || {
+                    calls.borrow_mut().push("after");
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(*calls.borrow(), ["before", "stop"]);
+        calls.borrow_mut().clear();
+        assert!(
+            qualify_lost_owner(
+                || {
+                    calls.borrow_mut().push("before");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("stop");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("after");
+                    Ok(())
+                },
+            )
+            .is_ok()
+        );
+        assert_eq!(*calls.borrow(), ["before", "stop", "after"]);
     }
 
     #[test]
