@@ -4,6 +4,7 @@ use super::*;
 use crate::cutover::{CutoverPaths, OwnershipMarker, OwnershipPhase, read_marker_existing};
 use crate::desired::{DesiredPaths, DesiredState, read_desired_snapshot};
 use crate::native_host::{NativeHostPaths, ObservationOnlyNativeHost};
+use crate::restore_old_stopped::NativeOldRecoveryQuiescence;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
@@ -14,6 +15,7 @@ enum FreshRecoveryMode {
     MixedIntent,
     OldIntent,
     CompleteAborted,
+    RecoverOldToCompletion,
 }
 
 #[cfg(test)]
@@ -48,6 +50,7 @@ struct RecoveryHeld {
     host: Option<ObservationOnlyNativeHost>,
     engine: crate::manager_actor_service::NativeEngine,
     facts: Option<OriginFacts>,
+    old_quiescence: Option<NativeOldRecoveryQuiescence>,
 }
 fn move_prechecked_original(
     source: &mut Option<RecoveryHeld>,
@@ -77,6 +80,7 @@ fn native_completion_move_and_borrow_drop_keep_the_one_original_flock() {
         host: None,
         engine: crate::manager_actor_service::NativeEngine::reserve(),
         facts: None,
+        old_quiescence: None,
     });
     let mut destination = None;
     assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
@@ -153,6 +157,9 @@ pub(crate) struct FreshRecovery {
     available: Arc<AtomicBool>,
     disposition_attempted: bool,
     attempted: bool,
+    // Only the new OLD consumer can positively release its completed graph.
+    // All errors/unwinds retain the pre-existing fail-closed Drop behavior.
+    released: bool,
     normal_owner: Option<
         crate::production_owner::ProductionNativeOwner<crate::native_host::NativeLifecycleHost>,
     >,
@@ -402,6 +409,7 @@ fn native_ordinary_current_marker_pending_and_lease_drift_are_permanent_refusal(
             host: None,
             engine: crate::manager_actor_service::NativeEngine::reserve(),
             facts: None,
+            old_quiescence: None,
         })));
         let keeper = NativeOrdinaryLease {
             original: NativeOrdinaryCustody::Recovery(Arc::clone(&original)),
@@ -651,6 +659,9 @@ impl NativeSteadyCompletion {
 }
 impl Drop for FreshRecovery {
     fn drop(&mut self) {
+        if self.released {
+            return;
+        }
         std::mem::forget(self.normal_owner.take());
         std::mem::forget(Arc::clone(&self.original));
         std::mem::forget(Arc::clone(&self.destination));
@@ -741,6 +752,12 @@ fn held_bytes(file: &File, maximum: usize) -> Result<Zeroizing<Vec<u8>>, FirstEr
 }
 
 impl NativeRecoveryOrigin<'_> {
+    pub(crate) fn check_old_recovery_lease(&self) -> Result<(), FirstError> {
+        // Used only before/after the engine's explicit fixed quiescence phase.
+        // The original lease and Off members are still borrowed, never minted
+        // from a manager snapshot or an earlier constructor-time observation.
+        self.bindings(false)
+    }
     pub(crate) fn uid(&self) -> u32 {
         self.uid
     }
@@ -808,6 +825,23 @@ impl NativeRecoveryOrigin<'_> {
         &mut self,
         view: crate::manager_actor_service::NativeStageView<'_>,
     ) -> Result<(), FirstError> {
+        self.check_inner(view, None)
+    }
+    pub(crate) fn check_old_recovery(
+        &mut self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+        quiescence: &NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        // The concrete original guard, not inactive-unit bytes or a caller
+        // flag, qualifies the failed/stopped runtime in this new consumer.
+        quiescence.bind(self.lock, self.paths, self.uid)?;
+        self.check_inner(view, Some(quiescence))
+    }
+    fn check_inner(
+        &mut self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+        quiescence: Option<&NativeOldRecoveryQuiescence>,
+    ) -> Result<(), FirstError> {
         if !view.recovery_exclusive() {
             return Err(FirstError::Admission);
         }
@@ -826,7 +860,7 @@ impl NativeRecoveryOrigin<'_> {
                 return Err(FirstError::Admission);
             }
         }
-        self.manager_empty()?;
+        self.check_manager(quiescence)?;
         if !self
             .host
             .fresh_observation(&self.desired)
@@ -843,8 +877,17 @@ impl NativeRecoveryOrigin<'_> {
         {
             return Err(FirstError::Admission);
         }
-        self.manager_empty()?;
+        self.check_manager(quiescence)?;
         self.bindings(view.live_changed())
+    }
+    fn check_manager(
+        &self,
+        quiescence: Option<&NativeOldRecoveryQuiescence>,
+    ) -> Result<(), FirstError> {
+        match quiescence {
+            Some(original) => original.recheck(),
+            None => self.manager_empty(),
+        }
     }
     fn manager_empty(&self) -> Result<(), FirstError> {
         for service in [
@@ -1024,11 +1067,13 @@ impl FreshRecovery {
                 host: None,
                 engine: crate::manager_actor_service::NativeEngine::reserve(),
                 facts: None,
+                old_quiescence: None,
             }))),
             destination: Arc::new(Mutex::new(None)),
             available: Arc::new(AtomicBool::new(true)),
             disposition_attempted: false,
             attempted: false,
+            released: false,
             normal_owner: None,
         })
     }
@@ -1092,6 +1137,37 @@ impl FreshRecovery {
             uid,
             FreshRecoveryMode::CompleteAborted,
         )
+    }
+    /// One consumer progression: qualify the stopped fixed service under the
+    /// original leases, authenticate OLD/Intent-or-Aborted, and complete it.
+    /// No normal owner is installed and no service is started by this method.
+    pub(crate) fn recover_old_to_completion(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        let result = self.reconcile(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::RecoverOldToCompletion,
+        );
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+            if let Ok(mut slot) = self.original.lock()
+                && let Some(held) = slot.as_mut()
+            {
+                held.engine.revoke_native();
+            }
+        }
+        result
     }
     #[cfg(test)]
     pub(crate) fn completed_owner_readonly(&mut self) -> bool {
@@ -1195,6 +1271,7 @@ impl FreshRecovery {
             host,
             engine,
             facts,
+            old_quiescence,
             ..
         } = held;
         let boundary = boundary.as_ref().ok_or(FirstError::Admission)?;
@@ -1220,7 +1297,29 @@ impl FreshRecovery {
             uid,
         };
         let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
-        if mode == FreshRecoveryMode::CompleteAborted {
+        if mode == FreshRecoveryMode::RecoverOldToCompletion {
+            *old_quiescence = Some(NativeOldRecoveryQuiescence::prepare(
+                &paths,
+                uid,
+                Arc::clone(lock),
+            )?);
+            engine.recover_native_old_to_completion(
+                &mut origin,
+                backup,
+                old_quiescence.as_mut().ok_or(FirstError::Admission)?,
+            )?;
+            *facts = Some(OriginFacts {
+                paths: paths.clone(),
+                desired_paths: desired_paths.clone(),
+                marker: origin.marker.clone(),
+                desired: origin.desired.clone(),
+                marker_bytes: origin.marker_bytes.clone(),
+                desired_bytes: origin.desired_bytes.clone(),
+                login_bytes: origin.login_bytes.clone(),
+                uid,
+            });
+            Ok(())
+        } else if mode == FreshRecoveryMode::CompleteAborted {
             engine.complete_native_aborted(&mut origin, backup)?;
             let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
             let proof = NativeCompletedOff {
