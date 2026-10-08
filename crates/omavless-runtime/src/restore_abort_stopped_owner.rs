@@ -998,6 +998,7 @@ enum FixedRecoveryCommand {
     Legacy,
     Runtime,
     StopRuntime,
+    StartRuntime,
 }
 
 impl FixedRecoveryCommand {
@@ -1005,21 +1006,23 @@ impl FixedRecoveryCommand {
         let (system, unit) = match self {
             Self::Manager => (true, format!("user@{uid}.service")),
             Self::Legacy => (false, "omavless.service".to_owned()),
-            Self::Runtime | Self::StopRuntime => (false, "omavless-runtime.service".to_owned()),
+            Self::Runtime | Self::StopRuntime | Self::StartRuntime => {
+                (false, "omavless-runtime.service".to_owned())
+            }
         };
         let mut args = vec![
             if system { "--system" } else { "--user" }.to_owned(),
             "--no-pager".to_owned(),
             "--no-ask-password".to_owned(),
-            if matches!(self, Self::StopRuntime) {
-                "stop"
-            } else {
-                "show"
+            match self {
+                Self::StopRuntime => "stop",
+                Self::StartRuntime => "start",
+                _ => "show",
             }
             .to_owned(),
             unit,
         ];
-        if !matches!(self, Self::StopRuntime) {
+        if !matches!(self, Self::StopRuntime | Self::StartRuntime) {
             for property in ["ActiveState", "SubState", "MainPID", "ControlPID", "Job"] {
                 args.push(format!("--property={property}"));
             }
@@ -1258,6 +1261,123 @@ impl OldRecoveryQueries {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+static RECOVERED_START_RESERVED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+const RECOVERED_START_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+fn reserve_recovered_start(slot: &std::sync::atomic::AtomicBool) -> Result<()> {
+    slot.compare_exchange(
+        false,
+        true,
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+    )
+    .map(|_| ())
+    .map_err(|_| ())
+}
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+#[derive(Default)]
+struct RecoveredStartLifetime {
+    attempted: bool,
+    completed: bool,
+    poisoned: bool,
+}
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+impl RecoveredStartLifetime {
+    fn begin(&mut self) -> Result<()> {
+        if self.attempted || self.poisoned {
+            self.poisoned = true;
+            return Err(());
+        }
+        self.attempted = true;
+        Ok(())
+    }
+
+    fn finish(&mut self, succeeded: bool) {
+        self.completed = succeeded;
+        self.poisoned |= !succeeded;
+    }
+
+    fn retain_on_drop(&self) -> bool {
+        self.poisoned || (self.attempted && !self.completed)
+    }
+}
+
+/// Separate availability action after the parent's positive consuming release.
+/// Neither Clone nor a general service helper. One reservation per process bounds
+/// leaked uncertain command custody, and no Drop signals, retries or waits.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct RecoveredRuntimeStart {
+    uid: u32,
+    queries: Option<OldRecoveryQueries>,
+    lifetime: RecoveredStartLifetime,
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl RecoveredRuntimeStart {
+    pub(crate) fn reserve(uid: u32) -> Result<Self> {
+        // Consume the global slot before path/tool acquisition. Never reset it,
+        // even if reservation subsequently refuses without spawning a child.
+        reserve_recovered_start(&RECOVERED_START_RESERVED)?;
+        if uid != nix::unistd::getuid().as_raw() || uid != nix::unistd::geteuid().as_raw() {
+            return Err(());
+        }
+        Ok(Self {
+            uid,
+            queries: Some(OldRecoveryQueries {
+                tool: TrustedExecutable::capture("/usr/bin/systemctl")?,
+                child: RefCell::new(None),
+                configuration: RefCell::new(None),
+                refused: Cell::new(false),
+            }),
+            lifetime: RecoveredStartLifetime::default(),
+        })
+    }
+
+    pub(crate) fn start_once(&mut self) -> Result<()> {
+        self.lifetime.begin()?;
+        let result = (|| {
+            if self.uid != nix::unistd::getuid().as_raw()
+                || self.uid != nix::unistd::geteuid().as_raw()
+            {
+                return Err(());
+            }
+            let queries = self.queries.as_ref().ok_or(())?;
+            let mut budget = Budget {
+                until: Instant::now() + RECOVERED_START_TIMEOUT,
+                remaining: MAX_TOTAL,
+            };
+            let output = queries.run(FixedRecoveryCommand::StartRuntime, self.uid, &mut budget)?;
+            if !output.is_empty() {
+                return Err(());
+            }
+            Ok(())
+        })();
+        self.lifetime.finish(result.is_ok());
+        result
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl Drop for RecoveredRuntimeStart {
+    fn drop(&mut self) {
+        if self.lifetime.retain_on_drop()
+            && let Some(original) = self.queries.take()
+        {
+            // Retain this original trusted tool and exact Child/stdout without
+            // guessed reaping or signalling. Fatal process loss is unavailable,
+            // not descriptor survival. The global slot prevents replacement.
+            std::mem::forget(original);
+        }
     }
 }
 
@@ -1712,6 +1832,40 @@ mod tests {
     use super::*;
     use nix::sys::signal::Signal;
     use std::io::Write;
+
+    #[test]
+    fn recovered_start_command_and_lifetime_are_fixed_and_once_only() {
+        assert_eq!(
+            FixedRecoveryCommand::StartRuntime.arguments(1000),
+            [
+                "--user",
+                "--no-pager",
+                "--no-ask-password",
+                "start",
+                "omavless-runtime.service",
+            ]
+        );
+        assert_eq!(RECOVERED_START_TIMEOUT, Duration::from_secs(15));
+        let slot = std::sync::atomic::AtomicBool::new(false);
+        assert!(reserve_recovered_start(&slot).is_ok());
+        assert!(reserve_recovered_start(&slot).is_err());
+
+        let mut failed = RecoveredStartLifetime::default();
+        assert!(!failed.retain_on_drop());
+        assert!(failed.begin().is_ok());
+        assert!(failed.retain_on_drop());
+        failed.finish(false);
+        assert!(failed.retain_on_drop());
+        assert!(failed.begin().is_err());
+        assert!(failed.retain_on_drop());
+
+        let mut positive = RecoveredStartLifetime::default();
+        assert!(positive.begin().is_ok());
+        positive.finish(true);
+        assert!(!positive.retain_on_drop());
+        assert!(positive.begin().is_err());
+        assert!(positive.retain_on_drop());
+    }
 
     #[cfg(feature = "t4-manager-actor-service")]
     #[test]
