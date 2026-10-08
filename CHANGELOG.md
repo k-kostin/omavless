@@ -4,8 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.9.8-rc.1 — internal scope freeze, not a public release
 
-- Keep selected Backup and authenticated Preview/Cancel/Restore reachable
-  through normal Open app/TUI, without a hidden invocation flag.
+- Offer encrypted private-pair Backup through normal Open app/TUI, without
+  hidden flags. Owner-selected scope excludes Restore; runtime/CLI restrictions
+  enforce this even for crafted requests. Preserve Restore/recovery development
+  and its pending/history evidence as a mandatory 0.9.9 feature.
 - Offer explicit guarded application start after shutdown. Preserve profiles,
   startup preferences and unit enablement; starting does not connect a VPN.
 - Validate readiness against the real native protocol, retained peers and a

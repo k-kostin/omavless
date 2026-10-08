@@ -2,7 +2,17 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.8 internal scope freeze, 2026-10-08:** `rc/0.9.8` selects beta.4 normal
+**Owner scope decision, 2026-10-08:** public **0.9.8 is Backup-only**. Retain
+encrypted private-pair export and normal TUI entry, but disable Restore,
+preview-to-Restore and developer restore/abort/staging selectors in the trusted
+product build, not merely its UI. Preserve existing pending-state fencing and
+all historical Restore evidence. **Usable Restore with explicit interrupted/
+fatal recovery and fresh ordinary runtime admission is mandatory for 0.9.9**;
+it is not optional confidence or an ARM-only check. The full T4 development
+configuration remains separate. See the [RC scope](docs/development/RC_098.md)
+and [Restore contract](docs/roadmap/PRIVATE_BACKUP_RESTORE.md).
+
+**Historical initial 0.9.8 scope freeze, 2026-10-08:** `rc/0.9.8` selected beta.4 normal
 Open app Backup/Restore, guarded explicit relaunch with real-protocol readiness
 and preserved broker setup, and ARM64 lossless link-count portability. The
 [RC ledger](docs/development/RC_098.md) separates exact final gates from older
