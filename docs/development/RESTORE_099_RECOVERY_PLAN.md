@@ -5,10 +5,13 @@ Owner selected public 0.9.8 Backup-only and required full Restore/recovery in
 0.9.9. The 0.9.8 producer/dispatch/capability restriction has its own writer;
 this document grants no implementation, host operation or release permission.
 
-Source anchor: corrective RC
+Source anchor: frozen Backup-only restriction #723
+`26beeb34948fb92f481db12c48a5345f422e1fd1`, on corrective RC
 `c64dad234b1f152f9b13212430ceeffde4e03488`, not the template-defective older
-source. The pending 0.9.8 trusted restriction must be recorded as an additional
-baseline before implementation. No whole historical stack is a merge vehicle.
+source. Preserve `product-private-backup`, `product_scope.rs`, Cargo feature
+selection and the 0.9.8 producer unchanged. Development recovery is T4-only;
+product deny must precede input, actor allocation and manager effects. No whole
+historical stack is a merge vehicle.
 
 ## Observed obstacle, not another ARM checkbox
 
@@ -104,3 +107,94 @@ recovery** in its owning dev branch, including a runnable client entry and a
 short VM card. Do not build more observer infrastructure unless that actual
 consumer scenario demonstrates a concrete missing diagnostic. Main, release,
 marketplace, 0.9.8 activation and fenced-image administration stay separate.
+
+## Concrete OLD-first phase proposal — agreement required
+
+The first scope is **already-OLD live pair + authenticated Intent or Aborted**,
+not MIXED rollback. `OldIntent` already checks OLD and preserves its live inodes.
+Committed NEW, mixed/torn/unsupported states refuse; they remain required future
+0.9.9 rows, not PASS. The historical Abort command keeps its strict socket-absent
+reader and its still-fenced result. Proposed fixed new CLI entry is
+`restore recover-old --confirm-rollback`, using the existing bounded private
+stdin object, no new generic RPC, caller-selected PID/unit or recovery path.
+
+One private non-Clone phase owner holds the SAME fresh migration lease and
+engine ledger from admission through positive completed release. Phase names
+below are design types, not current APIs or serialized effect capabilities.
+
+| Phase / transition | Exact permission / existing primitive | Crash or uncertain result |
+|---|---|---|
+| `InputVerified` | Trusted product deny first; bounded parse; authenticate retained archive without admitting effects | No recovery mutation; preserve original input/result, no automatic retry |
+| `ExclusiveLostOwner` | New `FreshRecovery` reservation and existing migration lease; engine `capture_recovery_singleton` acquires the SAME existing `owner.lock` once; root/lock paths and optional `Scratch6` inert socket remain held | Busy/live old owner refuses; never call CLI `StoppedRuntime::acquire` plus engine acquisition |
+| `ServiceQuiescent` | Under those locks, prove lost old owner; fixed user-manager stop only `omavless-runtime.service` cancels queued restart; verify fixed runtime/legacy inactive, zero PID/control/job, no supported daemon/core or canonical listener and actual Off inventory | Unknown stop or remaining actor blocks dependent effects; no PID kill, broker cleanup or unrelated VPN stop |
+| `OldQualified` | SAME origin authenticates exact archive/stage/Intent and binds current OLD/Desired/generation; classify optional valid Aborted terminal; reserve history capacity before first publisher effect | Wrong archive, unsafe members, committed/mixed/unknown evidence refuses without data replacement |
+| `AbortVerified` | Intent branch uses existing `publish_recovery_abort` to fsync and verify Aborted; Aborted branch verifies SAME retained terminal. No unchanged-live rename | OLD/Intent or OLD/Aborted remains fenced. A fresh explicit invocation may requalify supported state; old context is not resumed |
+| `EndpointRetired` | Only this engine's exact Root/Lock/optional `Scratch6` + `ServiceQuiescent` + `AbortVerified` admit fixed socket retirement; separately earned absence needs no unlink | Any uncertain effect seals the original scope. After death a fresh invocation requalifies socket-present or socket-absent plus authenticated Aborted; no copied FD custody |
+| `TransactionCompleted` | Continue SAME engine through `retire_native_aborted`/`retire_native_terminal`, using retained terminal bytes and original members; earn native completion once | Partial receipt/stage/closure retirement remains fenced/unsupported in this first cut; do not call generic cleanup or mark whole 0.9.9 done |
+| `DispositionDurable` | Existing positive completion/disposition publishes and fsyncs immutable history, verifies no pending active fences, and independently verifies OLD/Off | Recognize a durable completed result without replaying Abort. Partial disposition remains fenced until its explicit recovery row exists |
+| `StartableReleased` | NEW consuming boundary proves ordinary startup admits the durable state, all owned activity is Off, and releases ONLY known-completed fresh resources; it is not `dispose_and_transfer_completed`'s in-process transfer alone | Original availability is not inferred from release. A lost release outcome is unknown; no drop-to-success or guessed second owner |
+| `OwnedOffAvailable` | After that boundary, one fixed normal Start and independent fresh instance/owned-Off + pair/Desired/history readback | Start failure means configuration recovered but runtime unavailable. Never replay rollback or autoconnect; startup has its own explicit retry rules |
+
+### What authorizes the endpoint operation
+
+No socket path comes from private input. Resolve only current canonical runtime
+paths; retain root directory, original existing empty0600 singleton flock and
+original migration lease. The optional socket is captured with `O_PATH` under
+the engine's current validated catalogue, exact type/socket, caller UID/GID,
+0600/single-link and held/named identity. Quiescence adds original manager/unit,
+process/namespace and listener facts; PID0 or failed connect alone is inadequate.
+Every supported writer must obey these SAME cooperative locks. Manager stop
+must be known complete and restart/control jobs absent before mutation; a new
+daemon cannot acquire the held locks. The packaged unit's
+`RuntimeDirectoryPreserve=yes` must be verified, not assumed for another host.
+
+Proposed endpoint state is `ExistingSocket → Retiring → SocketAbsent`, or a
+separately earned initial `SocketAbsent`. Consume before first unlink; bracket
+only the fixed leaf with same-origin/held/named checks, `unlinkat` relative to the
+held parent, held unlinked-node metadata update for this operation's nlink/ctime,
+parent fsync and exact named absence/catalogue checks. Retain the original
+unlinked socket FD. Any uncertainty permanently seals this original invocation;
+it cannot accept a later corrected name. Existing singleton rechecks must
+understand this explicit owned transition, not pretend the old name remains.
+
+**Threat-model decision:** this grants newly qualified retirement of the inert
+canonical endpoint under **cooperative same-UID exclusivity**, not proof of the
+former process's creation or protection against malicious same-UID replacement.
+`O_PATH` and pre/post stat do not make `unlinkat` conditional on inode identity;
+a hostile writer can swap a name between check and effect. Stronger protection
+requires another ownership boundary, not more postchecks. Unsupported/foreign
+types, modes, catalogues or observed substitutions refuse. Do not weaken an
+existing stronger guarantee silently; this assumption needs explicit agreement.
+
+Retirement occurs AFTER verified OLD/Aborted and BEFORE persistent fence
+disposition. Thus a socket-retirement crash preserves the actual transaction;
+normal startup is not accidentally enabled while endpoint ownership is unknown.
+This is product recovery proposed for a new context, not permission to repair
+the preserved fatal5e7 image or to remove its markers/sockets.
+
+### One-shot engine integration and final release
+
+Add one private `RecoverOldToCompletion` progression. Refactor only the shared
+qualification prefix so Intent and Aborted are selected once; for Intent,
+publish and verify Abort, then pass the SAME retained terminal into retirement.
+Do not invoke `FreshRecovery::reconcile_old_intent` followed by
+`complete_aborted` on the spent handle or reopen its terminal as a new origin.
+Preserve existing modes. Reuse archive authentication, stage matching,
+OLD-inode verification, retained publication, terminal retirement and durable
+history/disposition; do not replace the entire engine with a decoded journal.
+
+`dispose_and_transfer_completed` installs an in-process owner retaining leases.
+It does NOT authorize dropping that graph and starting a service. Implement and
+review a distinct consuming completed-release boundary after independent
+ordinary-startup eligibility; then release known-positive owned resources and
+request fixed normal Start. Pending/nonfatal-failed resources stay retained;
+fatal death never promises their FD survival. No general new startup bypass,
+login receipt fabrication, generation reset or carried authority token is added.
+
+Before runtime edits, primary/coordinator and Astra must agree this graph,
+cooperative ownership assumption, fixed stop/start authority and exact
+completed-release semantics. Minimal owning changes include
+`manager_actor_stage/native.rs` for SAME-engine progression/endpoint transition,
+`native_coordinator/restore_native_recovery.rs` for one consumer/release,
+and new fixed CLI/stopped-service modules. `product_scope.rs`/producer remain
+unchanged; verify their denies also dominate the new development entry.
