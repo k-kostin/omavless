@@ -142,8 +142,9 @@ impl NativeOldRecoveryQuiescence {
         })
     }
 
-    /// Positive binding to the SAME Migration object in NativeRecoveryOrigin;
-    /// matching pathname/UID or a copied boolean is insufficient.
+    /// Identity-only binding to the SAME Migration in NativeRecoveryOrigin,
+    /// with qualified/unpoisoned state and current lock authorization. The
+    /// caller must bracket effects with full recheck; this is no effect grant.
     pub(crate) fn bind(&self, lock: &MigrationLock, paths: &CutoverPaths, uid: u32) -> Result<()> {
         self.qualification.checked(|| {
             if uid != self.uid
@@ -155,7 +156,7 @@ impl NativeOldRecoveryQuiescence {
             {
                 return Err(NativeFirstError::Admission);
             }
-            self.recheck()
+            self.qualification.recheck(|| self.migration())
         })
     }
 }
