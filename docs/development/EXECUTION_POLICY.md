@@ -191,6 +191,14 @@ Delegation is optional when coordination would cost more than the task.
 
 ## 8. Checkpoints, branches and session completion
 
+Before each Git write, bind the tool's explicit working directory and check
+the actual checkout root and expected branch. A preceding worktree-add does
+not change the next tool's cwd. Refuse an unexpected main checkout rather than
+assuming a dev branch was selected. If an own write was misdirected, stop,
+preserve the exact own commit and user index/untracked state, then use a
+separately checked exact-ref/path recovery; no broad reset or inferred permission
+to alter the release branch. Record original/final refs and prevent recurrence.
+
 For a feature that replaces persistent user data, earn one real loss-of-owner
 and supported recovery-to-ordinary-availability result before selecting public
 RC scope. A happy path and a same-live-holder Abort do not close that gate.
