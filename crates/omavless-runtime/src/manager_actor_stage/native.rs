@@ -1115,9 +1115,9 @@ struct NativeRecoveryGate<'a, 'b> {
 impl NativeGate for NativeRecoveryGate<'_, '_> {
     fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
         if let Some(quiescence) = self.quiescence.as_mut() {
-            quiescence.recheck()?;
+            // The typed origin brackets its host observation with full SAME
+            // quiescence rechecks. Binding alone is never an inventory grant.
             self.origin.check_old_recovery(view, quiescence)?;
-            quiescence.recheck()?;
         } else {
             self.origin.check(view)?;
         }
