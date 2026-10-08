@@ -79,6 +79,16 @@ details only when they explain a real defect, security concern or evidence gap.
 
 ## Local cleanup safety
 
+New short-lived HOME-backed test fixtures belong under `~/.cache/ovt/`, in an
+individual short directory, not directly in HOME. Set a HOME-backed `TMPDIR`
+and explicit `CARGO_TARGET_DIR` for large Rust runs; private-path fixtures that
+deliberately reject `/tmp` use the shared test allocator's checked HOME parent.
+It refuses symlink/writable parents and does not repair existing permissions.
+Keep Unix-socket paths short. Do not change or move an active fixture/TMPDIR
+until its operator has settled its original outcome, including child processes.
+Retained binaries, private logs and recovery evidence are not disposable cache;
+keep an indexed path map if completed material is archived outside Git.
+
 Remote cleanup and local worktree cleanup are distinct. An old checkout may
 contain a unique commit, ignored build/recovery output, untracked private data
 or an active process. Before removing one, inspect its identity, Git changes,

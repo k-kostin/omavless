@@ -272,7 +272,7 @@ fn actual_cached_owner_with_both_names_removed_is_rejected_by_complete_inventory
     let uid = Uid::current().as_raw();
     let root = tempfile::Builder::new()
         .prefix("ov-cached-owner-")
-        .tempdir_in(std::env::var_os("HOME").unwrap())
+        .tempdir_in(crate::test_temp::home_parent().unwrap())
         .unwrap()
         .keep();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
