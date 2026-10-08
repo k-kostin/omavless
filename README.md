@@ -22,7 +22,10 @@ and service subscriptions are not included.
 
 ## Installation
 
-**OmaVLESS 0.8.2 is available.** New users: add the plugin, then open its panel.
+**This branch prepares an unpublished 0.9.8 candidate.** The current public
+release and upstream `main` remain **0.8.2**; the installation command below
+follows that released branch, not this candidate. New users: add the plugin,
+then open its panel.
 Already using 0.7.0? Follow the [migration guide](docs/user/NATIVE_INSTALL.md#existing-legacypython-installation)
 before updating.
 
@@ -35,7 +38,8 @@ installation. Confirm the steps in its terminal, return to the panel and follow
 onboarding. You can finish setup later; it never connects a VPN automatically.
 
 This command follows upstream main. The marketplace's reviewed snapshot is
-updated separately; its older 0.7.0 listing is not the native release.
+updated separately and currently covers its reviewed 0.8.2 snapshot, not this
+development candidate.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
 including migration instructions **before updating an existing 0.7.0 installation**.

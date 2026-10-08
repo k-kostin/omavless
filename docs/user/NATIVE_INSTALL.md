@@ -1,5 +1,44 @@
 # OmaVLESS installation, updates and recovery
 
+## Selected 0.9.8 candidate: managed-package route
+
+This branch is an **unpublished candidate**, not an available stable upgrade.
+Do not substitute older public assets into its empty package pins or compile
+the application from a marketplace installer. ARM64 installation, final scope
+acceptance and immutable package publication remain in the
+[candidate ledger](../development/RC_098.md).
+
+The selected 0.9 route differs from the released 0.8.2 instructions below:
+
+1. Use one reviewed version/architecture-matched `omavless` application,
+   `omavless-dns` companion and frontend. The companion contains the fixed
+   reviewed Mihomo core and DNS broker; arbitrary stock/AUR core discovery and
+   `setcap` on a different binary do not satisfy managed-pair admission.
+2. Through **Required components**, deliberately install the matching packages
+   using normal pacman/sudo authorization. Then perform the separate explicit
+   DNS-broker enrollment and pair selection offered by setup. Adding/enabling
+   the plugin alone installs nothing and connects no VPN.
+3. For an existing installation, first establish verified disconnected state
+   and settled OS authorization, preserve private data, and follow the guarded
+   package-update procedure. Do not rerun first activation or delete ownership
+   records to turn it into a fresh install. Active or quarantined package
+   changes must be refused by the package guard.
+4. If enrollment exists but the broker is stopped, use **Start existing DNS
+   broker**; **Restore DNS enrollment** is only for revoked enrollment after
+   clean removal. Neither action starts a VPN. Afterwards use **Start OmaVLESS**
+   to launch the application, without enabling login startup or connecting.
+5. Import your own profile and connect explicitly. Verify a native HTTPS test
+   and actual website access, not only the Connected label. A default-deny
+   firewall can block DNS ingress on the owned TUN; follow the narrowly scoped
+   firewall guidance below rather than disabling protection globally.
+
+The exact 0.9.8 composition and Backup/Restore limitations belong to the ledger
+until its remaining recovery decision is closed. The next publication handoff
+must supply real final package URLs and hashes before guided public first use;
+placeholders are not an installation path.
+
+## Released 0.8.2 route and historical compatibility
+
 This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-only
 0.9 RC development branches have a different requirement: a version-matched
 `omavless` + `omavless-dns` package pair, separate administrator enrollment
@@ -31,8 +70,10 @@ install the plugin and follow its guided first-run setup. Existing native and
 legacy users have separate update/migration routes below; do not reset an
 existing store or repeat activation.
 
-The GitHub release is stable; the marketplace's older 0.7.0 snapshot remains
-separate until its update is approved. Ordinary `omarchy plugin add` installs
+The GitHub release is stable; the marketplace's exact 0.8.2 update was reviewed
+and published through [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093).
+That approval does not cover this newer development candidate.
+Ordinary `omarchy plugin add` installs
 the frontend, not the native package or its ownership. The panel offers those
 steps explicitly, with normal user/OS confirmation. OmaVLESS itself is delivered
 as a reviewed release package, not an AUR package announcement.
@@ -45,7 +86,7 @@ as a reviewed release package, not an AUR package announcement.
 | Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
 | Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
 | Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
-| Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
+| Previously used confirmed Quit | In the selected 0.9.8 candidate, re-enable the plugin and use **Start OmaVLESS** after any separate DNS preparation. Earlier releases use the explicit manual reopen procedure below. | Do not reinstall, reset ownership or assume that re-enabling the frontend connects a VPN. |
 
 <a id="guided-first-run--release-preparation"></a>
 
@@ -158,7 +199,8 @@ and verified runtime/build/package input equality; a matching version alone is
 not compatibility proof. Preserve the original package build/acceptance evidence.
 An unpublished artifact is not a public release; marketplace publication remains
 owner-controlled. Both source and assembled frontend carry the same version;
-the historical marketplace snapshot remains 0.7.0. Earlier `0.8.0-rc.1`
+the historical 0.7.0 snapshot was superseded by the reviewed 0.8.2 update.
+Earlier `0.8.0-rc.1`
 archives retain their original version and hashes, not the current release's.
 
 Use the runtime package for your processor (`aarch64` or `x86_64`). The QML
@@ -392,6 +434,22 @@ Closing the panel or a terminal is not Disconnect. Settings' confirmed
 then disables runtime startup and the Omarchy plugin while preserving private
 profiles/settings. Failure or an unknown outcome must be inspected, not treated
 as a clean shutdown. A shell reload is not this explicit Quit action.
+
+Persistently disabling OmaVLESS through `omarchy plugin disable kdk.omavless`
+or a manager using that command also requests fenced application shutdown after
+a short reload grace. It is not merely hiding the icon. Re-enabling within the
+grace cancels that cleanup; do not rely on this timing as a connection control.
+Use Disconnect to stop only the VPN while retaining the application.
+
+In the selected **0.9.8 candidate**, re-enable the frontend with
+`omarchy plugin enable kdk.omavless`, then open its panel. A verified stopped
+installation offers **Start OmaVLESS**. It starts only the application, without
+Connect or enabling login startup, and preserves saved preferences/profiles.
+If the managed DNS broker is also stopped, its separate preparation comes first;
+resolve that operation's OS authorization before starting the application.
+Unsafe, pending or unverified state is not a reason to repeat Start or reset data.
+After updating the frontend, old cached controls can require the deliberate
+shell reload described above; check what is actually loaded, not just file hashes.
 
 For the currently tested update route, set startup Off and disconnect first.
 After verifying clean state and settled authorization, stop the native service,

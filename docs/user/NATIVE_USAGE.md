@@ -112,6 +112,7 @@ the VPN or include the claim in ordinary diagnostic reports.
 | Close panel / restart shell | Leaves the requested tunnel running |
 | Close terminal application | Leaves the requested tunnel and accepted background jobs running |
 | Disconnect | Stops the current VPN connection; keeps the plugin/runtime available |
+| Disable the plugin through Omarchy | After a short reload grace, requests verified application shutdown and disables runtime startup. Re-enable the plugin and explicitly start the application; private data stays saved. |
 | Settings → Shut down OmaVLESS / Quit | Confirms shutdown, verifies core/TUN cleanup, then stops/disables runtime and plugin; preserves private data and installed files |
 
 If shutdown fails or needs recovery, do not interpret the closed UI as proof

@@ -2,7 +2,33 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.8 next internal candidate, 2026-10-07:** `0.9.8-beta.3` selects the real
+**Owner scope decision, 2026-10-08:** public **0.9.8 is Backup-only**. Retain
+encrypted private-pair export and normal TUI entry, but disable Restore,
+preview-to-Restore and developer restore/abort/staging selectors in the trusted
+product build, not merely its UI. Preserve existing pending-state fencing and
+all historical Restore evidence. **Usable Restore with explicit interrupted/
+fatal recovery and fresh ordinary runtime admission is mandatory for 0.9.9**;
+it is not optional confidence or an ARM-only check. The full T4 development
+configuration remains separate. See the [RC scope](docs/development/RC_098.md)
+and [Restore contract](docs/roadmap/PRIVATE_BACKUP_RESTORE.md).
+
+**Historical initial 0.9.8 scope freeze, 2026-10-08:** `rc/0.9.8` selected beta.4 normal
+Open app Backup/Restore, guarded explicit relaunch with real-protocol readiness
+and preserved broker setup, and ARM64 lossless link-count portability. The
+[RC ledger](docs/development/RC_098.md) separates exact final gates from older
+beta evidence and retains the original relaunch refusal. Empty unpublished pins;
+no main/release/Marketplace promotion or whole-roadmap acceptance is implied.
+Exact source `5e7d425893f90c3e9d7849fd3512ef61d157bded` now has inspected
+both-architecture offline pairs, passing native package CI and bounded
+[installed x86_64 evidence](docs/testing/RC_098_VM_2026-10-08.md): normal
+entry/navigation/reopen, known Quit/re-enable/Start and genuine configured-Off
+cold login preparation preserve data and disabled startup enablement. Final full
+Test CI remains pending; ARM-installed, owning fault/human/product and public
+provisioning gates remain distinct. The earlier Completed Restore belongs to
+its beta.4 source, not a new RC mutation. Administrative consolidation records
+92 no-merge closures without branch deletion or frontier acceptance.
+
+**Historical beta.3 selection, 2026-10-07:** `0.9.8-beta.3` selected the real
 opt-in Backup TUI #705 with normal private-pair API #701 on the checked beta.2
 baseline. New combined gates and installed/manual acceptance remain distinct;
 default packages and ordinary TUI selection stay unchanged. Restore UI/new

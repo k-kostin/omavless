@@ -46,8 +46,8 @@ test('page never uses missing backend, never installs on load or check', () => {
   assert(page.includes('terminalOpened = false; check()'));
 });
 test('setup has separate navigation and cannot expose legacy mutation shortcuts', () => {
-  assert(panel.includes('readonly property bool bootstrapRequired: setupPage.state !== "ready"'));
-  assert(panel.includes('&& (setupPage.appMissing || !vless.nativeOwner || !vless.nativeSnapshot)'));
+  assert(panel.includes('readonly property bool bootstrapRequired: SetupState.bootstrapRequired('));
+  assert(panel.includes('vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown'));
   assert(page.includes('readonly property bool appMissing: SetupState.appMissing(facts)'));
   assert(panel.includes('if (root.bootstrapRequired) return setupPage.focusTargets'));
   assert(panel.includes('root.bootstrapRequired ? setupFlick'));
@@ -57,16 +57,34 @@ test('setup has separate navigation and cannot expose legacy mutation shortcuts'
   assert(panel.includes('width: Math.max(0, setupFlick.width - root.scrollGutter)'));
 });
 test('missing app or unactivated account keeps setup shell after read-only launcher failure', () => {
-  const vm = require('node:vm');
-  const expression = panel.match(/readonly property bool bootstrapRequired: ([^\n]+)\n\s+&& ([^\n]+)/);
-  assert(expression);
-  for (const nativeOwner of [true, false]) for (const nativeSnapshot of [null, {instanceId:'synthetic'}]) for (const value of ['checking', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_broker_stopped', 'needs_runtime_stop', 'needs_attention', 'release_unavailable', 'ready']) {
+  for (const nativeOwner of [true, false]) for (const nativeSnapshot of [null, {instanceId:'synthetic'}]) for (const value of ['checking', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_broker_stopped', 'needs_runtime_stop', 'needs_runtime_start', 'needs_attention', 'release_unavailable', 'ready']) {
     const appMissing = state.appMissing({state:value});
-    assert.equal(vm.runInNewContext(expression[1] + ' && ' + expression[2], {vless:{nativeOwner,nativeSnapshot}, setupPage:{state:value,appMissing}}),
-      value !== 'ready' && (appMissing || !nativeOwner || !nativeSnapshot));
+    const stopped=['needs_runtime_start','needs_broker_stopped'].includes(value);
+    assert.equal(state.bootstrapRequired({state:value}, nativeOwner, nativeSnapshot!==null, false, false, false),
+      value !== 'ready' && (appMissing || !nativeOwner || !nativeSnapshot || stopped));
   }
   assert(panel.includes('visible: !root.bootstrapRequired && vless.nativeOwner && root.page !== "diagnostics"'));
   assert(panel.includes('visible: !root.bootstrapRequired && vless.nativeOwner && (root.page === "main" || root.page === "subscription")'));
+});
+test('known stopped facts supersede a stale snapshot but never waive pending or unknown work', () => {
+  for (const value of ['needs_runtime_start','needs_broker_stopped']) {
+    assert(state.bootstrapRequired({state:value},true,true,false,false,false));
+    for (const flags of [[true,false,false],[false,true,false],[false,false,true]])
+      assert(!state.bootstrapRequired({state:value},true,true,...flags));
+  }
+  for (const value of ['ready','checking','needs_attention','needs_broker','needs_runtime_stop'])
+    assert(!state.bootstrapRequired({state:value},true,true,false,false,false));
+});
+test('real failed-poll handler refreshes only inventory on the open panel', () => {
+  const vm=require('node:vm');
+  const start=panel.indexOf('    function onStatusFailureCountChanged()');
+  const end=panel.indexOf('\n    }',start)+6;
+  assert(start>=0);
+  const c=vm.createContext({root:{opened:true},vless:{statusFailureCount:1},setupPage:{checks:0,check(){this.checks++}}});
+  vm.runInContext(panel.slice(start,end),c);
+  c.onStatusFailureCountChanged(); assert.equal(c.setupPage.checks,1);
+  c.root.opened=false;c.onStatusFailureCountChanged();assert.equal(c.setupPage.checks,1);
+  c.root.opened=true;c.vless.statusFailureCount=0;c.onStatusFailureCountChanged();assert.equal(c.setupPage.checks,1);
 });
 test('all first-use and unavailable states have bounded EN/RU plain text', () => {
   for (const locale of ['en', 'ru']) for (const key of ['title', 'checking', 'ready', 'needs_package',

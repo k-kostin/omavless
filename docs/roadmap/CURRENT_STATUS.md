@@ -6,14 +6,38 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.8 selected scope frozen:** [internal RC1 #715](https://github.com/k-kostin/omavless/pull/715)
-  carries the current exact-artifact and installed warm/cold relaunch evidence
-  for source `5e7d425893f90c3e9d7849fd3512ef61d157bded`. The beta.4 source
-  below is retained development history, not an accepted/public candidate.
-  ARM-installed and remaining release gates stay explicit in the RC ledger;
-  main, immutable releases and Marketplace are unchanged. The
-  [current consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6048668247)
-  records 92 no-merge historical closures with branches and unique work retained.
+- **Owner release decision, 2026-10-08:** public 0.9.8 is **Backup-only**.
+  Trusted product scope restricts capabilities, RPC, CLI and developer actor
+  entries; full Restore remains in development. Preserve old pending/history
+  fences. **Usable Restore plus explicit interrupted/fatal recovery is mandatory
+  for 0.9.9.** Older positive/negative evidence is retained, not relabeled PASS.
+  The new restriction has its own exact-source package and installed gates.
+
+- **0.9.8 internal RC scope freeze:** `rc/0.9.8`, source `0.9.8-rc.1`, selects
+  normal-entry Backup (Restore excluded by the decision above), corrected
+  explicit application relaunch and ARM64
+  link-count portability on the beta.4 maintenance base. The
+  [RC ledger](../development/RC_098.md) retains exact inputs, original failed
+  installed readiness and remaining candidate/package/host gates. Exact
+  `5e7d4258` has inspected offline pairs for both architectures and passing
+  native package CI; its final full Test CI subsequently passed. #717's managed
+  template correction is integrated into RC, with exact-source cloud/build and
+  x86_64 manual lifecycle evidence. #718's stopped-page and sustained disable
+  successor is installed-checked and carried to RC; #719's private-test scratch
+  correction is integrated after full CI. Final combined artifacts/docs are
+  being reconciled.
+  Its
+  [installed x86_64 report](../testing/RC_098_VM_2026-10-08.md) passes normal
+  entry/navigation/reopen, known Quit → re-enable → actual Start and real cold
+  configured-Off Start with login preparation, preserved data and disabled
+  startup units. The separately recorded continuation adds normal Completed
+  Restore, controlled same-intent Abort, connected modes and actual sustained
+  disable → re-enable → Start; initial evidence is not rewritten. It is
+  agent-operated, not ARM-installed, whole T4 or public provisioning acceptance.
+  Lost-owner Restore recovery is mandatory for 0.9.9, not an ARM/operator
+  checkbox. Pins are
+  empty; main, immutable releases and Marketplace are unchanged. This is not
+  accepted/public RC or whole T3/T4 completion.
 
 - **0.9.8 internal beta.4:** #711 selects the real Backup and authenticated
   Preview/Cancel/Restore path from #701/#705/#708/#710. Its fixed package build
@@ -23,14 +47,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
   wrong-key refusal, unchanged Preview/Cancel, one original Completed Restore
   with independent pair/revision readback and known-Off ordinary restart.
   Agent-operated evidence is not owner manual, ARM-installed or fault acceptance.
-  Runtime relaunch after plugin shutdown is included through #712/#714 and
-  retains its own later exact-RC installed evidence, not borrowed from that bundle.
+  Runtime relaunch after plugin shutdown is included through #712/#714 in the
+  exact RC checkpoint above, not borrowed from that earlier bundle.
   See [selection](../development/BETA_098.md) and
-  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main/releases/Marketplace
-  are unchanged; there is one integration writer and at most one VM operator.
-  [The consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6047446461)
-  records 82 verified no-merge PR closures (78 literal included heads and four
-  inspected full-patch equivalents). Source/evidence branches and unique
+  [assisted test card](../testing/BETA_098_MANUAL_PLAN.md). Main, releases and
+  Marketplace are unchanged; beta.4 is retained history for the selected RC.
+  [The consolidation ledger](https://github.com/k-kostin/omavless/issues/706#issuecomment-6048668247)
+  records 92 verified no-merge PR closures: the prior 82 plus ten historical
+  predecessors with unresolved requirements retained in open owning records.
+  Source/evidence branches and unique
   unfinished work are retained; administrative closure adds no acceptance.
 
 - **0.9.8 beta.2 baseline:** [#702](https://github.com/k-kostin/omavless/pull/702)
@@ -203,7 +228,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   The name is a planning label; stable release version/assets and
   stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
   Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
-  targets that stable SHA and awaits external review, not RC verification.
+  targets that stable SHA and was approved/published; it does not verify the RC.
   T2d/e passed [combined ARM64 inspection](../testing/T2_INSPECTION_THEME_2026-09-22.md):
   live traffic, details, diagnostics and theme presentation; closing the client
   preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
@@ -450,8 +475,10 @@ passed on x86_64 as recorded in the [fresh VM report](../testing/NATIVE_082_FRES
 This closes that scoped provisioning gate; it does not reopen the unchanged R6
 migration, claim new live-network evidence or publish the marketplace snapshot.
 
-The immutable published marketplace 0.7.0 snapshot remains
-`69fe05b03129a23664fff3f8289821a7b7f80095`.
+The current marketplace 0.8.2 snapshot is
+`d620c300020d3acfa9c00418da7f6cded485ffdb`, approved and published through #8093.
+The 0.7.0 `69fe05b03129a23664fff3f8289821a7b7f80095` snapshot is historical;
+the newer internal RC is not covered by that approval.
 Neither a main merge nor the presence of Rust sources installs a native binary,
 runs Cargo, grants capabilities, changes an ownership marker or enables VPN
 startup on a user's machine.

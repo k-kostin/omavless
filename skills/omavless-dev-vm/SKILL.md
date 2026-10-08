@@ -38,6 +38,13 @@ facts for that baseline. In particular, an interface change can make an old
 window dispatcher return textual errors despite a zero shell exit; confirm the
 requested window geometry or service state, not merely command completion.
 
+After a frontend update, matching files are not proof that the long-lived shell
+loaded the new QML/JS. If the native facts are correct but controls remain old,
+use the maintained [frontend reload guidance](../../docs/user/NATIVE_INSTALL.md#verify-the-installation)
+before patching the button or private data again. A separately authorized guest
+shell restart is not native recovery; verify fresh actual controls and preserve
+the original failed gate. Do not automate a physical-host shell restart.
+
 Before installing an experimental bundle, compare the whole app, core, broker,
 receipt/schema, enrollment policy and fixture pins with the selected scenario.
 The same architecture, core version or informal qualification label does not

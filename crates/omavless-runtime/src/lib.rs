@@ -11,6 +11,7 @@ mod backup_source_candidate;
 pub mod developer_current_restore;
 mod managed_close_receipt;
 mod pending_private_transaction;
+pub mod product_scope;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;
 #[allow(dead_code)]
@@ -103,6 +104,7 @@ pub mod long_operation;
 pub mod long_operation_protocol;
 mod managed_pair;
 pub mod managed_selection;
+mod managed_template;
 #[cfg(feature = "t4-manager-actor-service")]
 pub mod manager_actor_service;
 pub mod mutation;
@@ -1636,7 +1638,9 @@ impl RuntimeServer {
         }) {
             Ok(request) => {
                 #[cfg(feature = "t4-manager-actor-service")]
-                if request["method"] == developer_current_restore::PAUSE_METHOD {
+                if !product_scope::backup_only()
+                    && request["method"] == developer_current_restore::PAUSE_METHOD
+                {
                     let result = self.publish_current_intent_pause(&request, stream);
                     let mut request = request;
                     developer_current_restore::wipe_request(&mut request);
@@ -1711,6 +1715,9 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::method_disabled(request["method"].as_str().unwrap_or("")) {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         if matches!(
             request["method"].as_str(),
             Some("backup.preview" | "backup.restore_previewed")
@@ -1761,6 +1768,9 @@ impl RuntimeServer {
             Restore(private_pair_api::PreviewedRestoreRequest),
         }
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         let input = if request["method"] == "backup.preview" {
             private_pair_api::PreviewRequest::parse(&request["params"]).map(Input::Preview)
         } else {
@@ -1813,6 +1823,19 @@ impl RuntimeServer {
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
+        if product_scope::backup_only() {
+            let response = error_response(
+                request["id"].as_str().unwrap_or("invalid"),
+                0,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            )
+            .map_err(|_| RuntimeError::Protocol)?;
+            let frame = encode_response(&response).map_err(|_| RuntimeError::Protocol)?;
+            return write_unary_frame(stream, &frame, FrameKind::Response)
+                .map_err(|_| RuntimeError::Io);
+        }
         // The SAME dispatcher mutex spans original pause creation AND the
         // response write. No competing resume can slip between write failure
         // and sealing. Only this fixed method can invoke publication feedback.
@@ -1893,6 +1916,9 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         let method = request["method"].as_str().unwrap_or("");
         if method == developer_current_restore::ABORT_METHOD {
             return self.dispatch_developer_current_abort(request);
@@ -1956,6 +1982,9 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         let input = match developer_current_restore::AbortRequest::parse(&request["params"]) {
             Ok(input) => input,
             Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
@@ -2789,7 +2818,7 @@ fn dispatch_native(
             let development_methods: &[&str] = &[];
             #[cfg(feature = "t4-manager-actor-service")]
             let pair_methods = if runtime_ownership && owner.normal_private_pair_available() {
-                private_pair_api::METHODS
+                private_pair_api::advertised_methods()
             } else {
                 &[]
             };
@@ -3615,6 +3644,84 @@ mod tests {
         Arc<AtomicUsize>,
     ) {
         owner_fixture(base, OwnershipPhase::Rust)
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn product_scope_real_wire_refuses_all_restore_and_special_pause_without_effects() {
+        let base = temporary_base("backup-only");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let store_path = base.join("config/profiles.json");
+        let desired_path = base.join("state/omavless/desired.json");
+        let before_store = fs::read(&store_path).unwrap();
+        let before_desired = fs::read(&desired_path).unwrap();
+        // Recognized pending directory: detection must remain true. The
+        // sentinel is data, not a fabricated completed/recoverable transaction.
+        let pending_dir = cutover
+            .state_directory
+            .join(crate::restore_staging_candidate::PENDING_DIRECTORY);
+        fs::create_dir(&pending_dir).unwrap();
+        let pending = pending_dir.join("sentinel");
+        fs::write(&pending, b"unchanged pending evidence").unwrap();
+        assert!(crate::restore_staging_candidate::staging_pending_at(
+            &cutover.state_directory
+        ));
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        for method in [
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+            "developer.restore_current",
+            "developer.backup_current",
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+        ] {
+            let request = make_request("product-refusal", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                client
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                std::io::Write::write_all(&mut client, &encode_request(&request).unwrap()).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+                assert_eq!(reply["revision"], 0);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(store_path).unwrap(), before_store);
+        assert_eq!(fs::read(desired_path).unwrap(), before_desired);
+        assert_eq!(fs::read(pending).unwrap(), b"unchanged pending evidence");
+        assert!(crate::restore_staging_candidate::staging_pending_at(
+            &cutover.state_directory
+        ));
+        assert_eq!(private_pair_api::advertised_methods(), &["backup.create"]);
+        assert_eq!(
+            server
+                .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+                .unwrap()["revision"],
+            0
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[cfg(feature = "t4-manager-actor-service")]
