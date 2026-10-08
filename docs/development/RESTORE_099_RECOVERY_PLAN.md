@@ -3,7 +3,7 @@
 Status: **OLD-first SOURCE implementation under independent review**, 2026-10-08.
 Owner selected public 0.9.8 Backup-only and required full Restore/recovery in
 0.9.9. The 0.9.8 producer/dispatch/capability restriction has its own writer;
-The primary/coordinator agreed the OLD-first phase progression and cooperative
+the primary/coordinator agreed the OLD-first phase progression and cooperative
 same-UID ownership boundary. Implementation does not grant live operation,
 product activation, main merge or release permission.
 
@@ -106,7 +106,8 @@ fixed-unit command does not establish filesystem/manager/VM acceptance.
 
 Next finite cycle after agreement: implement/gate **one explicit supported OLD
 recovery** in its owning dev branch, including a runnable client entry and a
-short VM card. Do not build more observer infrastructure unless that actual
+short [installed VM card](RESTORE_099_VM_CARD.md). The card is a proposed matrix,
+not an admitted effect-bearing driver. Do not build more observer infrastructure unless that actual
 consumer scenario demonstrates a concrete missing diagnostic. Main, release,
 marketplace, 0.9.8 activation and fenced-image administration stay separate.
 

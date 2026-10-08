@@ -51,8 +51,18 @@ class FirstAbortCli(unittest.TestCase):
                       'TrustedExecutable::capture("/usr/bin/systemctl")', "Command::new(tool.exec_path())",
                       '"/usr/lib/systemd/systemd"', '"omavless-runtime.service"', '"omavless.service"'):
             self.assertIn(token, text)
-        for forbidden in (".try_wait(", ".kill(", ".wait(", "killpg", "pre_exec", "sudo", '"start"', '"stop"'):
+        for forbidden in (".try_wait(", ".kill(", ".wait(", "killpg", "pre_exec", "sudo"):
             self.assertNotIn(forbidden, text)
+        # The shared source now also owns the separately admitted OLD recovery
+        # Stop/Start. Keep the historical Abort observer's no-effect contract,
+        # rather than incorrectly forbidding those fixed commands everywhere.
+        query = text.split("fn query(", 1)[1].split("enum FixedRecoveryCommand", 1)[0]
+        for forbidden in ('"start"', '"stop"'):
+            self.assertNotIn(forbidden, query)
+        capture = text.split("pub(super) fn capture(uid:", 1)[1].split("fn capture_inner(", 1)[0]
+        self.assertIn("SelfInvocation::Recovery,\n            None,", capture)
+        observe = text.split("fn observe(&self)", 1)[1].split("fn observe_inner(", 1)[0]
+        self.assertIn("self.observe_inner(None, true)", observe)
 
     def test_cached_owner_counterexample_is_actual_frozen_child_not_service_override(self):
         text = (SRC / "restore_abort_cached_owner_tests.rs").read_text()
