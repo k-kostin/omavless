@@ -46,8 +46,33 @@ fn execute(host: &mut impl Host) -> Result<()> {
 /// login receipt, enable startup or take the PrepareLogin branch.
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) fn start_recovered_off() -> Result<()> {
-    let mut installed = Installed { apply: true };
+    let mut installed = RecoveredInstalled {
+        normal: Installed { apply: true },
+    };
     execute_recovered_off(&mut installed)
+}
+#[cfg(feature = "t4-manager-actor-service")]
+struct RecoveredInstalled {
+    normal: Installed,
+}
+#[cfg(feature = "t4-manager-actor-service")]
+impl Host for RecoveredInstalled {
+    fn admit(&mut self) -> Result<Admission> {
+        self.normal.admit()
+    }
+    fn prepare_login(&mut self) -> Result<()> {
+        Err(Refused)
+    }
+    fn start_runtime(&mut self) -> Result<()> {
+        let mut start = crate::restore_abort_cli::stopped_owner::RecoveredRuntimeStart::reserve(
+            Uid::current().as_raw(),
+        )
+        .map_err(|_| Refused)?;
+        start.start_once().map_err(|_| Refused)
+    }
+    fn verify_ready(&mut self) -> Result<()> {
+        self.normal.verify_ready()
+    }
 }
 #[cfg(feature = "t4-manager-actor-service")]
 fn execute_recovered_off(host: &mut impl Host) -> Result<()> {

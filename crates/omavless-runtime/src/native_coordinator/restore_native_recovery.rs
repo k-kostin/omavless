@@ -214,7 +214,7 @@ pub(crate) struct FreshRecovery {
     released: bool,
     // The synchronous new consumer's guard is not installed in the ordinary
     // Send owner graph. Its unknown original child is retained separately.
-    old_quiescence: Option<NativeOldRecoveryQuiescence>,
+    old_quiescence: Option<Box<NativeOldRecoveryQuiescence>>,
     normal_owner: Option<
         crate::production_owner::ProductionNativeOwner<crate::native_host::NativeLifecycleHost>,
     >,
@@ -825,7 +825,11 @@ impl Drop for FreshRecovery {
             return;
         }
         std::mem::forget(self.normal_owner.take());
-        std::mem::forget(self.old_quiescence.take());
+        if let Some(original) = self.old_quiescence.take() {
+            // Preserve the actual typed child/observer in stable storage, not
+            // only leaked raw descriptor numbers from a forgotten stack value.
+            Box::leak(original);
+        }
         std::mem::forget(Arc::clone(&self.original));
         std::mem::forget(Arc::clone(&self.destination));
     }
@@ -1616,11 +1620,11 @@ impl FreshRecovery {
         };
         let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
         if mode == FreshRecoveryMode::RecoverOldToCompletion {
-            self.old_quiescence = Some(NativeOldRecoveryQuiescence::prepare(
+            self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
                 &paths,
                 uid,
                 Arc::clone(lock),
-            )?);
+            )?));
             engine.recover_native_old_to_completion(
                 &mut origin,
                 backup,

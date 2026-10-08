@@ -1,9 +1,11 @@
 # Restore 0.9.9: one consumer recovery outcome
 
-Status: **design proposal / implementation agreement pending**, 2026-10-08.
+Status: **OLD-first SOURCE implementation under independent review**, 2026-10-08.
 Owner selected public 0.9.8 Backup-only and required full Restore/recovery in
 0.9.9. The 0.9.8 producer/dispatch/capability restriction has its own writer;
-this document grants no implementation, host operation or release permission.
+The primary/coordinator agreed the OLD-first phase progression and cooperative
+same-UID ownership boundary. Implementation does not grant live operation,
+product activation, main merge or release permission.
 
 Source anchor: frozen Backup-only restriction #723
 `26beeb34948fb92f481db12c48a5345f422e1fd1`, on corrective RC
@@ -108,7 +110,7 @@ short VM card. Do not build more observer infrastructure unless that actual
 consumer scenario demonstrates a concrete missing diagnostic. Main, release,
 marketplace, 0.9.8 activation and fenced-image administration stay separate.
 
-## Concrete OLD-first phase proposal — agreement required
+## Agreed OLD-first phase progression
 
 The first scope is **already-OLD live pair + authenticated Intent or Aborted**,
 not MIXED rollback. `OldIntent` already checks OLD and preserves its live inodes.
@@ -131,7 +133,7 @@ below are design types, not current APIs or serialized effect capabilities.
 | `AbortVerified` | Intent branch uses existing `publish_recovery_abort` to fsync and verify Aborted; Aborted branch verifies SAME retained terminal. No unchanged-live rename | OLD/Intent or OLD/Aborted remains fenced. A fresh explicit invocation may requalify supported state; old context is not resumed |
 | `EndpointRetired` | Only this engine's exact Root/Lock/optional `Scratch6` + `ServiceQuiescent` + `AbortVerified` admit fixed socket retirement; separately earned absence needs no unlink | Any uncertain effect seals the original scope. After death a fresh invocation requalifies socket-present or socket-absent plus authenticated Aborted; no copied FD custody |
 | `TransactionCompleted` | Continue SAME engine through `retire_native_aborted`/`retire_native_terminal`, using retained terminal bytes and original members; earn native completion once | Partial receipt/stage/closure retirement remains fenced/unsupported in this first cut; do not call generic cleanup or mark whole 0.9.9 done |
-| `DispositionDurable` | Existing positive completion/disposition publishes and fsyncs immutable history, verifies no pending active fences, and independently verifies OLD/Off | Recognize a durable completed result without replaying Abort. Partial disposition remains fenced until its explicit recovery row exists |
+| `DispositionDurable` | Existing positive completion/disposition publishes and fsyncs immutable history, verifies no pending active fences, and independently verifies OLD/Off | Recognize a durable completed result without replaying Abort. Partial disposition is unsupported in this first cut; after history rename there may be no active presence fence. Never infer completed durability or replay Abort from that absence |
 | `StartableReleased` | NEW consuming boundary proves ordinary startup admits the durable state, all owned activity is Off, and releases ONLY known-completed fresh resources; it is not `dispose_and_transfer_completed`'s in-process transfer alone | Original availability is not inferred from release. A lost release outcome is unknown; no drop-to-success or guessed second owner |
 | `OwnedOffAvailable` | After that boundary, one fixed normal Start and independent fresh instance/owned-Off + pair/Desired/history readback | Start failure means configuration recovered but runtime unavailable. Never replay rollback or autoconnect; startup has its own explicit retry rules |
 
@@ -191,9 +193,10 @@ request fixed normal Start. Pending/nonfatal-failed resources stay retained;
 fatal death never promises their FD survival. No general new startup bypass,
 login receipt fabrication, generation reset or carried authority token is added.
 
-Before runtime edits, primary/coordinator and Astra must agree this graph,
-cooperative ownership assumption, fixed stop/start authority and exact
-completed-release semantics. Minimal owning changes include
+Primary/coordinator agreed this graph after independent design review. SOURCE
+review must separately examine actual reached acquisition, timeout, child-loss,
+release and startup paths; design approval is not implementation clearance.
+Minimal owning changes include
 `manager_actor_stage/native.rs` for SAME-engine progression/endpoint transition,
 `native_coordinator/restore_native_recovery.rs` for one consumer/release,
 and new fixed CLI/stopped-service modules. `product_scope.rs`/producer remain
