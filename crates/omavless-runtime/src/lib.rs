@@ -103,6 +103,7 @@ pub mod long_operation;
 pub mod long_operation_protocol;
 mod managed_pair;
 pub mod managed_selection;
+mod managed_template;
 #[cfg(feature = "t4-manager-actor-service")]
 pub mod manager_actor_service;
 pub mod mutation;

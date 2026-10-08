@@ -95,6 +95,22 @@ committed frontend against the common package source. Immutable asset delivery
 and clean guided acceptance are separate gates;
 an offline caller-supplied hash is not release authenticity.
 
+## Selected-host rendering of portable policy
+
+The RC follow-up applies local managed-DNS flags to the **rendered copy** of an
+exact bundled default/China/Iran template, including its canonical three mode
+variants, only after the normal selected package verification. Routing-preset
+selection and a portable Restore may legitimately store the ordinary bundle;
+its missing local flags must not make subsequent Connect fail before core
+startup. The saved template, archive and private pair remain unchanged.
+
+Existing explicit managed policies retain their previously accepted bytes.
+Custom unmarked, partial, false or malformed flag policies are not repaired or
+silently interpreted. No fallback, enrollment, unit enablement, TUN privilege or
+broker authority follows from these DATA flags. Existing package, owner,
+controller/core validation and broker admission remain required. This correction
+does not close deferred AUTO-1 or interrupted-Restore recovery.
+
 ## Replacement, removal and firewall
 
 The companion's fail-closed ALPM PreTransaction guard must remain effective
