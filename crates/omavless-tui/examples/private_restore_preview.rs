@@ -38,6 +38,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 | "denied"
                 | "settings"
                 | "settings-end"
+                | "settings-connected"
+                | "settings-connected-refused"
+                | "settings-stale"
+                | "settings-recovery"
+                | "settings-capability"
+                | "settings-busy"
                 | "cancelled-preview-waiting"
         )
     {
@@ -60,19 +66,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.backup_enabled = true;
     let mut s=load_page(&mut|read|{
         let mut v=support::response(read);
-        match read {Read::Snapshot=>{v["result"]["desired"]["connected"]=false.into();v["result"]["desired"]["profileId"]="".into();v["result"]["lastKnownActual"]="disconnected".into();},
-            Read::Observation=>{v["result"]["desired"]["connected"]=false.into();v["result"]["lastKnownActual"]="disconnected".into();v["result"]["facts"]=json!({"ownedCoreRunning":false,"visibleMihomoCount":0,"ownedAuxiliaryMihomoCount":0,"visibleTunCount":0,"managedTunCount":0,"ownedControllerConfigVerified":false,"desiredProfileMatchesOwned":false});},_=>()};Ok(v)
+        match read {Read::Snapshot if !args[2].starts_with("settings-connected")=>{v["result"]["desired"]["connected"]=false.into();v["result"]["desired"]["profileId"]="".into();v["result"]["lastKnownActual"]="disconnected".into();},
+            Read::Observation if !args[2].starts_with("settings-connected")=>{v["result"]["desired"]["connected"]=false.into();v["result"]["lastKnownActual"]="disconnected".into();v["result"]["facts"]=json!({"ownedCoreRunning":false,"visibleMihomoCount":0,"ownedAuxiliaryMihomoCount":0,"visibleTunCount":0,"managedTunCount":0,"ownedControllerConfigVerified":false,"desiredProfileMatchesOwned":false});},_=>()};Ok(v)
     },Page::Settings).unwrap();
     s.capabilities.private_restore = true;
     s.capabilities.private_backup = true;
+    s.actions_available = true;
     app.accept(Ok(s), now);
+    match args[2].as_str() {
+        "settings-stale" => app.accept(Err(ReadError::Unavailable), now),
+        "settings-recovery" => {
+            let s = app.snapshot.as_mut().unwrap();
+            s.metadata.last_known_actual = omavless_tui::model::Actual::ManualRecoveryRequired;
+            s.observation.manual_recovery_required = true;
+        }
+        "settings-capability" => {
+            app.snapshot.as_mut().unwrap().capabilities.private_restore = false
+        }
+        "settings-busy" => app.running = true,
+        _ => (),
+    }
     let press = |app: &mut App, k| app.key_at(KeyEvent::new(k, KeyModifiers::NONE), now);
     press(&mut app, KeyCode::Char(','));
-    if args[2] == "settings-end" {
+    if args[2].starts_with("settings-") {
         press(&mut app, KeyCode::End);
         view::clamp_scroll(&mut app, w, h, now);
     }
-    if !matches!(args[2].as_str(), "settings" | "settings-end") {
+    if args[2] == "settings-connected-refused" {
+        press(&mut app, KeyCode::Char('R'));
+    }
+    if !args[2].starts_with("settings") {
         press(&mut app, KeyCode::Char('R'));
         let path = if args[2] == "confirming-long" {
             format!("/private/{}.ovb", "x".repeat(147))

@@ -22,6 +22,41 @@ whole T4 or add connected Restore, OS recovery, K1, App proxy or a GUI.
 
 ## User decision and real entry
 
+### Frontier client readiness guidance, 2026-10-08
+
+The separate `dev/t4-restore-readiness` successor starts from RC source
+`383cb8052ca02bb03cf867e44a80cee1a6e8122c` plus test-scratch prerequisite #719
+`f6a9dde5c8616aa5042319234897ccbb97d7d5ef`. It changes only client presentation
+and the Settings entry to the existing Disconnect confirmation. It does not
+integrate into RC, activate another runtime feature or change the backend API.
+
+Settings explains the finite currently observed obstacle: stale/unavailable
+state, missing capability, a known running operation/transition, unresolved
+outcome, recovery, unverified Off state or insufficient terminal size. An
+unanswered operation is not falsely described as a confirmed failure; a known
+pending Backup/job differs from its unknown outcome. These are UI facts, not
+proof of current-origin admission or permissions to repair a runtime.
+
+For fresh verified Connected state with both Restore capability and the existing
+Disconnect action admission, `d` opens the SAME normal Disconnect confirmation.
+There is no disconnect command before a separate confirmation, and Cancel
+does nothing. After successful Disconnect, wait for a fresh verified Off
+observation, then explicitly press `R` to open a NEW empty editor. Never
+automatically open Preview/Restore or preserve archive credentials through this
+transition. Unknown outcomes, retained Backup/Restore workers, stale metadata,
+field input, held keys and existing modal priorities keep their current fences.
+Stable builds without the client adapter do not gain this shortcut.
+
+Acceptance is scoped to the client: finite-reason/old-admission-equivalence,
+explicit Disconnect/Cancel, fresh-Off/separate-entry, no unknown reset, worker
+and input-priority tests; EN/RU synthetic rendering at 70x24 and resize-only
+50x14; full affected TUI configurations and strict lint. Those checks are not a
+real disconnect/Restore, runtime crash recovery or installed acceptance. The
+remaining short VM card is normal Open app while connected → Settings → inspect
+reason → d/Cancel unchanged → d/Confirm → fresh owned Off → manually R/new empty
+editor → Cancel unchanged, in both locales. The current RC writer retains sole
+VM control; this successor performs no VM/host/network operation.
+
 The user wants to replace current profiles/subscriptions and the supported
 routing template with an authenticated archive. The primary action first asks
 the runtime for Preview; a separate explicit confirmation requests Restore.
