@@ -5,6 +5,7 @@ pub mod activity;
 pub mod app;
 pub mod browsing;
 pub mod client;
+pub mod connection_browsing;
 #[cfg(feature = "developer-conditional-close")]
 pub mod developer_close;
 pub mod i18n;
