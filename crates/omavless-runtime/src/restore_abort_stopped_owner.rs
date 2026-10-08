@@ -1318,7 +1318,7 @@ impl RecoveredStartLifetime {
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) struct RecoveredRuntimeStart {
     uid: u32,
-    queries: Option<OldRecoveryQueries>,
+    queries: Option<Box<OldRecoveryQueries>>,
     lifetime: RecoveredStartLifetime,
 }
 
@@ -1333,12 +1333,12 @@ impl RecoveredRuntimeStart {
         }
         Ok(Self {
             uid,
-            queries: Some(OldRecoveryQueries {
+            queries: Some(Box::new(OldRecoveryQueries {
                 tool: TrustedExecutable::capture("/usr/bin/systemctl")?,
                 child: RefCell::new(None),
                 configuration: RefCell::new(None),
                 refused: Cell::new(false),
-            }),
+            })),
             lifetime: RecoveredStartLifetime::default(),
         })
     }
@@ -1376,7 +1376,7 @@ impl Drop for RecoveredRuntimeStart {
             // Retain this original trusted tool and exact Child/stdout without
             // guessed reaping or signalling. Fatal process loss is unavailable,
             // not descriptor survival. The global slot prevents replacement.
-            std::mem::forget(original);
+            let _ = Box::leak(original);
         }
     }
 }
