@@ -68,7 +68,8 @@ pub(crate) struct NativeOldRecoveryQuiescence {
 
 impl NativeOldRecoveryQuiescence {
     /// Called after the parent's existing Migration acquisition, before engine
-    /// staging. Only original observation is captured here; Stop is not issued.
+    /// staging. Reserve fixed tool/path custody only; no subprocess or process
+    /// capture occurs until this guard is installed and qualification begins.
     pub(crate) fn prepare(
         paths: &CutoverPaths,
         uid: u32,

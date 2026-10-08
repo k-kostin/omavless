@@ -1265,8 +1265,10 @@ impl OldRecoveryQueries {
 /// The coordinator keeps this in its original recovery custody on uncertainty.
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) struct OldRecoveryOwner {
-    owner: StoppedOwner,
+    owner: Option<StoppedOwner>,
     queries: OldRecoveryQueries,
+    uid: u32,
+    socket: std::path::PathBuf,
     attempted: bool,
     qualified: bool,
 }
@@ -1274,58 +1276,75 @@ pub(crate) struct OldRecoveryOwner {
 #[cfg(feature = "t4-manager-actor-service")]
 impl OldRecoveryOwner {
     pub(crate) fn prepare(uid: u32, socket: &Path) -> Result<Self> {
-        let owner = StoppedOwner::capture_inner(
-            uid,
-            socket,
-            SelfInvocation::OldRecovery,
-            #[cfg(test)]
-            None,
-        )?;
+        // Reserve original command custody without a process query/capture.
+        // The caller installs this guard before qualification can spawn a child.
+        listener_paths(uid, socket)?;
         Ok(Self {
-            owner,
+            owner: None,
             queries: OldRecoveryQueries {
                 tool: TrustedExecutable::capture("/usr/bin/systemctl")?,
                 child: RefCell::new(None),
                 configuration: RefCell::new(None),
                 refused: Cell::new(false),
             },
+            uid,
+            socket: socket.to_owned(),
             attempted: false,
             qualified: false,
         })
     }
 
     pub(crate) fn stop_and_qualify(&mut self) -> Result<()> {
-        if self.attempted || self.owner.refused.get() || self.queries.refused.get() {
-            self.owner.refused.set(true);
+        if self.attempted || self.queries.refused.get() {
+            if let Some(owner) = &self.owner {
+                owner.refused.set(true);
+            }
             return Err(());
         }
         self.attempted = true;
-        let result = qualify_lost_owner(
-            // Reuse the complete original observation BEFORE Stop: all daemon
-            // candidates, canonical listeners and live legacy operations must
-            // be absent. Only runtime failed/queued-restart state is permitted.
-            || self.owner.observe_inner(Some(&self.queries), false),
-            || {
-                let mut budget = Budget::new();
-                let stopped = self.queries.run(
-                    FixedRecoveryCommand::StopRuntime,
-                    self.owner.uid,
-                    &mut budget,
-                )?;
-                if stopped.is_empty() { Ok(()) } else { Err(()) }
-            },
-            || self.owner.observe_inner(Some(&self.queries), true),
-        );
-        self.owner.refused.set(result.is_err());
+        let result = (|| {
+            // Qualification already holds the SAME migration and singleton
+            // locks. Initial manager query uses original retained Queries, so
+            // capture failure cannot drop an unknown local Child.
+            self.owner = Some(StoppedOwner::capture_inner(
+                self.uid,
+                &self.socket,
+                SelfInvocation::OldRecovery,
+                Some(&self.queries),
+                #[cfg(test)]
+                None,
+            )?);
+            let owner = self.owner.as_ref().ok_or(())?;
+            qualify_lost_owner(
+                // Reuse the complete original observation BEFORE Stop: all daemon
+                // candidates, canonical listeners and live legacy operations must
+                // be absent. Only runtime failed/queued-restart state is permitted.
+                || owner.observe_inner(Some(&self.queries), false),
+                || {
+                    let mut budget = Budget::new();
+                    let stopped = self.queries.run(
+                        FixedRecoveryCommand::StopRuntime,
+                        owner.uid,
+                        &mut budget,
+                    )?;
+                    if stopped.is_empty() { Ok(()) } else { Err(()) }
+                },
+                || owner.observe_inner(Some(&self.queries), true),
+            )
+        })();
+        if let Some(owner) = &self.owner {
+            owner.refused.set(result.is_err());
+        }
         self.qualified = result.is_ok();
         result
     }
 
     pub(crate) fn recheck(&self) -> Result<()> {
+        let owner = self.owner.as_ref().ok_or(())?;
         if !self.qualified
             || self.queries.refused.get()
-            || !checked_once(&self.owner.refused, || {
-                self.owner.observe_inner(Some(&self.queries), true)
+            || !checked_once(&owner.refused, || {
+                owner.observe_inner(Some(&self.queries), true)
             })
         {
             return Err(());
@@ -1424,6 +1443,7 @@ impl StoppedOwner {
             uid,
             socket,
             SelfInvocation::Recovery,
+            None,
             #[cfg(test)]
             None,
         )
@@ -1431,15 +1451,20 @@ impl StoppedOwner {
 
     #[cfg(test)]
     pub(super) fn capture_for_diagnostic(uid: u32, socket: &Path) -> Result<Self> {
-        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic, None)
+        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic, None, None)
     }
 
     fn capture_inner(
         uid: u32,
         socket: &Path,
         invocation: SelfInvocation,
+        old_queries: Option<&OldRecoveryQueries>,
         #[cfg(test)] retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
     ) -> Result<Self> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if matches!(invocation, SelfInvocation::OldRecovery) != old_queries.is_some() {
+            return Err(());
+        }
         checkpoint!(ProcRoot);
         let listeners = listener_paths(uid, socket)?;
         let root = File::from(
@@ -1480,9 +1505,16 @@ impl StoppedOwner {
             namespaces.push((name, file, metadata));
         }
         checkpoint!(ManagerQuery);
-        let reply = query(uid, &format!("user@{uid}.service"), true, &mut budget)?;
+        let reply = match old_queries {
+            Some(queries) => queries.run(FixedRecoveryCommand::Manager, uid, &mut budget)?,
+            None => query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
+        };
         checkpoint!(ManagerRecord);
-        let pid = service_record(&reply, true)?;
+        let pid = if old_queries.is_some() {
+            recovery_manager_record(&reply)?
+        } else {
+            service_record(&reply, true)?
+        };
         checkpoint!(ManagerProcess);
         let manager = Process::capture_inner(
             &root,
@@ -1515,8 +1547,9 @@ impl StoppedOwner {
         };
         #[cfg(feature = "t4-manager-actor-service")]
         if matches!(invocation, SelfInvocation::OldRecovery) {
-            // Original manager/namespace custody is prepared before the engine
-            // takes singleton exclusivity. This path never issues Stop here.
+            // Original manager/namespace capture is inside already installed
+            // recovery custody and after engine singleton exclusivity. This
+            // capture path itself never issues Stop.
             observer.namespace_boundary(&mut budget)?;
             observer.manager.recheck(&observer.root, &mut budget)?;
             observer.myself.recheck(&observer.root, &mut budget)?;
