@@ -10,7 +10,7 @@ use crate::manager_actor_service::NativeStageView;
 use crate::native_coordinator::NativeFirstError;
 use crate::restore_abort_cli::stopped_owner::OldRecoveryOwner;
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 type Result<T> = std::result::Result<T, NativeFirstError>;
@@ -74,7 +74,7 @@ impl NativeOldRecoveryQuiescence {
         uid: u32,
         lock: Arc<OnceLock<MigrationLock>>,
     ) -> Result<Self> {
-        if paths.runtime_base != PathBuf::from(format!("/run/user/{uid}"))
+        if paths.runtime_base != Path::new(&format!("/run/user/{uid}"))
             || !lock.get().is_some_and(|held| held.authorizes(paths, uid))
         {
             return Err(NativeFirstError::Admission);
