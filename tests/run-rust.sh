@@ -56,6 +56,12 @@ cargo clippy --locked -p omavless-runtime --all-targets --features t4-manager-ac
 cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service normal_pair
 cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service backup_tui_
 cargo test --locked -p omavless-runtime --lib --features t4-manager-actor-service restore_tui_
+# Public 0.9.8 narrows this research implementation to Backup. Retain full
+# T4-only Restore/fence tests above and check the product restriction separately.
+cargo test --locked -p omavless-runtime --features product-private-backup --lib product_scope
+cargo test --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_
+cargo clippy --locked -p omavless-runtime --all-targets --features product-private-backup -- -D warnings
+cargo test --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness product_scope
 # Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
 # Run ordinary synthetic/private-file tests only; all VM/resource gates stay ignored.
 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service

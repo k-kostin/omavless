@@ -51,6 +51,9 @@ pub(crate) fn abort_first_restore_current(
     passphrase: &[u8],
     admitted: impl Fn() -> bool,
 ) -> Result<(), ProductionOwnerError> {
+    if crate::product_scope::backup_only() {
+        return Err(ProductionOwnerError::OwnershipUnavailable);
+    }
     first_abort::current_checked(source, passphrase, admitted)
 }
 
@@ -174,6 +177,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         request: &crate::private_pair_api::PreviewRequest,
     ) -> Result<(usize, usize, [u8; 32]), omavless_control_protocol::StableErrorCode> {
         use omavless_control_protocol::StableErrorCode;
+        if crate::product_scope::backup_only() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
         if request.revision() != self.revision() {
             return Err(StableErrorCode::Conflict);
         }
@@ -199,6 +205,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
     {
         use omavless_control_protocol::StableErrorCode;
+        if crate::product_scope::backup_only() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
         let origin = self
             .current_origin
             .as_ref()
@@ -246,6 +255,10 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
     {
         use omavless_control_protocol::StableErrorCode;
+        if action == crate::private_pair_api::Action::Restore && crate::product_scope::backup_only()
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
         let origin = self
             .current_origin
             .as_ref()
@@ -301,6 +314,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &crate::developer_current_restore::AbortRequest,
     ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
         let original = self
             .current_origin
             .as_ref()
@@ -342,6 +358,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &crate::developer_current_restore::Request,
     ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
         let original = self
             .current_origin
             .as_ref()

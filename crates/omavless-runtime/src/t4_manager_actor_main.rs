@@ -4,6 +4,9 @@
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    if omavless_runtime::product_scope::backup_only() {
+        return ExitCode::FAILURE;
+    }
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     let result = if arguments == ["--actor"] {
         omavless_runtime::manager_actor_service::actor_entry()

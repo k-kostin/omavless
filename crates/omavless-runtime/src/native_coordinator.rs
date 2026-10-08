@@ -793,6 +793,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         digest: crate::mutation::MutationDigest,
         expected: Option<&[u8; 32]>,
     ) -> Result<crate::mutation::CachedOutcome, NativeOwnerError> {
+        if action == crate::private_pair_api::Action::Restore
+            && !crate::product_scope::restore_enabled()
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
         // Historical result data first, never an engine invocation or grant.
         if let Some(result) = self
             .coordinator

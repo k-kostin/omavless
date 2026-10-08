@@ -191,6 +191,13 @@ Delegation is optional when coordination would cost more than the task.
 
 ## 8. Checkpoints, branches and session completion
 
+For a feature that replaces persistent user data, earn one real loss-of-owner
+and supported recovery-to-ordinary-availability result before selecting public
+RC scope. A happy path and a same-live-holder Abort do not close that gate.
+If unavailable, record the release decision explicitly and enforce exclusion
+in the trusted producer/runtime, not just hidden client controls. Preserve the
+research feature and its failed evidence for the owning next milestone.
+
 Continue existing feature PRs; create a new PR for an independently reviewable
 change, not every diagnostic token or formatting step. Reuse known-good tooling
 and explain supersession without deleting useful historical evidence.
@@ -203,6 +210,14 @@ because several steps ran, and do not fabricate closure to avoid a blocker.
 New scope needs its own applicable owner direction.
 
 ## 9. Lightweight orchestration retrospectives
+
+For delayed lifecycle actions, read the actual grace/deadline and hold the
+trigger beyond it before observing the intended outcome. A rapid disable/enable
+cycle proves cancellation during grace, not sustained-disable behavior. For
+wire fixtures, close the responding peer after its original response and bound
+the client read; an EOF-waiting test must not hang indefinitely or be mistaken
+for a product deadlock. Keep the first incomplete result separate from the
+corrected test, and do not use completion markers as state proof.
 
 The primary agent reassesses the working process at a meaningful integration
 checkpoint, after the same bottleneck recurs, or approximately every two to

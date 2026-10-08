@@ -6,8 +6,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Owner release decision, 2026-10-08:** public 0.9.8 is **Backup-only**.
+  Trusted product scope restricts capabilities, RPC, CLI and developer actor
+  entries; full Restore remains in development. Preserve old pending/history
+  fences. **Usable Restore plus explicit interrupted/fatal recovery is mandatory
+  for 0.9.9.** Older positive/negative evidence is retained, not relabeled PASS.
+  The new restriction has its own exact-source package and installed gates.
+
 - **0.9.8 internal RC scope freeze:** `rc/0.9.8`, source `0.9.8-rc.1`, selects
-  normal-entry Backup/Restore, corrected explicit application relaunch and ARM64
+  normal-entry Backup (Restore excluded by the decision above), corrected
+  explicit application relaunch and ARM64
   link-count portability on the beta.4 maintenance base. The
   [RC ledger](../development/RC_098.md) retains exact inputs, original failed
   installed readiness and remaining candidate/package/host gates. Exact
@@ -26,8 +34,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   Restore, controlled same-intent Abort, connected modes and actual sustained
   disable → re-enable → Start; initial evidence is not rewritten. It is
   agent-operated, not ARM-installed, whole T4 or public provisioning acceptance.
-  Arbitrary lost-owner Restore recovery remains a release-blocking product
-  requirement, not an ARM/operator checkbox. Pins are
+  Lost-owner Restore recovery is mandatory for 0.9.9, not an ARM/operator
+  checkbox. Pins are
   empty; main, immutable releases and Marketplace are unchanged. This is not
   accepted/public RC or whole T3/T4 completion.
 
