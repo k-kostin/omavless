@@ -26,4 +26,10 @@ function canRunAction(facts, action) {
     || (facts.state === "needs_broker_stopped" && facts.coreInstalled === true && action === "restore-enrollment"))
 }
 function needsAttention(facts) { return facts.state !== "ready" || facts.coreInstalled !== true }
-if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, appMissing:appMissing, missingAction:missingAction, canRunAction:canRunAction, needsAttention:needsAttention}
+function bootstrapRequired(facts, nativeOwner, hasSnapshot, actionRunning, pending, outcomeUnknown) {
+  if (facts.state === "ready") return false
+  var stopped = (facts.state === "needs_runtime_start" || facts.state === "needs_broker_stopped")
+    && !actionRunning && !pending && !outcomeUnknown
+  return appMissing(facts) || !nativeOwner || !hasSnapshot || stopped
+}
+if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, appMissing:appMissing, missingAction:missingAction, canRunAction:canRunAction, needsAttention:needsAttention, bootstrapRequired:bootstrapRequired}

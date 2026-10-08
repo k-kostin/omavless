@@ -13,6 +13,7 @@ import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "NativePresentation.js" as NativePresentation
+import "SetupState.js" as SetupState
 
 Panel {
   id: root
@@ -56,8 +57,11 @@ Panel {
   // app or absent parsed snapshot must show the setup shell, not stale VPN
   // controls. An existing parsed owner keeps its explicit recovery actions
   // when a companion or selection needs attention.
-  readonly property bool bootstrapRequired: setupPage.state !== "ready"
-    && (setupPage.appMissing || !vless.nativeOwner || !vless.nativeSnapshot)
+  // A prior parsed snapshot is historical DATA after an independently proved
+  // stopped state. Do not leave its failed poll looking like a broken VPN.
+  readonly property bool bootstrapRequired: SetupState.bootstrapRequired(
+    setupPage.facts, vless.nativeOwner, vless.nativeSnapshot !== null,
+    vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown)
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
   property string page: "main"
@@ -1610,6 +1614,10 @@ Panel {
 
   Connections {
     target: vless
+    function onStatusFailureCountChanged() {
+      // Read-only inventory only; never start/reinstall/clear uncertain work.
+      if (root.opened && vless.statusFailureCount > 0) setupPage.check()
+    }
     function onNativeExportPickerFinished() {
       root.open()
       if (vless.nativeFileExportKind === "report") root.openSettings()
