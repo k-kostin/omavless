@@ -752,6 +752,7 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
             .scan_catalogue(Slot::State, Some(1), &[], until)
             .unwrap();
         engine.catalogues_captured = true;
+        engine.old_recovery_completion = true; // selected lower fixture mode, not a production grant
         let mut origin = LocalQuiescence {
             live_listener: socket.is_some(),
             paths: crate::desired::DesiredPaths {
@@ -853,6 +854,11 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         if positive {
             assert!(engine.recovery_endpoint == RecoveryEndpoint::SocketAbsent);
             assert!(
+                engine
+                    .completed_history_data_inner(&mut origin, until)
+                    .is_err()
+            );
+            assert!(
                 reached
                     .iter()
                     .position(|step| *step == NativeStep::EndpointRetired)
@@ -875,6 +881,18 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
             assert!(!crate::pending_private_transaction::pending_at(&state));
             assert!(fs::symlink_metadata(singleton.join(crate::SOCKET_NAME)).is_err());
             assert!(fs::symlink_metadata(state.join(NATIVE_HISTORY)).is_ok());
+            let (member, history) = engine
+                .completed_history_data_inner(&mut origin, until)
+                .unwrap();
+            assert_eq!(member, NATIVE_HISTORY);
+            assert_eq!(history.as_slice(), fs::read(state.join(member)).unwrap());
+            fs::rename(state.join(member), state.join("displaced-history")).unwrap();
+            drop(write(&state.join(member), &history));
+            assert!(
+                engine
+                    .completed_history_data_inner(&mut origin, until)
+                    .is_err()
+            );
         } else {
             if matches!(case, "full-history" | "live-listener") {
                 assert!(!state.join(TERMINAL).exists());
@@ -3811,6 +3829,72 @@ impl NativeEngine {
             self.revoke_native();
         }
         result
+    }
+
+    /// Private immutable readback DATA for an independent post-Start comparison.
+    /// This fixed member/byte tuple grants no admission, replay or effect.
+    pub(crate) fn completed_history_data(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<
+        (
+            &'static str,
+            [u8; crate::restore_disposition_complete_model::COMPLETE_BYTES],
+        ),
+        FirstError,
+    > {
+        let until = Instant::now() + std::time::Duration::from_secs(15);
+        let result = self.completed_history_data_inner(
+            &mut NativeRecoveryGate {
+                origin,
+                quiescence: Some(quiescence),
+            },
+            until,
+        );
+        if result.is_err() {
+            self.revoke_native();
+        }
+        result
+    }
+
+    fn completed_history_data_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        until: Instant,
+    ) -> Result<
+        (
+            &'static str,
+            [u8; crate::restore_disposition_complete_model::COMPLETE_BYTES],
+        ),
+        FirstError,
+    > {
+        if !self.old_recovery_completion
+            || !self.disposition_ready()
+            || self.recovery_endpoint != RecoveryEndpoint::SocketAbsent
+        {
+            return Err(FirstError::StillFenced);
+        }
+        self.check_native_completed_inner(origin, until)?;
+        let member = self.audit.target().map_err(|_| FirstError::StillFenced)?;
+        let mut bytes = [0; crate::restore_disposition_complete_model::COMPLETE_BYTES];
+        let original = self
+            .lower
+            .io
+            .original(Slot::Scratch1)
+            .map_err(|_| FirstError::StillFenced)?;
+        tick(until).map_err(|_| FirstError::StillFenced)?;
+        original
+            .read_exact_at(&mut bytes, 0)
+            .map_err(|_| FirstError::StillFenced)?;
+        tick(until).map_err(|_| FirstError::StillFenced)?;
+        if self.expected[Slot::Scratch1 as usize]
+            != Some((bytes.len(), Sha256::digest(bytes).into()))
+        {
+            return Err(FirstError::StillFenced);
+        }
+        self.check_native_completed_inner(origin, until)?;
+        Ok((member, bytes))
     }
 
     /// Consumes only this engine's positive completion, never decoded history.
