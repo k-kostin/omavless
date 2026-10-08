@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 mod first_execution;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::FirstError as NativeFirstError;
-#[cfg(all(test, feature = "t4-manager-actor-service"))]
+#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use first_execution::HeldExecutionSlot;

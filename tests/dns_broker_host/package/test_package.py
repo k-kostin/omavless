@@ -114,6 +114,108 @@ class PackageTests(unittest.TestCase):
                 with self.assertRaises(stage.Refused):
                     build_pair.qualified_tmpdir({"HOME":"/home/test","TMPDIR":"/home/test/t"})
 
+    def builder_compiler_calls(self, flavor, tmpdir):
+        """Exercise the real builder/command wiring, without running compilers."""
+        from types import SimpleNamespace
+
+        class BrokerReached(Exception):
+            pass
+
+        def export(repository, revision, destination, public_diagnostics=False):
+            destination.mkdir()
+
+        def run(arguments, **options):
+            if arguments[:3] == ["/usr/bin/git", "mod", "vendor"]:
+                vendor = options["cwd"] / "vendor"
+                vendor.mkdir()
+                (vendor / "modules.txt").write_bytes(b"public module fixture")
+            if arguments[:2] == ["/usr/bin/git", "build"]:
+                Path(arguments[arguments.index("-o") + 1]).write_bytes(b"public ELF fixture")
+            if arguments[:3] == ["/usr/bin/git", "version", "-m"]:
+                return SimpleNamespace(returncode=0, stderr=b"", stdout=
+                    b"path\tgithub.com/metacubex/mihomo\n-tags=with_gvisor\nCGO_ENABLED=0\n")
+            if arguments[:2] == ["/usr/bin/cargo", "build"]:
+                raise BrokerReached
+            return SimpleNamespace(returncode=0, stderr=b"", stdout=b"")
+
+        environ = dict(os.environ)
+        environ.pop("TMPDIR", None)
+        if tmpdir is not None:
+            environ["TMPDIR"] = tmpdir
+        with mock.patch.dict(os.environ, environ, clear=True), \
+                mock.patch.object(build_pair, "qualified_tmpdir", return_value=tmpdir) as qualify, \
+                mock.patch.object(stage, "outside_git_destination", side_effect=lambda p: Path(p)), \
+                mock.patch.object(build_pair.os, "uname", return_value=SimpleNamespace(sysname="Linux", machine="x86_64")), \
+                mock.patch.object(build_pair, "git_value", side_effect=lambda r, *a: "a" * 40 if a[0] == "rev-parse" else ""), \
+                mock.patch.object(build_pair, "reviewed_go", return_value="go version go1.27.0 linux/amd64"), \
+                mock.patch.object(build_pair, "digest", side_effect=lambda p: stage.CLOSE_PATCHES[p.name]), \
+                mock.patch.object(build_pair, "export_git", side_effect=export), \
+                mock.patch.object(build_pair, "conditional_tests_completed"), \
+                mock.patch.object(build_pair.subprocess, "run", side_effect=run) as subprocess_run:
+            with self.assertRaises(BrokerReached):
+                build_pair.build(self.root, self.root, "/usr/bin/git", "x86_64",
+                                 self.root / "new-pair", flavor)
+        calls = subprocess_run.call_args_list
+        go = [call for call in calls if call.args[0][:2] in (
+            ["/usr/bin/git", "mod"], ["/usr/bin/git", "test"], ["/usr/bin/git", "build"])]
+        cargo = [call for call in calls if call.args[0][:2] == ["/usr/bin/cargo", "build"]]
+        self.assertGreaterEqual(len(go), 4)
+        self.assertEqual(len(cargo), 1)
+        self.assertEqual(qualify.call_count, int(flavor == "release-close" or (
+            flavor == "release" and tmpdir is not None)))
+        return go, cargo[0]
+
+    def test_release_explicit_home_tmpdir_reaches_actual_go_and_cargo_calls(self):
+        tmpdir = str(Path(os.environ["HOME"]) / "t")
+        go, cargo = self.builder_compiler_calls("release", tmpdir)
+        for call in go:
+            env = call.kwargs["env"]
+            self.assertEqual(env["TMPDIR"], tmpdir)
+            self.assertEqual(env["GOMAXPROCS"], "2")
+            self.assertEqual(env["HOME"], os.environ["HOME"])
+            self.assertEqual(env["GOPROXY"], "off")
+        env = cargo.kwargs["env"]
+        self.assertEqual(env["TMPDIR"], tmpdir)
+        self.assertEqual(env["CARGO_BUILD_JOBS"], "2")
+        self.assertEqual(env["CARGO_INCREMENTAL"], "0")
+        self.assertEqual(env["HOME"], os.environ["HOME"])
+        self.assertEqual(cargo.args[0][-2:], ["--features", "release-package"])
+        self.assertNotEqual(Path(env["CARGO_TARGET_DIR"]), build_pair.REPO / "target")
+
+    def test_release_absent_tmpdir_and_other_flavors_keep_existing_environments(self):
+        tmpdir = str(Path(os.environ["HOME"]) / "t")
+        for flavor, supplied in (("release", None), ("experimental", tmpdir), ("release-close", tmpdir)):
+            with self.subTest(flavor=flavor):
+                go, cargo = self.builder_compiler_calls(flavor, supplied)
+                for call in go:
+                    env = call.kwargs["env"]
+                    if flavor == "release-close":
+                        self.assertEqual(env["TMPDIR"], tmpdir)
+                        self.assertEqual(env["GOMAXPROCS"], "4")
+                        self.assertEqual(env["GOENV"], "off")
+                    else:
+                        self.assertNotIn("TMPDIR", env)
+                        self.assertNotIn("GOMAXPROCS", env)
+                env = cargo.kwargs["env"]
+                if flavor == "release-close":
+                    self.assertEqual(env["TMPDIR"], tmpdir)
+                    self.assertEqual(env["CARGO_BUILD_JOBS"], "4")
+                else:
+                    self.assertNotIn("TMPDIR", env)
+                    self.assertNotIn("CARGO_BUILD_JOBS", env)
+                self.assertNotIn("CARGO_INCREMENTAL", env)
+
+    def test_release_unsafe_explicit_tmpdir_refuses_before_any_source_or_subprocess(self):
+        for tmpdir in ("", "/tmp/refused", "relative", os.environ["HOME"] + "/extra/t"):
+            with self.subTest(tmpdir=tmpdir), mock.patch.dict(os.environ, {"TMPDIR": tmpdir}), \
+                    mock.patch.object(build_pair.subprocess, "run") as run, \
+                    mock.patch.object(build_pair, "export_git") as export:
+                with self.assertRaises(stage.Refused):
+                    build_pair.build(self.root, self.root, "/usr/bin/git", "x86_64",
+                                     self.root / "new-pair", "release")
+                run.assert_not_called()
+                export.assert_not_called()
+
     def test_distinct_close_pair_mode_never_promotes_legacy_dns_receipt(self):
         path = self.pair / "source-receipt.json"
         receipt = json.loads(path.read_text())

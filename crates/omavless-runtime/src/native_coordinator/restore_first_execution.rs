@@ -22,7 +22,7 @@ pub(crate) use retained::HeldExecutionSlot;
 #[cfg(feature = "t4-manager-actor-service")]
 #[path = "restore_native_recovery.rs"]
 mod native_recovery;
-#[cfg(all(test, feature = "t4-manager-actor-service"))]
+#[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use native_recovery::FreshRecovery;
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use native_recovery::{
