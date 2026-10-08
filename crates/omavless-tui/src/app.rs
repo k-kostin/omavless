@@ -102,6 +102,41 @@ pub enum Action {
     Submit,
 }
 
+/// Presentation of existing admission facts, never a runtime authorization.
+#[cfg(feature = "private-backup")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestoreReadiness {
+    Ready,
+    Disabled,
+    Resize,
+    Unresolved,
+    Busy,
+    Stale,
+    CapabilityMissing,
+    Transition,
+    Recovery,
+    DisconnectFirst,
+    Unverified,
+}
+#[cfg(feature = "private-backup")]
+impl RestoreReadiness {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Ready => "tui.restore_entry",
+            Self::Disabled => "tui.restore_unavailable",
+            Self::Resize => "tui.restore_resize",
+            Self::Unresolved => "tui.restore_unresolved",
+            Self::Busy => "tui.restore_wait",
+            Self::Stale => "tui.restore_fresh_required",
+            Self::CapabilityMissing => "tui.restore_capability_missing",
+            Self::Transition => "tui.restore_transition",
+            Self::Recovery => "tui.restore_recovery",
+            Self::DisconnectFirst => "tui.restore_disconnect_first",
+            Self::Unverified => "tui.restore_state_unverified",
+        }
+    }
+}
+
 impl App {
     /// Discard a completed page read after navigation/selection moved. In
     /// particular, a late private Connections reply must not re-enter the
@@ -318,6 +353,8 @@ impl App {
                 self.error = Some(error);
             }
         }
+        #[cfg(feature = "private-backup")]
+        self.refresh_restore_advice(started);
     }
     pub fn fresh(&self, now: Instant) -> bool {
         self.sampled_at
@@ -588,17 +625,30 @@ impl App {
                 return Action::None;
             }
             #[cfg(feature = "private-backup")]
-            if self.page == crate::inspection::Page::Settings
-                && key.code == KeyCode::Char('R')
-                && self.restore_available(now)
-            {
-                if let Some(snapshot) = &self.snapshot {
+            if self.page == crate::inspection::Page::Settings && key.code == KeyCode::Char('R') {
+                if self.restore_available(now)
+                    && let Some(snapshot) = &self.snapshot
+                {
                     self.restore = crate::private_restore::Workspace::new(
                         &snapshot.metadata.instance_id,
                         snapshot.revision,
                     );
                     self.restore_open = self.restore.is_some();
+                    self.notice = "";
+                } else if self.restore_enabled {
+                    // A bounded footer hint; the full current reason is in
+                    // Settings, so wrapping cannot hide the UI-only exit key.
+                    self.notice = "tui.restore_blocked_hint";
                 }
+                return Action::None;
+            }
+            #[cfg(feature = "private-backup")]
+            if self.page == crate::inspection::Page::Settings
+                && key.code == KeyCode::Char('d')
+                && self.restore_disconnect_available(now)
+            {
+                // The same existing command/confirmation, never a direct send.
+                self.prepare(Kind::Disconnect, None, now);
                 return Action::None;
             }
             #[cfg(feature = "private-backup")]
@@ -1047,19 +1097,71 @@ impl App {
 
     #[cfg(feature = "private-backup")]
     pub fn restore_available(&self, now: Instant) -> bool {
-        self.restore_enabled
-            && self.viewport_ready
-            && self.fresh(now)
-            && !self.running
-            && !self.unknown
-            && self.pending.is_none()
-            && !self.backup_unresolved()
-            && !self.job.as_ref().is_some_and(|j| j.blocks_actions())
-            && self.snapshot.as_ref().is_some_and(|s| {
-                s.capabilities.private_restore
-                    && s.status() == Status::Disconnected
-                    && !s.metadata.desired.connected
-            })
+        self.restore_readiness(now) == RestoreReadiness::Ready
+    }
+    #[cfg(feature = "private-backup")]
+    pub fn restore_readiness(&self, now: Instant) -> RestoreReadiness {
+        use RestoreReadiness as R;
+        if !self.restore_enabled {
+            return R::Disabled;
+        }
+        if !self.viewport_ready {
+            return R::Resize;
+        }
+        if self.unknown
+            || self
+                .backup
+                .as_ref()
+                .is_some_and(|w| w.state() == crate::private_backup::State::Unknown)
+            || self
+                .job
+                .as_ref()
+                .is_some_and(|j| j.blocks_actions() && j.tracker.unknown)
+        {
+            return R::Unresolved;
+        }
+        if self.running
+            || self.pending.is_some()
+            || self.backup_unresolved()
+            || self.job.as_ref().is_some_and(|j| j.blocks_actions())
+        {
+            return R::Busy;
+        }
+        let Some(snapshot) = self.snapshot.as_ref().filter(|_| self.fresh(now)) else {
+            return R::Stale;
+        };
+        if !snapshot.capabilities.private_restore {
+            return R::CapabilityMissing;
+        }
+        if snapshot.status() == Status::Recovery {
+            return R::Recovery;
+        }
+        if matches!(
+            snapshot.metadata.last_known_actual,
+            Actual::Starting | Actual::Stopping | Actual::Reconnecting
+        ) {
+            return R::Transition;
+        }
+        match snapshot.status() {
+            Status::Disconnected if !snapshot.metadata.desired.connected => R::Ready,
+            Status::Connected => R::DisconnectFirst,
+            _ => R::Unverified,
+        }
+    }
+    /// Guidance to the existing `d` confirmation only, not a new effect path.
+    #[cfg(feature = "private-backup")]
+    pub fn restore_disconnect_available(&self, now: Instant) -> bool {
+        !self.restore_unresolved()
+            && self.restore_readiness(now) == RestoreReadiness::DisconnectFirst
+            && self.eligible(Kind::Disconnect, now)
+    }
+    #[cfg(feature = "private-backup")]
+    fn refresh_restore_advice(&mut self, now: Instant) {
+        // Only our present-state guidance is replaceable. Original command,
+        // Backup/Restore outcome and recovery notices are never acknowledged.
+        if self.notice == "tui.restore_blocked_hint" && self.restore_available(now) {
+            self.notice = "";
+        }
     }
     #[cfg(feature = "private-backup")]
     pub(crate) fn restore_unresolved(&self) -> bool {
@@ -1067,6 +1169,7 @@ impl App {
     }
     #[cfg(feature = "private-backup")]
     pub(crate) fn refresh_restore_context(&mut self, now: Instant) {
+        self.refresh_restore_advice(now);
         let available = self.restore_available(now);
         let context = self
             .snapshot

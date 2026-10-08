@@ -676,11 +676,12 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             settings.push(Line::from(tr("tui.restore_scope")));
             settings.push(Line::from(tr(if app.restore_unresolved() {
                 "tui.restore_pending_entry"
-            } else if app.restore_available(now) {
-                "tui.restore_entry"
             } else {
-                "tui.restore_unavailable"
+                app.restore_readiness(now).key()
             })));
+            if app.restore_disconnect_available(now) {
+                settings.push(Line::from(tr("tui.restore_disconnect_hint")));
+            }
         }
         #[cfg(feature = "private-backup")]
         if app.backup_enabled {
