@@ -12,12 +12,22 @@ history. GitHub's actual main/PR state is authoritative for publication.
   [RC ledger](../development/RC_098.md) retains exact inputs, original failed
   installed readiness and remaining candidate/package/host gates. Exact
   `5e7d4258` has inspected offline pairs for both architectures and passing
-  native package CI; final full Test CI remains pending. Its
+  native package CI; its final full Test CI subsequently passed. #717's managed
+  template correction is integrated into RC, with exact-source cloud/build and
+  x86_64 manual lifecycle evidence. #718's stopped-page and sustained disable
+  successor is installed-checked and carried to RC; #719's private-test scratch
+  correction is integrated after full CI. Final combined artifacts/docs are
+  being reconciled.
+  Its
   [installed x86_64 report](../testing/RC_098_VM_2026-10-08.md) passes normal
   entry/navigation/reopen, known Quit → re-enable → actual Start and real cold
   configured-Off Start with login preparation, preserved data and disabled
-  startup units. It is agent-operated, not ARM-installed, new Restore mutation,
-  whole T4 or public provisioning acceptance. Pins are
+  startup units. The separately recorded continuation adds normal Completed
+  Restore, controlled same-intent Abort, connected modes and actual sustained
+  disable → re-enable → Start; initial evidence is not rewritten. It is
+  agent-operated, not ARM-installed, whole T4 or public provisioning acceptance.
+  Arbitrary lost-owner Restore recovery remains a release-blocking product
+  requirement, not an ARM/operator checkbox. Pins are
   empty; main, immutable releases and Marketplace are unchanged. This is not
   accepted/public RC or whole T3/T4 completion.
 
@@ -210,7 +220,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   The name is a planning label; stable release version/assets and
   stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
   Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
-  targets that stable SHA and awaits external review, not RC verification.
+  targets that stable SHA and was approved/published; it does not verify the RC.
   T2d/e passed [combined ARM64 inspection](../testing/T2_INSPECTION_THEME_2026-09-22.md):
   live traffic, details, diagnostics and theme presentation; closing the client
   preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
@@ -457,8 +467,10 @@ passed on x86_64 as recorded in the [fresh VM report](../testing/NATIVE_082_FRES
 This closes that scoped provisioning gate; it does not reopen the unchanged R6
 migration, claim new live-network evidence or publish the marketplace snapshot.
 
-The immutable published marketplace 0.7.0 snapshot remains
-`69fe05b03129a23664fff3f8289821a7b7f80095`.
+The current marketplace 0.8.2 snapshot is
+`d620c300020d3acfa9c00418da7f6cded485ffdb`, approved and published through #8093.
+The 0.7.0 `69fe05b03129a23664fff3f8289821a7b7f80095` snapshot is historical;
+the newer internal RC is not covered by that approval.
 Neither a main merge nor the presence of Rust sources installs a native binary,
 runs Cargo, grants capabilities, changes an ownership marker or enables VPN
 startup on a user's machine.
