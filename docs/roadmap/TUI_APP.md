@@ -392,7 +392,8 @@ Later management candidates:
 - subscription automatic refresh schedules;
 - provider quota/usage/expiry metadata under strict bounds;
 - private-state backup/restore;
-- reconnect after suspend/network transitions;
+- reconnect after suspend/network transitions under a separate inactive
+  [recovery proposal](NETWORK_TRANSITION_RECOVERY.md);
 - batch latency workflows;
 - structured DNS controls;
 - service-routing templates over existing custom-rule schema.
