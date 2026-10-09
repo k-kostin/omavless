@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-10-08. This is the compact current-state entry point; the detailed
+Updated 2026-10-09. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -24,8 +24,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
   template correction is integrated into RC, with exact-source cloud/build and
   x86_64 manual lifecycle evidence. #718's stopped-page and sustained disable
   successor is installed-checked and carried to RC; #719's private-test scratch
-  correction is integrated after full CI. Final combined artifacts/docs are
-  being reconciled.
+  correction is integrated after full CI. Selected source26 Backup-only packages
+  and protected-input-equivalent frontend144 are inspected; all five hosted
+  checks on frontend144 passed.
+  The selected Backup-only pair has subsequent
+  [installed ARM64 acceptance](../testing/RC_098_ARM64_2026-10-09.md) for normal
+  client/Backup/relaunch and Restore refusal, with original data restored and
+  scope limits retained. Public assets/pins and clean provisioning still remain;
+  this is not stable/main promotion.
   Its
   [installed x86_64 report](../testing/RC_098_VM_2026-10-08.md) passes normal
   entry/navigation/reopen, known Quit → re-enable → actual Start and real cold

@@ -105,6 +105,23 @@ verified account entitlement; a provider may supply no usable information.
 Leaving the page discards the result. It does not refresh server lists, change
 the VPN or include the claim in ordinary diagnostic reports.
 
+## Encrypted Backup (0.9.8 candidate)
+
+In the terminal application, press `b` or F2, or open Backup from session
+Settings. Enter a new absolute file path and repeat a passphrase of at least
+12 bytes. Enter reviews the request; a second explicit Enter creates the file.
+Escape cancels before submission. Existing files are never overwritten.
+
+Backup contains profiles, subscriptions and a supported bundled routing
+template, not all Settings or OS state. Custom or nonstandard templates may be
+refused; a refusal is not permission to reset your routing configuration.
+Keep both the archive and passphrase private: the encrypted archive contains
+reusable VPN access, and a lost passphrase cannot be recovered.
+
+The selected 0.9.8 scope does **not** offer Restore. Restore and interrupted-
+operation recovery remain separate development work. If a submitted operation
+has an unknown outcome, do not resubmit it or assume closing the client cancels it.
+
 ## Close, disconnect, Quit
 
 | Action | Effect |

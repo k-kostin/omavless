@@ -12,6 +12,11 @@ it is not optional confidence or an ARM-only check. The full T4 development
 configuration remains separate. See the [RC scope](docs/development/RC_098.md)
 and [Restore contract](docs/roadmap/PRIVATE_BACKUP_RESTORE.md).
 
+The selected restricted product now has [bounded installed ARM64 acceptance](docs/testing/RC_098_ARM64_2026-10-09.md)
+for normal client/Backup/relaunch and Restore refusal, complementing its x86_64
+record. Public package publication/pins, clean provisioning and main promotion
+remain separate; this does not close the whole T4 track.
+
 **Historical initial 0.9.8 scope freeze, 2026-10-08:** `rc/0.9.8` selected beta.4 normal
 Open app Backup/Restore, guarded explicit relaunch with real-protocol readiness
 and preserved broker setup, and ARM64 lossless link-count portability. The
