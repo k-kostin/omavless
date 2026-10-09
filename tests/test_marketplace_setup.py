@@ -68,6 +68,22 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
                                   "x86_64": entry(digest)} if digest else {})}
             (self.directory / name).write_text(json.dumps(data))
 
+    def test_stable_package_identity_requires_stable_schema_and_exact_tuple(self):
+        for schema in ("2", "3"):
+            code = f'''timeout() {{ shift; "$@"; }}
+bsdtar() {{ printf '%s\\n' 'schemaVersion={schema}' 'sourceCommit={SOURCE}' 'architecture=aarch64' 'productVersion={VERSION}'; }}
+app_archive_identity synthetic-archive {SOURCE} aarch64 {VERSION}
+'''
+            self.assertEqual(self.run_shell(code).returncode, 0 if schema == "3" else 1)
+        for source, arch, version in (("c" * 40, "aarch64", VERSION),
+                                      (SOURCE, "x86_64", VERSION),
+                                      (SOURCE, "aarch64", "0.9.8-rc.1")):
+            code = f'''timeout() {{ shift; "$@"; }}
+bsdtar() {{ printf '%s\\n' 'schemaVersion=3' 'sourceCommit={SOURCE}' 'architecture=aarch64' 'productVersion={VERSION}'; }}
+app_archive_identity synthetic-archive {source} {arch} {version}
+'''
+            self.assertNotEqual(self.run_shell(code).returncode, 0)
+
     def test_selected_candidate_has_matching_bounded_pair_pins(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
         records = {}

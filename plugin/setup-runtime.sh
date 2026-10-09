@@ -7,8 +7,8 @@ umask 077
 
 setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
-release_version=0.9.8-rc.1
-package_version=0.9.8rc1
+release_version=0.9.8
+package_version=0.9.8
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -20,7 +20,7 @@ app_archive_identity() {
   identity=$(timeout 8 bsdtar -xOf "$1" usr/share/doc/omavless/build-identity.txt 2>/dev/null \
     | head -c 4097) || return 1
   [[ ${#identity} -le 4096 ]] || return 1
-  grep -Fxq "schemaVersion=2" <<< "$identity" \
+  grep -Fxq "schemaVersion=3" <<< "$identity" \
     && grep -Fxq "sourceCommit=$2" <<< "$identity" \
     && grep -Fxq "architecture=$3" <<< "$identity" \
     && grep -Fxq "productVersion=$4" <<< "$identity"

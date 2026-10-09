@@ -2,6 +2,25 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.8 — release preparation, not yet published
+
+- Add the terminal application alongside the compact bar controls. Open or
+  focus its existing window; closing it leaves the shared VPN runtime running.
+- Add bounded read-only connection, traffic, routing, provider and diagnostic
+  views, plus session-local language/theme settings.
+- Use the explicitly installed and enrolled managed-DNS package instead of
+  repeated DNS authorization during normal connection changes. Setup still
+  requires normal system confirmation; no account-wide passwordless policy.
+- Add encrypted Backup for profiles, subscriptions and supported bundled
+  routing templates, with masked passphrases, explicit confirmation and no
+  overwrite. Restore is not part of this release.
+- Add guarded application Start after shutdown and truthful stopped-state
+  presentation, preserving saved profiles and startup preferences.
+
+Package publication, pins and clean guided installation remain release gates.
+Login autoconnect is Off by default; experimental protocol limitations remain.
+Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
+
 ## 0.9.8-rc.1 — internal scope freeze, not a public release
 
 - Offer encrypted private-pair Backup through normal Open app/TUI, without

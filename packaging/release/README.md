@@ -1,6 +1,9 @@
 # Native release, beta and RC preparation
 
-Current assembly source version: **0.9.8-rc.1**, not stable or marketplace-ready.
+Current preparation source version: **0.9.8**, not published or marketplace-ready.
+Stable-format packages must be newly built with explicit stable assembly;
+do not rename the tested RC1 archives. Both bootstrap pin maps remain empty.
+The selected runtime/client feature remains `product-private-backup`.
 The [0.9.8 RC ledger](../../docs/development/RC_098.md) freezes the selected scope
 and separates exact package/installed gates from historical beta evidence.
 The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7

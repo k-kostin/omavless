@@ -60,13 +60,13 @@ class ReleaseCandidateTests(unittest.TestCase):
         return target
 
     def test_native_source_manifest_version_and_lock_are_coherent(self):
-        self.assertEqual(RELEASE.version(ROOT), '0.9.8-rc.1')
+        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.9.8')
         lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
         versions = {p['version'] for p in lock['package'] if p['name'].startswith('omavless-')}
-        self.assertEqual(versions, {RELEASE.version(ROOT)})
-        self.assertEqual(json.loads((ROOT / 'manifest.json').read_text())['version'], RELEASE.version(ROOT))
+        self.assertEqual(versions, {RELEASE.version(ROOT, stable=True)})
+        self.assertEqual(json.loads((ROOT / 'manifest.json').read_text())['version'], RELEASE.version(ROOT, stable=True))
         with self.assertRaises(ValueError):
-            RELEASE.version(ROOT, stable=True)  # RC cannot masquerade as stable.
+            RELEASE.version(ROOT)  # Stable cannot masquerade as a prerelease.
         for invalid in ('0.8.0', '0.8.0-rc.0', '0.8.0-rc.1;false', '0.8.0-beta.0'):
             (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{invalid}"\n')
             with self.assertRaises(ValueError):
