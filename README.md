@@ -47,9 +47,11 @@ It covers the matching application package, Mihomo VPN core, TUN permissions
 and optional clipboard, file-picker and QR tools. Package installation and
 permission changes require your confirmation.
 
-For manual downloads, use the matching **0.8.2** application and frontend from
+For the released version, use the matching **0.8.2** application and frontend from
 [GitHub Releases](https://github.com/k-kostin/omavless/releases/tag/v0.8.2).
-Do not pair this frontend with older 0.8.0/0.8.1 packages.
+This 0.9.8 candidate instead requires its own matching application, managed-DNS
+package and frontend; its public packages/pins are not ready yet. Do not combine
+this candidate frontend with the released 0.8.2 package.
 
 ## Everyday use
 

@@ -4,9 +4,9 @@
 
 This branch is an **unpublished candidate**, not an available stable upgrade.
 Do not substitute older public assets into its empty package pins or compile
-the application from a marketplace installer. ARM64 installation, final scope
-acceptance and immutable package publication remain in the
-[candidate ledger](../development/RC_098.md).
+the application from a marketplace installer. The selected Backup-only RC has
+bounded installed checks on x86_64 and ARM64. New stable artifacts, public pins
+and clean guided installation remain in the [candidate ledger](../development/RC_098.md).
 
 The selected 0.9 route differs from the released 0.8.2 instructions below:
 
@@ -32,9 +32,10 @@ The selected 0.9 route differs from the released 0.8.2 instructions below:
    firewall can block DNS ingress on the owned TUN; follow the narrowly scoped
    firewall guidance below rather than disabling protection globally.
 
-The exact 0.9.8 composition and Backup/Restore limitations belong to the ledger
-until its remaining recovery decision is closed. The next publication handoff
-must supply real final package URLs and hashes before guided public first use;
+The 0.9.8 scope decision is closed: encrypted Backup is included, Restore is not.
+Completed Restore/recovery remains mandatory for 0.9.9. See
+[Backup usage and limits](NATIVE_USAGE.md#encrypted-backup-098-candidate).
+Real final package URLs and hashes are required before guided public first use;
 placeholders are not an installation path.
 
 ## Released 0.8.2 route and historical compatibility
