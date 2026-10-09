@@ -469,6 +469,8 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.host_keys"
             } else if app.page == crate::inspection::Page::RouteCheck {
                 "tui.route_check_keys"
+            } else if app.page == crate::inspection::Page::Connections {
+                "tui.connection_rows_keys"
             } else if matches!(
                 app.page,
                 crate::inspection::Page::Connections
@@ -730,6 +732,10 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     match app.page {
         Page::Connections => {
             let mut lines = vec![Line::from(tr("tui.connection_rows_scope"))];
+            lines.push(field(
+                "tui.connection_order",
+                tr(app.connection_order.key()).into(),
+            ));
             let Some(connections) = &s.connection_rows else {
                 lines.push(Line::from(tr(
                     if app.snapshot_page == Some(Page::Connections) {
@@ -748,25 +754,12 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 "tui.connection_rows_shown",
                 connections.rows.len().to_string(),
             ));
-            let query = app.operator_query.to_ascii_lowercase();
-            let matches: Vec<_> = connections
-                .rows
-                .iter()
-                .filter(|row| {
-                    query.is_empty()
-                        || row
-                            .host
-                            .as_deref()
-                            .is_some_and(|host| host.to_ascii_lowercase().contains(&query))
-                        || row.ip.as_deref().is_some_and(|ip| ip.contains(&query))
-                        || row
-                            .port
-                            .is_some_and(|port| port.to_string().contains(&query))
-                        || row.network.contains(&query)
-                        || row.route.contains(&query)
-                })
-                .collect();
-            if !query.is_empty() || app.searching {
+            let matches = crate::connection_browsing::rows(
+                connections,
+                &app.operator_query,
+                app.connection_order,
+            );
+            if !app.operator_query.is_empty() || app.searching {
                 lines.push(field(
                     "tui.operator_filter",
                     display(&app.operator_query, 80),
