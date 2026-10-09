@@ -339,6 +339,11 @@ nftables expressions or user-authored root config.
 S1 remains outside Full VPN / Routing / Direct. It affects applications honoring
 proxy settings/environment and must preserve/restore exact prior state.
 
+The development [pure S1 lease](../development/S1_PROXY_FOUNDATION.md) models
+two fixed surfaces and refuses compensation over foreign changes. It is not
+registered in the runtime. Persistence and host adapters must preserve field
+presence, validate activation-environment support and observe every effect.
+
 Implementation waits for Rust runtime/host ownership. Omarchy must account for
 desktop state plus systemd/UWSM environment. NixOS needs its own host-specific
 state discovery/restoration contract. No generic reset-to-default shortcut.
