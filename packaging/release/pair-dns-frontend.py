@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Offline, unpublished pairing of a reviewed RC app, DNS package and frontend.
+"""Offline, unpublished pairing of reviewed app, DNS package and frontend.
 
 The two caller hashes are reviewed inputs, not signatures or build provenance.
 No build, download, installation, service, VPN, tag or publication action occurs.
@@ -238,9 +238,9 @@ def copy_verified(src, dst, expected, limit):
 
 
 def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha,
-             architecture=None):
+             architecture=None, stable=False):
     release.checked_source(root, frontend_source)
-    version = release.version(root)
+    version = release.version(root, stable=stable)
     # Inspection is offline: the selected architecture need not be the host's.
     # Installed acceptance still defaults to (and requires) the native arch.
     arch = os.uname().machine if architecture is None else architecture
@@ -316,11 +316,13 @@ def main():
     parser.add_argument('dns_sha256')
     parser.add_argument('--arch', choices=('x86_64', 'aarch64'),
                         help='inspect this archive architecture without executing its binaries')
+    parser.add_argument('--stable', action='store_true',
+                        help='explicitly require a stable-version source; does not publish')
     args = parser.parse_args()
     try:
         assemble(ROOT, args.output, args.application_package, args.dns_package,
                  args.frontend_commit, args.application_sha256, args.dns_sha256,
-                 args.arch)
+                 args.arch, args.stable)
     except (OSError, ValueError, TypeError, KeyError, UnicodeError,
             subprocess.SubprocessError, inspection.Refused):
         parser.exit(2, 'Managed DNS release pairing refused; nothing installed or published.\n')

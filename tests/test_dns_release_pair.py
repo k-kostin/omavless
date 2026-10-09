@@ -72,13 +72,13 @@ class DnsReleasePairTests(unittest.TestCase):
         return self.git('rev-parse', 'HEAD').decode().strip()
 
     def assembly(self, source=None, app_sha=None, dns_sha=None, arch=None,
-                 binary_machine=None):
+                 binary_machine=None, stable=False):
         app_mark = (self.app_sha, 0o600, os.getuid())
         dns_mark = (self.dns_sha, 0o600, os.getuid())
         architecture = arch or os.uname().machine
         machine = binary_machine if binary_machine is not None else (
             62 if architecture == 'x86_64' else 183)
-        version = PAIR.release.arch_version(PAIR.release.version(self.repo))
+        version = PAIR.release.arch_version(PAIR.release.version(self.repo, stable=stable))
         header = bytearray(20)
         header[:6] = b'\x7fELF\x02\x01'
         header[18:20] = machine.to_bytes(2, 'little')
@@ -104,7 +104,25 @@ class DnsReleasePairTests(unittest.TestCase):
              patch.object(PAIR, 'member', side_effect=archive_member):
             return PAIR.assemble(self.repo, self.output, self.app, self.dns,
                                  source or self.runtime, app_sha or self.app_sha,
-                                 dns_sha or self.dns_sha, arch)
+                                 dns_sha or self.dns_sha, arch, stable)
+
+    def test_stable_pair_requires_explicit_mode_and_remains_unpublished(self):
+        with self.assertRaises(ValueError):
+            self.assembly(stable=True)  # An RC cannot masquerade as stable.
+        self.write('Cargo.toml', '[workspace.package]\nversion = "0.9.8"\n')
+        self.write('manifest.json', '{"version":"0.9.8"}')
+        for path in ('plugin/runtime-release.json', 'plugin/dns-release.json'):
+            self.write(path, json.dumps({'schemaVersion': 1, 'version': '0.9.8', 'packages': {}}))
+        self.runtime = self.commit()
+        with self.assertRaises(ValueError):
+            self.assembly()  # Stable is never inferred by the default RC mode.
+        self.assertEqual(list(self.output.iterdir()), [])
+        value = self.assembly(stable=True)
+        self.assertEqual(value['version'], '0.9.8')
+        self.assertEqual(value['publication'], 'unpublished-candidate')
+        self.assertFalse(value['publishedDownloadVerified'])
+        self.assertEqual(value['bootstrapPins'], 'empty')
+        self.assertTrue((self.output / f'omavless-0.9.8-1-{os.uname().machine}.pkg.tar.zst').is_file())
 
     def test_exact_members_include_no_unreviewed_path(self):
         members = PAIR.expected_members()

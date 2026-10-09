@@ -244,6 +244,11 @@ The output is the original two packages, a committed-blob frontend archive,
 `publication: unpublished-candidate` and
 `publishedDownloadVerified: false`.
 
+For an explicitly stable source, append `--stable` to this same triple command.
+Default beta/RC mode rejects stable versions; stable mode rejects beta/RC
+versions. This opt-in changes no archive/source/ELF/hash/pin checks and does not
+publish anything. Use newly built stable packages, never renamed RC archives.
+
 For each architecture, retain CI/build provenance and an independent package
 review. The tool's caller-supplied hashes are not signatures; it cannot prove
 that a GitHub release has these bytes, that CDN delivery succeeds, that the
