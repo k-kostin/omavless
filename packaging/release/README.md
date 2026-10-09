@@ -2,7 +2,9 @@
 
 Current preparation source version: **0.9.8**, not published or marketplace-ready.
 Stable-format packages must be newly built with explicit stable assembly;
-do not rename the tested RC1 archives. Both bootstrap pin maps remain empty.
+do not rename the tested RC1 archives. Both bootstrap pin maps now contain the
+reviewed CI source4915 hashes for each architecture. These assets are not yet
+published or anonymously download-verified; pins alone do not make setup ready.
 The selected runtime/client feature remains `product-private-backup`.
 The [0.9.8 RC ledger](../../docs/development/RC_098.md) freezes the selected scope
 and separates exact package/installed gates from historical beta evidence.
