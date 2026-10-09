@@ -112,6 +112,10 @@ Settings. Enter a new absolute file path and repeat a passphrase of at least
 12 bytes. Enter reviews the request; a second explicit Enter creates the file.
 Escape cancels before submission. Existing files are never overwritten.
 
+Use an existing private folder owned by you (permissions `0700`); a shared or
+ordinary public folder is refused. Your private home directory is suitable.
+The new archive is created with permissions `0600`.
+
 Backup contains profiles, subscriptions and a supported bundled routing
 template, not all Settings or OS state. Custom or nonstandard templates may be
 refused; a refusal is not permission to reset your routing configuration.
