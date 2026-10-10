@@ -50,6 +50,26 @@ strings, digest input and serialized frame are zeroizing; JSON/library
 temporaries are not all guaranteed wiped. Result metadata stores only operation
 ID, fixed digest and closed outcome, never private input bytes or a Debug grant.
 
+## Restricted product first-use exception
+
+The `product-private-backup` successor also permits **Backup only** from the
+same reconciled transition candidate after its existing promotion observes the
+exact immediate committed Rust generation under the migration lock. Preparing,
+busy, wrong-generation and stale candidates receive no origin. Ordinary
+initialization, research and completed-origin constructors remain excluded;
+full T4 development builds retain the `current()`-only issuer requirement.
+Trusted product guards still refuse Restore, preview and every developer
+restore/staging/pause/abort selector before backend entry. Backup keeps its
+existing per-request ownership, revision, idle/pending-state, source consistency
+and exclusive encrypted publication checks. No runtime stop/start is added.
+
+This is a source correction for the deterministic first-use capability omission:
+activation could report ready while its promoted candidate lacked Backup,
+whereas a separately admitted ordinary Start supplied it. The failed first-use
+result and earlier installed acceptance retain their original source identities;
+they do not accept this successor. New exact-source and installed first-use
+gates remain necessary.
+
 ## Scheduler and uncertainty
 
 Retained Restore requires an idle scheduler and already advances revision once

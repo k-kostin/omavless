@@ -3646,6 +3646,246 @@ mod tests {
         owner_fixture(base, OwnershipPhase::Rust)
     }
 
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_promoted_candidate_backup_is_product_only_and_preserves_restore_refusal() {
+        let home = std::env::var_os("HOME").unwrap();
+        let base = crate::test_temp::directory_under(Path::new(&home), "first-backup").unwrap();
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let store_path = base.join("config/profiles.json");
+        let mut store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        store["routingPreset"] = "roscomvpn-default".into();
+        fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let template_path = base.join("config/route-template.yaml");
+        fs::write(
+            &template_path,
+            include_bytes!("../../../templates/default.yaml"),
+        )
+        .unwrap();
+        fs::set_permissions(&template_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_store = fs::read(&store_path).unwrap();
+        let before_template = fs::read(&template_path).unwrap();
+        let desired_path = base.join("state/omavless/desired.json");
+        let before_desired = fs::read(&desired_path).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let wire = |request: &Value| {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, &encode_request(request).unwrap()).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert!(worker.join().unwrap().is_ok());
+                reply
+            })
+        };
+        let caps = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let preparing = wire(&caps);
+        assert_eq!(preparing["result"]["runtimeOwnership"], false);
+        assert!(
+            !preparing["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let uid = fs::metadata(&base).unwrap().uid();
+        let lock = crate::cutover::MigrationLock::acquire(&cutover, uid).unwrap();
+        let busy = wire(&caps);
+        assert_eq!(busy["result"]["runtimeOwnership"], false);
+        assert!(
+            !busy["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        drop(lock);
+        let before_calls = calls.load(Ordering::Relaxed);
+        let promoted = wire(&caps);
+        assert_eq!(promoted["result"]["runtimeOwnership"], true);
+        let methods = promoted["result"]["methods"].as_array().unwrap();
+        assert_eq!(
+            methods.iter().any(|m| m == "backup.create"),
+            product_scope::backup_only()
+        );
+        assert!(!methods.iter().any(|m| matches!(
+            m.as_str(),
+            Some("backup.restore" | "backup.preview" | "backup.restore_previewed")
+        )));
+        assert_eq!(wire(&caps), promoted);
+        let hello = wire(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap());
+        assert_eq!(hello["result"]["instanceId"], server.instance_id);
+        assert_eq!(hello["revision"], 0);
+        let destination = base.join("private.ovb");
+        let create = make_request(
+            "create",
+            "backup.create",
+            json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "confirmation":"export-current-private-pair","instanceId":server.instance_id,
+                "operationId":"first-backup","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        let exported = wire(&create);
+        if product_scope::backup_only() {
+            assert_eq!(exported["ok"], true);
+            assert_eq!(
+                exported["result"],
+                json!({"completed":true,"replayed":false,"scope":"privatePair"})
+            );
+            assert_eq!(
+                crate::backup_destination_candidate::preview_existing(
+                    &destination,
+                    uid,
+                    b"synthetic private passphrase"
+                ),
+                Ok(crate::backup_destination_candidate::BackupPreview {
+                    profiles: 1,
+                    subscriptions: 1
+                })
+            );
+            let ciphertext = fs::read(&destination).unwrap();
+            assert!(
+                !ciphertext
+                    .windows(before_store.len())
+                    .any(|part| part == before_store)
+            );
+        } else {
+            assert_eq!(exported["error"]["code"], "capability_unavailable");
+            assert!(!destination.exists());
+        }
+        let mut restore = create.clone();
+        restore["method"] = "backup.restore".into();
+        restore["params"]["confirmation"] = "replace-current-private-pair".into();
+        restore["params"]["operationId"] = "restore-refused".into();
+        let refused = wire(&restore);
+        assert_eq!(refused["error"]["code"], "capability_unavailable");
+        if product_scope::backup_only() {
+            for method in [
+                "backup.preview",
+                "backup.restore_previewed",
+                "developer.restore_current",
+                "developer.backup_current",
+                "developer.pause_current_intent",
+                "developer.abort_current_intent",
+            ] {
+                let reply = wire(&make_request("disabled", method, json!({})).unwrap());
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+            }
+            let pending = cutover
+                .state_directory
+                .join(crate::restore_staging_candidate::PENDING_DIRECTORY);
+            fs::create_dir(&pending).unwrap();
+            let sentinel = pending.join("sentinel");
+            fs::write(&sentinel, b"preserved pending evidence").unwrap();
+            let blocked_destination = base.join("blocked.ovb");
+            let mut blocked = create.clone();
+            blocked["params"]["archive"] = serde_json::to_value(&blocked_destination).unwrap();
+            blocked["params"]["operationId"] = "pending-backup".into();
+            assert_eq!(wire(&blocked)["error"]["code"], "manual_recovery_required");
+            assert!(!blocked_destination.exists());
+            assert_eq!(fs::read(sentinel).unwrap(), b"preserved pending evidence");
+        }
+        let public = serde_json::to_string(&(promoted, hello, exported, refused)).unwrap();
+        for private in [
+            "synthetic private passphrase",
+            "vless://",
+            "private.example",
+            "subscription-token",
+            destination.to_str().unwrap(),
+        ] {
+            assert!(!public.contains(private));
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(store_path).unwrap(), before_store);
+        assert_eq!(fs::read(template_path).unwrap(), before_template);
+        assert_eq!(fs::read(desired_path).unwrap(), before_desired);
+        assert_eq!(
+            wire(&make_request("status", "status.get", json!({})).unwrap())["revision"],
+            0
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn normal_pair_promoted_candidate_rollback_revokes_capabilities_and_export() {
+        let base = temporary_base("backup-rollback");
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let before_store = fs::read(base.join("config/profiles.json")).unwrap();
+        let before_desired = fs::read(base.join("state/omavless/desired.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let caps = make_request("caps", "capabilities.get", json!({})).unwrap();
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let promoted = server.dispatch(&caps).unwrap();
+        assert!(
+            promoted["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 3);
+        let revoked = server.dispatch(&caps).unwrap();
+        assert_eq!(revoked["result"]["runtimeOwnership"], false);
+        assert!(
+            !revoked["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        let destination = base.join("refused.ovb");
+        let request = make_request(
+            "create",
+            "backup.create",
+            json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "confirmation":"export-current-private-pair","instanceId":server.instance_id,
+                "operationId":"rollback-backup","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            before_store
+        );
+        assert_eq!(
+            fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            before_desired
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[cfg(feature = "product-private-backup")]
     #[test]
     fn product_scope_real_wire_refuses_all_restore_and_special_pause_without_effects() {
