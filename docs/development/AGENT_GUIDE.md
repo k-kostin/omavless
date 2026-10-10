@@ -207,13 +207,13 @@ the change.
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
   `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
   assemblies and `rc/<version>` release candidates follow the canonical
-  workflow; current release preparation is `dev/098-stable-preparation` (#726)
-  from the selected `rc/0.9.8` Backup-only scope. Corrected immutable validation
+  workflow; delivered 0.9.8 came from `dev/098-stable-preparation` (#726), now
+  merged and retired, and the selected `rc/0.9.8` Backup-only scope. Corrected immutable
   delivery is `v0.9.8-fix.1`; its producer/frontend and affected installed gates
-  are in the RC ledger. Old 0.9.8 assets stay immutable and superseded; stable
-  main/stable promotion is owner-authorized through #726, with actual event/
-  exact SHA read from GitHub. The owner still withholds Marketplace submission
-  and root README changes. The publicly accepted historical
+  are in the RC ledger. Old 0.9.8 assets stay immutable and superseded;
+  main/stable promotion completed through #726. The owner approved the bounded
+  user-facing README update through #732 on October 11, not future automatic
+  main updates. Marketplace submission remains withheld. The publicly accepted historical
   RC artifact baseline remains `rc/0.9.5`. Internal source
   freeze follows the declared risk-based checks; public provisioning gates do
   not repeat at every internal version. Installed private-restore integration

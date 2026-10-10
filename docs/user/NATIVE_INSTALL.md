@@ -11,9 +11,8 @@ marketplace installer. Download/setup acceptance and the actual main/stable
 promotion event are tracked in the
 [candidate ledger](../development/RC_098.md).
 
-The owner requested that root README remain unchanged during this promotion;
-its older 0.8.2 manual-download paragraph is not the matching package route for
-this frontend. Follow this section and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
+For first use follow the [README](../../README.md); for manual downloads use
+this matched-package route and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
 The separately reviewed Marketplace snapshot remains 0.8.2 until a new approved
 submission; this release does not update that snapshot.
 

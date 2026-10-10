@@ -33,14 +33,15 @@ not replaced by this short entry point.
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
 - New task branches use `dev/<topic>`; temporary development assemblies use
   `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
-  The owner-selected 0.9.8 release snapshot is promoted through
+  The owner-selected 0.9.8 release snapshot was promoted through
   `dev/098-stable-preparation` (#726), carrying
   the selected `rc/0.9.8` Backup-only scope and corrected immutable
-  `v0.9.8-fix.1` validation delivery. Read its current ledger before selecting
-  packages; old 0.9.8 assets are immutable and superseded. Main/stable promotion
-  is owner-authorized; read #726/GitHub for the completed event and exact SHA.
-  Marketplace submission and root README updates remain withheld under the
-  owner's October 10 instruction. Publicly accepted artifact baseline is `rc/0.9.5`
+  `v0.9.8-fix.1` delivery. Read its current ledger before selecting
+  packages; old 0.9.8 assets are immutable and superseded. #726 is merged;
+  corrected `v0.9.8-fix.1` is stable/latest and the preparation branch is retired.
+  On October 11 the owner approved the user-facing README update through #732.
+  Marketplace submission remains withheld; no standing authorization for future
+  main updates follows. Publicly accepted artifact baseline is `rc/0.9.5`
   as historical RC evidence, not a selector for the corrected 0.9.8 packages;
   preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent

@@ -31,9 +31,10 @@ base and an early meaningful Draft PR. Optional kind prefixes include
 `dev/fix/<topic>` and `dev/docs/<topic>`. A temporary `beta/<version>` assembles
 selected development checkpoints; a later `rc/<version>` freezes release scope.
 Neither is a second permanent product or a separate set of docs. Current
-release preparation is `dev/098-stable-preparation` (#726), carrying the
-selected `rc/0.9.8` Backup-only scope and corrected `v0.9.8-fix.1` validation
-delivery; see [selection and affected gates](docs/development/RC_098.md). Internal RC
+0.9.8 delivery came from `dev/098-stable-preparation` (#726), now merged and
+retired, with the selected `rc/0.9.8` Backup-only scope and stable `v0.9.8-fix.1`
+delivery; see [selection and affected gates](docs/development/RC_098.md). New work
+uses a declared main/candidate base, not that retired preparation branch. Internal RC
 freeze need not repeat public provisioning at each version. The publicly
 accepted artifact baseline is `rc/0.9.5`; `beta/0.9.5` retains development history and
 `rc/0.9.0` remains unchanged as superseded acceptance history. Only release

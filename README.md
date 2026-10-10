@@ -7,9 +7,8 @@ Import your own compatible VLESS profile or HTTPS subscription, choose a mode,
 and connect from one compact, terminal-style panel. Open the terminal
 application when you want more room.
 
-Free and open source. No OmaVLESS account required — use access from your own
-server or provider. **OmaVLESS is not a VPN provider:** servers, accounts and
-VPN service subscriptions are not included.
+Free and open source. **OmaVLESS is not a VPN provider:** VPN servers and
+service subscriptions are not included.
 
 <img src="docs/marketing/images/main-en.png" width="560" alt="OmaVLESS panel with country-and-city profile names, connection controls and Open app">
 
