@@ -2,6 +2,102 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.8 — corrected release snapshot
+
+- Add the terminal application alongside the compact bar controls. Open or
+  focus its existing window; closing it leaves the shared VPN runtime running.
+- Add bounded read-only connection, traffic, routing, provider and diagnostic
+  views, plus session-local language/theme settings.
+- Use the explicitly installed and enrolled managed-DNS package instead of
+  repeated DNS authorization during normal connection changes. Setup still
+  requires normal system confirmation; no account-wide passwordless policy.
+- Add encrypted Backup for profiles, subscriptions and supported bundled
+  routing templates, with masked passphrases, explicit confirmation and no
+  overwrite. Restore is not part of this release.
+- Add guarded application Start after shutdown and truthful stopped-state
+  presentation, preserving saved profiles and startup preferences.
+- Correct first-use Backup availability without a runtime restart and keep
+  the idle DNS broker available without repeatedly polling empty admission.
+
+Corrected packages and matching frontend are published as `v0.9.8-fix.1`;
+anonymous downloads and clean guided ARM64 setup/onboarding pass. The original
+`v0.9.8` validation assets remain immutable. The owner authorized main/stable
+promotion; its actual merge/release event is recorded in PR #726. Marketplace
+submission and root README updates are explicitly withheld.
+Login autoconnect is Off by default; experimental protocol limitations remain.
+Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
+
+## 0.9.8-rc.1 — internal scope freeze, not a public release
+
+- Offer encrypted private-pair Backup through normal Open app/TUI, without
+  hidden flags. Owner-selected scope excludes Restore; runtime/CLI restrictions
+  enforce this even for crafted requests. Preserve Restore/recovery development
+  and its pending/history evidence as a mandatory 0.9.9 feature.
+- Offer explicit guarded application start after shutdown. Preserve profiles,
+  startup preferences and unit enablement; starting does not connect a VPN.
+- Validate readiness against the real native protocol, retained peers and a
+  shared deadline. Keep stopped-DNS preparation reachable before app start.
+- Fix ARM64 link-count normalization without weakening file-ownership checks.
+- Retain the maintenance UI/read-side changes and exclude unfinished automatic
+  background work, connection-close activation, kill switch, App proxy, WG/AWG
+  and GUI. Artifact/installed/public gates remain in the RC ledger.
+
+## 0.9.8-beta.4 — internal Restore assembly in progress
+
+- Retain installed-checked beta.3 Backup and its repeatable VM-only entry.
+- Integrate the source-ready authenticated Restore client for combined integration
+  and installed acceptance; do not claim that pending gate passed.
+- Keep relaunch-after-disable work separate until its own executable checks pass.
+- No main/release/Marketplace promotion; experimental selectors stay explicit.
+- Expose selected internal-beta Backup/Restore through normal Open app/TUI,
+  without per-invocation flags; stable/default-feature release builds unchanged.
+
+## 0.9.8-beta.3 — internal Backup client candidate
+
+- Add an explicitly selected TUI Backup flow: bounded destination, two masked
+  passphrase fields, scope/credential warning, confirmation and cancellation.
+- Integrate the normal private-pair API under the existing developer opt-in.
+  Exclusive publication refuses an existing destination; uncertain outcomes do
+  not silently retry. Default packages and ordinary TUI selection are unchanged.
+- Extend combined-feature regressions: compilation alone cannot advertise
+  Backup/Restore or close authority, and an unknown pair operation blocks
+  connection-close and Quit before host effects.
+- Add an assisted manual test card for the actual Backup screen. Restore API is
+  present in the opt-in build, but Restore UI and newer digest-bound preview
+  work are not part of this candidate.
+
+Combined candidate gates and installed/manual checks remain separately tracked;
+this version label is not a passing gate or a public release. Main, RC,
+immutable assets and Marketplace are unchanged.
+
+## 0.9.8-beta.2 — internal integration only
+
+- Combine the opt-in selective connection-close client and retained private
+  backup/restore implementation on the existing maintenance baseline.
+- Preserve default-disabled feature registration, original-owner admission,
+  recovery fences and immutable restore history. Add a combined-feature
+  regression so compilation cannot itself grant close or restore authority.
+
+No user release, new default feature, main update or marketplace publication.
+See [the internal selection and remaining gates](docs/development/BETA_098.md).
+
+## 0.9.0-rc.1 — unpublished development candidate
+
+- Add the terminal application: browse profiles/subscriptions, control the
+  shared connection, refresh subscriptions, inspect traffic and diagnostics,
+  run profile HTTPS checks, and choose a window-local language/theme.
+- Open or focus the same application window from the plugin's main footer;
+  closing the terminal leaves the requested VPN connection running.
+- Clarify ICMP versus HTTPS results and avoid confirming a mode visually while
+  its transition is pending, unknown or requires recovery.
+- Add bounded native setup diagnostics and a Rust-owned experimental-protocol
+  acceptance harness, with live evidence for the available XHTTP representative.
+
+This candidate is not a published update. DNS authorization/cancellation and
+exact release-package host acceptance remain open. Missing experimental-protocol
+fixtures are not promoted to supported/live-validated status. Stable 0.8.2 and
+its release assets/marketplace snapshot are unchanged.
+
 ## 0.8.2 — 2026-09-22
 
 - Fix Full Quit preflight: query the same four installation properties that

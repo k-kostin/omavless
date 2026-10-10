@@ -10,14 +10,39 @@
 //! Subscription network work uses a fixed, bounded transport and never runs
 //! while the Python/Rust migration lock is held.
 
+mod backup_candidate;
 mod batch;
+mod batch_admission;
+pub(crate) mod connection_admission;
+#[allow(dead_code)]
+pub(crate) mod connection_close;
 mod onboarding;
 mod probe;
+mod profile_admission;
 mod provider;
+mod restore_candidate;
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+pub(crate) use restore_candidate::HeldExecutionSlot as NativeVmReservation;
+mod restore_retirement_candidate;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+pub(crate) use restore_candidate::FreshRecovery;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::NativeSessionOrigin;
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeAbortedDisposition, NativeCommittedDisposition};
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{NativeFirstError, PreparedRestorePair};
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) use restore_candidate::{
+    NativeLeaseError, NativeMigrationBorrow, NativeMutationLease, NativeOrdinaryLease,
+    NativeSteadyCompletion,
+};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -59,6 +84,40 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::fmt;
 use std::path::Path;
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn normal_backup_outcome(
+    result: Result<(), backup_candidate::BackupCreateError>,
+) -> crate::pair_operation::Outcome {
+    use crate::backup_destination_candidate::PublishError;
+    use crate::backup_source_candidate::SnapshotError;
+    use crate::pair_operation::Outcome;
+    use backup_candidate::BackupCreateError;
+    match result {
+        Ok(()) => Outcome::Completed,
+        // These original variants precede publication, or are linkat EEXIST
+        // with no replacement. No authority-loss or ambiguous tail is waived.
+        Err(BackupCreateError::Source(SnapshotError::InvalidBackupInput))
+        | Err(BackupCreateError::Publish(PublishError::InvalidDestination)) => Outcome::InputDenied,
+        Err(BackupCreateError::Publish(PublishError::Exists)) => Outcome::DestinationExists,
+        Err(_) => Outcome::Unknown,
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn normal_restore_outcome(result: Result<(), NativeFirstError>) -> crate::pair_operation::Outcome {
+    use crate::pair_operation::Outcome;
+    match result {
+        Ok(()) => Outcome::Completed,
+        // The ONLY retained-engine Prepare return is open_existing, BEFORE
+        // installing the execution slot or acquiring its original lease.
+        // Wrong secret, corrupt/unsafe archive and changed read share one code.
+        Err(NativeFirstError::Prepare | NativeFirstError::CiphertextMismatch) => {
+            Outcome::InputDenied
+        }
+        Err(NativeFirstError::Admission | NativeFirstError::StillFenced) => Outcome::Unknown,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeMutationOutcome {
@@ -157,6 +216,7 @@ fn subscription_lifecycle_error(error: LifecycleError) -> SubscriptionTransactio
             SubscriptionTransactionError::ManualRecoveryRequired
         }
         LifecycleError::InvalidRequest
+        | LifecycleError::DnsPairRequired
         | LifecycleError::State
         | LifecycleError::TransitionFailedRestored => SubscriptionTransactionError::Store,
     }
@@ -297,7 +357,7 @@ enum Admission {
 }
 
 enum LockAdmission {
-    Locked(MigrationLock),
+    Locked(crate::connection_transaction::MigrationLease),
     Uncached(NativeOwnerExecution),
 }
 
@@ -366,15 +426,79 @@ pub(crate) enum CandidatePromotion {
 /// transactions. There is deliberately no socket constructor or registration
 /// side effect in this type.
 pub struct OfflineNativeCoordinator<H> {
+    #[cfg(test)]
+    research_identity: std::sync::Arc<()>,
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
     required_ownership: Option<OwnershipFence>,
     batch: Option<batch::BatchOwnerState>,
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
+    connection_close: connection_close::CloseState,
+    #[cfg(feature = "t4-manager-actor-service")]
+    held_restore_execution: restore_candidate::HeldExecutionSlot,
+    #[cfg(feature = "t4-manager-actor-service")]
+    native_completed_origin: Option<NativeSteadyCompletion>,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn activate_native_ordinary_lease(&mut self) -> Result<(), NativeOwnerError> {
+        if self.retained_restore_busy() || !self.transaction.original_lease_vacant() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        let completion = self
+            .native_completed_origin
+            .as_ref()
+            .ok_or(NativeOwnerError::ManualRecoveryRequired)?;
+        let original = completion
+            .ordinary_origin()
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+        self.transaction
+            .install_original_lease(original)
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+        // Actual original graph stays in the installed ordinary lease keeper.
+        // Old completion consultation cannot serve as a cached-Off exception.
+        self.native_completed_origin = None;
+        Ok(())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn transfer_native_completion(
+        &mut self,
+        source: &NativeSteadyCompletion,
+        target: NativeSteadyCompletion,
+    ) -> Result<(), NativeOwnerError> {
+        if !self
+            .native_completed_origin
+            .as_ref()
+            .is_some_and(|held| held.same_original(source))
+            || source.same_original(&target)
+            || self.retained_restore_busy()
+        {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        self.native_completed_origin = Some(target);
+        Ok(())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn install_native_completed(
+        &mut self,
+        origin: NativeSteadyCompletion,
+    ) -> Result<(), NativeOwnerError> {
+        if self.native_completed_origin.is_some() || self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        self.native_completed_origin = Some(origin);
+        Ok(())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn native_completed_recheck(&self) -> Result<(), NativeOwnerError> {
+        self.native_completed_origin
+            .as_ref()
+            .ok_or(NativeOwnerError::ManualRecoveryRequired)?
+            .recheck()
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)
+    }
     #[must_use]
     pub fn new(
         host: H,
@@ -384,6 +508,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         uid: u32,
     ) -> Self {
         Self {
+            #[cfg(test)]
+            research_identity: std::sync::Arc::new(()),
             coordinator: MutationCoordinator::default(),
             transaction: ConnectionTransactionState::new(
                 host,
@@ -396,6 +522,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             batch: None,
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
+            connection_close: connection_close::CloseState::default(),
+            #[cfg(feature = "t4-manager-actor-service")]
+            held_restore_execution: restore_candidate::HeldExecutionSlot::default(),
+            #[cfg(feature = "t4-manager-actor-service")]
+            native_completed_origin: None,
         }
     }
 
@@ -459,7 +590,24 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn desired(
         &self,
     ) -> Result<crate::desired::DesiredState, ConnectionTransactionError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(origin) = &self.native_completed_origin {
+            return origin
+                .desired(self.transaction.desired_paths(), self.uid())
+                .map_err(|_| ConnectionTransactionError::Store);
+        }
         self.transaction.desired()
+    }
+
+    pub(crate) fn desired_for_status(
+        &self,
+    ) -> Result<crate::desired::DesiredState, ConnectionTransactionError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.native_completed_origin.is_some() {
+            // Keep the SAME installed completion origin's exact loan checks.
+            return self.desired();
+        }
+        self.transaction.desired_for_status()
     }
 
     pub(crate) fn store_path(&self) -> &Path {
@@ -471,6 +619,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(crate) fn rust_ownership_available(&self) -> bool {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.coordinator.pair_abandoned() {
+            return false;
+        }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(origin) = &self.native_completed_origin {
+            return self.required_ownership.is_some_and(|fence| {
+                fence.phase == OwnershipPhase::Rust
+                    && origin.ownership(
+                        self.transaction.cutover_paths(),
+                        self.uid(),
+                        fence.generation,
+                    )
+            });
+        }
         self.required_ownership.is_some_and(|fence| {
             fence.phase == OwnershipPhase::Rust
                 && self
@@ -485,6 +648,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// shared lock. A rollback, later attempt, malformed marker, or generation
     /// gap makes this candidate permanently stale at the caller.
     pub(crate) fn try_promote_candidate(&mut self) -> Result<CandidatePromotion, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let Some(fence) = self.required_ownership else {
             return Ok(CandidatePromotion::Stale);
         };
@@ -539,7 +705,225 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub fn host_mut(&mut self) -> &mut H {
+        // This developer-only occupied slot is irreversible. Do not yield a
+        // mutable host reference after an uncertain/StillFenced execution.
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(
+            !self.retained_restore_busy(),
+            "restore_execution_unavailable"
+        );
         self.transaction.host_mut()
+    }
+
+    pub(super) fn retained_restore_busy(&self) -> bool {
+        #[cfg(feature = "t4-manager-actor-service")]
+        {
+            self.held_restore_execution.unavailable() || self.coordinator.pair_abandoned()
+        }
+        #[cfg(not(feature = "t4-manager-actor-service"))]
+        {
+            false
+        }
+    }
+    #[cfg(all(
+        test,
+        feature = "product-image-witness",
+        feature = "t4-manager-actor-service"
+    ))]
+    pub(crate) fn record_unknown_pair_for_test(&mut self) {
+        // Synthetic scheduler state only: no current-owner issuer, archive,
+        // engine, host operation or reconstructed effect authority.
+        let crate::pair_operation::Admission::Reserved(token) = self
+            .coordinator
+            .reserve_pair(
+                "beta3-unknown",
+                self.revision(),
+                crate::mutation::MutationDigest::new([17; 32]),
+            )
+            .unwrap()
+        else {
+            panic!("synthetic pair reservation missing");
+        };
+        self.coordinator
+            .finish_pair(token, crate::pair_operation::Outcome::Unknown)
+            .unwrap();
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_pair_replay(
+        &self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+    ) -> Result<Option<crate::mutation::CachedOutcome>, CoordinatorError> {
+        self.coordinator
+            .replay_pair(request.operation_id(), request.digest(action))
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn execute_normal_pair(
+        &mut self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+    ) -> Result<crate::mutation::CachedOutcome, NativeOwnerError> {
+        self.execute_normal_pair_bound(request, action, request.digest(action), None)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn replay_previewed_pair(
+        &self,
+        request: &crate::private_pair_api::PreviewedRestoreRequest,
+    ) -> Result<Option<crate::mutation::CachedOutcome>, CoordinatorError> {
+        self.coordinator
+            .replay_pair(request.pair.operation_id(), request.digest())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn execute_previewed_pair(
+        &mut self,
+        request: &crate::private_pair_api::PreviewedRestoreRequest,
+    ) -> Result<crate::mutation::CachedOutcome, NativeOwnerError> {
+        self.execute_normal_pair_bound(
+            &request.pair,
+            crate::private_pair_api::Action::Restore,
+            request.digest(),
+            Some(&request.expected),
+        )
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn execute_normal_pair_bound(
+        &mut self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+        digest: crate::mutation::MutationDigest,
+        expected: Option<&[u8; 32]>,
+    ) -> Result<crate::mutation::CachedOutcome, NativeOwnerError> {
+        if action == crate::private_pair_api::Action::Restore
+            && !crate::product_scope::restore_enabled()
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        // Historical result data first, never an engine invocation or grant.
+        if let Some(result) = self
+            .coordinator
+            .replay_pair(request.operation_id(), digest)?
+        {
+            return Ok(result);
+        }
+        if action == crate::private_pair_api::Action::Restore
+            && !self.transaction.original_lease_vacant()
+        {
+            // The occupied original keeper cannot yield a second owned Flock.
+            // Refuse before reservation, authentication, slot install or effects;
+            // do not poison that still-usable ordinary owner as UNKNOWN.
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        if self
+            .batch
+            .as_ref()
+            .is_some_and(|batch| batch.active.is_some())
+        {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        self.check_batch_operation_id(Some(request.operation_id()))?;
+        self.invalidate_close_for_new_operation(Some(request.operation_id()));
+        let token = match self.coordinator.reserve_pair(
+            request.operation_id(),
+            request.revision(),
+            digest,
+        )? {
+            crate::pair_operation::Admission::Reserved(token) => token,
+            crate::pair_operation::Admission::Replay(result) => return Ok(result),
+        };
+        // One synchronous body under the existing owner mutex. A Running
+        // reservation is not the ordinary active mutation: the retained engine
+        // independently demands idle and consumes its OWN typed revision proof.
+        // Token Drop marks abandonment on unwind; no take/reinsert or retries.
+        let outcome = match action {
+            crate::private_pair_api::Action::Create => normal_backup_outcome(
+                self.create_backup_candidate(request.archive(), request.passphrase()),
+            ),
+            crate::private_pair_api::Action::Restore => {
+                normal_restore_outcome(if let Some(expected) = expected {
+                    self.execute_previewed_restore_completed(
+                        request.archive(),
+                        request.passphrase(),
+                        expected,
+                    )
+                } else {
+                    self.execute_first_restore_completed(request.archive(), request.passphrase())
+                })
+            }
+        };
+        self.coordinator
+            .finish_pair(token, outcome)
+            .map_err(Into::into)
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn preview_current_pair(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        revision: u64,
+    ) -> Result<(usize, usize, [u8; 32]), NativeOwnerError> {
+        self.preview_current_pair_checked(source, passphrase, revision, |_| {})
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn preview_current_pair_checked(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        revision: u64,
+        after_auth: impl FnOnce(&mut Self),
+    ) -> Result<(usize, usize, [u8; 32]), NativeOwnerError> {
+        let before = self.preview_current_readiness(revision)?;
+        let instance = self.batch.as_ref().map(|batch| batch.instance.clone());
+        let (opened, digest) = crate::backup_destination_candidate::open_existing_with_digest(
+            source,
+            self.uid(),
+            passphrase,
+        )
+        .map_err(|_| NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument))?;
+        after_auth(self); // Synthetic test seam; production callback is a no-op.
+        let after = self.preview_current_readiness(revision)?;
+        if before != after || self.batch.as_ref().map(|batch| &batch.instance) != instance.as_ref()
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok((opened.profile_count(), opened.subscription_count(), digest))
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn preview_current_readiness(
+        &mut self,
+        revision: u64,
+    ) -> Result<
+        (
+            restore_candidate::RestoreReadiness,
+            crate::desired::DesiredState,
+        ),
+        NativeOwnerError,
+    > {
+        if !self.transaction.original_lease_vacant() || self.retained_restore_busy() {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        if self.coordinator.revision() != revision {
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict,
+            ));
+        }
+        if !self.coordinator.preview_pair_idle() {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
+        let desired =
+            crate::desired::read_desired_snapshot(self.transaction.desired_paths(), self.uid())
+                .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        // The existing check owns/drops its short-lived admission lock locally.
+        let readiness = self
+            .restore_readiness_candidate()
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        if crate::desired::read_desired_snapshot(self.transaction.desired_paths(), self.uid())
+            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?
+            != desired
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok((readiness, desired))
     }
 
     /// Validate a network-backed subscription request before the caller
@@ -550,6 +934,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<SubscriptionFetchPreflight, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let parsed = parse_subscription_mutation_request(request)?;
         let url = parsed.remote_url().ok_or(NativeOwnerError::Protocol(
             MutationProtocolError::InvalidArgument,
@@ -597,6 +984,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<SubscriptionRefreshPreflight, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let parsed = parse_subscription_refresh_request(request)?;
         self.check_batch_operation_id(request["params"]["operationId"].as_str())?;
         let scheduling = parsed.external_work_request()?;
@@ -681,6 +1071,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         project: impl FnOnce(&mut Self) -> Result<T, NativeOwnerError>,
     ) -> Result<T, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         let _lock = self
             .transaction
             .acquire_lock()
@@ -713,6 +1106,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<Value, NativeOwnerError> {
         crate::runtime_observation::validate(request)?;
         self.with_owned_read(|owner| {
+            if request["method"] == "diagnostics.setup" {
+                return Ok(crate::core_diagnostics::CoreDiagnostics::setup_projection(
+                    owner.host_mut().core_diagnostics(),
+                ));
+            }
             let desired = crate::desired::read_desired_snapshot(
                 owner.transaction.desired_paths(),
                 owner.transaction.uid(),
@@ -732,6 +1130,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             let mut result = crate::runtime_observation::project(&desired, actual, observation);
             result["coreDiagnostics"] = serde_json::json!(owner.host_mut().core_diagnostics());
+            result["coreLogHints"] = crate::core_diagnostics::CoreLogHints::projection(
+                owner.host_mut().core_log_hints(),
+            );
             Ok(result)
         })
     }
@@ -760,6 +1161,90 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             Ok(crate::traffic::project(sample))
+        })
+    }
+
+    pub(crate) fn connections(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
+        crate::connections_summary::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let count = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_count(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connections_summary::project(count))
+        })
+    }
+
+    pub(crate) fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> Result<Value, NativeOwnerError> {
+        crate::connection_overview::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let overview = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_overview(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connection_overview::project(overview))
+        })
+    }
+
+    pub(crate) fn connection_rows(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
+        crate::connection_rows::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let rows = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_rows(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connection_rows::project(rows))
         })
     }
 
@@ -835,7 +1320,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .map_err(|_| NativeOwnerError::Invariant)?;
             let desired = crate::desired::read_desired_snapshot(&desired_paths, uid)
                 .map_err(|_| NativeOwnerError::Invariant)?;
-            let pending = crate::routing_preset::pending(&desired_paths);
+            let pending = crate::pending_private_transaction::pending(&desired_paths);
             let observation = owner.host_mut().fresh_observation(&desired).ok();
             let host = owner.host_mut().support_facts(desired.connected);
             // Preserve one coherent sample even if a non-cooperating writer
@@ -846,7 +1331,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 || omavless_store::read_private_utf8(&store_path, uid)
                     .map_err(|_| NativeOwnerError::Invariant)?
                     != input
-                || crate::routing_preset::pending(&desired_paths) != pending
+                || crate::pending_private_transaction::pending(&desired_paths) != pending
             {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
@@ -1069,6 +1554,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.retained_restore_busy() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
+        self.invalidate_connection_close();
         self.transaction.reconcile_startup()
     }
 
@@ -1076,7 +1565,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.retained_restore_busy() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
+        self.invalidate_connection_close();
         self.transaction.reconcile_startup_locked(lock)
+    }
+
+    pub(crate) fn reconcile_startup_admitted(
+        &mut self,
+        lock: &MigrationLock,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.retained_restore_busy() {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
+        self.invalidate_connection_close();
+        self.transaction.reconcile_startup_admitted(lock, admission)
     }
 
     fn admit(
@@ -1086,6 +1591,17 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if let Some(origin) = &self.native_completed_origin {
+            origin
+                .recheck()
+                .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+            return Err(NativeOwnerError::OwnershipBusy); // continuous original lease, no duplicate OFD wrapper
+        }
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        self.invalidate_close_for_new_operation(operation_id);
         if let Some(fence) = self.required_ownership {
             let lock = self
                 .transaction
@@ -1103,9 +1619,26 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
         }
-        if crate::routing_preset::pending(self.transaction.desired_paths()) {
+        if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }
+        self.schedule(kind, operation_id, expected_revision, digest)
+    }
+
+    fn schedule(
+        &mut self,
+        kind: MutationKind,
+        operation_id: Option<&str>,
+        expected_revision: Option<u64>,
+        digest: crate::mutation::MutationDigest,
+    ) -> Result<Admission, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        // Historical typed alternatives share this scheduler without ordinary
+        // admit. They must revoke prior close authority before publication too.
+        // Ordinary admit additionally retains its earlier pre-lease revocation.
+        self.invalidate_close_for_new_operation(operation_id);
         self.check_batch_operation_id(operation_id)?;
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
@@ -1122,16 +1655,31 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }
     }
 
+    fn invalidate_close_for_new_operation(&mut self, operation_id: Option<&str>) {
+        if !operation_id.is_some_and(|id| {
+            self.coordinator.operation_id_in_use(id).unwrap_or(false)
+                || self
+                    .batch
+                    .as_ref()
+                    .is_some_and(|state| state.registry.has_operation_id(id))
+        }) {
+            self.invalidate_connection_close();
+        }
+    }
+
     fn preflight_lock(
         &mut self,
         token: MutationToken,
         family: fn(ConnectionTransactionError) -> NativeTransactionError,
     ) -> Result<LockAdmission, NativeOwnerError> {
+        if self.retained_restore_busy() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         match self.transaction.acquire_lock() {
             Ok(lock) => {
                 // A durable interrupted preset must also fence the effect
                 // boundary, not only the earlier queue/replay admission.
-                if crate::routing_preset::pending(self.transaction.desired_paths()) {
+                if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
                     self.coordinator.abort_active_uncached(token)?;
                     return Err(NativeOwnerError::ManualRecoveryRequired);
                 }
@@ -1206,8 +1754,37 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: OwnerRequest,
     ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_connection_admitted(
+            request,
+            &mut connection_admission::ConnectionAdmission::ordinary(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_connection_research(
+        &mut self,
+        request: OwnerRequest,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::HistoricalConnection<'_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_connection_admitted(
+            request,
+            &mut connection_admission::ConnectionAdmission::Historical(context),
+        )
+    }
+
+    fn execute_connection_admitted(
+        &mut self,
+        request: OwnerRequest,
+        admission_context: &mut connection_admission::ConnectionAdmission<'_, '_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
         let (action, operation_id, expected_revision, digest) = request.into_parts();
-        let admission = self.admit(
+        // A valid new typed intent revokes close authority even when its
+        // historical kind/proof later refuses. Known-ID retries retain the
+        // successor confirmation; neither case bypasses admission checks.
+        self.invalidate_close_for_new_operation(operation_id.as_deref());
+        admission_context.kind(&action)?;
+        let admission = admission_context.admit(
+            self,
             action.kind(),
             operation_id.as_deref(),
             expected_revision,
@@ -1218,11 +1795,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
             Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
         };
-        let blocked = if matches!(action, OwnerAction::Disconnect) {
-            self.transaction.stop_blocked()
-        } else {
-            self.transaction.blocked()
-        };
+        let blocked = admission_context.blocked(self, matches!(action, OwnerAction::Disconnect));
         if blocked {
             return self.finish(
                 token,
@@ -1232,17 +1805,22 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 false,
             );
         }
-        let lock = match self.preflight_lock(token, NativeTransactionError::Connection)? {
-            LockAdmission::Locked(lock) => lock,
-            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        let lock = match admission_context.preflight(self, token)? {
+            Ok(lock) => lock,
+            Err(outcome) => return Ok(outcome),
         };
         let completion = match action {
             OwnerAction::Connect { profile_id, mode } => {
-                self.transaction.connect(&lock, profile_id, mode)
+                self.transaction
+                    .connect_admitted(&lock, profile_id, mode, admission_context)
             }
-            OwnerAction::Disconnect => self.transaction.disconnect(&lock),
+            OwnerAction::Disconnect => self
+                .transaction
+                .disconnect_admitted(&lock, admission_context),
             OwnerAction::SetMode { mode } => self.transaction.set_mode(&lock, mode),
         };
+        admission_context.completion(&completion);
+        admission_context.latch(self);
         match completion {
             Completion::Ordinary(outcome) => self.finish(
                 token,
@@ -1261,35 +1839,49 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_profile_admitted(
+            request,
+            &mut profile_admission::ProfileAdmission::ordinary(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_profile_research(
+        &mut self,
+        request: &Value,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::HistoricalProfile<'_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_profile_admitted(
+            request,
+            &mut profile_admission::ProfileAdmission::Historical(context),
+        )
+    }
+
+    fn execute_profile_admitted(
+        &mut self,
+        request: &Value,
+        context: &mut profile_admission::ProfileAdmission<'_, '_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
         let parsed = parse_profile_mutation_request(request)?;
         let (mutation, operation_id, expected_revision, digest) = parsed.into_parts();
         let (kind, profile_id) = mutation_identity(&mutation);
+        // Parsing stays before intent admission. Historical kind/proof refusal
+        // must not leave an older captured or detached close authorized.
+        self.invalidate_close_for_new_operation(operation_id.as_deref());
+        context.kind(kind)?;
         let profile_id = profile_id.to_owned();
-        let admission = self.admit(
-            MutationKind::Other,
-            operation_id.as_deref(),
-            expected_revision,
-            digest,
-        )?;
+        let admission = context.admit(self, operation_id.as_deref(), expected_revision, digest)?;
         let token = match admission {
             Admission::Execute(token) => token,
             Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
             Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
         };
-        if let Some(outcome) = self.blocked(
-            token,
-            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
-        )? {
+        if let Some(outcome) = context.blocked(self, token)? {
             return Ok(outcome);
         }
-        let lock = match self.preflight_lock(token, |error| {
-            NativeTransactionError::Profile(match error {
-                ConnectionTransactionError::Busy => ProfileTransactionError::Busy,
-                _ => ProfileTransactionError::Store,
-            })
-        })? {
-            LockAdmission::Locked(lock) => lock,
-            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        let lock = match context.preflight(self, token)? {
+            Ok(lock) => lock,
+            Err(outcome) => return Ok(outcome),
         };
         let plan = prepare_profile_mutation(
             self.transaction.store_path(),
@@ -1297,17 +1889,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             mutation,
         )
         .map_err(store_error);
-        let outcome = plan.and_then(|plan| {
-            let paths = self.transaction.cutover_paths().clone();
-            apply_transaction(
-                self.transaction.lifecycle_mut(),
-                &plan,
-                kind,
-                &profile_id,
-                &lock,
-                &paths,
-            )
-        });
+        let outcome = plan
+            .and_then(|plan| context.apply(&mut self.transaction, &plan, kind, &profile_id, &lock));
         self.finish(
             token,
             outcome
@@ -1934,10 +2517,16 @@ mod tests {
         calls: usize,
         support_observation: Option<crate::lifecycle::NativeLocalObservation>,
         support_read_change: Option<(PathBuf, Vec<u8>)>,
+        support_late_read_change: Option<(usize, PathBuf, Vec<u8>)>,
+        support_observation_calls: usize,
         diagnostic_reader: Option<crate::core_diagnostics::DiagnosticReader>,
+        auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
     }
 
     impl LifecycleHost for FakeHost {
+        fn auxiliary_slot(&self) -> Option<std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>> {
+            Some(std::sync::Arc::clone(&self.auxiliary))
+        }
         fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
             self.diagnostic_reader
                 .as_ref()
@@ -1947,7 +2536,16 @@ mod tests {
             &mut self,
             _desired: &DesiredState,
         ) -> Result<crate::lifecycle::NativeLocalObservation, HostStepError> {
+            self.support_observation_calls += 1;
             if let Some((path, bytes)) = self.support_read_change.take() {
+                fs::write(path, bytes).unwrap();
+            }
+            if self
+                .support_late_read_change
+                .as_ref()
+                .is_some_and(|(call, _, _)| *call == self.support_observation_calls)
+            {
+                let (_, path, bytes) = self.support_late_read_change.take().unwrap();
                 fs::write(path, bytes).unwrap();
             }
             self.support_observation.ok_or(HostStepError::Observation)
@@ -1999,12 +2597,15 @@ mod tests {
         }
     }
 
-    fn fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+    fn fixture_under(
+        parent: &Path,
+        label: &str,
+    ) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
+        let root = parent.join(format!(
             "omavless-native-coordinator-{label}-{}-{nonce}",
             std::process::id()
         ));
@@ -2060,7 +2661,10 @@ mod tests {
                 calls: 0,
                 support_observation: None,
                 support_read_change: None,
+                support_late_read_change: None,
+                support_observation_calls: 0,
                 diagnostic_reader: None,
+                auxiliary: std::sync::Arc::default(),
             },
             desired_paths,
             &store_path,
@@ -2070,8 +2674,15 @@ mod tests {
         (root, store_path, owner)
     }
 
-    fn support_fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
-        let (root, store, mut owner) = fixture(label);
+    fn fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        fixture_under(&std::env::temp_dir(), label)
+    }
+
+    fn support_fixture_under(
+        parent: &Path,
+        label: &str,
+    ) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        let (root, store, mut owner) = fixture_under(parent, label);
         let paths = owner.transaction.cutover_paths();
         fs::create_dir_all(&paths.state_directory).unwrap();
         fs::set_permissions(&paths.state_directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -2086,6 +2697,1407 @@ mod tests {
             generation: 2,
         });
         (root, store, owner)
+    }
+
+    fn support_fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        support_fixture_under(&std::env::temp_dir(), label)
+    }
+
+    fn private_support_fixture(
+        label: &str,
+    ) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        let home = std::env::var_os("HOME").expect("private restore fixture needs home");
+        support_fixture_under(Path::new(&home), label)
+    }
+
+    fn empty_local_observation() -> crate::lifecycle::NativeLocalObservation {
+        crate::lifecycle::NativeLocalObservation {
+            owned_core_running: false,
+            visible_mihomo_count: 0,
+            owned_auxiliary_mihomo_count: 0,
+            visible_tun_count: 0,
+            managed_tun_count: 0,
+            owned_controller_config_verified: false,
+            desired_profile_matches_owned: false,
+        }
+    }
+
+    #[test]
+    fn inactive_restore_preflight_requires_exact_idle_disconnected_owner() {
+        use super::restore_candidate::{RestoreAdmissionError, RestoreReadiness};
+
+        let (root, _, mut owner) = support_fixture("restore-readiness");
+        // A foreign VPN is observation, not authority to mutate or stop it.
+        owner.host_mut().support_observation = Some(crate::lifecycle::NativeLocalObservation {
+            visible_mihomo_count: 1,
+            visible_tun_count: 1,
+            ..empty_local_observation()
+        });
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Ok(RestoreReadiness {
+                revision: 0,
+                desired_generation: 0,
+                owner_generation: 2,
+            })
+        );
+
+        owner.host_mut().support_observation = None;
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::ObservationUnavailable)
+        );
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        for observed in [
+            crate::lifecycle::NativeLocalObservation {
+                owned_core_running: true,
+                ..empty_local_observation()
+            },
+            crate::lifecycle::NativeLocalObservation {
+                managed_tun_count: 1,
+                ..empty_local_observation()
+            },
+            crate::lifecycle::NativeLocalObservation {
+                owned_auxiliary_mihomo_count: 1,
+                ..empty_local_observation()
+            },
+        ] {
+            owner.host_mut().support_observation = Some(observed);
+            assert_eq!(
+                owner.restore_readiness_candidate(),
+                Err(RestoreAdmissionError::NotDisconnected)
+            );
+        }
+        owner.host_mut().support_observation = Some(empty_local_observation());
+
+        let mut desired = owner.desired().unwrap();
+        desired.connected = true;
+        desired.profile_id = PROFILE.to_owned();
+        desired.generation = 1;
+        write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::NotDisconnected)
+        );
+        desired = DesiredState::default();
+        write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+
+        fs::write(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("routing-preset.pending.json"),
+            b"pending",
+        )
+        .unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        fs::remove_file(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("routing-preset.pending.json"),
+        )
+        .unwrap();
+        owner
+            .initialize_batch_operations("synthetic-owner")
+            .unwrap();
+        owner.batch.as_mut().unwrap().stopped = true;
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        owner.batch.as_mut().unwrap().stopped = false;
+
+        let active = owner.host_mut().auxiliary.reserve().unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::Busy)
+        );
+        drop(active);
+        fs::write(
+            &owner.transaction.cutover_paths().ownership_marker,
+            br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::OwnershipUnavailable)
+        );
+        fs::write(
+            &owner.transaction.cutover_paths().ownership_marker,
+            br#"{"schemaVersion":1,"generation":2,"phase":"rust"}"#,
+        )
+        .unwrap();
+        owner.transaction.block();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preflight_is_not_a_reservation() {
+        use super::restore_candidate::RestoreAdmissionError;
+
+        let (root, _, mut owner) = support_fixture("restore-stale-preview");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let preview = owner.restore_readiness_candidate().unwrap();
+        assert_eq!(preview.revision, 0);
+        owner.host_mut().support_read_change = Some((
+            owner.transaction.desired_paths().file.clone(),
+            b"{}".to_vec(),
+        ));
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::ObservationUnavailable)
+        );
+        // This stale preview is not a token that could authorize a write.
+        assert_eq!(preview.owner_generation, 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preflight_refuses_queued_and_active_work() {
+        use super::restore_candidate::RestoreAdmissionError;
+
+        let (root, _, mut owner) = support_fixture("restore-work-fence");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let request = MutationRequest::new(
+            MutationKind::Other,
+            Some("synthetic-restore-fence"),
+            Some(0),
+            MutationDigest::from_semantic_bytes(b"synthetic-restore-fence"),
+        )
+        .unwrap();
+        owner.coordinator.submit(request).unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::Busy)
+        );
+        assert!(matches!(
+            owner.coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(_)
+        ));
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::Busy)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preview_separates_backup_authentication_from_owner_readiness() {
+        use super::restore_candidate::{RestoreAdmissionError, RestoreReadiness};
+        use crate::backup_destination_candidate::{BackupPreview, ReadError};
+
+        let (root, store, mut owner) = private_support_fixture("restore-preview");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let before = fs::read(&store).unwrap();
+        let desired_before = fs::read(&owner.transaction.desired_paths().file).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(
+                portable_store,
+                include_bytes!("../../../templates/default.yaml"),
+                passphrase,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let preview = owner
+            .restore_preview_candidate(&backup, passphrase)
+            .unwrap();
+        assert_eq!(
+            preview.backup,
+            BackupPreview {
+                profiles: 0,
+                subscriptions: 0
+            }
+        );
+        assert_eq!(
+            preview.readiness,
+            Ok(RestoreReadiness {
+                revision: 0,
+                desired_generation: 0,
+                owner_generation: 2,
+            })
+        );
+        assert_eq!(
+            fs::read(&owner.transaction.desired_paths().file).unwrap(),
+            desired_before
+        );
+
+        let mut desired = owner.desired().unwrap();
+        desired.connected = true;
+        desired.profile_id = PROFILE.to_owned();
+        desired.generation += 1;
+        write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+        let connected_desired = fs::read(&owner.transaction.desired_paths().file).unwrap();
+        let preview = owner
+            .restore_preview_candidate(&backup, passphrase)
+            .unwrap();
+        assert_eq!(preview.backup.profiles, 0);
+        assert_eq!(
+            preview.readiness,
+            Err(RestoreAdmissionError::NotDisconnected)
+        );
+
+        assert!(matches!(
+            owner.restore_preview_candidate(&backup, b"incorrect passphrase"),
+            Err(ReadError::Unreadable)
+        ));
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert_eq!(
+            fs::read(&owner.transaction.desired_paths().file).unwrap(),
+            connected_desired
+        );
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_preview_readonly_capacity_and_full_desired_drift_checks() {
+        use crate::private_pair_api::{Action, Request};
+        let (root, store, mut owner) = private_support_fixture("current-preview");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        let archive = root.join("synthetic.ovb");
+        let password = b"synthetic passphrase only";
+        fs::write(
+            &archive,
+            omavless_domain::private_backup::seal(
+                portable,
+                include_bytes!("../../../templates/default.yaml"),
+                password,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&archive, fs::Permissions::from_mode(0o600)).unwrap();
+        let old = fs::read(&store).unwrap();
+        // Repeated previews do not reserve any of the eight result slots.
+        let (_, _, digest) = owner.preview_current_pair(&archive, password, 0).unwrap();
+        assert_eq!(
+            owner.preview_current_pair(&archive, password, 0).unwrap(),
+            (0, 0, digest)
+        );
+        assert!(
+            owner
+                .preview_current_pair(&archive, b"wrong synthetic password", 0)
+                .is_err()
+        );
+        assert!(owner.preview_current_pair(&archive, password, 1).is_err());
+        assert!(owner.transaction.original_lease_vacant());
+        assert!(!owner.held_restore_execution.occupied());
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(fs::read(&store).unwrap(), old);
+        assert!(!crate::pending_private_transaction::pending_at(
+            &owner.transaction.desired_paths().directory
+        ));
+        // All eight actual metadata reservations remain available; none runs a
+        // backend here. Completed historical DATA does not prevent preview.
+        for n in 0..8 {
+            let token = match owner
+                .coordinator
+                .reserve_pair(&format!("metadata-{n}"), 0, MutationDigest::new([n; 32]))
+                .unwrap()
+            {
+                crate::pair_operation::Admission::Reserved(t) => t,
+                _ => panic!("unexpected replay"),
+            };
+            owner
+                .coordinator
+                .finish_pair(token, crate::pair_operation::Outcome::InputDenied)
+                .unwrap();
+        }
+        assert_eq!(
+            owner.preview_current_pair(&archive, password, 0).unwrap(),
+            (0, 0, digest)
+        );
+        let refused = owner.preview_current_pair_checked(&archive, password, 0, |owner| {
+            let mut desired = owner.desired().unwrap();
+            desired.mode = crate::desired::RoutingMode::Global;
+            // Same generation and disconnected still aren't SAME Desired.
+            write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+        });
+        assert!(refused.is_err());
+        assert_eq!(owner.revision(), 0);
+        assert!(!owner.retained_restore_busy());
+        owner
+            .initialize_batch_operations("same-preview-instance")
+            .unwrap();
+        assert!(
+            owner
+                .preview_current_pair_checked(&archive, password, 0, |owner| {
+                    owner.batch.as_mut().unwrap().instance = "foreign-preview-instance".into();
+                })
+                .is_err()
+        );
+        let create = Request::parse("backup.create", &json!({"schema":1,"archive":root.join("never.ovb"),"passphrase":"synthetic password","instanceId":"synthetic","operationId":"ninth","expectedRevision":0,"confirmation":"export-current-private-pair"})).unwrap().0;
+        assert!(owner.execute_normal_pair(&create, Action::Create).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_preview_pending_running_and_unknown_refuse_before_source_open() {
+        for selected in ["pending", "running", "unknown", "connected", "queued"] {
+            let (root, _, mut owner) = private_support_fixture("preview-preflight");
+            owner.host_mut().support_observation = Some(empty_local_observation());
+            let pending = owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("restore-pair.pending");
+            let mut retained_token = None;
+            match selected {
+                "pending" => {
+                    fs::create_dir(&pending).unwrap();
+                }
+                "running" | "unknown" => {
+                    let token = match owner
+                        .coordinator
+                        .reserve_pair("unresolved", 0, MutationDigest::new([1; 32]))
+                        .unwrap()
+                    {
+                        crate::pair_operation::Admission::Reserved(t) => t,
+                        _ => panic!("replay"),
+                    };
+                    if selected == "unknown" {
+                        owner
+                            .coordinator
+                            .finish_pair(token, crate::pair_operation::Outcome::Unknown)
+                            .unwrap();
+                    } else {
+                        retained_token = Some(token);
+                    }
+                }
+                "connected" => {
+                    let mut desired = owner.desired().unwrap();
+                    desired.connected = true;
+                    desired.profile_id = PROFILE.into();
+                    write_desired(owner.transaction.desired_paths(), owner.uid(), &desired)
+                        .unwrap();
+                }
+                "queued" => {
+                    owner
+                        .coordinator
+                        .submit(
+                            MutationRequest::new(
+                                MutationKind::Other,
+                                Some("queued"),
+                                Some(0),
+                                MutationDigest::new([2; 32]),
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let result =
+                owner.preview_current_pair(&root.join("ABSENT.ovb"), b"synthetic password", 0);
+            assert!(matches!(
+                result,
+                Err(NativeOwnerError::OwnershipUnavailable | NativeOwnerError::Coordinator(_))
+            ));
+            assert!(!owner.held_restore_execution.occupied());
+            assert_eq!(owner.revision(), 0);
+            assert!(owner.transaction.original_lease_vacant());
+            drop(retained_token);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_restore_preparation_holds_exact_old_and_authenticated_new_pair_without_writes() {
+        use super::restore_candidate::{RestoreAdmissionError, RestorePrepareError};
+
+        let (root, store, mut owner) = private_support_fixture("restore-pair-preparation");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let original_store = fs::read(&store).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        let original_template = b"synthetic old custom template\n";
+        fs::write(&template, original_template).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        let portable_template = include_bytes!("../../../templates/default.yaml");
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(portable_store, portable_template, passphrase)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let prepared = owner
+            .prepare_restore_candidate(&backup, passphrase)
+            .unwrap();
+        assert!(prepared.original_store() == original_store);
+        assert!(prepared.original_template() == original_template);
+        assert!(prepared.incoming_store() == portable_store);
+        assert!(prepared.incoming_template() == portable_template);
+        assert_eq!(prepared.readiness().revision, 0);
+        assert_eq!(owner.host_mut().calls, 0);
+        assert!(fs::read(&store).unwrap() == original_store);
+        assert!(fs::read(&template).unwrap() == original_template);
+
+        let mut desired = owner.desired().unwrap();
+        desired.connected = true;
+        desired.profile_id = PROFILE.to_owned();
+        desired.generation += 1;
+        let desired_path = owner.transaction.desired_paths().file.clone();
+        let next_observation = owner.host_mut().support_observation_calls + 2;
+        owner.host_mut().support_late_read_change = Some((
+            next_observation,
+            desired_path.clone(),
+            serde_json::to_vec(&desired).unwrap(),
+        ));
+        assert!(matches!(
+            owner.prepare_restore_candidate(&backup, passphrase),
+            Err(RestorePrepareError::Owner(
+                RestoreAdmissionError::OwnershipUnavailable
+            ))
+        ));
+        assert_eq!(
+            fs::read(&desired_path).unwrap(),
+            serde_json::to_vec(&desired).unwrap()
+        );
+        assert!(matches!(
+            owner.prepare_restore_candidate(&backup, passphrase),
+            Err(RestorePrepareError::Owner(
+                RestoreAdmissionError::NotDisconnected
+            ))
+        ));
+        assert!(fs::read(&store).unwrap() == original_store);
+        assert!(fs::read(&template).unwrap() == original_template);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_staging_preserves_live_pair_and_blocks_new_previews() {
+        use super::restore_candidate::RestoreAdmissionError;
+        use crate::restore_decision_candidate::{DecisionRecord, RecoveryReview, TerminalChoice};
+        use crate::restore_journal_candidate::{JournalError, inspect_decision_journal};
+        use crate::restore_staging_candidate::{
+            ClassifyError, InspectError, LivePairClass, classify_live_pair,
+            classify_live_pair_bound, inspect_stage_identity,
+        };
+
+        let (root, store, mut owner) = private_support_fixture("restore-stage-owner");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let original_store = fs::read(&store).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        let original_template = b"synthetic old route template\n";
+        fs::write(&template, original_template).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        let portable_template = include_bytes!("../../../templates/default.yaml");
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(portable_store, portable_template, passphrase)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+
+        owner.stage_restore_candidate(&backup, passphrase).unwrap();
+        let staged = owner
+            .transaction
+            .desired_paths()
+            .directory
+            .join("restore-pair.pending");
+        assert!(fs::read(staged.join("old-profiles.json")).unwrap() == original_store);
+        assert!(fs::read(staged.join("old-route-template.yaml")).unwrap() == original_template);
+        assert!(fs::read(staged.join("new-profiles.json")).unwrap() == portable_store);
+        assert!(fs::read(staged.join("new-route-template.yaml")).unwrap() == portable_template);
+        assert!(fs::read(&store).unwrap() == original_store);
+        assert!(fs::read(&template).unwrap() == original_template);
+        assert_eq!(owner.host_mut().calls, 0);
+        assert!(owner.transaction.stop_blocked());
+        assert!(owner.transaction.blocked());
+        assert_eq!(
+            owner.transaction.reconcile_startup(),
+            Err(ConnectionTransactionError::ManualRecoveryRequired)
+        );
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        let classify = |owner: &OfflineNativeCoordinator<FakeHost>| {
+            let lock = owner.transaction.acquire_lock().unwrap();
+            classify_live_pair(
+                store.parent().unwrap(),
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                2,
+                &lock,
+            )
+        };
+        assert_eq!(classify(&owner), Ok(LivePairClass::Old));
+        let desired = fs::read(&owner.transaction.desired_paths().file).ok();
+        let stage_identity = inspect_stage_identity(
+            &owner.transaction.cutover_paths().state_directory,
+            owner.transaction.uid(),
+        )
+        .unwrap();
+        let decision =
+            DecisionRecord::intent(2, desired.as_deref(), &stage_identity, [7; 16]).unwrap();
+        let committed = decision.terminal(TerminalChoice::Commit).unwrap();
+        let state = &owner.transaction.cutover_paths().state_directory;
+        let intent_path = state.join("restore-decision.intent");
+        let terminal_path = state.join("restore-decision.terminal");
+        let inspect_journal = |owner: &OfflineNativeCoordinator<FakeHost>| {
+            let lock = owner.transaction.acquire_lock().unwrap();
+            inspect_decision_journal(
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                &lock,
+            )
+        };
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Missing)
+        ));
+        fs::write(&terminal_path, committed.encode()).unwrap();
+        fs::set_permissions(&terminal_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Invalid)
+        ));
+        fs::remove_file(&terminal_path).unwrap();
+        fs::write(&intent_path, decision.encode()).unwrap();
+        fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            inspect_journal(&owner).unwrap().active().phase(),
+            decision.phase()
+        );
+        fs::write(&terminal_path, committed.encode()).unwrap();
+        fs::set_permissions(&terminal_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            inspect_journal(&owner).unwrap().active().phase(),
+            committed.phase()
+        );
+        fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = state.join("synthetic-hardlink-only-in-test");
+        fs::hard_link(&intent_path, &alias).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::remove_file(&alias).unwrap();
+        let different = DecisionRecord::intent(2, desired.as_deref(), &stage_identity, [8; 16])
+            .unwrap()
+            .terminal(TerminalChoice::Commit)
+            .unwrap();
+        fs::write(&terminal_path, different.encode()).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Invalid)
+        ));
+        fs::write(&terminal_path, b"torn").unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::remove_file(&terminal_path).unwrap();
+        std::os::unix::fs::symlink(&intent_path, &terminal_path).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::remove_file(&terminal_path).unwrap();
+        fs::write(&terminal_path, committed.encode()).unwrap();
+        fs::set_permissions(&terminal_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let desired_path = &owner.transaction.desired_paths().file;
+        let mut changed_desired = desired
+            .as_ref()
+            .map(|raw| serde_json::from_slice::<DesiredState>(raw).unwrap())
+            .unwrap_or_default();
+        changed_desired.generation += 1;
+        fs::write(desired_path, serde_json::to_vec(&changed_desired).unwrap()).unwrap();
+        fs::set_permissions(desired_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Invalid)
+        ));
+        if let Some(raw) = &desired {
+            fs::write(desired_path, raw).unwrap();
+        } else {
+            fs::remove_file(desired_path).unwrap();
+        }
+        let classify_bound = |owner: &OfflineNativeCoordinator<FakeHost>| {
+            let lock = owner.transaction.acquire_lock().unwrap();
+            classify_live_pair_bound(
+                store.parent().unwrap(),
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                2,
+                &lock,
+            )
+            .unwrap()
+        };
+        let observed = classify_bound(&owner);
+        assert_eq!(observed.stage().digest(), stage_identity.digest());
+        assert_eq!(
+            inspect_journal(&owner)
+                .unwrap()
+                .review(2, desired.as_deref(), &observed),
+            RecoveryReview::ManualRecovery
+        );
+        assert_eq!(
+            decision.review(2, desired.as_deref(), &observed),
+            RecoveryReview::OldRollbackCandidate
+        );
+        assert_eq!(
+            committed.review(2, desired.as_deref(), &observed),
+            RecoveryReview::ManualRecovery
+        );
+        fs::write(&template, portable_template).unwrap();
+        assert_eq!(classify(&owner), Ok(LivePairClass::Mixed));
+        assert_eq!(
+            committed.review(2, desired.as_deref(), &classify_bound(&owner)),
+            RecoveryReview::ManualRecovery
+        );
+        fs::write(&store, portable_store).unwrap();
+        assert_eq!(classify(&owner), Ok(LivePairClass::New));
+        assert_eq!(
+            committed.review(2, desired.as_deref(), &classify_bound(&owner)),
+            RecoveryReview::VerifyCommittedCandidate
+        );
+        assert_eq!(
+            inspect_journal(&owner)
+                .unwrap()
+                .review(2, desired.as_deref(), &classify_bound(&owner)),
+            RecoveryReview::VerifyCommittedCandidate
+        );
+        fs::write(&store, b"synthetic divergent store").unwrap();
+        assert_eq!(classify(&owner), Ok(LivePairClass::Diverged));
+        let lock = owner.transaction.acquire_lock().unwrap();
+        assert_eq!(
+            classify_live_pair(
+                store.parent().unwrap(),
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                3,
+                &lock,
+            ),
+            Err(ClassifyError::Admission)
+        );
+        drop(lock);
+        fs::remove_file(&template).unwrap();
+        std::os::unix::fs::symlink(&store, &template).unwrap();
+        assert_eq!(classify(&owner), Err(ClassifyError::UnsafeLive));
+        fs::remove_file(&template).unwrap();
+        fs::write(&template, portable_template).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(staged.join("ready.bin"), b"synthetic torn stage").unwrap();
+        assert_eq!(
+            classify(&owner),
+            Err(ClassifyError::Stage(InspectError::MissingOrIncomplete))
+        );
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Stage(InspectError::MissingOrIncomplete))
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_stages_imported_startup_off_before_decision_binding() {
+        let (root, store, mut owner) = private_support_fixture("restore-startup-off");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let template_path = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template_path, b"synthetic old custom template\n").unwrap();
+        fs::set_permissions(&template_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut imported: serde_json::Value =
+            serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        imported["routingPreset"] = "roscomvpn-default".into();
+        imported["startup"] = serde_json::json!({
+            "enabled": true, "target": "last", "profileId": "", "mode": "rule"
+        });
+        let imported = imported.to_string();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(
+                imported.as_bytes(),
+                include_bytes!("../../../templates/default.yaml"),
+                passphrase,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+        owner.stage_restore_candidate(&backup, passphrase).unwrap();
+        let stage = owner
+            .transaction
+            .desired_paths()
+            .directory
+            .join("restore-pair.pending");
+        let staged = fs::read(stage.join("new-profiles.json")).unwrap();
+        let staged_json: serde_json::Value = serde_json::from_slice(&staged).unwrap();
+        assert_eq!(staged_json["startup"]["enabled"], false);
+        assert_eq!(staged_json["startup"]["target"], "last");
+        let restored = omavless_domain::private_store::parse_private_store(
+            std::str::from_utf8(&staged).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            crate::login_intent::plan_login_intent(
+                crate::login_intent::LoginTrigger::FirstLogin,
+                &crate::desired::DesiredState::default(),
+                &restored,
+            ),
+            Ok(None),
+        );
+        assert_eq!(
+            staged_json["profiles"],
+            imported.parse::<serde_json::Value>().unwrap()["profiles"]
+        );
+        assert_eq!(
+            fs::read(&store).unwrap(),
+            fs::read(stage.join("old-profiles.json")).unwrap()
+        );
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn terminal_retirement_fixture(
+        label: &str,
+        aborted: bool,
+    ) -> (
+        PathBuf,
+        PathBuf,
+        OfflineNativeCoordinator<FakeHost>,
+        Vec<u8>,
+    ) {
+        use crate::restore_executor_candidate::{
+            EffectStep, ExecutionError, PendingOutcome, execute_staged_pair, execute_with_hook,
+            recover_staged_pair,
+        };
+        use crate::restore_retirement_candidate::publish_retirement_receipt;
+
+        let (root, store, mut owner) = private_support_fixture(label);
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let original_store = fs::read(&store).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, b"synthetic original template\n").unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic test passphrase";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(
+                portable_store,
+                include_bytes!("../../../templates/default.yaml"),
+                passphrase,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+        owner.stage_restore_candidate(&backup, passphrase).unwrap();
+        let paths = owner.transaction.cutover_paths();
+        let uid = owner.uid();
+        let lock = owner.transaction.acquire_lock().unwrap();
+        if aborted {
+            assert_eq!(
+                execute_with_hook(
+                    store.parent().unwrap(),
+                    paths,
+                    uid,
+                    2,
+                    &lock,
+                    [91; 16],
+                    || true,
+                    |step| step != EffectStep::Linked(0),
+                ),
+                Err(ExecutionError::Ambiguous)
+            );
+            assert_eq!(
+                recover_staged_pair(store.parent().unwrap(), paths, uid, 2, &lock, || true),
+                Ok(PendingOutcome::Aborted)
+            );
+        } else {
+            assert_eq!(
+                execute_staged_pair(
+                    store.parent().unwrap(),
+                    paths,
+                    uid,
+                    2,
+                    &lock,
+                    [92; 16],
+                    || true
+                ),
+                Ok(PendingOutcome::Committed)
+            );
+        }
+        assert_eq!(
+            publish_retirement_receipt(store.parent().unwrap(), paths, uid, 2, &lock, || true),
+            Ok(if aborted {
+                PendingOutcome::Aborted
+            } else {
+                PendingOutcome::Committed
+            })
+        );
+        drop(lock);
+        (root, store, owner, original_store)
+    }
+
+    #[test]
+    fn inactive_owner_retirement_retains_completion_fence_after_terminal_cleanup() {
+        use crate::restore_cleanup_candidate::CleanupResult;
+        use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
+        use crate::restore_retirement_candidate::RECEIPT_MEMBER;
+
+        for aborted in [false, true] {
+            let (root, store, mut owner, original_store) =
+                terminal_retirement_fixture("retirement-composed", aborted);
+            let config = store.parent().unwrap();
+            let stage = owner
+                .transaction
+                .cutover_paths()
+                .state_directory
+                .join("restore-pair.pending");
+            let state = owner.transaction.cutover_paths().state_directory.clone();
+            let receipt_path = state.join(RECEIPT_MEMBER);
+            let receipt_before = fs::read(&receipt_path).unwrap();
+            let desired_before = fs::read(&owner.transaction.desired_paths().file).unwrap();
+            if !aborted {
+                for (slot, member) in [
+                    (NEW_SLOT[0], "new-profiles.json"),
+                    (NEW_SLOT[1], "new-route-template.yaml"),
+                    (OLD_SLOT[0], "old-profiles.json"),
+                    (OLD_SLOT[1], "old-route-template.yaml"),
+                ] {
+                    fs::write(config.join(slot), fs::read(stage.join(member)).unwrap()).unwrap();
+                    fs::set_permissions(config.join(slot), fs::Permissions::from_mode(0o600))
+                        .unwrap();
+                }
+            } else {
+                assert!(config.join(NEW_SLOT[0]).exists());
+            }
+            let live_before = fs::read(&store).unwrap();
+            // A foreign visible VPN must not be stopped or treated as ours.
+            owner.host_mut().support_observation = Some(crate::lifecycle::NativeLocalObservation {
+                visible_mihomo_count: 1,
+                visible_tun_count: 1,
+                ..empty_local_observation()
+            });
+            assert_eq!(
+                owner.retire_terminal_restore_candidate(),
+                Ok(CleanupResult::RetiredStillFenced)
+            );
+            assert_eq!(
+                owner.retire_terminal_restore_candidate(),
+                Ok(CleanupResult::RetiredStillFenced)
+            );
+            assert!(!stage.exists());
+            assert!(
+                NEW_SLOT
+                    .into_iter()
+                    .chain(OLD_SLOT)
+                    .all(|name| !config.join(name).exists())
+            );
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            assert_eq!(
+                fs::read(&owner.transaction.desired_paths().file).unwrap(),
+                desired_before
+            );
+            assert_eq!(fs::read(&receipt_path).unwrap(), receipt_before);
+            assert!(!state.join("restore-decision.intent").exists());
+            assert!(!state.join("restore-decision.terminal").exists());
+            assert!(crate::pending_private_transaction::pending_at(&state));
+            assert!(owner.transaction.blocked());
+            assert_eq!(owner.host_mut().calls, 0);
+            if aborted {
+                assert_eq!(fs::read(&store).unwrap(), original_store);
+            } else {
+                assert_ne!(fs::read(&store).unwrap(), original_store);
+            }
+            assert_eq!(
+                owner.publish_restore_completion_candidate(),
+                Ok(
+                    crate::restore_cleanup_candidate::ClosurePublicationResult::PublishedStillFenced
+                )
+            );
+            assert_eq!(
+                owner.finalize_terminal_restore_candidate(),
+                Ok(crate::restore_cleanup_candidate::FinalizeResult::ReceiptRetiredStillFenced)
+            );
+            assert!(!receipt_path.exists());
+            assert!(crate::pending_private_transaction::pending_at(&state));
+            assert!(owner.transaction.blocked());
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            assert_eq!(owner.host_mut().calls, 0);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_owner_retirement_resumes_a_partial_stage_cleanup_prefix() {
+        use crate::restore_cleanup_candidate::CleanupResult;
+
+        let (root, store, mut owner, _) = terminal_retirement_fixture("retirement-prefix", false);
+        let state = owner.transaction.cutover_paths().state_directory.clone();
+        let stage = state.join("restore-pair.pending");
+        fs::remove_file(stage.join("old-profiles.json")).unwrap();
+        fs::File::open(&stage).unwrap().sync_all().unwrap();
+        assert_eq!(
+            owner.retire_terminal_restore_candidate(),
+            Ok(CleanupResult::RetiredStillFenced)
+        );
+        assert!(!stage.exists());
+        assert!(state.join("restore-finalization.pending").exists());
+        assert!(store.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_owner_final_closure_refuses_owner_host_and_queue_drift() {
+        use crate::restore_cleanup_candidate::CleanupResult;
+
+        for change in 0..6 {
+            let (root, store, mut owner, _) =
+                terminal_retirement_fixture("final-closure-refusal", false);
+            assert_eq!(
+                owner.retire_terminal_restore_candidate(),
+                Ok(CleanupResult::RetiredStillFenced)
+            );
+            let paths = owner.transaction.cutover_paths().clone();
+            let receipt = paths.state_directory.join("restore-finalization.pending");
+            let receipt_before = fs::read(&receipt).unwrap();
+            let live_before = fs::read(&store).unwrap();
+            let mut auxiliary_lease = None;
+            match change {
+                0 => fs::write(
+                    &paths.ownership_marker,
+                    br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+                )
+                .unwrap(),
+                1 => {
+                    let mut desired = owner.desired().unwrap();
+                    desired.generation += 1;
+                    write_desired(owner.transaction.desired_paths(), owner.uid(), &desired)
+                        .unwrap();
+                }
+                2 => {
+                    owner.host_mut().support_observation =
+                        Some(crate::lifecycle::NativeLocalObservation {
+                            owned_core_running: true,
+                            ..empty_local_observation()
+                        })
+                }
+                3 => {
+                    let request = MutationRequest::new(
+                        MutationKind::Other,
+                        Some("synthetic-final-closure-queue"),
+                        Some(0),
+                        MutationDigest::from_semantic_bytes(b"synthetic-final-closure-queue"),
+                    )
+                    .unwrap();
+                    owner.coordinator.submit(request).unwrap();
+                }
+                4 => auxiliary_lease = Some(owner.host_mut().auxiliary.reserve().unwrap()),
+                _ => owner.transaction.block(),
+            }
+            assert!(
+                owner.finalize_terminal_restore_candidate().is_err(),
+                "{change}"
+            );
+            assert_eq!(fs::read(&receipt).unwrap(), receipt_before);
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            assert!(crate::pending_private_transaction::pending_at(
+                &paths.state_directory
+            ));
+            drop(auxiliary_lease);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_owner_retirement_refuses_unrelated_owner_host_and_queue_drift() {
+        use crate::restore_executor_candidate::NEW_SLOT;
+
+        for change in 0..8 {
+            let (root, store, mut owner, _) =
+                terminal_retirement_fixture("retirement-refusal", false);
+            let config = store.parent().unwrap();
+            let paths = owner.transaction.cutover_paths().clone();
+            let stage = paths.state_directory.join("restore-pair.pending");
+            let receipt = paths.state_directory.join("restore-finalization.pending");
+            let live_before = fs::read(&store).unwrap();
+            let receipt_before = fs::read(&receipt).unwrap();
+            let slot = config.join(NEW_SLOT[0]);
+            fs::write(&slot, fs::read(stage.join("new-profiles.json")).unwrap()).unwrap();
+            fs::set_permissions(&slot, fs::Permissions::from_mode(0o600)).unwrap();
+            let mut auxiliary_lease = None;
+            match change {
+                0 => {
+                    fs::write(
+                        &paths.ownership_marker,
+                        br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+                    )
+                    .unwrap();
+                }
+                1 => {
+                    let mut desired = owner.desired().unwrap();
+                    desired.generation += 1;
+                    write_desired(owner.transaction.desired_paths(), owner.uid(), &desired)
+                        .unwrap();
+                }
+                2 => {
+                    owner.host_mut().support_observation =
+                        Some(crate::lifecycle::NativeLocalObservation {
+                            owned_core_running: true,
+                            ..empty_local_observation()
+                        });
+                }
+                3 => {
+                    let request = MutationRequest::new(
+                        MutationKind::Other,
+                        Some("synthetic-retirement-queue"),
+                        Some(0),
+                        MutationDigest::from_semantic_bytes(b"synthetic-retirement-queue"),
+                    )
+                    .unwrap();
+                    owner.coordinator.submit(request).unwrap();
+                }
+                4 => {
+                    fs::write(
+                        owner
+                            .transaction
+                            .desired_paths()
+                            .directory
+                            .join("routing-preset.pending.json"),
+                        b"unrelated pending",
+                    )
+                    .unwrap();
+                }
+                5 => {
+                    auxiliary_lease = Some(owner.host_mut().auxiliary.reserve().unwrap());
+                }
+                6 => owner.transaction.block(),
+                _ => {
+                    fs::write(&slot, b"foreign slot\n").unwrap();
+                }
+            }
+            assert!(owner.retire_terminal_restore_candidate().is_err());
+            assert!(slot.exists());
+            assert!(stage.exists());
+            assert_eq!(fs::read(&receipt).unwrap(), receipt_before);
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            drop(auxiliary_lease);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_owner_retirement_never_discards_stage_while_a_slot_survives() {
+        use crate::restore_executor_candidate::NEW_SLOT;
+
+        let (root, store, mut owner, _) =
+            terminal_retirement_fixture("retirement-slot-stage-order", false);
+        let stage = owner
+            .transaction
+            .cutover_paths()
+            .state_directory
+            .join("restore-pair.pending");
+        let slot = store.parent().unwrap().join(NEW_SLOT[0]);
+        fs::write(&slot, fs::read(stage.join("new-profiles.json")).unwrap()).unwrap();
+        fs::set_permissions(&slot, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::remove_file(stage.join("old-profiles.json")).unwrap();
+        fs::File::open(&stage).unwrap().sync_all().unwrap();
+        assert!(owner.retire_terminal_restore_candidate().is_err());
+        assert!(slot.exists());
+        assert!(stage.exists());
+        assert!(stage.join("ready.bin").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_owner_retirement_rechecks_owner_during_slot_work() {
+        use crate::restore_executor_candidate::NEW_SLOT;
+
+        let (root, store, mut owner, _) =
+            terminal_retirement_fixture("retirement-late-drift", false);
+        let stage = owner
+            .transaction
+            .cutover_paths()
+            .state_directory
+            .join("restore-pair.pending");
+        let state = owner.transaction.cutover_paths().state_directory.clone();
+        for (slot, member) in [
+            (NEW_SLOT[0], "new-profiles.json"),
+            (NEW_SLOT[1], "new-route-template.yaml"),
+        ] {
+            let path = store.parent().unwrap().join(slot);
+            fs::write(&path, fs::read(stage.join(member)).unwrap()).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let live_before = fs::read(&store).unwrap();
+        let receipt_before = fs::read(state.join("restore-finalization.pending")).unwrap();
+        let mut changed = owner.desired().unwrap();
+        changed.generation += 1;
+        let next_observation = owner.host_mut().support_observation_calls + 8;
+        let desired_path = owner.transaction.desired_paths().file.clone();
+        owner.host_mut().support_late_read_change = Some((
+            next_observation,
+            desired_path.clone(),
+            serde_json::to_vec(&changed).unwrap(),
+        ));
+        assert!(owner.retire_terminal_restore_candidate().is_err());
+        assert!(owner.host_mut().support_late_read_change.is_none());
+        assert!(stage.exists());
+        assert!(state.join("restore-decision.intent").exists());
+        assert_eq!(fs::read(&store).unwrap(), live_before);
+        assert_eq!(
+            fs::read(state.join("restore-finalization.pending")).unwrap(),
+            receipt_before
+        );
+        assert_eq!(
+            fs::read(desired_path).unwrap(),
+            serde_json::to_vec(&changed).unwrap()
+        );
+        assert!(crate::pending_private_transaction::pending_at(&state));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_native_backup_composes_sealed_snapshot_and_exclusive_publication() {
+        use super::backup_candidate::BackupCreateError;
+        use crate::backup_destination_candidate::{BackupPreview, PublishError, preview_existing};
+        use crate::backup_source_candidate::SnapshotError;
+
+        let (root, store, mut owner) = private_support_fixture("backup-owner-composition");
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(&store, portable_store).unwrap();
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, include_bytes!("../../../templates/default.yaml")).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let original_store = fs::read(&store).unwrap();
+        let original_template = fs::read(&template).unwrap();
+        let destination = root.join("synthetic-private.ovb");
+        let passphrase = b"synthetic passphrase only";
+
+        assert_eq!(
+            owner.create_backup_candidate(&destination, b"short"),
+            Err(BackupCreateError::Source(SnapshotError::InvalidBackupInput))
+        );
+        assert!(!destination.exists());
+        owner
+            .create_backup_candidate(&destination, passphrase)
+            .unwrap();
+        assert_eq!(
+            preview_existing(&destination, owner.transaction.uid(), passphrase),
+            Ok(BackupPreview {
+                profiles: 0,
+                subscriptions: 0
+            })
+        );
+        assert_eq!(fs::read(&store).unwrap(), original_store);
+        assert_eq!(fs::read(&template).unwrap(), original_template);
+        assert_eq!(owner.host_mut().calls, 0);
+        let published = fs::read(&destination).unwrap();
+        assert!(
+            !published
+                .windows(portable_store.len())
+                .any(|part| part == portable_store)
+        );
+        assert_eq!(
+            owner.create_backup_candidate(&destination, passphrase),
+            Err(BackupCreateError::Publish(PublishError::Exists))
+        );
+        assert_eq!(fs::read(&destination).unwrap(), published);
+
+        fs::create_dir(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("restore-pair.pending"),
+        )
+        .unwrap();
+        assert_eq!(
+            owner.create_backup_candidate(&root.join("blocked.ovb"), passphrase),
+            Err(BackupCreateError::RecoveryRequired)
+        );
+        assert!(!root.join("blocked.ovb").exists());
+        fs::remove_dir(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("restore-pair.pending"),
+        )
+        .unwrap();
+        owner.required_ownership = None;
+        assert_eq!(
+            owner.create_backup_candidate(&root.join("unowned.ovb"), passphrase),
+            Err(BackupCreateError::OwnershipUnavailable)
+        );
+        assert!(!root.join("unowned.ovb").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_actual_input_denials_allow_a_later_distinct_backup() {
+        use crate::private_pair_api::{Action, Request};
+        const CREATE: &str = "backup.create";
+        const RESTORE: &str = "backup.restore";
+        let (root, store, mut owner) = private_support_fixture("pair-denial");
+        let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(&store, portable).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, include_bytes!("../../../templates/default.yaml")).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let original = fs::read(&store).unwrap();
+        let original_template = fs::read(&template).unwrap();
+        let metadata = |path: &Path| {
+            let m = fs::symlink_metadata(path).unwrap();
+            (
+                m.dev(),
+                m.ino(),
+                m.uid(),
+                m.gid(),
+                m.mode(),
+                m.nlink(),
+                m.len(),
+                m.mtime(),
+                m.mtime_nsec(),
+                m.ctime(),
+                m.ctime_nsec(),
+            )
+        };
+        let original_metadata = (metadata(&store), metadata(&template));
+        let make = |method, id, archive: &Path, passphrase| {
+            Request::parse(method, &json!({"schema":1,"archive":archive,"passphrase":passphrase,
+                "confirmation": if method==CREATE {"export-current-private-pair"} else {"replace-current-private-pair"},
+                "instanceId":"local-file-control","operationId":id,"expectedRevision":0})).unwrap().0
+        };
+        let archive = root.join("first.ovb");
+        let password = "synthetic passphrase only";
+        let create = make(CREATE, "first", &archive, password);
+        assert!(
+            owner
+                .execute_normal_pair(&create, Action::Create)
+                .unwrap()
+                .error
+                .is_none()
+        );
+        let ciphertext = fs::read(&archive).unwrap();
+        let exists = make(CREATE, "existing", &archive, password);
+        let result = owner.execute_normal_pair(&exists, Action::Create).unwrap();
+        assert_eq!(result.error, Some(StableErrorCode::Conflict));
+        assert_eq!(
+            owner.normal_pair_replay(&exists, Action::Create).unwrap(),
+            Some(result)
+        );
+        assert_eq!(fs::read(&archive).unwrap(), ciphertext);
+        let wrong = make(RESTORE, "wrong", &archive, "wrong synthetic passphrase");
+        assert_eq!(
+            owner
+                .execute_normal_pair(&wrong, Action::Restore)
+                .unwrap()
+                .error,
+            Some(StableErrorCode::InvalidArgument)
+        );
+        // Real archive permission guard, not a synthetic Result classifier.
+        fs::set_permissions(&archive, fs::Permissions::from_mode(0o400)).unwrap();
+        let unsafe_input = make(RESTORE, "readonly", &archive, password);
+        assert_eq!(
+            owner
+                .execute_normal_pair(&unsafe_input, Action::Restore)
+                .unwrap()
+                .error,
+            Some(StableErrorCode::InvalidArgument)
+        );
+        assert!(!owner.retained_restore_busy());
+        assert!(!owner.held_restore_execution.unavailable());
+        assert!(!owner.held_restore_execution.occupied());
+        assert!(!owner.coordinator.pair_abandoned());
+        assert_eq!(owner.coordinator.revision(), 0);
+        assert!(
+            !owner
+                .transaction
+                .cutover_paths()
+                .state_directory
+                .join("restore-pair.pending")
+                .exists()
+        );
+        let later = make(CREATE, "later", &root.join("later.ovb"), password);
+        assert!(
+            owner
+                .execute_normal_pair(&later, Action::Create)
+                .unwrap()
+                .error
+                .is_none()
+        );
+        assert_eq!(fs::read(&store).unwrap(), original);
+        assert_eq!(fs::read(&template).unwrap(), original_template);
+        assert_eq!((metadata(&store), metadata(&template)), original_metadata);
+        assert!(!crate::pending_private_transaction::pending_at(
+            &owner.transaction.cutover_paths().state_directory
+        ));
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_unknown_error_taxonomy_stays_sticky() {
+        use crate::backup_destination_candidate::PublishError;
+        use crate::backup_source_candidate::SnapshotError;
+        use crate::pair_operation::Outcome;
+        use backup_candidate::BackupCreateError;
+        for error in [
+            BackupCreateError::OwnershipUnavailable,
+            BackupCreateError::Busy,
+            BackupCreateError::RecoveryRequired,
+            BackupCreateError::Source(SnapshotError::SourceChanged),
+            BackupCreateError::Source(SnapshotError::UnsafeSource),
+            BackupCreateError::Source(SnapshotError::Admission),
+            BackupCreateError::Source(SnapshotError::SealingUnavailable),
+            BackupCreateError::Publish(PublishError::Unavailable),
+            BackupCreateError::Publish(PublishError::Ambiguous),
+        ] {
+            assert!(matches!(
+                normal_backup_outcome(Err(error)),
+                Outcome::Unknown
+            ));
+        }
+        for error in [NativeFirstError::Admission, NativeFirstError::StillFenced] {
+            assert!(matches!(
+                normal_restore_outcome(Err(error)),
+                Outcome::Unknown
+            ));
+        }
     }
 
     #[test]
@@ -3038,6 +5050,56 @@ mod tests {
             reachable: true,
             latency_ms: 12,
         }]
+    }
+
+    #[test]
+    fn profile_probe_owner_selects_exact_single_or_all_sources_without_store_effects() {
+        for selected in [None, Some(PROFILE), Some(SUBSCRIPTION_PROFILE)] {
+            let (root, path, mut owner) = probe_owner_fixture("profile-probe-owner");
+            let before = fs::read(&path).unwrap();
+            let revision = owner.revision();
+            let mut request = batch_request("profiles.probe", "profiles");
+            request["params"]["expectedRevision"] = json!(revision);
+            if let Some(id) = selected {
+                request["params"]["profileId"] = json!(id);
+            }
+            let job = owner.start_subscription_probe(&request).unwrap().unwrap();
+            let ids: Vec<_> = job.profiles().iter().map(|p| p.0.as_str()).collect();
+            if let Some(id) = selected {
+                assert_eq!(ids, vec![id]);
+            } else {
+                assert_eq!(ids, vec![PROFILE, SUBSCRIPTION_PROFILE]);
+            }
+            let rows = vec![probe_rows()[0]; ids.len()];
+            owner.complete_subscription_probe(job, Ok(rows)).unwrap();
+            assert_eq!(owner.revision(), revision);
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert!(owner.start_subscription_probe(&request).unwrap().is_none());
+            let result = owner
+                .subscription_probe_results(&batch_request("profiles.probe_results", "profiles"))
+                .unwrap();
+            assert_eq!(result["profileId"], json!(selected));
+            assert_eq!(
+                result["results"].as_array().unwrap().len(),
+                if selected.is_some() { 1 } else { 2 }
+            );
+            let mut changed = request;
+            changed["params"]["profileId"] = json!(if selected == Some(PROFILE) {
+                SUBSCRIPTION_PROFILE
+            } else {
+                PROFILE
+            });
+            assert!(owner.start_subscription_probe(&changed).is_err());
+            assert!(
+                owner
+                    .subscription_probe_results(&batch_request(
+                        "subscriptions.probe_results",
+                        "profiles"
+                    ))
+                    .is_err()
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

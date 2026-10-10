@@ -7,6 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["tui"]
+tui = ["dep:omavless-tui"]
+t4-manager-actor-service = ["dep:rustix", "nix/resource", "omavless-tui?/private-backup"]
+# Trusted release restriction; dominates development-feature combinations.
+product-private-backup = ["t4-manager-actor-service"]
+# Development VM only; same-UID semantic close IPC is absent in default builds.
+developer-conditional-close = ["omavless-tui?/developer-conditional-close"]
+# Separate default-off current-image helper and explicit development daemon mode.
+# No service/enrollment activation or default close registration.
+developer-image-witness = ["developer-conditional-close", "dep:omavless-image-witness", "omavless-image-witness/developer-helper", "dep:rustix"]
+# Source-only product lifetime candidate; no default flag/service/registration.
+product-image-witness = ["developer-image-witness", "omavless-image-witness/product-epochs"]
+
 [dependencies]
 base64 = "0.22"
 nix = { version = "0.30", features = ["fs", "process", "signal", "socket", "user"] }
@@ -15,12 +29,21 @@ omavless-domain = { path = "../omavless-domain" }
 omavless-mihomo = { path = "../omavless-mihomo" }
 omavless-profile = { path = "../omavless-profile" }
 omavless-store = { path = "../omavless-store" }
+omavless-tui = { path = "../omavless-tui", optional = true }
+omavless-image-witness = { path = "../omavless-image-witness", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 signal-hook = "0.3"
 ureq = { version = "3.4", default-features = false, features = ["platform-verifier", "rustls"] }
 url = "2.5"
+zeroize = "1.8"
+rustix = { version = "=1.1.5", optional = true, features = ["event", "fs", "process"] }
+
+[dev-dependencies]
+rustix = { version = "=1.1.5", features = ["event", "fs", "net", "process"] }
+nix = { version = "0.30", features = ["mount"] }
+tempfile = "=3.27.0"
 
 [lints]
 workspace = true
@@ -28,3 +51,8 @@ workspace = true
 [[bin]]
 name = "omavless"
 path = "src/main.rs"
+
+[[bin]]
+name = "omavless-t4-manager-actor-development"
+path = "src/t4_manager_actor_main.rs"
+required-features = ["t4-manager-actor-service"]

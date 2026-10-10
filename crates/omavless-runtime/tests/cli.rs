@@ -14,6 +14,42 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
+fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without_effects() {
+    let base = runtime_base();
+    for args in [
+        vec!["restore", "abort"],
+        vec![
+            "restore",
+            "abort",
+            "--confirm-rollback",
+            "synthetic-private-value",
+        ],
+    ] {
+        let output = isolated_command(&base).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-private-value"));
+    }
+    for (input, expected) in [
+        (b"synthetic-private-value".to_vec(), "Invalid private restore-abort input\n"),
+        (vec![b'x'; 32769], "Invalid private restore-abort input\n"),
+        (br#"{"schema":1,"archive":"/synthetic-private-archive","passphrase":"synthetic-private-value"}"#.to_vec(),
+            "Restore abort requires an existing safe, stopped runtime\n"),
+    ] {
+        let mut child = isolated_command(&base).args(["restore", "abort", "--confirm-rollback"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let written = child.stdin.take().unwrap().write_all(&input);
+        assert!(written.is_ok() || written.is_err_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe));
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, expected.as_bytes());
+        assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    }
+    fs::remove_dir(base).unwrap();
+}
+
+#[test]
 fn removal_watcher_refuses_all_external_parameters_before_host_effects() {
     let base = runtime_base();
     for private in ["private-token", "--force", "$(private)"] {
@@ -96,6 +132,83 @@ fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
 #[test]
 fn runtime_observation_cli_uses_fixed_read_and_rejects_extra_arguments() {
     assert_fixed_observation_read("runtime", "observation", "runtime.observation");
+}
+
+#[test]
+fn doctor_uses_one_fixed_read_and_discards_private_response_fields() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "runtime.observation");
+        assert_eq!(request["params"], serde_json::json!({}));
+        let response = success_response(
+            request["id"].as_str().unwrap(),
+            9,
+            serde_json::json!({
+                "schemaVersion":1,"scope":"local_runtime_observation",
+                "desired":{"connected":true,"profileId":"private-profile"},
+                "lastKnownActual":"connected","manualRecoveryRequired":false,
+                "availability":"unavailable","facts":null,
+                "transition":{"credential":"private-secret"}
+            }),
+        )
+        .unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let output = isolated_command(&base).arg("doctor").output().unwrap();
+    worker.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["scope"], "local_read_only_doctor");
+    assert_eq!(report["localFacts"]["ownedCore"], "unknown");
+    assert_eq!(report["localFacts"]["tunScopeInventory"], "unknown");
+    assert_eq!(report["tunOwnership"], "not_proven");
+    assert_eq!(report["networkHealth"], "not_tested");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("private-"));
+    let invalid = isolated_command(&base)
+        .args(["doctor", "private-token"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("private-token"));
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn doctor_without_runtime_is_read_only_and_unavailable() {
+    let base = runtime_base();
+    let output = isolated_command(&base).arg("doctor").output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"OmaVLESS runtime socket is unavailable\n");
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    fs::remove_dir_all(base).unwrap();
 }
 
 fn assert_fixed_observation_read(
@@ -880,6 +993,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "subscription delete SUBSCRIPTION_ID",
         "subscription refresh SUBSCRIPTION_ID",
         "import preview",
+        "restore abort --confirm-rollback",
     ] {
         assert!(help.contains(command));
     }

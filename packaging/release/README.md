@@ -1,13 +1,59 @@
-# Native 0.8.2 release preparation
+# Native release, beta and RC preparation
 
-Current candidate: **0.8.2**, incorporating #263's Full Quit and UI fixes.
-Its [GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
-is published and [public downloads are verified](../../docs/testing/NATIVE_082_ARTIFACTS_2026-09-21.md#public-prerelease-verification).
-This is not stable or a marketplace update.
+Current preparation source version: **0.9.8**, with corrected validation
+packages published at immutable `v0.9.8-fix.1`. Main/stable promotion is now
+owner-authorized through #726; read GitHub for the actual completed event.
+Marketplace submission/root README updates remain withheld.
+Both bootstrap maps pin the inspected app/DNS producer
+`e3d2245966c725ee11b505899b22a20721ff2ddd` for ARM64 and x86_64; common frontend
+`43735a1a84db6e513668a4f7beabf92206c7ad9d` selects the fixed delivery tag.
+All seven public assets were anonymously downloaded and hash-verified; the
+actual Required components installation and onboarding pass on Try Omarchy
+ARM64. See [#726](https://github.com/k-kostin/omavless/pull/726) for exact delivery
+and final CI status. Original `v0.9.8` tags/assets/failures remain unchanged.
+Product/Arch versions remain `0.9.8` / `0.9.8-1`; existing validation users need
+the guarded explicit reinstall, not an automatic version upgrade.
+The selected runtime/client feature remains `product-private-backup`.
+The [0.9.8 RC ledger](../../docs/development/RC_098.md) freezes the selected scope
+and separates exact package/installed gates from historical beta evidence.
+The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7
+maintenance source and retained research checkpoints. Only the owner-selected
+Backup-only scope is activated in the 0.9.8 product; connection-close, Restore,
+K1 and background recovery remain excluded. Do not relabel 0.9.5 assets or
+transfer historical full-T4 acceptance to this restricted binary.
+
+The separately accepted **0.9.5-rc.1** bootstrap pins identify reviewed RC1 application/DNS packages from
+`b0bfbee681f6abcbb4f8fb23e6957594d0a4ab10` for both architectures.
+Pins alone do not prove public downloads or clean first-use acceptance; those
+results belong to the [RC ledger](../../docs/development/RC_095.md).
+Use the corrected public `omavless-0.9.5-rc.1-frontend2.tar.xz`; the initial
+frontend is retained as superseded provenance, not an installation recommendation.
+Do not relabel beta/older RC archives or substitute their hashes into RC1 metadata.
+
+The separately accepted **0.9.0-rc.2** production pair has owner-attended ARM64 and separate x86_64 VM evidence;
+public-download first use in an empty ARM64 account also passed. Final RC2
+archives for both architectures are strictly inspected/pinned, and the final
+ARM64 installed update/lifecycle passed. See the
+[RC checkpoint](../../docs/development/RC_090.md#final-rc2-artifact-and-acceptance-checkpoint)
+for exact identities, public-download/CI results and retained limitations.
+Use the default RC assembler (no `--stable` flag). Assembly alone is not
+acceptance, stable promotion or permission to update Marketplace.
+The [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
+tracks the separate companion package, enrollment, upgrade/removal and firewall
+requirements beyond this single-package assembler. The separate
+[`pair-dns-frontend.py`](pair-dns-frontend.py) checks an already built RC app,
+production DNS companion and newer frontend together; neither is a public
+installer.
+
+Public **0.8.2** is stable and immutable; its
+[release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2) and
+[verified downloads](../../docs/testing/NATIVE_082_ARTIFACTS_2026-09-21.md#public-prerelease-verification)
+are not replaced by this branch. The stable main/marketplace submission stays
+on its separately approved snapshot.
 Earlier public `v0.8.0` and `v0.8.1` prereleases and their assets remain immutable.
 The [0.8.1 artifact record](../../docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md)
 is historical evidence, not proof of a 0.8.2 build.
-Use explicit `--stable` for this source. This directory does not publish a GitHub
+Use explicit `--stable` only for a stable-version source. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.
 Marketplace changes require the owner present and explicit approval.
 The [fresh-marketplace checkpoint](../../docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
@@ -23,8 +69,10 @@ installed-release gates. It is not a stable-release acceptance claim.
 The build tuple is one reviewed source commit, locked Rust workspace version,
 prebuilt native ELF SHA-256, Arch package and matching native-only frontend.
 `Cargo.toml` supplies the product version; Cargo workspace members inherit it.
-Arch spells `0.8.0-rc.1` as `0.8.0rc1` (package release `1`), so it sorts before
-stable `0.8.0`. The candidate frontend manifest gets the exact Cargo spelling.
+Arch spells `0.9.7-rc.1` as `0.9.7rc1` (package release `1`),
+which sorts before stable `0.9.7`. The earlier `0.9.6-rc.1` remains a
+separate unpublished candidate; neither version reuses 0.9.5 assets.
+The candidate frontend manifest gets the exact Cargo spelling.
 This follows Arch's [pkgver restrictions](https://man.archlinux.org/man/PKGBUILD.5.en)
 and [version ordering](https://man.archlinux.org/man/vercmp.8.en); local tests
 also exercise `vercmp` when installed.
@@ -73,7 +121,11 @@ On the matching Arch architecture, first run the normal gates and build the
 reviewed clean commit with the locked toolchain. For example:
 
 ```sh
-cargo build --release --locked -p omavless-runtime --bin omavless
+product_version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+client_features=$(bash packaging/release/client-features.sh "$product_version")
+client_build_flags=()
+[[ -z $client_features ]] || client_build_flags=(--features "$client_features")
+cargo build --release --locked -p omavless-runtime --bin omavless "${client_build_flags[@]}"
 ```
 
 Cargo may obtain locked build dependencies if they are not already cached; use
@@ -81,12 +133,15 @@ Cargo may obtain locked build dependencies if they are not already cached; use
 Then create an empty absolute output directory **outside the checkout**, and run:
 
 ```sh
-python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/prebuilt/omavless FULL_SOURCE_COMMIT_SHA --stable
+python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/prebuilt/omavless FULL_SOURCE_COMMIT_SHA
 ```
 
 The assembler requires a clean exact Git head and the matching explicit version
-mode. For current `0.8.2`, it invokes the offline Arch packager with `--stable`;
-historical RC sources use the no-flag assembler and `--candidate` packager.
+mode. Beta/RC versions use the no-flag assembler and `--candidate` packager;
+stable sources require explicit `--stable`. The CI version projection recognizes
+only stable and explicit positive beta/RC numbers, and preserves Arch ordering;
+it never promotes a prerelease into stable. Absent bootstrap pins block provisioning, rather
+than falling back to 0.8.2 or inventing asset hashes.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
 No private/untracked file, backend.py, test, agent skill or legacy uninstall
@@ -95,8 +150,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.8.2-1-ARCH.pkg.tar.zst`;
-- `omavless-0.8.2-frontend.tar.xz`;
+- `omavless-0.9.5rc1-1-ARCH.pkg.tar.zst`;
+- `omavless-0.9.5-rc.1-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;
@@ -162,11 +217,59 @@ store, controls services, downloads, creates tags, uploads or publishes. Actual
 published pins, clean guided E2E and owner release/marketplace approval remain
 separate gates even when offline pairing succeeds.
 
+## Offline managed-DNS RC triple
+
+The 0.9 RC requires **both** exact-version packages. The historical
+single-package `pair-frontend.py` is not sufficient for that release. After
+reviewing each architecture's app and production-name `omavless-dns` CI
+archives, copy them into a private directory outside Git and record their
+full SHA-256 hashes and the common package-source commit. From a clean
+descendant frontend commit, create an empty private output directory under
+non-writable-by-others parents and run:
+
+```sh
+python3 packaging/release/pair-dns-frontend.py \
+  /absolute/empty-output \
+  /absolute/reviewed/omavless-0.9.0rc2-1-ARCH.pkg.tar.zst \
+  /absolute/reviewed/omavless-dns-0.9.0rc2-1-ARCH.pkg.tar.zst \
+  FULL_FRONTEND_COMMIT_SHA APP_PACKAGE_SHA256 DNS_PACKAGE_SHA256 \
+  --arch ARCH
+```
+
+`ARCH` is `x86_64` or `aarch64`; omitting `--arch` defaults to the inspection
+host's own architecture. This is offline archive inspection, not emulation or
+execution of a foreign-architecture binary. The tool checks both archive
+hashes before parsing, the application's fixed payload and exact companion
+dependency, the DNS package's fixed
+member list, root-owned regular file modes, metadata, source receipt, pinned
+upstream/patch identities, payload hashes, native ELF architecture and
+privileged script/unit bytes against the committed source. It requires one
+common package source, unchanged runtime/build inputs between that source and
+the frontend, and matching **both** bootstrap pins when pins are populated.
+Empty maps are recorded as `bootstrapPins: empty`, not called install-ready.
+The output is the original two packages, a committed-blob frontend archive,
+`managed-dns-pair.json` and `SHA256SUMS`; the record explicitly states
+`publication: unpublished-candidate` and
+`publishedDownloadVerified: false`.
+
+For an explicitly stable source, append `--stable` to this same triple command.
+Default beta/RC mode rejects stable versions; stable mode rejects beta/RC
+versions. This opt-in changes no archive/source/ELF/hash/pin checks and does not
+publish anything. Use newly built stable packages, never renamed RC archives.
+
+For each architecture, retain CI/build provenance and an independent package
+review. The tool's caller-supplied hashes are not signatures; it cannot prove
+that a GitHub release has these bytes, that CDN delivery succeeds, that the
+installed pair works or that the owner accepted the RC. Publish immutable
+assets and populate exact frontend pins only under the separate release
+authorization and after the remaining installed/owner gates. Never reuse a
+pin from one source, version or architecture for another.
+
 ## Release gates and deliberate stop
 
 ### Explicit stable assembly (offline preparation only)
 
-The default assembler remains RC-only. Once the owner approves a clean source
+The default assembler remains prerelease-only. Once the owner approves a clean source
 commit with the stable Cargo/lock/manifest versions, use the same assembler
 with an explicit `--stable`:
 

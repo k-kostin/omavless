@@ -15,13 +15,14 @@ Item {
   property string locale: "en"
   property var facts: ({state:"checking", coreInstalled:null})
   readonly property string state: facts.state
+  readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool needsAttention: SetupState.needsAttention(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   property bool panelOpen: false
   property bool launching: false
   property bool terminalOpened: false
   property string launchAction: "install"
-  readonly property bool busy: probe.running || launching
+  readonly property bool busy: probe.running || launching || startApp.running
   readonly property string script: String(Qt.resolvedUrl("setup-runtime.sh")).replace(/^file:\/\//, "")
   readonly property var focusTargets: requirements.focusTargets.concat([closeButton])
   implicitHeight: content.implicitHeight
@@ -32,14 +33,24 @@ Item {
   function acknowledgeTerminalClosed() { terminalOpened = false; check() }
   function guide() { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md") }
   function install(action) {
-    var allowed = action === SetupState.missingAction(facts) && action !== ""
-      || action === "install" && facts.state === "needs_activation" && facts.coreInstalled === true
+    var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
+    if (action === "start-app") { startApp.running = true; return }
     launchAction = action
     launching = true
     launch.running = true
   }
   Component.onCompleted: check()
+  Process {
+    id: startApp
+    command: ["/usr/bin/omavless", "app", "start"]
+    stdout: StdioCollector { id: startOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) {
+      if (code === 0 && startOutput.text === "ready\n") setup.check()
+      else setup.facts = {state:"needs_attention", coreInstalled:setup.facts.coreInstalled}
+    }
+  }
   onPanelOpenChanged: if (panelOpen) check()
   Process {
     id: probe

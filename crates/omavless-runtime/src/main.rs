@@ -9,7 +9,10 @@ use omavless_runtime::semantic_cli::{
     parse_semantic_read,
 };
 use omavless_runtime::store_preflight::current_store_preflight;
-use omavless_runtime::{RuntimePaths, RuntimeServer, call};
+use omavless_runtime::{
+    RuntimeError, RuntimePaths, RuntimeServer, call, call_semantic_lifecycle,
+    is_semantic_lifecycle_method,
+};
 use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::flag;
@@ -35,12 +38,22 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
 }
 
 enum CliError {
+    #[cfg(feature = "tui")]
+    Terminal(&'static str),
     Message(String),
     DesktopCancelled,
     ActionOutcomeUnknown,
+    SemanticOutcomeUnknown,
     ActionNotAdmitted,
     LoginSkip,
     LoginFailure(String),
+}
+
+fn semantic_lifecycle_error(error: RuntimeError) -> CliError {
+    match error {
+        RuntimeError::Protocol | RuntimeError::Io => CliError::SemanticOutcomeUnknown,
+        _ => CliError::Message(error.to_string()),
+    }
 }
 
 impl From<String> for CliError {
@@ -55,8 +68,203 @@ impl From<&str> for CliError {
     }
 }
 
+#[cfg(feature = "tui")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrivatePairTui {
+    Backup,
+    Restore,
+}
+
+#[cfg(feature = "tui")]
+fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePairTui> {
+    if !cfg!(feature = "t4-manager-actor-service") {
+        return None;
+    }
+    if omavless_runtime::product_scope::backup_only() {
+        return (arguments == ["tui"]).then_some(PrivatePairTui::Backup);
+    }
+    // The selected development build exposes its supported client features
+    // through ordinary Open app. Stable/default builds lack this feature.
+    if arguments == ["tui"] || arguments == ["tui", "--developer-private-restore"] {
+        return Some(PrivatePairTui::Restore);
+    }
+    if arguments == ["tui", "--developer-private-backup"] {
+        return Some(PrivatePairTui::Backup);
+    }
+    None
+}
+
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    if omavless_runtime::product_scope::cli_disabled(&arguments) {
+        return Err(
+            "Restore/development selectors are unavailable in this Backup-only build".into(),
+        );
+    }
+    if arguments == ["app", "can-start"] {
+        if !omavless_runtime::runtime_relaunch::can_start() {
+            return Err("OmaVLESS runtime start is unavailable".into());
+        }
+        println!("available");
+        return Ok(());
+    }
+    if arguments == ["app", "start"] {
+        omavless_runtime::runtime_relaunch::start()
+            .map_err(|e| CliError::Message(e.to_string()))?;
+        println!("ready");
+        return Ok(());
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "backup")
+    {
+        if omavless_runtime::private_pair_api::preview_arguments_admitted(&arguments) {
+            if std::io::IsTerminal::is_terminal(&io::stdin()) {
+                return Err("private_pair_private_stdin_required".into());
+            }
+            let output = omavless_runtime::private_pair_api::preview_from_private_input(
+                &arguments,
+                io::stdin().lock(),
+            )
+            .map_err(CliError::from)?;
+            println!("{output}");
+            return Ok(());
+        }
+        if !omavless_runtime::private_pair_api::arguments_admitted(&arguments) {
+            return Err("private_pair_arguments_refused".into());
+        }
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("private_pair_private_stdin_required".into());
+        }
+        let marker =
+            omavless_runtime::private_pair_api::from_private_input(&arguments, io::stdin().lock())
+                .map_err(CliError::from)?;
+        println!("{marker}");
+        return Ok(());
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "developer")
+    {
+        if !omavless_runtime::developer_current_restore::arguments_admitted(&arguments) {
+            return Err("developer_current_restore_arguments_refused".into());
+        }
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("developer_current_restore_private_stdin_required".into());
+        }
+        let marker = omavless_runtime::developer_current_restore::from_private_input(
+            &arguments,
+            io::stdin().lock(),
+        )
+        .map_err(CliError::from)?;
+        println!("{marker}");
+        return Ok(());
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "restore")
+    {
+        if !omavless_runtime::restore_abort_cli::arguments_admitted(&arguments) {
+            return Err(
+                "Usage: omavless restore abort --confirm-rollback (private JSON on stdin)".into(),
+            );
+        }
+        omavless_runtime::restore_abort_cli::abort_from_private_input(io::stdin().lock())
+            .map_err(|error| CliError::Message(error.to_string()))?;
+        println!("OLD restored; recovery fence remains. Normal startup is still blocked.");
+        return Ok(());
+    }
+    #[cfg(feature = "tui")]
+    if arguments == ["tui", "--available"] {
+        println!("omavless.tui.v1");
+        return Ok(());
+    }
+    #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+    if arguments == ["tui", "--developer-conditional-close"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::developer_close::run(move |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .map_err(CliError::Terminal);
+    }
+    #[cfg(all(feature = "tui", feature = "t4-manager-actor-service"))]
+    if let Some(selection) = private_pair_tui_entry(&arguments) {
+        let uid = nix::unistd::Uid::current();
+        if uid.is_root() || uid != nix::unistd::Uid::effective() {
+            return Err("Private Backup/Restore requires an ordinary user".into());
+        }
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let backup_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        if selection == PrivatePairTui::Restore {
+            let restore_paths =
+                RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+            return omavless_tui::run_full_private_restore(
+                move |request| {
+                    call(&paths, request.method(), request.params())
+                        .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+                },
+                move |request| {
+                    omavless_runtime::call_plugin_action(&action_paths, request.params())
+                        .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+                },
+                move |request| {
+                    call(&job_paths, request.method(), request.params())
+                        .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+                },
+                move |request| {
+                    omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
+                },
+                move |request| {
+                    omavless_runtime::private_pair_api::restore_for_tui(&restore_paths, request)
+                },
+            )
+            .map_err(CliError::Terminal);
+        }
+        return omavless_tui::run_full_private_backup(
+            move |request| {
+                call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::call_plugin_action(&action_paths, request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                call(&job_paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
+            },
+        )
+        .map_err(CliError::Terminal);
+    }
+    #[cfg(feature = "tui")]
+    if arguments == ["tui"] && private_pair_tui_entry(&arguments).is_none() {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::run_full(
+            move |request| {
+                call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::call_plugin_action(&action_paths, request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                call(&job_paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+        )
+        .map_err(CliError::Terminal);
+    }
     if arguments
         .first()
         .is_some_and(|arg| arg == "login-condition" || arg == "login-prepare")
@@ -77,9 +285,25 @@ fn run() -> Result<(), CliError> {
             .map_err(|error| CliError::LoginFailure(error.to_string()));
     }
     if arguments == ["-h"] || arguments == ["--help"] {
+        #[cfg(feature = "tui")]
+        println!("  tui                             terminal controls; close leaves VPN unchanged");
+        #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
+        println!(
+            "  tui --developer-conditional-close  opt-in development workspace; not product pair adoption"
+        );
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
+        if omavless_runtime::product_scope::restore_enabled() {
+            println!(
+                "  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
+            );
+        }
+        if omavless_runtime::product_scope::backup_only() {
+            println!(
+                "  backup create --confirm-private-export  read private backup input from stdin"
+            );
+        }
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
         println!("  profile details PROFILE_ID  explicit private endpoint metadata");
@@ -87,10 +311,14 @@ fn run() -> Result<(), CliError> {
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
         println!("  runtime observation              fresh local facts; not VPN connectivity");
+        println!("  doctor                           bounded local facts; network not tested");
         println!("  runtime traffic                  owned TUN counters, or unavailable");
         println!("  plugin target                    read committed launcher target only");
         println!(
             "  cutover activate                 explicit disconnected native ownership transition"
+        );
+        println!(
+            "  dns-pair status|prepare-template|select\n                                  inspect or opt in to the reviewed pair while stopped"
         );
         println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
         println!("  plugin disconnect INSTANCE REVISION OPERATION");
@@ -128,6 +356,9 @@ fn run() -> Result<(), CliError> {
             "  plugin profile-replace INSTANCE REVISION OPERATION  stdin: ID newline NAME newline INPUT"
         );
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
+        println!(
+            "  diagnostics setup                safe TUN setup log hints; no automatic repair"
+        );
         println!("  runtime test                      explicit current-route HTTPS/IP observation");
         println!("  diagnostics export               shareable bounded native support report");
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
@@ -154,6 +385,23 @@ fn run() -> Result<(), CliError> {
         println!(
             "                                  explicit private client-only helpers; input through stdin"
         );
+        return Ok(());
+    }
+    if arguments.first().is_some_and(|arg| arg == "dns-pair") {
+        let outcome = match arguments.as_slice() {
+            [_, command] if command == "status" => {
+                omavless_runtime::managed_selection::status_current()
+            }
+            [_, command] if command == "select" => {
+                omavless_runtime::managed_selection::select_current()
+            }
+            [_, command] if command == "prepare-template" => {
+                omavless_runtime::managed_selection::prepare_template_current()
+            }
+            _ => return Err("Invalid DNS pair command".into()),
+        }
+        .map_err(|error| error.to_string())?;
+        println!("{outcome}");
         return Ok(());
     }
     if arguments.first().is_some_and(|arg| arg == "plugin")
@@ -401,6 +649,24 @@ fn run() -> Result<(), CliError> {
         }
     };
     let paths = RuntimePaths::current().map_err(|error| admission_error(error.to_string()))?;
+    #[cfg(feature = "product-image-witness")]
+    if arguments == ["daemon", "--product-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_product_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
+    #[cfg(feature = "developer-image-witness")]
+    if arguments == ["daemon", "--developer-image-witness"] {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_development_image(paths)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
     if arguments == ["daemon"] {
         let stop = Arc::new(AtomicBool::new(false));
         flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
@@ -408,6 +674,13 @@ fn run() -> Result<(), CliError> {
         return RuntimeServer::bind_current(paths)
             .and_then(|server| server.serve_until(&stop))
             .map_err(|error| CliError::Message(error.to_string()));
+    }
+    if arguments == ["doctor"] {
+        let response =
+            call(&paths, "runtime.observation", json!({})).map_err(|error| error.to_string())?;
+        let report = omavless_runtime::doctor::project(&response)?;
+        println!("{report}");
+        return Ok(());
     }
     let (method, params) = if arguments == ["hello"] {
         ("system.hello", json!({"versions": [1]}))
@@ -489,6 +762,8 @@ fn run() -> Result<(), CliError> {
     let response = if method == "plugin.action" {
         omavless_runtime::call_plugin_action(&paths, params)
             .map_err(|_| CliError::ActionOutcomeUnknown)?
+    } else if is_semantic_lifecycle_method(method) {
+        call_semantic_lifecycle(&paths, method, params).map_err(semantic_lifecycle_error)?
     } else {
         call(&paths, method, params).map_err(|error| error.to_string())?
     };
@@ -506,6 +781,12 @@ fn run() -> Result<(), CliError> {
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
+        #[cfg(feature = "tui")]
+        Err(CliError::Terminal(message)) => {
+            // The terminal may have been physically closed, including stderr.
+            let _ = writeln!(io::stderr(), "{message}");
+            ExitCode::from(2)
+        }
         Err(CliError::DesktopCancelled) => ExitCode::from(3),
         Err(CliError::LoginSkip) => ExitCode::from(1),
         Err(CliError::LoginFailure(message)) => {
@@ -520,6 +801,10 @@ fn main() -> ExitCode {
             );
             ExitCode::from(73)
         }
+        Err(CliError::SemanticOutcomeUnknown) => {
+            eprintln!("OmaVLESS action outcome is unknown; inspect status before another action");
+            ExitCode::from(73)
+        }
         Err(CliError::ActionNotAdmitted) => {
             eprintln!("OmaVLESS action was not submitted; review the input before retrying");
             ExitCode::from(74)
@@ -528,5 +813,85 @@ fn main() -> ExitCode {
             eprintln!("{message}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn normal_tui_uses_the_selected_build_not_a_hidden_user_selector() {
+        let args = |parts: &[&str]| {
+            parts
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        };
+        #[cfg(all(
+            feature = "t4-manager-actor-service",
+            not(feature = "product-private-backup")
+        ))]
+        {
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui"])),
+                Some(PrivatePairTui::Restore)
+            );
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui", "--developer-private-backup"])),
+                Some(PrivatePairTui::Backup)
+            );
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui", "--developer-private-restore"])),
+                Some(PrivatePairTui::Restore)
+            );
+        }
+        #[cfg(feature = "product-private-backup")]
+        {
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui"])),
+                Some(PrivatePairTui::Backup)
+            );
+            for selector in ["--developer-private-backup", "--developer-private-restore"] {
+                assert_eq!(private_pair_tui_entry(&args(&["tui", selector])), None);
+            }
+        }
+        #[cfg(not(feature = "t4-manager-actor-service"))]
+        for parts in [
+            &["tui"][..],
+            &["tui", "--developer-private-backup"],
+            &["tui", "--developer-private-restore"],
+        ] {
+            assert_eq!(private_pair_tui_entry(&args(parts)), None);
+        }
+        for parts in [
+            &["tui", "--available"][..],
+            &["tui", "--developer-private-restore", "extra"],
+            &["daemon"],
+            &["status"],
+        ] {
+            assert_eq!(private_pair_tui_entry(&args(parts)), None);
+        }
+    }
+
+    #[test]
+    fn semantic_lifecycle_transport_error_requires_status_reconciliation() {
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::Protocol),
+            CliError::SemanticOutcomeUnknown
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::Io),
+            CliError::SemanticOutcomeUnknown
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::SocketUnavailable),
+            CliError::Message(_)
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::PermissionDenied),
+            CliError::Message(_)
+        ));
     }
 }

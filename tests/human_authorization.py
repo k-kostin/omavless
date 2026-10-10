@@ -15,7 +15,7 @@ class AuthorizationUnsettled(Exception):
 
 
 class HumanAuthorization:
-    PHASES = frozenset(("connect", "disconnect", "restore_mode", "socket_inspection",
+    PHASES = frozenset(("connect", "disconnect", "mode_change", "restore_mode", "core_crash", "socket_inspection",
                         "service_start", "service_stop"))
 
     def __init__(self, input_stream=None, output_stream=None):

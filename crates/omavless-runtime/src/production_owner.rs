@@ -11,10 +11,11 @@ use crate::RuntimePaths;
 use crate::connection_transaction::{ConnectionTransactionError, ConnectionTransactionOutcome};
 use crate::cutover::{
     CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, TransitionBootstrap, read_marker,
+    read_marker_existing,
 };
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleHost};
-use crate::login_transaction::check_startup_receipt;
+use crate::login_transaction::{check_login_receipt_without_private_fence, check_startup_receipt};
 use crate::native_coordinator::{
     CandidatePromotion, NativeOwnerError, OfflineNativeCoordinator, PreparedSubscriptionRefresh,
 };
@@ -24,7 +25,7 @@ use crate::native_dispatch::{
     respond_to_fetched_subscription_refresh, respond_to_native_mutation,
     respond_to_subscription_edit_input,
 };
-use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
+use crate::native_host::{CloseImageSelection, NativeHostPaths, NativeLifecycleHost};
 use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use nix::unistd::Uid;
 use omavless_control_protocol::ProtocolError;
@@ -34,6 +35,30 @@ use omavless_store::read_private_utf8;
 use serde_json::Value;
 use std::fmt;
 use std::path::Path;
+
+#[path = "restore_final_startup_candidate.rs"]
+mod final_restore_review;
+
+#[path = "restore_first_abort_owner.rs"]
+mod first_abort;
+
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+#[path = "native_retained_vm_tests.rs"]
+mod native_retained_vm_tests;
+
+pub(crate) fn abort_first_restore_current(
+    source: &Path,
+    passphrase: &[u8],
+    admitted: impl Fn() -> bool,
+) -> Result<(), ProductionOwnerError> {
+    if crate::product_scope::backup_only() {
+        return Err(ProductionOwnerError::OwnershipUnavailable);
+    }
+    first_abort::current_checked(source, passphrase, admitted)
+}
+
+#[path = "system_historical_off_candidate.rs"]
+pub(crate) mod system_historical_off;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductionOwnerError {
@@ -58,6 +83,19 @@ impl fmt::Display for ProductionOwnerError {
 
 impl std::error::Error for ProductionOwnerError {}
 
+/// Inactive, read-only restart classification. It is deliberately not a
+/// `ProductionNativeOwner`: no normal mutation, login or IPC capability can be
+/// obtained from it. Every later recovery effect needs fresh admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RestoreStartupReview {
+    Undecided,
+    VerifyCommitted,
+    VerifyAborted,
+    FinalReceipt,
+    VerifyCompleted,
+    ManualRecovery,
+}
+
 fn lock_error(error: CutoverError) -> ProductionOwnerError {
     match error {
         CutoverError::Busy => ProductionOwnerError::Busy,
@@ -74,6 +112,7 @@ fn recovery_error(error: ConnectionTransactionError) -> ProductionOwnerError {
         ConnectionTransactionError::RecoveryFailed => ProductionOwnerError::RecoveryFailed,
         ConnectionTransactionError::NotFound
         | ConnectionTransactionError::InvalidArgument
+        | ConnectionTransactionError::DnsPairRequired
         | ConnectionTransactionError::Conflict
         | ConnectionTransactionError::Store
         | ConnectionTransactionError::TransitionFailedRestored => {
@@ -89,6 +128,31 @@ pub struct ProductionNativeOwner<H = NativeLifecycleHost> {
     startup: ConnectionTransactionOutcome,
     ownership: ProductionOwnership,
     login_ready: bool,
+    #[cfg(feature = "t4-manager-actor-service")]
+    current_origin: Option<CurrentRestoreOrigin>,
+}
+#[cfg(feature = "t4-manager-actor-service")]
+struct CurrentRestoreOrigin {
+    generation: u64,
+}
+
+/// Contains the real constructed owner but cannot register, dispatch, mutate,
+/// auto-start or yield it to another caller. Research never returns authority.
+#[cfg(test)]
+pub(crate) struct OffResearchOwner<H> {
+    owner: ProductionNativeOwner<H>,
+}
+#[cfg(test)]
+impl<H: LifecycleHost> OffResearchOwner<H> {
+    pub(crate) fn actual(&self) -> ActualState {
+        self.owner.actual()
+    }
+    pub(crate) fn startup_outcome(&self) -> ConnectionTransactionOutcome {
+        self.owner.startup_outcome()
+    }
+    pub(crate) fn login_ready(&self) -> bool {
+        self.owner.login_ready()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,8 +164,423 @@ enum ProductionOwnership {
     },
     Stale,
 }
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) enum NativeCompletedRead {
+    Status,
+    Store,
+}
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_private_preview(
+        &mut self,
+        request: &crate::private_pair_api::PreviewRequest,
+    ) -> Result<(usize, usize, [u8; 32]), omavless_control_protocol::StableErrorCode> {
+        use omavless_control_protocol::StableErrorCode;
+        if crate::product_scope::backup_only() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        if request.revision() != self.revision() {
+            return Err(StableErrorCode::Conflict);
+        }
+        if !self.normal_private_pair_available() || !self.rust_ownership_available() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        let result = self
+            .coordinator
+            .preview_current_pair(request.archive(), request.passphrase(), request.revision())
+            .map_err(|e| e.stable_code())?;
+        if !self.normal_private_pair_available()
+            || !self.rust_ownership_available()
+            || request.revision() != self.revision()
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        Ok(result)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_previewed_restore(
+        &mut self,
+        request: &crate::private_pair_api::PreviewedRestoreRequest,
+    ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
+    {
+        use omavless_control_protocol::StableErrorCode;
+        if crate::product_scope::backup_only() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        let origin = self
+            .current_origin
+            .as_ref()
+            .ok_or(StableErrorCode::CapabilityUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. }
+            if rust_generation == origin.generation)
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        if let Some(result) = self
+            .coordinator
+            .replay_previewed_pair(request)
+            .map_err(|e| e.stable_code())?
+        {
+            return Ok((result, true));
+        }
+        if request.pair.revision() != self.revision() {
+            return Err(StableErrorCode::Conflict);
+        }
+        if !self.rust_ownership_available() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        let desired = self
+            .desired_for_status()
+            .map_err(|_| StableErrorCode::CapabilityUnavailable)?;
+        if desired.connected || self.actual() != ActualState::Disconnected {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        self.coordinator
+            .execute_previewed_pair(request)
+            .map(|r| (r, false))
+            .map_err(|e| e.stable_code())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_private_pair_available(&self) -> bool {
+        self.current_origin.as_ref().is_some_and(|origin| matches!(self.ownership,
+            ProductionOwnership::Committed { rust_generation, .. } if rust_generation == origin.generation))
+            && !self.coordinator.retained_restore_busy()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn normal_private_pair(
+        &mut self,
+        request: &crate::private_pair_api::Request,
+        action: crate::private_pair_api::Action,
+    ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
+    {
+        use omavless_control_protocol::StableErrorCode;
+        if action == crate::private_pair_api::Action::Restore && crate::product_scope::backup_only()
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        let origin = self
+            .current_origin
+            .as_ref()
+            .ok_or(StableErrorCode::CapabilityUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation==origin.generation)
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        // Exact replay is only historical result DATA in this SAME current
+        // instance. It does not run the engine or regain lost owner authority.
+        if let Some(result) = self
+            .coordinator
+            .normal_pair_replay(request, action)
+            .map_err(|e| e.stable_code())?
+        {
+            return Ok((result, true));
+        }
+        if request.revision() != self.revision() {
+            return Err(StableErrorCode::Conflict);
+        }
+        if !self.rust_ownership_available() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
+        if action == crate::private_pair_api::Action::Restore {
+            let desired = self
+                .desired_for_status()
+                .map_err(|_| StableErrorCode::CapabilityUnavailable)?;
+            if desired.connected || self.actual() != ActualState::Disconnected {
+                return Err(StableErrorCode::CapabilityUnavailable);
+            }
+        }
+        self.coordinator
+            .execute_normal_pair(request, action)
+            .map(|result| (result, false))
+            .map_err(|e| e.stable_code())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
+        self.coordinator.refuse_unpublished_intent_pause(revision)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_pause(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .pause_current_restore_intent(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_abort(
+        &mut self,
+        request: &crate::developer_current_restore::AbortRequest,
+    ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        let original = self
+            .current_origin
+            .as_ref()
+            .ok_or(ProductionOwnerError::OwnershipUnavailable)?;
+        // A positive pause alone enables this private consumer. Do not use
+        // general ownership availability, which correctly refuses pending Intent.
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation == original.generation)
+            || request.revision() != self.revision()
+            || !self.coordinator.current_intent_paused()
+        {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        self.coordinator
+            .abort_current_restore_intent()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_restore(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .execute_first_restore_completed(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_backup(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .create_backup_candidate(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn require_developer_current(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        let original = self
+            .current_origin
+            .as_ref()
+            .ok_or(ProductionOwnerError::OwnershipUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation == original.generation)
+            || request.revision() != self.revision()
+            || !self.rust_ownership_available()
+        {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        Ok(())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn activate_native_ordinary_lease(&mut self) -> Result<(), ProductionOwnerError> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        self.coordinator
+            .activate_native_ordinary_lease()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn dispatch_native_completed_onboarding(
+        &mut self,
+        request: &serde_json::Value,
+    ) -> Result<crate::native_coordinator::NativeOwnerExecution, ProductionOwnerError> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        self.coordinator
+            .execute_onboarding_native_completed(request)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    /// Explicit inactive developer dispatch: concrete SAME-holder rechecks,
+    /// actual owner status/list accessors, no network/mutation/listener grant.
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn dispatch_native_completed_read(
+        &mut self,
+        request: NativeCompletedRead,
+    ) -> Result<serde_json::Value, ProductionOwnerError> {
+        self.coordinator
+            .native_completed_recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let result = match request {
+            NativeCompletedRead::Status => {
+                let desired = self.desired()?;
+                serde_json::json!({"disconnected":self.actual()==ActualState::Disconnected,"desiredOff":!desired.connected,"ownership":self.rust_ownership_available(),"loginReady":self.login_ready()})
+            }
+            NativeCompletedRead::Store => {
+                let projection = self.list_projection()?;
+                serde_json::json!({"profiles":projection.profiles().len(),"subscriptions":projection.subscriptions().len()})
+            }
+        };
+        self.coordinator
+            .native_completed_recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        Ok(result)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn install_native_completion(
+        &mut self,
+        origin: crate::native_coordinator::NativeSteadyCompletion,
+    ) -> Result<(), ProductionOwnerError> {
+        self.coordinator
+            .install_native_completed(origin)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    /// Inspect a pending restore at the same lock/owner boundary as production
+    /// startup, but never construct or reconcile the ordinary owner. Only
+    /// synthetic tests call this candidate; it is not a product recovery path.
+    #[allow(dead_code)]
+    pub(crate) fn review_restore_startup(
+        mut host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+    ) -> Result<RestoreStartupReview, ProductionOwnerError> {
+        use crate::desired::read_desired_snapshot;
+        use crate::restore_cleanup_candidate::inspect_completion_record;
+        use crate::restore_closure_model::CLOSURE_MEMBER;
+        use crate::restore_decision_candidate::RecoveryReview;
+        use crate::restore_journal_candidate::{
+            inspect_decision_journal, read_desired_for_decision,
+        };
+        use crate::restore_retirement_candidate::inspect_retirement_receipt;
+        use crate::restore_staging_candidate::classify_live_pair_bound;
+
+        // The publication-only handoff has no restart continuation yet. Even
+        // a valid predecessor must not mask this separate existence fence.
+        let successor_pending = || {
+            [
+                crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+                crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+            ]
+            .into_iter()
+            .any(|name| {
+                !matches!(
+                    std::fs::symlink_metadata(cutover_paths.state_directory.join(name)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                )
+            })
+        };
+
+        let lock = MigrationLock::acquire_existing(&cutover_paths, uid).map_err(lock_error)?;
+        let marker = read_marker_existing(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        let config = store_path
+            .parent()
+            .filter(|_| {
+                store_path
+                    .file_name()
+                    .is_some_and(|name| name == "profiles.json")
+            })
+            .ok_or(ProductionOwnerError::ManualRecoveryRequired)?;
+        if !crate::pending_private_transaction::pending_at(&cutover_paths.state_directory)
+            || crate::routing_preset::pending_at(&cutover_paths.state_directory)
+            || successor_pending()
+        {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        check_login_receipt_without_private_fence(
+            &cutover_paths,
+            uid,
+            &lock,
+            Some(marker.generation()),
+        )
+        .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let desired = read_desired_snapshot(&desired_paths, uid)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        if desired.connected {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        let empty = |observation: crate::lifecycle::NativeLocalObservation| {
+            !observation.owned_core_running
+                && observation.owned_auxiliary_mihomo_count == 0
+                && observation.managed_tun_count == 0
+                && !observation.owned_controller_config_verified
+                && !observation.desired_profile_matches_owned
+        };
+        if !host.fresh_observation(&desired).is_ok_and(empty) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        let receipt_path = cutover_paths
+            .state_directory
+            .join("restore-finalization.pending");
+        let completion_path = cutover_paths.state_directory.join(CLOSURE_MEMBER);
+        let completion_present = !matches!(
+            std::fs::symlink_metadata(&completion_path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        );
+        let review = if !matches!(
+            std::fs::symlink_metadata(&receipt_path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        ) {
+            let pending =
+                inspect_retirement_receipt(config, &cutover_paths, uid, marker.generation(), &lock)
+                    .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+            if completion_present
+                && !inspect_completion_record(
+                    config,
+                    &cutover_paths,
+                    uid,
+                    marker.generation(),
+                    &lock,
+                )
+                .is_ok_and(|completed| completed.matches_pending(&pending))
+            {
+                return Err(ProductionOwnerError::ManualRecoveryRequired);
+            }
+            RestoreStartupReview::FinalReceipt
+        } else if completion_present {
+            inspect_completion_record(config, &cutover_paths, uid, marker.generation(), &lock)
+                .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+            RestoreStartupReview::VerifyCompleted
+        } else {
+            match inspect_decision_journal(&cutover_paths, uid, &lock) {
+                Ok(chain) => {
+                    let raw_desired = read_desired_for_decision(&cutover_paths, uid, &lock)
+                        .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+                    let pair = classify_live_pair_bound(
+                        config,
+                        &cutover_paths,
+                        uid,
+                        marker.generation(),
+                        &lock,
+                    )
+                    .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+                    match chain.review(
+                        marker.generation(),
+                        raw_desired.as_ref().map(|bytes| bytes.as_slice()),
+                        &pair,
+                    ) {
+                        RecoveryReview::OldRollbackCandidate => RestoreStartupReview::Undecided,
+                        RecoveryReview::VerifyCommittedCandidate => {
+                            RestoreStartupReview::VerifyCommitted
+                        }
+                        RecoveryReview::VerifyAbortedCandidate => {
+                            RestoreStartupReview::VerifyAborted
+                        }
+                        RecoveryReview::ManualRecovery => RestoreStartupReview::ManualRecovery,
+                    }
+                }
+                Err(_) => RestoreStartupReview::ManualRecovery,
+            }
+        };
+        if read_marker_existing(&cutover_paths, uid).ok() != Some(marker)
+            || read_desired_snapshot(&desired_paths, uid).ok().as_ref() != Some(&desired)
+            || !host.fresh_observation(&desired).is_ok_and(empty)
+            || !crate::pending_private_transaction::pending_at(&cutover_paths.state_directory)
+            || successor_pending()
+        {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        Ok(review)
+    }
+
     /// Build an owner from trusted paths and an already constructed host.
     /// Tests use this boundary with a deterministic host; production uses
     /// [`ProductionNativeOwner::current`].
@@ -124,12 +603,39 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         uid: u32,
         lock: MigrationLock,
     ) -> Result<Self, ProductionOwnerError> {
-        let marker = read_marker(&cutover_paths, uid)
+        Self::initialize_under_lease(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            (
+                &lock,
+                &mut crate::startup_admission::StartupAdmission::ordinary(),
+            ),
+        )
+    }
+
+    fn initialize_under_lease(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        startup: (
+            &MigrationLock,
+            &mut crate::startup_admission::StartupAdmission<'_, '_>,
+        ),
+    ) -> Result<Self, ProductionOwnerError> {
+        let (lock, admission) = startup;
+        let marker = admission
+            .marker(&cutover_paths, uid)
             .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
         if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
-        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+        admission
+            .receipt(&cutover_paths, uid, lock, marker.generation())
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
             host,
@@ -140,18 +646,54 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             marker.generation(),
         );
         let startup = coordinator
-            .reconcile_startup_locked(&lock)
+            .reconcile_startup_admitted(lock, admission)
             .map_err(recovery_error)?;
-        drop(lock);
+        admission
+            .recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         Ok(Self {
             coordinator,
             startup,
             login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
             ownership: ProductionOwnership::Committed {
                 rust_generation: marker.generation(),
                 origin_preparing_generation: None,
             },
         })
+    }
+
+    /// Dev-only real owner construction, never registration or mutation admission.
+    /// Consumes the retained witness while the caller retains the exact lease.
+    #[cfg(test)]
+    pub(crate) fn initialize_off_research(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        research: (&MigrationLock, crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedEpochOff<'_>),
+    ) -> Result<OffResearchOwner<H>, ProductionOwnerError> {
+        let (lock, mut evidence) = research;
+        if !evidence.paths_match(&desired_paths, store_path) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        let mut owner = Self::initialize_under_lease(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            (
+                lock,
+                &mut crate::startup_admission::StartupAdmission::HistoricalOff(&mut evidence),
+            ),
+        )?;
+        // Research constructs the real owner but cannot retain mutation or
+        // listener admission, even if somebody subsequently removes a fence.
+        owner.ownership = ProductionOwnership::Stale;
+        Ok(OffResearchOwner { owner })
     }
 
     /// Build a reconciled read-only candidate for one exact preparing marker.
@@ -212,6 +754,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             coordinator,
             startup,
             login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
             ownership: ProductionOwnership::Candidate(bootstrap),
         })
     }
@@ -240,9 +784,18 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.login_ready = ready;
     }
 
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn desired(&self) -> Result<crate::desired::DesiredState, ProductionOwnerError> {
         self.coordinator
             .desired()
+            .map_err(|_| ProductionOwnerError::RecoveryFailed)
+    }
+
+    pub(crate) fn desired_for_status(
+        &self,
+    ) -> Result<crate::desired::DesiredState, ProductionOwnerError> {
+        self.coordinator
+            .desired_for_status()
             .map_err(|_| ProductionOwnerError::RecoveryFailed)
     }
 
@@ -254,6 +807,84 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         let store =
             parse_private_store(&input).map_err(|_| ProductionOwnerError::HostUnavailable)?;
         Ok(store.list_projection())
+    }
+    /// Feature-only SAME-held completion consumer. Installed before startup
+    /// reconciliation; errors retain the stale owner rather than dropping it.
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn initialize_native_completed_installed(
+        installed: &mut Option<Self>,
+        host: impl FnOnce() -> Result<H, ProductionOwnerError>,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        paths: CutoverPaths,
+        uid: u32,
+        lock: &MigrationLock,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<(), ProductionOwnerError> {
+        if installed.is_some() {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        let marker = admission
+            .marker(&paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        admission
+            .receipt(&paths, uid, lock, marker.generation())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        *installed = Some(Self {
+            coordinator: OfflineNativeCoordinator::new_ownership_gated(
+                host()?,
+                desired_paths,
+                store_path,
+                paths,
+                uid,
+                marker.generation(),
+            ),
+            startup: ConnectionTransactionOutcome {
+                changed: false,
+                pruned: 0,
+            },
+            ownership: ProductionOwnership::Stale,
+            login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
+        });
+        let owner = installed
+            .as_mut()
+            .ok_or(ProductionOwnerError::ManualRecoveryRequired)?;
+        let startup = owner
+            .coordinator
+            .reconcile_startup_admitted(lock, admission)
+            .map_err(recovery_error)?;
+        admission
+            .recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        if owner.actual() != ActualState::Disconnected || startup.changed {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        owner.startup = startup;
+        owner.ownership = ProductionOwnership::Committed {
+            rust_generation: marker.generation(),
+            origin_preparing_generation: None,
+        };
+        Ok(())
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn transfer_native_completion(
+        &mut self,
+        source: &crate::native_coordinator::NativeSteadyCompletion,
+        target: crate::native_coordinator::NativeSteadyCompletion,
+    ) -> Result<(), ProductionOwnerError> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        self.coordinator
+            .transfer_native_completion(source, target)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
     }
 
     pub(crate) fn rust_ownership_available(&mut self) -> bool {
@@ -275,6 +906,16 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
                             rust_generation,
                             origin_preparing_generation: Some(bootstrap.preparing_generation()),
                         };
+                        // The restricted product may export the committed pair
+                        // from this SAME reconciled candidate. Full T4 Restore
+                        // still requires the ordinary current() issuer. Never
+                        // grant this origin before exact durable promotion.
+                        #[cfg(feature = "product-private-backup")]
+                        {
+                            self.current_origin = Some(CurrentRestoreOrigin {
+                                generation: rust_generation,
+                            });
+                        }
                         true
                     }
                     Ok(CandidatePromotion::Promoted { .. })
@@ -405,7 +1046,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     pub(crate) fn runtime_observation(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         let mut response =
             crate::native_dispatch::respond_to_runtime_observation(&mut self.coordinator, request)?;
-        if response["ok"] == true {
+        if response["ok"] == true && request["method"] == "runtime.observation" {
             response["result"]["transition"] = serde_json::json!(self.transition());
         }
         Ok(response)
@@ -413,6 +1054,15 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
 
     pub(crate) fn traffic(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_traffic(&mut self.coordinator, request)
+    }
+    pub(crate) fn connections(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_connections(&mut self.coordinator, request)
+    }
+    pub(crate) fn connection_overview(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_connection_overview(&mut self.coordinator, request)
+    }
+    pub(crate) fn connection_rows(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_connection_rows(&mut self.coordinator, request)
     }
 
     pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {
@@ -490,10 +1140,97 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
 }
 
 impl ProductionNativeOwner<NativeLifecycleHost> {
+    /// Synthetic-permit socket integration only. Reuses the already-owned
+    /// coordinator; it does not attest production startup or admit a passive
+    /// core. Absent from every non-test build, including development binaries.
+    #[cfg(all(test, feature = "developer-conditional-close"))]
+    pub(crate) fn from_owned_close_socket_fixture(
+        coordinator: OfflineNativeCoordinator<NativeLifecycleHost>,
+    ) -> Self {
+        assert_eq!(coordinator.actual(), ActualState::Connected);
+        assert_eq!(coordinator.revision(), 0);
+        Self {
+            coordinator,
+            startup: ConnectionTransactionOutcome {
+                changed: false,
+                pruned: 0,
+            },
+            ownership: ProductionOwnership::Committed {
+                rust_generation: 2,
+                origin_preparing_generation: None,
+            },
+            login_ready: false,
+            #[cfg(feature = "t4-manager-actor-service")]
+            current_origin: None,
+        }
+    }
+
+    /// Dev-only fixed-path counterpart of current(). No orphan cleanup, normal
+    /// registration, auto-start or mutation permission. Not an installed gate.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn current_off_research(
+        runtime_paths: &RuntimePaths,
+    ) -> Result<OffResearchOwner<crate::native_host::ObservationOnlyNativeHost>, ProductionOwnerError>
+    {
+        use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedCurrentOff;
+        let uid = Uid::current().as_raw();
+        let desired_paths =
+            DesiredPaths::current().map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let paths =
+            CutoverPaths::current(uid).map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let lock = MigrationLock::acquire_existing(&paths, uid).map_err(lock_error)?;
+        let marker = read_marker_existing(&paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        let host_paths = NativeHostPaths::current(&runtime_paths.directory)
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let store = host_paths.store.clone();
+        let config = host_paths.config_directory.clone();
+        let retained =
+            RetainedCurrentOff::capture(&config, &paths, uid, marker.generation(), &lock)
+                .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let mut host = crate::native_host::ObservationOnlyNativeHost::new(host_paths, uid)
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let evidence = retained
+            .system_off(&mut host)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        ProductionNativeOwner::initialize_off_research(
+            host,
+            desired_paths,
+            &store,
+            paths.clone(),
+            uid,
+            (&lock, evidence),
+        )
+    }
+
     /// Resolve only package-fixed/current-user paths and construct the native
     /// owner. A legacy, preparing, rollback, missing, malformed, or unsafe
     /// marker fails closed before reconciliation can touch lifecycle state.
     pub fn current(runtime_paths: &RuntimePaths) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::Direct)
+    }
+
+    /// Explicit development selection; SAME ordinary marker/startup/migration
+    /// owner construction. This does not create enrollment or make helper RPCs.
+    #[cfg(feature = "developer-image-witness")]
+    pub(crate) fn current_development_image(
+        runtime_paths: &RuntimePaths,
+    ) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::InstalledDevelopment)
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn current_product_image(
+        runtime_paths: &RuntimePaths,
+    ) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::Product)
+    }
+
+    fn current_with_image(
+        runtime_paths: &RuntimePaths,
+        image: CloseImageSelection,
+    ) -> Result<Self, ProductionOwnerError> {
         let uid = Uid::current().as_raw();
         let desired_paths =
             DesiredPaths::current().map_err(|_| ProductionOwnerError::HostUnavailable)?;
@@ -512,18 +1249,25 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
             marker.generation(),
         )
         .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
-        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+        crate::startup_admission::StartupAdmission::ordinary()
+            .receipt(&cutover_paths, uid, &lock, marker.generation())
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let host_paths = NativeHostPaths::current(&runtime_paths.directory)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let store_path = host_paths.store.clone();
-        let host = NativeLifecycleHost::new(host_paths, uid)
+        let host = NativeLifecycleHost::new_with_image_selection(host_paths, uid, image)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         host.cleanup_probe_orphans()
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let mut owner =
             Self::initialize_locked(host, desired_paths, &store_path, cutover_paths, uid, lock)?;
         owner.login_ready = crate::login_activation::startup_configuration_available();
+        #[cfg(feature = "t4-manager-actor-service")]
+        {
+            owner.current_origin = Some(CurrentRestoreOrigin {
+                generation: marker.generation(),
+            });
+        }
         Ok(owner)
     }
 
@@ -579,10 +1323,12 @@ mod tests {
 
     struct FakeHost {
         observation: OwnedObservation,
+        local_observation: Option<crate::lifecycle::NativeLocalObservation>,
         calls: usize,
         lock_check: Option<(CutoverPaths, u32)>,
         lock_was_held: bool,
         observed_calls: Rc<Cell<usize>>,
+        successor_after_observe: Option<(PathBuf, usize)>,
     }
 
     impl FakeHost {
@@ -593,6 +1339,29 @@ mod tests {
     }
 
     impl LifecycleHost for FakeHost {
+        fn fresh_observation(
+            &mut self,
+            _desired: &DesiredState,
+        ) -> Result<crate::lifecycle::NativeLocalObservation, HostStepError> {
+            self.called();
+            if let Some((path, count)) = &self.successor_after_observe
+                && self.calls == *count
+            {
+                fs::write(path, b"synthetic late successor").unwrap();
+            }
+            Ok(self
+                .local_observation
+                .unwrap_or(crate::lifecycle::NativeLocalObservation {
+                    owned_core_running: self.observation.core_count != 0,
+                    visible_mihomo_count: self.observation.core_count,
+                    owned_auxiliary_mihomo_count: 0,
+                    visible_tun_count: self.observation.tun_count,
+                    managed_tun_count: self.observation.tun_count,
+                    owned_controller_config_verified: self.observation.controller_ready,
+                    desired_profile_matches_owned: self.observation.active_profile_matches,
+                }))
+        }
+
         fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
             self.called();
             if let Some((paths, uid)) = self.lock_check.as_ref() {
@@ -639,6 +1408,18 @@ mod tests {
     impl Fixture {
         fn new(phase: OwnershipPhase) -> Self {
             let root = crate::test_temp::directory("production-owner").unwrap();
+            Self::at(root, phase)
+        }
+
+        fn new_private(phase: OwnershipPhase) -> Self {
+            let home = std::env::var_os("HOME").expect("restore review needs private home");
+            let root =
+                crate::test_temp::directory_under(Path::new(&home), "production-owner-private")
+                    .unwrap();
+            Self::at(root, phase)
+        }
+
+        fn at(root: PathBuf, phase: OwnershipPhase) -> Self {
             let runtime = root.join("runtime");
             let state = root.join("state");
             let config = root.join("config");
@@ -687,10 +1468,12 @@ mod tests {
                     tun_count: 0,
                     active_profile_matches: false,
                 },
+                local_observation: None,
                 calls: 0,
                 lock_check: Some((self.cutover.clone(), self.uid)),
                 lock_was_held: false,
                 observed_calls: Rc::new(Cell::new(0)),
+                successor_after_observe: None,
             }
         }
 
@@ -735,6 +1518,378 @@ mod tests {
         assert!(!owner.startup_outcome().changed);
         assert_eq!(owner.coordinator.host().calls, 1);
         assert!(owner.coordinator.host().lock_was_held);
+    }
+
+    #[test]
+    fn ordinary_separate_desired_directory_pending_blocks_before_host() {
+        let fixture = Fixture::new(OwnershipPhase::Rust);
+        let other = fixture.root.join("other-state");
+        fs::create_dir(&other).unwrap();
+        fs::set_permissions(&other, fs::Permissions::from_mode(0o700)).unwrap();
+        let desired = DesiredPaths::below(&other);
+        write_desired(&desired, fixture.uid, &DesiredState::default()).unwrap();
+        fs::write(
+            desired.directory.join("restore-disposition.complete"),
+            b"pending",
+        )
+        .unwrap();
+        assert!(crate::pending_private_transaction::pending(&desired));
+        assert!(!crate::pending_private_transaction::pending_at(
+            &fixture.cutover.state_directory
+        ));
+        let mut host = fixture.host();
+        host.observation = OwnedObservation {
+            service_active: true,
+            controller_ready: true,
+            core_count: 1,
+            tun_count: 1,
+            active_profile_matches: true,
+        };
+        let calls = host.observed_calls.clone();
+        let before = fs::read(&fixture.store).unwrap();
+        assert!(
+            ProductionNativeOwner::initialize(
+                host,
+                desired,
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid
+            )
+            .is_err()
+        );
+        assert_eq!(
+            calls.get(),
+            0,
+            "pending desired directory must prevent observation and every host effect"
+        );
+        assert_eq!(fs::read(&fixture.store).unwrap(), before);
+    }
+
+    #[test]
+    fn restore_restart_review_is_read_only_and_never_constructs_a_normal_owner() {
+        use crate::restore_decision_candidate::{DecisionRecord, TerminalChoice};
+        use crate::restore_staging_candidate::{inspect_stage_identity, stage_private_pair};
+
+        for phase in [
+            "stage",
+            "intent",
+            "commit",
+            "abort",
+            "receipt",
+            "receipt-completion",
+            "receipt-completion-corrupt",
+            "completion",
+            "completion-corrupt",
+        ] {
+            let fixture = Fixture::new_private(OwnershipPhase::Rust);
+            let config = fixture.store.parent().unwrap();
+            let template = config.join("route-template.yaml");
+            fs::write(&template, b"old synthetic template").unwrap();
+            fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+            let old_store = fs::read(&fixture.store).unwrap();
+            let new_store = b"new synthetic store";
+            stage_private_pair(
+                &fixture.cutover.state_directory,
+                fixture.uid,
+                &old_store,
+                b"old synthetic template",
+                new_store,
+                b"new synthetic template",
+            )
+            .unwrap();
+            if phase != "stage" {
+                let identity =
+                    inspect_stage_identity(&fixture.cutover.state_directory, fixture.uid).unwrap();
+                let desired = fs::read(&fixture.desired.file).unwrap();
+                let intent = DecisionRecord::intent(1, Some(&desired), &identity, [7; 16]).unwrap();
+                let intent_path = fixture
+                    .cutover
+                    .state_directory
+                    .join("restore-decision.intent");
+                fs::write(&intent_path, intent.encode()).unwrap();
+                fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
+                if matches!(
+                    phase,
+                    "commit"
+                        | "abort"
+                        | "receipt"
+                        | "receipt-completion"
+                        | "receipt-completion-corrupt"
+                        | "completion"
+                        | "completion-corrupt"
+                ) {
+                    let choice = if phase != "abort" {
+                        TerminalChoice::Commit
+                    } else {
+                        TerminalChoice::Abort
+                    };
+                    let terminal = intent.terminal(choice).unwrap();
+                    let path = fixture
+                        .cutover
+                        .state_directory
+                        .join("restore-decision.terminal");
+                    fs::write(&path, terminal.encode()).unwrap();
+                    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+                    if phase != "abort" {
+                        fs::write(&fixture.store, new_store).unwrap();
+                        fs::write(&template, b"new synthetic template").unwrap();
+                    }
+                    if matches!(
+                        phase,
+                        "receipt"
+                            | "receipt-completion"
+                            | "receipt-completion-corrupt"
+                            | "completion"
+                            | "completion-corrupt"
+                    ) {
+                        let lock = MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap();
+                        assert_eq!(
+                            crate::restore_retirement_candidate::publish_retirement_receipt(
+                                config,
+                                &fixture.cutover,
+                                fixture.uid,
+                                1,
+                                &lock,
+                                || true,
+                            ),
+                            Ok(crate::restore_executor_candidate::PendingOutcome::Committed)
+                        );
+                        if matches!(
+                            phase,
+                            "receipt-completion"
+                                | "receipt-completion-corrupt"
+                                | "completion"
+                                | "completion-corrupt"
+                        ) {
+                            crate::restore_cleanup_candidate::retire_fixed_restore_artifacts(
+                                config,
+                                &fixture.cutover,
+                                fixture.uid,
+                                1,
+                                &lock,
+                                || true,
+                            )
+                            .unwrap();
+                            crate::restore_cleanup_candidate::publish_completion_record(
+                                config,
+                                &fixture.cutover,
+                                fixture.uid,
+                                1,
+                                &lock,
+                                || true,
+                            )
+                            .unwrap();
+                            if matches!(phase, "completion" | "completion-corrupt") {
+                                crate::restore_cleanup_candidate::finalize_fenced_restore(
+                                    config,
+                                    &fixture.cutover,
+                                    fixture.uid,
+                                    1,
+                                    &lock,
+                                    || true,
+                                )
+                                .unwrap();
+                            }
+                            if phase.ends_with("corrupt") {
+                                let completion = fixture
+                                    .cutover
+                                    .state_directory
+                                    .join(crate::restore_closure_model::CLOSURE_MEMBER);
+                                fs::write(&completion, b"torn synthetic completion").unwrap();
+                            }
+                        }
+                    }
+                }
+            }
+            let before = fs::read(&fixture.store).unwrap();
+            let host = fixture.host();
+            let calls = host.observed_calls.clone();
+            assert!(matches!(
+                ProductionNativeOwner::initialize(
+                    fixture.host(),
+                    fixture.desired.clone(),
+                    &fixture.store,
+                    fixture.cutover.clone(),
+                    fixture.uid,
+                ),
+                Err(ProductionOwnerError::ManualRecoveryRequired)
+            ));
+            if phase.ends_with("corrupt") {
+                assert_eq!(
+                    ProductionNativeOwner::review_restore_startup(
+                        host,
+                        fixture.desired.clone(),
+                        &fixture.store,
+                        fixture.cutover.clone(),
+                        fixture.uid,
+                    ),
+                    Err(ProductionOwnerError::ManualRecoveryRequired),
+                );
+                assert_eq!(
+                    calls.get(),
+                    1,
+                    "corrupt evidence never gets final admission"
+                );
+                assert_eq!(fs::read(&fixture.store).unwrap(), before);
+                continue;
+            }
+            let expected = match phase {
+                "stage" => RestoreStartupReview::ManualRecovery,
+                "intent" => RestoreStartupReview::Undecided,
+                "commit" => RestoreStartupReview::VerifyCommitted,
+                "abort" => RestoreStartupReview::VerifyAborted,
+                "receipt" => RestoreStartupReview::FinalReceipt,
+                "receipt-completion" => RestoreStartupReview::FinalReceipt,
+                "completion" => RestoreStartupReview::VerifyCompleted,
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                ProductionNativeOwner::review_restore_startup(
+                    host,
+                    fixture.desired.clone(),
+                    &fixture.store,
+                    fixture.cutover.clone(),
+                    fixture.uid,
+                ),
+                Ok(expected),
+            );
+            assert_eq!(calls.get(), 2, "read-only host observations only");
+            assert_eq!(fs::read(&fixture.store).unwrap(), before);
+            if phase == "completion" {
+                for name in [
+                    crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+                    crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+                ] {
+                    let successor = fixture.cutover.state_directory.join(name);
+                    for late in [false, true] {
+                        let mut host = fixture.host();
+                        let calls = host.observed_calls.clone();
+                        if late {
+                            host.successor_after_observe = Some((successor.clone(), 2));
+                        } else {
+                            // Unsafe type still fences before any host observation.
+                            symlink("missing-synthetic", &successor).unwrap();
+                        }
+                        assert_eq!(
+                            ProductionNativeOwner::review_restore_startup(
+                                host,
+                                fixture.desired.clone(),
+                                &fixture.store,
+                                fixture.cutover.clone(),
+                                fixture.uid,
+                            ),
+                            Err(ProductionOwnerError::ManualRecoveryRequired),
+                        );
+                        assert_eq!(calls.get(), if late { 2 } else { 0 });
+                        assert_eq!(fs::read(&fixture.store).unwrap(), before);
+                        fs::remove_file(&successor).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restore_restart_review_refuses_connected_or_owned_host_and_ignores_foreign_visibility() {
+        let fixture = Fixture::new_private(OwnershipPhase::Rust);
+        drop(MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap());
+        fs::write(
+            fixture
+                .cutover
+                .state_directory
+                .join("restore-decision.intent"),
+            b"incomplete synthetic journal",
+        )
+        .unwrap();
+        let host = fixture.host();
+        let calls = host.observed_calls.clone();
+        let connected = DesiredState {
+            connected: true,
+            profile_id: "synthetic".into(),
+            ..DesiredState::default()
+        };
+        write_desired(&fixture.desired, fixture.uid, &connected).unwrap();
+        assert_eq!(
+            ProductionNativeOwner::review_restore_startup(
+                host,
+                fixture.desired.clone(),
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid,
+            ),
+            Err(ProductionOwnerError::ManualRecoveryRequired)
+        );
+        assert_eq!(calls.get(), 0);
+        write_desired(&fixture.desired, fixture.uid, &DesiredState::default()).unwrap();
+        let mut foreign = fixture.host();
+        foreign.local_observation = Some(crate::lifecycle::NativeLocalObservation {
+            owned_core_running: false,
+            visible_mihomo_count: 1,
+            owned_auxiliary_mihomo_count: 0,
+            visible_tun_count: 1,
+            managed_tun_count: 0,
+            owned_controller_config_verified: false,
+            desired_profile_matches_owned: false,
+        });
+        assert_eq!(
+            ProductionNativeOwner::review_restore_startup(
+                foreign,
+                fixture.desired.clone(),
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid,
+            ),
+            Ok(RestoreStartupReview::ManualRecovery)
+        );
+        let mut owned = fixture.host();
+        owned.local_observation = Some(crate::lifecycle::NativeLocalObservation {
+            owned_core_running: true,
+            visible_mihomo_count: 1,
+            owned_auxiliary_mihomo_count: 0,
+            visible_tun_count: 1,
+            managed_tun_count: 1,
+            owned_controller_config_verified: false,
+            desired_profile_matches_owned: false,
+        });
+        assert_eq!(
+            ProductionNativeOwner::review_restore_startup(
+                owned,
+                fixture.desired.clone(),
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid,
+            ),
+            Err(ProductionOwnerError::ManualRecoveryRequired)
+        );
+    }
+
+    #[test]
+    fn restore_restart_review_never_creates_a_missing_operation_lock() {
+        let fixture = Fixture::new_private(OwnershipPhase::Rust);
+        let path = &fixture.cutover.operation_lock;
+        assert!(!path.exists());
+        fs::write(
+            fixture
+                .cutover
+                .state_directory
+                .join("restore-decision.intent"),
+            b"incomplete synthetic journal",
+        )
+        .unwrap();
+        let host = fixture.host();
+        let calls = host.observed_calls.clone();
+        assert_eq!(
+            ProductionNativeOwner::review_restore_startup(
+                host,
+                fixture.desired.clone(),
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid,
+            ),
+            Err(ProductionOwnerError::OwnershipUnavailable)
+        );
+        assert!(!path.exists());
+        assert_eq!(calls.get(), 0);
     }
 
     #[test]
@@ -929,11 +2084,20 @@ mod tests {
         assert_eq!(owner.transition(), Some("cutoverPreparing"));
         assert!(!owner.rust_ownership_available());
         assert_eq!(owner.coordinator.host().calls, 1);
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
 
         fixture.write_marker(OwnershipPhase::Rust, 2);
         assert!(owner.rust_ownership_available());
         assert_eq!(owner.preparing_generation(), None);
         assert_eq!(owner.transition(), None);
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert_eq!(
+            owner.normal_private_pair_available(),
+            crate::product_scope::backup_only()
+        );
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(owner.coordinator.host().calls, 1);
 
         fixture.write_marker(OwnershipPhase::RollbackPreparing, 3);
         assert!(!owner.rust_ownership_available());
@@ -954,9 +2118,13 @@ mod tests {
 
         fixture.write_marker(OwnershipPhase::Legacy, 2);
         assert!(!owner.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
         assert_eq!(owner.transition(), Some("staleCandidate"));
         fixture.write_marker(OwnershipPhase::Rust, 2);
         assert!(!owner.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
     }
 
     #[test]
@@ -975,8 +2143,15 @@ mod tests {
         let lock = MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap();
         assert!(!owner.rust_ownership_available());
         assert_eq!(owner.transition(), Some("cutoverPreparing"));
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
         drop(lock);
         assert!(owner.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert_eq!(
+            owner.normal_private_pair_available(),
+            crate::product_scope::backup_only()
+        );
 
         let stale_fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
         let mut stale = ProductionNativeOwner::initialize_candidate(
@@ -990,7 +2165,11 @@ mod tests {
         .unwrap();
         stale_fixture.write_marker(OwnershipPhase::Rust, 3);
         assert!(!stale.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!stale.normal_private_pair_available());
         stale_fixture.write_marker(OwnershipPhase::Rust, 2);
         assert!(!stale.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!stale.normal_private_pair_available());
     }
 }

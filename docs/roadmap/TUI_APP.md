@@ -1,12 +1,101 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: product/UX contract selected for a Rust + Ratatui TUI; implementation is
-gated on R6 Python-runtime retirement. Updated 2026-08-30.
+Status: T2 MVP plus selected T3/T4 slices in accepted RC 0.9.5, not stable.
+Additional read-side TUI refinements are scope-frozen in the unaccepted
+[0.9.6 RC](../development/RC_096.md); no new action or security capability is
+enabled by this selection.
+Updated 2026-09-24; see [combined acceptance](../testing/T2_MVP_2026-09-24.md).
+See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
+The [RC 0.9.5 ledger](../development/RC_095.md) supersedes pending-beta wording
+below: bounded installed ARM64/x86_64 review is recorded, while public
+distribution and unselected foundations remain separate.
+The owner-selected 0.9.5 beta integrates the bounded read-only T3 chain through
+#372 on accepted managed-DNS RC 0.9.0; see the
+[beta checkpoint](../development/BETA_095.md#first-t3-checkpoint).
+Combined deterministic/synthetic checks do not complete installed T3 acceptance
+or publish a new package. QML's accepted layout and RC 0.9.0 remain unchanged.
+The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
+adds explicit connection/mode confirmations; installed acceptance is a separate
+gate and neither checkpoint completes the MVP.
+The subsequent [T2c browsing slice](../development/T2_GROUPED_BROWSING.md) groups
+subscriptions and adds a local favorites filter; management remains separate.
 
 Implementation/migration authority:
 [`RUST_MIGRATION.md`](RUST_MIGRATION.md).
 Runtime/API authority: [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 Host authority: [`PLATFORM.md`](PLATFORM.md).
+
+Current implementation checkpoint, 2026-09-24: R6's native prerequisite is
+satisfied. The [T2 MVP completion candidate](../development/T2_MVP.md) now adds
+empty-feed/refresh-all operation UX, selected/all profile checks, count-only
+connections, richer saved profile categories, default TUI builds and main-footer
+Open app below Profile actions. Its bounded MVP acceptance is complete;
+release package/pairing and publication remain separate. Stable main
+and immutable 0.8.2 assets/pins remain unchanged.
+
+Earlier opt-in T2a–f (read-only status, explicit connection/mode controls,
+grouped browsing/favorites, traffic/details/diagnostics, theme following and
+confirmed single-subscription refresh) are integrated in the next
+[RC candidate](../development/RC_090.md), not published main/default packages.
+The MVP below defines the accepted development scope, not a shipped 0.9.0
+claim. Historical pre-R6 wording does not reopen accepted migration gates.
+See the [combined inspection evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
+
+The integrated read-only checkpoint #281 adds a Subscriptions page from the existing
+`ui.snapshot`: all subscriptions (including empty ones), saved-profile/missing
+counts and saved-list age. It sends no provider request; `r` reloads local
+metadata only. Zero/missing/future timestamps are unavailable, not successful
+refresh evidence. EN/RU and wrapped scrolling cover the full 64-subscription
+bound. Empty-feed refresh, refresh-all and session attempt context were separate
+mutation/operation work at this checkpoint; they are implemented in the newer
+candidate above, with their own recorded acceptance. No installed package or
+runtime changes were implied by the original read-only checkpoint.
+See [ARM64 read-only acceptance](../testing/T2_SUBSCRIPTION_OVERVIEW_2026-09-24.md).
+
+The integrated session-activity client checkpoint #282 keeps up to 32 typed events
+in memory: local observations/read failures, owner-instance changes, confirmed
+command submission and bounded outcomes. Repeated identical polling is deduplicated;
+timestamps are monotonic elapsed time since opening, newest first. No names,
+IDs, endpoints, raw errors or daemon logs enter the history. It survives a stale
+or unavailable runtime within the current window, while the header remains the
+authority for current freshness. Closing the TUI discards history and leaves
+the runtime alone. This is not persistent logging or new daemon event streaming.
+
+The T3 retention follow-up explicitly marks the session history after its first
+eviction. The warning remains through runtime unavailability, owner changes and
+navigation; opening a new TUI window starts empty. It records only a boolean,
+without retaining discarded events or adding daemon reads. The 32-event bound
+and existing freshness header remain unchanged. Synthetic EN/RU rendering and
+retention tests do not establish installed terminal acceptance.
+
+The integrated session-settings checkpoint #283 adds a Settings page (`,` or the page cycle):
+`l` cycles automatic/English/Russian; `t` toggles Omarchy-following/default theme;
+`0` restores both automatic choices. Changes are immediate and window-local;
+closing/reopening resets them. Automatic language retains the existing startup
+environment precedence and English fallback. Automatic theme continues tracking
+the existing bounded palette reader, even while a default override is selected.
+Settings work without a reachable runtime and never clear pending/unknown action
+state, change OS/plugin preferences, persist files or invoke extra IPC. This is
+the T2 presentation-settings entry point, not new VPN configuration management.
+
+The stacked T3 route-inspector candidate adds a one-shot private `routing.check`
+page to the operator workspace. `/` opens input for one domain or IP address;
+Enter submits only that explicit query through the existing authenticated
+runtime read adapter. The response is shown only when its query, owner instance
+and revision still match the submitted context. Leaving the page clears the
+query and result; ordinary polling never repeats the route check. An unavailable
+live observation remains unavailable, not an inferred route. This is a policy
+inspection, not an Internet/DNS health test. No history, debug output or
+shareable report records the private query or matched rule. Synthetic EN/RU
+terminal and protocol tests do not replace exact-head installed TUI review.
+
+The separate T3 traffic-history candidate extends the Traffic page's
+session-only TUN-rate view from 60 seconds to an additional trend of up to five
+minutes. It retains at most 300 valid samples, collapses each graph to at most
+40 plotted points, and clears continuity after a missing reading, runtime
+change or sampling gap. This is relative rate history observed while the TUI is
+open, not a packet capture, persisted accounting, proof of routing health or a
+continuous background monitor. The original 60-second view remains visible.
 
 ## 1. Product shape
 
@@ -245,7 +334,15 @@ socket use is impractical, but both paths hit the same Rust runtime.
 
 ## 9. Launch and Omarchy integration
 
-After T2, the plugin exposes `Open app`.
+The T2 completion candidate places `Open app` on the main panel below Profile
+actions, outside list scrolling (owner direction, 2026-09-24), not in Settings.
+It enables the button only when the
+installed executable answers the fixed local `omavless tui --available` probe
+with `omavless.tui.v1`. Older/absent packages receive update guidance instead of
+a broken action. The probe has no daemon/private-store effects. Normal candidate
+builds include TUI by default; an explicitly headless build can opt out using
+`--no-default-features`. These are candidate changes pending installed acceptance,
+not a change to published 0.8.2 artifacts.
 
 Current launcher contract:
 
@@ -263,9 +360,12 @@ Requirements:
 - if a future Omarchy release changes launcher spelling, update only the
   frontend adapter.
 
-If runtime is down, the TUI may request startup of packaged user service under a
-bounded deadline, then negotiate `system.hello`. Failure opens doctor/remediation
-view; TUI never falls back to direct Mihomo start.
+The current candidate does not implicitly start a stopped runtime. It opens the
+normal unavailable/remediation presentation and keeps local help/settings usable.
+A separately reviewed future startup action may request the packaged service;
+TUI never falls back to direct Mihomo start. Open app passes literal arguments
+only, performs no package installation or privilege escalation, and uses the
+same stable app ID for launch and focus.
 
 ## 10. Distribution boundary
 
@@ -320,7 +420,72 @@ Natural TUI homes for deeper capabilities:
 - bounded local application/core logs;
 - read-only doctor/health report.
 
+The first `omavless doctor` slice is a read-only projection of one native
+`runtime.observation` response. It emits only fixed local-fact enums (including
+a TUN-scope inventory, never an ownership proof) and an
+explicit `networkHealth: not_tested`; last-known actual state and an observed
+core/TUN are not proof of routes, DNS or Internet. It neither reads profiles nor
+performs a probe or repair. The stacked T3 Diagnostics candidate presents the
+same bounded categories from its existing `runtime.observation` read: requested
+connection, last-known state, requested-profile match and core/controller/TUN
+inventory. It performs no new IPC read or probe. An unavailable observation
+leaves the profile/core facts unknown; a last-known Connected label is
+explicitly not verification. TUN inventory does not prove ownership, routes or
+protection, and the screen retains the Internet/DNS-not-tested warning. This
+is not an aggregate VPN-health verdict. Synthetic EN/RU terminal review is not
+installed live-runtime acceptance.
+
+The stacked T3 core-hint candidate retains at most 24 fixed category tokens
+from the latest owned core's warning/error stream in memory. The Diagnostics
+page shows only the most recent eight with sequence numbers; raw log lines,
+destinations, profile names and timestamps do not cross IPC. Categories are
+diagnostic hints, never a connection or internet-health verdict. Missing or
+stale runtime data stays unavailable. This is a bounded operator view, not a
+general raw-log export, and installed EN/RU rendering remains a separate gate.
+
+The collection-state follow-up displays the already parsed `finished` fact as
+“Log collection ended”, independently of the incomplete-collection warning.
+Missing/malformed diagnostics remain unavailable, and stale snapshots do not
+retain a current collection claim. Neither a finished collector nor a complete
+read verifies core exit, VPN cleanup or network health. This uses the existing
+observation only; it adds no log read, repair or runtime action.
+
 The bar may show compact summaries but need not duplicate full tables.
+
+The first T3 development slice is a read-only operator view for the existing
+native `diagnostics.rules`, `diagnostics.providers` and `diagnostics.export`
+methods. It shows bounded, controller-projected loaded rows and typed local
+host setup facts. Search filters only rows received in the current bounded
+snapshot; a truncated projection is explicitly marked. Rules show categorical
+targets, not private chain names or proof of a request's route. Host file and
+service facts are not VPN, DNS or connectivity health claims. The view does not
+refresh providers, repair host setup, change routes or perform mutations.
+The Traffic page also keeps a volatile, 60-second window of valid consecutive
+TUN counter-rate samples in this TUI process. Its two small sparklines use
+relative per-direction scales and disappear after reset, stale data or a read
+failure; they do not represent continuous background monitoring.
+When the native runtime advertises the T3 connection overview, the same page
+shows only aggregate network/chain categories and preserves the older count-only
+read as a compatibility fallback. No individual destination or process is
+presented, and the categories do not prove all traffic's route.
+The Diagnostics page may show the already-existing Rust-owned, typed core-log
+classification counts with an incomplete-collection marker. It never reads or
+prints raw core log lines, and zero counts do not establish a healthy connection.
+
+This is development scope, not T3 acceptance: installed EN/RU terminal review,
+live owner-restart behavior and the remaining connections/route/traffic/log
+work retain their own tests and evidence before promotion.
+An additional explicit Connections page can read a bounded private destination
+list from the owned core, with total/shown/truncated indicators and conservative
+route categories. Search filters only the current received bounded snapshot;
+it never sends a search term to the core. It is loaded only on that page, never in background status or
+support output; it cannot close connections. This is still not proof of the
+whole-system route, and installed narrow-terminal plus stale-owner review
+remains required.
+The saved-override subview uses the separate explicit private
+`routing.custom_rules.list` payload. It discards opaque editor IDs and labels
+these as configured rules rather than loaded core policy; it has no edit/delete
+action or shareable output.
 
 ### T4
 
@@ -328,7 +493,8 @@ Later management candidates:
 
 - subscription automatic refresh schedules;
 - provider quota/usage/expiry metadata under strict bounds;
-- private-state backup/restore;
+- private-state backup/restore under the inactive
+  [security/product proposal](PRIVATE_BACKUP_RESTORE.md);
 - reconnect after suspend/network transitions;
 - batch latency workflows;
 - structured DNS controls;

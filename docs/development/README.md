@@ -7,6 +7,14 @@ small discoverable instruction entry point. It requires the complete
 historical continuity notes. These instructions travel with the code on every
 branch; they are not hidden only in a permanent develop/rc branch.
 
+Main's documentation belongs to its stable release snapshot. Current issues
+and PRs carry day-to-day status; checked `dev/docs/*` changes join the next named
+beta/RC. A versioned beta integrates development; a versioned RC freezes release
+scope. Both retain these canonical paths. Before any owner-authorized main update, apply the mandatory
+[release reconciliation checklist](../roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist)
+so roadmap, contracts, evidence and agent guidance are not left behind. Even
+documentation-only main updates require explicit owner authorization.
+
 ## Canonical map — retain useful work
 
 - [Delivery ledger](../../DEVELOPMENT_ROADMAP.md) and
@@ -65,7 +73,21 @@ Do not purge existing reports to meet a file-count target. Separate current
 navigation from historical evidence with indexes. If later archival is useful,
 preserve content and provenance and explicitly update discovery links.
 
+Record final verified outcomes, substantive failures, decisions and remaining
+limits—not every typo, cancelled prompt or routine retry. Keep such transient
+details only when they explain a real defect, security concern or evidence gap.
+
 ## Local cleanup safety
+
+New short-lived HOME-backed test fixtures belong under `~/.cache/ovt/`, in an
+individual short directory, not directly in HOME. Set a HOME-backed `TMPDIR`
+and explicit `CARGO_TARGET_DIR` for large Rust runs; private-path fixtures that
+deliberately reject `/tmp` use the shared test allocator's checked HOME parent.
+It refuses symlink/writable parents and does not repair existing permissions.
+Keep Unix-socket paths short. Do not change or move an active fixture/TMPDIR
+until its operator has settled its original outcome, including child processes.
+Retained binaries, private logs and recovery evidence are not disposable cache;
+keep an indexed path map if completed material is archived outside Git.
 
 Remote cleanup and local worktree cleanup are distinct. An old checkout may
 contain a unique commit, ignored build/recovery output, untracked private data

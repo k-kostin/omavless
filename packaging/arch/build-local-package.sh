@@ -4,10 +4,11 @@
 set -euo pipefail
 export LC_ALL=C
 fail() { echo 'OmaVLESS local package build refused or failed.' >&2; exit 2; }
-[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) ) && $EUID -ne 0 ]] || fail
+[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail
 builddir=$1
 binary=$2
 expected_sha=$3
+product_helper=${5-}
 [[ $expected_sha =~ ^[0-9a-f]{40}$ ]] || fail
 [[ $builddir == /* && $builddir != / && $binary == /* ]] || fail
 [[ -d $builddir && ! -L $builddir && -f $binary && ! -L $binary && -x $binary ]] || fail
@@ -21,6 +22,11 @@ no_symlinks() {
 }
 no_symlinks "$builddir"
 no_symlinks "$binary"
+if [[ -n $product_helper ]]; then
+  [[ $product_helper == /* && -f $product_helper && ! -L $product_helper && -x $product_helper ]] || fail
+  no_symlinks "$product_helper"
+  product_helper=$(realpath -e -- "$product_helper")
+fi
 builddir=$(realpath -e -- "$builddir")
 binary=$(realpath -e -- "$binary")
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -34,17 +40,24 @@ count=$(git -C "$repo_root" rev-list --count HEAD)
 epoch=$(git -C "$repo_root" show -s --format=%ct HEAD)
 [[ $count =~ ^[0-9]+$ && $epoch =~ ^[0-9]+$ ]] || fail
 package_version="0.0.0.r$count.g${expected_sha:0:12}"
+core_dependency=mihomo
+if [[ -n $product_helper ]]; then core_dependency=omavless-dns; fi
 if [[ $# -eq 4 ]]; then
-  # RC and stable assembly are explicit, disjoint modes. Neither publishes.
+  # Prerelease and stable assembly are explicit, disjoint modes. Neither publishes.
   # Only the checked-in Cargo version labels artifacts, never caller input.
   candidate_version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "$repo_root/Cargo.toml")
   [[ ${#candidate_version} -le 32 ]] || fail
   if [[ $4 == --stable ]]; then
     [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail
   else
-    [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || fail
+    [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-(rc|beta)\.[1-9][0-9]*$ ]] || fail
   fi
   package_version=${candidate_version/-rc./rc}
+  package_version=${package_version/-beta./beta}
+  # Candidate/stable runtime must be installed with the version-matched
+  # managed DNS companion. Development snapshots retain their older,
+  # explicitly non-release Mihomo dependency for isolated diagnostics.
+  core_dependency="omavless-dns=$package_version-1"
 fi
 architecture=$(uname -m)
 case $architecture in
@@ -62,13 +75,29 @@ entry=$(sed -n 's/^ *Entry point address: *//p' <<< "$header")
 [[ $entry =~ ^0x[0-9a-fA-F]+$ && ! $entry =~ ^0x0+$ ]] || fail
 binary_hash=$(sha256sum -- "$binary"); binary_hash=${binary_hash%% *}
 [[ $binary_hash =~ ^[0-9a-f]{64}$ ]] || fail
+if [[ -n $product_helper ]]; then
+  helper_header=$(readelf -h -- "$product_helper" 2>/dev/null) || fail
+  [[ $helper_header == *'Class:'*'ELF64'* && $helper_header == *'Data:'*'little endian'* ]] || fail
+  [[ $(sed -n 's/^ *Machine: *//p' <<< "$helper_header") == "$machine" ]] || fail
+  helper_type=$(sed -n 's/^ *Type: *\([^ ]*\).*$/\1/p' <<< "$helper_header")
+  [[ $helper_type == EXEC || $helper_type == DYN ]] || fail
+  helper_entry=$(sed -n 's/^ *Entry point address: *//p' <<< "$helper_header")
+  [[ $helper_entry =~ ^0x[0-9a-fA-F]+$ && ! $helper_entry =~ ^0x0+$ ]] || fail
+  helper_hash=$(sha256sum -- "$product_helper"); helper_hash=${helper_hash%% *}
+fi
 
 chmod 0700 -- "$builddir"
 mkdir -- "$builddir/payload" "$builddir/home" "$builddir/config"
-bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" || fail
+if [[ -n $product_helper ]]; then
+  bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" --product-image-witness "$product_helper" || fail
+  [[ $(sha256sum -- "$builddir/payload/usr/lib/omavless-image/omavless-image-witness") == "$helper_hash "* ]] || fail
+else
+  bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" || fail
+fi
 staged_hash=$(sha256sum -- "$builddir/payload/usr/bin/omavless"); staged_hash=${staged_hash%% *}
 [[ $staged_hash == "$binary_hash" ]] || fail
 identity_schema=1
+[[ -z $product_helper ]] || identity_schema=4
 [[ ${4-} != --candidate ]] || identity_schema=2
 [[ ${4-} != --stable ]] || identity_schema=3
 printf 'schemaVersion=%s\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\n' \
@@ -79,12 +108,17 @@ if [[ $# -eq 4 ]]; then
   printf 'productVersion=%s\n' "$candidate_version" \
     >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 fi
+if [[ -n $product_helper ]]; then
+  printf 'featureSelection=product-image-witness-opt-in\nhelperSha256=%s\n' "$helper_hash" \
+    >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
+fi
 chmod 0644 -- "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
   -cf "$builddir/payload.tar" -C "$builddir/payload" usr || fail
 payload_hash=$(sha256sum -- "$builddir/payload.tar"); payload_hash=${payload_hash%% *}
 sed -e "s/@VERSION@/$package_version/g" \
   -e "s/@ARCH@/$architecture/g" -e "s/@PAYLOAD_SHA256@/$payload_hash/g" \
+  -e "s/@CORE_DEPENDENCY@/$core_dependency/g" \
   "$script_dir/PKGBUILD.local.in" > "$builddir/PKGBUILD"
 # Use the root-owned distribution configuration, not per-user build hooks.
 # Force every makepkg output below the explicitly selected build directory.
@@ -106,4 +140,9 @@ bsdtar -xOf "$archive" usr/share/doc/omavless/build-identity.txt \
   | cmp -s -- - "$builddir/payload/usr/share/doc/omavless/build-identity.txt" || fail
 bsdtar -xOf "$archive" usr/lib/systemd/user/omavless-runtime.service \
   | cmp -s -- - "$builddir/payload/usr/lib/systemd/user/omavless-runtime.service" || fail
+if [[ -n $product_helper ]]; then
+  [[ $(bsdtar -xOf "$archive" usr/lib/omavless-image/omavless-image-witness | sha256sum) == "$helper_hash "* ]] || fail
+  bsdtar -xOf "$archive" usr/lib/systemd/system/omavless-image-witness.service \
+    | cmp -s -- - "$builddir/payload/usr/lib/systemd/system/omavless-image-witness.service" || fail
+fi
 echo 'Local package built; no installation, service or ownership change performed.'

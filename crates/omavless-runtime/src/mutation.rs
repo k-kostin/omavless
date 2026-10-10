@@ -10,6 +10,58 @@ use omavless_control_protocol::{MAX_ID_LENGTH, MAX_REVISION, StableErrorCode};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fmt;
+use std::sync::Arc;
+
+// Separate bounded capacity: a controller wait never occupies the ordinary
+// lifecycle slot, and uncertain receipts never evict into resend eligibility.
+const EXTERNAL_CLOSE_LIMIT: usize = 128;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExternalCloseOutcome {
+    Closed,
+    Missing,
+    Changed,
+    Unsupported,
+    Unknown,
+    RefusedBeforeWrite,
+    MissingAttestation,
+}
+
+impl From<crate::conditional_close_candidate::Outcome> for ExternalCloseOutcome {
+    fn from(value: crate::conditional_close_candidate::Outcome) -> Self {
+        use crate::conditional_close_candidate::Outcome;
+        match value {
+            Outcome::Closed => Self::Closed,
+            Outcome::Missing => Self::Missing,
+            Outcome::Changed => Self::Changed,
+            Outcome::Unsupported => Self::Unsupported,
+            Outcome::Unknown => Self::Unknown,
+            Outcome::RefusedBeforeWrite => Self::RefusedBeforeWrite,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ExternalCloseReceipt {
+    pub(crate) outcome: ExternalCloseOutcome,
+    pub(crate) revision: u64,
+}
+
+#[derive(Clone)]
+pub(crate) struct ExternalCloseToken(Arc<()>);
+
+pub(crate) enum ExternalCloseAdmission {
+    Reserved(ExternalCloseToken),
+    Replay(ExternalCloseReceipt),
+}
+
+struct ExternalCloseEntry {
+    operation_id: OperationId,
+    digest: MutationDigest,
+    token: ExternalCloseToken,
+    base_revision: u64,
+    receipt: Option<ExternalCloseReceipt>,
+}
 
 pub const DEFAULT_QUEUE_LIMIT: usize = 64;
 pub const MAX_QUEUE_LIMIT: usize = 256;
@@ -194,7 +246,12 @@ pub struct MutationCoordinator {
     queue: VecDeque<QueuedMutation>,
     active: Option<QueuedMutation>,
     result_cache: VecDeque<CachedOperation>,
+    external_closes: Vec<ExternalCloseEntry>,
+    #[cfg(feature = "t4-manager-actor-service")]
+    pair_operations: crate::pair_operation::PairOperations,
 }
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct RetainedRestoreRevision(u64);
 
 impl Default for MutationCoordinator {
     fn default() -> Self {
@@ -204,6 +261,107 @@ impl Default for MutationCoordinator {
 }
 
 impl MutationCoordinator {
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn preview_pair_idle(&self) -> bool {
+        !self.pair_operations.unresolved() && self.prepare_retained_restore().is_ok()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn pair_abandoned(&self) -> bool {
+        self.pair_operations.abandoned()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn replay_pair(
+        &self,
+        id: &str,
+        digest: MutationDigest,
+    ) -> Result<Option<CachedOutcome>, CoordinatorError> {
+        OperationId::parse(id)?;
+        self.pair_operations.replay(id, digest)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn reserve_pair(
+        &mut self,
+        id: &str,
+        revision: u64,
+        digest: MutationDigest,
+    ) -> Result<crate::pair_operation::Admission, CoordinatorError> {
+        let id = OperationId::parse(id)?;
+        if let Some(result) = self.pair_operations.replay(&id.0, digest)? {
+            return Ok(crate::pair_operation::Admission::Replay(result));
+        }
+        if self.matching_operation(&id).is_some()
+            || self
+                .external_closes
+                .iter()
+                .any(|e| e.operation_id.0 == id.0)
+        {
+            return Err(CoordinatorError::OperationConflict);
+        }
+        if revision != self.revision {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        self.prepare_retained_restore()?;
+        self.pair_operations
+            .reserve(&id.0, digest)
+            .map(crate::pair_operation::Admission::Reserved)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn finish_pair(
+        &mut self,
+        token: crate::pair_operation::Reservation,
+        outcome: crate::pair_operation::Outcome,
+    ) -> Result<CachedOutcome, CoordinatorError> {
+        // Restore's actual disposition already advanced revision exactly once;
+        // Backup publication never changes the live private-pair revision.
+        self.pair_operations.finish(token, self.revision, outcome)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn prepare_retained_restore(
+        &self,
+    ) -> Result<RetainedRestoreRevision, CoordinatorError> {
+        if self.pair_operations.abandoned() {
+            return Err(CoordinatorError::Busy);
+        }
+        if self.active()
+            || self.queued() != 0
+            || self
+                .external_closes
+                .iter()
+                .any(|entry| entry.receipt.is_none())
+        {
+            return Err(CoordinatorError::Busy);
+        }
+        if self.revision == MAX_REVISION {
+            return Err(CoordinatorError::RevisionExhausted);
+        }
+        Ok(RetainedRestoreRevision(self.revision))
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn finish_retained_restore(
+        &mut self,
+        revision: RetainedRestoreRevision,
+        proof: crate::native_coordinator::NativeCommittedDisposition,
+    ) -> Result<(), CoordinatorError> {
+        if self.prepare_retained_restore()?.0 != revision.0 || !proof.matches(self, revision.0) {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        // Like ordinary Success: historical operation receipts remain history;
+        // uncached stale work must not act on the pre-replacement revision.
+        self.revision += 1;
+        Ok(())
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn finish_retained_abort(
+        &mut self,
+        revision: RetainedRestoreRevision,
+        proof: crate::native_coordinator::NativeAbortedDisposition,
+    ) -> Result<(), CoordinatorError> {
+        if self.prepare_retained_restore()?.0 != revision.0 || !proof.matches(self, revision.0) {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        self.revision += 1;
+        Ok(())
+    }
     pub fn with_limits(
         queue_limit: usize,
         result_cache_limit: usize,
@@ -223,6 +381,9 @@ impl MutationCoordinator {
             queue: VecDeque::new(),
             active: None,
             result_cache: VecDeque::new(),
+            external_closes: Vec::new(),
+            #[cfg(feature = "t4-manager-actor-service")]
+            pair_operations: crate::pair_operation::PairOperations::default(),
         })
     }
 
@@ -279,7 +440,147 @@ impl MutationCoordinator {
     /// registry so one client ID cannot name two operation families.
     pub fn operation_id_in_use(&self, operation_id: &str) -> Result<bool, CoordinatorError> {
         let operation_id = OperationId::parse(operation_id)?;
-        Ok(self.matching_operation(&operation_id).is_some())
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.pair_operations.known(&operation_id.0) {
+            return Ok(true);
+        }
+        Ok(self.matching_operation(&operation_id).is_some()
+            || self
+                .external_closes
+                .iter()
+                .any(|entry| entry.operation_id.0 == operation_id.0))
+    }
+
+    fn external_id(&self, operation_id: Option<&OperationId>) -> bool {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if operation_id.is_some_and(|id| self.pair_operations.known(&id.0)) {
+            return true;
+        }
+        operation_id.is_some_and(|id| {
+            self.external_closes
+                .iter()
+                .any(|entry| entry.operation_id.0 == id.0)
+        })
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn close_receipt_capacity_available(&self) -> bool {
+        self.external_closes.len() < EXTERNAL_CLOSE_LIMIT
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn external_close_reservation_current(&self, token: &ExternalCloseToken) -> bool {
+        self.external_closes.iter().any(|entry| {
+            Arc::ptr_eq(&entry.token.0, &token.0)
+                && entry.receipt.is_none()
+                && entry.base_revision == self.revision
+        })
+    }
+
+    pub(crate) fn reserve_external_close(
+        &mut self,
+        operation_id: &str,
+        expected_revision: u64,
+        digest: MutationDigest,
+        long_operation_id_in_use: bool,
+    ) -> Result<ExternalCloseAdmission, CoordinatorError> {
+        let operation_id = OperationId::parse(operation_id)?;
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.pair_operations.known(&operation_id.0) {
+            return Err(CoordinatorError::OperationConflict);
+        }
+        if long_operation_id_in_use || self.matching_operation(&operation_id).is_some() {
+            return Err(CoordinatorError::OperationConflict);
+        }
+        if let Some(entry) = self
+            .external_closes
+            .iter()
+            .find(|entry| entry.operation_id.0 == operation_id.0)
+        {
+            if entry.digest != digest {
+                return Err(CoordinatorError::OperationConflict);
+            }
+            return entry
+                .receipt
+                .map(ExternalCloseAdmission::Replay)
+                .ok_or(CoordinatorError::Busy);
+        }
+        if expected_revision != self.revision {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        if self.revision == MAX_REVISION {
+            return Err(CoordinatorError::RevisionExhausted);
+        }
+        if self.active.is_some()
+            || !self.queue.is_empty()
+            || self.external_closes.len() == EXTERNAL_CLOSE_LIMIT
+            || self
+                .external_closes
+                .iter()
+                .any(|entry| entry.receipt.is_none())
+        {
+            return Err(CoordinatorError::Busy);
+        }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.pair_operations.unresolved() {
+            return Err(CoordinatorError::Busy);
+        }
+        let token = ExternalCloseToken(Arc::new(()));
+        self.external_closes.push(ExternalCloseEntry {
+            operation_id,
+            digest,
+            token: token.clone(),
+            base_revision: self.revision,
+            receipt: None,
+        });
+        Ok(ExternalCloseAdmission::Reserved(token))
+    }
+
+    pub(crate) fn finish_external_close(
+        &mut self,
+        token: &ExternalCloseToken,
+        outcome: ExternalCloseOutcome,
+    ) -> Result<ExternalCloseReceipt, CoordinatorError> {
+        let entry = self
+            .external_closes
+            .iter_mut()
+            .find(|entry| Arc::ptr_eq(&entry.token.0, &token.0))
+            .ok_or(CoordinatorError::InvalidToken)?;
+        if let Some(receipt) = entry.receipt {
+            return Ok(receipt);
+        }
+        // An effect may have changed controller state. Advance once only when
+        // still on this reservation's revision; never overwrite a successor.
+        if matches!(
+            outcome,
+            ExternalCloseOutcome::Closed | ExternalCloseOutcome::Unknown
+        ) && entry.base_revision == self.revision
+        {
+            self.revision = self
+                .revision
+                .checked_add(1)
+                .filter(|revision| *revision <= MAX_REVISION)
+                .ok_or(CoordinatorError::RevisionExhausted)?;
+        }
+        let receipt = ExternalCloseReceipt {
+            outcome,
+            revision: self.revision,
+        };
+        entry.receipt = Some(receipt);
+        Ok(receipt)
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    pub(crate) fn external_close_receipt(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<Option<ExternalCloseReceipt>>, CoordinatorError> {
+        let id = OperationId::parse(operation_id)?;
+        Ok(self
+            .external_closes
+            .iter()
+            .find(|entry| entry.operation_id.0 == id.0)
+            .map(|entry| entry.receipt))
     }
 
     /// Check whether bounded work outside the serialized owner may begin.
@@ -292,6 +593,9 @@ impl MutationCoordinator {
         &self,
         request: &MutationRequest,
     ) -> Result<ExternalWorkPreflight, CoordinatorError> {
+        if self.external_id(request.operation_id.as_ref()) {
+            return Err(CoordinatorError::OperationConflict);
+        }
         if let Some(operation_id) = &request.operation_id
             && let Some((digest, cached)) = self.matching_operation(operation_id)
         {
@@ -311,6 +615,10 @@ impl MutationCoordinator {
         if self.revision == MAX_REVISION {
             return Err(CoordinatorError::RevisionExhausted);
         }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.pair_operations.unresolved() {
+            return Err(CoordinatorError::Busy);
+        }
         if self.active.is_some() || !self.queue.is_empty() {
             return Err(CoordinatorError::Busy);
         }
@@ -318,6 +626,9 @@ impl MutationCoordinator {
     }
 
     pub fn submit(&mut self, request: MutationRequest) -> Result<SubmitOutcome, CoordinatorError> {
+        if self.external_id(request.operation_id.as_ref()) {
+            return Err(CoordinatorError::OperationConflict);
+        }
         // Operation replay is checked before current-revision preconditions.
         // An exact retry necessarily carries the revision from the original
         // request and must recover its cached result after that mutation has
@@ -338,6 +649,10 @@ impl MutationCoordinator {
             .is_some_and(|expected| expected != self.revision)
         {
             return Err(CoordinatorError::RevisionConflict);
+        }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if self.pair_operations.unresolved() {
+            return Err(CoordinatorError::Busy);
         }
         if self.queue.len() >= self.queue_limit {
             return Err(CoordinatorError::Busy);
@@ -484,6 +799,160 @@ impl MutationCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn preview_pair_idle_observes_running_unknown_and_queue_without_reservation() {
+        let mut c = MutationCoordinator::default();
+        assert!(c.preview_pair_idle());
+        let token = match c
+            .reserve_pair("running", 0, MutationDigest::new([1; 32]))
+            .unwrap()
+        {
+            crate::pair_operation::Admission::Reserved(t) => t,
+            _ => panic!("replay"),
+        };
+        assert!(!c.pair_abandoned());
+        assert!(!c.preview_pair_idle()); // unresolved BEFORE abandonment as well
+        c.finish_pair(token, crate::pair_operation::Outcome::Unknown)
+            .unwrap();
+        assert!(!c.preview_pair_idle());
+        let mut c = MutationCoordinator::default();
+        c.submit(
+            MutationRequest::new(
+                MutationKind::Other,
+                Some("queued"),
+                Some(0),
+                MutationDigest::new([2; 32]),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!c.preview_pair_idle());
+        assert_eq!(c.revision(), 0);
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_uses_shared_ids_without_second_revision_advance() {
+        let mut c = MutationCoordinator::default();
+        let crate::pair_operation::Admission::Reserved(token) =
+            c.reserve_pair("pair", 0, digest(1)).unwrap()
+        else {
+            panic!("missing reservation")
+        };
+        assert!(c.operation_id_in_use("pair").unwrap());
+        assert!(matches!(
+            c.submit(request(MutationKind::Other, Some("pair"), Some(0), 1)),
+            Err(CoordinatorError::OperationConflict)
+        ));
+        assert!(matches!(
+            c.submit(request(MutationKind::Other, Some("ordinary"), Some(0), 2)),
+            Err(CoordinatorError::Busy)
+        ));
+        // Actual retained Restore performs this one advance with its sealed
+        // proof. This metadata test doesn't fabricate that proof or engine.
+        c.revision = 1;
+        let original = c
+            .finish_pair(token, crate::pair_operation::Outcome::Completed)
+            .unwrap();
+        assert_eq!(original.revision, 1);
+        assert_eq!(c.revision(), 1);
+        assert!(
+            matches!(c.reserve_pair("pair",0,digest(1)).unwrap(),crate::pair_operation::Admission::Replay(r) if r==original)
+        );
+        assert!(matches!(
+            c.reserve_pair("pair", 0, digest(2)),
+            Err(CoordinatorError::OperationConflict)
+        ));
+        assert!(matches!(
+            c.reserve_pair("new", 0, digest(3)),
+            Err(CoordinatorError::RevisionConflict)
+        ));
+        assert!(
+            c.submit(request(MutationKind::Other, Some("ordinary"), Some(1), 2))
+                .is_ok()
+        );
+        assert!(matches!(
+            c.reserve_pair("ordinary", 1, digest(2)),
+            Err(CoordinatorError::OperationConflict)
+        ));
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_unknown_or_abandoned_blocks_other_operation_families() {
+        for completed in [false, true] {
+            let mut c = MutationCoordinator::default();
+            let crate::pair_operation::Admission::Reserved(token) =
+                c.reserve_pair("pair", 0, digest(1)).unwrap()
+            else {
+                panic!("missing reservation")
+            };
+            if completed {
+                drop(token);
+            } else {
+                c.finish_pair(token, crate::pair_operation::Outcome::Unknown)
+                    .unwrap();
+            }
+            assert!(c.pair_abandoned());
+            assert!(c.prepare_retained_restore().is_err());
+            assert!(
+                c.submit(request(
+                    MutationKind::Disconnect,
+                    Some("disconnect"),
+                    Some(0),
+                    2
+                ))
+                .is_err()
+            );
+            assert!(
+                c.preflight_external_work(&request(MutationKind::Other, Some("fetch"), Some(0), 2))
+                    .is_err()
+            );
+            assert!(
+                c.reserve_external_close("close", 0, digest(2), false)
+                    .is_err()
+            );
+            assert!(c.reserve_pair("next", 0, digest(2)).is_err());
+        }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn retained_restore_revision_preflight_refuses_busy_pending_and_exhausted() {
+        let mut coordinator = MutationCoordinator::default();
+        assert!(coordinator.prepare_retained_restore().is_ok());
+        let pending = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("queued"), Some(0), 1))
+                .unwrap(),
+        );
+        assert!(coordinator.prepare_retained_restore().is_err());
+        assert!(matches!(
+            coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(_)
+        ));
+        assert!(coordinator.prepare_retained_restore().is_err());
+        coordinator
+            .finish(pending, MutationResult::NoChange)
+            .unwrap();
+        assert!(coordinator.prepare_retained_restore().is_ok());
+        let ExternalCloseAdmission::Reserved(original) = coordinator
+            .reserve_external_close("close", 0, digest(2), false)
+            .unwrap()
+        else {
+            panic!("reservation missing");
+        };
+        assert!(coordinator.prepare_retained_restore().is_err());
+        coordinator
+            .finish_external_close(&original, ExternalCloseOutcome::Missing)
+            .unwrap();
+        assert!(coordinator.prepare_retained_restore().is_ok());
+        coordinator.revision = MAX_REVISION;
+        assert!(matches!(
+            coordinator.prepare_retained_restore(),
+            Err(CoordinatorError::RevisionExhausted)
+        ));
+    }
 
     fn digest(value: u8) -> MutationDigest {
         MutationDigest::new([value; 32])

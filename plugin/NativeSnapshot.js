@@ -187,7 +187,7 @@ function parseOperation(raw, job, kind) {
   try {
     var p = envelope(raw)
     if (!p || !job || !number(job.revision, 9007199254740991)) return null
-    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     function error(value) {
       return object(value, ["code", "message", "retryable"]) && codes.indexOf(value.code) >= 0
         && text(value.message, 512, false) && typeof value.retryable === "boolean"
@@ -396,6 +396,27 @@ function parseCoreDiagnostics(value) {
   return result
 }
 
+// T3 adds fixed log categories to the observation envelope. Validate that
+// optional extension even though the plugin does not display this TUI data.
+// Unknown fields/raw log text remain forbidden; hints are never health proof.
+function validCoreLogHints(value) {
+  if (!object(value, ["schemaVersion", "scope", "availability", "items", "incomplete", "interpretation"])
+      || value.schemaVersion !== 1 || value.scope !== "latest_owned_core_log_categories"
+      || value.interpretation !== "log_hints_not_health") return false
+  if (value.availability === "unavailable") return value.items === null && value.incomplete === null
+  if (value.availability !== "observed" || typeof value.incomplete !== "boolean"
+      || !Array.isArray(value.items) || value.items.length > 24) return false
+  var last = 0
+  for (var i = 0; i < value.items.length; i++) {
+    var item = value.items[i]
+    if (!object(item, ["sequence", "category"]) || !number(item.sequence, 4294967295)
+        || item.sequence <= last || ["dns", "tls", "timeout", "connection", "other", "oversized",
+          "tun_setup", "firewall_setup", "setup_permission"].indexOf(item.category) < 0) return false
+    last = item.sequence
+  }
+  return true
+}
+
 function parseObservation(raw) {
   try {
     var p = envelope(raw)
@@ -403,7 +424,11 @@ function parseObservation(raw) {
     var r = p.result, d = r.desired, f = r.facts
     var fields = ["schemaVersion", "scope", "availability", "desired", "lastKnownActual", "manualRecoveryRequired", "facts", "verification", "instanceId", "transition"]
     var diagnostics = r.coreDiagnostics === undefined || r.coreDiagnostics === null ? null : parseCoreDiagnostics(r.coreDiagnostics)
-    if (!(object(r, fields) || object(r, fields.concat(["coreDiagnostics"])))
+    var optional = []
+    if (r.coreDiagnostics !== undefined) optional.push("coreDiagnostics")
+    if (r.coreLogHints !== undefined) optional.push("coreLogHints")
+    if (!object(r, fields.concat(optional))
+        || (r.coreLogHints !== undefined && r.coreLogHints !== null && !validCoreLogHints(r.coreLogHints))
         || (r.coreDiagnostics !== undefined && r.coreDiagnostics !== null && !diagnostics)
         || r.schemaVersion !== 1 || r.scope !== "local_runtime_observation" || !id(r.instanceId, false) || r.transition !== null
         || ["observed", "unavailable"].indexOf(r.availability) < 0
@@ -509,7 +534,7 @@ function configurationReport(raw, revision) {
     var filesObserved = !!(host && host.files && Object.keys(host.files).every(function(k) { return host.files[k] !== null }))
     var h = r.runtime, c = r.configuration, v = r.coverage
     if (!object(h, ["implementation", "version", "lastKnownState", "routingTransactionPending"])
-        || h.implementation !== "rust" || !text(h.version, 32, false) || !/^\d+\.\d+\.\d+(?:-rc\.[1-9][0-9]*)?$/.test(h.version)
+        || h.implementation !== "rust" || !text(h.version, 32, false) || !/^\d+\.\d+\.\d+(?:-(?:rc|beta)\.[1-9][0-9]*)?$/.test(h.version)
         || ["disconnected", "starting", "connected", "reconnecting", "stopping", "failed", "manual_recovery_required"].indexOf(h.lastKnownState) < 0
         || typeof h.routingTransactionPending !== "boolean"
         || !(modern ? object(v, ["privateStoreValidated", "liveHostObservation", "controllerQuery", "loginActivationVerified", "coreSetupVerified", "serviceEnablementVerified", "loadedPolicyCounts", "fileReadiness"])
@@ -589,7 +614,7 @@ function parseAction(raw, pending) {
       return {ok:true, revision:p.revision, code:""}
     }
     var e = p.error
-    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     if (p.ok !== false || !object(p, ["api", "version", "id", "ok", "revision", "error"])
         || !object(e, ["code", "message", "retryable"]) || codes.indexOf(e.code) < 0
         || typeof e.retryable !== "boolean" || !text(e.message, 512, false)) return null

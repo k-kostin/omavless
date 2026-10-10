@@ -25,6 +25,15 @@ GitHub is the source of truth. Do not rely on private chat history, an earlier
 agent handoff or a stale checkout as the only record of a decision, test result,
 policy or useful implementation.
 
+Read the durable [execution policy](EXECUTION_POLICY.md) before development or
+diagnostic work. It distinguishes ordinary build failures from uncertain effects
+and retains risk-proportionate review and explicit single-operator VM custody.
+For installed development-VM work use the
+[VM operations skill](../../skills/omavless-dev-vm/SKILL.md), including graphical
+preflight, actual installed interface discovery and encrypted reboot. At meaningful
+checkpoints use [lightweight retrospectives](EXECUTION_POLICY.md#9-lightweight-orchestration-retrospectives)
+instead of duplicating unchanged audits or adding another permanent agent.
+
 ## Selected implementation direction
 
 Rust is the selected long-term implementation language for the standalone
@@ -92,6 +101,11 @@ A later GPUI desktop client is optional and must remain a client of the same
 semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
+
+For internal beta selection with hands-on evidence still pending, follow
+[agent-assisted human acceptance](BETA_MANUAL_ACCEPTANCE.md). Prepare runnable
+features and their test cards; do not conflate missing implementation or unsafe
+ownership with a human-only UI check.
 
 Native checkpoint, 2026-09-13: R6 is closed under the explicitly revised
 owner scope in [the local closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md).
@@ -184,14 +198,28 @@ the change.
 
 ## Git discipline
 
-- `main` is the only long-lived development source of truth.
+- `main` is the only long-lived release source of truth: a stable snapshot,
+  including documentation, not the daily development integration branch.
 - `archive/python-legacy` is a frozen historical snapshot at
   `aa5873783c019edc303a732e55ea8c85f1f0b090`, not another development line.
   Preserve it during branch cleanup; never merge new work into it or use it as
   a mutable CI dependency. See [legacy retirement](../roadmap/LEGACY_RETIREMENT.md).
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
-  `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `rc/<version>` candidates
-  follow the canonical workflow; do not rename active/evidence branches just
+  `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
+  assemblies and `rc/<version>` release candidates follow the canonical
+  workflow; current release preparation is `dev/098-stable-preparation` (#726)
+  from the selected `rc/0.9.8` Backup-only scope. Corrected immutable validation
+  delivery is `v0.9.8-fix.1`; its producer/frontend and affected installed gates
+  are in the RC ledger. Old 0.9.8 assets stay immutable and superseded; stable
+  main/stable promotion is owner-authorized through #726, with actual event/
+  exact SHA read from GitHub. The owner still withholds Marketplace submission
+  and root README changes. The publicly accepted historical
+  RC artifact baseline remains `rc/0.9.5`. Internal source
+  freeze follows the declared risk-based checks; public provisioning gates do
+  not repeat at every internal version. Installed private-restore integration
+  is still necessary. Preserve `rc/0.9.0` as
+  superseded acceptance history, without rewriting its branch or public assets.
+  Do not rename active/evidence branches just
   for cosmetics or commit implementation work directly to `main`.
 - Before creating a branch, inspect open PRs and recently updated remote
   branches for the same roadmap stage or subsystem. Continue or explicitly
@@ -204,10 +232,13 @@ the change.
 - Push the first meaningful checkpoint and open a Draft PR early enough to make
   active scope visible. Do not create empty commits or ceremonial PRs merely to
   reserve a name.
-- Complete agreed documentation-only updates through `main` after their checks,
-  under the owner's [standing documentation merge authorization](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
-  A temporary branch/PR is a review step, not a separate home for the roadmap;
-  do not leave finished agreed documentation in Draft awaiting redundant approval.
+- Prepare agreed documentation-only updates in reviewed `dev/docs/*` PRs;
+  readiness is not authorization to update `main`. The former automatic docs
+  merge permission is revoked by the [2026-09-22 workflow decision](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
+  Current issues/PRs carry ongoing status; the named beta/RC carries the next roadmap
+  revision. Before an owner-authorized main update, reconcile and include all
+  applicable roadmap, current-status, feature-contract and agent-rule changes.
+  Do not leave accepted decisions stranded in a branch after publishing code.
 - Fetch again before rebasing, force-pushing, retargeting or merging. If the
   remote head changed unexpectedly, stop and reconcile its commits before
   writing. Use `--force-with-lease` only against the exact observed remote head;
@@ -215,9 +246,14 @@ the change.
 - Preserve useful work on GitHub before ending an ephemeral/local VM session.
   Never leave the only copy of a useful commit or test report inside Try
   Omarchy.
-- After a PR merges or is conclusively superseded, delete its source branch and
-  prune remote-tracking refs. Keep branches for open evidence PRs, including a
-  long-lived Draft such as V0, until that PR is resolved.
+- After inclusion in an authorized main update, delete the source branch and
+  prune remote-tracking refs. An RC-only merge or closure of a duplicate source
+  PR does not by itself authorize deleting the independently reviewable evidence
+  branch: classify it as intentionally retained until main inclusion/cleanup.
+  Other conclusively superseded branches follow the canonical
+  [cleanup lifecycle](../roadmap/DEVELOPMENT_WORKFLOW.md#branch-cleanup-lifecycle).
+  Keep branches for open evidence PRs, including a long-lived Draft such as V0,
+  until that PR is resolved.
 - Before deleting an unmerged branch with no active PR, inspect its unique
   commits and diff. Delete it only when the work is merged, explicitly closed,
   reproducibly superseded, or disposable automation with no unique durable

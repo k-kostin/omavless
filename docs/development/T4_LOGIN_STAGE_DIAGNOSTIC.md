@@ -1,0 +1,44 @@
+# Fixed disposable login-stage diagnostic
+
+The [exact-source real System mechanism report](../testing/T4_SYSTEM_PROVIDER_MECHANISM_2026-10-03.md)
+records the later successful v4 invocation without relabeling prior negatives
+or adopting normal historical policy.
+
+This test-only continuation of #583 retains its real System-provider NONPASS:
+the exact seed selector passed, but the genuine packaged login unit returned
+the public Validation category before the historical review selector ran.
+The reviewed root harness completed owned cleanup and its strict canonical
+comparison. No System-positive admission result follows from that attempt.
+
+The frozen failing prefix `b0564b7141b189c6f6fa5c6b94e6fd77d4b6d150`
+reproduces `InvalidState` from the actual transaction with zero host observations.
+Its literal `routingPreset=default` is not an accepted store preset identifier.
+The new ordinary CPU regression retains that rejection, no receipt and unchanged
+private inputs, then feeds exactly the corrected seed's empty private store with
+canonical `roscomvpn-default`, default disconnected desired state and default template
+through the real private-file login transaction. Its strict recording host
+allows exactly two empty observations and panics on connected validation.
+This proves the synthetic input/transaction combination, not real System or
+package provenance. Its synthetic epoch and resulting receipt exist only in
+the independent temporary CPU fixture, never in the disposable VM account.
+
+The additional ignored fixed-account test is read-only. It reports only fixed
+stage/category strings for the actual private input validator and planner,
+legacy/native service query, strict process inventory, configured TUN scope,
+strict TUN inventory and complete native-empty observer. It neither invokes
+login preparation nor consumes or publishes a receipt. It does not call the
+live-unit invocation validator from outside that unit. Test completion means
+the diagnostic ran, not that any reported refusal passed admission.
+
+This is a definite seed prerequisite defect consistent with the VM's broad
+Validation category, not a recovered internal failure trace from the installed
+binary. The missing legacy-unit query remains an independent hypothesis: the measured global fixture
+inventory contains only the packaged login/native units, while the actual empty
+observer also queries the legacy service. No fake legacy unit, absent-as-empty
+fallback or production behavior change is introduced to make this pass.
+
+Execution requires a separately reviewed fresh-account harness and exclusive
+VM lease. It must run after the genuine failure and before owned cleanup,
+retain private logs and original package/manager evidence, and never retry the
+login transaction. No normal registration, historical policy adoption, installed
+release acceptance or permission to alter the canonical account is granted.

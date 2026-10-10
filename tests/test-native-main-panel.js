@@ -4,6 +4,8 @@ const assert=require('node:assert/strict'), fs=require('node:fs'),path=require('
 const source=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
 const presentation=vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname,'../plugin/NativePresentation.js'),'utf8'),presentation);
+const i18n=vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../plugin/I18n.js'),'utf8'),i18n);
 const standalone={id:'local',name:'Local',protocol:'vless',subscriptionId:'',favorite:false,missing:false};
 const managed={id:'managed',name:'Match',protocol:'vless',subscriptionId:'sub',favorite:true,missing:false};
 function context(){
@@ -12,7 +14,12 @@ function context(){
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
     nativeCursor:-1,nativeExpandedDetailsId:'',nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
-  c.root=c;c.calls=calls;
+  c.root=c;c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
+  const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
+  vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
+  c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
+  const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
+  vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
   for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
@@ -23,6 +30,56 @@ function context(){
   return c;
 }
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('empty native list guidance distinguishes unavailable, absent, filtered and managed data',()=>{
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.empty'));
+    c.profileFilter='Synthetic <b>имя</b>';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('profiles.no_match',{query:c.profileFilter}));
+    c.vless.nativeSnapshotFailed=true;
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.unavailable'));
+    c.vless.nativeSnapshotFailed=false;c.vless.nativeSnapshot=null;
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.unavailable'));
+    c.vless.nativeSnapshot={};c.page='subscription';c.nativeSubscriptionId='removed';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.subscription_missing'));
+    c.nativeSubscriptionId='sub';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('profiles.no_match',{query:c.profileFilter}));
+    c.profileFilter='';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.subscription_empty'));
+    assert.equal(c.calls.length,0);
+  }
+  assert.match(source,/PlainText \{[^\n]*text: root.nativeEmptyProfilesText\(\)/);
+});
+test('subscription toggle describes the actual target and preserves expansion during search',()=>{
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;
+    c.nativeView.subscriptions[0].name='Synthetic <b>подписка</b>';
+    let row=c.nativeRows.find(r=>r.kind==='subscription');
+    assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.expand',{name:row.subscription.name}));
+    assert.equal(c.sanitizedTooltip,c.nativeSubscriptionToggleTooltip(row));
+    c.toggleNativeSubscription('sub');row=c.nativeRows.find(r=>r.kind==='subscription');
+    assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.collapse',{name:row.subscription.name}));
+    for(const expanded of [true,false]) {
+      c.nativeExpanded={sub:expanded};c.profileFilter='Match';
+      row=c.nativeRows.find(r=>r.kind==='subscription');assert.equal(row.expanded,true);
+      assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.search_expanded'));
+      c.toggleNativeSubscription('sub');assert.equal(c.nativeExpanded.sub,expanded);
+      c.nativeCursor=0;c.activateNativeCursor();assert.equal(c.nativeExpanded.sub,expanded);
+      c.profileFilter='';assert.equal(c.nativeRows.find(r=>r.kind==='subscription').expanded,expanded);
+    }
+    assert.equal(c.nativeSubscriptionToggleTooltip({kind:'profile'}),'');
+    assert.equal(c.calls.length,0);
+  }
+});
+test('subscription hint wraps within its row and remains available on keyboard focus',()=>{
+  const group=source.slice(source.indexOf('id: nativeGroup\n'),source.indexOf('id: nativeGroupRefresh\n'));
+  assert.match(group,/text: root.nativeSubscriptionToggleTooltip\(nativeRow.modelData\)/);
+  assert.match(group,/visible: nativeGroup.pointerHovered \|\| nativeGroup.activeFocus/);
+  assert.match(group,/width: Math.min\(implicitWidth, nativeRow.width\)/);
+  assert.match(group,/property: "wrapMode"; value: Text.Wrap/);
+  assert.match(group,/x: 0/);
+  assert(!group.includes('tooltipText:')); // No second, unbounded shared hint.
+});
 test('subscription navigation restores list focus after the old Open control disappears',()=>{
   const c=context(),deferred=[];let focused=0;
   c.Qt.callLater=f=>deferred.push(f);
@@ -75,7 +132,7 @@ test('one fixed dock uses the explicit selected profile, never the active fallba
   assert(!source.includes('nativeHeaderQrRecord'));
   assert(source.includes('onClicked: vless.showQr(nativeProfileActions.record)'));
   const dock=source.slice(source.indexOf('id: nativeProfileActions\n'),source.indexOf('AdvancedDiagnostics {'));
-  assert(dock.includes('anchors.bottom: parent.bottom'));
+  assert(dock.includes('anchors.bottom: nativeAppFooter.visible ? nativeAppFooter.top : parent.bottom'));
   assert(dock.includes('record !== null'));
   assert(dock.includes('native.profile.chooseActions'));
   assert(dock.includes('textFormat: Text.PlainText'));
@@ -121,6 +178,7 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
   vm.runInContext(source.slice(start,source.indexOf('\n  }',start)+4),c);
   const flick=c.nativeFlick;Object.assign(flick,{height:300,contentHeight:1000,contentItem:{},contentY:250});
   const item=(y,height)=>({height,mapToItem:()=>({y})});
+  c.nativeQuitSetting={focusTarget:null};c.nativeReleaseCredit={visible:false};
   let target=item(290,30);target.focusScrollItem=item(230,130);
   c.scrollPanelControlIntoView(target);assert.equal(flick.contentY,222);
   flick.contentY=0;target=item(260,30);target.focusScrollItem=item(220,140);
@@ -132,6 +190,9 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
   flick.contentY=500;c.scrollPanelControlIntoView(item(990,10));assert.equal(flick.contentY,700);
   flick.contentY=100;target=item(900,30);target.parent={parent:null};
   c.scrollPanelControlIntoView(target);assert.equal(flick.contentY,100);
+  const quit=item(880,45);c.nativeQuitSetting.focusTarget=quit;
+  c.nativeReleaseCredit=Object.assign(item(940,20),{visible:true});
+  flick.contentY=500;c.scrollPanelControlIntoView(quit);assert.equal(flick.contentY,668);
   assert.match(source,/id: actionButton\s+readonly property Item focusScrollItem: settingRow/);
   for (const id of ['nativeSupportCopy','nativeSupportSave'])
     assert(source.includes('id: '+id+'; readonly property Item focusScrollItem: nativeSupportSetting;'));
@@ -332,7 +393,7 @@ test('main has immediate equal-width mode actions before traffic and profiles',(
   for(const [id,mode] of [['nativeGlobal','global'],['nativeRule','rule'],['nativeDirect','direct']]) {
     const line=modes.split('\n').find(s=>s.includes('id: '+id+';'));
     assert(line);assert(line.includes('Layout.preferredWidth: 1'));assert(line.includes('focusable: true'));
-    assert(line.includes('foreground: root.nativeView.mode === "'+mode+'" ? Color.accent : root.foreground'));
+    assert(line.includes('foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "'+mode+'" ? Color.accent : root.foreground'));
     assert(line.includes('enabled: vless.nativeCanAct && root.nativeView.mode !== "'+mode+'"'));
     assert(line.includes('onClicked: vless.requestNativeAction("mode", "", "'+mode+'")'));
   }
@@ -361,6 +422,31 @@ test('settings sections group related controls in a stable visual order',()=>{
   const order=['settings.appearance','id: nativeLanguageRow','settings.connections','id: nativeModeButtons','id: nativeRoutingPresetSetting','id: nativeRoutingToolsSetting','id: nativeProvidersRefresh','id: nativeSubscriptionsSetting','settings.setup_startup','id: nativeCoreSetupRow','id: nativeOnboardingSetting','id: nativeStartupSummaryRow','id: nativeHelpersRefresh','settings.diagnostics_privacy','id: nativeDiagnosticsSetting','id: nativeSupportSetting','id: nativeSupportCopy','id: nativeSupportSave','id: nativeExitIpSetting','settings.application','id: nativeQuitSetting'];
   let previous=-1;for(const marker of order){const at=region.indexOf(marker);assert(at>previous,marker);previous=at;}
 });
+test('Settings footer uses only installed public plugin metadata after Quit',()=>{
+  const start=source.indexOf('  readonly property string releaseCredit: {');
+  const end=source.indexOf('\n  }',start)+4;
+  assert(start>0&&end>start);
+  const expression=source.slice(start,end).replace('readonly property string releaseCredit:','function releaseCredit()');
+  const c=vm.createContext({releaseManifest:{version:'0.9.7-rc.1',author:'kdk'},locale:'en',textFor:(key,values)=>i18n.translate(key,c.locale,values)});
+  vm.runInContext(expression,c);
+  assert.equal(c.releaseCredit(),'OmaVLESS 0.9.7-rc.1 · by kdk');
+  c.locale='ru';assert.equal(c.releaseCredit(),'OmaVLESS 0.9.7-rc.1 · автор: kdk');
+  for(const metadata of [null,{}, {version:'0.9.7-rc.1'}, {version:'../../secret',author:'kdk'}, {version:'0.9.7-'+('x'.repeat(40)),author:'kdk'}, {version:'0.9.7-rc.1',author:'<b>'}]){
+    c.releaseManifest=metadata;assert.equal(c.releaseCredit(),'');
+  }
+  assert.match(source,/property var releaseManifest: null/);
+  assert.match(source,/path: String\(Qt\.resolvedUrl\("\.\.\/manifest\.json"\)\)/);
+  assert.match(source,/if \(raw\.length > 8192\)/);
+  assert.match(source,/onLoadFailed: root\.releaseManifest = null/);
+  const quit=source.indexOf('id: nativeQuitSetting');
+  const footerId=source.indexOf('id: nativeReleaseCredit',quit);
+  const footer=source.indexOf('text: root.releaseCredit',quit);
+  const next=source.indexOf('visible: root.page === "subscriptions"',quit);
+  assert(quit<footerId&&footerId<footer&&footer<next);
+  assert.match(source.slice(quit,next),/textFormat: Text.PlainText/);
+  assert.match(source.slice(quit,next),/font.pixelSize: Style.font.caption/);
+  assert.match(source,/target === nativeQuitSetting\.focusTarget && nativeReleaseCredit\.visible/);
+});
 test('native Settings Tab order follows visual action order without hidden Test',()=>{
   const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
   const names=Array.from(new Set(source.slice(from,to).match(/\bnative[A-Z]\w*/g)));
@@ -372,6 +458,7 @@ test('native Settings Tab order follows visual action order without hidden Test'
   vm.runInContext(source.slice(from,to),c);
   const result=Array.from(c.panelTabTargets());
   assert.deepEqual(result.slice(0,23),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
+  assert(!result.includes(c.nativeOpenAppButton));
   assert(!result.includes(c.nativeTestButton));
 });
 test('native text uses explicit theme font roles rather than the oversized default',()=>{

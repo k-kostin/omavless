@@ -25,10 +25,10 @@ const hostFixture = () => {
  return r;
 };
 function test(name, fn) { try { fn(); count++; } catch(e) { e.message = name + ': ' + e.message; throw e; } }
-test('reports accept stable and release-candidate runtime versions across supported schemas',()=>{
+test('reports accept stable and explicit beta/RC versions across supported schemas',()=>{
  const cargo=fs.readFileSync(__dirname+'/../Cargo.toml','utf8');
  const current=cargo.match(/^version = "([^"]+)"$/m)[1];
- for(const version of ['0.1.0','0.8.0','0.8.0-rc.1','0.8.0-rc.12',current]) {
+ for(const version of ['0.1.0','0.8.0','0.8.0-rc.1','0.8.0-rc.12','0.9.5-beta.1','0.9.5-beta.12',current]) {
   for(const make of [fixture,modernFixture,hostFixture]) {
    const r=make();r.runtime.version=version;
    const result=parser.configurationReport(frame(r),7);assert(result,version);
@@ -37,7 +37,8 @@ test('reports accept stable and release-candidate runtime versions across suppor
  }
 });
 test('runtime version remains bounded machine vocabulary, not arbitrary release text',()=>{
- for(const version of ['0.8.0-rc.0','0.8.0-rc.01','0.8.0-rc.','0.8.0-RC.1','0.8.0-beta.1',
+ for(const version of ['0.8.0-rc.0','0.8.0-rc.01','0.8.0-rc.','0.8.0-RC.1','0.9.5-beta.0',
+  '0.9.5-beta.01','0.9.5-beta.','0.9.5-BETA.1','0.9.5-alpha.1','0.9.5-beta.1+build',
   '0.8.0-rc.1+private','0.8.0\n','0.8.0-rc.1/private','v0.8.0','0.8.0-rc.1 password=secret',
   '1'.repeat(33)+'.0.0',null,800]) {
   const r=hostFixture();r.runtime.version=version;

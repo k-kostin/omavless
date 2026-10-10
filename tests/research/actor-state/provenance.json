@@ -1,0 +1,50 @@
+{
+  "schema": "t4-descriptor-free-synthetic-actor-source-v1",
+  "base": "18373b11634fac10b51245c22edf0edf71332177",
+  "selected_model_commit": "054305502de47bea19997fccb9606a73146fb9e4",
+  "model": {
+    "path": "actor_state.rs",
+    "bytes": 7638,
+    "sha256": "e4784dba06a3014991f9e65296a4e839133f79e1b00cc9e872afed172b148664",
+    "pure_test_count": 6
+  },
+  "selected_external_recipe": {
+    "run_sha256": "d343ec7fa82dd5c1b61adc4daa44773e539e1ee4f7ad5567a47b7292ccb97207",
+    "mock_sha256": "1e642ad987651fa95dc8f50d5b6a32a1c4096d30c556e6f046f8294f68a0dfff",
+    "inert_selector_sha256": "d17ff55530c93c395209f69b9d63f2684673ec80886051d30d661288e9cde99d",
+    "whole_selector_sha256": "2868d4ee7af2ebad15abf081e9632e2148d5c4206ded76d18740a8f97bf4e895",
+    "review_sha256": "c1bd8a544cc36008a65090725ddeccd694d982a3c5aa0794e487adacbce931a3",
+    "mock_selection": "d80550",
+    "mock_original_exit": 0,
+    "mock_projection": "92d2d7",
+    "mock_test_count": 8,
+    "whole_selection": "b9affc",
+    "whole_original_exit": 0,
+    "marker": "T4_SYNTHETIC_ACTOR_COMPILE_PURE6_KNOWN_ZERO",
+    "produced_binary_sha256": "13e16b87960c559f7b641df03fd45c7e4f632de8fe9647e689278d4b2980ec63",
+    "receipt_basis": "ROOT supplied original outcomes after both FULL reviews; no author capture reads"
+  },
+  "relocated_inert_templates": {
+    "compile_recipe.py.in": "23a4506f9d85e7679b6deb75b0064b7bfe3f6a8d7f3d7f2df2cc68d940e2f6e6",
+    "mock_recipe.py.in": "f4bd9a133de86bafb23def5c064c7c69eca5831b6fb4a71ef57153abfde9c686",
+    "selected_or_compiled": false,
+    "inherits_external_recipe_evidence": false
+  },
+  "author_source_gates": {
+    "text_ast_controls": 4,
+    "text_ast_original_exit": 0,
+    "text_ast_selection": "087e54",
+    "normal_source_controls": 654,
+    "existing_skips": 2,
+    "normal_source_original_exit": 0,
+    "normal_source_selection": "65e626/session91804",
+    "normal_source_terminal": "190669",
+    "js_qml": true,
+    "initial_source_assertion_failure_preserved": "d28f27: AST unparse parentheses; corrected structural comparison"
+  },
+  "actor_acquisition_executed": false,
+  "socket_or_descriptor_import_executed": false,
+  "fatal_descriptor_custody_proven": false,
+  "canonical_t4_contract_changed": false,
+  "production_backend_or_dependency_changed": false
+}

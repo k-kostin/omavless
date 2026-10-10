@@ -5,6 +5,38 @@
 //! daemon read-only; only a successfully reconciled committed Rust owner can
 //! register mutation methods.
 
+mod backup_destination_candidate;
+mod backup_source_candidate;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod developer_current_restore;
+mod managed_close_receipt;
+mod pending_private_transaction;
+pub mod product_scope;
+#[allow(dead_code)]
+mod restore_cleanup_candidate;
+#[allow(dead_code)]
+mod restore_closure_model;
+#[allow(dead_code)]
+mod restore_decision_candidate;
+#[allow(dead_code)]
+mod restore_disposition_complete_model;
+#[allow(dead_code)]
+mod restore_disposition_model;
+#[allow(dead_code)]
+mod restore_disposition_ticket_model;
+#[allow(dead_code)]
+mod restore_executor_candidate;
+#[allow(dead_code)]
+mod restore_journal_candidate;
+#[allow(dead_code)]
+mod restore_retirement_candidate;
+#[allow(dead_code)]
+mod restore_slot_retirement_candidate;
+mod restore_staging_candidate;
+mod restore_successor_coexistence_candidate;
+#[allow(dead_code)]
+mod restore_successor_handoff_model;
+mod restore_successor_publication_candidate;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;
@@ -34,8 +66,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auxiliary_core;
 mod batch_scheduler;
+#[allow(dead_code)]
+mod conditional_close_candidate;
+mod connection_overview;
+mod connection_rows;
 mod connection_test;
 pub mod connection_transaction;
+mod connections_summary;
 mod controller_permissions;
 pub mod core;
 pub mod core_diagnostics;
@@ -48,7 +85,12 @@ pub mod cutover_activation;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
+#[cfg(feature = "developer-conditional-close")]
+mod developer_connection_close;
 mod diagnostic_read;
+pub mod doctor;
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+mod file_link_count;
 pub mod fresh_setup;
 pub mod frontend_bridge;
 pub mod full_quit;
@@ -60,6 +102,11 @@ pub mod login_intent;
 pub mod login_transaction;
 pub mod long_operation;
 pub mod long_operation_protocol;
+mod managed_pair;
+pub mod managed_selection;
+mod managed_template;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod manager_actor_service;
 pub mod mutation;
 pub mod mutation_binding;
 pub mod mutation_protocol;
@@ -69,7 +116,11 @@ pub mod native_host;
 pub mod native_probe_resolver;
 mod onboarding_protocol;
 pub mod owner;
+#[cfg(feature = "t4-manager-actor-service")]
+mod pair_operation;
 pub mod plugin_action;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod private_pair_api;
 pub mod private_store_transaction;
 pub mod probe_executor;
 pub mod production_cutover;
@@ -83,13 +134,16 @@ pub mod profile_read_protocol;
 pub mod profile_transaction;
 pub mod provider_refresh;
 pub mod remote_fetch;
+pub mod restore_abort_cli;
 mod route_check_protocol;
 mod route_probe;
 mod routing_preset;
 pub mod routing_read_protocol;
 mod runtime_observation;
 mod runtime_quit;
+pub mod runtime_relaunch;
 pub mod semantic_cli;
+mod startup_admission;
 pub mod startup_protocol;
 mod startup_validation;
 pub mod store_bootstrap;
@@ -102,6 +156,7 @@ pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
+mod subscription_usage;
 mod support_diagnostics;
 pub mod traffic;
 pub mod tun_ping;
@@ -267,10 +322,14 @@ const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities
 const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.connection_test",
     "runtime.traffic",
+    "runtime.connections",
+    "runtime.connection_overview",
+    "runtime.connection_rows",
     "runtime.ping",
     "runtime.observation",
     "ui.snapshot",
     "diagnostics.export",
+    "diagnostics.setup",
     "diagnostics.summary",
     "diagnostics.rules",
     "diagnostics.providers",
@@ -283,6 +342,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "profiles.list",
     "subscriptions.list",
     "subscriptions.edit_input",
+    "subscriptions.usage",
 ];
 // Remote subscription fetch uses the bounded concurrent client layer and a
 // reservation-free preflight. Its final decode/commit re-enters this one
@@ -340,7 +400,103 @@ enum RuntimeDispatcher {
     Native(Box<dyn NativeRuntimeOwner>),
 }
 
+#[cfg(feature = "t4-manager-actor-service")]
+fn developer_current_error_code(error: production_owner::ProductionOwnerError) -> StableErrorCode {
+    // Only the current-origin preflight returns this typed error before the
+    // operation is entered. Authentication, engine and publication errors must
+    // remain uncertain; never infer no effect from a generic backend refusal.
+    match error {
+        production_owner::ProductionOwnerError::OwnershipUnavailable => {
+            StableErrorCode::CapabilityUnavailable
+        }
+        _ => StableErrorCode::ManualRecoveryRequired,
+    }
+}
+
 trait NativeRuntimeOwner: Send {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_preview(
+        &mut self,
+        request: &private_pair_api::PreviewRequest,
+    ) -> std::result::Result<(usize, usize, [u8; 32]), StableErrorCode>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_previewed_restore(
+        &mut self,
+        request: &private_pair_api::PreviewedRestoreRequest,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair_available(&self) -> bool;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair(
+        &mut self,
+        request: &private_pair_api::Request,
+        action: private_pair_api::Action,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_pause(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_abort(
+        &mut self,
+        request: &developer_current_restore::AbortRequest,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_restore(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_backup(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_preview(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::ClosePreviewReady,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError>;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::CloseConfirmedDiscovery,
+    ) -> std::result::Result<
+        Option<mutation::ExternalCloseReceipt>,
+        native_coordinator::NativeOwnerError,
+    >;
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&mut self) -> lifecycle::CloseRegistration;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_retired(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::CloseRetired,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<
+        native_coordinator::connection_close::CloseDiscovery,
+        native_coordinator::NativeOwnerError,
+    >;
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close(
+        &mut self,
+        action: developer_connection_close::Action,
+        instance: &str,
+    ) -> std::result::Result<
+        developer_connection_close::Admission,
+        native_coordinator::NativeOwnerError,
+    >;
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close_retain(
+        &mut self,
+        discovered: native_coordinator::connection_close::CloseDiscovered,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError>;
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>>;
     fn mutation_operation_known(&mut self, request: &Value) -> bool;
     fn auxiliary_failed(&mut self);
@@ -360,6 +516,18 @@ trait NativeRuntimeOwner: Send {
         deadline: std::time::Instant,
     ) -> std::result::Result<tun_ping::Context, StableErrorCode>;
     fn traffic(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connections(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connection_rows(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
@@ -441,13 +609,14 @@ trait NativeRuntimeOwner: Send {
     );
     fn revision(&self) -> u64;
     fn runtime_ownership(&mut self) -> bool;
-    fn status(&self, runtime_ownership: bool) -> Result<Value>;
+    fn status(&mut self) -> Result<Value>;
     fn profiles(&self) -> Result<Value>;
     fn subscriptions(&self) -> Result<Value>;
     fn subscription_edit_input(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn usage_transport(&self) -> SharedSubscriptionTransport;
     fn bootstrap_generations(&self) -> Option<(u64, u64)>;
     fn startup_available(&self) -> bool;
     fn mutate(
@@ -510,6 +679,17 @@ impl subscription_batch_work::BudgetedSubscriptionTransport for SharedSubscripti
         subscription_transport::SubscriptionTransportError,
     > {
         self.0.fetch_with_budget(url, budget)
+    }
+
+    fn fetch_usage_with_budget(
+        &self,
+        url: &str,
+        budget: Duration,
+    ) -> std::result::Result<
+        subscription_transport::FetchedSubscription,
+        subscription_transport::SubscriptionTransportError,
+    > {
+        self.0.fetch_usage_with_budget(url, budget)
     }
 }
 
@@ -625,6 +805,124 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair_available(&self) -> bool {
+        self.owner.normal_private_pair_available()
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_preview(
+        &mut self,
+        request: &private_pair_api::PreviewRequest,
+    ) -> std::result::Result<(usize, usize, [u8; 32]), StableErrorCode> {
+        self.owner.normal_private_preview(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_previewed_restore(
+        &mut self,
+        request: &private_pair_api::PreviewedRestoreRequest,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode> {
+        self.owner.normal_previewed_restore(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn normal_private_pair(
+        &mut self,
+        request: &private_pair_api::Request,
+        action: private_pair_api::Action,
+    ) -> std::result::Result<(mutation::CachedOutcome, bool), StableErrorCode> {
+        self.owner.normal_private_pair(request, action)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool {
+        self.owner.refuse_unpublished_intent_pause(revision)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_pause(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_pause(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_abort(
+        &mut self,
+        request: &developer_current_restore::AbortRequest,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_abort(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_backup(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_backup(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_restore(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_restore(request)
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_preview(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::ClosePreviewReady,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError> {
+        self.retain_product_close_preview(result)
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::CloseConfirmedDiscovery,
+    ) -> std::result::Result<
+        Option<mutation::ExternalCloseReceipt>,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.owner
+            .batch_coordinator()
+            .complete_product_confirm(result)
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    fn close_registration(&mut self) -> lifecycle::CloseRegistration {
+        self.owner.batch_coordinator().host().close_registration()
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_close_retired(
+        &mut self,
+        result: std::result::Result<
+            native_coordinator::connection_close::CloseRetired,
+            native_coordinator::NativeOwnerError,
+        >,
+    ) -> std::result::Result<
+        native_coordinator::connection_close::CloseDiscovery,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.retire_developer_close(result)
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close(
+        &mut self,
+        action: developer_connection_close::Action,
+        instance: &str,
+    ) -> std::result::Result<
+        developer_connection_close::Admission,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.admit_developer_close(action, instance)
+    }
+    #[cfg(feature = "developer-conditional-close")]
+    fn developer_close_retain(
+        &mut self,
+        discovered: native_coordinator::connection_close::CloseDiscovered,
+    ) -> std::result::Result<Value, native_coordinator::NativeOwnerError> {
+        self.retain_developer_close(discovered)
+    }
+    fn usage_transport(&self) -> SharedSubscriptionTransport {
+        self.transport.clone()
+    }
     fn auxiliary_slot(&mut self) -> Option<Arc<auxiliary_core::AuxiliarySlot>> {
         self.owner.batch_coordinator().host().auxiliary_slot()
     }
@@ -674,6 +972,24 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.traffic(request)
+    }
+    fn connections(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connections(request)
+    }
+    fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connection_overview(request)
+    }
+    fn connection_rows(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connection_rows(request)
     }
     fn runtime_observation(
         &mut self,
@@ -726,7 +1042,11 @@ where
         if matches!(
             request["method"].as_str(),
             Some(
-                "subscriptions.refresh_all" | "subscriptions.probe" | "subscriptions.probe_results"
+                "subscriptions.refresh_all"
+                    | "subscriptions.probe"
+                    | "subscriptions.probe_results"
+                    | "profiles.probe"
+                    | "profiles.probe_results"
             )
         ) && !self.owner.rust_ownership_available()
         {
@@ -737,11 +1057,21 @@ where
             coordinator.initialize_batch_operations(instance)?;
             self.batch_initialized = true;
         }
-        if request["method"] == "subscriptions.probe_results" {
+        if matches!(
+            request["method"].as_str(),
+            Some("subscriptions.probe_results" | "profiles.probe_results")
+        ) {
             return Ok((coordinator.subscription_probe_results(request)?, None));
         }
-        if request["method"] == "subscriptions.probe" {
-            long_operation_protocol::parse_subscription_probe_start(request)?;
+        if matches!(
+            request["method"].as_str(),
+            Some("subscriptions.probe" | "profiles.probe")
+        ) {
+            if request["method"] == "profiles.probe" {
+                long_operation_protocol::parse_profile_probe_start(request)?;
+            } else {
+                long_operation_protocol::parse_subscription_probe_start(request)?;
+            }
             let (core, scratch) = coordinator
                 .host()
                 .probe_paths()
@@ -912,11 +1242,14 @@ where
         self.owner.rust_ownership_available()
     }
 
-    fn status(&self, runtime_ownership: bool) -> Result<Value> {
+    fn status(&mut self) -> Result<Value> {
         let desired = self
             .owner
-            .desired()
+            .desired_for_status()
             .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        // Snapshot refusal must precede any ownership preparation. On success,
+        // promotion/staleness is resolved before projecting actual/transition.
+        let runtime_ownership = self.owner.rust_ownership_available();
         let actual = match self.owner.actual() {
             lifecycle::ActualState::Disconnected => "disconnected",
             lifecycle::ActualState::Starting => "starting",
@@ -1153,6 +1486,28 @@ impl RuntimeServer {
         })
     }
 
+    /// Default-off installed-development image provider through the SAME native
+    /// owner. No helper/service/enrollment activation or fixture permit.
+    #[cfg(feature = "developer-image-witness")]
+    pub fn bind_current_development_image(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(
+            paths,
+            production_owner::ProductionNativeOwner::current_development_image,
+        )
+    }
+
+    /// Optional SOURCE candidate through the SAME ordinary current owner. No
+    /// default CLI flag, service activation, enrollment or repeated-operation
+    /// acceptance is implied by construction; every snapshot still needs fresh
+    /// original image/controller/package proof and terminal/drain admission.
+    #[cfg(feature = "product-image-witness")]
+    pub fn bind_current_product_image(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(
+            paths,
+            production_owner::ProductionNativeOwner::current_product_image,
+        )
+    }
+
     fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
     where
         H: lifecycle::LifecycleHost + Send + 'static,
@@ -1265,10 +1620,40 @@ impl RuntimeServer {
         if credentials.uid() != self.uid {
             return Err(RuntimeError::PermissionDenied);
         }
-        let response = match read_unary_frame(stream, FrameKind::Request)
-            .and_then(|frame| decode_request(&frame))
-        {
-            Ok(request) => self.dispatch(&request),
+        let response = match read_unary_frame(stream, FrameKind::Request).and_then(|frame| {
+            #[cfg(feature = "t4-manager-actor-service")]
+            let frame = zeroize::Zeroizing::new(frame);
+            let request = decode_request(&frame)?;
+            #[cfg(feature = "t4-manager-actor-service")]
+            if request["method"].as_str().is_some_and(|method| {
+                developer_current_restore::private_method(method)
+                    || private_pair_api::is_method(method)
+            }) && frame.len() > developer_current_restore::MAX_INPUT
+            {
+                return Err(omavless_control_protocol::ProtocolError::new(
+                    StableErrorCode::InvalidArgument,
+                ));
+            }
+            Ok(request)
+        }) {
+            Ok(request) => {
+                #[cfg(feature = "t4-manager-actor-service")]
+                if !product_scope::backup_only()
+                    && request["method"] == developer_current_restore::PAUSE_METHOD
+                {
+                    let result = self.publish_current_intent_pause(&request, stream);
+                    let mut request = request;
+                    developer_current_restore::wipe_request(&mut request);
+                    return result;
+                }
+                let result = self.dispatch(&request);
+                #[cfg(feature = "t4-manager-actor-service")]
+                {
+                    let mut request = request;
+                    developer_current_restore::wipe_request(&mut request);
+                }
+                result
+            }
             Err(error) => error_response(
                 "invalid",
                 0,
@@ -1308,13 +1693,345 @@ impl RuntimeServer {
                 None,
             );
         }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if request["method"]
+            .as_str()
+            .is_some_and(private_pair_api::is_method)
+        {
+            return self.dispatch_private_pair(request);
+        }
+        #[cfg(feature = "t4-manager-actor-service")]
+        if request["method"]
+            .as_str()
+            .is_some_and(developer_current_restore::private_method)
+        {
+            return self.dispatch_developer_current_restore(request);
+        }
         self.dispatch_admitted(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_private_pair(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::method_disabled(request["method"].as_str().unwrap_or("")) {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
+        if matches!(
+            request["method"].as_str(),
+            Some("backup.preview" | "backup.restore_previewed")
+        ) {
+            return self.dispatch_private_preview(request);
+        }
+        let (input, action) = match private_pair_api::Request::parse(
+            request["method"].as_str().unwrap_or(""),
+            &request["params"],
+        ) {
+            Ok(input) => input,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        if input.instance() != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(dispatcher) => dispatcher,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        match owner.normal_private_pair(&input, action) {
+            Ok((result, replayed)) => match result.error {
+                None => success_response(
+                    id,
+                    result.revision,
+                    json!({"completed":true,"replayed":replayed,"scope":"privatePair"}),
+                ),
+                Some(error) => error_response(id, result.revision, error, false, None),
+            },
+            Err(error) => error_response(id, owner.revision(), error, false, None),
+        }
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_private_preview(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        enum Input {
+            Preview(private_pair_api::PreviewRequest),
+            Restore(private_pair_api::PreviewedRestoreRequest),
+        }
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
+        let input = if request["method"] == "backup.preview" {
+            private_pair_api::PreviewRequest::parse(&request["params"]).map(Input::Preview)
+        } else {
+            private_pair_api::PreviewedRestoreRequest::parse(&request["params"]).map(Input::Restore)
+        };
+        let input = match input {
+            Ok(i) => i,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        let instance = match &input {
+            Input::Preview(p) => p.instance(),
+            Input::Restore(p) => p.pair.instance(),
+        };
+        if instance != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(d) => d,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        match input {
+            Input::Preview(p) => match owner.normal_private_preview(&p) {
+                Ok((profiles, subscriptions, digest)) => success_response(
+                    id,
+                    owner.revision(),
+                    json!({"profiles":profiles,"subscriptions":subscriptions,"ciphertextDigest":private_pair_api::ciphertext_hex(&digest),"scope":"privatePair"}),
+                ),
+                Err(error) => error_response(id, owner.revision(), error, false, None),
+            },
+            Input::Restore(p) => match owner.normal_previewed_restore(&p) {
+                Ok((result, replayed)) => match result.error {
+                    None => success_response(
+                        id,
+                        result.revision,
+                        json!({"completed":true,"replayed":replayed,"scope":"privatePair"}),
+                    ),
+                    Some(error) => error_response(id, result.revision, error, false, None),
+                },
+                Err(error) => error_response(id, owner.revision(), error, false, None),
+            },
+        }
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
+        if product_scope::backup_only() {
+            let response = error_response(
+                request["id"].as_str().unwrap_or("invalid"),
+                0,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            )
+            .map_err(|_| RuntimeError::Protocol)?;
+            let frame = encode_response(&response).map_err(|_| RuntimeError::Protocol)?;
+            return write_unary_frame(stream, &frame, FrameKind::Response)
+                .map_err(|_| RuntimeError::Io);
+        }
+        // The SAME dispatcher mutex spans original pause creation AND the
+        // response write. No competing resume can slip between write failure
+        // and sealing. Only this fixed method can invoke publication feedback.
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let input = developer_current_restore::Request::parse(&request["params"]);
+        let gate = self.quit_gate.try_read();
+        let dispatcher = self.dispatcher.try_lock();
+        let mut dispatcher = dispatcher;
+        let publish = |response: std::result::Result<
+            Value,
+            omavless_control_protocol::ProtocolError,
+        >,
+                       stream: &mut UnixStream| {
+            response
+                .map_err(|_| RuntimeError::Protocol)
+                .and_then(|response| encode_response(&response).map_err(|_| RuntimeError::Protocol))
+                .and_then(|frame| {
+                    write_unary_frame(stream, &frame, FrameKind::Response)
+                        .map_err(|_| RuntimeError::Io)
+                })
+        };
+        let response = match (&input, &gate, &mut dispatcher) {
+            (Ok(input), Ok(gate), Ok(dispatcher)) if !**gate => {
+                if !input.matches_method(developer_current_restore::PAUSE_METHOD) {
+                    error_response(id, 0, StableErrorCode::InvalidArgument, false, None)
+                } else if input.instance() != self.instance_id {
+                    error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
+                } else if let RuntimeDispatcher::Native(owner) = &mut **dispatcher {
+                    if input.revision() != owner.revision() {
+                        error_response(id, owner.revision(), StableErrorCode::Conflict, false, None)
+                    } else {
+                        let result = owner.developer_current_pause(input);
+                        let revision = owner.revision();
+                        if let Err(error) = result {
+                            error_response(
+                                id,
+                                revision,
+                                developer_current_error_code(error),
+                                false,
+                                None,
+                            )
+                        } else {
+                            return developer_current_restore::publish_positive_pause_response(
+                                success_response(id, revision, json!({"intentPaused":true})),
+                                stream,
+                                input.revision(),
+                                |revision| {
+                                    if owner.refuse_unpublished_intent_pause(revision) {
+                                        // Fixed feature-only observation AFTER the original
+                                        // seal/revoke/block. No input, resampling or authority.
+                                        developer_current_restore::write_publication_sealed_diagnostic(
+                                            &mut std::io::stderr().lock(),
+                                        );
+                                    }
+                                },
+                            );
+                        }
+                    }
+                } else {
+                    error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None)
+                }
+            }
+            (Err(_), _, _) => error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+            (_, Ok(gate), _) if **gate => {
+                error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
+            }
+            (_, _, Err(std::sync::TryLockError::Poisoned(_))) => {
+                error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None)
+            }
+            _ => error_response(id, 0, StableErrorCode::Busy, true, None),
+        };
+        publish(response, stream)
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_developer_current_restore(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
+        let method = request["method"].as_str().unwrap_or("");
+        if method == developer_current_restore::ABORT_METHOD {
+            return self.dispatch_developer_current_abort(request);
+        }
+        let input = match developer_current_restore::Request::parse(&request["params"]) {
+            Ok(input) => input,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        if !input.matches_method(method) {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        }
+        if input.instance() != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        // Never start a second owner or wait behind an uncertain operation.
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(value) => value,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        if input.revision() != owner.revision() {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
+        }
+        let result = if method == developer_current_restore::PAUSE_METHOD {
+            owner.developer_current_pause(&input)
+        } else if method == developer_current_restore::BACKUP_METHOD {
+            owner.developer_current_backup(&input)
+        } else {
+            owner.developer_current_restore(&input)
+        };
+        match result {
+            Ok(()) => success_response(
+                id,
+                owner.revision(),
+                if method == developer_current_restore::PAUSE_METHOD {
+                    json!({"intentPaused":true})
+                } else {
+                    json!({"completed":true})
+                },
+            ),
+            Err(error) => error_response(
+                id,
+                owner.revision(),
+                developer_current_error_code(error),
+                false,
+                None,
+            ),
+        }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn dispatch_developer_current_abort(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
+        let input = match developer_current_restore::AbortRequest::parse(&request["params"]) {
+            Ok(input) => input,
+            Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        if input.instance() != self.instance_id {
+            return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
+        }
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(value) => value,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        };
+        if input.revision() != owner.revision() {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
+        }
+        match owner.developer_current_abort(&input) {
+            Ok(()) => success_response(id, owner.revision(), json!({"completed":true})),
+            Err(error) => error_response(
+                id,
+                owner.revision(),
+                developer_current_error_code(error),
+                false,
+                None,
+            ),
+        }
     }
 
     fn dispatch_admitted(
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        #[cfg(feature = "developer-conditional-close")]
+        if developer_connection_close::METHODS
+            .contains(&request["method"].as_str().unwrap_or_default())
+        {
+            return self.dispatch_developer_close(request);
+        }
+        if request["method"] == "subscriptions.usage" {
+            return self.dispatch_subscription_usage(request);
+        }
         // Remote plugin actions must bypass the general owner-held mutation
         // path. Canonical preflight and completion retain replay/ownership;
         // HTTP runs only in the existing bounded detached fetch path.
@@ -1700,6 +2417,84 @@ impl RuntimeServer {
         }
     }
 
+    fn dispatch_subscription_usage(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let deadline = std::time::Instant::now() + subscription_usage::DEADLINE;
+        // Reuse the canonical exact subscription-ID parser and ownership/store
+        // lease. This private URL-bearing response stays inside the dispatcher.
+        let mut private_read = request.clone();
+        private_read["method"] = json!("subscriptions.edit_input");
+        let (snapshot, transport, revision) = {
+            let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return dispatch_read_only(request, &self.instance_id);
+            };
+            let snapshot = owner.subscription_edit_input(&private_read)?;
+            if snapshot["ok"] != true {
+                return Ok(snapshot);
+            }
+            (snapshot, owner.usage_transport(), owner.revision())
+        };
+        let Some(url) = snapshot["result"]["url"].as_str() else {
+            return error_response(id, revision, StableErrorCode::InternalError, false, None);
+        };
+        let Some(_permit) = self.remote_fetches.try_acquire() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let fetched =
+            subscription_batch_work::BudgetedSubscriptionTransport::fetch_usage_with_budget(
+                &transport,
+                url,
+                deadline.saturating_duration_since(std::time::Instant::now()),
+            );
+        // Never hold the owner/store lease during HTTP; both ownership and exact
+        // selected URL are revalidated before any private claim reaches the UI.
+        let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        };
+        let current = owner.revision();
+        if current != revision {
+            return error_response(id, current, StableErrorCode::Conflict, true, None);
+        }
+        let latest = owner.subscription_edit_input(&private_read)?;
+        if latest["ok"] != true {
+            return Ok(latest);
+        }
+        if latest != snapshot {
+            return error_response(id, current, StableErrorCode::Conflict, true, None);
+        }
+        if std::time::Instant::now() >= deadline {
+            return error_response(
+                id,
+                current,
+                StableErrorCode::SubscriptionUnavailable,
+                true,
+                None,
+            );
+        }
+        match fetched
+            .map_err(|_| StableErrorCode::SubscriptionUnavailable)
+            .and_then(|value| subscription_usage::projection(value, &self.instance_id))
+        {
+            Ok(result) => success_response(id, current, result),
+            Err(code) => error_response(id, current, code, false, None),
+        }
+    }
+
     fn dispatch_remote_subscription(
         &self,
         request: &Value,
@@ -1967,6 +2762,21 @@ fn dispatch_native(
     let id = request["id"].as_str().unwrap_or("invalid");
     let method = request["method"].as_str().unwrap_or_default();
     let revision = owner.revision();
+    if method == "status.get" {
+        if !empty_params(request) {
+            return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
+        }
+        // Strict existing-state snapshot first: the ordinary ownership recheck
+        // can bootstrap a missing marker directory. A read-only status must
+        // refuse that invalid snapshot before any such preparation is reached.
+        let status = match owner.status() {
+            Ok(status) => status,
+            Err(_) => {
+                return error_response(id, revision, StableErrorCode::InternalError, false, None);
+            }
+        };
+        return success_response(id, revision, status);
+    }
     let runtime_ownership = owner.runtime_ownership();
     let result = match method {
         "system.hello" => {
@@ -1996,13 +2806,24 @@ fn dispatch_native(
                 "runtimeOwnership": runtime_ownership
             })
         }
-        "status.get" if empty_params(request) => match owner.status(runtime_ownership) {
-            Ok(status) => status,
-            Err(_) => {
-                return error_response(id, revision, StableErrorCode::InternalError, false, None);
-            }
-        },
         "capabilities.get" if empty_params(request) => {
+            #[cfg(feature = "developer-conditional-close")]
+            let development_methods = match owner.close_registration() {
+                lifecycle::CloseRegistration::Disabled => &[][..],
+                lifecycle::CloseRegistration::Developer | lifecycle::CloseRegistration::Product => {
+                    developer_connection_close::METHODS
+                }
+            };
+            #[cfg(not(feature = "developer-conditional-close"))]
+            let development_methods: &[&str] = &[];
+            #[cfg(feature = "t4-manager-actor-service")]
+            let pair_methods = if runtime_ownership && owner.normal_private_pair_available() {
+                private_pair_api::advertised_methods()
+            } else {
+                &[]
+            };
+            #[cfg(not(feature = "t4-manager-actor-service"))]
+            let pair_methods: &[&str] = &[];
             let methods: Vec<_> = READ_ONLY_METHODS
                 .iter()
                 .chain(
@@ -2023,14 +2844,30 @@ fn dispatch_native(
                         .into_iter()
                         .flatten(),
                 )
+                .chain(
+                    runtime_ownership
+                        .then_some(development_methods)
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(pair_methods)
                 .copied()
                 .filter(|method| *method != "startup.configure" || owner.startup_available())
                 .collect();
-            json!({
+            let result = json!({
                 "runtimeOwnership": runtime_ownership,
                 "mutations": runtime_ownership,
                 "methods": methods
-            })
+            });
+            #[cfg(feature = "product-image-witness")]
+            let result = {
+                let mut result = result;
+                if owner.close_registration() == lifecycle::CloseRegistration::Product {
+                    result["connectionCloseView"] = json!("inert-preview-v1");
+                }
+                result
+            };
+            result
         }
         "status.get" | "capabilities.get" => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
@@ -2061,11 +2898,25 @@ fn dispatch_native(
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "diagnostics.export" if runtime_ownership => return owner.support_report(request),
-        "ui.snapshot" | "runtime.observation" | "runtime.traffic" if runtime_ownership => {
+        "ui.snapshot"
+        | "runtime.observation"
+        | "runtime.traffic"
+        | "runtime.connections"
+        | "runtime.connection_overview"
+        | "runtime.connection_rows"
+        | "diagnostics.setup"
+            if runtime_ownership =>
+        {
             let mut response = if method == "ui.snapshot" {
                 owner.ui_snapshot(request)?
             } else if method == "runtime.traffic" {
                 owner.traffic(request)?
+            } else if method == "runtime.connections" {
+                owner.connections(request)?
+            } else if method == "runtime.connection_overview" {
+                owner.connection_overview(request)?
+            } else if method == "runtime.connection_rows" {
+                owner.connection_rows(request)?
             } else {
                 owner.runtime_observation(request)?
             };
@@ -2134,6 +2985,25 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
     call_with_timeout(paths, method, params, IO_TIMEOUT)
 }
 
+#[must_use]
+pub fn is_semantic_lifecycle_method(method: &str) -> bool {
+    matches!(
+        method,
+        "connection.connect" | "connection.disconnect" | "routing.set_mode"
+    )
+}
+
+fn semantic_lifecycle_timeout(method: &str) -> Option<Duration> {
+    is_semantic_lifecycle_method(method).then_some(Duration::from_secs(120))
+}
+
+/// Semantic CLI lifecycle commands can wait for the bounded host transition.
+/// A lost reply is still an unknown outcome, never permission to retry blindly.
+pub fn call_semantic_lifecycle(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> {
+    let timeout = semantic_lifecycle_timeout(method).ok_or(RuntimeError::Protocol)?;
+    call_with_timeout(paths, method, params, timeout)
+}
+
 /// Fixed frontend mutation client wait. Transport failure may occur after apply:
 /// callers must retain the same instance, revision and operation, never retry
 /// with a newly generated operation ID.
@@ -2190,6 +3060,7 @@ fn call_stream_with_timeout(
     params: Value,
     timeout: Duration,
 ) -> Result<Value> {
+    let response_end = std::time::Instant::now() + timeout;
     // Authenticate the connected peer, not just the path checked before
     // connect. In particular, no private editor/subscription input is written
     // before this check. Metadata checks alone cannot close replacement races.
@@ -2202,11 +3073,18 @@ fn call_stream_with_timeout(
         .set_read_timeout(Some(timeout))
         .map_err(|_| RuntimeError::Io)?;
     stream
-        .set_write_timeout(Some(IO_TIMEOUT))
+        .set_write_timeout(Some(timeout.min(IO_TIMEOUT)))
         .map_err(|_| RuntimeError::Io)?;
     let id = format!("cli-{}", std::process::id());
     let request = make_request(&id, method, params).map_err(|_| RuntimeError::Protocol)?;
     let frame = encode_request(&request).map_err(|_| RuntimeError::Protocol)?;
+    #[cfg(feature = "t4-manager-actor-service")]
+    let frame = zeroize::Zeroizing::new(frame);
+    #[cfg(feature = "t4-manager-actor-service")]
+    {
+        let mut request = request;
+        developer_current_restore::wipe_request(&mut request);
+    }
     write_unary_frame(&mut stream, &frame, FrameKind::Request).map_err(|_| RuntimeError::Io)?;
     stream
         .shutdown(std::net::Shutdown::Write)
@@ -2229,7 +3107,7 @@ fn call_stream_with_timeout(
     }
     let mut reader = DeadlineReader {
         stream: &mut stream,
-        end: std::time::Instant::now() + timeout,
+        end: response_end,
     };
     let response = read_unary_frame(&mut reader, FrameKind::Response)
         .and_then(|frame| decode_response(&frame))
@@ -2256,6 +3134,8 @@ mod tests {
     const SUBSCRIPTION_ID: &str = "10000000-0000-4000-8000-000000000001";
 
     struct FakeHost {
+        #[cfg(feature = "product-image-witness")]
+        close_registration: lifecycle::CloseRegistration,
         auxiliary: Option<Arc<auxiliary_core::AuxiliarySlot>>,
         probe_paths: Option<(PathBuf, PathBuf)>,
         observation: OwnedObservation,
@@ -2309,6 +3189,10 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        #[cfg(feature = "product-image-witness")]
+        fn close_registration(&self) -> lifecycle::CloseRegistration {
+            self.close_registration
+        }
         fn probe_paths(&self) -> Option<(PathBuf, PathBuf)> {
             self.probe_paths.clone()
         }
@@ -2340,6 +3224,38 @@ mod tests {
                 tx_bytes: 456,
                 sampled_at_ms: 1000,
             })
+        }
+        fn active_connection_count(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<u32, HostStepError> {
+            self.fresh_observation(desired)?;
+            Ok(3)
+        }
+        fn active_connection_overview(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<connection_overview::ConnectionOverview, HostStepError> {
+            self.fresh_observation(desired)?;
+            Ok(connection_overview::ConnectionOverview {
+                total: 3,
+                tcp: 2,
+                udp: 1,
+                other_network: 0,
+                direct: 1,
+                blocked: 0,
+                vpn: 2,
+                unclassified: 0,
+            })
+        }
+        fn active_connection_rows(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<connection_rows::ConnectionRows, HostStepError> {
+            self.fresh_observation(desired)?;
+            connection_rows::extract(&json!({"connections":[
+                {"id":"private-id","metadata":{"host":"example.invalid","destinationIP":"203.0.113.8","destinationPort":443,"network":"tcp","process":"/private/app"},"chains":["private-node","PROXY"]}
+            ]})).ok_or(HostStepError::Observation)
         }
         fn fresh_observation(
             &mut self,
@@ -2412,17 +3328,10 @@ mod tests {
     }
 
     fn temporary_base(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = env::temp_dir().join(format!(
-            "omavless-runtime-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        let mut builder = fs::DirBuilder::new();
-        builder.mode(0o700).create(&base).unwrap();
-        base
+        // The control socket is nested below this directory. Keep the fixture
+        // short even when TMPDIR lives in a user's home directory.
+        let short_label: String = label.chars().take(12).collect();
+        crate::test_temp::directory(&short_label).unwrap()
     }
 
     #[test]
@@ -2681,6 +3590,8 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            #[cfg(feature = "product-image-witness")]
+            close_registration: lifecycle::CloseRegistration::Disabled,
             auxiliary: None,
             probe_paths: None,
             lifecycle_effects: Arc::new(AtomicUsize::new(0)),
@@ -2735,6 +3646,925 @@ mod tests {
         owner_fixture(base, OwnershipPhase::Rust)
     }
 
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_promoted_candidate_backup_is_product_only_and_preserves_restore_refusal() {
+        let home = std::env::var_os("HOME").unwrap();
+        let base = crate::test_temp::directory_under(Path::new(&home), "first-backup").unwrap();
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let store_path = base.join("config/profiles.json");
+        let mut store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        store["routingPreset"] = "roscomvpn-default".into();
+        fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let template_path = base.join("config/route-template.yaml");
+        fs::write(
+            &template_path,
+            include_bytes!("../../../templates/default.yaml"),
+        )
+        .unwrap();
+        fs::set_permissions(&template_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_store = fs::read(&store_path).unwrap();
+        let before_template = fs::read(&template_path).unwrap();
+        let desired_path = base.join("state/omavless/desired.json");
+        let before_desired = fs::read(&desired_path).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let wire = |request: &Value| {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, &encode_request(request).unwrap()).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert!(worker.join().unwrap().is_ok());
+                reply
+            })
+        };
+        let caps = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let preparing = wire(&caps);
+        assert_eq!(preparing["result"]["runtimeOwnership"], false);
+        assert!(
+            !preparing["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let uid = fs::metadata(&base).unwrap().uid();
+        let lock = crate::cutover::MigrationLock::acquire(&cutover, uid).unwrap();
+        let busy = wire(&caps);
+        assert_eq!(busy["result"]["runtimeOwnership"], false);
+        assert!(
+            !busy["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        drop(lock);
+        let before_calls = calls.load(Ordering::Relaxed);
+        let promoted = wire(&caps);
+        assert_eq!(promoted["result"]["runtimeOwnership"], true);
+        let methods = promoted["result"]["methods"].as_array().unwrap();
+        assert_eq!(
+            methods.iter().any(|m| m == "backup.create"),
+            product_scope::backup_only()
+        );
+        assert!(!methods.iter().any(|m| matches!(
+            m.as_str(),
+            Some("backup.restore" | "backup.preview" | "backup.restore_previewed")
+        )));
+        assert_eq!(wire(&caps), promoted);
+        let hello = wire(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap());
+        assert_eq!(hello["result"]["instanceId"], server.instance_id);
+        assert_eq!(hello["revision"], 0);
+        let destination = base.join("private.ovb");
+        let create = make_request(
+            "create",
+            "backup.create",
+            json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "confirmation":"export-current-private-pair","instanceId":server.instance_id,
+                "operationId":"first-backup","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        let exported = wire(&create);
+        if product_scope::backup_only() {
+            assert_eq!(exported["ok"], true);
+            assert_eq!(
+                exported["result"],
+                json!({"completed":true,"replayed":false,"scope":"privatePair"})
+            );
+            assert_eq!(
+                crate::backup_destination_candidate::preview_existing(
+                    &destination,
+                    uid,
+                    b"synthetic private passphrase"
+                ),
+                Ok(crate::backup_destination_candidate::BackupPreview {
+                    profiles: 1,
+                    subscriptions: 1
+                })
+            );
+            let ciphertext = fs::read(&destination).unwrap();
+            assert!(
+                !ciphertext
+                    .windows(before_store.len())
+                    .any(|part| part == before_store)
+            );
+        } else {
+            assert_eq!(exported["error"]["code"], "capability_unavailable");
+            assert!(!destination.exists());
+        }
+        let mut restore = create.clone();
+        restore["method"] = "backup.restore".into();
+        restore["params"]["confirmation"] = "replace-current-private-pair".into();
+        restore["params"]["operationId"] = "restore-refused".into();
+        let refused = wire(&restore);
+        assert_eq!(refused["error"]["code"], "capability_unavailable");
+        if product_scope::backup_only() {
+            for method in [
+                "backup.preview",
+                "backup.restore_previewed",
+                "developer.restore_current",
+                "developer.backup_current",
+                "developer.pause_current_intent",
+                "developer.abort_current_intent",
+            ] {
+                let reply = wire(&make_request("disabled", method, json!({})).unwrap());
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+            }
+            let pending = cutover
+                .state_directory
+                .join(crate::restore_staging_candidate::PENDING_DIRECTORY);
+            fs::create_dir(&pending).unwrap();
+            let sentinel = pending.join("sentinel");
+            fs::write(&sentinel, b"preserved pending evidence").unwrap();
+            let blocked_destination = base.join("blocked.ovb");
+            let mut blocked = create.clone();
+            blocked["params"]["archive"] = serde_json::to_value(&blocked_destination).unwrap();
+            blocked["params"]["operationId"] = "pending-backup".into();
+            assert_eq!(wire(&blocked)["error"]["code"], "manual_recovery_required");
+            assert!(!blocked_destination.exists());
+            assert_eq!(fs::read(sentinel).unwrap(), b"preserved pending evidence");
+        }
+        let public = serde_json::to_string(&(promoted, hello, exported, refused)).unwrap();
+        for private in [
+            "synthetic private passphrase",
+            "vless://",
+            "private.example",
+            "subscription-token",
+            destination.to_str().unwrap(),
+        ] {
+            assert!(!public.contains(private));
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(store_path).unwrap(), before_store);
+        assert_eq!(fs::read(template_path).unwrap(), before_template);
+        assert_eq!(fs::read(desired_path).unwrap(), before_desired);
+        assert_eq!(
+            wire(&make_request("status", "status.get", json!({})).unwrap())["revision"],
+            0
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn normal_pair_promoted_candidate_rollback_revokes_capabilities_and_export() {
+        let base = temporary_base("backup-rollback");
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let before_store = fs::read(base.join("config/profiles.json")).unwrap();
+        let before_desired = fs::read(base.join("state/omavless/desired.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let caps = make_request("caps", "capabilities.get", json!({})).unwrap();
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let promoted = server.dispatch(&caps).unwrap();
+        assert!(
+            promoted["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 3);
+        let revoked = server.dispatch(&caps).unwrap();
+        assert_eq!(revoked["result"]["runtimeOwnership"], false);
+        assert!(
+            !revoked["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        let destination = base.join("refused.ovb");
+        let request = make_request(
+            "create",
+            "backup.create",
+            json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "confirmation":"export-current-private-pair","instanceId":server.instance_id,
+                "operationId":"rollback-backup","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            before_store
+        );
+        assert_eq!(
+            fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            before_desired
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn product_scope_real_wire_refuses_all_restore_and_special_pause_without_effects() {
+        let base = temporary_base("backup-only");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let store_path = base.join("config/profiles.json");
+        let desired_path = base.join("state/omavless/desired.json");
+        let before_store = fs::read(&store_path).unwrap();
+        let before_desired = fs::read(&desired_path).unwrap();
+        // Recognized pending directory: detection must remain true. The
+        // sentinel is data, not a fabricated completed/recoverable transaction.
+        let pending_dir = cutover
+            .state_directory
+            .join(crate::restore_staging_candidate::PENDING_DIRECTORY);
+        fs::create_dir(&pending_dir).unwrap();
+        let pending = pending_dir.join("sentinel");
+        fs::write(&pending, b"unchanged pending evidence").unwrap();
+        assert!(crate::restore_staging_candidate::staging_pending_at(
+            &cutover.state_directory
+        ));
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        for method in [
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+            "developer.restore_current",
+            "developer.backup_current",
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+        ] {
+            let request = make_request("product-refusal", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                client
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                std::io::Write::write_all(&mut client, &encode_request(&request).unwrap()).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+                assert_eq!(reply["revision"], 0);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(store_path).unwrap(), before_store);
+        assert_eq!(fs::read(desired_path).unwrap(), before_desired);
+        assert_eq!(fs::read(pending).unwrap(), b"unchanged pending evidence");
+        assert!(crate::restore_staging_candidate::staging_pending_at(
+            &cutover.state_directory
+        ));
+        assert_eq!(private_pair_api::advertised_methods(), &["backup.create"]);
+        assert_eq!(
+            server
+                .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+                .unwrap()["revision"],
+            0
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_real_handler_refuses_false_factory_foreign_busy_and_invalid_frames() {
+        let base = temporary_base("normal-pair-rpc");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let before_store = fs::read(base.join("config/profiles.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        for method in ["backup.preview", "backup.restore_previewed"] {
+            let mut params = json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password","instanceId":server.instance_id,"expectedRevision":0});
+            if method == "backup.restore_previewed" {
+                params["operationId"] = "previewed-1".into();
+                params["confirmation"] = "replace-previewed-current-private-pair".into();
+                params["expectedCiphertextDigest"] = "a".repeat(64).into();
+            }
+            let original = make_request("new-private", method, params).unwrap();
+            assert_eq!(
+                server.dispatch(&original).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+            let mut foreign = original.clone();
+            foreign["params"]["instanceId"] = "foreign".into();
+            assert_eq!(
+                server.dispatch(&foreign).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            let held = server.dispatcher.lock().unwrap();
+            assert_eq!(server.dispatch(&original).unwrap()["error"]["code"], "busy");
+            drop(held);
+            let frame = encode_request(&original).unwrap();
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, &frame).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        let request=make_request("pair","backup.create",json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password","confirmation":"export-current-private-pair","instanceId":server.instance_id,"operationId":"pair-1","expectedRevision":0})).unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        let mut foreign = request.clone();
+        foreign["params"]["instanceId"] = "foreign".into();
+        assert_eq!(
+            server.dispatch(&foreign).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        let guard = server.dispatcher.lock().unwrap();
+        assert_eq!(server.dispatch(&request).unwrap()["error"]["code"], "busy");
+        drop(guard);
+        let capabilities = server
+            .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+            .unwrap();
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|method| !matches!(method.as_str(), Some("backup.create" | "backup.restore")))
+        );
+        let frame = encode_request(&request).unwrap();
+        let duplicate = String::from_utf8(frame.clone())
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        let mut oversized = frame[..frame.len() - 1].to_vec();
+        oversized.resize(developer_current_restore::MAX_INPUT, b' ');
+        oversized.push(b'\n');
+        assert!(decode_request(&oversized).is_ok());
+        for (raw, error) in [
+            (frame.as_slice(), "capability_unavailable"),
+            (duplicate.as_bytes(), "invalid_request"),
+            (oversized.as_slice(), "invalid_argument"),
+        ] {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, raw).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let result =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(result["error"]["code"], error);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        let mut private = request.clone();
+        developer_current_restore::wipe_request(&mut private);
+        assert!(private["params"].get("passphrase").is_none());
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            before_store
+        );
+        assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn developer_current_typed_preflight_is_the_only_no_effect_error() {
+        use production_owner::ProductionOwnerError;
+        assert_eq!(
+            developer_current_error_code(ProductionOwnerError::OwnershipUnavailable),
+            StableErrorCode::CapabilityUnavailable
+        );
+        for error in [
+            ProductionOwnerError::Busy,
+            ProductionOwnerError::HostUnavailable,
+            ProductionOwnerError::RecoveryFailed,
+            ProductionOwnerError::ManualRecoveryRequired,
+        ] {
+            assert_eq!(
+                developer_current_error_code(error),
+                StableErrorCode::ManualRecoveryRequired
+            );
+        }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn developer_current_restore_rpc_false_factory_stale_busy_and_frame_controls_have_no_effect() {
+        let base = temporary_base("current-restore-rpc");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before = calls.load(Ordering::Relaxed);
+        let request = make_request(
+            "current",
+            developer_current_restore::METHOD,
+            json!({
+                "schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password",
+                "confirmation":"replace-current-private-pair","instanceId":server.instance_id,
+                "expectedRevision":0,
+            }),
+        )
+        .unwrap();
+        assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::METHOD));
+        let response = server.dispatch(&request).unwrap();
+        assert_eq!(response["ok"], false); // initialize is NEVER a current issuer
+        assert_eq!(response["error"]["code"], "capability_unavailable");
+        let mut backup = request.clone();
+        backup["method"] = developer_current_restore::BACKUP_METHOD.into();
+        assert_eq!(
+            server.dispatch(&backup).unwrap()["error"]["code"],
+            "invalid_argument"
+        );
+        backup["params"]["confirmation"] = "export-current-private-pair".into();
+        assert_eq!(
+            server.dispatch(&backup).unwrap()["error"]["code"],
+            "capability_unavailable"
+        ); // same current issuer requirement
+        assert!(!NATIVE_MUTATION_METHODS.contains(&developer_current_restore::BACKUP_METHOD));
+        let mut pause = request.clone();
+        pause["method"] = developer_current_restore::PAUSE_METHOD.into();
+        pause["params"]["confirmation"] = "pause-current-private-intent".into();
+        assert_eq!(
+            server.dispatch(&pause).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        let abort = make_request(
+            "abort",
+            developer_current_restore::ABORT_METHOD,
+            json!({"schema":1,"confirmation":"abort-current-private-intent",
+                "instanceId":server.instance_id,"expectedRevision":0}),
+        )
+        .unwrap();
+        assert_eq!(
+            server.dispatch(&abort).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        for original in [&pause, &abort] {
+            let mut changed = original.clone();
+            changed["params"]["instanceId"] = "foreign".into();
+            assert_eq!(
+                server.dispatch(&changed).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            changed = original.clone();
+            changed["params"]["expectedRevision"] = 1.into();
+            assert_eq!(
+                server.dispatch(&changed).unwrap()["error"]["code"],
+                "conflict"
+            );
+            let guard = server.dispatcher.lock().unwrap();
+            assert_eq!(server.dispatch(original).unwrap()["error"]["code"], "busy");
+            drop(guard);
+        }
+        let mut changed = request.clone();
+        changed["params"]["instanceId"] = "other".into();
+        assert_eq!(
+            server.dispatch(&changed).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        changed = request.clone();
+        changed["params"]["expectedRevision"] = 1.into();
+        assert_eq!(
+            server.dispatch(&changed).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let guard = server.dispatcher.lock().unwrap();
+        assert_eq!(server.dispatch(&request).unwrap()["error"]["code"], "busy");
+        drop(guard);
+        let capabilities = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let methods = server.dispatch(&capabilities).unwrap()["result"]["methods"].clone();
+        assert!(
+            !methods
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == developer_current_restore::METHOD)
+        );
+        // The unchanged shared decoder rejects duplicate fields recursively.
+        let frame = encode_request(&request).unwrap();
+        let mut oversized = frame[..frame.len() - 1].to_vec();
+        oversized.resize(developer_current_restore::MAX_INPUT, b' ');
+        oversized.push(b'\n');
+        assert!(decode_request(&oversized).is_ok()); // within ordinary 64KiB
+        let duplicate = String::from_utf8(frame)
+            .unwrap()
+            .replace("\"schema\":1", "\"schema\":1,\"schema\":1");
+        assert!(decode_request(duplicate.as_bytes()).is_err());
+        // Reach the actual credential/frame/handle path, not just the parser.
+        let pause_frame = encode_request(&pause).unwrap();
+        for (raw, expected) in [
+            (duplicate.as_bytes(), "invalid_request"),
+            (oversized.as_slice(), "invalid_argument"),
+            (pause_frame.as_slice(), "capability_unavailable"),
+        ] {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming); // only this terminal local stream
+                    result
+                });
+                // Deliberately bypass the standard writer's already strict
+                // duplicate-key decoder to exercise server-side refusal.
+                std::io::Write::write_all(&mut client, raw).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let response =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(response["error"]["code"], expected);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
+        assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(not(feature = "t4-manager-actor-service"))]
+    #[test]
+    fn developer_current_restore_is_absent_in_default_dispatch() {
+        let base = temporary_base("no-current-restore");
+        let server = RuntimeServer::bind(RuntimePaths::below(&base)).unwrap();
+        let request = make_request("absent", "developer.restore_current", json!({})).unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "unknown_method"
+        );
+        assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.restore_current"));
+        let backup = make_request("absent", "developer.backup_current", json!({})).unwrap();
+        assert_eq!(
+            server.dispatch(&backup).unwrap()["error"]["code"],
+            "unknown_method"
+        );
+        assert!(!NATIVE_MUTATION_METHODS.contains(&"developer.backup_current"));
+        for method in [
+            "backup.create",
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+        ] {
+            let request = make_request("absent", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "unknown_method"
+            );
+            assert!(!NATIVE_MUTATION_METHODS.contains(&method));
+        }
+        for method in [
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+        ] {
+            let request = make_request("absent", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "unknown_method"
+            );
+            assert!(!NATIVE_MUTATION_METHODS.contains(&method));
+        }
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "developer-conditional-close")]
+    #[test]
+    fn developer_close_socket_is_semantic_and_unsupported_hosts_refuse() {
+        let base = temporary_base("dev-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        #[allow(unused_mut)] // explicit selection is absent without product feature
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        #[cfg(feature = "product-image-witness")]
+        {
+            owner.batch_coordinator().host_mut().close_registration =
+                lifecycle::CloseRegistration::Developer;
+        }
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let instance = server.instance_id.clone();
+        let count_before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        let methods = caps["result"]["methods"].as_array().unwrap();
+        for method in developer_connection_close::METHODS {
+            assert!(methods.iter().any(|value| value == method));
+        }
+        for (method, params, expected) in [
+            (
+                "development.connections.snapshot",
+                json!({"instanceId":instance}),
+                "capability_unavailable",
+            ),
+            (
+                "development.connections.snapshot",
+                json!({"instanceId":"stale-instance"}),
+                "conflict",
+            ),
+            (
+                "development.connections.prepare",
+                json!({"instanceId":instance,"handle":"1".repeat(64)}),
+                "capability_unavailable",
+            ),
+            (
+                "development.connections.confirm",
+                json!({"instanceId":instance,"operationId":"once","expectedRevision":0,"handle":"1".repeat(64),"ticket":"2".repeat(64)}),
+                "capability_unavailable",
+            ),
+            (
+                "development.connections.receipt",
+                json!({"instanceId":instance,"operationId":"missing"}),
+                "not_found",
+            ),
+            (
+                "development.connections.snapshot",
+                json!({"instanceId":instance,"controllerPath":"/not-allowed"}),
+                "invalid_argument",
+            ),
+        ] {
+            let response = call(&paths, method, params).unwrap();
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error"]["code"], expected);
+        }
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status["ok"], true);
+        assert_eq!(status["revision"], 0);
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), count_before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_preview_view_hint_comes_from_actual_registered_server_serialization() {
+        let base = temporary_base("product-view-wire");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().close_registration =
+            lifecycle::CloseRegistration::Product;
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+        let wire = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(wire["ok"], true);
+        assert_eq!(wire["result"]["connectionCloseView"], "inert-preview-v1");
+        for method in developer_connection_close::METHODS {
+            assert!(
+                wire["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v == method)
+            );
+        }
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn product_compiled_ordinary_socket_does_not_advertise_or_route_close() {
+        let base = temporary_base("ordinary-no-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let instance = server.instance_id.clone();
+        let before = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        for method in developer_connection_close::METHODS {
+            assert!(
+                !caps["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|value| value == method)
+            );
+            let reply = call(&paths, method, json!({"instanceId": instance})).unwrap();
+            assert_eq!(reply["error"]["code"], "unknown_method");
+        }
+        worker.join().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(not(feature = "developer-conditional-close"))]
+    #[test]
+    fn default_build_has_no_developer_close_socket_method_or_capability() {
+        let base = temporary_base("no-dev-close");
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(!caps.to_string().contains("development.connections."));
+        let response = call(&paths, "development.connections.snapshot", json!({})).unwrap();
+        assert_eq!(response["error"]["code"], "unknown_method");
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(all(
+        feature = "product-image-witness",
+        feature = "t4-manager-actor-service"
+    ))]
+    #[test]
+    fn beta098_combined_features_do_not_create_restore_or_close_authority() {
+        let base = temporary_base("beta098-authority");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let before = calls.load(Ordering::Relaxed);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let capabilities = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let reply = server.dispatch(&capabilities).unwrap();
+        assert_eq!(reply["ok"], true);
+        assert_eq!(reply["revision"], 0);
+        let methods = reply["result"]["methods"].as_array().unwrap();
+        for method in developer_connection_close::METHODS.iter().copied().chain([
+            developer_current_restore::METHOD,
+            developer_current_restore::BACKUP_METHOD,
+            "backup.create",
+            "backup.restore",
+        ]) {
+            assert!(!methods.iter().any(|value| value == method));
+        }
+        let restore = make_request(
+            "restore",
+            developer_current_restore::METHOD,
+            json!({
+                "schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password",
+                "confirmation":"replace-current-private-pair","instanceId":server.instance_id,
+                "expectedRevision":0,
+            }),
+        )
+        .unwrap();
+        let refused_restore = server.dispatch(&restore).unwrap();
+        assert_eq!(refused_restore["error"]["code"], "capability_unavailable");
+        assert_eq!(refused_restore["revision"], 0);
+        for (method, confirmation) in [
+            ("backup.create", "export-current-private-pair"),
+            ("backup.restore", "replace-current-private-pair"),
+        ] {
+            let request = make_request(
+                "pair", method,
+                json!({"schema":1,"archive":"/public/nonexistent.ovb","passphrase":"synthetic password",
+                    "confirmation":confirmation,"instanceId":server.instance_id,
+                    "operationId":"pair-no-authority","expectedRevision":0}),
+            ).unwrap();
+            let refused = server.dispatch(&request).unwrap();
+            assert_eq!(refused["error"]["code"], "capability_unavailable");
+            assert_eq!(refused["revision"], 0);
+        }
+        for method in developer_connection_close::METHODS {
+            let request =
+                make_request("close", method, json!({"instanceId":server.instance_id})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "unknown_method"
+            );
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
+        assert!(!base.join("state/omavless/restore-pair.pending").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(all(
+        feature = "product-image-witness",
+        feature = "t4-manager-actor-service"
+    ))]
+    #[test]
+    fn beta098_unknown_pair_blocks_close_and_quit_without_host_effects() {
+        let base = temporary_base("beta098-pair-block");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let before = calls.load(Ordering::Relaxed);
+        assert!(owner.rust_ownership_available());
+        owner.batch_coordinator().host_mut().close_registration =
+            lifecycle::CloseRegistration::Product;
+        owner.batch_coordinator().record_unknown_pair_for_test();
+        assert!(!owner.rust_ownership_available());
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let close = make_request(
+            "close",
+            "development.connections.snapshot",
+            json!({"instanceId":server.instance_id}),
+        )
+        .unwrap();
+        let refused_close = server.dispatch(&close).unwrap();
+        assert_eq!(refused_close["ok"], false);
+        assert_eq!(refused_close["error"]["code"], "manual_recovery_required");
+        assert!(refused_close.get("result").is_none());
+        let quit = make_request("quit", "runtime.quit", json!({"instanceId":server.instance_id,"expectedRevision":0,"operationId":"quit-after-unknown"})).unwrap();
+        let refused_quit = server.dispatch(&quit).unwrap();
+        assert_eq!(refused_quit["ok"], false);
+        assert_eq!(refused_quit["error"]["code"], "capability_unavailable");
+        assert!(refused_quit.get("result").is_none());
+        assert!(!server.quit_requested.load(Ordering::Acquire));
+        assert!(!*server.quit_gate.read().unwrap());
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn socket_and_owner_are_private_and_singleton() {
         let base = temporary_base("owner");
@@ -2752,6 +4582,229 @@ mod tests {
             RuntimeServer::bind(paths.clone()),
             Err(RuntimeError::AlreadyRunning)
         ));
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    struct UsageTestTransport {
+        started: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl subscription_transport::SubscriptionTransport for UsageTestTransport {
+        fn fetch(
+            &self,
+            _: &str,
+        ) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            Err(subscription_transport::SubscriptionTransportError::Unavailable)
+        }
+    }
+    impl subscription_batch_work::BudgetedSubscriptionTransport for UsageTestTransport {
+        fn fetch_with_budget(
+            &self,
+            url: &str,
+            _: Duration,
+        ) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            subscription_transport::SubscriptionTransport::fetch(self, url)
+        }
+        fn fetch_usage_with_budget(
+            &self,
+            _: &str,
+            budget: Duration,
+        ) -> std::result::Result<
+            subscription_transport::FetchedSubscription,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            assert!(budget <= subscription_usage::DEADLINE);
+            self.started.send(()).unwrap();
+            self.release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap();
+            Ok(subscription_transport::FetchedSubscription {
+                body: omavless_domain::subscription_feed::PrivateSubscriptionBody::from_bytes(b"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example".to_vec()).unwrap(),
+                usage: Some(omavless_domain::subscription_metadata::SubscriptionUsage {
+                    upload_bytes: 1234567, download_bytes: 2345678, total_bytes: u64::MAX, expiry_unix_seconds: Some(1893456000),
+                }),
+            })
+        }
+    }
+
+    #[test]
+    fn private_usage_socket_read_does_not_mutate_or_leak_into_ordinary_reads() {
+        let base = temporary_base("usage-read");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let baseline = fs::read(base.join("config/profiles.json")).unwrap();
+        let (start, started) = std::sync::mpsc::sync_channel(1);
+        let (release, wait) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            UsageTestTransport {
+                started: start,
+                release: Mutex::new(wait),
+            },
+        );
+        let host_baseline = calls.load(Ordering::Relaxed);
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let usage_paths = paths.clone();
+        let usage = thread::spawn(move || {
+            call(
+                &usage_paths,
+                "subscriptions.usage",
+                json!({"subscriptionId":SUBSCRIPTION_ID}),
+            )
+            .unwrap()
+        });
+        started.recv_timeout(Duration::from_secs(2)).unwrap();
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            caps["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("subscriptions.usage"))
+        );
+        for ordinary in [status, subscriptions, caps] {
+            assert!(!ordinary.to_string().contains("1234567"));
+            assert!(!ordinary.to_string().contains("expiryUnixSeconds"));
+        }
+        release.send(()).unwrap();
+        let result = usage.join().unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["revision"], 0);
+        assert_eq!(result["result"]["usage"]["uploadBytes"], "1234567");
+        for private in [
+            "private.example",
+            "subscription-token",
+            "vless://",
+            "Example source",
+            SUBSCRIPTION_ID,
+        ] {
+            assert!(!result.to_string().contains(private));
+        }
+        for params in [
+            json!({}),
+            json!({"subscriptionId":SUBSCRIPTION_ID,"url":"https://private.example/secret"}),
+            json!({"subscriptionId":"invalid-private"}),
+        ] {
+            let result = call(&paths, "subscriptions.usage", params).unwrap();
+            assert_eq!(result["ok"], false);
+            assert!(!result.to_string().contains("private.example"));
+        }
+        worker.join().unwrap();
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            baseline
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), host_baseline);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn private_usage_revalidates_revision_ownership_and_url_after_detached_fetch() {
+        for change in ["revision", "ownership", "url"] {
+            let base = temporary_base("usage-fence");
+            let (owner, cutover, _) = native_owner_fixture(&base);
+            let (start, started) = std::sync::mpsc::sync_channel(1);
+            let (release, wait) = std::sync::mpsc::sync_channel(1);
+            let mut server =
+                RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+            server.register_native_owner(
+                owner,
+                UsageTestTransport {
+                    started: start,
+                    release: Mutex::new(wait),
+                },
+            );
+            let request = make_request(
+                "usage",
+                "subscriptions.usage",
+                json!({"subscriptionId":SUBSCRIPTION_ID}),
+            )
+            .unwrap();
+            thread::scope(|scope| {
+                let pending = scope.spawn(|| server.dispatch(&request).unwrap());
+                started.recv_timeout(Duration::from_secs(2)).unwrap();
+                assert_eq!(
+                    server
+                        .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+                        .unwrap()["ok"],
+                    true
+                );
+                match change {
+                    "revision" => {
+                        assert_eq!(
+                            server
+                                .dispatch(
+                                    &make_request(
+                                        "favorite",
+                                        "profiles.favorite",
+                                        json!({"profileId":PROFILE_ID,"enabled":true})
+                                    )
+                                    .unwrap()
+                                )
+                                .unwrap()["ok"],
+                            true
+                        );
+                    }
+                    "ownership" => write_marker(&cutover, OwnershipPhase::Legacy, 2),
+                    _ => {
+                        let path = base.join("config/profiles.json");
+                        let mut store: Value =
+                            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                        store["subscriptions"][0]["url"] = json!("https://private.example/changed");
+                        fs::write(path, serde_json::to_vec(&store).unwrap()).unwrap();
+                    }
+                }
+                release.send(()).unwrap();
+                let result = pending.join().unwrap();
+                assert_eq!(result["ok"], false);
+                assert!(!result.to_string().contains("1234567"));
+            });
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn private_usage_shares_remote_capacity_and_refuses_before_fetch() {
+        let base = temporary_base("usage-capacity");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let (start, started) = std::sync::mpsc::sync_channel(1);
+        let (_, wait) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            UsageTestTransport {
+                started: start,
+                release: Mutex::new(wait),
+            },
+        );
+        let permits: Vec<_> = (0..remote_fetch::MAX_CONCURRENT_REMOTE_FETCHES)
+            .map(|_| server.remote_fetches.try_acquire().unwrap())
+            .collect();
+        let result = server
+            .dispatch(
+                &make_request(
+                    "usage",
+                    "subscriptions.usage",
+                    json!({"subscriptionId":SUBSCRIPTION_ID}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(result["error"]["code"], "busy");
+        assert!(started.try_recv().is_err());
+        drop(permits);
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }
@@ -2854,6 +4907,36 @@ mod tests {
                 .unwrap()["ok"],
             true
         );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn relaunch_readiness_uses_real_native_dispatch_schema_not_invented_status_identity() {
+        let base = temporary_base("relaunch-real-schema");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let server = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        let hello = || {
+            server
+                .dispatch(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap())
+                .unwrap()
+        };
+        let before = hello();
+        let status = server
+            .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+            .unwrap();
+        let after = hello();
+        assert!(status["result"]["instanceId"].is_null());
+        let pid = i32::try_from(std::process::id()).unwrap();
+        assert!(crate::runtime_relaunch::ready_triplet(
+            &(before, pid),
+            &(status, pid),
+            &(after, pid)
+        ));
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }
@@ -3285,6 +5368,32 @@ mod tests {
     }
 
     #[test]
+    fn semantic_lifecycle_wait_is_bounded_and_method_specific() {
+        for method in [
+            "connection.connect",
+            "connection.disconnect",
+            "routing.set_mode",
+        ] {
+            assert!(is_semantic_lifecycle_method(method));
+            assert_eq!(
+                semantic_lifecycle_timeout(method),
+                Some(Duration::from_secs(120))
+            );
+        }
+        for method in ["status.get", "profiles.import", "plugin.action", "unknown"] {
+            assert!(!is_semantic_lifecycle_method(method));
+            assert_eq!(semantic_lifecycle_timeout(method), None);
+        }
+        let root = temporary_base("semantic-lifecycle-missing");
+        let missing = RuntimePaths::below(&root);
+        assert_eq!(
+            call_semantic_lifecycle(&missing, "status.get", json!({})),
+            Err(RuntimeError::Protocol)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn plugin_action_response_deadline_is_bounded_without_retransmission() {
         use std::io::Read;
         let (client, mut server) = UnixStream::pair().unwrap();
@@ -3447,6 +5556,49 @@ mod tests {
     }
 
     #[test]
+    fn setup_diagnostics_socket_is_private_read_only_and_owner_gated() {
+        let base = temporary_base("setup-diagnostics");
+        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let baseline = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(3)).unwrap());
+        let response = call(&paths, "diagnostics.setup", json!({})).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["revision"], 0);
+        assert_eq!(
+            response["result"]["scope"],
+            "latest_owned_core_setup_log_hints"
+        );
+        assert_eq!(response["result"]["availability"], "unavailable");
+        assert!(response["result"]["counts"].is_null());
+        assert!(response["result"]["instanceId"].is_string());
+        assert!(encode_response(&response).unwrap().len() < 2048);
+        let invalid = call(
+            &paths,
+            "diagnostics.setup",
+            json!({"repair":"private-secret"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-secret"));
+        // Revoke the exact native ownership before the next read.
+        let marker = base.join("state/omavless/ownership.json");
+        // Use the fixture's canonical marker path, not an unrelated missing file.
+        assert!(marker.exists());
+        fs::remove_file(marker).unwrap();
+        let revoked = call(&paths, "diagnostics.setup", json!({})).unwrap();
+        assert_eq!(revoked["error"]["code"], "capability_unavailable");
+        worker.join().unwrap();
+        assert_eq!(fs::read(store).unwrap(), before);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn runtime_observation_socket_is_bounded_private_read_independent_of_store() {
         let base = temporary_base("runtime-observation");
         let (mut owner, _cutover, calls) = native_owner_fixture(&base);
@@ -3582,6 +5734,111 @@ mod tests {
     }
 
     #[test]
+    fn connections_socket_fences_revision_disconnect_ownership_and_private_output() {
+        let base = temporary_base("connections-socket");
+        let (mut owner, cutover, _calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(15)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let empty = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(empty["result"]["availability"], "unavailable");
+        assert!(empty["result"]["count"].is_null());
+        let empty_overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
+        assert_eq!(empty_overview["result"]["availability"], "unavailable");
+        assert!(empty_overview["result"]["total"].is_null());
+        let empty_rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(empty_rows["result"]["availability"], "unavailable");
+        let connect=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
+        assert_eq!(connect["ok"], true);
+        let sample = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(sample["ok"], true);
+        assert_eq!(sample["revision"], connect["revision"]);
+        assert_eq!(
+            sample["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(sample["result"]["count"], 3);
+        let overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
+        assert_eq!(overview["ok"], true);
+        assert_eq!(overview["revision"], connect["revision"]);
+        assert_eq!(
+            overview["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(
+            overview["result"]["network"],
+            json!({"tcp":2,"udp":1,"other":0})
+        );
+        assert_eq!(
+            overview["result"]["outcome"],
+            json!({"direct":1,"blocked":0,"vpn":2,"unclassified":0})
+        );
+        let rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(rows["ok"], true);
+        assert_eq!(rows["revision"], connect["revision"]);
+        assert_eq!(rows["result"]["instanceId"], hello["result"]["instanceId"]);
+        assert_eq!(rows["result"]["rows"][0]["host"], "example.invalid");
+        for private in ["private-id", "private-node", "/private/app"] {
+            assert!(!rows.to_string().contains(private));
+        }
+        assert!(encode_response(&sample).unwrap().len() < 512);
+        for secret in [
+            PROFILE_ID,
+            "Example",
+            "192.0.2.1",
+            "subscription-token",
+            "vless://",
+            "controllerSocket",
+        ] {
+            assert!(!sample.to_string().contains(secret));
+            assert!(!overview.to_string().contains(secret));
+        }
+        let invalid = call(
+            &paths,
+            "runtime.connections",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        let invalid_overview = call(
+            &paths,
+            "runtime.connection_overview",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid_overview["error"]["code"], "invalid_argument");
+        assert!(!invalid_overview.to_string().contains("private-token"));
+        let invalid_rows = call(
+            &paths,
+            "runtime.connection_rows",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid_rows["error"]["code"], "invalid_argument");
+        assert!(!invalid_rows.to_string().contains("private-token"));
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"count-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        assert_eq!(down["ok"], true);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let stale = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(stale["error"]["code"], "capability_unavailable");
+        let stale_overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
+        assert_eq!(stale_overview["error"]["code"], "capability_unavailable");
+        let stale_rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(stale_rows["error"]["code"], "capability_unavailable");
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn ping_dispatch_fences_inputs_and_cannot_run_disconnected() {
         let base = temporary_base("ping-admission");
         let (owner, _, _) = native_owner_fixture(&base);
@@ -3685,6 +5942,62 @@ mod tests {
             let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"traffic-connect","expectedRevision":0})).unwrap();
             assert_eq!(connected["ok"], true);
             let sample = call(&paths, "runtime.traffic", json!({})).unwrap();
+            assert_eq!(sample["error"]["code"], "capability_unavailable");
+            assert!(sample.get("result").is_none());
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn connection_count_host_failure_is_unavailable_not_zero() {
+        let base = temporary_base("connections-host-failure");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Err(HostStepError::Observation);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+        let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
+        assert_eq!(connected["ok"], true);
+        let sample = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(sample["ok"], true);
+        assert_eq!(sample["result"]["availability"], "unavailable");
+        assert!(sample["result"]["count"].is_null());
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn connection_count_discards_desired_or_owner_change_during_read() {
+        for desired_changes in [true, false] {
+            let base = temporary_base("connections-read-race");
+            let (mut owner, cutover, _) = native_owner_fixture(&base);
+            let desired = base.join("state/omavless/desired.json");
+            let host = owner.batch_coordinator().host_mut();
+            host.fresh_result = Ok(fresh_empty_facts());
+            host.on_fresh = Some(Box::new(move || {
+                if desired_changes {
+                    fs::write(
+                        &desired,
+                        serde_json::to_vec(&DesiredState {
+                            generation: 99,
+                            ..DesiredState::default()
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                } else {
+                    write_marker(&cutover, OwnershipPhase::Rust, 2);
+                }
+            }));
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+            let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
+            assert_eq!(connected["ok"], true);
+            let sample = call(&paths, "runtime.connections", json!({})).unwrap();
             assert_eq!(sample["error"]["code"], "capability_unavailable");
             assert!(sample.get("result").is_none());
             worker.join().unwrap();
@@ -4036,6 +6349,127 @@ mod tests {
                 .unwrap(),
             )
             .unwrap()
+    }
+
+    #[test]
+    fn profile_probe_scheduler_single_all_and_cross_method_results_are_fenced() {
+        for selected in [false, true] {
+            let base = temporary_base("profile-probe-scheduler");
+            let (server, slot) = probe_server(&base);
+            // Exercise the previously unreachable standalone profile too.
+            let path = base.join("config/profiles.json");
+            let mut store: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            store["profiles"][0]["subscriptionId"] = json!("");
+            store["profiles"][0]["subscriptionKey"] = json!("");
+            fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+            let before = fs::read(&path).unwrap();
+            let mut params = json!({"instanceId":server.instance_id,"operationId":"profiles","expectedRevision":0});
+            if selected {
+                params["profileId"] = json!(PROFILE_ID);
+            }
+            let request = make_request("profile-probe", "profiles.probe", params).unwrap();
+            assert_eq!(server.dispatch(&request).unwrap()["ok"], true);
+            let terminal = wait_batch(&server, "profiles");
+            assert_eq!(terminal["result"]["operation"]["state"], "succeeded");
+            assert_eq!(terminal["result"]["operation"]["method"], "profiles.probe");
+            assert_eq!(terminal["revision"], 0);
+            assert!(slot.mutation_safe());
+            let result = batch_call(&server, "profiles.probe_results", "profiles");
+            assert_eq!(result["ok"], true);
+            assert_eq!(
+                result["result"]["profileId"],
+                if selected {
+                    json!(PROFILE_ID)
+                } else {
+                    Value::Null
+                }
+            );
+            assert_eq!(result["result"]["results"].as_array().unwrap().len(), 1);
+            assert_eq!(
+                batch_call(&server, "subscriptions.probe_results", "profiles")["ok"],
+                false
+            );
+            assert_eq!(
+                server.dispatch(&request).unwrap()["result"],
+                terminal["result"]
+            );
+            assert_eq!(fs::read(&path).unwrap(), before);
+            let capabilities = server
+                .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+                .unwrap();
+            assert!(
+                capabilities["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("profiles.probe"))
+            );
+            for forbidden in ["vless://", "192.0.2.1", "Example", "subscription-token"] {
+                assert!(!result.to_string().contains(forbidden));
+            }
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn profile_probe_rejects_missing_target_stale_instance_and_stale_revision_before_work() {
+        let base = temporary_base("profile-probe-refusal");
+        let (server, slot) = probe_server(&base);
+        for (field, value, expected) in [
+            (
+                "profileId",
+                json!("00000000-0000-4000-8000-000000000099"),
+                "not_found",
+            ),
+            ("instanceId", json!("old-instance"), "not_found"),
+            ("expectedRevision", json!(99), "conflict"),
+            ("profileId", Value::Null, "invalid_argument"),
+        ] {
+            let mut params = json!({"instanceId":server.instance_id,"operationId":"refused","expectedRevision":0});
+            params[field] = value;
+            let response = server
+                .dispatch(&make_request("probe", "profiles.probe", params).unwrap())
+                .unwrap();
+            assert_eq!(response["error"]["code"], expected);
+            assert!(slot.mutation_safe());
+        }
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn profile_probe_cancel_releases_same_auxiliary_slot_without_spawn() {
+        let base = temporary_base("profile-probe-cancel");
+        let (server, slot) = probe_server(&base);
+        let permits: Vec<_> = (0..remote_fetch::MAX_CONCURRENT_REMOTE_FETCHES)
+            .map(|_| server.remote_fetches.try_acquire().unwrap())
+            .collect();
+        let request = make_request(
+            "profiles",
+            "profiles.probe",
+            json!({
+                "instanceId":server.instance_id,"operationId":"profile-cancel","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        assert_eq!(server.dispatch(&request).unwrap()["ok"], true);
+        assert!(!slot.mutation_safe());
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "profile-cancel")["result"]["accepted"],
+            true
+        );
+        assert_eq!(
+            wait_batch(&server, "profile-cancel")["result"]["operation"]["state"],
+            "cancelled"
+        );
+        assert!(slot.mutation_safe());
+        assert_eq!(
+            batch_call(&server, "profiles.probe_results", "profile-cancel")["ok"],
+            false
+        );
+        drop(permits);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -7072,6 +9506,42 @@ mod tests {
     }
 
     #[test]
+    fn candidate_status_first_projects_promoted_and_sticky_stale_ownership() {
+        for (phase, expected_owned, expected_transition) in [
+            (OwnershipPhase::Rust, true, Value::Null),
+            (OwnershipPhase::Legacy, false, json!("staleCandidate")),
+        ] {
+            let parent = std::env::var_os("OMAVLESS_T4_STATUS_FIXTURE_PARENT")
+                .map_or_else(std::env::temp_dir, PathBuf::from);
+            let base = crate::test_temp::directory_under(&parent, "status-first").unwrap();
+            let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+            let baseline = calls.load(Ordering::Relaxed);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+            write_marker(&cutover, phase, 2);
+            // No hello/capabilities call may promote or stale the candidate
+            // before this FIRST status projection reaches the actual owner.
+            let status = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(status["ok"], true);
+            assert_eq!(status["result"]["runtimeOwnership"], expected_owned);
+            assert_eq!(status["result"]["transition"], expected_transition);
+            assert_eq!(status["result"]["actual"], "disconnected");
+            assert_eq!(status["revision"], 0);
+            if !expected_owned {
+                write_marker(&cutover, OwnershipPhase::Rust, 2);
+            }
+            let repeated = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(repeated["result"]["runtimeOwnership"], expected_owned);
+            assert_eq!(repeated["result"]["transition"], expected_transition);
+            assert_eq!(calls.load(Ordering::Relaxed), baseline);
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap(); // completed known-created fixture only
+        }
+    }
+
+    #[test]
     fn owner_constructor_failure_aborts_and_removes_socket() {
         let base = temporary_base("native-constructor-failure");
         let paths = RuntimePaths::below(&base);
@@ -7094,6 +9564,137 @@ mod tests {
         assert_eq!(response["error"]["code"], "unknown_method");
         assert!(!rendered.contains("private.example"));
         assert!(!rendered.contains("password"));
+    }
+
+    #[test]
+    fn current_status_rpc_preserves_held_state_directory_and_refuses_repair() {
+        const CHILD: &str = "OMAVLESS_T4_STATUS_DIRECTORY_TEST_CHILD";
+        if let Some(base) = std::env::var_os(CHILD) {
+            let base = PathBuf::from(base);
+            assert!(base.is_absolute());
+            assert!(
+                base.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("ovt-status-ctime-"))
+            );
+            let original = fs::symlink_metadata(&base).unwrap();
+            assert!(original.is_dir());
+            assert_eq!(original.uid(), Uid::current().as_raw());
+            assert_eq!(original.mode() & 0o7777, 0o700);
+            assert!(fs::read_dir(&base).unwrap().next().is_none());
+            let (owner, _, host_calls) = native_owner_fixture(&base);
+            let paths = RuntimePaths::current().unwrap();
+            assert_eq!(paths, RuntimePaths::below(&base.join("runtime")));
+            let desired = DesiredPaths::below(&base.join("state"));
+            let desired_bytes = fs::read(&desired.file).unwrap();
+            let host_baseline = host_calls.load(Ordering::Relaxed);
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+            let held = OpenOptions::new()
+                .read(true)
+                .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY).bits())
+                .open(&desired.directory)
+                .unwrap();
+            let stamp = |m: fs::Metadata| {
+                [
+                    m.dev(),
+                    m.ino(),
+                    u64::from(m.mode()),
+                    u64::from(m.uid()),
+                    u64::from(m.gid()),
+                    m.nlink(),
+                    m.len(),
+                    (m.mtime() as u64)
+                        .wrapping_mul(1_000_000_000)
+                        .wrapping_add(m.mtime_nsec() as u64),
+                    (m.ctime() as u64)
+                        .wrapping_mul(1_000_000_000)
+                        .wrapping_add(m.ctime_nsec() as u64),
+                ]
+            };
+            let before = stamp(held.metadata().unwrap());
+            // Ensure a filesystem-clock tick, not a service/network effect.
+            thread::sleep(Duration::from_millis(20));
+            let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+            assert_eq!(hello["ok"], true);
+            assert_eq!(hello["result"]["runtimeOwnership"], true);
+            assert_eq!(stamp(held.metadata().unwrap()), before);
+            let status = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(status["ok"], true);
+            assert_eq!(status["result"]["desired"], "disconnected");
+            assert_eq!(status["result"]["actual"], "disconnected");
+            assert_eq!(
+                status["result"],
+                json!({"desired":"disconnected","actual":"disconnected","activeProfileId":"","mode":"rule","transition":null,"runtimeOwnership":true})
+            );
+            assert_eq!(status["revision"], hello["revision"]);
+            let after = stamp(held.metadata().unwrap());
+            assert_eq!(&after[..8], &before[..8]);
+            assert_eq!(after[8], before[8]); // status must not chmod even to same mode
+            assert_eq!(
+                stamp(fs::symlink_metadata(&desired.directory).unwrap()),
+                after
+            );
+            assert_eq!(fs::read(&desired.file).unwrap(), desired_bytes);
+            assert_eq!(host_calls.load(Ordering::Relaxed), host_baseline);
+
+            // A mode violation is refused, not repaired to an apparently valid
+            // new directory snapshot by a read-only status request.
+            fs::set_permissions(&desired.directory, fs::Permissions::from_mode(0o755)).unwrap();
+            let invalid = stamp(held.metadata().unwrap());
+            let refused = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["error"]["code"], "internal_error");
+            assert_eq!(stamp(held.metadata().unwrap()), invalid);
+            assert_eq!(
+                stamp(fs::symlink_metadata(&desired.directory).unwrap()),
+                invalid
+            );
+            assert_eq!(fs::read(&desired.file).unwrap(), desired_bytes);
+
+            // Move only our synthetic original directory aside. Missing and
+            // symlink names must remain missing/symlink, without creation.
+            let displaced = base.join("held-state");
+            fs::rename(&desired.directory, &displaced).unwrap();
+            let moved = stamp(held.metadata().unwrap());
+            let refused = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["error"]["code"], "internal_error");
+            assert!(!desired.directory.exists());
+            assert_eq!(stamp(held.metadata().unwrap()), moved);
+            std::os::unix::fs::symlink(&displaced, &desired.directory).unwrap();
+            let link = stamp(fs::symlink_metadata(&desired.directory).unwrap());
+            let refused = call(&paths, "status.get", json!({})).unwrap();
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["error"]["code"], "internal_error");
+            assert_eq!(
+                stamp(fs::symlink_metadata(&desired.directory).unwrap()),
+                link
+            );
+            assert_eq!(fs::read_link(&desired.directory).unwrap(), displaced);
+            assert_eq!(stamp(held.metadata().unwrap()), moved);
+            assert_eq!(host_calls.load(Ordering::Relaxed), host_baseline);
+            worker.join().unwrap();
+            drop(held);
+            fs::remove_dir_all(base).unwrap(); // owned, positively completed test fixture only
+            return;
+        }
+        let parent = std::env::var_os("OMAVLESS_T4_STATUS_FIXTURE_PARENT")
+            .map_or_else(std::env::temp_dir, PathBuf::from);
+        let base = crate::test_temp::directory_under(&parent, "status-ctime").unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::current_status_rpc_preserves_held_state_directory_and_refuses_repair",
+                "--nocapture",
+            ])
+            .env(CHILD, &base)
+            .env("XDG_RUNTIME_DIR", base.join("runtime"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(!base.exists());
     }
 
     #[test]

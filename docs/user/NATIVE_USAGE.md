@@ -59,12 +59,81 @@ configuration files can contain private metadata and are not shareable reports.
 Main-screen Test and latency sections are intentionally hidden for later
 improvement; their absence is not evidence of a broken core.
 
+## Open the terminal application (0.9 development candidate)
+
+This section describes the development candidate, not the published 0.8.2 package.
+With a TUI-enabled application installed, **Open app** appears below the fixed
+Profile actions area on the main panel. It opens the terminal application or
+focuses its existing window. It does not start a second VPN or automatically
+start a stopped runtime. If unavailable, follow the displayed package/setup
+guidance rather than starting another core manually.
+
+In the terminal, Tab / Shift+Tab switch pages; `?` shows help. Select a profile
+with arrows, then `c` to connect; `d` disconnects. `1` / `2` / `3` select Full VPN,
+Routing or Direct. Network changes require a separate Enter confirmation;
+Escape cancels. The connected identity is independent of the selected row.
+
+On Subscriptions, `n` / `p` select the source, `s` refreshes it and `S` refreshes
+all. `r` only reloads the local view. On Profiles, `t` checks the selected
+profile and `T` checks all available profiles. These are HTTPS delay checks,
+not ICMP or whole-system DNS/leak tests. On Checks and updates, `x` requests
+cancellation; wait for the runtime's confirmed result. Unknown outcomes must
+not be retried as a new action blindly.
+
+`,` opens session Settings for language and theme. Closing with `q` or closing
+the terminal leaves the VPN and accepted background work running. The plugin
+remains available for import, editing and routing management.
+
+The 0.9.5 candidate adds read-only operator pages: Connections, Host, Rules,
+Providers, Custom rules and Route check. These show local or controller facts,
+not a blanket proof of working Internet, DNS or traffic protection.
+Route check sends only an explicitly entered query and clears it when leaving.
+The unpublished 0.9.6 candidate refines these read-only views: a short
+in-session traffic trend, an explicit notice when older activity has been
+discarded, a bounded log-collection end state and the age of an explicitly
+requested route-check result. None of these is a new network-control action
+or independent proof that all traffic is protected.
+The 0.9.7 candidate shows a loading message while the explicit Connections
+page fetches its first result; a completed unavailable read remains distinct.
+Settings also shows the installed plugin's version and author below Shut down
+OmaVLESS. This identifies the plugin frontend, not necessarily the separately
+installed native package.
+
+On Subscriptions, `u` explicitly requests provider-reported usage and expiry
+for the selected source. This private claim is not measured VPN traffic or
+verified account entitlement; a provider may supply no usable information.
+Leaving the page discards the result. It does not refresh server lists, change
+the VPN or include the claim in ordinary diagnostic reports.
+
+## Encrypted Backup (0.9.8 candidate)
+
+In the terminal application, press `b` or F2, or open Backup from session
+Settings. Enter a new absolute file path and repeat a passphrase of at least
+12 bytes. Enter reviews the request; a second explicit Enter creates the file.
+Escape cancels before submission. Existing files are never overwritten.
+
+Use an existing private folder owned by you (permissions `0700`); a shared or
+ordinary public folder is refused. Your private home directory is suitable.
+The new archive is created with permissions `0600`.
+
+Backup contains profiles, subscriptions and a supported bundled routing
+template, not all Settings or OS state. Custom or nonstandard templates may be
+refused; a refusal is not permission to reset your routing configuration.
+Keep both the archive and passphrase private: the encrypted archive contains
+reusable VPN access, and a lost passphrase cannot be recovered.
+
+The selected 0.9.8 scope does **not** offer Restore. Restore and interrupted-
+operation recovery remain separate development work. If a submitted operation
+has an unknown outcome, do not resubmit it or assume closing the client cancels it.
+
 ## Close, disconnect, Quit
 
 | Action | Effect |
 | --- | --- |
 | Close panel / restart shell | Leaves the requested tunnel running |
+| Close terminal application | Leaves the requested tunnel and accepted background jobs running |
 | Disconnect | Stops the current VPN connection; keeps the plugin/runtime available |
+| Disable the plugin through Omarchy | After a short reload grace, requests verified application shutdown and disables runtime startup. Re-enable the plugin and explicitly start the application; private data stays saved. |
 | Settings → Shut down OmaVLESS / Quit | Confirms shutdown, verifies core/TUN cleanup, then stops/disables runtime and plugin; preserves private data and installed files |
 
 If shutdown fails or needs recovery, do not interpret the closed UI as proof

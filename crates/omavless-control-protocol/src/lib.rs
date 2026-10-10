@@ -38,6 +38,7 @@ pub enum StableErrorCode {
     Conflict,
     Busy,
     CapabilityUnavailable,
+    DnsPairRequired,
     PermissionDenied,
     CoreRejected,
     SubscriptionUnavailable,
@@ -48,7 +49,7 @@ pub enum StableErrorCode {
 }
 
 impl StableErrorCode {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::InvalidRequest,
         Self::UnsupportedVersion,
         Self::UnknownMethod,
@@ -57,6 +58,7 @@ impl StableErrorCode {
         Self::Conflict,
         Self::Busy,
         Self::CapabilityUnavailable,
+        Self::DnsPairRequired,
         Self::PermissionDenied,
         Self::CoreRejected,
         Self::SubscriptionUnavailable,
@@ -77,6 +79,7 @@ impl StableErrorCode {
             Self::Conflict => "conflict",
             Self::Busy => "busy",
             Self::CapabilityUnavailable => "capability_unavailable",
+            Self::DnsPairRequired => "dns_pair_required",
             Self::PermissionDenied => "permission_denied",
             Self::CoreRejected => "core_rejected",
             Self::SubscriptionUnavailable => "subscription_unavailable",
@@ -98,6 +101,7 @@ impl StableErrorCode {
             Self::Conflict => "The request conflicts with current state",
             Self::Busy => "Another operation is in progress",
             Self::CapabilityUnavailable => "The requested capability is unavailable",
+            Self::DnsPairRequired => "Set up the managed DNS pair before connecting",
             Self::PermissionDenied => "The request is not permitted",
             Self::CoreRejected => "The proxy core rejected the operation",
             Self::SubscriptionUnavailable => "The subscription could not be downloaded",

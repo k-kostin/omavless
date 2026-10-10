@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = omavless-dns
+
+[Action]
+Description = Refusing unsafe OmaVLESS DNS broker replacement/removal
+When = PreTransaction
+Exec = /usr/lib/omavless-dns/package-guard
+AbortOnFail

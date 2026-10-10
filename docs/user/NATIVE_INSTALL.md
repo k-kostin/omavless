@@ -1,12 +1,90 @@
 # OmaVLESS installation, updates and recovery
 
-This guide covers the **0.8.2 native release** on Arch/Omarchy. New users can
+## OmaVLESS 0.9.8: managed-package route
+
+The owner-selected release snapshot uses corrected delivery `v0.9.8-fix.1`,
+with exact app/DNS hashes for both
+architectures. Product/package versions remain `0.9.8` / `0.9.8-1`; the release
+tag distinguishes corrected bytes from the immutable first validation build.
+Do not mix its frontend with the earlier `v0.9.8` packages or compile Rust in a
+marketplace installer. Download/setup acceptance and the actual main/stable
+promotion event are tracked in the
+[candidate ledger](../development/RC_098.md).
+
+The owner requested that root README remain unchanged during this promotion;
+its older 0.8.2 manual-download paragraph is not the matching package route for
+this frontend. Follow this section and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
+The separately reviewed Marketplace snapshot remains 0.8.2 until a new approved
+submission; this release does not update that snapshot.
+
+The selected 0.9 route differs from the released 0.8.2 instructions below:
+
+1. Use one reviewed version/architecture-matched `omavless` application,
+   `omavless-dns` companion and frontend. The companion contains the fixed
+   reviewed Mihomo core and DNS broker; arbitrary stock/AUR core discovery and
+   `setcap` on a different binary do not satisfy managed-pair admission.
+2. Through **Required components**, deliberately install the matching packages
+   using normal pacman/sudo authorization. Then perform the separate explicit
+   DNS-broker enrollment and pair selection offered by setup. Adding/enabling
+   the plugin alone installs nothing and connects no VPN.
+3. For an existing installation, first establish verified disconnected state
+   and settled OS authorization, preserve private data, and follow the guarded
+   package-update procedure. Do not rerun first activation or delete ownership
+   records to turn it into a fresh install. Active or quarantined package
+   changes must be refused by the package guard.
+4. If enrollment exists but the broker is stopped, use **Start existing DNS
+   broker**; **Restore DNS enrollment** is only for revoked enrollment after
+   clean removal. Neither action starts a VPN. Afterwards use **Start OmaVLESS**
+   to launch the application, without enabling login startup or connecting.
+5. Import your own profile and connect explicitly. Verify a native HTTPS test
+   and actual website access, not only the Connected label. A default-deny
+   firewall can block DNS ingress on the owned TUN; follow the narrowly scoped
+   firewall guidance below rather than disabling protection globally.
+
+The 0.9.8 scope decision is closed: encrypted Backup is included, Restore is not.
+Completed Restore/recovery remains mandatory for 0.9.9. See
+[Backup usage and limits](NATIVE_USAGE.md#encrypted-backup-098-candidate).
+The matching frontend verifies both package hashes and source identities before
+normal installation. Earlier validation users must use the guarded update path;
+the unchanged Arch version may show **reinstalling**, not an automatic update.
+
+## Released 0.8.2 route and historical compatibility
+
+This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-only
+0.9 RC development branches have a different requirement: a version-matched
+`omavless` + `omavless-dns` package pair, separate administrator enrollment
+for the fixed DNS broker, and a stopped/disconnected runtime for managed-pair
+selection before Rust activation. The 0.9 frontend's pinned `v0.9.0-rc.1`
+prerelease assets are for RC validation, not a supported upgrade: the ARM64
+fresh-account GUI path passed, but negative/recovery and release gates remain.
+It treats an already
+registered package, leftover
+user runtime unit or `Meta` TUN as an existing/ambiguous installation, not a
+fresh machine to overwrite; inspect that state separately. Do not
+apply the 0.8.2 stock-Mihomo steps below to a 0.9 candidate; see the
+[managed DNS distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
+for the current development status.
+For the prerelease 0.9 candidate, a clean removal may preserve private
+profiles and the selected pair while revoking the privileged broker
+registration. On reinstall, **Restore DNS enrollment** is a separate attended
+step, not a second package install or a VPN connection. It refuses residual or
+unknown broker state and does not re-enable a previously stopped user runtime.
+After a clean package update or temporary broker stop, the registration may
+instead still be present: choose **Start existing DNS broker**, not Restore.
+That action checks the fixed enrollment file metadata and starts only the
+broker; it does not re-enroll, start the user runtime or connect. If the
+enrollment was revoked during a clean removal, choose Restore instead. A
+failed or uncertain authorization requires inspection before either retry.
+
+New users of the released version can
 install the plugin and follow its guided first-run setup. Existing native and
 legacy users have separate update/migration routes below; do not reset an
 existing store or repeat activation.
 
-The GitHub release is stable; the marketplace's older 0.7.0 snapshot remains
-separate until its update is approved. Ordinary `omarchy plugin add` installs
+The GitHub release is stable; the marketplace's exact 0.8.2 update was reviewed
+and published through [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093).
+That approval does not cover this newer development candidate.
+Ordinary `omarchy plugin add` installs
 the frontend, not the native package or its ownership. The panel offers those
 steps explicitly, with normal user/OS confirmation. OmaVLESS itself is delivered
 as a reviewed release package, not an AUR package announcement.
@@ -19,7 +97,7 @@ as a reviewed release package, not an AUR package announcement.
 | Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
 | Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
 | Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
-| Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
+| Previously used confirmed Quit | In the selected 0.9.8 candidate, re-enable the plugin and use **Start OmaVLESS** after any separate DNS preparation. Earlier releases use the explicit manual reopen procedure below. | Do not reinstall, reset ownership or assume that re-enabling the frontend connects a VPN. |
 
 <a id="guided-first-run--release-preparation"></a>
 
@@ -132,7 +210,8 @@ and verified runtime/build/package input equality; a matching version alone is
 not compatibility proof. Preserve the original package build/acceptance evidence.
 An unpublished artifact is not a public release; marketplace publication remains
 owner-controlled. Both source and assembled frontend carry the same version;
-the historical marketplace snapshot remains 0.7.0. Earlier `0.8.0-rc.1`
+the historical 0.7.0 snapshot was superseded by the reviewed 0.8.2 update.
+Earlier `0.8.0-rc.1`
 archives retain their original version and hashes, not the current release's.
 
 Use the runtime package for your processor (`aarch64` or `x86_64`). The QML
@@ -159,6 +238,48 @@ install privileged policy or enable a service in a package hook. Follow the
 [Mihomo readiness guidance](INSTALL.md#grant-tun-capabilities) and verify the
 actual core path. Complete every normal OS authorization prompt before another
 connection or service action; a cancelled prompt is not successful setup.
+
+### Default-deny firewall and TUN
+
+If your host uses a default-deny inbound firewall such as UFW, check its TUN
+policy before treating a Connected indicator as proof of working traffic.
+On one isolated Omarchy VM, the core and routes were healthy but HTTPS through
+the TUN timed out because UFW blocked packets arriving on that interface.
+OmaVLESS does not change firewall rules automatically. An administrator should
+review the local TUN address, peer, interface and firewall policy, apply only
+the exception appropriate for that host, and verify actual traffic and cleanup.
+The built-in HTTPS check (`omavless runtime test`) is read-only and follows the
+current route; in Direct or selective Routing mode it may not traverse the VPN.
+
+For the **bundled IPv4 template only**, first confirm that the active TUN is
+`Meta` with address `198.18.0.1/30` and that UFW is active with default-deny
+incoming policy (`ip -4 addr show dev Meta` and `sudo ufw status verbose`). If
+those facts match and the administrator accepts the host-specific exception,
+the following reversible rule allows incoming packets from `Meta` only when
+their destination is its local IPv4 address:
+
+```sh
+sudo ufw allow in on Meta to 198.18.0.1 comment omavless-tun
+```
+
+It does **not** restrict remote source addresses, ports or protocols: return
+traffic can have many such values. Review services listening on that local
+address and your firewall threat model before applying it. If this exception
+is too broad for the host, keep the default-deny policy and design a suitable
+host-specific rule instead; do not disable UFW to make a VPN test pass.
+
+Retest traffic in Full VPN mode, then inspect `sudo ufw status numbered` for
+duplicate or unexpected rules. Remove this exact exception when no longer
+needed:
+
+```sh
+sudo ufw delete allow in on Meta to 198.18.0.1 comment omavless-tun
+```
+
+Do not copy the example for a custom TUN address, another firewall, or IPv6.
+The VM's temporary IPv4 result is not an assurance about every protocol,
+destination or host policy. A firewall check does not replace the normal
+connected, DNS, route and HTTPS verification.
 
 Desktop helpers remain optional package dependencies:
 
@@ -324,6 +445,22 @@ Closing the panel or a terminal is not Disconnect. Settings' confirmed
 then disables runtime startup and the Omarchy plugin while preserving private
 profiles/settings. Failure or an unknown outcome must be inspected, not treated
 as a clean shutdown. A shell reload is not this explicit Quit action.
+
+Persistently disabling OmaVLESS through `omarchy plugin disable kdk.omavless`
+or a manager using that command also requests fenced application shutdown after
+a short reload grace. It is not merely hiding the icon. Re-enabling within the
+grace cancels that cleanup; do not rely on this timing as a connection control.
+Use Disconnect to stop only the VPN while retaining the application.
+
+In the selected **0.9.8 candidate**, re-enable the frontend with
+`omarchy plugin enable kdk.omavless`, then open its panel. A verified stopped
+installation offers **Start OmaVLESS**. It starts only the application, without
+Connect or enabling login startup, and preserves saved preferences/profiles.
+If the managed DNS broker is also stopped, its separate preparation comes first;
+resolve that operation's OS authorization before starting the application.
+Unsafe, pending or unverified state is not a reason to repeat Start or reset data.
+After updating the frontend, old cached controls can require the deliberate
+shell reload described above; check what is actually loaded, not just file hashes.
 
 For the currently tested update route, set startup Off and disconnect first.
 After verifying clean state and settled authorization, stop the native service,

@@ -30,11 +30,13 @@ package installation, service enablement or ownership activation occurs.
 `--nodeps` skips build-time runtime-dependency checks only; it is **not** advice
 to bypass dependencies when an owner later explicitly installs the archive.
 
-Runtime dependency `mihomo` can be supplied by a package such as `mihomo-bin`
-that declares `provides=mihomo`. The core and its reviewed TUN capability setup
-remain external. Picker/QR/clipboard helpers are optional package dependencies;
-this package does not silently install or invoke them. No Python or Cargo runtime
-dependency is declared.
+The three-argument **development snapshot** retains its historical `mihomo`
+dependency, which a package such as `mihomo-bin` may provide. In contrast,
+`--candidate` and `--stable` archives depend on the exact matching
+`omavless-dns=VERSION-1` companion; a stock Mihomo package is not a substitute.
+The companion is built and inspected separately, and installing either archive
+does not enroll, start or connect it. Picker/QR/clipboard helpers remain
+optional. No Python or Cargo runtime dependency is declared.
 
 `bubblewrap` is required for fail-closed offline startup validation. Runtime
 startup is ordered after the fixed login-preparation oneshot; both preserve the
@@ -64,17 +66,42 @@ The native R6 path is accepted; use the
 [installation/recovery guide](../../docs/user/NATIVE_INSTALL.md) and retain its
 exact host evidence and limitations.
 
-## 0.8.0 candidate assembly
+## Opt-in product-image development payload
+
+The explicit five-argument local mode is:
+
+```text
+build-local-package.sh BUILD_DIR RUNTIME_ELF SOURCE_SHA --product-image-witness HELPER_ELF
+```
+
+Both separately prebuilt native ELF inputs are inspected, not executed. Schema4
+identity records runtime/helper hashes and explicit opt-in selection; this is
+caller-supplied source provenance, not toolchain attestation. The payload adds
+`/usr/lib/omavless-image/omavless-image-witness` and its inactive root system unit,
+with no Install target or automatic restart. Existing runtime/login user units
+are byte-identical and normal daemon does not expose close in a product-feature
+build without explicit mode. The development dependency is the managed DNS
+package; native admission still requires its distinct close-qualified evidence.
+
+Installation does not enroll, enable/start the helper, change profiles/ownership,
+or select product mode. After review, ROOT separately selects fixed root
+`--enroll-product UID`, helper service startup and foreground
+`omavless daemon --product-image-witness`. See the
+[epoch/enrollment contract](../../docs/development/T3_PRODUCT_WITNESS_EPOCHS.md).
+No host or release acceptance follows from inert staging.
+
+## Candidate and stable assembly
 
 The optional fourth argument `--candidate` selects only the checked-in Cargo
-RC version, rendered in Arch's compatible `0.8.0rc1` spelling. The ordinary
+beta/RC version, rendered in Arch's compatible `0.9.5beta1` spelling for the current
+source. The ordinary
 three-argument development package identity is unchanged. Stable versions and
-arbitrary version input are rejected by this RC path. Prefer the
+arbitrary version input are rejected by this prerelease path. Prefer the
 [release assembler](../release/README.md) to pair the package with a matching
 native-only frontend and integrity record. No publication is performed.
 
 The separate `--stable` mode accepts only a checked-in three-part stable Cargo
 version (at most 32 characters). It emits schema-3 build identity and exact
 `VERSION-1` package spelling; it never promotes or rewrites an RC version.
-The RC/default development modes and their schemas remain distinct. This is
+The beta/RC/default development modes and their schemas remain distinct. This is
 offline assembly, not stable-release approval, installation or publication.
