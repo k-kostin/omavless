@@ -1,7 +1,9 @@
 # Native release, beta and RC preparation
 
 Current preparation source version: **0.9.8**, with corrected validation
-packages published at immutable `v0.9.8-fix.1`, not stable/latest or Marketplace.
+packages published at immutable `v0.9.8-fix.1`. Main/stable promotion is now
+owner-authorized through #726; read GitHub for the actual completed event.
+Marketplace submission/root README updates remain withheld.
 Both bootstrap maps pin the inspected app/DNS producer
 `e3d2245966c725ee11b505899b22a20721ff2ddd` for ARM64 and x86_64; common frontend
 `43735a1a84db6e513668a4f7beabf92206c7ad9d` selects the fixed delivery tag.

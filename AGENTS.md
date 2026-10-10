@@ -33,11 +33,14 @@ not replaced by this short entry point.
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
 - New task branches use `dev/<topic>`; temporary development assemblies use
   `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
-  Current release preparation is `dev/098-stable-preparation` (#726), carrying
+  The owner-selected 0.9.8 release snapshot is promoted through
+  `dev/098-stable-preparation` (#726), carrying
   the selected `rc/0.9.8` Backup-only scope and corrected immutable
   `v0.9.8-fix.1` validation delivery. Read its current ledger before selecting
-  packages; old 0.9.8 assets are immutable and superseded. Stable main/latest
-  remains 0.8.2 pending separate promotion. Publicly accepted artifact baseline is `rc/0.9.5`
+  packages; old 0.9.8 assets are immutable and superseded. Main/stable promotion
+  is owner-authorized; read #726/GitHub for the completed event and exact SHA.
+  Marketplace submission and root README updates remain withheld under the
+  owner's October 10 instruction. Publicly accepted artifact baseline is `rc/0.9.5`
   as historical RC evidence, not a selector for the corrected 0.9.8 packages;
   preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent

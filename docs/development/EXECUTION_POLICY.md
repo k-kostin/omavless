@@ -71,6 +71,13 @@ Diagnostic reads and effect authorization are distinct. New experiments should
 provide bounded phase/error output from the start so routine failures do not
 require a new bespoke observer implementation every time.
 
+When a handled-failure path promises to retain its owned graph, its diagnostics
+must be bounded, best-effort and non-throwing. A broken output stream must not
+turn parking into an unwind/exit that releases the graph; include panic hooks
+and the parking wait itself in that review. Use inert broken-output and
+interrupted-wait controls where applicable. This does not require a new logging
+framework or promise resource survival after fatal process death.
+
 Define the diagnostic surface before the run: exact permitted captures or
 service queries, maximum bytes/time, privacy classification and independence
 from mutation paths. Prefer a reusable reviewed observer with narrow fixed
@@ -188,6 +195,13 @@ Respect actual concurrency slots. Prefer primary + two independent writers +
 one reviewer/helper; replace or finish the helper before starting another.
 Parallelize independent work, not overlapping edits or simultaneous VM control.
 Delegation is optional when coordination would cost more than the task.
+
+Distinguish delivery of a message from starting work. Before assigning a new
+deliverable to an existing agent, check whether it is running or completed.
+Use the available follow-up/resume operation for an idle or completed agent;
+a queued message alone may not trigger another turn. Confirm a short start or
+progress checkpoint before scheduling dependent integration work. Reuse that
+agent and its owned branch rather than spawning a duplicate writer.
 
 ## 8. Checkpoints, branches and session completion
 

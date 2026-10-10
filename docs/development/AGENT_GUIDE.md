@@ -211,7 +211,9 @@ the change.
   from the selected `rc/0.9.8` Backup-only scope. Corrected immutable validation
   delivery is `v0.9.8-fix.1`; its producer/frontend and affected installed gates
   are in the RC ledger. Old 0.9.8 assets stay immutable and superseded; stable
-  main/latest remain separately controlled. The publicly accepted historical
+  main/stable promotion is owner-authorized through #726, with actual event/
+  exact SHA read from GitHub. The owner still withholds Marketplace submission
+  and root README changes. The publicly accepted historical
   RC artifact baseline remains `rc/0.9.5`. Internal source
   freeze follows the declared risk-based checks; public provisioning gates do
   not repeat at every internal version. Installed private-restore integration

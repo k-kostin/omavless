@@ -2,6 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**0.9.8 promotion snapshot, owner-authorized 2026-10-10:** #726 targets main
+with the corrected validated package/frontend delivery below. Final CI and
+actual merge/stable-latest events are recorded in that PR; a source commit is
+not itself proof of publication. The owner withholds Marketplace submission
+and root README changes. Preserve README from the previous main snapshot and
+use the updated installation guide/release notes until the owner approves its
+editorial update. Restore remains mandatory 0.9.9 scope, not enabled here.
+
 **Corrected validation successor, 2026-10-10:** owner-authorized immutable
 `v0.9.8-fix.1` uses the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`.
 #730 integrates first-use Backup origin promotion and DNS idle-admission fixes;

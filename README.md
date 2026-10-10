@@ -22,11 +22,7 @@ and service subscriptions are not included.
 
 ## Installation
 
-**This branch prepares a 0.9.8 validation candidate.** Its matching packages
-are available as a prerelease; the stable release and upstream `main` remain
-**0.8.2**. The installation command below
-follows that released branch, not this candidate. New users: add the plugin,
-then open its panel.
+**OmaVLESS 0.8.2 is available.** New users: add the plugin, then open its panel.
 Already using 0.7.0? Follow the [migration guide](docs/user/NATIVE_INSTALL.md#existing-legacypython-installation)
 before updating.
 
@@ -39,8 +35,7 @@ installation. Confirm the steps in its terminal, return to the panel and follow
 onboarding. You can finish setup later; it never connects a VPN automatically.
 
 This command follows upstream main. The marketplace's reviewed snapshot is
-updated separately and currently covers its reviewed 0.8.2 snapshot, not this
-development candidate.
+updated separately; its older 0.7.0 listing is not the native release.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
 including migration instructions **before updating an existing 0.7.0 installation**.
@@ -48,12 +43,9 @@ It covers the matching application package, Mihomo VPN core, TUN permissions
 and optional clipboard, file-picker and QR tools. Package installation and
 permission changes require your confirmation.
 
-For the released version, use the matching **0.8.2** application and frontend from
+For manual downloads, use the matching **0.8.2** application and frontend from
 [GitHub Releases](https://github.com/k-kostin/omavless/releases/tag/v0.8.2).
-This 0.9.8 candidate instead requires the matching application, managed-DNS
-package and frontend from the [corrected validation prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
-Do not combine this candidate frontend with the released 0.8.2 package or the
-superseded first 0.9.8 validation build.
+Do not pair this frontend with older 0.8.0/0.8.1 packages.
 
 ## Everyday use
 

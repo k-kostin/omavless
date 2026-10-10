@@ -1,14 +1,21 @@
 # OmaVLESS installation, updates and recovery
 
-## Selected 0.9.8 candidate: managed-package route
+## OmaVLESS 0.9.8: managed-package route
 
-This branch is a **validation candidate**, not the current stable/main upgrade.
-Its corrected delivery is `v0.9.8-fix.1`, with exact app/DNS hashes for both
+The owner-selected release snapshot uses corrected delivery `v0.9.8-fix.1`,
+with exact app/DNS hashes for both
 architectures. Product/package versions remain `0.9.8` / `0.9.8-1`; the release
 tag distinguishes corrected bytes from the immutable first validation build.
 Do not mix its frontend with the earlier `v0.9.8` packages or compile Rust in a
-marketplace installer. Download/setup acceptance is tracked in the
+marketplace installer. Download/setup acceptance and the actual main/stable
+promotion event are tracked in the
 [candidate ledger](../development/RC_098.md).
+
+The owner requested that root README remain unchanged during this promotion;
+its older 0.8.2 manual-download paragraph is not the matching package route for
+this frontend. Follow this section and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
+The separately reviewed Marketplace snapshot remains 0.8.2 until a new approved
+submission; this release does not update that snapshot.
 
 The selected 0.9 route differs from the released 0.8.2 instructions below:
 

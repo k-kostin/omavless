@@ -6,6 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.8 promotion snapshot, owner-authorized October 10:** #726 targets main
+  with the corrected delivery below; final CI, merge SHA and GitHub stable/latest
+  event are recorded there rather than inferred from this source commit.
+  The owner explicitly withholds Marketplace submission and root README changes.
+  README is intentionally retained byte-for-byte from the previous main snapshot;
+  use the [current installation guide](../user/NATIVE_INSTALL.md) and release notes
+  for the paired 0.9.8 installation. The reviewed Marketplace snapshot remains
+  0.8.2 and does not cover the new main SHA. No whole T4/K1/V0 acceptance follows.
+
 - **Corrected 0.9.8 validation delivery:** the owner authorized immutable
   `v0.9.8-fix.1`, preserving the original `v0.9.8` assets and failures. The
   frontend pins the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`
