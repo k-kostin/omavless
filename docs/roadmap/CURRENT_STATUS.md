@@ -1,19 +1,24 @@
 # Current delivery status
 
-Updated 2026-10-10. This is the compact current-state entry point; the detailed
+Updated 2026-10-11. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.8 promotion snapshot, owner-authorized October 10:** #726 targets main
-  with the corrected delivery below; final CI, merge SHA and GitHub stable/latest
-  event are recorded there rather than inferred from this source commit.
-  The owner explicitly withholds Marketplace submission and root README changes.
-  README is intentionally retained byte-for-byte from the previous main snapshot;
-  use the [current installation guide](../user/NATIVE_INSTALL.md) and release notes
-  for the paired 0.9.8 installation. The reviewed Marketplace snapshot remains
-  0.8.2 and does not cover the new main SHA. No whole T4/K1/V0 acceptance follows.
+- **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
+  corrected `v0.9.8-fix.1` is stable/latest with unchanged tag and seven assets.
+  The new main full Test workflow subsequently passed. Owner-approved #732
+  updates the user-facing README, first-use/Open app illustrations and usage
+  guide; its own CI/merge event remains on that PR. The Marketplace snapshot
+  remains the separately reviewed 0.8.2; submission is still withheld. No whole
+  T4/K1/V0 acceptance follows from the release.
+
+- **Planned for 0.9.9:** mandatory consumer Restore/recovery remains #722/#724.
+  Owner-selected [#733](https://github.com/k-kostin/omavless/issues/733) adds a
+  private editable VPN-access field in the application/plugin import UI, reusing
+  canonical profile/subscription validation and explicit preview/confirmation.
+  This is planned, not a 0.9.8 feature or support for new protocol/key formats.
 
 - **Corrected 0.9.8 validation delivery:** the owner authorized immutable
   `v0.9.8-fix.1`, preserving the original `v0.9.8` assets and failures. The

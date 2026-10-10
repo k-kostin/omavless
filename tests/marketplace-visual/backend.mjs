@@ -25,7 +25,8 @@ export function response(command) {
       schemaVersion:1, scope:'local_runtime_observation', instanceId, transition:null,
       availability:'observed', desired:{connected:false, mode:'global', generation:1},
       lastKnownActual:'disconnected', manualRecoveryRequired:false,
-      facts:{ownedCoreRunning:false, visibleMihomoCount:0, visibleTunCount:0,
+      facts:{ownedCoreRunning:false, visibleMihomoCount:0, ownedAuxiliaryMihomoCount:0,
+        visibleTunCount:0, managedTunCount:0,
         ownedControllerConfigVerified:false, desiredProfileMatchesOwned:false},
       verification:{serviceOwnership:false, tunOwnership:false, routes:false, dns:false, internet:false}
     });
@@ -33,7 +34,7 @@ export function response(command) {
       clipboardReadAvailable:true, clipboardWriteAvailable:true, filePicker:'zenity',
       configEditorAvailable:true, qrEncoderAvailable:true, gtk4FallbackAvailable:false};
     case 'native-core-readiness': return {schemaVersion:1, scope:'desktop_setup_facts', installed:true,
-      version:'1.19.30', tunDevice:'present', fileNetworkCapabilities:'present', servicePermissionReadiness:'not_verified',
+      version:'1.19.31', tunDevice:'present', fileNetworkCapabilities:'present', servicePermissionReadiness:'not_verified',
       coverage:{serviceContextVerified:false, tunCreationVerified:false, controllerQueried:false},
       remediation:'verify_native_host_setup'};
     case 'native-startup-capabilities': return envelope({runtimeOwnership:true, mutations:true, methods:['startup.configure']});

@@ -7,6 +7,19 @@ const {spawnSync} = require('node:child_process');
 const root = path.join(__dirname, '..');
 (async () => {
   const {response} = await import('./marketplace-visual/backend.mjs');
+  const {reply} = await import('./marketplace-visual/tui.mjs');
+  const request = method => ({api:'omavless.control', version:1, id:'fixture', method, params:{}});
+  assert.equal(reply({...request('system.hello'),params:{versions:[1]}}).result.runtimeOwnership,true);
+  for (const method of ['ui.snapshot','runtime.observation','capabilities.get'])
+    assert.equal(reply(request(method)).ok,true);
+  for (const method of ['plugin.action','connection.connect','connection.disconnect','backup.create',
+    'backup.restore','subscriptions.refresh','anything']) {
+    const result=reply({...request(method),params:{private:'private://must-not-echo'}});
+    assert.equal(result.ok,false);
+    assert(!JSON.stringify(result).includes('private://'));
+  }
+  assert.equal(reply({...request('ui.snapshot'),extra:true}),null);
+  assert.equal(reply({...request('ui.snapshot'),version:2}),null);
   const parser = vm.createContext({});
   vm.runInContext(fs.readFileSync(path.join(root, 'plugin/NativeSnapshot.js'), 'utf8'), parser);
   const presentation = vm.createContext({});
@@ -40,5 +53,5 @@ const root = path.join(__dirname, '..');
   assert.equal(manifest.description.length, 364);
   assert(manifest.description.startsWith('OmaVLESS is a VPN app for Omarchy'));
   assert(!/autoconnect|WireGuard|Amnezia|kill switch/i.test(manifest.description));
-  console.log('marketplace assets: fixture parsers, disconnected-only state, 9 refused commands and description PASS');
+  console.log('marketplace assets: parsers, disconnected-only QML/TUI, refused mutations and description PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });

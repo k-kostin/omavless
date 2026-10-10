@@ -1,14 +1,18 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; stable release updated 2026-09-22.
+Status: active delivery ledger; stable release updated 2026-10-10.
 
-**0.9.8 promotion snapshot, owner-authorized 2026-10-10:** #726 targets main
-with the corrected validated package/frontend delivery below. Final CI and
-actual merge/stable-latest events are recorded in that PR; a source commit is
-not itself proof of publication. The owner withholds Marketplace submission
-and root README changes. Preserve README from the previous main snapshot and
-use the updated installation guide/release notes until the owner approves its
-editorial update. Restore remains mandatory 0.9.9 scope, not enabled here.
+**0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
+corrected immutable `v0.9.8-fix.1` is stable/latest. Full main Test subsequently
+passed. The owner approved the bounded README/usage/screenshot update through
+#732 on October 11; Marketplace submission remains withheld. Original asset
+identities and failures are preserved. Restore remains mandatory 0.9.9 scope.
+
+**0.9.9 owner-selected UX, 2026-10-11:** [#733](https://github.com/k-kostin/omavless/issues/733)
+plans direct VPN-key/link entry in an editable application/plugin import field,
+reusing the existing classifier, strict subscription validator and preview/save
+confirmation. Clipboard/file flows remain. No new protocols, `vpn://` or raw YAML
+support is implied; this is not implemented or advertised in 0.9.8.
 
 **Corrected validation successor, 2026-10-10:** owner-authorized immutable
 `v0.9.8-fix.1` uses the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`.

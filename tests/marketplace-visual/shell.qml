@@ -53,12 +53,21 @@ ShellRoot {
   IpcHandler {
     target: "marketplaceReview"
     function scene(name: string): string {
-      if (["main", "subscription", "settings"].indexOf(name) < 0) return "refused"
+      if (["main", "subscription", "settings", "setup"].indexOf(name) < 0) return "refused"
       product.open()
       product.nativeSelectedProfile = ""
       product.nativeExpanded = {}
-      if (name === "settings") product.openSettings()
+      if (name === "setup") {
+        var setup = review.find(product, function(o) { return "launchAction" in o && "facts" in o })
+        var probe = setup && review.find(setup, function(o) {
+          return "command" in o && String(o.command).indexOf("components") >= 0
+        })
+        if (!setup || (probe && probe.running)) return "not-ready"
+        setup.facts = {state:"needs_package", coreInstalled:false}
+      } else if (name === "settings") product.openSettings()
       else {
+        var setup = review.find(product, function(o) { return "launchAction" in o && "facts" in o })
+        if (setup) setup.facts = {state:"ready", coreInstalled:true}
         product.page = "main"
         if (name === "subscription") product.nativeExpanded = {"demo-subscription":true}
       }
@@ -151,7 +160,7 @@ ShellRoot {
     function inspect(): string {
       return JSON.stringify({state:product.nativeView.state, profiles:product.nativeView.profiles.length,
         page:product.page, connected:product.nativeView.connected, opened:product.opened,
-        releaseCredit:product.releaseCredit})
+        bootstrap:product.bootstrapRequired, releaseCredit:product.releaseCredit})
     }
     function result(): string { return review.result }
     function finish() { Qt.quit() }
