@@ -10,8 +10,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
   corrected `v0.9.8-fix.1` is stable/latest with unchanged tag and seven assets.
   The new main full Test workflow subsequently passed. Owner-approved #732
   updates the user-facing README, first-use/Open app illustrations and usage
-  guide; its own CI/merge event remains on that PR. The Marketplace snapshot
-  remains the separately reviewed 0.8.2; submission is still withheld. No whole
+  guide; #732 merged at `2105d077a3c0cff46c3183b9fa7e8a915422e885`.
+  The owner subsequently authorized the agreed 0.9.8 Marketplace description,
+  current preview and exact-main update request with tags vpn/bar/quickshell.
+  Record its exact SHA, bot results and approval on the publication PR, not in
+  a further main commit. Until approval the Marketplace snapshot remains the
+  separately reviewed 0.8.2. No whole
   T4/K1/V0 acceptance follows from the release.
 
 - **Planned for 0.9.9:** mandatory consumer Restore/recovery remains #722/#724.

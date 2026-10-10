@@ -5,7 +5,10 @@ Status: active delivery ledger; stable release updated 2026-10-10.
 **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
 corrected immutable `v0.9.8-fix.1` is stable/latest. Full main Test subsequently
 passed. The owner approved the bounded README/usage/screenshot update through
-#732 on October 11; Marketplace submission remains withheld. Original asset
+#732 on October 11, then authorized the agreed Marketplace copy/preview and
+exact-main update request with tags vpn/bar/quickshell. Publication approval
+remains the Marketplace maintainer's decision; the request/outcome belongs on
+the publication PR without a subsequent SHA-changing documentation commit. Original asset
 identities and failures are preserved. Restore remains mandatory 0.9.9 scope.
 
 **0.9.9 owner-selected UX, 2026-10-11:** [#733](https://github.com/k-kostin/omavless/issues/733)

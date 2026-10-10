@@ -50,8 +50,9 @@ const root = path.join(__dirname, '..');
     assert.equal(result.stderr.length, 0);
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
-  assert.equal(manifest.description.length, 364);
+  assert(manifest.description.length > 0 && manifest.description.length <= 500);
   assert(manifest.description.startsWith('OmaVLESS is a VPN app for Omarchy'));
+  assert(manifest.description.includes('Powered by Mihomo.'));
   assert(!/autoconnect|WireGuard|Amnezia|kill switch/i.test(manifest.description));
   console.log('marketplace assets: parsers, disconnected-only QML/TUI, refused mutations and description PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });

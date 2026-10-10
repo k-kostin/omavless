@@ -213,7 +213,10 @@ the change.
   are in the RC ledger. Old 0.9.8 assets stay immutable and superseded;
   main/stable promotion completed through #726. The owner approved the bounded
   user-facing README update through #732 on October 11, not future automatic
-  main updates. Marketplace submission remains withheld. The publicly accepted historical
+  main updates. The owner's October 11 follow-up authorizes the agreed 0.9.8
+  Marketplace copy/preview and exact-main update request, not maintainer approval
+  or future updates. Record submission/outcome on its PR without moving main
+  again. The publicly accepted historical
   RC artifact baseline remains `rc/0.9.5`. Internal source
   freeze follows the declared risk-based checks; public provisioning gates do
   not repeat at every internal version. Installed private-restore integration
