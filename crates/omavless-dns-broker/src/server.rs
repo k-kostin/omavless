@@ -56,19 +56,11 @@ pub fn serve() -> Result<(), Error> {
         crate::access::SocketAccess::grant(&context).map_err(|_| Error::AdmissionRefused)?;
     context.notify_ready().map_err(|_| Error::Unavailable)?;
     loop {
-        context
-            .set_deadline(Instant::now() + Duration::from_secs(5))
-            .map_err(|_| Error::Unavailable)?;
-        context.recheck().map_err(|error| {
-            report(Refusal::Authority(error));
-            Error::RecoveryRequired
-        })?;
-        access.recheck().map_err(|_| Error::AdmissionRefused)?;
-        let mut session = match listener.accept() {
-            Ok(session) => session,
-            Err(ChannelError::Timeout | ChannelError::PeerRejected) => continue,
-            Err(_) => return Err(Error::Unavailable),
-        };
+        let mut session = next_session(
+            &context,
+            || access.recheck().map_err(|_| Error::AdmissionRefused),
+            || listener.accept(),
+        )?;
         let proof = match session.receive_acquire().and_then(|fd| {
             fd.try_clone_to_owned()
                 .map_err(|_| ChannelError::InvalidDescriptor)
@@ -150,6 +142,33 @@ pub fn serve() -> Result<(), Error> {
                 }
             }
         }
+    }
+}
+
+// Called only after startup's empty admission, a prewrite refusal, or verified
+// Clean. Accept owns an Idle session with no userspace proof. Rights may already
+// be queued in the kernel; receive_acquire must stay after this authority gate.
+// An observed error returns through serve's ?, terminating the original context.
+pub(crate) fn next_session(
+    context: &RootContext,
+    mut recheck_access: impl FnMut() -> Result<(), Error>,
+    mut accept: impl FnMut() -> Result<Session, ChannelError>,
+) -> Result<Session, Error> {
+    loop {
+        recheck_access()?;
+        let session = match accept() {
+            Ok(session) => session,
+            Err(ChannelError::Timeout | ChannelError::PeerRejected) => continue,
+            Err(_) => return Err(Error::Unavailable),
+        };
+        context
+            .set_deadline(Instant::now() + Duration::from_secs(5))
+            .map_err(|_| Error::Unavailable)?;
+        context.recheck().map_err(|error| {
+            report(Refusal::Authority(error));
+            Error::RecoveryRequired
+        })?;
+        return Ok(session);
     }
 }
 
