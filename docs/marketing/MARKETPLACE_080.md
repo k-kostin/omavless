@@ -1,4 +1,37 @@
-# Native marketplace update preparation (0.8.2)
+# Native marketplace update preparation
+
+## Current 0.9.8 request — October 11
+
+The owner authorized the agreed description/preview update and submission of
+the final main SHA. Corrected `v0.9.8-fix.1` is stable/latest with immutable
+ARM64/x86_64 app/DNS packages, pinned guided setup and a common frontend;
+see [the release ledger](../development/RC_098.md#corrected-validation-delivery--october-10).
+The user-facing README was merged through #732. Runtime/package inputs are
+unchanged by this editorial update; do not rebuild or move the release tag.
+
+The manifest's owner-approved description is 394 characters. It addresses
+Omarchy users facing heavy internet censorship, explains compatible own access,
+bar controls/modes/subscription refresh and credits Mihomo. It promises neither
+guaranteed circumvention nor included VPN service. Request category **System**
+and tags **vpn, bar, quickshell** (replace security, retaining three tags).
+The newer-upstream verification form has no tag field, so include the metadata
+request in maintainer notes; do not assume snapshot promotion changes tags.
+
+Root `preview.png` selects the current [main-panel capture](images/main-en.png)
+from #732 byte-for-byte. Production QML, isolated fictional country/city labels
+and honest Disconnected state are retained; no private data, fake connection,
+retouch or upscale. README also illustrates guided setup and the real terminal
+application. This release includes TUI/Open app and encrypted Backup; Restore,
+kill switch, WG/AWG and unaccepted autoconnect are not advertised.
+
+Use the existing `kdk.omavless` listing's **Verify and publish a newer upstream
+commit** action, not a duplicate listing or a reopen of completed #8093.
+Before submission read current upstream policy and run exact-main compatibility
+and Automated Security Baseline. Record the final SHA, request URL and real
+bot/reviewer results on this change's PR; do not create a follow-up main commit
+which immediately changes the requested SHA. Submission is not approval.
+
+## Historical 0.8.2 preparation
 
 Updated September 22. The established filename is retained for external links.
 The current stable release is **0.8.2**, with published, inspected ARM64/x86_64

@@ -40,8 +40,11 @@ not replaced by this short entry point.
   packages; old 0.9.8 assets are immutable and superseded. #726 is merged;
   corrected `v0.9.8-fix.1` is stable/latest and the preparation branch is retired.
   On October 11 the owner approved the user-facing README update through #732.
-  Marketplace submission remains withheld; no standing authorization for future
-  main updates follows. Publicly accepted artifact baseline is `rc/0.9.5`
+  On October 11 the owner also authorized the agreed 0.9.8 Marketplace copy,
+  preview and exact-main update request, with tags vpn/bar/quickshell. Record
+  the request and bot/reviewer outcome on the publication PR, without another
+  main commit that immediately changes the submitted SHA. No standing
+  authorization for future main updates follows. Publicly accepted artifact baseline is `rc/0.9.5`
   as historical RC evidence, not a selector for the corrected 0.9.8 packages;
   preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent
