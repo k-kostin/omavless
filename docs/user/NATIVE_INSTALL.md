@@ -2,11 +2,13 @@
 
 ## Selected 0.9.8 candidate: managed-package route
 
-This branch is an **unpublished candidate**, not an available stable upgrade.
-Do not substitute older public assets into its empty package pins or compile
-the application from a marketplace installer. The selected Backup-only RC has
-bounded installed checks on x86_64 and ARM64. New stable artifacts, public pins
-and clean guided installation remain in the [candidate ledger](../development/RC_098.md).
+This branch is a **validation candidate**, not the current stable/main upgrade.
+Its corrected delivery is `v0.9.8-fix.1`, with exact app/DNS hashes for both
+architectures. Product/package versions remain `0.9.8` / `0.9.8-1`; the release
+tag distinguishes corrected bytes from the immutable first validation build.
+Do not mix its frontend with the earlier `v0.9.8` packages or compile Rust in a
+marketplace installer. Download/setup acceptance is tracked in the
+[candidate ledger](../development/RC_098.md).
 
 The selected 0.9 route differs from the released 0.8.2 instructions below:
 
@@ -35,8 +37,9 @@ The selected 0.9 route differs from the released 0.8.2 instructions below:
 The 0.9.8 scope decision is closed: encrypted Backup is included, Restore is not.
 Completed Restore/recovery remains mandatory for 0.9.9. See
 [Backup usage and limits](NATIVE_USAGE.md#encrypted-backup-098-candidate).
-Real final package URLs and hashes are required before guided public first use;
-placeholders are not an installation path.
+The matching frontend verifies both package hashes and source identities before
+normal installation. Earlier validation users must use the guarded update path;
+the unchanged Arch version may show **reinstalling**, not an automatic update.
 
 ## Released 0.8.2 route and historical compatibility
 

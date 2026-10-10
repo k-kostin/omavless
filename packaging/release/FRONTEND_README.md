@@ -1,31 +1,31 @@
-# OmaVLESS 0.9.5-beta.1 — native frontend candidate
+# OmaVLESS 0.9.8 — corrected validation frontend
 
-This is a **development beta**, not a scope-frozen RC or marketplace update. It contains the
+This is a **validation candidate**, not a latest/stable or marketplace update. It contains the
 Omarchy QML frontend for the matching Rust package; Python is not included.
-Use the accompanying `release-candidate.json` (single-source build) or
-`frontend-pair.json` (reviewed unchanged runtime, newer frontend), together with
-`SHA256SUMS`, to verify source identities, version, architecture and archive integrity. Checksums
+Use the accompanying `release-provenance.json` and `SHA256SUMS`
+(or the offline `managed-dns-pair.json`) to verify source identities,
+version, architecture and archive integrity. Checksums
 detect a changed download; they are not signatures or independent trust proof.
 
 This QML frontend is common to ARM64 and x86_64. Install the native package
 for your architecture from the recorded reviewed runtime source/version. A paired
 frontend can have a newer source commit only when the pairing record verifies
 unchanged runtime/build/package inputs; a matching version alone is insufficient.
-A `0.9.5-beta.1` version
-label alone does not mean this candidate has been published or accepted on both.
+A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-This beta currently has **no public package pins**. Required components must
-report the release unavailable rather than download the older RC2 pair. Use
-the reviewed local exact-source `omavless` + `omavless-dns` package pair for
-developer acceptance. It is not a supported stable upgrade.
-Once separately authorized public pins exist, the panel can offer a guided fresh install after explicit consent; an existing
+The corrected `v0.9.8-fix.1` delivery has exact package pins for both architectures.
+Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
+and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
+correction, not the version label. Existing validation users may see an explicit
+pacman reinstall. It is not an automatic stable upgrade.
+After the public download/setup gate, the panel offers guided fresh installation after explicit consent; an existing
 or ambiguous installation requires the separate reviewed update/recovery path.
 It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.
 
 1. Read [native installation and recovery](docs/user/NATIVE_INSTALL.md).
-2. Only after public beta pins/downloads are verified, for a fresh account with neither package installed, use the panel's
+2. For a fresh account after matching public downloads are verified, with neither package installed, use the panel's
    **Required components** action and confirm package installation, DNS
    enrollment and activation in the visible terminal. It verifies the pinned
    downloads before normal `pacman`; it does not connect automatically.
@@ -39,7 +39,7 @@ It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.
 The same `./install.sh` updates an already activated native frontend without
 installing a legacy fallback. The version in its manifest belongs to the native
 candidate, as does the current source manifest. The historical marketplace
-snapshot remains 0.7.0.
+snapshot remains 0.8.2.
 Do not install this archive through a marketplace listing pointing at another
 commit, mix its frontend with an unverified older runtime, or run any command
 from this guide with private credentials in argv.

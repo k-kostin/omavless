@@ -19,6 +19,7 @@ PKGVER = subprocess.check_output(
     ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
 ).split()[1]
 SOURCE = "b" * 40
+RELEASE_TAG = "v0.9.8-fix.1"
 
 
 class MarketplaceSetupTests(unittest.TestCase):
@@ -83,6 +84,14 @@ bsdtar() {{ printf '%s\\n' 'schemaVersion=3' 'sourceCommit={SOURCE}' 'architectu
 app_archive_identity synthetic-archive {source} {arch} {version}
 '''
             self.assertNotEqual(self.run_shell(code).returncode, 0)
+
+    def test_corrected_delivery_has_fixed_tag_and_unchanged_product_version(self):
+        self.env["release_tag"] = "v0.8.2/caller-selected"
+        result = self.run_shell('printf "%s\\n" "$release_tag" "$release_version" "$package_version"')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, f"{RELEASE_TAG}\n{VERSION}\n{PKGVER}\n")
+        changed = self.run_shell('release_tag=caller-selected')
+        self.assertNotEqual(changed.returncode, 0)
 
     def test_selected_candidate_has_matching_bounded_pair_pins(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
@@ -357,8 +366,8 @@ install_package
         self.assertEqual(result.returncode, 0, result.stderr)
         urls = (self.directory / "urls").read_text().splitlines()
         self.assertEqual(urls, [
-            f"https://github.com/k-kostin/omavless/releases/download/v{VERSION}/omavless-{PKGVER}-1-x86_64.pkg.tar.zst",
-            f"https://github.com/k-kostin/omavless/releases/download/v{VERSION}/omavless-dns-{PKGVER}-1-x86_64.pkg.tar.zst",
+            f"https://github.com/k-kostin/omavless/releases/download/{RELEASE_TAG}/omavless-{PKGVER}-1-x86_64.pkg.tar.zst",
+            f"https://github.com/k-kostin/omavless/releases/download/{RELEASE_TAG}/omavless-dns-{PKGVER}-1-x86_64.pkg.tar.zst",
         ])
         args = (self.directory / "install-args").read_text().splitlines()
         self.assertEqual(len(args), 2)

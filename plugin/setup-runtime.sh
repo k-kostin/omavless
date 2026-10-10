@@ -9,6 +9,9 @@ setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
 release_version=0.9.8
 package_version=0.9.8
+# Corrected validation delivery; the original v0.9.8 assets stay immutable.
+# A fixed repository/tag plus exact archive pins, never caller-supplied URLs.
+readonly release_tag=v0.9.8-fix.1
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -304,7 +307,7 @@ install_package() {
       'Загрузка проверенных пакетов приложения OmaVLESS и управляемого DNS…'
   # HTTPS redirects are required by GitHub's asset delivery. Only the exact
   # pinned archive hashes authorize the downloaded payloads for pacman.
-  url="https://github.com/k-kostin/omavless/releases/download/v${version}/${app_package}"
+  url="https://github.com/k-kostin/omavless/releases/download/${release_tag}/${app_package}"
   curl --disable --fail --silent --show-error --location --max-redirs 3 \
     --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
     --max-filesize 268435456 --output "$setup_temp/$app_package" "$url" 2>/dev/null || return 1
@@ -312,7 +315,7 @@ install_package() {
   [[ "${actual%% *}" == "$app_hash" ]] || return 1
   [[ $(package_info "$setup_temp/$app_package") == "omavless $package_version-1" ]] || return 1
   app_archive_identity "$setup_temp/$app_package" "$source" "$arch" "$version" || return 1
-  url="https://github.com/k-kostin/omavless/releases/download/v${version}/${dns_package}"
+  url="https://github.com/k-kostin/omavless/releases/download/${release_tag}/${dns_package}"
   curl --disable --fail --silent --show-error --location --max-redirs 3 \
     --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
     --max-filesize 536870912 --output "$setup_temp/$dns_package" "$url" 2>/dev/null || return 1

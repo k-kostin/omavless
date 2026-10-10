@@ -1,10 +1,20 @@
 # Current delivery status
 
-Updated 2026-10-09. This is the compact current-state entry point; the detailed
+Updated 2026-10-10. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **Corrected 0.9.8 validation delivery:** the owner authorized immutable
+  `v0.9.8-fix.1`, preserving the original `v0.9.8` assets and failures. The
+  frontend pins the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`
+  for ARM64/x86_64. #730 integrates independently reviewed first-use Backup and
+  empty DNS accept-loop fixes. Five producer CI checks pass; installed ARM64
+  first-use Backup without restart and idle → actual owned DNS lease → clean
+  Disconnect pass. Original private data were restored. Publication/download/
+  guided-setup outcomes belong to #726 and the [delivery ledger](../development/RC_098.md#corrected-validation-delivery--october-10),
+  not old artifacts. Main/latest/Marketplace remain separately controlled.
 
 - **Owner release decision, 2026-10-08:** public 0.9.8 is **Backup-only**.
   Trusted product scope restricts capabilities, RPC, CLI and developer actor
@@ -516,10 +526,11 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Prepare a separately owner-authorized stable/main proposal from accepted
-   `rc/0.9.5`, reconciling release notes, constituent PRs and candidate docs.
-   RC1 public assets/pins and clean provisioning are completed, not a fresh work
-   queue. Do not silently bump/publish stable packages or main. Preserve accepted UI unless the task
+4. Finish the owner-selected Backup-only 0.9.8 successor's public-download and
+   affected guided-setup gates, then reconcile its source PRs and candidate
+   docs for the authorized main proposal. Preserve 0.9.5 RC1 and original 0.9.8
+   validation artifacts as history, not a fresh work queue. Stable/latest and
+   Marketplace publication remain separate. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
 Retained mandatory RC disposition: [the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
