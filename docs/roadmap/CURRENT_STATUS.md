@@ -12,8 +12,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   for ARM64/x86_64. #730 integrates independently reviewed first-use Backup and
   empty DNS accept-loop fixes. Five producer CI checks pass; installed ARM64
   first-use Backup without restart and idle → actual owned DNS lease → clean
-  Disconnect pass. Original private data were restored. Publication/download/
-  guided-setup outcomes belong to #726 and the [delivery ledger](../development/RC_098.md#corrected-validation-delivery--october-10),
+  Disconnect pass. All seven corrected assets were publicly published and
+  anonymously hash-verified; clean actual ARM64 Required components setup,
+  separate DNS enrollment, onboarding and same-PID supported-template Backup
+  pass. Original private data were restored. Exact results, final CI and main
+  reconciliation belong to #726 and the [delivery ledger](../development/RC_098.md#corrected-validation-delivery--october-10),
   not old artifacts. Main/latest/Marketplace remain separately controlled.
 
 - **Owner release decision, 2026-10-08:** public 0.9.8 is **Backup-only**.

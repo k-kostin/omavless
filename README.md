@@ -22,8 +22,9 @@ and service subscriptions are not included.
 
 ## Installation
 
-**This branch prepares an unpublished 0.9.8 candidate.** The current public
-release and upstream `main` remain **0.8.2**; the installation command below
+**This branch prepares a 0.9.8 validation candidate.** Its matching packages
+are available as a prerelease; the stable release and upstream `main` remain
+**0.8.2**. The installation command below
 follows that released branch, not this candidate. New users: add the plugin,
 then open its panel.
 Already using 0.7.0? Follow the [migration guide](docs/user/NATIVE_INSTALL.md#existing-legacypython-installation)
@@ -49,9 +50,10 @@ permission changes require your confirmation.
 
 For the released version, use the matching **0.8.2** application and frontend from
 [GitHub Releases](https://github.com/k-kostin/omavless/releases/tag/v0.8.2).
-This 0.9.8 candidate instead requires its own matching application, managed-DNS
-package and frontend; its public packages/pins are not ready yet. Do not combine
-this candidate frontend with the released 0.8.2 package.
+This 0.9.8 candidate instead requires the matching application, managed-DNS
+package and frontend from the [corrected validation prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
+Do not combine this candidate frontend with the released 0.8.2 package or the
+superseded first 0.9.8 validation build.
 
 ## Everyday use
 

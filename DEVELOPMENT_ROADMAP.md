@@ -5,8 +5,10 @@ Status: active delivery ledger; stable release updated 2026-09-22.
 **Corrected validation successor, 2026-10-10:** owner-authorized immutable
 `v0.9.8-fix.1` uses the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`.
 #730 integrates first-use Backup origin promotion and DNS idle-admission fixes;
-all five producer CI checks and affected installed ARM64 gates pass. Public
-download/guided setup are tracked in #726 and the [RC ledger](docs/development/RC_098.md#corrected-validation-delivery--october-10).
+all five producer CI checks and affected installed ARM64 gates pass. All seven
+corrected assets pass anonymous downloads; clean actual ARM64 guided setup,
+onboarding and same-PID supported-template Backup pass, with original private
+data restored. Final CI/main reconciliation are tracked in #726 and the [RC ledger](docs/development/RC_098.md#corrected-validation-delivery--october-10).
 Original `v0.9.8` assets/failures remain immutable. No whole T4/K1/V0 completion,
 latest/main or Marketplace update is implied by validation publication.
 

@@ -33,8 +33,13 @@ not replaced by this short entry point.
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
 - New task branches use `dev/<topic>`; temporary development assemblies use
   `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
-  Current assembly is `beta/0.9.8`, based on the internal `rc/0.9.7` source
-  checkpoint. Publicly accepted artifact baseline is `rc/0.9.5`; preserve `rc/0.9.0` and its assets as
+  Current release preparation is `dev/098-stable-preparation` (#726), carrying
+  the selected `rc/0.9.8` Backup-only scope and corrected immutable
+  `v0.9.8-fix.1` validation delivery. Read its current ledger before selecting
+  packages; old 0.9.8 assets are immutable and superseded. Stable main/latest
+  remains 0.8.2 pending separate promotion. Publicly accepted artifact baseline is `rc/0.9.5`
+  as historical RC evidence, not a selector for the corrected 0.9.8 packages;
+  preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent
   develop/beta/rc lane or direct implementation on main.
   `main` is the stable release snapshot, including its documentation. Keep

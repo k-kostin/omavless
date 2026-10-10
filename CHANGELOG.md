@@ -2,7 +2,7 @@
 
 All notable changes to OmaVLESS are documented here.
 
-## 0.9.8 — release preparation, not yet published
+## 0.9.8 — validation prerelease, not stable/latest
 
 - Add the terminal application alongside the compact bar controls. Open or
   focus its existing window; closing it leaves the shared VPN runtime running.
@@ -16,8 +16,12 @@ All notable changes to OmaVLESS are documented here.
   overwrite. Restore is not part of this release.
 - Add guarded application Start after shutdown and truthful stopped-state
   presentation, preserving saved profiles and startup preferences.
+- Correct first-use Backup availability without a runtime restart and keep
+  the idle DNS broker available without repeatedly polling empty admission.
 
-Package publication, pins and clean guided installation remain release gates.
+Corrected packages and matching frontend are published as `v0.9.8-fix.1`;
+anonymous downloads and clean guided ARM64 setup/onboarding pass. The original
+`v0.9.8` validation assets remain immutable. Main/stable promotion is separate.
 Login autoconnect is Off by default; experimental protocol limitations remain.
 Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
 

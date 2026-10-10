@@ -1,20 +1,24 @@
 # Native release, beta and RC preparation
 
-Current preparation source version: **0.9.8**, not published or marketplace-ready.
-Stable-format packages must be newly built with explicit stable assembly;
-do not rename the tested RC1 archives. Both bootstrap pin maps now contain the
-reviewed CI source4915 hashes for each architecture. These assets are not yet
-published or anonymously download-verified; pins alone do not make setup ready.
+Current preparation source version: **0.9.8**, with corrected validation
+packages published at immutable `v0.9.8-fix.1`, not stable/latest or Marketplace.
+Both bootstrap maps pin the inspected app/DNS producer
+`e3d2245966c725ee11b505899b22a20721ff2ddd` for ARM64 and x86_64; common frontend
+`43735a1a84db6e513668a4f7beabf92206c7ad9d` selects the fixed delivery tag.
+All seven public assets were anonymously downloaded and hash-verified; the
+actual Required components installation and onboarding pass on Try Omarchy
+ARM64. See [#726](https://github.com/k-kostin/omavless/pull/726) for exact delivery
+and final CI status. Original `v0.9.8` tags/assets/failures remain unchanged.
+Product/Arch versions remain `0.9.8` / `0.9.8-1`; existing validation users need
+the guarded explicit reinstall, not an automatic version upgrade.
 The selected runtime/client feature remains `product-private-backup`.
 The [0.9.8 RC ledger](../../docs/development/RC_098.md) freezes the selected scope
 and separates exact package/installed gates from historical beta evidence.
 The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7
-maintenance source plus explicitly selected, default-off connection-close and
-retained backup/restore checkpoints. This is internal integration, not product
-activation or installed acceptance of the combined binary. Package pins are
-empty; do not relabel 0.9.5 assets. See the
-[RC scope and remaining gates](../../docs/development/RC_096.md) and its
-[beta selection](../../docs/development/BETA_096.md).
+maintenance source and retained research checkpoints. Only the owner-selected
+Backup-only scope is activated in the 0.9.8 product; connection-close, Restore,
+K1 and background recovery remain excluded. Do not relabel 0.9.5 assets or
+transfer historical full-T4 acceptance to this restricted binary.
 
 The separately accepted **0.9.5-rc.1** bootstrap pins identify reviewed RC1 application/DNS packages from
 `b0bfbee681f6abcbb4f8fb23e6957594d0a4ab10` for both architectures.

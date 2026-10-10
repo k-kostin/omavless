@@ -51,7 +51,10 @@ for (const file of ['AGENTS.md', 'CONTRIBUTING.md', 'docs/development/AGENT_GUID
     'previous RC must be identified as retained history: ' + file);
 }
 assert(entry.includes('Publicly accepted artifact baseline is `rc/0.9.5`'));
-assert(entry.includes('`beta/0.9.8`') && entry.includes('`rc/0.9.7`'));
+assert(entry.includes('`dev/098-stable-preparation`') && entry.includes('`rc/0.9.8`'),
+  'agent entry must point to the selected release preparation, not its historical beta');
+assert(entry.includes('`v0.9.8-fix.1`') && entry.includes('immutable'),
+  'corrected validation delivery must not redirect the immutable original assets');
 assert(fs.readFileSync(path.join(root, 'docs/development/RC_097.md'), 'utf8')
   .includes('0.9.6 was RC-integrated,\nnot accepted or publicly released'));
 assert(fs.readFileSync(path.join(root, 'docs/development/RC_096.md'), 'utf8')

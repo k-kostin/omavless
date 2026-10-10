@@ -207,8 +207,12 @@ the change.
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
   `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
   assemblies and `rc/<version>` release candidates follow the canonical
-  workflow; current assembly is `beta/0.9.8` from internal `rc/0.9.7`.
-  The publicly accepted artifact baseline remains `rc/0.9.5`. Internal source
+  workflow; current release preparation is `dev/098-stable-preparation` (#726)
+  from the selected `rc/0.9.8` Backup-only scope. Corrected immutable validation
+  delivery is `v0.9.8-fix.1`; its producer/frontend and affected installed gates
+  are in the RC ledger. Old 0.9.8 assets stay immutable and superseded; stable
+  main/latest remain separately controlled. The publicly accepted historical
+  RC artifact baseline remains `rc/0.9.5`. Internal source
   freeze follows the declared risk-based checks; public provisioning gates do
   not repeat at every internal version. Installed private-restore integration
   is still necessary. Preserve `rc/0.9.0` as
