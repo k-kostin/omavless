@@ -31,10 +31,12 @@ test('all editable fields use the shared guarded boundary', () => {
 test('no passive clipboard read, native menu or middle paste in shared editor', () => {
   const source = fs.readFileSync(path.join(root, 'plugin/SafeTextField.qml'), 'utf8');
   assert.match(source, /Controls.TextArea/); assert.match(source, /textFormat: TextEdit.PlainText/);
-  assert.match(source, /Controls.ContextMenu.menu: null/);
+  assert.match(source, /Controls.ContextMenu.menu: editMenu/);
+  assert.match(source, /enabled: field.canPaste; onTriggered: field.requestPaste\(\)/);
   assert.match(source, /event.matches\(StandardKey.Paste\)/);
   assert.match(source, /acceptedButtons: Qt.MiddleButton/);
-  assert(!/editor\.paste\(|QClipboard|Clipboard\.text|Quickshell\.clipboard/.test(source));
+  const executable = source.split('\n').filter(line => !line.trim().startsWith('//')).join('\n');
+  assert(!/editor\.paste\(|QClipboard|Clipboard\.text|Quickshell\.clipboard/.test(executable));
   const reader = fs.readFileSync(path.join(root, 'plugin/BoundedClipboard.qml'), 'utf8');
   assert.match(reader, /command: \["\/usr\/bin\/timeout", "6s", "\/usr\/bin\/omavless", "desktop", "clipboard-read"\]/);
   assert.match(reader, /process.destroy\(\)/);

@@ -7,6 +7,10 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "input.cut": {"en":"Cut","ru":"Вырезать"},
+  "input.undo": {"en":"Undo","ru":"Отменить"},
+  "input.redo": {"en":"Redo","ru":"Повторить"},
+  "input.select_all": {"en":"Select all","ru":"Выделить всё"},
   "common.paste": {"en":"Paste","ru":"Вставить"},
   "input.url_hidden_hint": {"en":"Paste a URL, or show it to edit","ru":"Вставьте ссылку или покажите её для редактирования"},
   "input.error.invalid": {"en":"Use a single line within the field's length limit.","ru":"Введите одну строку допустимой длины."},

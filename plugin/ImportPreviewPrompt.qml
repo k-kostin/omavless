@@ -38,6 +38,8 @@ Item {
   focus: visible
 
   function openWith(text) {
+    nameField.cancelPaste()
+    nameField.resetHistory()
     nameField.text = String(text)
     visible = true
     Qt.callLater(function() {

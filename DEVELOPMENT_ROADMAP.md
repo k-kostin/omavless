@@ -2,6 +2,12 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
+**0.9.8 security maintenance, October 11:** address Marketplace #10984's
+passive Qt clipboard read in the QML input boundary, with bounded explicit Paste,
+preserved editing/navigation and permanently concealed readOnly URL display.
+Application version and reviewed native package inputs remain unchanged;
+frontend delivery/review are recorded on the fixing PR. No 0.9.9 feature is added.
+
 **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
 corrected immutable `v0.9.8-fix.1` is stable/latest. Full main Test subsequently
 passed. The owner approved the bounded README/usage/screenshot update through

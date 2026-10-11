@@ -47,6 +47,8 @@ Item {
   visible: false
 
   function openWith(text) {
+    promptField.cancelPaste()
+    promptField.resetHistory()
     promptField.text = String(text)
     visible = true
     Qt.callLater(function() { prompt.focusField() })

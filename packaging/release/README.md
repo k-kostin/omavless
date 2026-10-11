@@ -3,7 +3,10 @@
 Current preparation source version: **0.9.8**, with corrected validation
 packages published at immutable `v0.9.8-fix.1`. Main/stable promotion is now
 owner-authorized through #726; read GitHub for the actual completed event.
-Marketplace submission/root README updates remain withheld.
+The owner subsequently approved the README and Marketplace update (#10984).
+The QML clipboard correction keeps product/package version 0.9.8 / 0.9.8-1
+and reuses this exact native pair; the fixing PR records its newer immutable
+frontend delivery and exact review SHA. Original archives are not overwritten.
 Both bootstrap maps pin the inspected app/DNS producer
 `e3d2245966c725ee11b505899b22a20721ff2ddd` for ARM64 and x86_64; common frontend
 `43735a1a84db6e513668a4f7beabf92206c7ad9d` selects the fixed delivery tag.
@@ -205,6 +208,10 @@ detector: API/runtime changes require a new build and their affected acceptance.
 The exact root documentation entry `CONTRIBUTING.md` is allowed alongside
 `AGENTS.md`; adding developer navigation must not invalidate an unchanged runtime
 package. This is not a wildcard for new root files: unknown paths still fail closed.
+`CHANGELOG.md` is also documentation-only, fixing #731's false rejection after
+stable editorial promotion. It must be a regular non-executable Git blob;
+executable or symlink substitutions refuse, and compiled/packaged inputs remain
+protected. A later build that consumes it would change protected build code.
 Original build provenance and host evidence remain required; checksums are not
 signatures. Input equivalence does not prove frontend correctness, release asset
 availability, guided download/install/activation or another architecture's behavior.

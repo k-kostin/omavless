@@ -10,6 +10,14 @@ ShellRoot {
   id: review
   property bool ready: false
   property var baselineInput: null
+  property string modelText: ""
+  property var lateDialog: null
+  function find(item, name) {
+    if (item.objectName === name) return item
+    var children = item.children || item.data || []
+    for (var i = 0; i < children.length; i++) { var result = find(children[i], name); if (result) return result }
+    return null
+  }
   Timer {
     interval: 200; running: true
     onTriggered: {
@@ -21,6 +29,15 @@ ShellRoot {
       } else review.ready = true
     }
   }
+  Timer {
+    interval: 1100
+    running: Quickshell.env("OMAVLESS_PROBE_LATE") === "1"
+    onTriggered: {
+      review.lateDialog = lateDialogComponent.createObject(window.contentItem)
+      review.lateDialog.openWith("Late fixture", "https://synthetic.invalid/late")
+    }
+  }
+  Component { id: lateDialogComponent; Product.SubscriptionPrompt { width:700; height:500; accepted:true } }
   FloatingWindow {
     id: window
     visible: true
@@ -39,6 +56,7 @@ ShellRoot {
       KeyNavigation.backtab: second
     }
     Product.SafeTextField { id: second; x: 30; y: 100; width: 400; KeyNavigation.tab: field; KeyNavigation.backtab: field }
+    Product.SafeTextField { id: bound; x: 30; y: 170; width: 400; text: review.modelText; onTextChanged: review.modelText = text }
     Product.SubscriptionPrompt { id: subscription; anchors.fill: parent; accepted: true }
     TestCase {
       name: "SafeTextFields"
@@ -50,6 +68,27 @@ ShellRoot {
       function test_typing_enter() {
         type("Safe name"); compare(field.text, "Safe name")
         keyClick(Qt.Key_Return); compare(field.text, "Safe name"); compare(field.accepts, 1)
+      }
+      function test_actual_paste() {
+        if (Quickshell.env("OMAVLESS_FIELD_CLIPBOARD_MODE") !== "normal") return
+        keyClick(Qt.Key_V, Qt.ControlModifier)
+        tryCompare(field, "text", "replacement", 6500)
+      }
+      function test_helper_refusal() {
+        var mode = Quickshell.env("OMAVLESS_FIELD_CLIPBOARD_MODE")
+        if (mode !== "oversized" && mode !== "slow") return
+        field.text = "unchanged"; field.selectAll(); keyClick(Qt.Key_Insert, Qt.ShiftModifier)
+        tryCompare(field, "pasteError", "clipboard", 6500)
+        compare(field.text, "unchanged"); verify(field.activeFocus)
+      }
+      function test_menu_paste() {
+        if (Quickshell.env("OMAVLESS_FIELD_CLIPBOARD_MODE") !== "normal") return
+        var menu = findChild(field, "omavlessSafeInputMenu")
+        var paste = findChild(field, "omavlessSafePaste")
+        console.log("SAFE_MENU_LOOKUP " + !!menu + " " + !!paste)
+        verify(menu !== null && paste !== null)
+        menu.popup(); wait(30); paste.triggered(); menu.close()
+        tryCompare(field, "text", "replacement", 6500)
       }
       function test_selection_and_bounds() {
         field.text = "abc"; field.selectAll(); type("Y"); compare(field.text, "Y")
@@ -82,10 +121,37 @@ ShellRoot {
         keyClick(Qt.Key_Z, Qt.ControlModifier)
         compare(field.text, "abc")
       }
+      function test_binding_survives_paste() {
+        review.modelText = "abc"; wait(20); bound.forceActiveFocus(); bound.selectAll()
+        bound.pasteContext = {text:bound.text, start:bound.selectionStart, end:bound.selectionEnd, cursor:bound.cursorPosition}
+        bound.finishPaste("new"); compare(review.modelText, "new")
+        review.modelText = ""; wait(20); compare(bound.text, "")
+        review.modelText = "next"; wait(20); compare(bound.text, "next")
+      }
+      function test_excess_typing_keeps_undo() {
+        type("abc"); field.maximumLength = 3; type("x"); compare(field.text, "abc")
+        keyClick(Qt.Key_Z, Qt.ControlModifier); compare(field.text, "")
+        field.maximumLength = 80
+      }
       function test_subscription_reveal() {
         subscription.openWith("Synthetic", "https://synthetic.invalid/token")
         wait(30); compare(subscription.urlValue, "https://synthetic.invalid/token")
         subscription.dismiss(); compare(subscription.urlValue, "")
+      }
+      function test_subscription_reopen_binding() {
+        subscription.openWith("Synthetic", "https://synthetic.invalid/first"); wait(30)
+        var url = review.find(subscription, "omavlessSubscriptionUrl")
+        var editor = review.find(subscription, "omavlessSubscriptionUrlEditor")
+        var hidden = review.find(subscription, "omavlessMaskedSubscriptionUrl")
+        verify(url !== null && editor !== null && hidden !== null)
+        compare(hidden.readOnly, true); compare(hidden.echoMode, TextInput.Password)
+        // Exercise the document mutation used by revealed paste without ever
+        // asking the real Wayland clipboard for data.
+        editor.insertBounded("https://synthetic.invalid/changed", 0, editor.text.length)
+        compare(subscription.urlValue, "https://synthetic.invalid/changed")
+        subscription.dismiss(); subscription.openWith("New", "https://synthetic.invalid/next"); wait(30)
+        compare(editor.text, "https://synthetic.invalid/next")
+        compare(hidden.readOnly, true)
       }
     }
   }

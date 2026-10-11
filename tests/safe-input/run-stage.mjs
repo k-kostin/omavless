@@ -7,17 +7,21 @@ const stage = process.argv[2];
 if (!stage || !path.isAbsolute(stage) || realpathSync(stage) !== stage
     || !statSync(path.join(stage, 'shell.qml')).isFile()) throw Error('Explicit fixture stage required');
 const mode = process.argv[3] || 'gui';
-if (!['gui', 'baseline', 'passive', 'slow-passive'].includes(mode)) throw Error('Unknown fixture mode');
+if (!['gui', 'baseline', 'passive', 'slow-passive', 'late-passive'].includes(mode)) throw Error('Unknown fixture mode');
 const env = {...process.env, QT_QPA_PLATFORM:'offscreen', QT_QPA_PLATFORMTHEME:'generic',
   QT_QUICK_CONTROLS_STYLE:'Basic', XDG_RUNTIME_DIR:path.join(stage, 'runtime')};
+// Deliberately exclude the real wl-paste even if fixture discovery fails.
+env.PATH = path.join(stage, 'mock-tools');
 delete env.WAYLAND_DISPLAY; delete env.DISPLAY; delete env.DBUS_SESSION_BUS_ADDRESS;
 delete env.LD_PRELOAD; delete env.OMAVLESS_PROBE_BASELINE; delete env.OMAVLESS_PROBE_KIND;
 delete env.OMAVLESS_PASSIVE_PROBE;
+delete env.OMAVLESS_PROBE_LATE;
 if (mode !== 'gui') {
   env.OMAVLESS_PASSIVE_PROBE = '1';
   env.LD_PRELOAD = path.join(stage, 'clipboard-probe.so');
   if (mode === 'baseline') env.OMAVLESS_PROBE_BASELINE = '1';
   if (mode === 'slow-passive') env.OMAVLESS_PROBE_KIND = 'slow';
+  if (mode === 'late-passive') env.OMAVLESS_PROBE_LATE = '1';
 }
 const child = spawn('/usr/bin/qs', ['-p', stage], {env, stdio:['ignore','pipe','pipe']});
 let output = '', receipt = false, stopped = false;

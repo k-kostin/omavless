@@ -2,6 +2,7 @@
 // Copyright (c) 2026 OmaVLESS contributors
 
 import QtQuick
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
@@ -40,6 +41,9 @@ Item {
   Keys.onEscapePressed: canceled()
 
   function openWith(name, url) {
+    urlField.pasteContext = null
+    urlClipboard.cancel()
+    urlEditor.cancelPaste()
     fromFile = false
     nameField.text = String(name || "")
     urlField.text = String(url || "")
@@ -128,6 +132,7 @@ Item {
 
         FocusScope {
           id: urlField
+          objectName: "omavlessSubscriptionUrl"
           property string text: ""
           property var pasteContext: null
           signal accepted()
@@ -137,13 +142,18 @@ Item {
           implicitHeight: hiddenUrl.implicitHeight
           enabled: !prompt.loading
           KeyNavigation.priority: KeyNavigation.BeforeItem
-          onTextEdited: if (prompt.autoName) nameField.text = prompt.suggestedName(text)
+          onTextEdited: {
+            pasteContext = null
+            urlClipboard.cancel()
+            if (prompt.autoName) nameField.text = prompt.suggestedName(text)
+          }
           onAccepted: if (prompt.accepted) prompt.confirmed()
           KeyNavigation.tab: reveal
           KeyNavigation.backtab: nameField
           Keys.onEscapePressed: prompt.canceled()
           onVisibleChanged: if (!visible) { pasteContext = null; urlClipboard.cancel() }
           onEnabledChanged: if (!enabled) { pasteContext = null; urlClipboard.cancel() }
+          onActiveFocusChanged: if (!activeFocus) { pasteContext = null; urlClipboard.cancel() }
           function paste(replaceAll) {
             if (!visible || !enabled || urlClipboard.running) return false
             forceActiveFocus()
@@ -155,6 +165,7 @@ Item {
           }
           TextField {
             id: hiddenUrl
+            objectName: "omavlessMaskedSubscriptionUrl"
             anchors.fill: parent
             visible: !reveal.checked
             focus: !reveal.checked
@@ -179,6 +190,7 @@ Item {
           }
           SafeTextField {
             id: urlEditor
+            objectName: "omavlessSubscriptionUrlEditor"
             anchors.fill: parent
             visible: reveal.checked
             focus: reveal.checked
@@ -188,6 +200,7 @@ Item {
             font.family: prompt.fontFamily
             maximumLength: 8192
             externalPaste: true
+            externalPasteBusy: urlClipboard.running
             onPasteRequested: urlField.paste(false)
             placeholderText: "https://provider.example/subscription"
             onTextEdited: { urlField.text = text; urlField.textEdited() }
@@ -217,6 +230,16 @@ Item {
         }
 
         PlainText {
+          visible: !prompt.fromFile && !reveal.checked
+          width: parent.width
+          text: prompt.textFor("input.url_hidden_hint")
+          color: prompt.dim
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
+        }
+
+        PlainText {
           visible: prompt.fromFile
           width: parent.width
           text: prompt.textFor("subscription.file_validated")
@@ -236,7 +259,7 @@ Item {
           wrapMode: Text.Wrap
         }
 
-        Row {
+        RowLayout {
           width: parent.width
           spacing: Style.space(6)
 
@@ -244,6 +267,7 @@ Item {
             id: reveal
             visible: !prompt.fromFile
             property bool checked: false
+            onCheckedChanged: { urlField.pasteContext = null; urlClipboard.cancel(); urlEditor.cancelPaste() }
             text: checked
               ? prompt.textFor("common.hide_url") : prompt.textFor("common.show_url")
             tooltipText: prompt.textFor("subscription.url_sensitive")
@@ -272,10 +296,8 @@ Item {
           }
 
           PlainText {
-            width: prompt.fromFile
-              ? parent.width
-              : parent.width - reveal.width - pasteUrl.width - parent.spacing * 2
-            anchors.verticalCenter: reveal.verticalCenter
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
             text: prompt.loading ? prompt.textFor("subscription.loading_private") : prompt.hint
             color: prompt.error || (!prompt.accepted && !prompt.loading)
               ? prompt.urgent : prompt.dim

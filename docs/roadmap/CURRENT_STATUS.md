@@ -6,6 +6,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.8 frontend security correction:** the owner authorized fixing the
+  Marketplace #10984 passive Qt clipboard read without changing the application
+  version or native pair. Editable fields use formats-only input controls and
+  explicit bounded Paste; the concealed URL stays readOnly. Exact validation,
+  immutable frontend delivery and the updated review SHA belong to its fixing
+  PR. This does not enable Restore or any excluded 0.9.9 scope.
+
 - **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
   corrected `v0.9.8-fix.1` is stable/latest with unchanged tag and seven assets.
   The new main full Test workflow subsequently passed. Owner-approved #732

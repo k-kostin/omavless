@@ -31,6 +31,8 @@ FocusScope {
   property string previousText: ""
   property var pasteContext: null
   property bool externalPaste: false
+  property bool externalPasteBusy: false
+  readonly property bool canPaste: !readOnly && !(externalPaste ? externalPasteBusy : clipboard.running)
   property bool reverting: false
   property var editSnapshot: null
   property var undoStates: []
@@ -49,14 +51,15 @@ FocusScope {
   function selectAll() { editor.selectAll() }
   function select(start, end) { editor.select(start, end) }
   function deselect() { editor.deselect() }
+  function cut() { if (!readOnly) { editSnapshot = snapshot(); editKind = "cut"; editor.cut() } }
   function snapshot() { return {text:text, cursor:cursorPosition, start:selectionStart, end:selectionEnd} }
-  function resetHistory() { undoStates = []; redoStates = []; lastEditKind = ""; editSnapshot = null }
+  function resetHistory() { undoStates = []; redoStates = []; lastEditKind = ""; lastEditAfter = null; editSnapshot = null }
   function remember(before, kind) {
     seedReset.stop()
     if (!before || before.text === text) return
     var now = Date.now()
     var merge = (kind === "typing" || kind === "delete") && kind === lastEditKind
-      && now - lastEditAt < 1500 && lastEditAfter
+      && now >= lastEditAt && now - lastEditAt < 1500 && lastEditAfter
       && before.text === lastEditAfter.text && before.cursor === lastEditAfter.cursor
       && before.start === before.end
     if (!merge) undoStates = undoStates.concat([before]).slice(-32)
@@ -64,6 +67,7 @@ FocusScope {
     lastEditKind = kind; lastEditAt = now; lastEditAfter = snapshot()
   }
   function restore(value) {
+    cancelPaste()
     reverting = true
     editor.remove(0, text.length)
     editor.insert(0, value.text)
@@ -105,7 +109,7 @@ FocusScope {
   }
   function paste() { return requestPaste() }
   function requestPaste() {
-    if (!visible || !enabled || readOnly || clipboard.running) return false
+    if (!visible || !enabled || !canPaste) return false
     forceActiveFocus()
     if (externalPaste) { pasteRequested(); return true }
     pasteContext = {text:text, start:selectionStart, end:selectionEnd, cursor:cursorPosition}
@@ -126,6 +130,9 @@ FocusScope {
   onVisibleChanged: if (!visible) { cancelPaste(); resetHistory() }
   onEnabledChanged: if (!enabled) cancelPaste()
   onActiveFocusChanged: if (!activeFocus) cancelPaste()
+  onTextChanged: if (!reverting) cancelPaste()
+  onSelectionStartChanged: if (!reverting && pasteContext) cancelPaste()
+  onSelectionEndChanged: if (!reverting && pasteContext) cancelPaste()
   // Programmatic seeds/reopens are not undoable edits of a previous record.
   Timer { id: seedReset; interval: 0; onTriggered: field.resetHistory() }
 
@@ -133,6 +140,18 @@ FocusScope {
     id: clipboard
     onReceived: function(value) { field.finishPaste(value) }
     onRefused: { field.pasteContext = null; field.pasteError = "clipboard" }
+  }
+  Controls.Menu {
+    id: editMenu
+    objectName: "omavlessSafeInputMenu"
+    font: field.font
+    Controls.MenuItem { text: I18n.translate("common.copy", field.locale); enabled: editor.selectedText.length > 0; onTriggered: editor.copy() }
+    Controls.MenuItem { text: I18n.translate("input.cut", field.locale); enabled: !field.readOnly && editor.selectedText.length > 0; onTriggered: field.cut() }
+    Controls.MenuItem { objectName: "omavlessSafePaste"; text: I18n.translate("common.paste", field.locale); enabled: field.canPaste; onTriggered: field.requestPaste() }
+    Controls.MenuSeparator {}
+    Controls.MenuItem { text: I18n.translate("input.undo", field.locale); enabled: field.undoStates.length > 0 && !field.readOnly; onTriggered: field.undo() }
+    Controls.MenuItem { text: I18n.translate("input.redo", field.locale); enabled: field.redoStates.length > 0 && !field.readOnly; onTriggered: field.redo() }
+    Controls.MenuItem { text: I18n.translate("input.select_all", field.locale); enabled: field.text.length > 0; onTriggered: field.selectAll() }
   }
   Flickable {
     id: viewport
@@ -157,8 +176,8 @@ FocusScope {
       rightPadding: Style.spacing.controlPaddingX + Style.normalBorderWidth
       topPadding: Style.spacing.inputPaddingY + Style.normalBorderWidth
       bottomPadding: Style.spacing.inputPaddingY + Style.normalBorderWidth
-      // Disable every native menu activation (mouse, keyboard, touch).
-      Controls.ContextMenu.menu: null
+      // Every activation path uses our bounded Paste, never editor.paste().
+      Controls.ContextMenu.menu: editMenu
       Keys.priority: Keys.BeforeItem
       Keys.forwardTo: [field]
       Keys.onPressed: function(event) {
@@ -187,6 +206,7 @@ FocusScope {
       }
       onTextChanged: {
         if (field.reverting) return
+        field.cancelPaste()
         if (!SafeText.valid(text, field.maximumLength)) {
           field.reverting = true
           remove(0, length)
@@ -203,6 +223,7 @@ FocusScope {
       }
       onCursorPositionChanged: field.previousCursor = cursorPosition
       onTextEdited: {
+        field.cancelPaste()
         field.remember(field.editSnapshot, field.editKind || "typing")
         field.editSnapshot = null
         field.pasteError = ""; field.textEdited()

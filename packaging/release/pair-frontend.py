@@ -32,6 +32,7 @@ inspection = module('pair_inspection', ROOT / 'tests/installed_native_package.py
 # for every other path, including new root files, templates, .cargo, crates,
 # Cargo.lock, toolchain, systemd, Arch packaging and payload licenses/notices.
 FRONTEND_FILES = frozenset(('README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'DEVELOPMENT_ROADMAP.md',
+                            'CHANGELOG.md',
                             'manifest.json', 'preview.png', 'backend.sh', 'install.sh',
                             '.github/workflows/native-package.yml'))
 FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
@@ -46,6 +47,8 @@ def runtime_tree(root, commit):
             continue
         meta, raw_path = record.split(b'\t', 1)
         path = raw_path.decode('utf-8', 'strict')
+        if path == 'CHANGELOG.md' and meta.split()[:2] != [b'100644', b'blob']:
+            raise ValueError('release notes must be a regular non-executable blob')
         if path in FRONTEND_FILES or path.startswith(FRONTEND_DIRS):
             continue
         entries.append(record)
