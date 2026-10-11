@@ -15,7 +15,7 @@ A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-The corrected `v0.9.8-fix.1` delivery has exact package pins for both architectures.
+The corrected `v0.9.8-fix.2` delivery has exact package pins for both architectures.
 Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
 and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
 correction, not the version label. Existing validation users may see an explicit

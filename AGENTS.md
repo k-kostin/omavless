@@ -58,6 +58,11 @@ not replaced by this short entry point.
   This includes documentation-only merges: the former standing authorization
   is revoked. Follow the [documentation merge rule](docs/roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates)
   and include roadmap/docs reconciliation in every proposed main update.
+- The October 11 owner follow-up authorizes the Qt clipboard correction within
+  0.9.8 through #735, its immutable frontend delivery `v0.9.8-fix.2` with unchanged
+  native pair, and updating existing Marketplace #10984 to final main. Product
+  version stays 0.9.8; older tags/assets remain immutable. Read #735 for the actual
+  publication/installed outcome, not an inferred PASS from this authorization.
 - README is a product page, not an agent diary. Follow the
   [documentation and retention policy](docs/development/README.md). Preserve
   useful roadmaps, contracts and evidence; keep disposable session files outside Git.
