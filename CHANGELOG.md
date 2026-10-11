@@ -11,7 +11,8 @@ All notable changes to OmaVLESS are documented here.
 
 - Avoid Qt's automatic unbounded clipboard payload reads in editable plugin
   controls. Keep explicit Paste bounded, URL concealment, keyboard navigation
-  and edit history. The application version and reviewed native pair are unchanged.
+  and edit history. The application version is unchanged; the separate parser
+  correction above requires updated native packages.
 
 - Add the terminal application alongside the compact bar controls. Open or
   focus its existing window; closing it leaves the shared VPN runtime running.
@@ -28,14 +29,16 @@ All notable changes to OmaVLESS are documented here.
 - Correct first-use Backup availability without a runtime restart and keep
   the idle DNS broker available without repeatedly polling empty admission.
 
-Corrected packages and matching frontend use `v0.9.8-fix.2`, whose frontend
-addresses the Qt clipboard finding; native package bytes are unchanged from
-`v0.9.8-fix.1`. The fixing PR records actual publication and download checks;
-anonymous downloads and clean guided ARM64 setup/onboarding pass. The original
+Corrected packages and matching frontend use `v0.9.8-fix.3`, adding the native
+subscription-parser correction to #735's Qt clipboard fix. Both native packages
+identify source `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`; #736 records
+the inspected architecture pairs, installed checks and actual publication/download
+outcome. Existing 0.9.8 installations need a guarded native package reinstall,
+not only a plugin update; product/package versions remain 0.9.8 / 0.9.8-1. The original
 `v0.9.8` validation assets remain immutable. The owner authorized main/stable
 promotion; its actual merge/release event is recorded in PR #726. Marketplace
 submission and the root README were subsequently owner-approved; #10984 is the
-exact-snapshot Marketplace update, with its Qt finding addressed in #735.
+exact-snapshot Marketplace update, with its findings addressed in #735/#736.
 Login autoconnect is Off by default; experimental protocol limitations remain.
 Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
 

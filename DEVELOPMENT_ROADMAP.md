@@ -7,7 +7,8 @@ Marketplace #10984's quadratic candidate scan in the shared Rust feed decoder.
 The cursor now advances monotonically for raw and Base64 bodies; existing size,
 candidate, validation and atomic-commit boundaries remain. A corrected native
 delivery is required, not reuse of #735's frontend-only package equivalence.
-The owning PR records exact checks, artifacts and publication outcome. Product
+`v0.9.8-fix.3` selects new native producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`;
+the owning PR records exact checks, artifacts and publication outcome. Product
 version remains 0.9.8; direct Base64-bundle import stays planned in #733 for 0.9.9.
 
 **0.9.8 security maintenance, October 11:** address Marketplace #10984's
@@ -17,7 +18,7 @@ Application version and reviewed native package inputs remain unchanged;
 frontend delivery/review are recorded on the fixing PR. No 0.9.9 feature is added.
 
 **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
-corrected immutable `v0.9.8-fix.1` is stable/latest. Full main Test subsequently
+corrected immutable `v0.9.8-fix.1` is retained delivery history. Full main Test subsequently
 passed. The owner approved the bounded README/usage/screenshot update through
 #732 on October 11, then authorized the agreed Marketplace copy/preview and
 exact-main update request with tags vpn/bar/quickshell. Publication approval
