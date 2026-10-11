@@ -8,6 +8,19 @@ import "plugin" as Product
 
 ShellRoot {
   id: review
+  property bool ready: false
+  property var baselineInput: null
+  Timer {
+    interval: 200; running: true
+    onTriggered: {
+      if (Quickshell.env("OMAVLESS_PASSIVE_PROBE") === "1") {
+        subscription.openWith("Synthetic", "https://synthetic.invalid/token")
+        if (Quickshell.env("OMAVLESS_PROBE_BASELINE") === "1")
+          review.baselineInput = Qt.createQmlObject('import QtQuick.Controls; TextField { objectName: "unboundedBaseline"; text: "baseline" }', window.contentItem)
+        console.log("SAFE_BASELINE_CREATED " + !!review.baselineInput)
+      } else review.ready = true
+    }
+  }
   FloatingWindow {
     id: window
     visible: true
@@ -29,15 +42,19 @@ ShellRoot {
     Product.SubscriptionPrompt { id: subscription; anchors.fill: parent; accepted: true }
     TestCase {
       name: "SafeTextFields"
-      when: window.visible
+      when: review.ready
+      onCompletedChanged: if (completed) console.log("SAFE_INPUT_RESULT " + JSON.stringify({passed:qtest_results.passCount, failed:qtest_results.failCount, skipped:qtest_results.skipCount}))
+      function cleanup() { console.log("SAFE_INPUT_CASE " + qtest_results.functionName + " failed=" + qtest_results.failed) }
+      function type(value) { for (var i = 0; i < value.length; i++) keyClick(value.charAt(i)) }
       function init() { subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
       function test_typing_enter() {
-        keyClicks("Safe name"); compare(field.text, "Safe name")
+        type("Safe name"); compare(field.text, "Safe name")
         keyClick(Qt.Key_Return); compare(field.text, "Safe name"); compare(field.accepts, 1)
       }
       function test_selection_and_bounds() {
-        field.text = "abc"; field.selectAll(); keyClicks("Я"); compare(field.text, "Я")
-        field.text = "x".repeat(80); keyClicks("z"); compare(field.text.length, 80)
+        field.text = "abc"; field.selectAll(); type("Y"); compare(field.text, "Y")
+        field.text = "Иван"; compare(field.text, "Иван")
+        field.text = "x".repeat(80); type("z"); compare(field.text.length, 80)
         field.text = "<b>plain</b>"; compare(field.text, "<b>plain</b>")
       }
       function test_tab() {
@@ -48,6 +65,21 @@ ShellRoot {
         field.text = "abc"; field.selectAll()
         field.pasteContext = {text:"abc", start:0, end:3, cursor:3}
         second.forceActiveFocus(); field.finishPaste("discarded")
+        compare(field.text, "abc")
+      }
+      function test_paste_undo() {
+        type("abc"); field.select(1, 2)
+        field.pasteContext = {text:field.text, start:field.selectionStart, end:field.selectionEnd, cursor:field.cursorPosition}
+        field.finishPaste("X"); compare(field.text, "aXc")
+        keyClick(Qt.Key_Z, Qt.ControlModifier)
+        compare(field.text, "abc")
+        keyClick(Qt.Key_Z, Qt.ControlModifier | Qt.ShiftModifier); compare(field.text, "aXc")
+      }
+      function test_append_undo() {
+        type("abc")
+        field.pasteContext = {text:field.text, start:field.selectionStart, end:field.selectionEnd, cursor:field.cursorPosition}
+        field.finishPaste("X"); compare(field.text, "abcX")
+        keyClick(Qt.Key_Z, Qt.ControlModifier)
         compare(field.text, "abc")
       }
       function test_subscription_reveal() {

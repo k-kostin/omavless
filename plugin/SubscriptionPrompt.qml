@@ -144,9 +144,13 @@ Item {
           Keys.onEscapePressed: prompt.canceled()
           onVisibleChanged: if (!visible) { pasteContext = null; urlClipboard.cancel() }
           onEnabledChanged: if (!enabled) { pasteContext = null; urlClipboard.cancel() }
-          function paste() {
+          function paste(replaceAll) {
             if (!visible || !enabled || urlClipboard.running) return false
-            pasteContext = text
+            forceActiveFocus()
+            pasteContext = {text:text, revealed:reveal.checked,
+              start:replaceAll || !reveal.checked ? 0 : urlEditor.selectionStart,
+              end:replaceAll || !reveal.checked ? text.length : urlEditor.selectionEnd,
+              cursor:urlEditor.cursorPosition, replaceAll:replaceAll || !reveal.checked}
             return urlClipboard.request()
           }
           TextField {
@@ -165,7 +169,7 @@ Item {
             Keys.onPressed: function(event) {
               if (event.matches(StandardKey.Paste)
                   || (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier))) {
-                event.accepted = true; urlField.paste()
+                event.accepted = true; urlField.paste(true)
               } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                 event.accepted = true; urlField.accepted()
               }
@@ -183,6 +187,8 @@ Item {
             foreground: prompt.foreground
             font.family: prompt.fontFamily
             maximumLength: 8192
+            externalPaste: true
+            onPasteRequested: urlField.paste(false)
             placeholderText: "https://provider.example/subscription"
             onTextEdited: { urlField.text = text; urlField.textEdited() }
             onAccepted: urlField.accepted()
@@ -194,9 +200,16 @@ Item {
             onReceived: function(value) {
               var original = urlField.pasteContext
               urlField.pasteContext = null
-              if (original === null || !urlField.visible || !urlField.enabled || original !== urlField.text) return
-              var result = SafeText.insertion("", value, 0, 0, 8192)
-              if (result) { urlField.text = result.text; urlField.textEdited(); urlEditor.pasteError = "" }
+              if (original === null || !urlField.visible || !urlField.enabled || !urlField.activeFocus
+                  || original.text !== urlField.text || original.revealed !== reveal.checked
+                  || (!original.replaceAll && (original.start !== urlEditor.selectionStart
+                    || original.end !== urlEditor.selectionEnd || original.cursor !== urlEditor.cursorPosition))) return
+              var result = SafeText.insertion(urlField.text, value, original.start, original.end, 8192)
+              if (result) {
+                if (reveal.checked) urlEditor.insertBounded(value, original.start, original.end)
+                else { urlField.text = result.text; urlField.textEdited() }
+                urlEditor.pasteError = ""
+              }
               else urlEditor.pasteError = "input"
             }
             onRefused: { urlField.pasteContext = null; urlEditor.pasteError = "clipboard" }
@@ -255,7 +268,7 @@ Item {
             focusable: true
             KeyNavigation.tab: cancelButton
             KeyNavigation.backtab: reveal
-            onClicked: urlField.paste()
+            onClicked: urlField.paste(true)
           }
 
           PlainText {
