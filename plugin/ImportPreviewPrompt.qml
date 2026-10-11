@@ -38,6 +38,8 @@ Item {
   focus: visible
 
   function openWith(text) {
+    nameField.cancelPaste()
+    nameField.resetHistory()
     nameField.text = String(text)
     visible = true
     Qt.callLater(function() {
@@ -171,8 +173,10 @@ Item {
           wrapMode: Text.WordWrap
         }
 
-        TextField {
+        SafeTextField {
           id: nameField
+          locale: prompt.locale
+          maximumLength: 80
           width: parent.width
           placeholderText: prompt.textFor("import.profile_name")
           foreground: prompt.foreground

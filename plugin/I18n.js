@@ -7,6 +7,15 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "input.cut": {"en":"Cut","ru":"Вырезать"},
+  "input.undo": {"en":"Undo","ru":"Отменить"},
+  "input.redo": {"en":"Redo","ru":"Повторить"},
+  "input.select_all": {"en":"Select all","ru":"Выделить всё"},
+  "common.paste": {"en":"Paste","ru":"Вставить"},
+  "input.url_hidden_hint": {"en":"Paste a URL, or show it to edit","ru":"Вставьте ссылку или покажите её для редактирования"},
+  "input.error.invalid": {"en":"Use a single line within the field's length limit.","ru":"Введите одну строку допустимой длины."},
+  "input.error.clipboard": {"en":"Could not read the clipboard. Check wl-clipboard and try again.","ru":"Не удалось прочитать буфер. Проверьте wl-clipboard и повторите."},
+  "input.error.primary": {"en":"Use Ctrl+V to paste from the clipboard.","ru":"Для вставки из буфера используйте Ctrl+V."},
   "setup.needs_runtime_start": {"en":"OmaVLESS is stopped. Saved profiles and startup settings are preserved. Start the application to continue; connecting is a separate action.","ru":"OmaVLESS остановлен. Профили и настройки автозапуска сохранены. Запустите приложение; подключение выполняется отдельно."},
   "setup.start_app": {"en":"Start OmaVLESS","ru":"Запустить OmaVLESS"},
   "native.app.title": {"en":"OmaVLESS application","ru":"Приложение OmaVLESS"},

@@ -75,6 +75,17 @@ class FrontendPairTests(unittest.TestCase):
         new = self.commit()
         self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, new), r'^[0-9a-f]{64}$')
 
+    def test_release_notes_are_non_executable_documentation_only(self):
+        self.write('CHANGELOG.md', 'release notes')
+        self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, self.commit()), r'^[0-9a-f]{64}$')
+        (self.repo / 'CHANGELOG.md').chmod(0o755)
+        with self.assertRaises(ValueError):
+            PAIR.equivalent_inputs(self.repo, self.old, self.commit())
+        (self.repo / 'CHANGELOG.md').unlink()
+        (self.repo / 'CHANGELOG.md').symlink_to('crates/runtime.rs')
+        with self.assertRaises(ValueError):
+            PAIR.equivalent_inputs(self.repo, self.old, self.commit())
+
     def test_runtime_changes_new_files_deletions_and_modes_refuse(self):
         for path in ['Cargo.lock', 'crates/runtime.rs', 'templates/default.yaml',
                      'packaging/arch/README.md', 'packaging/systemd/omavless-runtime.service',

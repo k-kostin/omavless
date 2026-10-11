@@ -2,13 +2,21 @@
 
 ## Privilege boundary
 
-OmaVLESS does not invoke `sudo` or `pkexec`, create administrator policy,
-change firewall rules, edit crontab or download executable code. The user must
-explicitly grant the separately installed Mihomo binary the Linux capabilities
-required for TUN networking.
+Guided setup asks for explicit authorization to install SHA-pinned native
+packages and enroll the fixed-purpose managed-DNS helper. Ordinary clients have
+no arbitrary shell/root command API. The separately packaged, reviewed Mihomo
+core and DNS broker retain their own TUN/lease and caller checks. The plugin and
+TUI share one Rust runtime; future firewall features remain separate security work.
 
-The plugin manages only user-level systemd units. Future privileged networking
-features require their own reviewed fixed-purpose design.
+## GUI clipboard boundary
+
+Editable plugin controls do not automatically read clipboard payloads to decide
+whether Paste is available. Explicit Paste runs through the fixed Rust helper
+with byte/time bounds, including menu and keyboard actions. Middle-button primary
+paste is disabled rather than silently using a different clipboard source.
+Subscription URLs start concealed in a permanently readOnly password field;
+use Paste or show the URL for direct editing. Qt 6.11/6.12 TextInput's passive
+payload query is avoided even on hosts without Qt's upstream correction.
 
 ## Private storage
 

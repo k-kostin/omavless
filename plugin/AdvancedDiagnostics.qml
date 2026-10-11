@@ -248,8 +248,10 @@ Item {
         font.bold: true
       }
 
-      TextField {
+      SafeTextField {
         id: searchField
+        locale: page.locale
+        maximumLength: 128
         width: parent.width
         height: page.controlHeight
         placeholderText: page.textFor("diagnostics.search_placeholder")
