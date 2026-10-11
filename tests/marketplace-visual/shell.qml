@@ -153,6 +153,15 @@ ShellRoot {
       product.scrollPanelControlIntoView(quit.focusTarget)
       return "scrolled"
     }
+    function reviewSubscriptionForm(locale: string): string {
+      if (["en", "ru"].indexOf(locale) < 0 || product.nativeView.connected) return "refused"
+      product.settings = {locale:locale, showExitIp:false, showBarThroughput:false}
+      product.open()
+      var prompt = review.find(product, function(o) { return "nameValue" in o && "urlValue" in o && "openWith" in o })
+      if (!prompt) return "not-ready"
+      prompt.openWith("My servers", "https://synthetic.invalid/subscription")
+      return "ready"
+    }
     function reviewCapture(slug: string): string {
       if (review.reviewKind === "") return "not-ready"
       return review.captureCard(slug)
