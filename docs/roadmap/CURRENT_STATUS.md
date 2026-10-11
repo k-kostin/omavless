@@ -6,6 +6,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.8 subscription security correction, #736:** the shared Rust feed
+  scanner no longer repeats failed scheme suffixes. Raw/Base64 semantics and
+  existing bounds remain; matching corrected native artifacts and installed
+  validation are recorded on #736. Older native packages do not contain this
+  fix. This is maintenance, not the planned #733 Base64-bundle import feature.
+
 - **0.9.8 frontend security correction:** the owner authorized fixing the
   Marketplace #10984 passive Qt clipboard read without changing the application
   version or native pair. Editable fields use formats-only input controls and

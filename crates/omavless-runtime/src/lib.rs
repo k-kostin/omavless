@@ -7350,6 +7350,142 @@ mod tests {
     }
 
     #[test]
+    fn maximum_subscription_body_refusal_preserves_owner_availability() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::Instant;
+
+        // Real loopback HTTP and private unary sockets, but a fake lifecycle
+        // host: never send an adversarial feed to the installed daemon/TUN.
+        for method in [
+            "subscriptions.add",
+            "subscriptions.update",
+            "subscriptions.refresh",
+            "subscriptions.usage",
+            "subscriptions.refresh_all",
+        ] {
+            let base = temporary_base("max-feed");
+            let (owner, _, host_calls) = native_owner_fixture(&base);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}/synthetic-feed", listener.local_addr().unwrap());
+            let store = base.join("config/profiles.json");
+            let mut content: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+            content["subscriptions"][0]["url"] = json!(url);
+            fs::write(&store, content.to_string()).unwrap();
+            let before = fs::read(&store).unwrap();
+            let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+            let http = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline);
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("synthetic HTTP accept failed: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut headers = Vec::new();
+                while !headers.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    headers.push(byte[0]);
+                    assert!(headers.len() < 8192);
+                }
+                arrived_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                let body =
+                    vec![b'a'; omavless_domain::subscription_feed::MAX_SUBSCRIPTION_FEED_BYTES];
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            });
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            let instance = server.instance_id.clone();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = stop.clone();
+            let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+            let baseline_calls = host_calls.load(Ordering::Relaxed);
+            let params = match method {
+                "subscriptions.add" => {
+                    json!({"name":"Synthetic new source","url":url,"operationId":"max-feed"})
+                }
+                "subscriptions.update" => {
+                    json!({"subscriptionId":SUBSCRIPTION_ID,"name":"Synthetic changed source","url":url,"operationId":"max-feed"})
+                }
+                "subscriptions.usage" => json!({"subscriptionId":SUBSCRIPTION_ID}),
+                "subscriptions.refresh_all" => {
+                    json!({"instanceId":instance,"operationId":"max-feed"})
+                }
+                _ => json!({"subscriptionId":SUBSCRIPTION_ID,"operationId":"max-feed"}),
+            };
+            let request_paths = paths.clone();
+            let request = thread::spawn(move || call(&request_paths, method, params).unwrap());
+            arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
+            let started = Instant::now();
+            release_tx.send(()).unwrap();
+            let result = request.join().unwrap();
+            if method == "subscriptions.refresh_all" {
+                assert_eq!(result["ok"], true);
+                let poll = json!({"instanceId":instance,"operationId":"max-feed"});
+                loop {
+                    let response = call(&paths, "operations.get", poll.clone()).unwrap();
+                    if response["result"]["operation"]["state"] == "failed" {
+                        break;
+                    }
+                    assert!(started.elapsed() < Duration::from_secs(3));
+                    thread::sleep(Duration::from_millis(5));
+                }
+            } else {
+                assert_eq!(result["ok"], false);
+                assert_eq!(result["error"]["code"], "subscription_unavailable");
+            }
+            assert!(started.elapsed() < Duration::from_secs(3));
+            assert_eq!(fs::read(&store).unwrap(), before);
+            assert_eq!(
+                call(&paths, "status.get", json!({})).unwrap()["revision"],
+                0
+            );
+            assert_eq!(host_calls.load(Ordering::Relaxed), baseline_calls);
+            assert_eq!(
+                call(
+                    &paths,
+                    "connection.disconnect",
+                    json!({"operationId":"after-max-feed","expectedRevision":0})
+                )
+                .unwrap()["ok"],
+                true
+            );
+            for private in ["synthetic-feed", "vless://", &url] {
+                assert!(!result.to_string().contains(private));
+            }
+            http.join().unwrap();
+            stop.store(true, Ordering::Release);
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
     fn remote_subscription_fetch_does_not_block_status_or_disconnect() {
         use std::time::Instant;
 

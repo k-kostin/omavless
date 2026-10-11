@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.9.8 — corrected release snapshot
 
+- Make subscription candidate scanning linear in input size, including raw and
+  Base64 feeds, so a bounded provider response cannot trigger repeated suffix
+  scanning while the runtime serializes owner operations. Preserve parsing,
+  validation, duplicate handling and atomic subscription updates.
+
 - Avoid Qt's automatic unbounded clipboard payload reads in editable plugin
   controls. Keep explicit Paste bounded, URL concealment, keyboard navigation
   and edit history. The application version and reviewed native pair are unchanged.

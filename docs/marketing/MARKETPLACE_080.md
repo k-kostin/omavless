@@ -15,9 +15,9 @@ see [the release ledger](../development/RC_098.md#corrected-validation-delivery-
 The user-facing README was merged through #732. Runtime/package inputs are
 unchanged by this editorial update; do not rebuild or move the release tag.
 
-The manifest's owner-approved description is 394 characters. It addresses
-Omarchy users facing heavy internet censorship, explains compatible own access,
-bar controls/modes/subscription refresh and credits Mihomo. It promises neither
+The manifest's owner-approved description is 474 characters. It addresses
+traffic privacy and heavy internet censorship, explains compatible own access,
+bar controls/modes/built-in routing presets/subscription refresh and credits Mihomo. It promises neither
 guaranteed circumvention nor included VPN service. Request category **System**
 and tags **vpn, bar, quickshell** (replace security, retaining three tags).
 The newer-upstream verification form has no tag field, so include the metadata

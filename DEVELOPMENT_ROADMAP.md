@@ -2,6 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
+**0.9.8 subscription security maintenance, October 11:** #736 addresses
+Marketplace #10984's quadratic candidate scan in the shared Rust feed decoder.
+The cursor now advances monotonically for raw and Base64 bodies; existing size,
+candidate, validation and atomic-commit boundaries remain. A corrected native
+delivery is required, not reuse of #735's frontend-only package equivalence.
+The owning PR records exact checks, artifacts and publication outcome. Product
+version remains 0.9.8; direct Base64-bundle import stays planned in #733 for 0.9.9.
+
 **0.9.8 security maintenance, October 11:** address Marketplace #10984's
 passive Qt clipboard read in the QML input boundary, with bounded explicit Paste,
 preserved editing/navigation and permanently concealed readOnly URL display.
