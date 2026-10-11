@@ -171,8 +171,10 @@ Item {
           wrapMode: Text.WordWrap
         }
 
-        TextField {
+        SafeTextField {
           id: nameField
+          locale: prompt.locale
+          maximumLength: 80
           width: parent.width
           placeholderText: prompt.textFor("import.profile_name")
           foreground: prompt.foreground

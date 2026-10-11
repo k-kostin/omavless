@@ -100,8 +100,10 @@ Item {
           elide: Text.ElideMiddle
         }
 
-        TextField {
+        SafeTextField {
           id: promptField
+          locale: prompt.locale
+          maximumLength: 80
           width: parent.width
           placeholderText: prompt.placeholder
           foreground: prompt.foreground

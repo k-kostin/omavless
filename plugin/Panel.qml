@@ -2522,8 +2522,9 @@ Panel {
               y: Style.space(10)
               width: Math.max(0, nativeProfilesFrame.width - Style.space(20))
               spacing: Style.space(8)
-              TextField {
+              SafeTextField {
                 id: nativeSearch
+                locale: root.uiLocale
                 Layout.fillWidth: true
                 visible: root.page === "main" || root.page === "subscription"
                 maximumLength: 128
@@ -3387,8 +3388,10 @@ Panel {
               width: parent.width
             }
 
-            TextField {
+            SafeTextField {
               id: profileSearch
+              locale: root.uiLocale
+              maximumLength: 128
               visible: root.profileSearchVisible()
               width: parent.width
               placeholderText: root.textFor("profiles.search")

@@ -5,6 +5,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "SafeText.js" as SafeText
 
 // Subscription URLs behave like bearer credentials. The URL is shown only
 // inside this explicit editor and starts obscured on every open.
@@ -72,7 +73,7 @@ Item {
   }
   function focusUrl() {
     urlField.forceActiveFocus()
-    urlField.selectAll()
+    if (reveal.checked) urlEditor.selectAll()
   }
 
   Rectangle {
@@ -111,8 +112,10 @@ Item {
           elide: Text.ElideRight
         }
 
-        TextField {
+        SafeTextField {
           id: nameField
+          locale: prompt.locale
+          maximumLength: 80
           width: parent.width
           placeholderText: prompt.textFor("subscription.provider_name")
           foreground: prompt.foreground
@@ -123,20 +126,81 @@ Item {
           Keys.onEscapePressed: prompt.canceled()
         }
 
-        TextField {
+        FocusScope {
           id: urlField
+          property string text: ""
+          property var pasteContext: null
+          signal accepted()
+          signal textEdited()
           visible: !prompt.fromFile
           width: parent.width
-          placeholderText: "https://provider.example/subscription"
-          foreground: prompt.foreground
-          font.family: prompt.fontFamily
-          echoMode: reveal.checked ? TextInput.Normal : TextInput.Password
+          implicitHeight: hiddenUrl.implicitHeight
           enabled: !prompt.loading
+          KeyNavigation.priority: KeyNavigation.BeforeItem
           onTextEdited: if (prompt.autoName) nameField.text = prompt.suggestedName(text)
           onAccepted: if (prompt.accepted) prompt.confirmed()
           KeyNavigation.tab: reveal
           KeyNavigation.backtab: nameField
           Keys.onEscapePressed: prompt.canceled()
+          onVisibleChanged: if (!visible) { pasteContext = null; urlClipboard.cancel() }
+          onEnabledChanged: if (!enabled) { pasteContext = null; urlClipboard.cancel() }
+          function paste() {
+            if (!visible || !enabled || urlClipboard.running) return false
+            pasteContext = text
+            return urlClipboard.request()
+          }
+          TextField {
+            id: hiddenUrl
+            anchors.fill: parent
+            visible: !reveal.checked
+            focus: !reveal.checked
+            // Never toggle this false: Qt would immediately read the clipboard.
+            readOnly: true
+            echoMode: TextInput.Password
+            text: urlField.text
+            foreground: prompt.foreground
+            font.family: prompt.fontFamily
+            placeholderText: prompt.textFor("input.url_hidden_hint")
+            Keys.priority: Keys.BeforeItem
+            Keys.onPressed: function(event) {
+              if (event.matches(StandardKey.Paste)
+                  || (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier))) {
+                event.accepted = true; urlField.paste()
+              } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                event.accepted = true; urlField.accepted()
+              }
+            }
+            KeyNavigation.tab: reveal
+            KeyNavigation.backtab: nameField
+          }
+          SafeTextField {
+            id: urlEditor
+            anchors.fill: parent
+            visible: reveal.checked
+            focus: reveal.checked
+            locale: prompt.locale
+            text: urlField.text
+            foreground: prompt.foreground
+            font.family: prompt.fontFamily
+            maximumLength: 8192
+            placeholderText: "https://provider.example/subscription"
+            onTextEdited: { urlField.text = text; urlField.textEdited() }
+            onAccepted: urlField.accepted()
+            KeyNavigation.tab: reveal
+            KeyNavigation.backtab: nameField
+          }
+          BoundedClipboard {
+            id: urlClipboard
+            onReceived: function(value) {
+              var original = urlField.pasteContext
+              urlField.pasteContext = null
+              if (original === null || !urlField.visible || !urlField.enabled || original !== urlField.text) return
+              var result = SafeText.insertion("", value, 0, 0, 8192)
+              if (result) { urlField.text = result.text; urlField.textEdited(); urlEditor.pasteError = "" }
+              else urlEditor.pasteError = "input"
+            }
+            onRefused: { urlField.pasteContext = null; urlEditor.pasteError = "clipboard" }
+          }
         }
 
         PlainText {
@@ -147,6 +211,16 @@ Item {
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.WordWrap
+        }
+
+        PlainText {
+          visible: !prompt.fromFile && urlEditor.pasteError !== ""
+          width: parent.width
+          text: prompt.textFor(urlEditor.pasteError === "input" ? "input.error.invalid" : "input.error.clipboard")
+          color: prompt.urgent
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
         }
 
         Row {
@@ -165,15 +239,29 @@ Item {
             fontFamily: prompt.fontFamily
             enabled: !prompt.loading
             focusable: true
-            KeyNavigation.tab: cancelButton
+            KeyNavigation.tab: pasteUrl
             KeyNavigation.backtab: urlField
-            onClicked: checked = !checked
+            onClicked: { checked = !checked; urlField.forceActiveFocus() }
+          }
+
+          Button {
+            id: pasteUrl
+            visible: !prompt.fromFile
+            text: prompt.textFor("common.paste")
+            bordered: true
+            foreground: prompt.foreground
+            fontFamily: prompt.fontFamily
+            enabled: !prompt.loading && !urlClipboard.running
+            focusable: true
+            KeyNavigation.tab: cancelButton
+            KeyNavigation.backtab: reveal
+            onClicked: urlField.paste()
           }
 
           PlainText {
             width: prompt.fromFile
               ? parent.width
-              : parent.width - reveal.width - parent.spacing
+              : parent.width - reveal.width - pasteUrl.width - parent.spacing * 2
             anchors.verticalCenter: reveal.verticalCenter
             text: prompt.loading ? prompt.textFor("subscription.loading_private") : prompt.hint
             color: prompt.error || (!prompt.accepted && !prompt.loading)
@@ -199,7 +287,7 @@ Item {
               fontFamily: prompt.fontFamily
               focusable: true
               KeyNavigation.tab: confirmButton
-              KeyNavigation.backtab: prompt.fromFile ? nameField : reveal
+              KeyNavigation.backtab: prompt.fromFile ? nameField : pasteUrl
               onClicked: prompt.canceled()
             }
             Button {
