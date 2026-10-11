@@ -38,7 +38,7 @@ not replaced by this short entry point.
   the selected `rc/0.9.8` Backup-only scope and corrected immutable
   `v0.9.8-fix.1` delivery. Read its current ledger before selecting
   packages; old 0.9.8 assets are immutable and superseded. #726 is merged;
-  corrected `v0.9.8-fix.1` is stable/latest and the preparation branch is retired.
+  `v0.9.8-fix.1` is retained delivery history and the preparation branch is retired.
   On October 11 the owner approved the user-facing README update through #732.
   On October 11 the owner also authorized the agreed 0.9.8 Marketplace copy,
   preview and exact-main update request, with tags vpn/bar/quickshell. Record
@@ -63,6 +63,11 @@ not replaced by this short entry point.
   native pair, and updating existing Marketplace #10984 to final main. Product
   version stays 0.9.8; older tags/assets remain immutable. Read #735 for the actual
   publication/installed outcome, not an inferred PASS from this authorization.
+- The October 11 continuation through #736 authorizes the same-version subscription
+  scan correction, matching native delivery `v0.9.8-fix.3` and existing #10984
+  update. Native source is `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`, not the
+  old e3d22459 pair. Read #736 for actual gates/publication; old assets stay immutable.
+  This is not authorization to implement #733 or publish future versions.
 - README is a product page, not an agent diary. Follow the
   [documentation and retention policy](docs/development/README.md). Preserve
   useful roadmaps, contracts and evidence; keep disposable session files outside Git.

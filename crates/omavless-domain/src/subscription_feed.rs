@@ -133,10 +133,20 @@ fn python_whitespace(character: char) -> bool {
 }
 
 fn candidates(input: &str) -> Result<Vec<&str>, SubscriptionFeedError> {
+    candidates_with_scan_work(input, || {})
+}
+
+// The observer lets tests bound actual scanner iterations without timing
+// assumptions or an unbounded regression run. Production uses a no-op.
+fn candidates_with_scan_work(
+    input: &str,
+    mut scan_step: impl FnMut(),
+) -> Result<Vec<&str>, SubscriptionFeedError> {
     let bytes = input.as_bytes();
     let mut result = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
+        scan_step();
         if !bytes[index].is_ascii_alphabetic() {
             index += 1;
             continue;
@@ -146,15 +156,19 @@ fn candidates(input: &str) -> Result<Vec<&str>, SubscriptionFeedError> {
         while index < bytes.len()
             && (bytes[index].is_ascii_alphanumeric() || matches!(bytes[index], b'+' | b'.' | b'-'))
         {
+            scan_step();
             index += 1;
         }
         if bytes.get(index..index + 3) != Some(b"://") {
-            index = start + 1;
+            // Every alphabetic suffix of this maximal scheme run reaches the
+            // same delimiter. None can match :// if the whole run did not.
+            // Keep the cursor here instead of rescanning all of its suffixes.
             continue;
         }
         let scheme = &input[start..index];
         let mut end = index + 3;
         while end < bytes.len() {
+            scan_step();
             let Some(character) = input[end..].chars().next() else {
                 break;
             };
@@ -248,6 +262,90 @@ mod tests {
 
     const URI: &str =
         "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example";
+
+    fn candidates_with_linear_budget(input: &str) -> Result<Vec<&str>, SubscriptionFeedError> {
+        let mut remaining = input.len().saturating_mul(2).saturating_add(1);
+        candidates_with_scan_work(input, || {
+            remaining = remaining
+                .checked_sub(1)
+                .expect("subscription scanner exceeded linear work budget");
+        })
+    }
+
+    #[test]
+    fn delimiter_free_scheme_runs_use_linear_work_at_the_body_limit() {
+        // A restored suffix restart fails after O(n) observed steps rather
+        // than spending quadratic time. No wall-clock threshold is involved.
+        for size in [32, 4096, MAX_SUBSCRIPTION_FEED_BYTES] {
+            let alphabetic = "a".repeat(size);
+            assert!(
+                candidates_with_linear_budget(&alphabetic)
+                    .unwrap()
+                    .is_empty()
+            );
+            let mixed = "a1+.-".repeat(size / 5);
+            assert!(candidates_with_linear_budget(&mixed).unwrap().is_empty());
+        }
+        // Exercise the public raw/base64 path only after the same-sized
+        // candidate scan has met its deterministic work bound above.
+        let body =
+            PrivateSubscriptionBody::from_bytes(vec![b'a'; MAX_SUBSCRIPTION_FEED_BYTES]).unwrap();
+        assert_eq!(
+            decode_subscription_feed(body).err().unwrap(),
+            SubscriptionFeedError::NoSupportedProfiles
+        );
+    }
+
+    #[test]
+    fn failed_runs_preserve_delimiters_and_supported_scheme_boundaries() {
+        for separator in [
+            " ", "\u{1c}", "\u{2003}", "\u{feff}", "_", "/", ":", "\"", "'", "<", ">",
+        ] {
+            let text = format!("not-a-scheme{separator}{URI}");
+            assert_eq!(candidates_with_linear_budget(&text).unwrap(), vec![URI]);
+        }
+        // A supported suffix inside a recognized unsupported scheme is not
+        // a new candidate. Nor do links nested in its payload become entries.
+        for text in [
+            format!("prefix{URI}"),
+            format!("unknown+{URI}"),
+            format!("https://example.invalid/{URI}"),
+        ] {
+            assert!(candidates_with_linear_budget(&text).unwrap().is_empty());
+        }
+        for scheme in ["vless", "VLESS", "trojan", "hysteria2", "hy2", "tuic"] {
+            let text = format!("{scheme}://synthetic");
+            assert_eq!(
+                candidates_with_linear_budget(&text).unwrap(),
+                vec![text.as_str()]
+            );
+        }
+        let text = format!("123+.-{URI}");
+        assert_eq!(candidates_with_linear_budget(&text).unwrap(), vec![URI]);
+    }
+
+    #[test]
+    fn long_failed_runs_preserve_raw_and_encoded_profile_feeds() {
+        let text = format!("{}\u{2003}{URI}", "a".repeat(4096));
+        assert_eq!(candidates_with_linear_budget(&text).unwrap(), vec![URI]);
+        for encoded in [
+            text.as_bytes().to_vec(),
+            STANDARD.encode(&text).into_bytes(),
+            URL_SAFE_NO_PAD.encode(&text).into_bytes(),
+        ] {
+            // The raw encoding itself can also contain long scheme runs.
+            candidates_with_linear_budget(std::str::from_utf8(&encoded).unwrap()).unwrap();
+            assert_eq!(
+                decode_subscription_feed(PrivateSubscriptionBody::from_bytes(encoded).unwrap())
+                    .unwrap()
+                    .counts(),
+                SubscriptionFeedCounts {
+                    accepted: 1,
+                    skipped: 0,
+                }
+            );
+        }
+    }
 
     #[test]
     fn raw_base64_and_urlsafe_bodies_decode_identically() {

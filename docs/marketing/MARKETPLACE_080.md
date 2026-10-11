@@ -2,22 +2,32 @@
 
 ## Current 0.9.8 request — October 11
 
+#736 additionally addresses quadratic scanning of a bounded subscription body.
+Corrected delivery `v0.9.8-fix.3` includes new native packages from
+`8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`, not just the frontend. Final artifact,
+installed and anonymous-download outcomes belong to #736. Update the existing
+request to final main after delivery; older approved/checkpoint evidence is not
+transferred to new bytes. Product/package versions remain 0.9.8 / 0.9.8-1.
+
 #10984 is submitted. Its maintainer identified the Qt passive clipboard read;
 #735 corrects the QML boundary within 0.9.8 and delivers the newer immutable
 `v0.9.8-fix.2` frontend with unchanged native bytes. Update that existing issue
 to the final fixing main SHA after exact compatibility/baseline, rather than
 opening a duplicate. Its original validated snapshot does not approve the fix.
 
+### Earlier copy/preview submission context
+
 The owner authorized the agreed description/preview update and submission of
-the final main SHA. Corrected `v0.9.8-fix.1` is stable/latest with immutable
+the final main SHA. Corrected `v0.9.8-fix.1` supplied immutable
 ARM64/x86_64 app/DNS packages, pinned guided setup and a common frontend;
 see [the release ledger](../development/RC_098.md#corrected-validation-delivery--october-10).
-The user-facing README was merged through #732. Runtime/package inputs are
-unchanged by this editorial update; do not rebuild or move the release tag.
+The user-facing README was merged through #732. Runtime/package inputs were
+unchanged by that editorial update. #736's native correction above requires new
+artifacts; older release tags are never moved or overwritten.
 
-The manifest's owner-approved description is 394 characters. It addresses
-Omarchy users facing heavy internet censorship, explains compatible own access,
-bar controls/modes/subscription refresh and credits Mihomo. It promises neither
+The manifest's owner-approved description is 474 characters. It addresses
+traffic privacy and heavy internet censorship, explains compatible own access,
+bar controls/modes/built-in routing presets/subscription refresh and credits Mihomo. It promises neither
 guaranteed circumvention nor included VPN service. Request category **System**
 and tags **vpn, bar, quickshell** (replace security, retaining three tags).
 The newer-upstream verification form has no tag field, so include the metadata

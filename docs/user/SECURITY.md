@@ -63,6 +63,8 @@ hint. It never kills or reconfigures another application automatically.
 Remote subscription URLs require HTTPS except for explicit loopback
 development. Downloads have a fixed size limit and normal certificate
 verification. A complete candidate is validated before atomic commit.
+Candidate scanning advances monotonically with linear work in the bounded
+raw or decoded body; malformed scheme runs cannot repeatedly rescan suffixes.
 
 Manual server tests use an isolated temporary no-TUN Mihomo core with a private
 Unix controller, bounded DNS/address attempts and public connectivity targets.

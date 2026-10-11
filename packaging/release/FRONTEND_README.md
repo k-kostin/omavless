@@ -15,11 +15,12 @@ A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-The corrected `v0.9.8-fix.2` delivery has exact package pins for both architectures.
+The corrected `v0.9.8-fix.3` delivery has exact package pins for both architectures.
 Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
 and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
 correction, not the version label. Existing validation users may see an explicit
-pacman reinstall. It is not an automatic stable upgrade.
+pacman reinstall. It is not an automatic stable upgrade. The subscription-parser
+correction requires the corrected native packages, not only this frontend.
 After the public download/setup gate, the panel offers guided fresh installation after explicit consent; an existing
 or ambiguous installation requires the separate reviewed update/recovery path.
 It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.

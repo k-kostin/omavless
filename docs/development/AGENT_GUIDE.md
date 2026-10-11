@@ -102,6 +102,13 @@ semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
 
+The owner's October 11 continuation through #736 authorizes the subscription
+scanner correction within 0.9.8 and matching `v0.9.8-fix.3` native/frontend
+delivery from producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`.
+Unlike #735 this changes native inputs: old package equivalence does not apply.
+Use #736 for completed gates/publication, update existing Marketplace #10984
+to final main, and retain older immutable assets. #733 is planned 0.9.9 work.
+
 Owner-authorized October 11 maintenance: #735 corrects the passive Qt clipboard
 query in the 0.9.8 frontend; `v0.9.8-fix.2` keeps the inspected native pair and
 application version unchanged. Update existing Marketplace #10984 to the final
