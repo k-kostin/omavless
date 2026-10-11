@@ -278,7 +278,11 @@ mod tests {
         // than spending quadratic time. No wall-clock threshold is involved.
         for size in [32, 4096, MAX_SUBSCRIPTION_FEED_BYTES] {
             let alphabetic = "a".repeat(size);
-            assert!(candidates_with_linear_budget(&alphabetic).unwrap().is_empty());
+            assert!(
+                candidates_with_linear_budget(&alphabetic)
+                    .unwrap()
+                    .is_empty()
+            );
             let mixed = "a1+.-".repeat(size / 5);
             assert!(candidates_with_linear_budget(&mixed).unwrap().is_empty());
         }
@@ -442,4 +446,3 @@ mod tests {
         }
     }
 }
-
