@@ -2,6 +2,12 @@
 
 ## Current 0.9.8 request — October 11
 
+#10984 is submitted. Its maintainer identified the Qt passive clipboard read;
+#735 corrects the QML boundary within 0.9.8 and delivers the newer immutable
+`v0.9.8-fix.2` frontend with unchanged native bytes. Update that existing issue
+to the final fixing main SHA after exact compatibility/baseline, rather than
+opening a duplicate. Its original validated snapshot does not approve the fix.
+
 The owner authorized the agreed description/preview update and submission of
 the final main SHA. Corrected `v0.9.8-fix.1` is stable/latest with immutable
 ARM64/x86_64 app/DNS packages, pinned guided setup and a common frontend;

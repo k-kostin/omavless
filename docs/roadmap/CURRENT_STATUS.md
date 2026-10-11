@@ -10,8 +10,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   Marketplace #10984 passive Qt clipboard read without changing the application
   version or native pair. Editable fields use formats-only input controls and
   explicit bounded Paste; the concealed URL stays readOnly. Exact validation,
-  immutable frontend delivery and the updated review SHA belong to its fixing
-  PR. This does not enable Restore or any excluded 0.9.9 scope.
+  immutable frontend delivery `v0.9.8-fix.2` and the updated review SHA belong to
+  fixing #735. Product/Arch versions stay 0.9.8 / 0.9.8-1. This does not enable
+  Restore or any excluded 0.9.9 scope. The earlier fix.1 delivery below retains
+  its native-pair/host evidence, not a recommendation for its old frontend.
 
 - **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
   corrected `v0.9.8-fix.1` is stable/latest with unchanged tag and seven assets.
