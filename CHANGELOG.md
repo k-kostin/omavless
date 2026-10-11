@@ -23,7 +23,9 @@ All notable changes to OmaVLESS are documented here.
 - Correct first-use Backup availability without a runtime restart and keep
   the idle DNS broker available without repeatedly polling empty admission.
 
-Corrected packages and matching frontend are published as `v0.9.8-fix.1`;
+Corrected packages and matching frontend use `v0.9.8-fix.2`, whose frontend
+addresses the Qt clipboard finding; native package bytes are unchanged from
+`v0.9.8-fix.1`. The fixing PR records actual publication and download checks;
 anonymous downloads and clean guided ARM64 setup/onboarding pass. The original
 `v0.9.8` validation assets remain immutable. The owner authorized main/stable
 promotion; its actual merge/release event is recorded in PR #726. Marketplace

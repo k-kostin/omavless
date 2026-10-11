@@ -2,7 +2,7 @@
 
 ## OmaVLESS 0.9.8: managed-package route
 
-The owner-selected release snapshot uses corrected delivery `v0.9.8-fix.1`,
+The owner-selected release snapshot uses corrected delivery `v0.9.8-fix.2`,
 with exact app/DNS hashes for both
 architectures. Product/package versions remain `0.9.8` / `0.9.8-1`; the release
 tag distinguishes corrected bytes from the immutable first validation build.
@@ -12,7 +12,7 @@ promotion event are tracked in the
 [candidate ledger](../development/RC_098.md).
 
 For first use follow the [README](../../README.md); for manual downloads use
-this matched-package route and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.1).
+this matched-package route and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.2).
 The separately reviewed Marketplace snapshot remains 0.8.2 until a new approved
 submission; this release does not update that snapshot.
 

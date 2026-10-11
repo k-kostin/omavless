@@ -11,7 +11,7 @@ release_version=0.9.8
 package_version=0.9.8
 # Corrected validation delivery; the original v0.9.8 assets stay immutable.
 # A fixed repository/tag plus exact archive pins, never caller-supplied URLs.
-readonly release_tag=v0.9.8-fix.1
+readonly release_tag=v0.9.8-fix.2
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
