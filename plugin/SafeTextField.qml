@@ -190,8 +190,9 @@ FocusScope {
           field.requestPaste()
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
           event.accepted = true
-          if (field.multiline && (event.modifiers & Qt.ShiftModifier))
-            field.insertBounded("\n", selectionStart, selectionEnd)
+          if (field.multiline && (event.modifiers & Qt.ShiftModifier)) {
+            if (!field.readOnly) field.insertBounded("\n", selectionStart, selectionEnd)
+          }
           else field.accepted()
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
           // Attached navigation on the outer scope precedes TextArea's Tab.

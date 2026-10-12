@@ -92,6 +92,8 @@ ShellRoot {
         editor.selectAll(); verify(editor.insertBounded("wrapped\nBase64", 0, editor.text.length))
         compare(editor.text, "wrapped\nBase64")
         editor.undo(); compare(editor.text, "first\nsecond")
+        editor.readOnly = true; keyClick(Qt.Key_Return, Qt.ShiftModifier)
+        compare(editor.text, "first\nsecond"); editor.readOnly = false
         importEntry.dismiss(); compare(editor.text, ""); compare(editor.undoStates.length, 0)
         compare(field.multiline, false)
       }
