@@ -88,6 +88,35 @@ pub(crate) fn prepare_profile_import(
     Ok(PreparedProfileMutation { prepared })
 }
 
+/// Prepare a local snapshot as one existing guarded store transaction. This
+/// does not register an IPC method, fetch a subscription, or change VPN state.
+/// The future serialized owner supplies record IDs and confirmation fencing.
+pub fn prepare_local_bundle(
+    store_path: &Path,
+    uid: u32,
+    input: &str,
+    next_record_id: impl FnMut() -> String,
+) -> Result<
+    (
+        PreparedProfileMutation,
+        omavless_domain::private_store::LocalBundleCounts,
+    ),
+    ProfileMutationCommitError,
+> {
+    let mut counts = None;
+    let prepared = prepare_private_store_write(store_path, uid, |original| {
+        let plan = omavless_domain::private_store::parse_private_store(original)?
+            .plan_local_bundle(input)?;
+        counts = Some(plan.counts());
+        let result = plan.into_mutation(next_record_id)?;
+        Ok((result.payload().to_vec(), result.changed))
+    })?;
+    Ok((
+        PreparedProfileMutation { prepared },
+        counts.expect("successful preparation invokes planner"),
+    ))
+}
+
 pub(crate) fn prepare_startup_preferences(
     store_path: &Path,
     uid: u32,
@@ -187,6 +216,70 @@ mod tests {
         let paths = CutoverPaths::below(root, root, uid);
         let lock = MigrationLock::acquire(&paths, uid).unwrap();
         (paths, lock)
+    }
+
+    #[test]
+    fn local_bundle_prepares_without_writes_commits_once_and_restores_exactly() {
+        let (root, uid) = root("bundle");
+        let path = root.join("profiles.json");
+        write_store(&path);
+        let before = fs::read(&path).unwrap();
+        let links = (2..=3).map(|i|format!("vless://11111111-1111-4111-8111-111111111111@192.0.2.{i}:443?security=none&type=tcp#Node {i}"))
+            .collect::<Vec<_>>().join("\n");
+        let mut id = 1;
+        let (prepared, counts) = prepare_local_bundle(&path, uid, &links, || {
+            id += 1;
+            format!("00000000-0000-4000-8000-{id:012}")
+        })
+        .unwrap();
+        assert_eq!(counts.accepted, 2);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let (paths, lock) = locked(&root, uid);
+        assert_eq!(
+            prepared.commit_locked(&lock, &paths),
+            Ok(PreparedWrite::Changed)
+        );
+        let after: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(after["profiles"].as_array().unwrap().len(), 3);
+        assert_eq!(after["activeId"], PROFILE);
+        assert_eq!(after["startup"], store()["startup"]);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            prepared.restore_locked(&lock, &paths),
+            Ok(PreparedWrite::Changed)
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_bundle_refuses_stale_store_and_invalid_ids_without_partial_write() {
+        let (root, uid) = root("bundle-stale");
+        let path = root.join("profiles.json");
+        write_store(&path);
+        let before = fs::read(&path).unwrap();
+        let link =
+            "vless://11111111-1111-4111-8111-111111111111@192.0.2.2:443?security=none&type=tcp#New";
+        assert!(prepare_local_bundle(&path, uid, link, || PROFILE.into()).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let (prepared, _) = prepare_local_bundle(&path, uid, link, || {
+            "00000000-0000-4000-8000-000000000002".into()
+        })
+        .unwrap();
+        let mut external = store();
+        external["onboardingComplete"] = json!(false);
+        let external = serde_json::to_vec(&external).unwrap();
+        fs::write(&path, &external).unwrap();
+        let (paths, lock) = locked(&root, uid);
+        assert_eq!(
+            prepared.commit_locked(&lock, &paths),
+            Err(ProfileMutationCommitError::StoreChanged)
+        );
+        assert_eq!(fs::read(&path).unwrap(), external);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

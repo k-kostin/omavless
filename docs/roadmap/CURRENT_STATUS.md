@@ -9,8 +9,13 @@ does not add a runtime mutation or enlarge the 32-KiB private input boundary.
 Clipboard/file actions remain available. Cancel/close clears entry/history;
 no input is saved or connected until the existing explicit confirmation.
 
-This is not completion of #733 or 0.9.9. Raw/Base64 local bundles still need
-bounded batch preview, duplicate policy and atomic save. Mandatory consumer
+The next dev slice prepares bounded raw/Base64 local bundles as standalone
+profiles, deduplicated by full canonical identity (not UUID). It preserves
+existing records/preferences and uses the existing guarded private-store
+transaction. This foundation has no IPC/CLI/UI registration: batch preview,
+confirmation/revision fencing and installed end-to-end save remain pending.
+
+This is not completion of #733 or 0.9.9. Mandatory consumer
 Restore/recovery (#722/#724) remains pending; source-only OLD recovery must not
 be advertised as complete Restore. Product/package version and immutable
 0.9.8 pins are retained until a separately assembled beta package is built.
