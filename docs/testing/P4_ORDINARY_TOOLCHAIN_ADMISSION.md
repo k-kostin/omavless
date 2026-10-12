@@ -1,8 +1,9 @@
 # P4 ordinary installed-toolchain admission successor
 
-SOURCE only: no Go command, test ELF, source export, engine selector, package
-decompression, installed-tool-tree observation, network/service or VM action was
-performed by this source checkpoint. The previous [runner proposal](P4_DEFAULT_RESIDUE_RUNNER_PROPOSAL.md)
+SOURCE only: the writer performed no Go command, test ELF, source export, engine
+selector, package decompression, actual full installed-tool admission,
+network/service or VM action. Bounded public Go source reads informed the helper
+and telemetry closure below. The previous [runner proposal](P4_DEFAULT_RESIDUE_RUNNER_PROPOSAL.md)
 and [developer export evidence](P4_GO_DEVELOPER_EXPORT_RESET.md) retain their
 original identities and outcomes. This successor does not inspect those old
 scopes, adopt their developer tree or change a failed receipt.
@@ -51,7 +52,7 @@ The only executable-selection symlink is root-owned `/usr/bin/go`, literal
 target `/usr/lib/go/bin/go`; its canonical bytes must match SHA-256
 `3144268876ba974458f06ab523581fabac9e967855e2a1bb9de9ba950167b542`.
 
-The required native Go/compile/asm/link/test2json/vet paths are actual x86-64
+The required native Go/compile/asm/link/vet paths are actual x86-64
 ELF64 objects. Every executable ELF in the catalogue is inspected for program
 header bounds, PT_INTERP and DT_NEEDED. Dynamic interpreter/shared dependencies
 refuse rather than borrow the top-level Go executable's static result. Executable
@@ -139,3 +140,72 @@ soft bounds with unchanged hard limits and matching recipe/receipt fields.
 ROOT and independent source/environment/resource review still precede actual
 read-only tool admission or any BUILD; no original failure is relabelled by
 this source-only envelope correction.
+
+## Explicit frozen test2json and private telemetry successor
+
+ROOT's second actual read-only admission at source
+`61d6153580cc7072237a219d4d722f3eda4c8daf` exited 1 with
+`required_native_tool_missing`, again before Go/export/engine. Bounded signed
+package/installed metadata showed that only the required preinstalled test2json
+ELF was absent; asm/compile/link/vet were present. The original result remains
+a failure. The earlier documentation-link failure also remains unchanged.
+
+Bounded public-source inspection confirmed Go 1.27's actual missing-tool path
+in `src/cmd/go/internal/tool/tool.go`: missing ToolPath → loadBuiltinTool →
+buildAndRunBuiltinTool → buildAndRunTool. That path creates a Builder, performs
+a LinkAction, then runs the resulting cached executable. Calling `go tool
+test2json` during EXECUTE would therefore hide a new compiler phase. This
+successor removes only its invented preinstalled-test2json requirement and
+requires the actual signed cmd/test2json main/signal/converter sources, within
+the complete signed lexical GOROOT source/hash closure. Native Go/asm/compile/
+link/vet and every other executable ELF/dependency guard remain intact.
+
+Ordinary recipe v3 explicitly builds `cmd/test2json` after completed module
+verification and before device compilation:
+
+```text
+/usr/bin/go build -p=2 -trimpath -o <owned-artifacts>/test2json cmd/test2json
+```
+
+This is a separate 120-second original-supervisor command with required
+known-zero status and empty stdout/stderr. It executes zero engine cases.
+The generated helper and device.test are both private UID-owned mode0700,
+single-link ordinary files with unchanged-file read guards, actual static
+x86-64 ELF/interpreter/shared-dependency inspection and independent SHA-256
+fields. Both hashes enter the build, attempt and final execution records.
+Both are checked before EXECUTE and after settled engine output. EXECUTE invokes
+only the frozen physical helper directly with fixed `-p`, `-t`, exact frozen
+device.test, selector, count1 and timeout600s; the original supervisor still has
+620 seconds. There is no `go tool`, helper fallback, regeneration or compiler
+command in EXECUTE. Missing/changed/unsafe helper or device bytes refuse before
+attempt consumption; a changed ELF after execution refuses the final receipt.
+
+Source inspection also reached telemetry in both cmd/go startup and
+cmd/test2json.main. Their official counter.Open uses OpenDir(TEST_TELEMETRY_DIR),
+and Go MaybeParent passes the same override to telemetry.Start. Without a mode
+file the default is local; counters and report processing can write. Official
+Mode trims whitespace and accepts `off`; counter.Open and parent return before
+file opening, rotation or upload when OFF. BUILD therefore exclusively creates
+an artifact-owned configuration/go/telemetry tree (all directories0700) and
+mode0600 bytes `off\n` before the first Go command. It supplies fixed
+TEST_TELEMETRY_DIR and XDG_CONFIG_HOME pointing to that private tree, and
+XDG_CACHE_HOME to the already selected private cache. The actual GOCACHE remains
+explicit. No real HOME telemetry/config/cache setting is read or changed.
+
+The recipe binds the relative configuration/telemetry paths, fixed OFF mode
+hash and package/Go/source/helper provenance. Every command/final recheck
+validates the private path and exact mode bytes. EXECUTE validates rather than
+creates/restores the tree. Only mode plus optional empty owned0700 local/upload
+directories are admitted; counter/report data or unexpected members refuse.
+The build intentionally writes its private artifacts/configuration and caches;
+no zero-filesystem-effect or general OS isolation claim is made. Engine sources,
+defaults, timers, causal receipts, supervisor and original export helper remain
+frozen. ROOT + independent review of this concrete changed closure precedes
+another actual admission or any Go selection.
+
+Nineteen focused inert controls now cover signed helper-source presence,
+mocked exact helper-build/direct-execute argv and dual hashes, failed/unknown
+helper compilation, dynamic helper/device ELF refusal, missing/drifted/unsafe
+helper refusal without regeneration, pre/post execution drift, private OFF mode
+and allowed empty telemetry directories. Actual Go/helper/device compilation,
+engine execution and full tool admission remain unrun by the writer.

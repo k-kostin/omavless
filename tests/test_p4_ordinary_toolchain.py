@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import struct
 import sys
@@ -68,6 +69,12 @@ def valid_entries():
             ('usr/lib/go/pkg/tool/linux_amd64', 'directory', b'', 0o755),
             *[('usr/lib/go/' + name, 'file', elf(), 0o755)
               for name in admission.REQUIRED_NATIVE_TOOLS if name != 'bin/go'],
+            ('usr/lib/go/src/cmd', 'directory', b'', 0o755),
+            ('usr/lib/go/src/cmd/test2json', 'directory', b'', 0o755),
+            ('usr/lib/go/src/cmd/internal', 'directory', b'', 0o755),
+            ('usr/lib/go/src/cmd/internal/test2json', 'directory', b'', 0o755),
+            *[('usr/lib/go/' + name, 'file', b'INERT_NOT_COMPILED_SOURCE', 0o644)
+              for name in admission.REQUIRED_HELPER_SOURCE],
             ('usr/lib/go/doc', 'link', '/usr/share/doc/go', 0o777),
             ('usr/bin/go', 'link', '/usr/lib/go/bin/go', 0o777)]
 
@@ -79,7 +86,7 @@ class ToolchainControls(unittest.TestCase):
 
     def test_pure_catalogue_binds_full_tree_and_explicit_go_link(self):
         tree, link = self.catalogue(valid_entries())
-        self.assertEqual(len(tree), 14)
+        self.assertEqual(len(tree), 20)
         self.assertEqual(link, '/usr/lib/go/bin/go')
         self.assertEqual(tree['usr/lib/go/src/empty.go']['size'], 0)
         self.assertEqual(tree['usr/lib/go/bin/go']['sha256'], hashlib.sha256(elf()).hexdigest())
@@ -107,6 +114,13 @@ class ToolchainControls(unittest.TestCase):
             self.catalogue(good)
         with patch.object(admission, 'GO_SHA256', hashlib.sha256(elf()).hexdigest()), self.assertRaises(ValueError):
             admission.catalogue(archive(valid_entries(), owners={admission.DOC_LINK: 1000}))
+
+    def test_catalogue_requires_signed_helper_source_without_invented_tool_elf(self):
+        self.assertNotIn('pkg/tool/linux_amd64/test2json', admission.REQUIRED_NATIVE_TOOLS)
+        for name in admission.REQUIRED_HELPER_SOURCE:
+            entries = [entry for entry in valid_entries() if entry[0] != 'usr/lib/go/' + name]
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.catalogue(entries)
 
     def test_elf_refuses_interpreter_shared_dependencies_and_malformed_headers(self):
         admission.static_elf(elf())
@@ -228,8 +242,25 @@ class OrdinaryRunnerControls(unittest.TestCase):
         # its archive/system-tree function is never invoked by these controls.
         toolchain = {'go_sha256': 'a' * 64, 'tree_sha256': 'b' * 64}
         with patch.object(baseline, 'subject', runner), \
-                patch.object(runner.admission, 'admit', return_value=toolchain) as admit:
+                patch.object(runner.admission, 'admit', return_value=toolchain) as admit, \
+                patch.object(runner.owned, 'UNSETTLED', []):
             with baseline.RunnerControls().harness(failure) as state:
+                paths, _, _, _, _, _, commands, _ = state
+                def command(args, *unused):
+                    kind = 'modules' if args[1] == 'mod' else 'helper' if args[1] == 'build' else 'compile' if args[1] == 'test' else 'execute'
+                    if failure == kind: return 2, b'', b'INERT_FIXED_NONPASS'
+                    if failure == kind + '_unknown':
+                        runner.owned.UNSETTLED.append(object())
+                        raise runner.owned.Unsettled('INERT_GRAPH_UNKNOWN')
+                    if kind == 'modules': return 0, b'all modules verified\n', b''
+                    if kind in ('helper', 'compile'):
+                        name = 'test2json' if kind == 'helper' else 'device.test'
+                        runner.owned.save(paths['artifacts'], name, elf(), 0o700)
+                        return 0, b'', b''
+                    from tests.test_p4_default_residue_source import ReceiptControls
+                    control = ReceiptControls()
+                    return 0, control.encoded(control.events('reject')), b''
+                commands.side_effect = command
                 yield state, admit
 
     def test_fixed_ordinary_environment_and_frozen_baseline(self):
@@ -254,7 +285,7 @@ class OrdinaryRunnerControls(unittest.TestCase):
             self.assertTrue(all(value[1] == 8192 for _, value in calls))
         source = (ROOT / 'run_default_residue_ordinary.py').read_text()
         self.assertIn("'nproc':2048", source)
-        self.assertIn('recipe="p4-default-residue-ordinary-arch-go-v2"', source)
+        self.assertIn('recipe="p4-default-residue-ordinary-arch-go-v3"', source)
         old = (ROOT / 'run_default_residue_overlay.py').read_text()
         self.assertIn('(resource.RLIMIT_NPROC,1024)', old)
         self.assertIn("'nproc':1024", old)
@@ -263,21 +294,29 @@ class OrdinaryRunnerControls(unittest.TestCase):
         with self.harness() as (state, admit):
             paths, argv, _, _, _, saved, commands, _ = state
             runner.main()
-            self.assertEqual(admit.call_count, 4)
+            self.assertEqual(admit.call_count, 5)
             self.assertEqual(saved[-1], 'build-receipt.json')
-            self.assertEqual(commands.call_count, 2)
+            self.assertEqual(commands.call_count, 3)
             for call in commands.call_args_list:
                 self.assertEqual(call.args[0][0], '/usr/bin/go')
                 self.assertEqual(call.args[2]['GOROOT'], '/usr/lib/go')
                 self.assertEqual(call.args[2]['CGO_ENABLED'], '0')
+                self.assertEqual(call.args[2]['TEST_TELEMETRY_DIR'], str(paths['artifacts'] / 'configuration/go/telemetry'))
+                self.assertEqual(call.args[2]['XDG_CONFIG_HOME'], str(paths['artifacts'] / 'configuration'))
+                self.assertEqual(call.args[2]['XDG_CACHE_HOME'], str(paths['cache']))
+            self.assertEqual(commands.call_args_list[1].args[0], ['/usr/bin/go', 'build', '-p=2', '-trimpath', '-o', str(paths['artifacts'] / 'test2json'), 'cmd/test2json'])
+            receipt = json.loads((paths['artifacts'] / 'build-receipt.json').read_bytes())
+            self.assertEqual(receipt['test2json_sha256'], hashlib.sha256(elf()).hexdigest())
+            self.assertEqual(receipt['binary_sha256'], hashlib.sha256(elf()).hexdigest())
             argv[argv.index('build')] = 'execute'
             runner.main()
-            self.assertEqual(admit.call_count, 7)
+            self.assertEqual(admit.call_count, 8)
             self.assertEqual(saved[-1], 'execution-receipt.json')
             self.assertTrue((paths['artifacts'] / 'execution-attempt.json').exists())
+            self.assertEqual(commands.call_args.args[0], [str(paths['artifacts'] / 'test2json'), '-p', runner.PACKAGE, '-t', str(paths['artifacts'] / 'device.test'), '-test.v=test2json', '-test.run=^TestP4DefaultElapsedRejectAndResidue$', '-test.count=1', '-test.timeout=600s'])
 
     def test_mocked_toolchain_drift_prevents_each_command_and_final_receipt(self):
-        for cut in (1, 2, 3):
+        for cut in (1, 2, 3, 4):
             with self.subTest(cut=cut), self.harness() as (state, admit):
                 _, _, _, _, _, saved, commands, output = state
                 good = admit.return_value
@@ -293,17 +332,114 @@ class OrdinaryRunnerControls(unittest.TestCase):
             _, _, _, _, exported, saved, _, output = state
             with self.assertRaises(ValueError):
                 runner.main()
-            self.assertEqual(admit.call_count, 3)
+            self.assertEqual(admit.call_count, 4)
             self.assertTrue(exported[0].exists())
             self.assertNotIn('build-receipt.json', saved)
             output.assert_not_called()
+
+    def test_mocked_failed_or_unknown_helper_build_stops_before_device_compile(self):
+        for failure in ('helper', 'helper_unknown'):
+            with self.subTest(failure=failure), self.harness(failure) as (state, admit):
+                _, _, _, verify, exported, saved, commands, output = state
+                with self.assertRaises((ValueError, runner.owned.Unsettled)):
+                    runner.main()
+                self.assertEqual(commands.call_count, 2)
+                self.assertEqual(admit.call_count, 3)
+                self.assertEqual(verify.call_count, 3)
+                self.assertTrue(exported[0].exists())
+                self.assertNotIn('build-receipt.json', saved)
+                self.assertNotIn('build.stdout', saved)
+                if failure == 'helper_unknown':
+                    self.assertNotIn('test2json-build.stdout', saved)
+                output.assert_not_called()
+
+    def test_mocked_build_refuses_dynamic_helper_or_device_elf(self):
+        for kind in ('helper', 'compile'):
+            with self.subTest(kind=kind), self.harness() as (state, _):
+                paths, _, _, _, _, saved, commands, _ = state
+                original = commands.side_effect
+                def dynamic(args, *rest):
+                    result = original(args, *rest)
+                    if args[1] == ('build' if kind == 'helper' else 'test'):
+                        name = 'test2json' if kind == 'helper' else 'device.test'
+                        (paths['artifacts'] / name).write_bytes(elf(3))
+                    return result
+                commands.side_effect = dynamic
+                with self.assertRaises(ValueError): runner.main()
+                self.assertNotIn('build-receipt.json', saved)
+                self.assertEqual(commands.call_count, 2 if kind == 'helper' else 3)
+
+    def test_mocked_execute_never_regenerates_missing_or_changed_helper(self):
+        for cut in ('missing', 'bytes', 'mode', 'hardlink'):
+            with self.subTest(cut=cut), self.harness() as (state, _):
+                paths, argv, _, _, _, saved, commands, _ = state
+                runner.main()
+                helper = paths['artifacts'] / 'test2json'
+                argv[argv.index('build')] = 'execute'
+                if cut == 'missing': helper.unlink()
+                elif cut == 'bytes': helper.write_bytes(elf() + b'INERT_DRIFT')
+                elif cut == 'mode': helper.chmod(0o600)
+                else: baseline.os.link(helper, paths['artifacts'] / 'inert-alias')
+                with self.assertRaises((OSError, ValueError)): runner.main()
+                self.assertEqual(commands.call_count, 3)
+                self.assertNotIn('execution-attempt.json', saved)
+                self.assertNotIn('execution-receipt.json', saved)
+
+    def test_mocked_pre_and_post_execute_helper_drift_refuse_without_receipt(self):
+        for moment in ('before', 'after'):
+            with self.subTest(moment=moment), self.harness() as (state, admit):
+                paths, argv, _, _, _, saved, commands, _ = state
+                runner.main()
+                argv[argv.index('build')] = 'execute'
+                helper = paths['artifacts'] / 'test2json'
+                if moment == 'before':
+                    good = admit.return_value
+                    observed = []
+                    def change():
+                        observed.append(True)
+                        if len(observed) == 2: helper.write_bytes(elf() + b'INERT_DRIFT')
+                        return good
+                    admit.side_effect = change
+                else:
+                    original = commands.side_effect
+                    def change(args, *rest):
+                        result = original(args, *rest)
+                        helper.write_bytes(elf() + b'INERT_DRIFT')
+                        return result
+                    commands.side_effect = change
+                with self.assertRaises(ValueError): runner.main()
+                self.assertEqual(commands.call_count, 3 if moment == 'before' else 4)
+                self.assertEqual('execution-attempt.json' in saved, moment == 'after')
+                self.assertNotIn('execution-receipt.json', saved)
+
+    def test_mocked_private_telemetry_is_off_and_never_recreated_in_execute(self):
+        for cut in ('mode', 'missing', 'counter_data'):
+            with self.subTest(cut=cut), self.harness() as (state, _):
+                paths, argv, _, _, _, saved, commands, _ = state
+                runner.main()
+                telemetry = paths['artifacts'] / 'configuration/go/telemetry'
+                if cut == 'mode': (telemetry / 'mode').write_bytes(b'local\n')
+                elif cut == 'missing': (telemetry / 'mode').unlink()
+                else: runner.owned.save(telemetry, 'counter-data', b'INERT')
+                argv[argv.index('build')] = 'execute'
+                with self.assertRaises((OSError, ValueError)): runner.main()
+                self.assertEqual(commands.call_count, 3)
+                self.assertNotIn('execution-attempt.json', saved)
+        with self.harness() as (state, _):
+            paths, argv, _, _, _, _, _, _ = state
+            runner.main()
+            telemetry = paths['artifacts'] / 'configuration/go/telemetry'
+            (telemetry / 'local').mkdir(mode=0o700)
+            (telemetry / 'upload').mkdir(mode=0o700)
+            argv[argv.index('build')] = 'execute'
+            runner.main()  # Only empty fixed private directories may coexist.
 
     def test_unknown_latch_prevents_toolchain_observation(self):
         with patch.object(runner.owned, 'UNSETTLED', [object()]), \
                 patch.object(runner.admission, 'admit') as admit, \
                 patch.object(runner, 'inputs') as inputs:
             with self.assertRaises(runner.owned.Unsettled):
-                runner.recheck({}, 'inert', {}, Path('inert'))
+                runner.recheck({}, 'inert', {}, Path('inert'), Path('inert'), Path('inert'))
             admit.assert_not_called()
             inputs.assert_not_called()
 

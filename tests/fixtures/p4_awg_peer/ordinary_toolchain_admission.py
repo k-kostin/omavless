@@ -30,7 +30,10 @@ DOC_LINK = 'usr/lib/go/doc'
 DOC_TARGET = '/usr/share/doc/go'
 REQUIRED_NATIVE_TOOLS = ('bin/go', 'pkg/tool/linux_amd64/compile',
                          'pkg/tool/linux_amd64/asm', 'pkg/tool/linux_amd64/link',
-                         'pkg/tool/linux_amd64/test2json', 'pkg/tool/linux_amd64/vet')
+                         'pkg/tool/linux_amd64/vet')
+REQUIRED_HELPER_SOURCE = ('src/cmd/test2json/main.go',
+                          'src/cmd/test2json/signal_unix.go',
+                          'src/cmd/internal/test2json/test2json.go')
 
 
 def identity(m):
@@ -157,6 +160,10 @@ def catalogue(tar_bytes):
         raise ValueError('fixed_package_go_identity')
     if not set(REQUIRED_NATIVE_TOOLS) <= native:
         raise ValueError('required_native_tool_missing')
+    for source in REQUIRED_HELPER_SOURCE:
+        record = found.get('usr/lib/go/' + source, {})
+        if record.get('kind') != 'file' or not record.get('size', 0):
+            raise ValueError('signed_test2json_source_missing')
     if found.get(DOC_LINK) != {'kind': 'documentation_symlink', 'mode': 0o777, 'target': DOC_TARGET}:
         raise ValueError('fixed_package_documentation_link_missing')
     # Explicit hierarchy prevents omitted directory metadata from being inferred.

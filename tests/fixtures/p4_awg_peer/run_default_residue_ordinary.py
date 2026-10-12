@@ -121,7 +121,32 @@ def inputs():
     return value
 
 
-def recheck(captured, fixture, toolchain, source):
+def verify_telemetry(artifacts, home):
+    # Both explicit tool override and default XDG resolution name this one
+    # private OFF mode. Never inspect/mutate the user's real Go telemetry state.
+    telemetry = artifacts / "configuration" / "go" / "telemetry"
+    if owned.private_directory(telemetry, home) != telemetry:
+        raise ValueError("fixed_private_telemetry_required")
+    names = set(p.name for p in telemetry.iterdir())
+    if "mode" not in names or not names <= {"mode", "local", "upload"}:
+        raise ValueError("fixed_private_telemetry_members_required")
+    for name in names - {"mode"}:
+        directory = telemetry / name
+        if owned.private_directory(directory, home) != directory or any(directory.iterdir()):
+            raise ValueError("telemetry_counter_data_refused")
+    if object_bytes(telemetry / "mode", 32) != b"off\n" or stat.S_IMODE((telemetry / "mode").lstat().st_mode) != 0o600:
+        raise ValueError("fixed_telemetry_off_required")
+
+
+def frozen_elf(path):
+    raw = object_bytes(path, 256 * 1024 * 1024)
+    if stat.S_IMODE(path.lstat().st_mode) != 0o700:
+        raise ValueError("private_frozen_elf_mode_required")
+    admission.static_elf(raw)
+    return hashlib.sha256(raw).hexdigest()
+
+
+def recheck(captured, fixture, toolchain, source, artifacts, home):
     # First unknown latch prohibits even later source/query effects.
     if owned.UNSETTLED:
         raise owned.Unsettled("prior_owned_graph_unknown_preserve")
@@ -132,6 +157,7 @@ def recheck(captured, fixture, toolchain, source):
     if admission.admit() != toolchain:
         raise ValueError("toolchain_drift")
     owned.helpers.verify_source(source)
+    verify_telemetry(artifacts, home)
 
 
 def limits():
@@ -176,14 +202,20 @@ def main():
     owned.helpers.git(HERE, "ls-files", "--error-unmatch", "--", *paths)
     owned.helpers.git(HERE, "diff", "--exit-code", "HEAD", "--", *paths)
     archive = owned.helpers.verify_source(source)
-    env = dict(PATH="/usr/bin:/bin", HOME=str(home), LANG="C", LC_ALL="C", GOENV="off", GOTOOLCHAIN="local", GOROOT="/usr/lib/go", GOWORK="off", GOFLAGS="", GOPROXY="off", GOSUMDB="off", GOOS="linux", GOARCH="amd64", GOMAXPROCS="2", CGO_ENABLED="0", GOMODCACHE=str(modules), GOCACHE=str(cache), GOTMPDIR=str(scratch), TMPDIR=str(scratch))
+    telemetry = artifacts / "configuration" / "go" / "telemetry"
+    env = dict(PATH="/usr/bin:/bin", HOME=str(home), LANG="C", LC_ALL="C", GOENV="off", GOTOOLCHAIN="local", GOROOT="/usr/lib/go", GOWORK="off", GOFLAGS="", GOPROXY="off", GOSUMDB="off", GOOS="linux", GOARCH="amd64", GOMAXPROCS="2", CGO_ENABLED="0", GOMODCACHE=str(modules), GOCACHE=str(cache), GOTMPDIR=str(scratch), TMPDIR=str(scratch), XDG_CONFIG_HOME=str(artifacts / "configuration"), XDG_CACHE_HOME=str(cache), TEST_TELEMETRY_DIR=str(telemetry))
     hashes = {name: hashlib.sha256(data).hexdigest() for name, data in captured.items()}
     binary = artifacts / "device.test"
+    test2json = artifacts / "test2json"
     toolchain = admission.admit()
     tool_hash = toolchain["go_sha256"]
     expected = dict(fixture_commit=fixture, pin=owned.helpers.PIN, source_archive_sha256=owned.helpers.ARCHIVE_SHA256,
                     input_sha256=hashes, tool_sha256=tool_hash, toolchain=toolchain,
-                    recipe="p4-default-residue-ordinary-arch-go-v2", race=False, cases=1,
+                    recipe="p4-default-residue-ordinary-arch-go-v3", race=False, cases=1,
+                    test2json_build_package="cmd/test2json", telemetry_mode="off",
+                    telemetry_mode_sha256=hashlib.sha256(b"off\n").hexdigest(),
+                    xdg_configuration_relative="configuration",
+                    telemetry_directory_relative="configuration/go/telemetry",
                     source_engine_only=True, network_transport=False, vm=False, defaults_unchanged=True,
                     test=test, case=args.case, body_limit_seconds=570,
                     go_timeout_seconds=600, supervisor_timeout_seconds=620,
@@ -193,6 +225,9 @@ def main():
     if args.phase == "build":
         if any(artifacts.iterdir()):
             raise ValueError("fresh_build_artifacts_required")
+        for directory in (artifacts / "configuration", artifacts / "configuration" / "go", telemetry):
+            directory.mkdir(mode=0o700)
+        owned.save(telemetry, "mode", b"off\n")
         for name, data in captured.items():
             owned.save(artifacts, name, data)
         root = Path(tempfile.mkdtemp(prefix="p4-default-residue-", dir=scratch))
@@ -207,25 +242,37 @@ def main():
             owned.save(root, artifact, captured[artifact])
             replacements[str(target)] = str(root / artifact)
         owned.save(root, "overlay.json", json.dumps({"Replace": replacements}).encode())
-        recheck(captured, fixture, toolchain, source)
+        recheck(captured, fixture, toolchain, source, artifacts, home)
         code, out, err = owned.command(["/usr/bin/go", "mod", "verify"], exported, env, 30)
         owned.save(artifacts, "modules.stdout", out)
         owned.save(artifacts, "modules.stderr", err)
         if code != 0 or out.strip() != b"all modules verified" or err:
             raise ValueError("offline_module_verification_refused")
+        # Explicit zero-case compiler phase. EXECUTE never uses `go tool` and
+        # cannot lazily compile/regenerate a missing builtin tool.
+        recheck(captured, fixture, toolchain, source, artifacts, home)
+        code, out, err = owned.command(["/usr/bin/go", "build", "-p=2", "-trimpath", "-o", str(test2json), "cmd/test2json"], exported, env, 120)
+        owned.save(artifacts, "test2json-build.stdout", out)
+        owned.save(artifacts, "test2json-build.stderr", err)
+        if code != 0 or out or err:
+            raise ValueError("frozen_test2json_compile_refused_no_execution")
+        os.chmod(test2json, 0o700)
+        expected["test2json_sha256"] = frozen_elf(test2json)
         build = ["/usr/bin/go", "test", "-c", "-p=2", "-trimpath", "-mod=readonly", "-tags=p4_cookie_overlay,p4_default_residue_overlay", "-overlay", str(root / "overlay.json"), "-o", str(binary)]
-        recheck(captured, fixture, toolchain, source)
+        recheck(captured, fixture, toolchain, source, artifacts, home)
         code, out, err = owned.command([*build, "./device"], exported, env, 120)
         owned.save(artifacts, "build.stdout", out)
         owned.save(artifacts, "build.stderr", err)
         if code != 0 or out or err:
             raise ValueError("frozen_compile_refused_no_execution")
         os.chmod(binary, 0o700)
-        expected["binary_sha256"] = hashlib.sha256(object_bytes(binary, 256 * 1024 * 1024)).hexdigest()
+        expected["binary_sha256"] = frozen_elf(binary)
+        if frozen_elf(test2json) != expected["test2json_sha256"]:
+            raise ValueError("compiled_test2json_changed")
         owned.helpers.verify_export(exported, proof)
         if any((root / artifact).read_bytes() != captured[artifact] for _, artifact in OVERLAYS.values()):
             raise ValueError("compiled_overlay_changed")
-        recheck(captured, fixture, toolchain, source)
+        recheck(captured, fixture, toolchain, source, artifacts, home)
         # No cleanup path: preserve the exact exported source/overlay on every
         # positive, nonzero, drift, refusal or unknown constructor outcome.
         receipt_name = "build-receipt.json"
@@ -236,15 +283,18 @@ def main():
             if object_bytes(artifacts / name, 65536) != data:
                 raise ValueError("frozen_inputs_differ")
         build_receipt = json.loads(object_bytes(artifacts / "build-receipt.json", 16384))
-        expected["binary_sha256"] = hashlib.sha256(object_bytes(binary, 256 * 1024 * 1024)).hexdigest()
+        expected["binary_sha256"] = frozen_elf(binary)
+        expected["test2json_sha256"] = frozen_elf(test2json)
         if build_receipt != {**expected, "execution": False} or any(os.path.lexists(artifacts / name) for name in ("execution-attempt.json", "events.jsonl", "test.stderr", "execution-receipt.json")):
             raise ValueError("exact_unexecuted_build_receipt_required")
-        recheck(captured, fixture, toolchain, source)
+        recheck(captured, fixture, toolchain, source, artifacts, home)
+        if frozen_elf(test2json) != expected["test2json_sha256"] or frozen_elf(binary) != expected["binary_sha256"]:
+            raise ValueError("preexecution_frozen_elf_drift")
         # Consumes this artifact's one execution slot before child creation.
         # Timeout/unknown supervision cannot leave it apparently unattempted.
         owned.save(artifacts, "execution-attempt.json", json.dumps({**expected, "attempted": True}, sort_keys=True).encode())
         try:
-            code, out, err = owned.command(["/usr/bin/go", "tool", "test2json", "-p", PACKAGE, "-t", str(binary), "-test.v=test2json", f"-test.run=^{test}$", "-test.count=1", "-test.timeout=600s"], artifacts, env, 620)
+            code, out, err = owned.command([str(test2json), "-p", PACKAGE, "-t", str(binary), "-test.v=test2json", f"-test.run=^{test}$", "-test.count=1", "-test.timeout=600s"], artifacts, env, 620)
         except BaseException as exc:
             # The sealed supervisor returns output only when settled; never
             # misrepresent partial live output as a retained complete receipt.
@@ -259,9 +309,9 @@ def main():
         if code != 0 or err:
             raise ValueError("actual_default_residue_nonpass_preserve")
         observation = receipts.verify_events(out, args.case)
-        if hashlib.sha256(object_bytes(binary, 256 * 1024 * 1024)).hexdigest() != expected["binary_sha256"]:
+        if frozen_elf(binary) != expected["binary_sha256"] or frozen_elf(test2json) != expected["test2json_sha256"]:
             raise ValueError("executed_binary_changed")
-        recheck(captured, fixture, toolchain, source)
+        recheck(captured, fixture, toolchain, source, artifacts, home)
         receipt_name = "execution-receipt.json"
         receipt_bytes = json.dumps({**expected, "execution": True, "observation": observation}, sort_keys=True).encode()
         result = "PASS_CPU_SOURCE_ENGINE_ONLY"
