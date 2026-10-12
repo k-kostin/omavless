@@ -29,6 +29,7 @@ FIXED_ACCOUNTS = {
     ACCOUNT: HOME,
     "ovrestore203": Path("/home/ovrestore203"),
     "ovrestore204": Path("/home/ovrestore204"),
+    "ovrestore205": Path("/home/ovrestore205"),
 }
 
 
