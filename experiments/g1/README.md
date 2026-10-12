@@ -27,6 +27,7 @@ CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-target" cargo run --release --manifes
 node experiments/g1/tests/fixture-parity.mjs
 node experiments/g1/tests/freshness.mjs
 node experiments/g1/tests/workload.mjs
+node experiments/g1/tests/metadata.mjs
 ```
 
 The GPUI Shell runtime is a separate, upstream, non-published binary; the
@@ -105,7 +106,7 @@ connected snapshot restores it. Recovery and switching retain their existing
 unconfirmed/previous-server presentation.
 
 Status updates do not invalidate metadata. Both apps use tested profile-cache
-helpers keyed only by search, list size and collection for the immutable fixture.
+helpers keyed by search, list size, collection and actual metadata content.
 Inspection Enter reuses that cache; highlight membership checks use a retained ID
 set instead of scanning all rows on each repaint. Direct Rust also retains its
 row geometry until metadata or rem size changes. The tests exercise 100,000
@@ -115,10 +116,63 @@ inspection lookup, queued loss, stale replay and every shared fixture scene.
 This is a finite synchronous synthetic producer, **not** a sustained background
 stream, timed animation, traffic-history buffer or real changing metadata feed.
 It establishes a replacement-slot bound, not transport backpressure or native
-frame latency. Any later mutable metadata feed must add its content revision to
-the cache key and test removed/renamed rows; daemon/client wiring is still G1b.
+frame latency. The synthetic metadata successor below tests removed/renamed
+rows; daemon/client wiring is still G1b.
 Native wide/narrow EN/RU inspection, stable scroll/focus during bursts and source
 loss, and latency/memory sampling under the declared workload remain pending.
+
+### Whole synthetic metadata replacement
+
+The successor to #741 adds the same executable scenario to both trials:
+**Rename inspected sample**, **Remove inspected sample**, **Replace sample
+collection**, and **Restore fixture list**. Their targets are an inspected
+invented ID or the fixed Sample collection. These replace local fixture metadata;
+they are not profile/store/daemon mutations. The shared
+[`metadata-fixtures.json`](metadata-fixtures.json) supplies names and replacement
+rows for both implementations. Fixture names remain unchanged across locales.
+
+The initial full metadata snapshot contains **at most 10,006 research rows**.
+This is deliberately not the native product's 256-profile capacity. The generated
+list switch hides/shows those rows; it never regenerates a deleted profile. Full
+replacement admission rejects oversized lists, duplicate/invalid IDs, oversized
+text, controls/directional markers, non-`.example` hosts and unsupported fixture
+collections before publishing any prefix. This is a fixed synthetic data model,
+not a general patch protocol or a parser for real profile/provider inputs.
+
+Each accepted status sample binds to the admitted metadata generation. Changed
+rows require a newer generation and a newer status revision on the current
+ticket. Status without corresponding metadata, older generations, changed data
+at the same generation, wrong instance/epoch and regressing revisions refuse
+before replacing the latest slot. Generation/revision use the JavaScript-safe
+integer bound in this research model; they are data, never runtime capability or
+effect authority. Same-content metadata at a newer generation retains the exact
+content/cache identity. Actual name/membership/order changes invalidate the cache.
+
+Replacement preserves search, collection, locale, palette and native scroll
+handles. Inspection is reconciled by stable ID: renamed/filtered targets remain
+selected; missing targets become explicit no selection, never another row.
+Restoring the baseline does not restore a previously removed inspection target.
+Keyboard highlight remains navigation and may move to an available row without
+inspecting it. A current synthetic connected ID may survive removed metadata;
+Details then explicitly says **not in current sample**, rather than inventing
+Disconnected or substituting a different profile. Native viewport clamping after
+membership/size changes is a separate pending renderer check.
+
+Source loss clears queued metadata and connection confirmation, retains only
+cached browsing, and visibly labels that list as cached/unverified. A new epoch
+needs an explicit fresh full metadata snapshot before confirming any status;
+the fresh-read control simulates that delivery. A late old-ticket reset cannot
+restore removed rows or a connection. Whole metadata/status publication is one
+flush; status-only bursts continue reusing both the actual metadata and filtered
+projection in the 100,000-update tests.
+
+Source scenario and fault checks do not establish rendering: exact-head wide and
+400×700 EN/RU control wrapping, selected/connected distinction, cached-list label,
+empty filtering, pointer/keyboard reachability and scroll continuity remain
+**NOT RUN** until the sole designated VM operator tests this successor. Earlier
+#741/c8e13578 source/build evidence and its frozen binary/full Shell resources
+remain separate; its pending native card is not overwritten by this successor.
+No G1a closure, G1b daemon binding, production adoption or native latency claim.
 
 In both synthetic candidates, `Tab` reaches the profile list, `Up`/`Down` move a
 highlight without changing the inspected or confirmed profile, `Enter`

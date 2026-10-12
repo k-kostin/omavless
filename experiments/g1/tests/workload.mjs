@@ -6,6 +6,9 @@ import { UpdateView } from "../shell/workload.js";
 const view = new UpdateView();
 view.attach();
 const ticket = view.freshness.request();
+assert.equal(view.receive(ticket, { instance: ticket.instance, revision: 0,
+  phase: "unverified", connected: null }, 1, []), true);
+view.flush();
 for (let revision = 1; revision <= 1000; revision += 1) {
   assert.equal(view.receive(ticket, { instance: ticket.instance, revision,
     phase: "connected", connected: "south" }), true);

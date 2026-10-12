@@ -11,6 +11,7 @@ import {
 import { connectionPresentation, fixture, nextHighlightedProfile, profileById, ProfileCache } from "./data.js";
 import { BROKEN, DARK, LIGHT, resolvedPalette } from "./palette.js";
 import { UpdateView } from "./workload.js";
+import { Metadata } from "./metadata.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
 const copy = {
@@ -21,9 +22,10 @@ const copy = {
     note: "Tab to list: arrows move, Enter inspects; Page Down opens Details", large: "10,005 synthetic rows · virtualized", noResults: "No matching profiles",
     readonly: "No VPN action exists in this experiment.", search: "Search sample profiles…",
     theme: "Synthetic theme", dark: "Dark", light: "Light", broken: "Broken → default", fallback: "Default palette restored",
-    largeList: "10k samples", smallList: "5 samples",
+    largeList: "Show generated samples", smallList: "Hide generated samples",
     viewDetails: "Details", viewProfiles: "Profiles", returnHint: "Page Up or Profiles returns to the list",
     burst: "Simulate 1,000 updates", lost: "Lose sample source", attach: "Read fresh sample", sample: "Sample update",
+    renameSample: "Rename inspected sample", removeSample: "Remove inspected sample", replaceSample: "Replace sample collection", resetSample: "Restore fixture list", cached: "Cached sample list · source not verified", missingProfile: "not in current sample",
     phases: { connected: "Connected (synthetic)", connecting: "Connecting… (synthetic)", switching: "Switching server… (synthetic)", reconnecting: "Reconnecting… (synthetic)", unverified: "State unverified (synthetic)", failed: "Connection failed (synthetic)", recovery: "Recovery required (synthetic)", disconnected: "Disconnected (synthetic)" },
     scenes: { connected: "connected", connecting: "connecting", switching: "switching", reconnecting: "reconnecting", unverified: "unverified", failed: "failed", recovery: "recovery", removed: "removed" },
   },
@@ -34,9 +36,10 @@ const copy = {
     note: "Tab — к списку, стрелки — выбор, Enter — просмотр; Page Down — детали", large: "10 005 демонстрационных строк · виртуализация", noResults: "Профили не найдены",
     readonly: "В этом эксперименте нет управления VPN.", search: "Поиск демонстрационных профилей…",
     theme: "Тема макета", dark: "Тёмная", light: "Светлая", broken: "Сбой → стандартная", fallback: "Стандартная палитра восстановлена",
-    largeList: "10 тыс. строк", smallList: "5 строк",
+    largeList: "Показать сгенерированные строки", smallList: "Скрыть сгенерированные строки",
     viewDetails: "Детали", viewProfiles: "Профили", returnHint: "Page Up или «Профили» вернёт к списку",
     burst: "Смоделировать 1 000 обновлений", lost: "Потерять источник макета", attach: "Прочитать свежий макет", sample: "Обновление макета",
+    renameSample: "Переименовать просматриваемый макет", removeSample: "Удалить просматриваемый макет", replaceSample: "Заменить состав макета подписки", resetSample: "Вернуть исходный список макета", cached: "Сохранённый список макета · источник не подтверждён", missingProfile: "нет в текущем макете",
     phases: { connected: "Подключено (макет)", connecting: "Подключаемся… (макет)", switching: "Меняем сервер… (макет)", reconnecting: "Переподключаемся… (макет)", unverified: "Состояние не подтверждено (макет)", failed: "Подключение не удалось (макет)", recovery: "Требуется восстановление (макет)", disconnected: "Отключено (макет)" },
     scenes: { connected: "подключено", connecting: "подключение", switching: "смена", reconnecting: "переподключение", unverified: "не проверено", failed: "сбой", recovery: "восстановление", removed: "удалён" },
   },
@@ -55,7 +58,7 @@ export default class G1Trial extends View {
     this.search = InputState.new({ placeholder: "Search / Поиск" });
     this.search.on("change", (_event, context) => context.notify());
     this.search.on("submit", (_event, context) => {
-      const first = this.profileCache.get(this.search.value(), this.large, this.collection)[0];
+      const first = this.profileCache.get(this.search.value(), this.large, this.collection, this.updates.metadata)[0];
       if (first) {
         this.selected = first.id;
         this.highlighted = first.id;
@@ -75,7 +78,7 @@ export default class G1Trial extends View {
     this.large = false;
     this.collection = "all";
     this.profileCache = new ProfileCache();
-    this.updates = new UpdateView();
+    this.updates = new UpdateView(Metadata.fixture());
     this.updates.attach();
     this.updates.burst(fixture.scenes[0], 1);
   }
@@ -92,14 +95,29 @@ export default class G1Trial extends View {
     context.notify();
   }
 
+  replaceMetadata(action, context) {
+    if (!this.updates.available() || !this.updates.metadataFresh) return;
+    const metadata = this.updates.metadata;
+    const rows = action === "rename" ? metadata.renamed(this.selected)
+      : action === "remove" ? metadata.removed(this.selected)
+      : action === "replace" ? metadata.replacedCollection() : Metadata.fixture().rows;
+    if (rows !== null && this.updates.replace(fixture.scenes[this.scene], rows)) {
+      this.selected = this.updates.metadata.selection(this.selected);
+      context.notify();
+    }
+  }
+
   render(cx) {
     const strings = copy[this.locale];
     const scene = this.updates.state;
     const connection = connectionPresentation(scene);
-    const connected = profileById(connection.id);
-    const selected = profileById(this.selected);
+    const metadata = this.updates.metadata;
+    this.selected = metadata.selection(this.selected);
+    const connected = profileById(connection.id, metadata);
+    const connectedName = connected?.name ?? (connection.id === null ? strings.none : `${connection.id} · ${strings.missingProfile}`);
+    const selected = profileById(this.selected, metadata);
     const query = this.search.value();
-    const visible = this.profileCache.get(query, this.large, this.collection);
+    const visible = this.profileCache.get(query, this.large, this.collection, metadata);
     if (!this.profileCache.ids.has(this.highlighted)) {
       this.highlighted = visible[0]?.id ?? null;
     }
@@ -178,7 +196,7 @@ export default class G1Trial extends View {
       .child(new MutedText(strings.source).build(cx))
       .child(new Label(selected?.subscription || (this.locale === "ru" ? "Локальный" : "Local")).build(cx))
       .child(new MutedText(connection.kind === "previous" ? strings.previous : strings.connected).build(cx))
-      .child(new Label(connected?.name ?? strings.none).build(cx))
+      .child(new Label(connectedName).build(cx))
       .child(new MutedText(strings.readonly).build(cx));
 
     // Let native flex layout react to window geometry. A Shell view snapshot is
@@ -212,6 +230,7 @@ export default class G1Trial extends View {
         context.stop_propagation();
       })
       .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx));
+    if (!this.updates.metadataFresh) body.child(new MutedText(strings.cached).build(cx));
     if (this.detailsOnly) {
       body.child(new MutedText(strings.returnHint).build(cx))
         .child(new Panel("details-page").title(strings.details).content(details).build(cx).min_w_0());
@@ -229,6 +248,13 @@ export default class G1Trial extends View {
               this.updates.attach(); this.updates.burst(fixture.scenes[this.scene], 1); context.notify();
             }).build(cx)))
         .child(new MutedText(`${strings.sample}: ${scene.sample}`).build(cx))
+        .child(h_flex().flex_wrap().gap(6)
+          .children([["rename", strings.renameSample], ["remove", strings.removeSample],
+            ["replace", strings.replaceSample], ["reset", strings.resetSample]].map(([action, label]) =>
+            new Button(`metadata-${action}`).label(label).outlined()
+              .disabled(!this.updates.metadataFresh || !this.updates.available()
+                || (["rename", "remove"].includes(action) && selected === null))
+              .onClick((_event, context) => this.replaceMetadata(action, context)).build(cx))))
         .child(new Button("large-list").label(this.large ? strings.smallList : strings.largeList).outlined()
           .onClick((_event, context) => { this.large = !this.large; context.notify(); }).build(cx))
         .child(h_flex().flex_wrap().gap(6)

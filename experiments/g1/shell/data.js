@@ -54,7 +54,8 @@ function generatedProfile(index) {
 
 // Selection can outlive a filter or the large-list toggle. Resolve its
 // details without rebuilding the entire 10k-row fixture on every render.
-export function profileById(id) {
+export function profileById(id, metadata = null) {
+  if (metadata !== null) return metadata.profile(id);
   const sample = fixture.profiles.find((profile) => profile.id === id);
   if (sample) return sample;
   const match = /^generated-(\d{5})$/.exec(id ?? "");
@@ -63,9 +64,9 @@ export function profileById(id) {
   return index < fixture.large_list_count ? generatedProfile(index) : null;
 }
 
-export function visibleProfiles(query, large = false, collection = "all") {
-  const profiles = [...fixture.profiles];
-  if (large) {
+export function visibleProfiles(query, large = false, collection = "all", metadata = null) {
+  const profiles = metadata === null ? [...fixture.profiles] : metadata.rows;
+  if (large && metadata === null) {
     for (let index = 0; index < fixture.large_list_count; index += 1) {
       profiles.push(generatedProfile(index));
     }
@@ -76,22 +77,22 @@ export function visibleProfiles(query, large = false, collection = "all") {
       || (collection === "sample" && profile.subscription === "Sample collection")
       || (collection === "generated" && profile.subscription === "Generated samples")
       || (collection === "local" && profile.subscription === "");
-    return inCollection && [profile.name, profile.country, profile.host, profile.subscription]
+    return (large || profile.subscription !== "Generated samples") && inCollection && [profile.name, profile.country, profile.host, profile.subscription]
       .some((value) => value.toLocaleLowerCase().includes(needle));
   });
 }
 
-// Only metadata/filter inputs invalidate this projection. Status samples and
-// source epochs never enter its key; the fixture metadata is immutable.
+// Only actual metadata content and filters invalidate this projection.
+// Status samples/source epochs never enter its key.
 export class ProfileCache {
   key = null;
   visible = [];
   ids = new Set();
 
-  get(query, large, collection) {
-    const key = JSON.stringify([query, large, collection]);
+  get(query, large, collection, metadata = null) {
+    const key = JSON.stringify([query, large, collection, metadata?.content ?? 0]);
     if (key !== this.key) {
-      this.visible = visibleProfiles(query, large, collection);
+      this.visible = visibleProfiles(query, large, collection, metadata);
       this.ids = new Set(this.visible.map((profile) => profile.id));
       this.key = key;
     }

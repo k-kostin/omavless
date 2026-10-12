@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::rc::Rc;
 
 mod freshness;
+mod metadata;
 mod profiles;
 mod workload;
 
@@ -63,7 +64,7 @@ fn synthetic_theme(index: usize) -> (Theme, bool) {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, PartialEq, Eq)]
 struct Profile {
     id: String,
     name: String,
@@ -117,10 +118,12 @@ impl Fixtures {
         data
     }
 
+    #[cfg(test)]
     fn profile(&self, id: &str) -> Option<&Profile> {
         self.profiles.iter().find(|profile| profile.id == id)
     }
 
+    #[cfg(test)]
     fn resolved_profile(&self, id: &str) -> Option<Profile> {
         if let Some(profile) = self.profile(id) {
             return Some(profile.clone());
@@ -229,8 +232,12 @@ impl Trial {
         cx.subscribe(&search, |this, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 let query = input.read(cx).value().to_string();
-                this.profile_cache
-                    .refresh(&this.fixtures, &query, this.large, this.collection);
+                this.profile_cache.refresh(
+                    &this.updates.metadata,
+                    &query,
+                    this.large,
+                    &this.fixtures.collections[this.collection].id,
+                );
                 if let Some(first) = this.profile_cache.visible.first() {
                     this.selected = Some(first.id.clone());
                     this.highlighted = Some(first.id.clone());
@@ -244,12 +251,13 @@ impl Trial {
         // focus scope without any focused child cannot receive its Tab action.
         search.update(cx, |input, cx| input.focus(window, cx));
         let selected = fixtures.scenes[initial_scene].selected.clone();
-        let mut updates = workload::UpdateView::default();
+        let mut updates =
+            workload::UpdateView::with_metadata(metadata::Metadata::fixture(&fixtures));
         updates.attach();
         let scene = &fixtures.scenes[initial_scene];
         updates.burst(&scene.phase, scene.connected.as_deref(), 1);
         let mut profile_cache = profiles::ProfileCache::default();
-        profile_cache.refresh(&fixtures, "", false, 0);
+        profile_cache.refresh(&updates.metadata, "", false, "all");
         Self {
             visible: profile_cache.visible.clone(),
             profile_cache,
@@ -274,6 +282,33 @@ impl Trial {
 
     fn label<'a>(&self, english: &'a str, russian: &'a str) -> &'a str {
         if self.russian { russian } else { english }
+    }
+
+    fn replace_metadata(&mut self, action: usize) {
+        if !self.updates.available() || !self.updates.metadata_fresh {
+            return;
+        }
+        let metadata = &self.updates.metadata;
+        let rows = match action {
+            0 => self.selected.as_deref().and_then(|id| metadata.renamed(id)),
+            1 => self.selected.as_deref().and_then(|id| metadata.removed(id)),
+            2 => Some(metadata.replaced_collection()),
+            3 => Some(
+                metadata::Metadata::fixture(&self.fixtures)
+                    .rows
+                    .as_ref()
+                    .clone(),
+            ),
+            _ => None,
+        };
+        let scene = &self.fixtures.scenes[self.scene];
+        if let Some(rows) = rows
+            && self
+                .updates
+                .replace(&scene.phase, scene.connected.as_deref(), rows)
+        {
+            self.selected = self.updates.metadata.selection(self.selected.as_deref());
+        }
     }
 
     fn scene(&self) -> Scene {
@@ -316,8 +351,13 @@ impl Trial {
     }
 
     fn update_visible(&mut self, query: &str, window: &Window) {
-        self.profile_cache
-            .refresh(&self.fixtures, query, self.large, self.collection);
+        self.profile_cache.refresh(
+            &self.updates.metadata,
+            query,
+            self.large,
+            &self.fixtures.collections[self.collection].id,
+        );
+        self.selected = self.updates.metadata.selection(self.selected.as_deref());
         let changed = !Rc::ptr_eq(&self.visible, &self.profile_cache.visible);
         self.visible = self.profile_cache.visible.clone();
         if !self
@@ -443,9 +483,9 @@ impl Render for Trial {
         let selected = self
             .selected
             .as_deref()
-            .and_then(|id| self.fixtures.resolved_profile(id));
+            .and_then(|id| self.updates.metadata.profile(id));
         let connection_id = scene.confirmed_id().or_else(|| scene.previous_id());
-        let connected = connection_id.and_then(|id| self.fixtures.resolved_profile(id));
+        let connected = connection_id.and_then(|id| self.updates.metadata.profile(id));
         let status = match scene.phase.as_str() {
             "connected" => self.label("Connected (synthetic)", "Подключено (макет)"),
             "connecting" => self.label("Connecting… (synthetic)", "Подключаемся… (макет)"),
@@ -548,6 +588,44 @@ impl Render for Trial {
                 .into_any_element(),
             );
         }
+        let mut metadata_buttons = Vec::<AnyElement>::new();
+        for (action, english, russian) in [
+            (
+                0,
+                "Rename inspected sample",
+                "Переименовать просматриваемый макет",
+            ),
+            (
+                1,
+                "Remove inspected sample",
+                "Удалить просматриваемый макет",
+            ),
+            (
+                2,
+                "Replace sample collection",
+                "Заменить состав макета подписки",
+            ),
+            (3, "Restore fixture list", "Вернуть исходный список макета"),
+        ] {
+            metadata_buttons.push(
+                button(
+                    format!("metadata-{action}"),
+                    self.label(english, russian),
+                    ButtonVariant::Outline,
+                    cx,
+                )
+                .disabled(
+                    !self.updates.metadata_fresh
+                        || !self.updates.available()
+                        || (action < 2 && selected.is_none()),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.replace_metadata(action);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            );
+        }
         let list_note = if self.large {
             if self.russian {
                 format!(
@@ -579,9 +657,20 @@ impl Render for Trial {
             })
             .unwrap_or("—");
         let connected_name = connected
-            .as_ref()
-            .map(|profile| profile.name.as_str())
-            .unwrap_or(self.label("None confirmed", "Нет подтверждённого соединения"));
+            .map(|profile| profile.name.clone())
+            .unwrap_or_else(|| {
+                connection_id
+                    .map(|id| {
+                        format!(
+                            "{id} · {}",
+                            self.label("not in current sample", "нет в текущем макете")
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        self.label("None confirmed", "Нет подтверждённого соединения")
+                            .to_owned()
+                    })
+            });
         let details_summary = format!(
             "{}: {selected_name}; {}: {selected_source}; {}: {connected_name}",
             self.label("Selected for inspection", "Выбрано для просмотра"),
@@ -785,6 +874,12 @@ impl Render for Trial {
                     .text_color(status_color)
                     .child(status),
             )
+            .when(!self.updates.metadata_fresh, |body| {
+                body.child(div().text_color(theme.secondary).child(self.label(
+                    "Cached sample list · source not verified",
+                    "Сохранённый список макета · источник не подтверждён",
+                )))
+            })
             .child(
                 div()
                     .flex()
@@ -865,12 +960,19 @@ impl Render for Trial {
                 self.updates.state.sample
             )))
             .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(rems(0.4))
+                    .children(metadata_buttons),
+            )
+            .child(
                 button(
                     "large",
                     if self.large {
-                        "5 samples"
+                        self.label("Hide generated samples", "Скрыть сгенерированные строки")
                     } else {
-                        "10k samples"
+                        self.label("Show generated samples", "Показать сгенерированные строки")
                     },
                     ButtonVariant::Outline,
                     cx,

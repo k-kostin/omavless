@@ -1,0 +1,7 @@
+{
+  "renamedPrefix": "Renamed · ",
+  "replacementProfiles": [
+    { "id": "replacement-a", "name": "Replacement A · Example", "country": "Example", "host": "replacement-a.example", "subscription": "Sample collection" },
+    { "id": "replacement-b", "name": "Замена B · демонстрационный профиль", "country": "Example", "host": "replacement-b.example", "subscription": "Sample collection" }
+  ]
+}
