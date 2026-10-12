@@ -81,6 +81,24 @@ export function visibleProfiles(query, large = false, collection = "all") {
   });
 }
 
+// Only metadata/filter inputs invalidate this projection. Status samples and
+// source epochs never enter its key; the fixture metadata is immutable.
+export class ProfileCache {
+  key = null;
+  visible = [];
+  ids = new Set();
+
+  get(query, large, collection) {
+    const key = JSON.stringify([query, large, collection]);
+    if (key !== this.key) {
+      this.visible = visibleProfiles(query, large, collection);
+      this.ids = new Set(this.visible.map((profile) => profile.id));
+      this.key = key;
+    }
+    return this.visible;
+  }
+}
+
 // Keyboard position is navigation, not profile selection or a connection.
 // A filtered-out position starts at the nearest edge in the key direction.
 export function nextHighlightedProfile(visible, currentId, direction) {

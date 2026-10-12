@@ -26,6 +26,7 @@ CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-target" cargo build --release --manif
 CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-target" cargo run --release --manifest-path experiments/g1/direct/Cargo.toml --locked
 node experiments/g1/tests/fixture-parity.mjs
 node experiments/g1/tests/freshness.mjs
+node experiments/g1/tests/workload.mjs
 ```
 
 The GPUI Shell runtime is a separate, upstream, non-published binary; the
@@ -60,26 +61,64 @@ no Connect, Disconnect, Quit, daemon bridge or credential input.
 
 ### Synthetic freshness boundary
 
-The direct Rust and Shell trials include separate, test-only freshness
+The direct Rust and Shell trials include separate freshness
 components (`direct/src/freshness.rs` and `shell/freshness.js`). Their user goal
 is to keep a future read-only status view honest if a response arrives after
 the client loses contact with its source or that source changes instance.
 The primary action in these components is a simulated status read; its target
 is the instance named by a locally issued request ticket. The visible result
-would be a confirmed connection only after a newer accepted snapshot says
+is a confirmed connection only after a newer accepted snapshot says
 `connected`. A navigation highlight or inspected profile never changes this
-fact. Selection and the current rendered prototype are outside this model.
+fact. These components now drive the synthetic rendered status through the
+bounded update adapters described below; inspection remains separate.
 
 The model clears confirmation immediately on simulated transport loss or new
 hello, rejects a late response from a prior client epoch, and accepts a lower
 revision only after an explicit new-instance attachment. Recovery and other
 non-connected phases clear confirmation even if a stale ID is carried along.
-It has no socket, wire decoder, daemon API or user-facing control; both
+It has no socket, wire decoder or daemon API; both
 implementations use invented instance IDs and profile names. This is a G1a
 architecture probe, not G1b read-only client acceptance. Exact semantic IPC
 fields and lifecycle behavior remain owned by the established control-plane
-contract. The test-only components are not rendered, so their tests make no
-new visual claim.
+contract. Earlier #528 evidence applies to its test-only wiring. The successor's
+native rendering, EN/RU wrapping and interaction checks remain **NOT RUN** until
+the exact new candidate is exercised by the designated VM operator.
+
+### Finite synthetic update workload
+
+User goal: continue inspecting a large list while source status changes, and
+see an honest unknown state if that source is lost. **Simulate 1,000 updates**
+targets the current invented source and scene; **Lose sample source** invalidates
+that source; **Read fresh sample** attaches a new client epoch and reads one new
+snapshot. These are local fixture controls, never VPN operations. They preserve
+the inspection selection, highlight, search, collection and existing list scroll
+handle. Existing scene buttons deliberately choose a new fixture and its initial
+inspection selection, as before. The sample number makes the burst's newest
+accepted update visible in both candidates.
+
+Admission occurs before replacing a single pending snapshot. Old revisions,
+wrong instances and old client epochs cannot displace an admitted update. Each
+finite burst admits at most 1,000 updates and flushes once; loss clears pending
+work and confirmed identity immediately. Burst/loss controls are unavailable
+while detached. Reattachment alone clears confirmation; only a fresh accepted
+connected snapshot restores it. Recovery and switching retain their existing
+unconfirmed/previous-server presentation.
+
+Status updates do not invalidate metadata. Both apps use tested profile-cache
+helpers keyed only by search, list size and collection for the immutable fixture.
+Inspection Enter reuses that cache; highlight membership checks use a retained ID
+set instead of scanning all rows on each repaint. Direct Rust also retains its
+row geometry until metadata or rem size changes. The tests exercise 100,000
+updates with the same 10,006-row projection, empty filtering, generated-profile
+inspection lookup, queued loss, stale replay and every shared fixture scene.
+
+This is a finite synchronous synthetic producer, **not** a sustained background
+stream, timed animation, traffic-history buffer or real changing metadata feed.
+It establishes a replacement-slot bound, not transport backpressure or native
+frame latency. Any later mutable metadata feed must add its content revision to
+the cache key and test removed/renamed rows; daemon/client wiring is still G1b.
+Native wide/narrow EN/RU inspection, stable scroll/focus during bursts and source
+loss, and latency/memory sampling under the declared workload remain pending.
 
 In both synthetic candidates, `Tab` reaches the profile list, `Up`/`Down` move a
 highlight without changing the inspected or confirmed profile, `Enter`

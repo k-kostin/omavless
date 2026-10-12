@@ -14,8 +14,9 @@ use gpui_omarchy::{
 use serde::Deserialize;
 use std::rc::Rc;
 
-#[cfg(test)]
 mod freshness;
+mod profiles;
+mod workload;
 
 // Keep these synthetic inputs byte-for-byte aligned with shell/palette.js.
 // They are not loaded from the user's Omarchy theme files.
@@ -202,6 +203,7 @@ struct Trial {
     fixtures: Fixtures,
     search: Entity<InputState>,
     scene: usize,
+    updates: workload::UpdateView,
     selected: Option<String>,
     highlighted: Option<String>,
     list_focus: FocusHandle,
@@ -212,9 +214,7 @@ struct Trial {
     palette: usize,
     large: bool,
     collection: usize,
-    cached_query: String,
-    cached_large: bool,
-    cached_collection: usize,
+    profile_cache: profiles::ProfileCache,
     visible: Rc<Vec<Profile>>,
     row_sizes: Rc<Vec<Size<Pixels>>>,
     row_rem_size: Pixels,
@@ -229,7 +229,9 @@ impl Trial {
         cx.subscribe(&search, |this, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 let query = input.read(cx).value().to_string();
-                if let Some(first) = this.visible_profiles(&query).first() {
+                this.profile_cache
+                    .refresh(&this.fixtures, &query, this.large, this.collection);
+                if let Some(first) = this.profile_cache.visible.first() {
                     this.selected = Some(first.id.clone());
                     this.highlighted = Some(first.id.clone());
                     this.list_scroll.scroll_to_item(0, ScrollStrategy::Top);
@@ -242,11 +244,19 @@ impl Trial {
         // focus scope without any focused child cannot receive its Tab action.
         search.update(cx, |input, cx| input.focus(window, cx));
         let selected = fixtures.scenes[initial_scene].selected.clone();
+        let mut updates = workload::UpdateView::default();
+        updates.attach();
+        let scene = &fixtures.scenes[initial_scene];
+        updates.burst(&scene.phase, scene.connected.as_deref(), 1);
+        let mut profile_cache = profiles::ProfileCache::default();
+        profile_cache.refresh(&fixtures, "", false, 0);
         Self {
-            visible: Rc::new(fixtures.profiles.clone()),
+            visible: profile_cache.visible.clone(),
+            profile_cache,
             fixtures,
             search,
             scene: initial_scene,
+            updates,
             highlighted: selected.clone(),
             selected,
             list_focus: cx.focus_handle(),
@@ -257,9 +267,6 @@ impl Trial {
             palette: 0,
             large: false,
             collection: 0,
-            cached_query: String::new(),
-            cached_large: false,
-            cached_collection: 0,
             row_sizes: Rc::new(Vec::new()),
             row_rem_size: gpui_kit::px(0.),
         }
@@ -269,8 +276,11 @@ impl Trial {
         if self.russian { russian } else { english }
     }
 
-    fn scene(&self) -> &Scene {
-        &self.fixtures.scenes[self.scene]
+    fn scene(&self) -> Scene {
+        let mut scene = self.fixtures.scenes[self.scene].clone();
+        scene.phase = self.updates.state.phase.clone();
+        scene.connected = self.updates.state.connected.clone();
+        scene
     }
 
     fn scene_label(&self, id: &str) -> &'static str {
@@ -305,50 +315,15 @@ impl Trial {
         }
     }
 
-    fn visible_profiles(&self, query: &str) -> Vec<Profile> {
-        let query = query.to_lowercase();
-        let collection = self.fixtures.collections[self.collection].id.as_str();
-        let mut profiles = self.fixtures.profiles.clone();
-        if self.large {
-            profiles.extend((0..self.fixtures.large_list_count).map(generated_profile));
-        }
-        profiles
-            .into_iter()
-            .filter(|profile| {
-                let in_collection = match collection {
-                    "all" => true,
-                    "sample" => profile.subscription == "Sample collection",
-                    "generated" => profile.subscription == "Generated samples",
-                    "local" => profile.subscription.is_empty(),
-                    _ => false,
-                };
-                in_collection
-                    && [
-                        &profile.name,
-                        &profile.country,
-                        &profile.host,
-                        &profile.subscription,
-                    ]
-                    .iter()
-                    .any(|value| value.to_lowercase().contains(&query))
-            })
-            .collect()
-    }
-
     fn update_visible(&mut self, query: &str, window: &Window) {
-        let changed = self.cached_query != query
-            || self.cached_large != self.large
-            || self.cached_collection != self.collection;
-        if changed {
-            self.visible = Rc::new(self.visible_profiles(query));
-            self.cached_query = query.to_owned();
-            self.cached_large = self.large;
-            self.cached_collection = self.collection;
-        }
+        self.profile_cache
+            .refresh(&self.fixtures, query, self.large, self.collection);
+        let changed = !Rc::ptr_eq(&self.visible, &self.profile_cache.visible);
+        self.visible = self.profile_cache.visible.clone();
         if !self
-            .visible
-            .iter()
-            .any(|profile| Some(profile.id.as_str()) == self.highlighted.as_deref())
+            .highlighted
+            .as_ref()
+            .is_some_and(|id| self.profile_cache.ids.contains(id))
         {
             self.highlighted = self.visible.first().map(|profile| profile.id.clone());
         }
@@ -543,6 +518,10 @@ impl Render for Trial {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.scene = index;
                     this.selected = this.fixtures.scenes[index].selected.clone();
+                    this.updates.attach();
+                    let scene = &this.fixtures.scenes[index];
+                    this.updates
+                        .burst(&scene.phase, scene.connected.as_deref(), 1);
                     cx.notify();
                 }))
                 .into_any_element(),
@@ -831,6 +810,60 @@ impl Render for Trial {
                     .gap(rems(0.4))
                     .children(scene_buttons),
             )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(rems(0.4))
+                    .child(
+                        button(
+                            "update-burst",
+                            self.label("Simulate 1,000 updates", "Смоделировать 1 000 обновлений"),
+                            ButtonVariant::Outline,
+                            cx,
+                        )
+                        .disabled(!self.updates.available())
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let scene = &this.fixtures.scenes[this.scene];
+                            this.updates
+                                .burst(&scene.phase, scene.connected.as_deref(), 1000);
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        button(
+                            "source-loss",
+                            self.label("Lose sample source", "Потерять источник макета"),
+                            ButtonVariant::Outline,
+                            cx,
+                        )
+                        .disabled(!self.updates.available())
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.updates.lost();
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        button(
+                            "source-attach",
+                            self.label("Read fresh sample", "Прочитать свежий макет"),
+                            ButtonVariant::Outline,
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.updates.attach();
+                            let scene = &this.fixtures.scenes[this.scene];
+                            this.updates
+                                .burst(&scene.phase, scene.connected.as_deref(), 1);
+                            cx.notify();
+                        })),
+                    ),
+            )
+            .child(div().text_color(theme.secondary).child(format!(
+                "{}: {}",
+                self.label("Sample update", "Обновление макета"),
+                self.updates.state.sample
+            )))
             .child(
                 button(
                     "large",

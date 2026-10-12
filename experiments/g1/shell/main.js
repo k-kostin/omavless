@@ -8,8 +8,9 @@ import {
   AppShell, Badge, Button, Label, ListRow, MutedText, Panel, TextField,
   Title, TitleBar, applyOmarchyRoles, applyOmarchyStyle, omarchyTheme,
 } from "./vendor/omarchy-ui/src/index.js";
-import { connectionPresentation, fixture, nextHighlightedProfile, profileById, visibleProfiles } from "./data.js";
+import { connectionPresentation, fixture, nextHighlightedProfile, profileById, ProfileCache } from "./data.js";
 import { BROKEN, DARK, LIGHT, resolvedPalette } from "./palette.js";
+import { UpdateView } from "./workload.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
 const copy = {
@@ -22,6 +23,7 @@ const copy = {
     theme: "Synthetic theme", dark: "Dark", light: "Light", broken: "Broken → default", fallback: "Default palette restored",
     largeList: "10k samples", smallList: "5 samples",
     viewDetails: "Details", viewProfiles: "Profiles", returnHint: "Page Up or Profiles returns to the list",
+    burst: "Simulate 1,000 updates", lost: "Lose sample source", attach: "Read fresh sample", sample: "Sample update",
     phases: { connected: "Connected (synthetic)", connecting: "Connecting… (synthetic)", switching: "Switching server… (synthetic)", reconnecting: "Reconnecting… (synthetic)", unverified: "State unverified (synthetic)", failed: "Connection failed (synthetic)", recovery: "Recovery required (synthetic)", disconnected: "Disconnected (synthetic)" },
     scenes: { connected: "connected", connecting: "connecting", switching: "switching", reconnecting: "reconnecting", unverified: "unverified", failed: "failed", recovery: "recovery", removed: "removed" },
   },
@@ -34,6 +36,7 @@ const copy = {
     theme: "Тема макета", dark: "Тёмная", light: "Светлая", broken: "Сбой → стандартная", fallback: "Стандартная палитра восстановлена",
     largeList: "10 тыс. строк", smallList: "5 строк",
     viewDetails: "Детали", viewProfiles: "Профили", returnHint: "Page Up или «Профили» вернёт к списку",
+    burst: "Смоделировать 1 000 обновлений", lost: "Потерять источник макета", attach: "Прочитать свежий макет", sample: "Обновление макета",
     phases: { connected: "Подключено (макет)", connecting: "Подключаемся… (макет)", switching: "Меняем сервер… (макет)", reconnecting: "Переподключаемся… (макет)", unverified: "Состояние не подтверждено (макет)", failed: "Подключение не удалось (макет)", recovery: "Требуется восстановление (макет)", disconnected: "Отключено (макет)" },
     scenes: { connected: "подключено", connecting: "подключение", switching: "смена", reconnecting: "переподключение", unverified: "не проверено", failed: "сбой", recovery: "восстановление", removed: "удалён" },
   },
@@ -52,7 +55,7 @@ export default class G1Trial extends View {
     this.search = InputState.new({ placeholder: "Search / Поиск" });
     this.search.on("change", (_event, context) => context.notify());
     this.search.on("submit", (_event, context) => {
-      const first = visibleProfiles(this.search.value(), this.large, this.collection)[0];
+      const first = this.profileCache.get(this.search.value(), this.large, this.collection)[0];
       if (first) {
         this.selected = first.id;
         this.highlighted = first.id;
@@ -71,10 +74,10 @@ export default class G1Trial extends View {
     this.locale = "en";
     this.large = false;
     this.collection = "all";
-    this.cachedQuery = "";
-    this.cachedLarge = false;
-    this.cachedCollection = "all";
-    this.visible = fixture.profiles;
+    this.profileCache = new ProfileCache();
+    this.updates = new UpdateView();
+    this.updates.attach();
+    this.updates.burst(fixture.scenes[0], 1);
   }
 
   applyPalette(choice, context) {
@@ -91,19 +94,13 @@ export default class G1Trial extends View {
 
   render(cx) {
     const strings = copy[this.locale];
-    const scene = fixture.scenes[this.scene];
+    const scene = this.updates.state;
     const connection = connectionPresentation(scene);
     const connected = profileById(connection.id);
     const selected = profileById(this.selected);
     const query = this.search.value();
-    if (query !== this.cachedQuery || this.large !== this.cachedLarge || this.collection !== this.cachedCollection) {
-      this.visible = visibleProfiles(query, this.large, this.collection);
-      this.cachedQuery = query;
-      this.cachedLarge = this.large;
-      this.cachedCollection = this.collection;
-    }
-    const visible = this.visible;
-    if (!visible.some((profile) => profile.id === this.highlighted)) {
+    const visible = this.profileCache.get(query, this.large, this.collection);
+    if (!this.profileCache.ids.has(this.highlighted)) {
       this.highlighted = visible[0]?.id ?? null;
     }
     const colors = cx.theme().colors;
@@ -114,6 +111,8 @@ export default class G1Trial extends View {
         .onClick((_event, context) => {
           this.scene = index;
           this.selected = item.selected;
+          this.updates.attach();
+          this.updates.burst(item, 1);
           context.notify();
         }).build(cx)));
     const collections = h_flex().flex_wrap().gap(6).children(fixture.collections.map((item) =>
@@ -218,6 +217,18 @@ export default class G1Trial extends View {
         .child(new Panel("details-page").title(strings.details).content(details).build(cx).min_w_0());
     } else {
       body.child(scenes)
+        .child(h_flex().flex_wrap().gap(6)
+          .child(new Button("update-burst").label(strings.burst).outlined()
+            .disabled(!this.updates.available())
+            .onClick((_event, context) => { this.updates.burst(fixture.scenes[this.scene]); context.notify(); }).build(cx))
+          .child(new Button("source-loss").label(strings.lost).outlined()
+            .disabled(!this.updates.available())
+            .onClick((_event, context) => { this.updates.lost(); context.notify(); }).build(cx))
+          .child(new Button("source-attach").label(strings.attach).outlined()
+            .onClick((_event, context) => {
+              this.updates.attach(); this.updates.burst(fixture.scenes[this.scene], 1); context.notify();
+            }).build(cx)))
+        .child(new MutedText(`${strings.sample}: ${scene.sample}`).build(cx))
         .child(new Button("large-list").label(this.large ? strings.smallList : strings.largeList).outlined()
           .onClick((_event, context) => { this.large = !this.large; context.notify(); }).build(cx))
         .child(h_flex().flex_wrap().gap(6)
