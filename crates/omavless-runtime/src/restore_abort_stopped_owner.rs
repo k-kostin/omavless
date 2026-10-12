@@ -66,7 +66,9 @@ fn bounded_recovery_diagnostic(
 
 #[path = "restore_recovery_manager_identity.rs"]
 mod recovery_manager_identity;
-use recovery_manager_identity::{ManagerIdentity, RecoveryManagerRecord};
+use recovery_manager_identity::ManagerIdentity;
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+use recovery_manager_identity::RecoveryManagerRecord;
 #[path = "restore_recovery_cgroup.rs"]
 mod recovery_cgroup;
 
@@ -1669,6 +1671,11 @@ impl StoppedOwner {
         old_queries: Option<&OldRecoveryQueries>,
         #[cfg(test)] retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
     ) -> Result<Self> {
+        // The plain historical Abort build cannot enter development recovery.
+        #[cfg(not(any(test, feature = "t4-manager-actor-service")))]
+        if old_queries.is_some() {
+            return Err(());
+        }
         #[cfg(feature = "t4-manager-actor-service")]
         if matches!(invocation, SelfInvocation::OldRecovery) != old_queries.is_some() {
             return Err(());
@@ -1726,17 +1733,22 @@ impl StoppedOwner {
         checkpoint!(ManagerRecord);
         recovery_checkpoint!(old_queries.is_some(), CaptureManagerRecord);
         let manager = if old_queries.is_some() {
-            let record = RecoveryManagerRecord::parse(&reply, uid)?;
-            recovery_checkpoint!(true, CaptureManagerIdentity);
-            let manager = recovery_manager_identity::RecoveryManagerIdentity::capture(
-                &root,
-                record,
-                &mut budget,
-            )?;
-            // The first observe_inner below brackets capture with the second
-            // fixed system snapshot AFTER this graph is in OldRecoveryOwner.
-            // An uncertain query therefore retains both original authorities.
-            ManagerIdentity::Recovery(Box::new(manager))
+            #[cfg(not(any(test, feature = "t4-manager-actor-service")))]
+            return Err(());
+            #[cfg(any(test, feature = "t4-manager-actor-service"))]
+            {
+                let record = RecoveryManagerRecord::parse(&reply, uid)?;
+                recovery_checkpoint!(true, CaptureManagerIdentity);
+                let manager = recovery_manager_identity::RecoveryManagerIdentity::capture(
+                    &root,
+                    record,
+                    &mut budget,
+                )?;
+                // The first observe_inner below brackets capture with the second
+                // fixed system snapshot AFTER this graph is in OldRecoveryOwner.
+                // An uncertain query therefore retains both original authorities.
+                ManagerIdentity::Recovery(Box::new(manager))
+            }
         } else {
             let pid = service_record(&reply, true)?;
             checkpoint!(ManagerProcess);
@@ -1822,10 +1834,7 @@ impl StoppedOwner {
                 return Err(());
             }
         }
-        if let ManagerIdentity::Historical {
-            process: manager, ..
-        } = &self.manager
-        {
+        if let Some(manager) = self.manager.historical_process() {
             for name in ["ns/pid", "ns/user"] {
                 let manager_namespace = {
                     #[cfg(test)]
@@ -1851,7 +1860,7 @@ impl StoppedOwner {
     }
 
     fn inventory(&self, budget: &mut Budget) -> Result<()> {
-        if self.manager.recovery().is_some() {
+        if self.manager.is_recovery() {
             // Cooperative supported writers obey the SAME retained locks.
             // This is recursive fixed-unit quiescence, not hostile same-UID
             // exclusion or a census of unrelated user/PAM/desktop processes.
@@ -1893,9 +1902,14 @@ impl StoppedOwner {
         checkpoint!(ManagerRecord);
         recovery_checkpoint!(old.is_some(), ObserveManagerRecord);
         let pid = if old.is_some() {
-            let record = RecoveryManagerRecord::parse(&reply, self.uid)?;
-            self.manager.recovery().ok_or(())?.matches_record(&record)?;
-            record.pid
+            #[cfg(not(any(test, feature = "t4-manager-actor-service")))]
+            return Err(());
+            #[cfg(any(test, feature = "t4-manager-actor-service"))]
+            {
+                let record = RecoveryManagerRecord::parse(&reply, self.uid)?;
+                self.manager.recovery().ok_or(())?.matches_record(&record)?;
+                record.pid
+            }
         } else {
             service_record(&reply, true)?
         };

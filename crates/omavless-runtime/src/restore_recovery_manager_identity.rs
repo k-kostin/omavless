@@ -5,10 +5,14 @@
 //! Abort keeps its direct Process/ELF/namespace qualification.
 
 use super::*;
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, getsockopt, sockopt};
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 use std::os::fd::OwnedFd;
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 use std::os::unix::fs::FileTypeExt;
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct RecoveryManagerRecord {
     pub(super) pid: u32,
@@ -16,6 +20,7 @@ pub(super) struct RecoveryManagerRecord {
     invocation: String,
 }
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 impl RecoveryManagerRecord {
     pub(super) fn parse(bytes: &[u8], uid: u32) -> Result<Self> {
         let mut fields = recovery_fields(bytes)?;
@@ -58,6 +63,7 @@ pub(super) enum ManagerIdentity {
         process: Box<Process>,
         executable: Box<TrustedExecutable>,
     },
+    #[cfg(any(test, feature = "t4-manager-actor-service"))]
     Recovery(Box<RecoveryManagerIdentity>),
 }
 
@@ -65,21 +71,35 @@ impl ManagerIdentity {
     pub(super) fn pid(&self) -> u32 {
         match self {
             Self::Historical { process, .. } => process.pid,
+            #[cfg(any(test, feature = "t4-manager-actor-service"))]
             Self::Recovery(v) => v.record.pid,
         }
     }
     pub(super) fn recheck(&self, root: &File, budget: &mut Budget) -> Result<()> {
         match self {
             Self::Historical { process, .. } => process.recheck(root, budget),
+            #[cfg(any(test, feature = "t4-manager-actor-service"))]
             Self::Recovery(v) => v.recheck(root, budget),
         }
     }
     pub(super) fn recheck_executable(&self) -> Result<()> {
         match self {
             Self::Historical { executable, .. } => executable.recheck(),
+            #[cfg(any(test, feature = "t4-manager-actor-service"))]
             Self::Recovery(_) => Ok(()),
         }
     }
+    pub(super) fn historical_process(&self) -> Option<&Process> {
+        match self {
+            Self::Historical { process, .. } => Some(process),
+            #[cfg(any(test, feature = "t4-manager-actor-service"))]
+            Self::Recovery(_) => None,
+        }
+    }
+    pub(super) fn is_recovery(&self) -> bool {
+        self.historical_process().is_none()
+    }
+    #[cfg(any(test, feature = "t4-manager-actor-service"))]
     pub(super) fn recovery(&self) -> Option<&RecoveryManagerIdentity> {
         match self {
             Self::Recovery(v) => Some(v),
@@ -88,6 +108,7 @@ impl ManagerIdentity {
     }
 }
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 pub(super) struct RecoveryManagerIdentity {
     record: RecoveryManagerRecord,
     directory: File,
@@ -102,6 +123,7 @@ pub(super) struct RecoveryManagerIdentity {
     peer: OwnedFd,
 }
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 fn alive(pidfd: &File) -> Result<()> {
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
     let mut fds = [PollFd::new(pidfd, PollFlags::IN)];
@@ -119,6 +141,7 @@ fn alive(pidfd: &File) -> Result<()> {
     Ok(())
 }
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 fn peer_matches(peer: &OwnedFd, record: &RecoveryManagerRecord) -> Result<()> {
     let credentials = getsockopt(peer, sockopt::PeerCredentials).map_err(|_| ())?;
     if credentials.pid() != record.pid as i32 || credentials.uid() != record.uid {
@@ -141,6 +164,7 @@ fn peer_matches(peer: &OwnedFd, record: &RecoveryManagerRecord) -> Result<()> {
     Ok(())
 }
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 fn private_socket_mode(mode: u32) -> bool {
     // systemd binds its private AF_UNIX socket under umask 0077, producing
     // 0700. The owner execute bit grants no additional socket-connect access.
@@ -148,6 +172,7 @@ fn private_socket_mode(mode: u32) -> bool {
     matches!(mode & 0o7777, 0o600 | 0o700)
 }
 
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
 impl RecoveryManagerIdentity {
     pub(super) fn capture(
         root: &File,
