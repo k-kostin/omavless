@@ -678,6 +678,7 @@ enum NativeRecoveryMode {
     OldIntent,
     CompleteAborted,
     RecoverOldToCompletion,
+    MixedIntentToOldCompletion,
     CommittedNewToCompletion,
 }
 
@@ -718,6 +719,7 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         "socket-reappears",
         "committed",
         "committed-absent",
+        "rolled-back",
     ] {
         native_old_completion_fixture(case, None);
     }
@@ -732,6 +734,7 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         NativeStep::Closure,
     ] {
         native_old_completion_fixture("intent", Some(step));
+        native_old_completion_fixture("rolled-back", Some(step));
         native_old_completion_fixture("aborted", Some(step));
         if step != NativeStep::RecoveryAbortVerified {
             native_old_completion_fixture("committed", Some(step));
@@ -937,6 +940,30 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         let result = (|| {
             engine.gate(&mut origin, until)?;
             engine.capture_history(until)?; // BEFORE Abort/endpoint publisher
+            if case == "rolled-back" {
+                // Lower fixture reproduces positively owned rollback renames;
+                // it does not grant fresh archive/host admission.
+                for index in 0..2 {
+                    engine.write(
+                        Slot::Config,
+                        NATIVE_ROLLBACKS[index].0,
+                        NATIVE_ROLLBACKS[index].1,
+                        members[index],
+                        &mut origin,
+                        until,
+                    )?;
+                    fs::rename(
+                        config.join(NATIVE_ROLLBACKS[index].1),
+                        config.join(LIVE[index].1),
+                    )
+                    .unwrap();
+                    engine.lower.live[index] = LiveRole::Renamed;
+                    for slot in [LIVE[index].0, NATIVE_ROLLBACKS[index].0] {
+                        engine.lower.original[slot as usize] =
+                            Some(engine.lower.io.original(slot).unwrap().metadata().unwrap());
+                    }
+                }
+            }
             let retained_terminal = if existing_abort {
                 terminal
             } else {
@@ -994,20 +1021,35 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         })();
         let positive = matches!(
             case,
-            "intent" | "aborted" | "absent" | "committed" | "committed-absent"
+            "intent" | "aborted" | "absent" | "committed" | "committed-absent" | "rolled-back"
         ) && stop.is_none();
         assert_eq!(result.is_ok(), positive, "public fixture {case} {stop:?}");
         assert_eq!(engine.completed, positive);
         assert!(!engine.disposition_done);
         for (index, (slot, name)) in LIVE.into_iter().enumerate() {
-            assert!(same_member(
-                &before[index],
-                &live[index].metadata().unwrap()
-            ));
-            assert_eq!(
-                fs::metadata(config.join(name)).unwrap().ino(),
-                before[index].ino()
-            );
+            if case == "rolled-back" {
+                assert_eq!(live[index].metadata().unwrap().nlink(), 0);
+                assert_ne!(
+                    fs::metadata(config.join(name)).unwrap().ino(),
+                    before[index].ino()
+                );
+                assert!(engine.lower.live[index] == LiveRole::Renamed);
+                assert!(
+                    engine
+                        .lower
+                        .io
+                        .test_retains_original(NATIVE_ROLLBACKS[index].0)
+                );
+            } else {
+                assert!(same_member(
+                    &before[index],
+                    &live[index].metadata().unwrap()
+                ));
+                assert_eq!(
+                    fs::metadata(config.join(name)).unwrap().ino(),
+                    before[index].ino()
+                );
+            }
             assert_eq!(
                 fs::read(config.join(name)).unwrap(),
                 members[index + offset]
@@ -3654,6 +3696,8 @@ impl NativeEngine {
         for index in 0..2 {
             let live_slot = if committed && !self.recovery {
                 NATIVE_REPLACEMENTS[index].0
+            } else if !committed && self.recovery && self.lower.live[index] == LiveRole::Renamed {
+                NATIVE_ROLLBACKS[index].0
             } else {
                 LIVE[index].0
             };
@@ -3733,6 +3777,20 @@ impl NativeEngine {
             origin,
             backup,
             NativeRecoveryMode::CommittedNewToCompletion,
+            Some(quiescence),
+        )
+    }
+
+    pub(crate) fn recover_native_mixed_to_completion(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.recover_native_inner(
+            origin,
+            backup,
+            NativeRecoveryMode::MixedIntentToOldCompletion,
             Some(quiescence),
         )
     }
@@ -4428,10 +4486,11 @@ impl NativeEngine {
         let until = Instant::now() + std::time::Duration::from_secs(45);
         let complete = mode == NativeRecoveryMode::CompleteAborted;
         let old_completion = mode == NativeRecoveryMode::RecoverOldToCompletion;
+        let mixed_completion = mode == NativeRecoveryMode::MixedIntentToOldCompletion;
         let new_completion = mode == NativeRecoveryMode::CommittedNewToCompletion;
-        let stopped_completion = old_completion || new_completion;
+        let stopped_completion = old_completion || mixed_completion || new_completion;
         self.recovery = true; // consumed before every original acquisition
-        self.recovery_completion = if old_completion {
+        self.recovery_completion = if old_completion || mixed_completion {
             RecoveryCompletionSelection::Old
         } else if new_completion {
             RecoveryCompletionSelection::CommittedNew
@@ -4487,7 +4546,7 @@ impl NativeEngine {
                 crate::restore_executor_candidate::OLD_SLOT[0],
                 crate::restore_executor_candidate::OLD_SLOT[1],
             ] {
-                if name == TERMINAL && (complete || stopped_completion) {
+                if name == TERMINAL && (complete || old_completion || new_completion) {
                     continue;
                 }
                 let parent = if name == TERMINAL {
@@ -4666,7 +4725,8 @@ impl NativeEngine {
                 ) {
                     Err(nix::errno::Errno::ENOENT) => {}
                     Ok(_) => {
-                        if mode == NativeRecoveryMode::OldIntent || stopped_completion {
+                        if mode == NativeRecoveryMode::OldIntent || old_completion || new_completion
+                        {
                             return Err(FirstError::Admission);
                         }
                         if self
@@ -4741,6 +4801,10 @@ impl NativeEngine {
                     .map(|_| ());
             }
             // All admission/classification is complete before the first OLD copy.
+            if mixed_completion {
+                self.capture_history(until)?;
+                self.gate(&mut gate, until)?;
+            }
             for index in 0..2 {
                 self.write(
                     Slot::Config,
@@ -4813,8 +4877,23 @@ impl NativeEngine {
                 }
                 self.gate(&mut gate, until)?;
             }
-            self.publish_recovery_abort(&mut gate, members, &intent, &chain, until)
-                .map(|_| ())
+            let terminal =
+                self.publish_recovery_abort(&mut gate, members, &intent, &chain, until)?;
+            if mixed_completion {
+                self.finish_old_to_completion(
+                    &mut gate,
+                    RetainedTerminal {
+                        members,
+                        intent: &intent,
+                        terminal: &terminal,
+                        choice: NativeTerminalChoice::OldAborted,
+                    },
+                    &mut |_| Ok(()),
+                    until,
+                )
+            } else {
+                Ok(())
+            }
         })();
         if result.is_err() {
             self.sealed = true;
@@ -4951,7 +5030,8 @@ impl NativeEngine {
             || !self.recovery
             || !self.singleton_locked
             || !self.audit.attempted()
-            || self.lower.live != [LiveRole::Old; 2]
+            || (selection == RecoveryCompletionSelection::CommittedNew
+                && self.lower.live != [LiveRole::Old; 2])
         {
             return Err(FirstError::StillFenced);
         }
@@ -4966,6 +5046,11 @@ impl NativeEngine {
         }
         self.gate(origin, until)?;
         for (index, (slot, name)) in LIVE.into_iter().enumerate() {
+            let slot = if self.lower.live[index] == LiveRole::Renamed {
+                NATIVE_ROLLBACKS[index].0
+            } else {
+                slot
+            };
             self.lower
                 .verify_member(Slot::Config, slot, name, members[index + offset], until)
                 .map_err(|_| FirstError::StillFenced)?;
@@ -4979,8 +5064,16 @@ impl NativeEngine {
                 .map_err(|_| FirstError::StillFenced)?;
         }
         for slot in [
-            LIVE[0].0,
-            LIVE[1].0,
+            if self.lower.live[0] == LiveRole::Renamed {
+                NATIVE_ROLLBACKS[0].0
+            } else {
+                LIVE[0].0
+            },
+            if self.lower.live[1] == LiveRole::Renamed {
+                NATIVE_ROLLBACKS[1].0
+            } else {
+                LIVE[1].0
+            },
             Slot::Intent,
             Slot::Terminal,
             Slot::Config,

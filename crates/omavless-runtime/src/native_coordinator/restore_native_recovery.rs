@@ -16,6 +16,7 @@ enum FreshRecoveryMode {
     OldIntent,
     CompleteAborted,
     RecoverOldToCompletion,
+    MixedIntentToOldCompletion,
     CommittedNewToCompletion,
 }
 
@@ -1536,6 +1537,26 @@ impl FreshRecovery {
             FreshRecoveryMode::RecoverOldToCompletion,
         )
     }
+    /// Exact mixed Intent is rolled back under retained locks, then completed OLD.
+    pub(crate) fn recover_mixed_to_completion(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.recover_to_completion(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::MixedIntentToOldCompletion,
+        )
+    }
     /// Strict complete Intent + Committed + authenticated staged/live NEW only.
     /// This does not infer or repair partial retirement/disposition evidence.
     pub(crate) fn recover_committed_to_completion(
@@ -1630,10 +1651,26 @@ impl FreshRecovery {
             return Err(FirstError::StillFenced);
         }
         self.attempted = true; // before authentication/lease/capture; no reuse
+        let completion = matches!(
+            mode,
+            FreshRecoveryMode::RecoverOldToCompletion
+                | FreshRecoveryMode::CommittedNewToCompletion
+                | FreshRecoveryMode::MixedIntentToOldCompletion
+        );
+        // Fixed development-driver phases only: no paths, archive data, errors
+        // or credentials. Diagnostics must never alter recovery success.
+        let phase = |label: &'static [u8]| {
+            if completion {
+                use std::io::Write;
+                let _ = std::io::stderr().write_all(label);
+            }
+        };
+        phase(b"Restore recovery: authenticate\n");
         let mut slot = self.original.lock().map_err(|_| FirstError::StillFenced)?;
         let held = slot.as_mut().ok_or(FirstError::StillFenced)?;
         held.authenticated =
             Some(open_existing(source, uid, passphrase).map_err(|_| FirstError::Prepare)?);
+        phase(b"Restore recovery: fixed paths\n");
         if nix::unistd::getuid().as_raw() != uid
             || nix::unistd::geteuid().as_raw() != uid
             || nix::unistd::getgid() != nix::unistd::getegid()
@@ -1652,6 +1689,7 @@ impl FreshRecovery {
         {
             return Err(FirstError::Admission);
         }
+        phase(b"Restore recovery: lock\n");
         let reported =
             MigrationLock::acquire_existing(&paths, uid).map_err(|_| FirstError::Admission)?;
         if let Err(reported) = held.lock.set(reported) {
@@ -1660,6 +1698,7 @@ impl FreshRecovery {
             held.failed_lock = Some(reported);
             return Err(FirstError::StillFenced);
         }
+        phase(b"Restore recovery: boundary\n");
         Boundary::capture_native_paths(&paths, &host_paths.store, uid, &mut held.boundary)?;
         let normal_paths = NativeHostPaths::new(
             host_paths.core.clone(),
@@ -1670,9 +1709,11 @@ impl FreshRecovery {
             host_paths.sys_class_net.clone(),
         );
         let normal_store = normal_paths.store.clone();
+        phase(b"Restore recovery: host\n");
         held.host = Some(
             ObservationOnlyNativeHost::new(host_paths, uid).map_err(|_| FirstError::Admission)?,
         );
+        phase(b"Restore recovery: marker and desired\n");
         let marker = read_marker_existing(&paths, uid).map_err(|_| FirstError::Admission)?;
         let desired =
             read_desired_snapshot(&desired_paths, uid).map_err(|_| FirstError::Admission)?;
@@ -1700,6 +1741,7 @@ impl FreshRecovery {
                 .map(|(file, _)| held_bytes(file, maximum))
                 .transpose()
         };
+        phase(b"Restore recovery: retained origin\n");
         let mut origin = NativeRecoveryOrigin {
             lock: lock.get().ok_or(FirstError::Admission)?,
             boundary,
@@ -1716,15 +1758,22 @@ impl FreshRecovery {
         let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
         if matches!(
             mode,
-            FreshRecoveryMode::RecoverOldToCompletion | FreshRecoveryMode::CommittedNewToCompletion
+            FreshRecoveryMode::RecoverOldToCompletion
+                | FreshRecoveryMode::CommittedNewToCompletion
+                | FreshRecoveryMode::MixedIntentToOldCompletion
         ) {
+            phase(b"Restore recovery: stopped service\n");
             self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
                 &paths,
                 uid,
                 Arc::clone(lock),
             )?));
             let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
+            phase(b"Restore recovery: engine\n");
             match mode {
+                FreshRecoveryMode::MixedIntentToOldCompletion => {
+                    engine.recover_native_mixed_to_completion(&mut origin, backup, quiescence)?
+                }
                 FreshRecoveryMode::RecoverOldToCompletion => {
                     engine.recover_native_old_to_completion(&mut origin, backup, quiescence)?
                 }

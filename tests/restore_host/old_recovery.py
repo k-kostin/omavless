@@ -443,7 +443,7 @@ def recover_retained():
             held.append(staged)
             require(staged.data == original.data)
         require(json.loads(held[0].data).get('startup', {}).get('enabled') is False)
-        evidence = HOME / '.cache/restore099-manager-successor'
+        evidence = HOME / '.cache/restore099-phase-successor'
         evidence.mkdir(mode=0o700)
         private = Held(HOME / '.cache/restore099-qualified-positive/request.json', uid, 32768)
         held.append(private)

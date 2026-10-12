@@ -74,6 +74,13 @@ pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     arguments == ["restore", "recover-old", "--confirm-rollback"]
 }
 
+fn phase(marker: &'static [u8]) {
+    // Closed public categories only. Diagnostic I/O must not change recovery
+    // authority or unwind an uncertain operation.
+    use std::io::Write;
+    let _ = std::io::stderr().write_all(marker);
+}
+
 pub fn recover_from_private_input(input: impl Read) -> Result<(), Error> {
     // This dominates parsing, reservation, manager queries and every effect,
     // including product+development feature union builds and direct helpers.
@@ -81,15 +88,20 @@ pub fn recover_from_private_input(input: impl Read) -> Result<(), Error> {
         return Err(Error::Disabled);
     }
     let request = parse(input)?;
+    phase(b"RESTORE_RECOVERY_INPUT\n");
     let uid = Uid::current();
     if uid.is_root() || uid != Uid::effective() {
         return Err(Error::RecoveryRefused);
     }
     let runtime = RuntimePaths::current().map_err(|_| Error::RecoveryRefused)?;
+    phase(b"RESTORE_RECOVERY_RUNTIME_PATHS\n");
     let paths = CutoverPaths::current(uid.as_raw()).map_err(|_| Error::RecoveryRefused)?;
     let desired = DesiredPaths::current().map_err(|_| Error::RecoveryRefused)?;
+    phase(b"RESTORE_RECOVERY_CONFIG_PATHS\n");
     let host = NativeHostPaths::current(&runtime.directory).map_err(|_| Error::RecoveryRefused)?;
+    phase(b"RESTORE_RECOVERY_HOST_PATHS\n");
     let mut recovery = FreshRecovery::reserve().map_err(|_| Error::RecoveryRefused)?;
+    phase(b"RESTORE_RECOVERY_RESERVED\n");
     recovery
         .recover_old_to_completion(
             Path::new(request.archive.0.as_str()),
@@ -99,7 +111,17 @@ pub fn recover_from_private_input(input: impl Read) -> Result<(), Error> {
             host,
             uid.as_raw(),
         )
-        .map_err(|_| Error::RecoveryRefused)?;
+        .map_err(|error| {
+            use crate::native_coordinator::NativeFirstError;
+            phase(match error {
+                NativeFirstError::Prepare => b"RESTORE_RECOVERY_AUTHENTICATION_REFUSED\n",
+                NativeFirstError::CiphertextMismatch => b"RESTORE_RECOVERY_ARCHIVE_MISMATCH\n",
+                NativeFirstError::Admission => b"RESTORE_RECOVERY_ADMISSION_REFUSED\n",
+                NativeFirstError::StillFenced => b"RESTORE_RECOVERY_FENCED\n",
+            });
+            Error::RecoveryRefused
+        })?;
+    phase(b"RESTORE_RECOVERY_COMPLETED\n");
     let released = recovery
         .dispose_and_release_old()
         .map_err(|_| Error::RecoveryRefused)?;

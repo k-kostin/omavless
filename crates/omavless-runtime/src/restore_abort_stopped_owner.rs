@@ -21,6 +21,49 @@ use zeroize::Zeroizing;
 
 type Result<T> = std::result::Result<T, ()>;
 
+// Fixed, development-only progress. Historical Abort never enables this path.
+// Diagnostic output does not authorize effects or alter operation results.
+macro_rules! recovery_checkpoint {
+    ($enabled:expr, $phase:ident) => {{
+        #[cfg(feature = "t4-manager-actor-service")]
+        recovery_diagnostic(
+            $enabled,
+            concat!("restore_owner_", stringify!($phase), "\n").as_bytes(),
+        );
+    }};
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn recovery_diagnostic(enabled: bool, label: &'static [u8]) {
+    static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    bounded_recovery_diagnostic(enabled, &COUNT, label, |bytes| {
+        // One raw write, no formatting/locks/retry/panic on a broken stderr.
+        // The CLI's existing stderr destination is used, never a selected path.
+        nix::unistd::write(std::io::stderr(), bytes).map_or(-1, |written| written as isize)
+    });
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn bounded_recovery_diagnostic(
+    enabled: bool,
+    count: &std::sync::atomic::AtomicUsize,
+    label: &[u8],
+    write: impl FnOnce(&[u8]) -> isize,
+) {
+    use std::sync::atomic::Ordering;
+    if !enabled || label.len() > 96 {
+        return;
+    }
+    if count
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            (value < 256).then_some(value + 1)
+        })
+        .is_ok()
+    {
+        let _ = write(label);
+    }
+}
+
 #[path = "restore_recovery_manager_identity.rs"]
 mod recovery_manager_identity;
 use recovery_manager_identity::{ManagerIdentity, RecoveryManagerRecord};
@@ -1416,6 +1459,7 @@ impl OldRecoveryOwner {
     pub(crate) fn prepare(uid: u32, socket: &Path) -> Result<Self> {
         // Reserve original command custody without a process query/capture.
         // The caller installs this guard before qualification can spawn a child.
+        recovery_checkpoint!(true, Prepare);
         listener_paths(uid, socket)?;
         Ok(Self {
             owner: None,
@@ -1433,6 +1477,7 @@ impl OldRecoveryOwner {
     }
 
     pub(crate) fn stop_and_qualify(&mut self) -> Result<()> {
+        recovery_checkpoint!(true, QualifyEntry);
         if self.attempted || self.queries.refused.get() {
             if let Some(owner) = &self.owner {
                 owner.refused.set(true);
@@ -1444,6 +1489,7 @@ impl OldRecoveryOwner {
             // Qualification already holds the SAME migration and singleton
             // locks. Initial manager query uses original retained Queries, so
             // capture failure cannot drop an unknown local Child.
+            recovery_checkpoint!(true, CaptureEntry);
             self.owner = Some(StoppedOwner::capture_inner(
                 self.uid,
                 &self.socket,
@@ -1457,8 +1503,12 @@ impl OldRecoveryOwner {
                 // Reuse the complete original observation BEFORE Stop: all daemon
                 // candidates, canonical listeners and live legacy operations must
                 // be absent. Only runtime failed/queued-restart state is permitted.
-                || owner.observe_inner(Some(&self.queries), false),
                 || {
+                    recovery_checkpoint!(true, BeforeStopObservation);
+                    owner.observe_inner(Some(&self.queries), false)
+                },
+                || {
+                    recovery_checkpoint!(true, StopRuntime);
                     let mut budget = Budget::new();
                     let stopped = self.queries.run(
                         FixedRecoveryCommand::StopRuntime,
@@ -1467,13 +1517,21 @@ impl OldRecoveryOwner {
                     )?;
                     if stopped.is_empty() { Ok(()) } else { Err(()) }
                 },
-                || owner.observe_inner(Some(&self.queries), true),
+                || {
+                    recovery_checkpoint!(true, AfterStopObservation);
+                    owner.observe_inner(Some(&self.queries), true)
+                },
             )
         })();
         if let Some(owner) = &self.owner {
             owner.refused.set(result.is_err());
         }
         self.qualified = result.is_ok();
+        if self.qualified {
+            recovery_checkpoint!(true, Qualified);
+        } else {
+            recovery_checkpoint!(true, QualificationRefused);
+        }
         result
     }
 
@@ -1602,6 +1660,7 @@ impl StoppedOwner {
         if matches!(invocation, SelfInvocation::OldRecovery) != old_queries.is_some() {
             return Err(());
         }
+        recovery_checkpoint!(old_queries.is_some(), CaptureProcRoot);
         checkpoint!(ProcRoot);
         let listeners = listener_paths(uid, socket)?;
         let root = File::from(
@@ -1618,8 +1677,10 @@ impl StoppedOwner {
         let root_identity = root.metadata().map_err(|_| ())?;
         let mut budget = Budget::new();
         checkpoint!(SelfProcess);
+        recovery_checkpoint!(old_queries.is_some(), CaptureSelfProcess);
         let myself = Process::capture(&root, std::process::id(), &mut budget)?;
         checkpoint!(SelfArguments);
+        recovery_checkpoint!(old_queries.is_some(), CaptureSelfArguments);
         match invocation {
             SelfInvocation::Recovery => recovery_self(&myself.command)?,
             #[cfg(feature = "t4-manager-actor-service")]
@@ -1633,22 +1694,27 @@ impl StoppedOwner {
             return Err(());
         }
         checkpoint!(ProcVisibility);
+        recovery_checkpoint!(old_queries.is_some(), CaptureProcVisibility);
         proc_visibility(&root, &myself, &mut budget)?;
         let mut namespaces = Vec::new();
         checkpoint!(NamespaceHandles);
+        recovery_checkpoint!(old_queries.is_some(), CaptureNamespaces);
         for name in ["ns/pid", "ns/user", "ns/mnt", "ns/net"] {
             let file = magic_file(&myself.directory, name)?;
             let metadata = file.metadata().map_err(|_| ())?;
             namespaces.push((name, file, metadata));
         }
         checkpoint!(ManagerQuery);
+        recovery_checkpoint!(old_queries.is_some(), CaptureManagerQuery);
         let reply = match old_queries {
             Some(queries) => queries.run(FixedRecoveryCommand::Manager, uid, &mut budget)?,
             None => query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
         };
         checkpoint!(ManagerRecord);
+        recovery_checkpoint!(old_queries.is_some(), CaptureManagerRecord);
         let manager = if old_queries.is_some() {
             let record = RecoveryManagerRecord::parse(&reply, uid)?;
+            recovery_checkpoint!(true, CaptureManagerIdentity);
             let manager = recovery_manager_identity::RecoveryManagerIdentity::capture(
                 &root,
                 record,
@@ -1699,9 +1765,13 @@ impl StoppedOwner {
             // Original manager/namespace capture is inside already installed
             // recovery custody and after engine singleton exclusivity. This
             // capture path itself never issues Stop.
+            recovery_checkpoint!(true, CaptureFinalNamespaces);
             observer.namespace_boundary(&mut budget)?;
+            recovery_checkpoint!(true, CaptureFinalManager);
             observer.manager.recheck(&observer.root, &mut budget)?;
+            recovery_checkpoint!(true, CaptureFinalSelf);
             observer.myself.recheck(&observer.root, &mut budget)?;
+            recovery_checkpoint!(true, CaptureComplete);
             return Ok(observer);
         }
         if !observer.recheck() {
@@ -1787,13 +1857,17 @@ impl StoppedOwner {
         runtime_off: bool,
     ) -> Result<()> {
         let mut budget = Budget::new();
+        recovery_checkpoint!(old.is_some(), ObserveNamespaces);
         checkpoint!(NamespaceBoundary);
         self.namespace_boundary(&mut budget)?;
         checkpoint!(ProcVisibility);
+        recovery_checkpoint!(old.is_some(), ObserveProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
         checkpoint!(ManagerRecheck);
+        recovery_checkpoint!(old.is_some(), ObserveManager);
         self.manager.recheck(&self.root, &mut budget)?;
         checkpoint!(ManagerQuery);
+        recovery_checkpoint!(old.is_some(), ObserveManagerQuery);
         let reply = match old {
             Some(queries) => queries.run(FixedRecoveryCommand::Manager, self.uid, &mut budget)?,
             None => query(
@@ -1804,6 +1878,7 @@ impl StoppedOwner {
             )?,
         };
         checkpoint!(ManagerRecord);
+        recovery_checkpoint!(old.is_some(), ObserveManagerRecord);
         let pid = if old.is_some() {
             let record = RecoveryManagerRecord::parse(&reply, self.uid)?;
             self.manager.recovery().ok_or(())?.matches_record(&record)?;
@@ -1818,8 +1893,10 @@ impl StoppedOwner {
         self.manager.recheck_executable()?;
         for unit in ["omavless.service", "omavless-runtime.service"] {
             if unit == "omavless.service" {
+                recovery_checkpoint!(old.is_some(), ObserveLegacyQuery);
                 checkpoint!(LegacyUnitQuery);
             } else {
+                recovery_checkpoint!(old.is_some(), ObserveRuntimeQuery);
                 checkpoint!(RuntimeUnitQuery);
             }
             let reply = match old {
@@ -1835,8 +1912,10 @@ impl StoppedOwner {
                 None => query(self.uid, unit, false, &mut budget)?,
             };
             if unit == "omavless.service" {
+                recovery_checkpoint!(old.is_some(), ObserveLegacyRecord);
                 checkpoint!(LegacyUnitRecord);
             } else {
+                recovery_checkpoint!(old.is_some(), ObserveRuntimeRecord);
                 checkpoint!(RuntimeUnitRecord);
             }
             if let Some(queries) = old {
@@ -1847,6 +1926,7 @@ impl StoppedOwner {
             }
         }
         checkpoint!(Inventory);
+        recovery_checkpoint!(old.is_some(), ObserveInventory);
         #[cfg(test)]
         if let ManagerIdentity::Historical {
             process: manager, ..
@@ -1872,19 +1952,26 @@ impl StoppedOwner {
         #[cfg(not(test))]
         self.inventory(&mut budget)?;
         checkpoint!(UnixTable);
+        recovery_checkpoint!(old.is_some(), ObserveUnixTable);
         let net = directory(&self.myself.directory, "net")?;
         let table = proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?;
         checkpoint!(UnixParser);
+        recovery_checkpoint!(old.is_some(), ObserveListeners);
         no_listener(&table, &self.listeners)?;
         checkpoint!(FinalManager);
+        recovery_checkpoint!(old.is_some(), ObserveFinalManager);
         self.manager.recheck(&self.root, &mut budget)?;
         checkpoint!(FinalSelf);
+        recovery_checkpoint!(old.is_some(), ObserveFinalSelf);
         self.myself.recheck(&self.root, &mut budget)?;
         checkpoint!(FinalNamespaces);
+        recovery_checkpoint!(old.is_some(), ObserveFinalNamespaces);
         self.namespace_boundary(&mut budget)?;
         checkpoint!(FinalProcVisibility);
+        recovery_checkpoint!(old.is_some(), ObserveFinalProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
         checkpoint!(FinalBudget);
+        recovery_checkpoint!(old.is_some(), ObserveFinalBudget);
         budget.check()
     }
 }
@@ -1894,6 +1981,26 @@ mod tests {
     use super::*;
     use nix::sys::signal::Signal;
     use std::io::Write;
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn recovery_progress_is_gated_bounded_and_ignores_broken_output() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let count = AtomicUsize::new(0);
+        bounded_recovery_diagnostic(false, &count, b"fixed\n", |_| panic!("disabled"));
+        bounded_recovery_diagnostic(true, &count, &[b'x'; 97], |_| panic!("oversized"));
+        assert_eq!(count.load(Ordering::Relaxed), 0);
+        let writes = Cell::new(0);
+        for _ in 0..300 {
+            bounded_recovery_diagnostic(true, &count, b"restore_owner_fixed\n", |bytes| {
+                assert_eq!(bytes, b"restore_owner_fixed\n");
+                writes.set(writes.get() + 1);
+                -1 // Broken/interrupted writes do not retry or change control flow.
+            });
+        }
+        assert_eq!(writes.get(), 256);
+        assert_eq!(count.load(Ordering::Relaxed), 256);
+    }
 
     #[test]
     fn recovered_start_command_and_lifetime_are_fixed_and_once_only() {
