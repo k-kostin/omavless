@@ -60,6 +60,71 @@ impl PrivateStore {
     }
 }
 
+impl LocalBundlePlan {
+    #[must_use]
+    pub const fn counts(&self) -> LocalBundleCounts {
+        self.counts
+    }
+
+    /// Build one complete candidate or return an error. IDs come from the
+    /// trusted owner only; invalid/colliding IDs never yield a partial payload.
+    /// Existing records, selection, connection preferences and subscriptions
+    /// are preserved; bundle links become standalone profiles, not a feed URL.
+    pub fn into_mutation(
+        self,
+        mut next_record_id: impl FnMut() -> String,
+    ) -> Result<PrivateStoreMutation, PrivateStoreError> {
+        let mut ids: BTreeSet<_> = self
+            .store
+            .profiles
+            .iter()
+            .map(|p| p.id.clone())
+            .chain(self.store.subscriptions.iter().map(|s| s.id.clone()))
+            .collect();
+        let mut names: BTreeSet<_> = self.store.profiles.iter().map(|p| p.name.clone()).collect();
+        let changed = !self.entries.is_empty();
+        let mut document = self.store.document;
+        let profiles = document["profiles"]
+            .as_array_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        for (uri, canonical) in self.entries {
+            let id = next_record_id();
+            if !valid_record_id(&id) || !ids.insert(id.clone()) {
+                return Err(PrivateStoreError::InvalidShape);
+            }
+            let suggested = canonical.subscription_name_candidate();
+            let base =
+                clean_mutation_name(&suggested).unwrap_or_else(|_| "Imported profile".into());
+            let mut name = base.clone();
+            // At most MAX_PROFILES existing/new names. A finite suffix search
+            // preserves display labels without overwriting an unrelated record.
+            for suffix in 2..=MAX_PROFILES + 1 {
+                if !names.contains(&name) {
+                    break;
+                }
+                let tail = format!(" ({suffix})");
+                name = format!(
+                    "{}{}",
+                    base.chars()
+                        .take(MAX_NAME_CHARS - tail.len())
+                        .collect::<String>(),
+                    tail
+                );
+            }
+            if !names.insert(name.clone()) {
+                return Err(PrivateStoreError::DuplicateProfileName);
+            }
+            profiles.push(serde_json::json!({"id":id, "name":name, "uri":uri,
+                "protocol":canonical.protocol().as_str()}));
+        }
+        let validated = parse_private_store(&document.to_string())?;
+        Ok(PrivateStoreMutation {
+            payload: validated.private_payload()?,
+            changed,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,70 +423,5 @@ mod tests {
         for secret in ["private.invalid", "secret-token", "https://"] {
             assert!(!public.contains(secret));
         }
-    }
-}
-
-impl LocalBundlePlan {
-    #[must_use]
-    pub const fn counts(&self) -> LocalBundleCounts {
-        self.counts
-    }
-
-    /// Build one complete candidate or return an error. IDs come from the
-    /// trusted owner only; invalid/colliding IDs never yield a partial payload.
-    /// Existing records, selection, connection preferences and subscriptions
-    /// are preserved; bundle links become standalone profiles, not a feed URL.
-    pub fn into_mutation(
-        self,
-        mut next_record_id: impl FnMut() -> String,
-    ) -> Result<PrivateStoreMutation, PrivateStoreError> {
-        let mut ids: BTreeSet<_> = self
-            .store
-            .profiles
-            .iter()
-            .map(|p| p.id.clone())
-            .chain(self.store.subscriptions.iter().map(|s| s.id.clone()))
-            .collect();
-        let mut names: BTreeSet<_> = self.store.profiles.iter().map(|p| p.name.clone()).collect();
-        let changed = !self.entries.is_empty();
-        let mut document = self.store.document;
-        let profiles = document["profiles"]
-            .as_array_mut()
-            .ok_or(PrivateStoreError::InvalidShape)?;
-        for (uri, canonical) in self.entries {
-            let id = next_record_id();
-            if !valid_record_id(&id) || !ids.insert(id.clone()) {
-                return Err(PrivateStoreError::InvalidShape);
-            }
-            let suggested = canonical.subscription_name_candidate();
-            let base =
-                clean_mutation_name(&suggested).unwrap_or_else(|_| "Imported profile".into());
-            let mut name = base.clone();
-            // At most MAX_PROFILES existing/new names. A finite suffix search
-            // preserves display labels without overwriting an unrelated record.
-            for suffix in 2..=MAX_PROFILES + 1 {
-                if !names.contains(&name) {
-                    break;
-                }
-                let tail = format!(" ({suffix})");
-                name = format!(
-                    "{}{}",
-                    base.chars()
-                        .take(MAX_NAME_CHARS - tail.len())
-                        .collect::<String>(),
-                    tail
-                );
-            }
-            if !names.insert(name.clone()) {
-                return Err(PrivateStoreError::DuplicateProfileName);
-            }
-            profiles.push(serde_json::json!({"id":id, "name":name, "uri":uri,
-                "protocol":canonical.protocol().as_str()}));
-        }
-        let validated = parse_private_store(&document.to_string())?;
-        Ok(PrivateStoreMutation {
-            payload: validated.private_payload()?,
-            changed,
-        })
     }
 }
