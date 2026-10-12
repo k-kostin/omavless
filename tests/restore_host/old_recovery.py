@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import resource
 import socket
 import stat
 import struct
@@ -18,10 +19,10 @@ import sys
 import tempfile
 import time
 
-# Earlier accounts retain an unknown backup / incomplete activation respectively.
-# This optimized-build successor is a distinct scope, not a replay or cleanup.
-ACCOUNT = "ovrestore101"
-HOME = Path("/home/ovrestore101")
+# PC-only fresh scope. The ARM accounts and their retained failures are not
+# transferred, resumed or cleaned by this recipe.
+ACCOUNT = "ovrestore201"
+HOME = Path("/home/ovrestore201")
 ELF = Path("/usr/bin/omavless")
 MAX_FRAME = 256 * 1024
 
@@ -100,6 +101,10 @@ def account_scope():
     uid = account.pw_uid
     require(uid > 0 and account.pw_dir == str(HOME)
             and os.getuid() == os.geteuid() == uid)
+    # Fixture capacity, not a claim that the runtime's older 60-FD minimum
+    # accounts for the enlarged manager/cgroup graph or supports low limits.
+    soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+    require(soft == resource.RLIM_INFINITY or soft >= 256)
     run = Path(f"/run/user/{uid}")
     require(os.environ.get("HOME") == str(HOME)
             and os.environ.get("XDG_RUNTIME_DIR") == str(run))
@@ -345,7 +350,7 @@ def positive():
             'roscomvpn-default', 'china-cn-direct', 'iran-ir-direct'))
     finally:
         store.close()
-    evidence = HOME / '.cache/restore099-qualified-positive'
+    evidence = HOME / '.cache/restore099-pc-positive'
     evidence.mkdir(mode=0o700)  # Existence refuses a second run, including failed runs.
     effects = Effects(evidence, run)
     private = json.dumps({'schema': 1, 'archive': str(evidence / 'new.ovb'),
@@ -443,14 +448,14 @@ def recover_retained():
             held.append(staged)
             require(staged.data == original.data)
         require(json.loads(held[0].data).get('startup', {}).get('enabled') is False)
-        evidence = HOME / '.cache/restore099-phase-successor'
+        evidence = HOME / '.cache/restore099-pc-phase-successor'
         evidence.mkdir(mode=0o700)
-        private = Held(HOME / '.cache/restore099-qualified-positive/request.json', uid, 32768)
+        private = Held(HOME / '.cache/restore099-pc-positive/request.json', uid, 32768)
         held.append(private)
         request = json.loads(private.data, object_pairs_hook=unique)
         require(set(request) == {'schema', 'archive', 'passphrase'}
                 and type(request['schema']) is int and request['schema'] == 1
-                and request['archive'] == str(HOME / '.cache/restore099-qualified-positive/new.ovb')
+                and request['archive'] == str(HOME / '.cache/restore099-pc-positive/new.ovb')
                 and isinstance(request['passphrase'], str))
         effects = Effects(evidence, run)
         effects.once('recover', [str(ELF), 'restore', 'recover-old', '--confirm-rollback'], private.data)

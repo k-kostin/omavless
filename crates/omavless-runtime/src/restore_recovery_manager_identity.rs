@@ -55,7 +55,7 @@ impl RecoveryManagerRecord {
 
 pub(super) enum ManagerIdentity {
     Historical {
-        process: Process,
+        process: Box<Process>,
         executable: TrustedExecutable,
     },
     Recovery(RecoveryManagerIdentity),

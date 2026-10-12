@@ -1758,7 +1758,7 @@ impl StoppedOwner {
                 return Err(());
             }
             ManagerIdentity::Historical {
-                process: manager,
+                process: Box::new(manager),
                 executable: manager_executable,
             }
         };

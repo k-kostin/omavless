@@ -78,6 +78,24 @@ Original owner runtime was stopped before testing; no VPN connection or DNS
 change was performed during this recovery session. Do not assume the installed
 private test candidate is the ordinary product build after reboot.
 
+## October 12 PC successor selection
+
+The PC writer has taken the explicitly stopped branch. Its first case binds the
+fixed fresh `ovrestore201` account and distinct `restore099-pc-positive` evidence
+root. Do not select `recover-retained` for this first case. Source fixture
+preflight requires at least 256 available descriptor-limit slots; this is not
+low-limit admission acceptance or a replacement runtime envelope claim.
+
+The first gate is **CLI-only**: a new optimized app and managed-DNS package with
+the SAME source and verified actual build features/identities. It excludes
+`product-private-backup`. Published frontend bootstrap pins stay unchanged;
+do not force the frontend pairing tool past their mismatch, install an unpaired
+frontend, or claim a full triple/UI beta gate. Existing guest UI is not evidence
+for the new backend. Before any effect, select the exact inspected package pair,
+review the fixed driver and administrative fresh-account preparation, and verify
+known-Off guest state. Physical host services/network and historical failed
+images/accounts remain out of scope.
+
 Exact local paths, private artifacts and package copies stay on that VM, not in
 this document. No private profiles need transfer to Git. A new PC fixture must
 earn its own evidence. Existing original scopes remain preserved for a later
