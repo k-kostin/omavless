@@ -485,6 +485,48 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn abort_current_restore_intent(&mut self) -> Result<(), FirstError> {
         self.abort_current_restore_intent_cut(&mut |_| Ok(()))
     }
+    /// Fixed genuine closure-only producer. Consumes the SAME positive pause;
+    /// after its expected sealed error, the return value is cut DATA only.
+    pub(crate) fn abort_current_after_retirement_cut(&mut self) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        let mut reached = false;
+        let result = self.abort_current_restore_intent_cut(&mut |step| {
+            if step == crate::manager_actor_service::NativeStep::RetirementComplete {
+                reached = true;
+                Err(FirstError::StillFenced)
+            } else {
+                Ok(())
+            }
+        });
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.intent_pause.is_none()
+                })
+            });
+        if reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            match result {
+                Err(error) => Err(error),
+                Ok(()) => Err(FirstError::StillFenced),
+            }
+        }
+    }
     /// Factual diagnostic only: true means this SAME pause was consumed,
     /// original engine revoked/unavailable and transaction independently blocked.
     /// It cannot enable a continuation or mint any caller permission.

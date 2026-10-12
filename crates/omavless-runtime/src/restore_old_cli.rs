@@ -83,6 +83,7 @@ enum Choice {
     Old,
     Mixed,
     Committed,
+    FinalOld,
 }
 
 fn choice(arguments: &[OsString]) -> Option<Choice> {
@@ -92,6 +93,8 @@ fn choice(arguments: &[OsString]) -> Option<Choice> {
         Some(Choice::Mixed)
     } else if arguments == ["restore", "recover-committed", "--confirm-completion"] {
         Some(Choice::Committed)
+    } else if arguments == ["restore", "recover-final-old", "--confirm-disposition"] {
+        Some(Choice::FinalOld)
     } else {
         None
     }
@@ -140,6 +143,14 @@ fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     let mut recovery = FreshRecovery::reserve().map_err(|_| Error::RecoveryRefused)?;
     phase(b"RESTORE_RECOVERY_RESERVED\n");
     let result = match choice {
+        Choice::FinalOld => recovery.recover_final_old_output(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
         Choice::Old => recovery.recover_old_to_completion(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
@@ -177,6 +188,12 @@ fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     })?;
     phase(b"RESTORE_RECOVERY_COMPLETED\n");
     match choice {
+        Choice::FinalOld => {
+            let released = recovery
+                .dispose_and_release_final_old()
+                .map_err(|_| Error::RecoveryRefused)?;
+            start_and_verify(|| released.verify_current())
+        }
         Choice::Old | Choice::Mixed => {
             let released = recovery
                 .dispose_and_release_old()
@@ -202,6 +219,51 @@ fn start_and_verify<E>(verify: impl FnOnce() -> Result<(), E>) -> Result<(), Err
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn final_old_is_a_distinct_closed_disposition_selector() {
+        let valid = ["restore", "recover-final-old", "--confirm-disposition"].map(OsString::from);
+        assert!(arguments_admitted(&valid));
+        assert_eq!(
+            crate::product_scope::cli_disabled(&valid),
+            crate::product_scope::backup_only()
+        );
+        for args in [
+            vec!["restore", "recover-final-old", "--confirm-rollback"],
+            vec!["restore", "recover-final-old", "--confirm-completion"],
+            vec![
+                "restore",
+                "recover-final-old",
+                "--confirm-disposition",
+                "step",
+            ],
+            vec!["restore", "recover-final-new", "--confirm-disposition"],
+        ] {
+            assert!(!arguments_admitted(
+                &args.into_iter().map(OsString::from).collect::<Vec<_>>()
+            ));
+        }
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn final_old_product_union_denies_before_private_input() {
+        struct NoRead;
+        impl Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("disabled selector read input");
+            }
+        }
+        assert_eq!(
+            recover_selected_from_private_input(
+                &[
+                    "restore".into(),
+                    "recover-final-old".into(),
+                    "--confirm-disposition".into()
+                ],
+                NoRead
+            ),
+            Err(Error::Disabled)
+        );
+    }
     #[test]
     fn recovery_choices_require_their_exact_confirmation() {
         for command in ["recover-old", "recover-mixed", "recover-committed"] {

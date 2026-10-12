@@ -7,6 +7,8 @@ use crate::native_coordinator::{NativeFirstError as FirstError, PreparedRestoreP
 use crate::native_coordinator::{NativeRecoveryOrigin, NativeSessionOrigin};
 use crate::restore_old_stopped::NativeOldRecoveryQuiescence;
 use std::fs::File;
+#[path = "native_final_old.rs"]
+mod native_final_old;
 #[path = "native_history.rs"]
 mod native_history;
 pub(crate) const NATIVE_HISTORY_SLOTS: usize = native_history::CAPACITY;
@@ -2021,7 +2023,12 @@ pub(crate) enum NativeStep {
     RetirementReceipt,
     StageRetired,
     Closure,
+    RetirementComplete,
+    FinalOldSourceSynced(usize),
+    DispositionTicket,
     DispositionComplete,
+    DispositionClosureUnlinked,
+    DispositionTicketUnlinked,
     HistoryRenamePrepared,
     HistoryRenamed,
     HistorySynced,
@@ -2043,6 +2050,12 @@ enum RecoveryCompletionSelection {
     None,
     Old,
     CommittedNew,
+    FinalOld,
+}
+// Created only after the fresh engine's actual source/parent sync and final
+// same-origin gates. A captured/decoded closure alone never creates this type.
+struct FreshFinalOld {
+    closure_digest: [u8; 32],
 }
 impl FreshCommittedNew {
     fn matches(&self, intent: &[u8], terminal: &[u8]) -> bool {
@@ -2135,6 +2148,8 @@ pub(crate) struct NativeEngine {
     recovery: bool,
     recovery_completion: RecoveryCompletionSelection,
     fresh_committed_new: Option<FreshCommittedNew>,
+    final_old_captured: bool,
+    fresh_final_old: Option<FreshFinalOld>,
     // Set only after SAME Session execute_native's final original gate.
     committed: bool,
     intent_identity: std::sync::Arc<()>,
@@ -2204,7 +2219,8 @@ impl NativeStageView<'_> {
         } else {
             return false;
         };
-        self.engine.completed_origin()
+        (self.engine.completed_origin()
+            || (matches!(slot, Slot::Scratch3) && self.engine.final_old_observation_captured()))
             && !self.engine.sealed
             && self.engine.lower.original[slot as usize].is_some()
             && !self.engine.unlinked[slot as usize]
@@ -2355,6 +2371,8 @@ impl NativeEngine {
             recovery: false,
             recovery_completion: RecoveryCompletionSelection::None,
             fresh_committed_new: None,
+            final_old_captured: false,
+            fresh_final_old: None,
             committed: false,
             intent_identity: std::sync::Arc::new(()),
             current_intent: CurrentIntentPhase::None,
@@ -2381,7 +2399,10 @@ impl NativeEngine {
             && !self.ordinary_handoff
     }
     fn completed_origin(&self) -> bool {
-        (self.recovery && self.singleton_locked)
+        (self.recovery
+            && self.singleton_locked
+            && (self.recovery_completion != RecoveryCompletionSelection::FinalOld
+                || self.final_old_qualified()))
             || (!self.recovery
                 && (self.committed || self.current_intent == CurrentIntentPhase::Aborted))
     }
@@ -2660,6 +2681,9 @@ impl NativeEngine {
         if self.recovery {
             self.check_recovery_singleton(until)?;
         }
+        if self.final_old_captured {
+            self.check_final_old_retired_sources(until)?;
+        }
         if !self.catalogues_captured {
             return Ok(());
         }
@@ -2915,7 +2939,12 @@ impl NativeEngine {
                 n if n == Slot::Scratch4 as usize && self.recovery => Slot::Scratch4,
                 n if n == Slot::Scratch5 as usize && self.recovery => Slot::Scratch5,
                 n if n == Slot::Scratch2 as usize && self.retirement => Slot::Scratch2,
-                n if n == Slot::Scratch3 as usize && self.retirement => Slot::Scratch3,
+                n if n == Slot::Scratch3 as usize
+                    && (self.retirement
+                        || self.recovery_completion == RecoveryCompletionSelection::FinalOld) =>
+                {
+                    Slot::Scratch3
+                }
                 n if n == Slot::Scratch0 as usize && self.disposition => Slot::Scratch0,
                 n if n == Slot::Scratch1 as usize && self.disposition => Slot::Scratch1,
                 n if n == NATIVE_CURRENT_STORE as usize && self.current_store => {
@@ -3721,6 +3750,10 @@ impl NativeEngine {
             return Err(FirstError::StillFenced);
         }
         self.gate(origin, until)?;
+        // Unlike Closure, this point has genuinely retired the receipt and
+        // passed final original live/closure/origin checks. No completion grant
+        // or disposition effect has happened yet.
+        cut(NativeStep::RetirementComplete)?;
         self.completed = true; // only after last ORIGINAL origin + all durable reads
         Ok(())
     }
@@ -4046,7 +4079,10 @@ impl NativeEngine {
                 return Err(FirstError::StillFenced);
             }
         }
-        if !self.unlinked[Slot::Scratch2 as usize]
+        if !(self.unlinked[Slot::Scratch2 as usize]
+            || (self.final_old_qualified()
+                && self.lower.original[Slot::Scratch2 as usize].is_none()
+                && self.expected[Slot::Scratch2 as usize].is_none()))
             || self.unlinked[Slot::Scratch3 as usize] != self.disposition_done
             || self.expected[Slot::Scratch3 as usize].is_none()
         {
@@ -4078,6 +4114,19 @@ impl NativeEngine {
             origin,
             quiescence,
             RecoveryCompletionSelection::CommittedNew,
+            until,
+        )
+    }
+    pub(crate) fn check_native_final_old_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.check_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::FinalOld,
             until,
         )
     }
@@ -4130,6 +4179,17 @@ impl NativeEngine {
             origin,
             quiescence,
             RecoveryCompletionSelection::CommittedNew,
+        )
+    }
+    pub(crate) fn dispose_native_final_old_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.dispose_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::FinalOld,
         )
     }
     fn dispose_native_recovered_completed(
@@ -4340,6 +4400,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::DispositionTicket)?;
         self.write(
             Slot::State,
             Slot::Scratch1,
@@ -4357,6 +4418,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::DispositionClosureUnlinked)?;
         self.own_unlink(
             Slot::State,
             Slot::Scratch0,
@@ -4365,6 +4427,7 @@ impl NativeEngine {
             origin,
             until,
         )?;
+        cut(NativeStep::DispositionTicketUnlinked)?;
         self.gate(origin, until)?;
         self.lower
             .binding(Slot::State, Slot::Scratch1, COMPLETE_MEMBER, false, until)

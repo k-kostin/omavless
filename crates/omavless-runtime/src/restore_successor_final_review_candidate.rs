@@ -75,7 +75,13 @@ impl FinalEvidence<'_> {
     }
 }
 
-fn output_binding(receipt: &RetirementReceipt, live: [&[u8]; 2], new: [&[u8]; 2]) -> bool {
+// Pure consistency DATA, shared with the separately admitted native final-OLD
+// engine. This function grants no inode custody, durability or completion.
+pub(crate) fn output_binding(
+    receipt: &RetirementReceipt,
+    live: [&[u8]; 2],
+    new: [&[u8]; 2],
+) -> bool {
     if !receipt.matches_pair(live[0], live[1]) {
         return false;
     }
