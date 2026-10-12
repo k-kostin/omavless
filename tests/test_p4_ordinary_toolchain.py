@@ -243,6 +243,22 @@ class OrdinaryRunnerControls(unittest.TestCase):
         for forbidden in ('parser.add_argument("--race"', 'build.append("-race")', 'CC=', 'CXX=', 'rmtree'):
             self.assertNotIn(forbidden, source)
 
+    def test_new_ordinary_nproc_bound_preserves_stricter_soft_and_hard_limits(self):
+        for inherited, expected in ((runner.resource.RLIM_INFINITY, 2048),
+                                    (1024, 1024), (4096, 2048)):
+            calls = []
+            with patch.object(runner.resource, 'getrlimit', return_value=(inherited, 8192)), \
+                    patch.object(runner.resource, 'setrlimit', side_effect=lambda kind, value: calls.append((kind, value))):
+                runner.limits()
+            self.assertEqual(dict(calls)[runner.resource.RLIMIT_NPROC], (expected, 8192))
+            self.assertTrue(all(value[1] == 8192 for _, value in calls))
+        source = (ROOT / 'run_default_residue_ordinary.py').read_text()
+        self.assertIn("'nproc':2048", source)
+        self.assertIn('recipe="p4-default-residue-ordinary-arch-go-v2"', source)
+        old = (ROOT / 'run_default_residue_overlay.py').read_text()
+        self.assertIn('(resource.RLIMIT_NPROC,1024)', old)
+        self.assertIn("'nproc':1024", old)
+
     def test_mocked_build_execute_rechecks_before_commands_and_final_receipt(self):
         with self.harness() as (state, admit):
             paths, argv, _, _, _, saved, commands, _ = state

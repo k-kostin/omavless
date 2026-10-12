@@ -13,9 +13,11 @@ The separate [ordinary entry](../../tests/fixtures/p4_awg_peer/run_default_resid
 keeps the original runner frozen at SHA-256
 `e58c23773429d3c2854b60f1a5b5d1c11b36ac39c5e700ae21e6237f7a907343`.
 It retains the exact supervisor/helper/parser/three overlay pins, separate
-BUILD/EXECUTE phases, fixed selectors, resource upper bounds, no cleanup path,
+BUILD/EXECUTE phases, fixed selectors, no cleanup path,
 unknown-owner latch, exclusive attempt and final-receipt ordering. The engine
 defaults, causal assertions and 570/600/620-second bounds are unchanged.
+The ordinary-only resource-envelope successor below changes only its NPROC
+upper bound; the old runner and its 1024 recipe remain frozen.
 
 Only ordinary CGO0 is admitted: fixed `/usr/bin/go`, explicit
 `GOROOT=/usr/lib/go`, `GOTOOLCHAIN=local`, and the existing complete offline
@@ -114,3 +116,26 @@ changed installed type/group/link count, metadata/target drift, and forbidden
 target access. ROOT and independent delta review precede the next separately
 selected actual read-only admission. This correction itself ran no package
 parse, actual tool-tree admission, Go BUILD or engine case.
+
+## Ordinary per-UID task-limit successor
+
+Before any Go selection, ROOT's harmless host preflight counted 1250 current
+UID tasks, already exceeding the new ordinary recipe's initial 1024 bound.
+That observation fluctuates and is not a capacity reservation or an engine
+thread census. A separately reviewed ordinary-only recipe v2 uses NPROC <=2048:
+`min(inherited_soft, 2048)`, with an infinite inherited soft limit treated as
+2048. Hard limits are preserved exactly; a stricter soft limit is never raised.
+The checker does not change host processes or global limits. There is no
+automatic limit escalation or retry following an effect-bearing failure.
+
+The fixture's <=222 engine/fixture goroutine source bound remains separate
+from Linux per-UID thread accounting; Go runtime, compiler and unrelated UID
+tasks are not claimed to fit that goroutine count. NOFILE <=512, CPU <=660s,
+FSIZE <=256MiB and CORE0 remain unchanged. No heap, aggregate disk or isolation
+guarantee follows. The existing 1024 frozen runner is untouched.
+
+Thirteen focused inert controls include infinite/stricter/higher inherited
+soft bounds with unchanged hard limits and matching recipe/receipt fields.
+ROOT and independent source/environment/resource review still precede actual
+read-only tool admission or any BUILD; no original failure is relabelled by
+this source-only envelope correction.

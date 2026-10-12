@@ -138,7 +138,7 @@ def limits():
     # Proposed caller/child resource envelope. No address-space or RSS claim:
     # Linux RSS rlimit is not an enforced heap cap and race reserves large VA.
     # Only this new runner process and its future children are constrained.
-    for kind, bound in ((resource.RLIMIT_NOFILE,512), (resource.RLIMIT_NPROC,1024),
+    for kind, bound in ((resource.RLIMIT_NOFILE,512), (resource.RLIMIT_NPROC,2048),
                         (resource.RLIMIT_CPU,660), (resource.RLIMIT_FSIZE,256*1024*1024),
                         (resource.RLIMIT_CORE,0)):
         soft, hard = resource.getrlimit(kind)
@@ -183,11 +183,11 @@ def main():
     tool_hash = toolchain["go_sha256"]
     expected = dict(fixture_commit=fixture, pin=owned.helpers.PIN, source_archive_sha256=owned.helpers.ARCHIVE_SHA256,
                     input_sha256=hashes, tool_sha256=tool_hash, toolchain=toolchain,
-                    recipe="p4-default-residue-ordinary-arch-go-v1", race=False, cases=1,
+                    recipe="p4-default-residue-ordinary-arch-go-v2", race=False, cases=1,
                     source_engine_only=True, network_transport=False, vm=False, defaults_unchanged=True,
                     test=test, case=args.case, body_limit_seconds=570,
                     go_timeout_seconds=600, supervisor_timeout_seconds=620,
-                    resource_envelope={'nofile':512,'nproc':1024,'cpu_seconds':660,
+                    resource_envelope={'nofile':512,'nproc':2048,'cpu_seconds':660,
                                        'file_bytes':256*1024*1024,'core_bytes':0},
                     intrinsic_engine_heap_cap=False, temporary_export_retained=True)
     if args.phase == "build":
