@@ -6,6 +6,32 @@ Read the [phase/ownership contract](RESTORE_099_RECOVERY_PLAN.md) and
 [execution policy](EXECUTION_POLICY.md). This card is not a recovery grant,
 human-attended result or permission to alter a preserved failed image.
 
+### Fresh ARM64 positive gate
+
+The reviewed `tests/restore_host/old_recovery.py positive` successor runs the
+first OLD/Intent row in a newly created real `ovrestore099` Unix account with
+its own home and systemd user manager inside Try Omarchy. This is **zero-network
+user-scope recovery**, not nested-image isolation or kernel-fault containment.
+It does not grant execution of the other rows below.
+
+The operator selects the exact installed T4-enabled app/core/broker/receipt
+before starting. The normal user's known-Off runtime is stopped for shared
+package replacement; private user data stays untouched. Initialize and activate
+only the new empty account through ordinary commands. Do not replace the
+single-user DNS enrollment: this gate never connects or performs DNS work.
+
+The driver retains OLD bytes/inodes and original process identity, creates an
+encrypted empty NEW archive, imports one synthetic OLD profile, pauses at Intent,
+performs one fixed normal Stop, then invokes the real recovery CLI once. It
+independently checks OLD, nested immutable history and fresh ordinary Off.
+Timeout/unknown child outcome parks the original context without cleanup or
+retry. A failed scope is retained; a missing final printed marker does not
+authorize replay. `preflight` alone is observation, not acceptance.
+
+Nine deterministic driver controls and independent source review precede the
+first run. Actual installed results remain separate; no PASS follows merely
+from this recipe amendment. Historical image-specific tests remain sealed.
+
 ## Candidate and custody preflight
 
 1. Freeze the selected runtime source, current independent SOURCE review and
