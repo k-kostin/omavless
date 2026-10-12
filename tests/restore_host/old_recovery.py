@@ -18,8 +18,10 @@ import sys
 import tempfile
 import time
 
-ACCOUNT = "ovrestore099"
-HOME = Path("/home/ovrestore099")
+# The first account is retained after an unknown backup outcome. This successor
+# is a distinct user scope, not a replay or cleanup of that operation.
+ACCOUNT = "ovrestore100"
+HOME = Path("/home/ovrestore100")
 ELF = Path("/usr/bin/omavless")
 MAX_FRAME = 256 * 1024
 
@@ -116,6 +118,11 @@ def account_scope():
     return uid, run
 
 
+def send_unary(stream, frame):
+    stream.sendall(json.dumps(frame, separators=(",", ":")).encode() + b"\n")
+    stream.shutdown(socket.SHUT_WR)
+
+
 def reply(run, uid, method, request_id):
     require(method in ("system.hello", "status.get"))
     path = run / "omavless/control.sock"
@@ -143,7 +150,7 @@ def reply(run, uid, method, request_id):
         frame = {"api": "omavless.control", "version": 1, "id": request_id,
                  "method": method,
                  "params": {"versions": [1]} if method == "system.hello" else {}}
-        stream.sendall(json.dumps(frame, separators=(",", ":")).encode() + b"\n")
+        send_unary(stream, frame)
         raw = bytearray()
         while b"\n" not in raw:
             remaining = deadline - time.monotonic()
@@ -411,7 +418,7 @@ def main(arguments):
     require(arguments == ["preflight"])
     preflight()
     print("RESTORE099_OBSERVATION_ONLY_OK")
-    print("RESTORE099_EFFECT_GATE_NOT_IMPLEMENTED")
+    print("RESTORE099_NO_EFFECTS_REQUESTED")
 
 
 if __name__ == "__main__":

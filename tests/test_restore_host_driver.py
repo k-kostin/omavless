@@ -4,6 +4,7 @@ import importlib.util
 import hashlib
 import json
 import os
+import socket
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,6 +17,17 @@ SPEC.loader.exec_module(driver)
 
 
 class RestoreObserver(unittest.TestCase):
+    def test_unary_request_closes_write_side_but_can_receive_response(self):
+        client, server = socket.socketpair()
+        with client, server:
+            client.settimeout(1)
+            server.settimeout(1)
+            driver.send_unary(client, {'id': 'fixture'})
+            self.assertEqual(server.recv(4096), b'{"id":"fixture"}\n')
+            self.assertEqual(server.recv(1), b'')
+            server.sendall(b'{}\n')
+            self.assertEqual(client.recv(4096), b'{}\n')
+
     def test_park_step_does_not_unwind_on_broken_output_or_interrupted_sleep(self):
         with mock.patch('builtins.print', side_effect=BrokenPipeError), \
                 mock.patch.object(driver.time, 'sleep', side_effect=KeyboardInterrupt):

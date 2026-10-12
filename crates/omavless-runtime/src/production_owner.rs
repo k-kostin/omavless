@@ -351,7 +351,12 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.require_developer_current(request)?;
         self.coordinator
             .create_backup_candidate(request.archive(), request.passphrase())
-            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+            .map_err(|error| {
+                // Best-effort fixed category, no private request or exception text.
+                // Keep the original conservative outcome, even if stderr is closed.
+                let _ = std::io::Write::write_all(&mut std::io::stderr(), error.diagnostic());
+                ProductionOwnerError::ManualRecoveryRequired
+            })
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn require_developer_current(
