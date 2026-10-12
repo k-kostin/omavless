@@ -26,6 +26,8 @@ impl RecoveryManagerRecord {
             || fields.remove("SubState") != Some("running")
             || fields.remove("ControlPID") != Some("0")
             || fields.remove("Job") != Some("")
+            || fields.remove("ControlGroup")
+                != Some(super::recovery_cgroup::manager_group(uid).as_str())
             || decimal(fields.remove("User").ok_or(())?.as_bytes())? != uid
         {
             return Err(());
@@ -267,25 +269,6 @@ impl RecoveryManagerIdentity {
         Ok(())
     }
 
-    pub(super) fn inventory_row(
-        &self,
-        root: &File,
-        pid: u32,
-        initial: &Status,
-        start: u64,
-        metadata: &Metadata,
-        budget: &mut Budget,
-    ) -> Result<bool> {
-        if pid != self.record.pid {
-            return Ok(false);
-        }
-        if initial != &self.status || start != self.start || !identity(metadata, &self.metadata) {
-            return Err(());
-        }
-        self.recheck(root, budget)?;
-        Ok(true)
-    }
-
     pub(super) fn recheck(&self, root: &File, budget: &mut Budget) -> Result<()> {
         budget.check()?;
         alive(&self.pidfd)?;
@@ -341,7 +324,7 @@ mod tests {
     use std::os::unix::net::{UnixListener, UnixStream};
 
     fn record() -> String {
-        "Id=user@1001.service\nUser=1001\nLoadState=loaded\nActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\nJob=\nInvocationID=1234567890abcdef1234567890abcdef\n".to_owned()
+        "Id=user@1001.service\nUser=1001\nLoadState=loaded\nActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\nJob=\nControlGroup=/user.slice/user-1001.slice/user@1001.service\nInvocationID=1234567890abcdef1234567890abcdef\n".to_owned()
     }
 
     #[test]
@@ -356,6 +339,10 @@ mod tests {
         for (before, after) in [
             ("user@1001.service", "user@1002.service"),
             ("User=1001", "User=1002"),
+            (
+                "ControlGroup=/user.slice/user-1001.slice/user@1001.service",
+                "ControlGroup=/foreign",
+            ),
             ("LoadState=loaded", "LoadState=not-found"),
             ("ActiveState=active", "ActiveState=activating"),
             ("SubState=running", "SubState=dead"),
@@ -504,58 +491,13 @@ mod tests {
     }
 
     #[test]
-    fn recovery_manager_original_lifetime_and_exact_inventory_exception() {
+    fn recovery_manager_original_lifetime_and_uid_are_exact() {
         let mut fixture = fixture();
         let m = &mut fixture.identity;
         assert!(m.recheck(&fixture.root, &mut Budget::new()).is_ok());
-        assert_eq!(
-            m.inventory_row(
-                &fixture.root,
-                m.record.pid,
-                &m.status,
-                m.start,
-                &m.metadata,
-                &mut Budget::new()
-            ),
-            Ok(true)
-        );
-        assert_eq!(
-            m.inventory_row(
-                &fixture.root,
-                m.record.pid + 1,
-                &m.status,
-                m.start,
-                &m.metadata,
-                &mut Budget::new()
-            ),
-            Ok(false)
-        );
-        assert!(
-            m.inventory_row(
-                &fixture.root,
-                m.record.pid,
-                &m.status,
-                m.start + 1,
-                &m.metadata,
-                &mut Budget::new()
-            )
-            .is_err()
-        );
-        let wrong = Status {
-            uids: [m.record.uid + 1; 4],
-            namespace_pids: vec![m.record.pid],
-        };
-        assert!(
-            m.inventory_row(
-                &fixture.root,
-                m.record.pid,
-                &wrong,
-                m.start,
-                &m.metadata,
-                &mut Budget::new()
-            )
-            .is_err()
-        );
+        m.status.uids = [m.record.uid + 1; 4];
+        assert!(m.recheck(&fixture.root, &mut Budget::new()).is_err());
+        m.status.uids = [m.record.uid; 4];
         m.start += 1;
         assert!(m.recheck(&fixture.root, &mut Budget::new()).is_err());
     }

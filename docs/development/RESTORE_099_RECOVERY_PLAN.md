@@ -215,9 +215,24 @@ invocation, process and peer; disconnection never authorizes reconnection.
 The owner-only socket modes `0600` and systemd's `0700` are accepted, not
 group/other access or special permission bits.
 
-Only this exact manager receives the process-inventory exception. Other
-same-UID processes and the historical Abort command retain their previous
-checks. Own namespace/proc visibility checks remain. This is a root-controlled
-system-service attestation boundary, **not** direct proof of the manager's
-executable inode or namespace descriptors; OS ptrace/security settings are not
-relaxed. Deterministic tests do not replace installed capture and recovery.
+Installed inspection also found the manager's nondumpable PAM helper and an
+unrelated-process churn dependency in the historical global census. New
+recovery therefore uses the agreed cooperative ownership boundary directly:
+the original locks, authenticated manager, fixed packaged runtime unit with
+known Stop completion and no jobs/PIDs, empty recursive service cgroup,
+canonical no-listener check and actual Off observation. It does not grant
+process-name exceptions or require every desktop process to expose its ELF.
+
+The unit must use the fixed `app.slice`, `Delegate=no`, `KillMode=control-group`
+and no drop-ins. Pin the verified cgroup2 hierarchy through that slice; each
+observation must find the exact runtime child absent or read its bounded
+`cgroup.events` with `populated 0`. Unreadable/substituted/unknown state refuses.
+The empty service child may disappear across a known Stop; a replaced parent
+is not adopted. User cgroups are delegated: this is **not** exclusion of a
+malicious same-UID process moving itself or ignoring the shared locks. Supported
+manual daemon entry points must obey those same locks.
+
+Historical Abort retains its strict census. Own namespace/proc visibility checks
+remain. Manager identity uses root-controlled system-service attestation, not
+direct executable/namespace descriptor proof; OS ptrace/security settings are
+not relaxed. Deterministic tests do not replace installed capture and recovery.

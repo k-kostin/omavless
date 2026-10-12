@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Fixed OLD-only consumer, separate from the historical still-fenced Abort.
+//! Fixed recovery consumers, separate from the historical still-fenced Abort.
 
 use crate::RuntimePaths;
 use crate::cutover::CutoverPaths;
@@ -27,8 +27,12 @@ impl std::fmt::Display for Error {
         f.write_str(match self {
             Self::Disabled => "Restore recovery is unavailable in this Backup-only build",
             Self::InvalidInput => "Invalid private OLD recovery input",
-            Self::RecoveryRefused => "OLD recovery refused; preserve its artifacts and do not repeat automatically",
-            Self::AvailabilityUnverified => "OLD configuration recovered; runtime availability not verified. Do not repeat recovery",
+            Self::RecoveryRefused => {
+                "Recovery refused; preserve its artifacts and do not repeat automatically"
+            }
+            Self::AvailabilityUnverified => {
+                "Configuration recovered; runtime availability not verified. Do not repeat recovery"
+            }
         })
     }
 }
@@ -71,7 +75,36 @@ fn parse(input: impl Read) -> Result<Request, Error> {
 }
 
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
-    arguments == ["restore", "recover-old", "--confirm-rollback"]
+    choice(arguments).is_some()
+}
+
+#[derive(Clone, Copy)]
+enum Choice {
+    Old,
+    Mixed,
+    Committed,
+}
+
+fn choice(arguments: &[OsString]) -> Option<Choice> {
+    if arguments == ["restore", "recover-old", "--confirm-rollback"] {
+        Some(Choice::Old)
+    } else if arguments == ["restore", "recover-mixed", "--confirm-rollback"] {
+        Some(Choice::Mixed)
+    } else if arguments == ["restore", "recover-committed", "--confirm-completion"] {
+        Some(Choice::Committed)
+    } else {
+        None
+    }
+}
+
+pub fn recover_selected_from_private_input(
+    arguments: &[OsString],
+    input: impl Read,
+) -> Result<(), Error> {
+    if !crate::product_scope::restore_enabled() {
+        return Err(Error::Disabled);
+    }
+    recover(input, choice(arguments).ok_or(Error::InvalidInput)?)
 }
 
 fn phase(marker: &'static [u8]) {
@@ -82,6 +115,10 @@ fn phase(marker: &'static [u8]) {
 }
 
 pub fn recover_from_private_input(input: impl Read) -> Result<(), Error> {
+    recover(input, Choice::Old)
+}
+
+fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     // This dominates parsing, reservation, manager queries and every effect,
     // including product+development feature union builds and direct helpers.
     if !crate::product_scope::restore_enabled() {
@@ -102,40 +139,85 @@ pub fn recover_from_private_input(input: impl Read) -> Result<(), Error> {
     phase(b"RESTORE_RECOVERY_HOST_PATHS\n");
     let mut recovery = FreshRecovery::reserve().map_err(|_| Error::RecoveryRefused)?;
     phase(b"RESTORE_RECOVERY_RESERVED\n");
-    recovery
-        .recover_old_to_completion(
+    let result = match choice {
+        Choice::Old => recovery.recover_old_to_completion(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
             paths,
             desired,
             host,
             uid.as_raw(),
-        )
-        .map_err(|error| {
-            use crate::native_coordinator::NativeFirstError;
-            phase(match error {
-                NativeFirstError::Prepare => b"RESTORE_RECOVERY_AUTHENTICATION_REFUSED\n",
-                NativeFirstError::CiphertextMismatch => b"RESTORE_RECOVERY_ARCHIVE_MISMATCH\n",
-                NativeFirstError::Admission => b"RESTORE_RECOVERY_ADMISSION_REFUSED\n",
-                NativeFirstError::StillFenced => b"RESTORE_RECOVERY_FENCED\n",
-            });
-            Error::RecoveryRefused
-        })?;
+        ),
+        Choice::Mixed => recovery.recover_mixed_to_completion(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
+        Choice::Committed => recovery.recover_committed_to_completion(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
+    };
+    result.map_err(|error| {
+        use crate::native_coordinator::NativeFirstError;
+        phase(match error {
+            NativeFirstError::Prepare => b"RESTORE_RECOVERY_AUTHENTICATION_REFUSED\n",
+            NativeFirstError::CiphertextMismatch => b"RESTORE_RECOVERY_ARCHIVE_MISMATCH\n",
+            NativeFirstError::Admission => b"RESTORE_RECOVERY_ADMISSION_REFUSED\n",
+            NativeFirstError::StillFenced => b"RESTORE_RECOVERY_FENCED\n",
+        });
+        Error::RecoveryRefused
+    })?;
     phase(b"RESTORE_RECOVERY_COMPLETED\n");
-    let released = recovery
-        .dispose_and_release_old()
-        .map_err(|_| Error::RecoveryRefused)?;
-    // No Start while either old lease remains held. No repeated Stop/Abort or
-    // automatic connect when this independently admitted Start is unverified.
+    match choice {
+        Choice::Old | Choice::Mixed => {
+            let released = recovery
+                .dispose_and_release_old()
+                .map_err(|_| Error::RecoveryRefused)?;
+            start_and_verify(|| released.verify_current())
+        }
+        Choice::Committed => {
+            let released = recovery
+                .dispose_and_release_new()
+                .map_err(|_| Error::RecoveryRefused)?;
+            start_and_verify(|| released.verify_current())
+        }
+    }
+}
+
+fn start_and_verify<E>(verify: impl FnOnce() -> Result<(), E>) -> Result<(), Error> {
+    // Each typed release must succeed before Start. Never retry recovery on
+    // an independently unverified availability result.
     crate::runtime_relaunch::start_recovered_off().map_err(|_| Error::AvailabilityUnverified)?;
-    released
-        .verify_current()
-        .map_err(|_| Error::AvailabilityUnverified)
+    verify().map_err(|_| Error::AvailabilityUnverified)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_choices_require_their_exact_confirmation() {
+        for command in ["recover-old", "recover-mixed", "recover-committed"] {
+            for confirmation in ["--confirm-rollback", "--confirm-completion"] {
+                let args = ["restore", command, confirmation].map(OsString::from);
+                assert_eq!(
+                    arguments_admitted(&args),
+                    (command == "recover-committed") == (confirmation == "--confirm-completion")
+                );
+                assert_eq!(
+                    crate::product_scope::cli_disabled(&args),
+                    crate::product_scope::backup_only()
+                );
+            }
+        }
+    }
     #[test]
     fn old_recovery_command_is_exact_and_product_gate_dominates() {
         let admitted: Vec<_> = ["restore", "recover-old", "--confirm-rollback"]

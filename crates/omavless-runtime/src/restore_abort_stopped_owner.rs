@@ -67,6 +67,8 @@ fn bounded_recovery_diagnostic(
 #[path = "restore_recovery_manager_identity.rs"]
 mod recovery_manager_identity;
 use recovery_manager_identity::{ManagerIdentity, RecoveryManagerRecord};
+#[path = "restore_recovery_cgroup.rs"]
+mod recovery_cgroup;
 
 // The ordinary binary has no trace code, flag, sink or runtime override.
 macro_rules! checkpoint {
@@ -430,12 +432,14 @@ fn recovery_self(command: &[u8]) -> Result<()> {
 #[cfg(feature = "t4-manager-actor-service")]
 fn old_recovery_self(command: &[u8]) -> Result<()> {
     let args = arguments(command)?;
-    if args.len() != 4
-        || args[1..] != [b"restore".as_slice(), b"recover-old", b"--confirm-rollback"]
-    {
+    if args.len() != 4 || args[1] != b"restore" {
         return Err(());
     }
-    Ok(())
+    match (args[2], args[3]) {
+        (b"recover-old" | b"recover-mixed", b"--confirm-rollback")
+        | (b"recover-committed", b"--confirm-completion") => Ok(()),
+        _ => Err(()),
+    }
 }
 
 fn same_namespace(left: &File, right: &File) -> Result<()> {
@@ -792,7 +796,6 @@ fn inspect_inventory(
         budget,
         before,
         order,
-        None,
         #[cfg(test)]
         None,
     )
@@ -805,7 +808,6 @@ fn inspect_inventory_inner(
     budget: &mut Budget,
     before: &BTreeSet<u32>,
     order: Vec<u32>,
-    recovery_manager: Option<&recovery_manager_identity::RecoveryManagerIdentity>,
     #[cfg(test)] retained_parent: Option<&std::rc::Rc<retained_parent_prototype::LocalParent>>,
 ) -> std::result::Result<(), InventoryError> {
     if before.is_empty()
@@ -822,10 +824,7 @@ fn inspect_inventory_inner(
         let initial = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, *pid)?;
         let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, *pid)?;
         let metadata = directory.metadata().map_err(|_| ())?;
-        let authenticated_manager = recovery_manager
-            .map(|manager| manager.inventory_row(root, *pid, &initial, start, &metadata, budget))
-            .transpose()?;
-        if initial.uids.contains(&uid) && authenticated_manager != Some(true) {
+        if initial.uids.contains(&uid) {
             // Only the exact retained original manager row can consult its
             // parent. Every other same-UID row retains ordinary strict capture.
             #[cfg(test)]
@@ -868,9 +867,6 @@ fn inspect_inventory_inner(
     }
     for process in retained {
         process.recheck(root, budget)?;
-    }
-    if let Some(manager) = recovery_manager {
-        manager.recheck(root, budget)?;
     }
     for (pid, held, metadata, initial, start) in classified {
         let current = directory(root, &pid.to_string())?;
@@ -1087,12 +1083,20 @@ impl FixedRecoveryCommand {
                 }
             }
             if system {
-                for property in ["Id", "User", "InvocationID", "LoadState"] {
+                for property in ["Id", "User", "InvocationID", "LoadState", "ControlGroup"] {
                     args.push(format!("--property={property}"));
                 }
             }
             if matches!(self, Self::Runtime) {
-                for property in ["RuntimeDirectoryPreserve", "FragmentPath", "DropInPaths"] {
+                for property in [
+                    "RuntimeDirectoryPreserve",
+                    "FragmentPath",
+                    "DropInPaths",
+                    "Slice",
+                    "ControlGroup",
+                    "Delegate",
+                    "KillMode",
+                ] {
                     args.push(format!("--property={property}"));
                 }
             }
@@ -1142,6 +1146,7 @@ fn recovery_unit_record(
     bytes: &[u8],
     runtime: bool,
     off: bool,
+    uid: u32,
 ) -> Result<Option<RuntimeUnitConfiguration>> {
     let mut fields = recovery_fields(bytes)?;
     let load = fields.remove("LoadState").ok_or(())?;
@@ -1157,7 +1162,14 @@ fn recovery_unit_record(
         }
         let fragment = fields.remove("FragmentPath").ok_or(())?;
         let dropins = fields.remove("DropInPaths").ok_or(())?;
-        if fragment != "/usr/lib/systemd/user/omavless-runtime.service" {
+        let cgroup = fields.remove("ControlGroup").ok_or(())?;
+        if fragment != "/usr/lib/systemd/user/omavless-runtime.service"
+            || !dropins.is_empty()
+            || fields.remove("Slice") != Some("app.slice")
+            || fields.remove("Delegate") != Some("no")
+            || fields.remove("KillMode") != Some("control-group")
+            || (!cgroup.is_empty() && cgroup != recovery_cgroup::runtime_group(uid))
+        {
             return Err(());
         }
         Some(RuntimeUnitConfiguration {
@@ -1309,8 +1321,8 @@ impl OldRecoveryQueries {
         }
     }
 
-    fn check_unit(&self, bytes: &[u8], runtime: bool, off: bool) -> Result<()> {
-        let configuration = recovery_unit_record(bytes, runtime, off)?;
+    fn check_unit(&self, bytes: &[u8], runtime: bool, off: bool, uid: u32) -> Result<()> {
+        let configuration = recovery_unit_record(bytes, runtime, off, uid)?;
         if runtime {
             let mut original = self.configuration.borrow_mut();
             if let Some(original) = original.as_ref() {
@@ -1627,6 +1639,7 @@ pub(crate) struct StoppedOwner {
     uid: u32,
     myself: Process,
     manager: ManagerIdentity,
+    recovery_cgroup: Option<recovery_cgroup::RecoveryCgroup>,
     namespaces: Vec<(&'static str, File, Metadata)>,
     listeners: [String; 2],
     refused: Cell<bool>,
@@ -1749,6 +1762,12 @@ impl StoppedOwner {
                 executable: manager_executable,
             }
         };
+        let recovery_cgroup = if old_queries.is_some() {
+            recovery_checkpoint!(true, CaptureCgroupHierarchy);
+            Some(recovery_cgroup::RecoveryCgroup::capture(uid, &mut budget)?)
+        } else {
+            None
+        };
         budget.check()?;
         let observer = Self {
             root,
@@ -1756,6 +1775,7 @@ impl StoppedOwner {
             uid,
             myself,
             manager,
+            recovery_cgroup,
             namespaces,
             listeners,
             refused: Cell::new(false),
@@ -1831,21 +1851,14 @@ impl StoppedOwner {
     }
 
     fn inventory(&self, budget: &mut Budget) -> Result<()> {
-        if let Some(manager) = self.manager.recovery() {
-            let before = pids(&self.root, budget)?;
-            let order = before.iter().copied().collect();
-            inspect_inventory_inner(
-                &self.root,
-                self.uid,
-                &self.myself,
-                budget,
-                &before,
-                order,
-                Some(manager),
-                #[cfg(test)]
-                None,
-            )
-            .map_err(|_| ())
+        if self.manager.recovery().is_some() {
+            // Cooperative supported writers obey the SAME retained locks.
+            // This is recursive fixed-unit quiescence, not hostile same-UID
+            // exclusion or a census of unrelated user/PAM/desktop processes.
+            self.recovery_cgroup
+                .as_ref()
+                .ok_or(())?
+                .require_empty(budget)
         } else {
             inventory(&self.root, self.uid, &self.myself, budget).map_err(|_| ())
         }
@@ -1920,7 +1933,7 @@ impl StoppedOwner {
             }
             if let Some(queries) = old {
                 let runtime = unit == "omavless-runtime.service";
-                queries.check_unit(&reply, runtime, !runtime || runtime_off)?;
+                queries.check_unit(&reply, runtime, !runtime || runtime_off, self.uid)?;
             } else {
                 service_record(&reply, false)?;
             }
@@ -1942,7 +1955,6 @@ impl StoppedOwner {
                 &mut budget,
                 &before,
                 order,
-                None,
                 Some(parent),
             )
             .map_err(|_| ())?;
@@ -2040,11 +2052,19 @@ mod tests {
     #[test]
     fn old_recovery_self_is_exact_and_abort_is_unchanged() {
         assert!(old_recovery_self(b"binary\0restore\0recover-old\0--confirm-rollback\0").is_ok());
+        assert!(old_recovery_self(b"binary\0restore\0recover-mixed\0--confirm-rollback\0").is_ok());
+        assert!(
+            old_recovery_self(b"binary\0restore\0recover-committed\0--confirm-completion\0")
+                .is_ok()
+        );
         for command in [
             b"binary\0restore\0abort\0--confirm-rollback\0".as_slice(),
             b"binary\0restore\0recover-old\0".as_slice(),
             b"binary\0restore\0recover-old\0--confirm-rollback\0extra\0".as_slice(),
             b"binary\0daemon\0".as_slice(),
+            b"binary\0restore\0recover-committed\0--confirm-rollback\0".as_slice(),
+            b"binary\0restore\0recover-mixed\0--confirm-completion\0".as_slice(),
+            b"binary\0restore\0recover-new\0--confirm-completion\0".as_slice(),
         ] {
             assert!(old_recovery_self(command).is_err());
         }
@@ -2054,8 +2074,8 @@ mod tests {
 
     #[test]
     fn old_recovery_unit_requires_current_preserved_runtime_and_no_job() {
-        let off = b"LoadState=loaded\nNeedDaemonReload=no\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nJob=\nRuntimeDirectoryPreserve=yes\nFragmentPath=/usr/lib/systemd/user/omavless-runtime.service\nDropInPaths=\n";
-        assert!(recovery_unit_record(off, true, true).is_ok());
+        let off = b"LoadState=loaded\nNeedDaemonReload=no\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nJob=\nRuntimeDirectoryPreserve=yes\nFragmentPath=/usr/lib/systemd/user/omavless-runtime.service\nDropInPaths=\nSlice=app.slice\nControlGroup=\nDelegate=no\nKillMode=control-group\n";
+        assert!(recovery_unit_record(off, true, true, 1001).is_ok());
         let text = std::str::from_utf8(off).unwrap();
         for changed in [
             text.replace("Job=\n", "Job=42\n"),
@@ -2063,6 +2083,11 @@ mod tests {
             text.replace("Reload=no", "Reload=yes"),
             text.replace("ControlPID=0", "ControlPID=1"),
             text.replace("MainPID=0", "MainPID=1"),
+            text.replace("Slice=app.slice", "Slice=other.slice"),
+            text.replace("Delegate=no", "Delegate=yes"),
+            text.replace("KillMode=control-group", "KillMode=process"),
+            text.replace("DropInPaths=\n", "DropInPaths=/some.conf\n"),
+            text.replace("ControlGroup=\n", "ControlGroup=/foreign\n"),
             text.replace("inactive", "active"),
             text.replace("loaded", "not-found"),
             text.replace(
@@ -2073,18 +2098,24 @@ mod tests {
             format!("{text}Job=\n"),
             format!("{text}Unknown=value\n"),
         ] {
-            assert!(recovery_unit_record(changed.as_bytes(), true, true).is_err());
+            assert!(recovery_unit_record(changed.as_bytes(), true, true, 1001).is_err());
         }
+        let group = text.replace(
+            "ControlGroup=\n",
+            &format!("ControlGroup={}\n", recovery_cgroup::runtime_group(1001)),
+        );
+        assert!(recovery_unit_record(group.as_bytes(), true, true, 1001).is_ok());
+        assert!(recovery_unit_record(group.as_bytes(), true, true, 1002).is_err());
         let queued = text
             .replace("Job=\n", "Job=42\n")
             .replace("inactive", "failed")
             .replace("SubState=dead", "SubState=failed");
-        assert!(recovery_unit_record(queued.as_bytes(), true, false).is_ok());
-        assert!(recovery_unit_record(queued.as_bytes(), true, true).is_err());
+        assert!(recovery_unit_record(queued.as_bytes(), true, false, 1001).is_ok());
+        assert!(recovery_unit_record(queued.as_bytes(), true, true, 1001).is_err());
         let restarting = queued
             .replace("ActiveState=failed", "ActiveState=activating")
             .replace("SubState=failed", "SubState=auto-restart");
-        assert!(recovery_unit_record(restarting.as_bytes(), true, false).is_ok());
+        assert!(recovery_unit_record(restarting.as_bytes(), true, false, 1001).is_ok());
         for live in [
             queued.replace("MainPID=0", "MainPID=42"),
             queued.replace("ControlPID=0", "ControlPID=42"),
@@ -2093,15 +2124,15 @@ mod tests {
                 .replace("SubState=failed", "SubState=running"),
             restarting.replace("SubState=auto-restart", "SubState=start"),
         ] {
-            assert!(recovery_unit_record(live.as_bytes(), true, false).is_err());
+            assert!(recovery_unit_record(live.as_bytes(), true, false, 1001).is_err());
         }
         let legacy = b"LoadState=not-found\nNeedDaemonReload=no\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nJob=\n";
-        assert!(recovery_unit_record(legacy, false, true).is_ok());
-        assert!(recovery_unit_record(legacy, true, true).is_err());
+        assert!(recovery_unit_record(legacy, false, true, 1001).is_ok());
+        assert!(recovery_unit_record(legacy, true, true, 1001).is_err());
         let legacy_queued = std::str::from_utf8(legacy)
             .unwrap()
             .replace("Job=\n", "Job=42\n");
-        assert!(recovery_unit_record(legacy_queued.as_bytes(), false, true).is_err());
+        assert!(recovery_unit_record(legacy_queued.as_bytes(), false, true, 1001).is_err());
     }
 
     #[test]

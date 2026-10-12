@@ -171,9 +171,12 @@ fn run() -> Result<(), CliError> {
             if std::io::IsTerminal::is_terminal(&io::stdin()) {
                 return Err("Restore recovery requires bounded private JSON on stdin".into());
             }
-            omavless_runtime::restore_old_cli::recover_from_private_input(io::stdin().lock())
-                .map_err(|error| CliError::Message(error.to_string()))?;
-            println!("OLD recovery completed; ordinary runtime verified disconnected.");
+            omavless_runtime::restore_old_cli::recover_selected_from_private_input(
+                &arguments,
+                io::stdin().lock(),
+            )
+            .map_err(|error| CliError::Message(error.to_string()))?;
+            println!("Recovery completed; ordinary runtime verified disconnected.");
             return Ok(());
         }
         if !omavless_runtime::restore_abort_cli::arguments_admitted(&arguments) {
