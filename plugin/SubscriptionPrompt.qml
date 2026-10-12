@@ -2,9 +2,11 @@
 // Copyright (c) 2026 OmaVLESS contributors
 
 import QtQuick
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "SafeText.js" as SafeText
 
 // Subscription URLs behave like bearer credentials. The URL is shown only
 // inside this explicit editor and starts obscured on every open.
@@ -39,6 +41,9 @@ Item {
   Keys.onEscapePressed: canceled()
 
   function openWith(name, url) {
+    urlField.pasteContext = null
+    urlClipboard.cancel()
+    urlEditor.cancelPaste()
     fromFile = false
     nameField.text = String(name || "")
     urlField.text = String(url || "")
@@ -72,7 +77,7 @@ Item {
   }
   function focusUrl() {
     urlField.forceActiveFocus()
-    urlField.selectAll()
+    if (reveal.checked) urlEditor.selectAll()
   }
 
   Rectangle {
@@ -111,8 +116,10 @@ Item {
           elide: Text.ElideRight
         }
 
-        TextField {
+        SafeTextField {
           id: nameField
+          locale: prompt.locale
+          maximumLength: 80
           width: parent.width
           placeholderText: prompt.textFor("subscription.provider_name")
           foreground: prompt.foreground
@@ -123,20 +130,113 @@ Item {
           Keys.onEscapePressed: prompt.canceled()
         }
 
-        TextField {
+        FocusScope {
           id: urlField
+          objectName: "omavlessSubscriptionUrl"
+          property string text: ""
+          property var pasteContext: null
+          signal accepted()
+          signal textEdited()
           visible: !prompt.fromFile
           width: parent.width
-          placeholderText: "https://provider.example/subscription"
-          foreground: prompt.foreground
-          font.family: prompt.fontFamily
-          echoMode: reveal.checked ? TextInput.Normal : TextInput.Password
+          implicitHeight: hiddenUrl.implicitHeight
           enabled: !prompt.loading
-          onTextEdited: if (prompt.autoName) nameField.text = prompt.suggestedName(text)
+          KeyNavigation.priority: KeyNavigation.BeforeItem
+          onTextEdited: {
+            pasteContext = null
+            urlClipboard.cancel()
+            if (prompt.autoName) nameField.text = prompt.suggestedName(text)
+          }
           onAccepted: if (prompt.accepted) prompt.confirmed()
           KeyNavigation.tab: reveal
           KeyNavigation.backtab: nameField
           Keys.onEscapePressed: prompt.canceled()
+          onVisibleChanged: if (!visible) { pasteContext = null; urlClipboard.cancel() }
+          onEnabledChanged: if (!enabled) { pasteContext = null; urlClipboard.cancel() }
+          onActiveFocusChanged: if (!activeFocus) { pasteContext = null; urlClipboard.cancel() }
+          function paste(replaceAll) {
+            if (!visible || !enabled || urlClipboard.running) return false
+            forceActiveFocus()
+            pasteContext = {text:text, revealed:reveal.checked,
+              start:replaceAll || !reveal.checked ? 0 : urlEditor.selectionStart,
+              end:replaceAll || !reveal.checked ? text.length : urlEditor.selectionEnd,
+              cursor:urlEditor.cursorPosition, replaceAll:replaceAll || !reveal.checked}
+            return urlClipboard.request()
+          }
+          TextField {
+            id: hiddenUrl
+            objectName: "omavlessMaskedSubscriptionUrl"
+            anchors.fill: parent
+            visible: !reveal.checked
+            focus: !reveal.checked
+            // Never toggle this false: Qt would immediately read the clipboard.
+            readOnly: true
+            echoMode: TextInput.Password
+            text: urlField.text
+            foreground: prompt.foreground
+            font.family: prompt.fontFamily
+            placeholderText: prompt.textFor("input.url_hidden_hint")
+            Keys.priority: Keys.BeforeItem
+            Keys.onPressed: function(event) {
+              if (event.matches(StandardKey.Paste)
+                  || (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier))) {
+                event.accepted = true; urlField.paste(true)
+              } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                event.accepted = true; urlField.accepted()
+              }
+            }
+            KeyNavigation.tab: reveal
+            KeyNavigation.backtab: nameField
+          }
+          SafeTextField {
+            id: urlEditor
+            objectName: "omavlessSubscriptionUrlEditor"
+            anchors.fill: parent
+            visible: reveal.checked
+            focus: reveal.checked
+            locale: prompt.locale
+            text: urlField.text
+            foreground: prompt.foreground
+            font.family: prompt.fontFamily
+            maximumLength: 8192
+            externalPaste: true
+            externalPasteBusy: urlClipboard.running
+            onPasteRequested: urlField.paste(false)
+            placeholderText: "https://provider.example/subscription"
+            onTextEdited: { urlField.text = text; urlField.textEdited() }
+            onAccepted: urlField.accepted()
+            KeyNavigation.tab: reveal
+            KeyNavigation.backtab: nameField
+          }
+          BoundedClipboard {
+            id: urlClipboard
+            onReceived: function(value) {
+              var original = urlField.pasteContext
+              urlField.pasteContext = null
+              if (original === null || !urlField.visible || !urlField.enabled || !urlField.activeFocus
+                  || original.text !== urlField.text || original.revealed !== reveal.checked
+                  || (!original.replaceAll && (original.start !== urlEditor.selectionStart
+                    || original.end !== urlEditor.selectionEnd || original.cursor !== urlEditor.cursorPosition))) return
+              var result = SafeText.insertion(urlField.text, value, original.start, original.end, 8192)
+              if (result) {
+                if (reveal.checked) urlEditor.insertBounded(value, original.start, original.end)
+                else { urlField.text = result.text; urlField.textEdited() }
+                urlEditor.pasteError = ""
+              }
+              else urlEditor.pasteError = "input"
+            }
+            onRefused: { urlField.pasteContext = null; urlEditor.pasteError = "clipboard" }
+          }
+        }
+
+        PlainText {
+          visible: !prompt.fromFile && !reveal.checked
+          width: parent.width
+          text: prompt.textFor("input.url_hidden_hint")
+          color: prompt.dim
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
         }
 
         PlainText {
@@ -149,7 +249,17 @@ Item {
           wrapMode: Text.WordWrap
         }
 
-        Row {
+        PlainText {
+          visible: !prompt.fromFile && urlEditor.pasteError !== ""
+          width: parent.width
+          text: prompt.textFor(urlEditor.pasteError === "input" ? "input.error.invalid" : "input.error.clipboard")
+          color: prompt.urgent
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
+        }
+
+        RowLayout {
           width: parent.width
           spacing: Style.space(6)
 
@@ -157,6 +267,7 @@ Item {
             id: reveal
             visible: !prompt.fromFile
             property bool checked: false
+            onCheckedChanged: { urlField.pasteContext = null; urlClipboard.cancel(); urlEditor.cancelPaste() }
             text: checked
               ? prompt.textFor("common.hide_url") : prompt.textFor("common.show_url")
             tooltipText: prompt.textFor("subscription.url_sensitive")
@@ -165,16 +276,28 @@ Item {
             fontFamily: prompt.fontFamily
             enabled: !prompt.loading
             focusable: true
-            KeyNavigation.tab: cancelButton
+            KeyNavigation.tab: pasteUrl
             KeyNavigation.backtab: urlField
-            onClicked: checked = !checked
+            onClicked: { checked = !checked; urlField.forceActiveFocus() }
+          }
+
+          Button {
+            id: pasteUrl
+            visible: !prompt.fromFile
+            text: prompt.textFor("common.paste")
+            bordered: true
+            foreground: prompt.foreground
+            fontFamily: prompt.fontFamily
+            enabled: !prompt.loading && !urlClipboard.running
+            focusable: true
+            KeyNavigation.tab: cancelButton
+            KeyNavigation.backtab: reveal
+            onClicked: urlField.paste(true)
           }
 
           PlainText {
-            width: prompt.fromFile
-              ? parent.width
-              : parent.width - reveal.width - parent.spacing
-            anchors.verticalCenter: reveal.verticalCenter
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
             text: prompt.loading ? prompt.textFor("subscription.loading_private") : prompt.hint
             color: prompt.error || (!prompt.accepted && !prompt.loading)
               ? prompt.urgent : prompt.dim
@@ -199,7 +322,7 @@ Item {
               fontFamily: prompt.fontFamily
               focusable: true
               KeyNavigation.tab: confirmButton
-              KeyNavigation.backtab: prompt.fromFile ? nameField : reveal
+              KeyNavigation.backtab: prompt.fromFile ? nameField : pasteUrl
               onClicked: prompt.canceled()
             }
             Button {

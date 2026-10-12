@@ -177,6 +177,9 @@ impl StoppedRuntime {
 /// Input must come from private stdin, never command arguments or environment.
 /// No service stop/start, socket removal, lock creation or fence retirement.
 pub fn abort_from_private_input(input: impl Read) -> Result<(), Error> {
+    if crate::product_scope::backup_only() {
+        return Err(Error::RecoveryRefused);
+    }
     let request = parse(input)?;
     let uid = Uid::current();
     if uid.is_root() || uid != Uid::effective() {

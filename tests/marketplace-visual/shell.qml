@@ -53,12 +53,21 @@ ShellRoot {
   IpcHandler {
     target: "marketplaceReview"
     function scene(name: string): string {
-      if (["main", "subscription", "settings"].indexOf(name) < 0) return "refused"
+      if (["main", "subscription", "settings", "setup"].indexOf(name) < 0) return "refused"
       product.open()
       product.nativeSelectedProfile = ""
       product.nativeExpanded = {}
-      if (name === "settings") product.openSettings()
+      if (name === "setup") {
+        var setup = review.find(product, function(o) { return "launchAction" in o && "facts" in o })
+        var probe = setup && review.find(setup, function(o) {
+          return "command" in o && String(o.command).indexOf("components") >= 0
+        })
+        if (!setup || (probe && probe.running)) return "not-ready"
+        setup.facts = {state:"needs_package", coreInstalled:false}
+      } else if (name === "settings") product.openSettings()
       else {
+        var setup = review.find(product, function(o) { return "launchAction" in o && "facts" in o })
+        if (setup) setup.facts = {state:"ready", coreInstalled:true}
         product.page = "main"
         if (name === "subscription") product.nativeExpanded = {"demo-subscription":true}
       }
@@ -107,6 +116,30 @@ ShellRoot {
         rowWidth:group ? group.parent.width : 0, focused:!!(group && group.activeFocus),
         pointerHovered:!!(group && group.pointerHovered), state:product.nativeView.state})
     }
+    function reviewImport(locale: string, width: int): string {
+      var state = reviewState(locale, "normal", width)
+      if (state !== "ready") return state
+      var prompt = review.find(product, function(o) { return o.objectName === "omavlessImportEntryPrompt" })
+      if (!prompt) return "unavailable"
+      prompt.open()
+      return "ready"
+    }
+    function reviewCancelImport(): string {
+      var prompt = review.find(product, function(o) { return o.objectName === "omavlessImportEntryPrompt" })
+      if (!prompt || !prompt.visible) return "unavailable"
+      prompt.canceled()
+      return prompt.visible ? "failed" : "closed"
+    }
+    function reviewBundle(locale: string, width: int, empty: bool): string {
+      var state = reviewState(locale, "normal", width)
+      if (state !== "ready") return state
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      var prompt = review.find(product, function(o) { return o.objectName === "omavlessBundleImportPrompt" })
+      if (!service || !prompt) return "unavailable"
+      service.nativeBundlePreview = {accepted:empty ? 0 : 37, duplicates:3, skipped:2}
+      prompt.open()
+      return "ready"
+    }
     function reviewFocus(): string {
       var group = review.subscriptionGroup()
       if (!group) return "not-ready"
@@ -144,6 +177,15 @@ ShellRoot {
       product.scrollPanelControlIntoView(quit.focusTarget)
       return "scrolled"
     }
+    function reviewSubscriptionForm(locale: string): string {
+      if (["en", "ru"].indexOf(locale) < 0 || product.nativeView.connected) return "refused"
+      product.settings = {locale:locale, showExitIp:false, showBarThroughput:false}
+      product.open()
+      var prompt = review.find(product, function(o) { return "nameValue" in o && "urlValue" in o && "openWith" in o })
+      if (!prompt) return "not-ready"
+      prompt.openWith("My servers", "https://synthetic.invalid/subscription")
+      return "ready"
+    }
     function reviewCapture(slug: string): string {
       if (review.reviewKind === "") return "not-ready"
       return review.captureCard(slug)
@@ -151,7 +193,7 @@ ShellRoot {
     function inspect(): string {
       return JSON.stringify({state:product.nativeView.state, profiles:product.nativeView.profiles.length,
         page:product.page, connected:product.nativeView.connected, opened:product.opened,
-        releaseCredit:product.releaseCredit})
+        bootstrap:product.bootstrapRequired, releaseCredit:product.releaseCredit})
     }
     function result(): string { return review.result }
     function finish() { Qt.quit() }

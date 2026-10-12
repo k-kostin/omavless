@@ -51,6 +51,9 @@ pub(crate) fn abort_first_restore_current(
     passphrase: &[u8],
     admitted: impl Fn() -> bool,
 ) -> Result<(), ProductionOwnerError> {
+    if crate::product_scope::backup_only() {
+        return Err(ProductionOwnerError::OwnershipUnavailable);
+    }
     first_abort::current_checked(source, passphrase, admitted)
 }
 
@@ -174,6 +177,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         request: &crate::private_pair_api::PreviewRequest,
     ) -> Result<(usize, usize, [u8; 32]), omavless_control_protocol::StableErrorCode> {
         use omavless_control_protocol::StableErrorCode;
+        if crate::product_scope::backup_only() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
         if request.revision() != self.revision() {
             return Err(StableErrorCode::Conflict);
         }
@@ -199,6 +205,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
     {
         use omavless_control_protocol::StableErrorCode;
+        if crate::product_scope::backup_only() {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
         let origin = self
             .current_origin
             .as_ref()
@@ -246,6 +255,10 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     ) -> Result<(crate::mutation::CachedOutcome, bool), omavless_control_protocol::StableErrorCode>
     {
         use omavless_control_protocol::StableErrorCode;
+        if action == crate::private_pair_api::Action::Restore && crate::product_scope::backup_only()
+        {
+            return Err(StableErrorCode::CapabilityUnavailable);
+        }
         let origin = self
             .current_origin
             .as_ref()
@@ -301,6 +314,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &crate::developer_current_restore::AbortRequest,
     ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
         let original = self
             .current_origin
             .as_ref()
@@ -342,6 +358,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &crate::developer_current_restore::Request,
     ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
         let original = self
             .current_origin
             .as_ref()
@@ -887,6 +906,16 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
                             rust_generation,
                             origin_preparing_generation: Some(bootstrap.preparing_generation()),
                         };
+                        // The restricted product may export the committed pair
+                        // from this SAME reconciled candidate. Full T4 Restore
+                        // still requires the ordinary current() issuer. Never
+                        // grant this origin before exact durable promotion.
+                        #[cfg(feature = "product-private-backup")]
+                        {
+                            self.current_origin = Some(CurrentRestoreOrigin {
+                                generation: rust_generation,
+                            });
+                        }
                         true
                     }
                     Ok(CandidatePromotion::Promoted { .. })
@@ -2055,11 +2084,20 @@ mod tests {
         assert_eq!(owner.transition(), Some("cutoverPreparing"));
         assert!(!owner.rust_ownership_available());
         assert_eq!(owner.coordinator.host().calls, 1);
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
 
         fixture.write_marker(OwnershipPhase::Rust, 2);
         assert!(owner.rust_ownership_available());
         assert_eq!(owner.preparing_generation(), None);
         assert_eq!(owner.transition(), None);
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert_eq!(
+            owner.normal_private_pair_available(),
+            crate::product_scope::backup_only()
+        );
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(owner.coordinator.host().calls, 1);
 
         fixture.write_marker(OwnershipPhase::RollbackPreparing, 3);
         assert!(!owner.rust_ownership_available());
@@ -2080,9 +2118,13 @@ mod tests {
 
         fixture.write_marker(OwnershipPhase::Legacy, 2);
         assert!(!owner.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
         assert_eq!(owner.transition(), Some("staleCandidate"));
         fixture.write_marker(OwnershipPhase::Rust, 2);
         assert!(!owner.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
     }
 
     #[test]
@@ -2101,8 +2143,15 @@ mod tests {
         let lock = MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap();
         assert!(!owner.rust_ownership_available());
         assert_eq!(owner.transition(), Some("cutoverPreparing"));
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!owner.normal_private_pair_available());
         drop(lock);
         assert!(owner.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert_eq!(
+            owner.normal_private_pair_available(),
+            crate::product_scope::backup_only()
+        );
 
         let stale_fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
         let mut stale = ProductionNativeOwner::initialize_candidate(
@@ -2116,7 +2165,11 @@ mod tests {
         .unwrap();
         stale_fixture.write_marker(OwnershipPhase::Rust, 3);
         assert!(!stale.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!stale.normal_private_pair_available());
         stale_fixture.write_marker(OwnershipPhase::Rust, 2);
         assert!(!stale.rust_ownership_available());
+        #[cfg(feature = "t4-manager-actor-service")]
+        assert!(!stale.normal_private_pair_available());
     }
 }

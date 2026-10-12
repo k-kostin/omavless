@@ -1,8 +1,72 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; stable release updated 2026-09-22.
+Status: active delivery ledger; stable release updated 2026-10-10.
 
-**0.9.8 internal scope freeze, 2026-10-08:** `rc/0.9.8` selects beta.4 normal
+**0.9.8 subscription security maintenance, October 11:** #736 addresses
+Marketplace #10984's quadratic candidate scan in the shared Rust feed decoder.
+The cursor now advances monotonically for raw and Base64 bodies; existing size,
+candidate, validation and atomic-commit boundaries remain. A corrected native
+delivery is required, not reuse of #735's frontend-only package equivalence.
+`v0.9.8-fix.3` selects new native producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`;
+the owning PR records exact checks, artifacts and publication outcome. Product
+version remains 0.9.8; direct Base64-bundle import stays planned in #733 for 0.9.9.
+
+**0.9.8 security maintenance, October 11:** address Marketplace #10984's
+passive Qt clipboard read in the QML input boundary, with bounded explicit Paste,
+preserved editing/navigation and permanently concealed readOnly URL display.
+Application version and reviewed native package inputs remain unchanged;
+frontend delivery/review are recorded on the fixing PR. No 0.9.9 feature is added.
+
+**0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
+corrected immutable `v0.9.8-fix.1` is retained delivery history. Full main Test subsequently
+passed. The owner approved the bounded README/usage/screenshot update through
+#732 on October 11, then authorized the agreed Marketplace copy/preview and
+exact-main update request with tags vpn/bar/quickshell. Publication approval
+remains the Marketplace maintainer's decision; the request/outcome belongs on
+the publication PR without a subsequent SHA-changing documentation commit. Original asset
+identities and failures are preserved. Restore remains mandatory 0.9.9 scope.
+
+**0.9.9 owner-selected UX, 2026-10-11:** [#733](https://github.com/k-kostin/omavless/issues/733)
+plans direct VPN-key/link entry in an editable application/plugin import field,
+reusing the existing classifier, strict subscription validator and preview/save
+confirmation. Clipboard/file flows remain. No new protocols, `vpn://` or raw YAML
+support is implied; this is not implemented or advertised in 0.9.8.
+
+**0.9.9 beta progress, 2026-10-12:** the first plugin slice provides explicit
+single-link entry through the existing bounded acquisition/confirmation flow.
+The local-bundle dev slice supplies raw/Base64 planning, canonical duplicate
+handling and UI/IPC batch confirmation bound to exact input/store bytes and
+owner revision. See #738 for candidate gates; installed beta acceptance and
+mandatory consumer Restore/recovery remain pending.
+This is a source beta, not
+a published package, RC or authorization to change stable main/Marketplace.
+
+**Corrected validation successor, 2026-10-10:** owner-authorized immutable
+`v0.9.8-fix.1` uses the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`.
+#730 integrates first-use Backup origin promotion and DNS idle-admission fixes;
+all five producer CI checks and affected installed ARM64 gates pass. All seven
+corrected assets pass anonymous downloads; clean actual ARM64 guided setup,
+onboarding and same-PID supported-template Backup pass, with original private
+data restored. Final CI/main reconciliation are tracked in #726 and the [RC ledger](docs/development/RC_098.md#corrected-validation-delivery--october-10).
+Original `v0.9.8` assets/failures remain immutable. No whole T4/K1/V0 completion,
+latest/main or Marketplace update is implied by validation publication.
+
+**Owner scope decision, 2026-10-08:** public **0.9.8 is Backup-only**. Retain
+encrypted private-pair export and normal TUI entry, but disable Restore,
+preview-to-Restore and developer restore/abort/staging selectors in the trusted
+product build, not merely its UI. Preserve existing pending-state fencing and
+all historical Restore evidence. **Usable Restore with explicit interrupted/
+fatal recovery and fresh ordinary runtime admission is mandatory for 0.9.9**;
+it is not optional confidence or an ARM-only check. The full T4 development
+configuration remains separate. See the [RC scope](docs/development/RC_098.md)
+and [Restore contract](docs/roadmap/PRIVATE_BACKUP_RESTORE.md).
+
+The selected restricted product now has [bounded installed ARM64 acceptance](docs/testing/RC_098_ARM64_2026-10-09.md)
+for normal client/Backup/relaunch and Restore refusal, complementing its x86_64
+record. Public package publication/pins, clean provisioning and main promotion
+remain separate; this does not close the whole T4 track.
+
+**Historical initial 0.9.8 scope freeze, 2026-10-08:** `rc/0.9.8` selected beta.4 normal
 Open app Backup/Restore, guarded explicit relaunch with real-protocol readiness
 and preserved broker setup, and ARM64 lossless link-count portability. The
 [RC ledger](docs/development/RC_098.md) separates exact final gates from older

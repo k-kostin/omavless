@@ -218,7 +218,7 @@ versioned and bounded.
 - `profiles.list`, `profiles.get` — safe metadata only;
 - `profiles.edit_input` — explicit sensitive standalone editor seed;
 - `profiles.details` — explicit private UI endpoint/transport facts for one record;
-- `imports.classify`, `profiles.import` — explicit bounded sensitive input;
+- `imports.classify`, `profiles.import`, `profiles.importBundle` — explicit bounded sensitive input;
 - `profiles.replace`, `profiles.rename`, `profiles.favorite`, `profiles.delete`;
 - `profiles.test` — bounded latency/availability;
 - `profiles.export` — explicit credential release for `qr`/`file` purpose only.
@@ -309,6 +309,35 @@ than pretending a subscription is new. Classification performs no fetch or
 store/lifecycle mutation and does not increment revision. Confirmation and the
 later mutation must independently revalidate current state; a preview reserves
 nothing.
+
+The 0.9.9 development candidate adds a third classification result:
+`{"version":1,"kind":"bundle","counts":{"accepted":N,"duplicates":N,"skipped":N},"previewFingerprint":HEX}`.
+It accepts bounded raw newline-separated links or standard/URL-safe/wrapped
+Base64, using canonical supported-profile validation. Whole prose/JSON/YAML
+documents and mixed subscription-URL lists refuse. The existing 32-KiB input,
+1,024-line and 256-total-stored-profile bounds apply. Counts expose no links;
+unsupported/invalid entries are skipped only when the bundle contains a valid
+profile. Canonical duplicates are counted separately, including existing
+records; one UUID on different servers is not a duplicate.
+
+`profiles.importBundle` requires exactly `input`, `previewFingerprint`,
+`operationId` and `expectedRevision`. The lowercase 64-hex fingerprint binds
+the exact original store bytes and input using a domain-separated, length-framed
+SHA-256 hash. It is a preview consistency check, not authorization. Confirmation
+rechecks it inside the existing private-store transaction preparation; a changed
+store or input returns conflict. Ownership, lock, revision/replay and final
+exact-byte atomic replacement guards remain mandatory. No remote fetch,
+selection, startup preference or VPN lifecycle change occurs. New records are
+standalone local profiles; existing records are never replaced. Colliding names
+receive bounded deterministic suffixes. An all-existing bundle is a no-op.
+
+The plugin uses the existing instance-fenced action bridge with action
+`profile-bundle-import`. Its fixed CLI reads fingerprint, one newline, then exact
+input from bounded stdin; neither input nor fingerprint goes into argv. QML shows
+counts and requires explicit Add; Cancel/close discards the draft. Late results
+and stale contexts cannot authorize a write. Older frontends refuse the unknown
+preview kind instead of treating a bundle as a single profile. This candidate
+extension is not shipped in the accepted stable 0.9.8 package.
 
 The first exact v1 list projections use empty parameter objects. A successful
 `profiles.list` result is

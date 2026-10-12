@@ -13,6 +13,7 @@ use std::{
 use tempfile::TempDir;
 
 struct State {
+    reads: usize,
     pid: u32,
     access: String,
     capacity: u32,
@@ -48,6 +49,7 @@ fn expired_operation_never_polls_bus_or_notifies() {
 impl Default for State {
     fn default() -> Self {
         Self {
+            reads: 0,
             pid: std::process::id(),
             access: "main".into(),
             capacity: 1,
@@ -61,23 +63,33 @@ struct Manager(Arc<Mutex<State>>);
 impl Manager {
     #[zbus(property, name = "MainPID")]
     fn main_pid(&self) -> u32 {
-        self.0.lock().unwrap().pid
+        let mut state = self.0.lock().unwrap();
+        state.reads += 1;
+        state.pid
     }
     #[zbus(property)]
     fn notify_access(&self) -> String {
-        self.0.lock().unwrap().access.clone()
+        let mut state = self.0.lock().unwrap();
+        state.reads += 1;
+        state.access.clone()
     }
     #[zbus(property)]
     fn file_descriptor_store_max(&self) -> u32 {
-        self.0.lock().unwrap().capacity
+        let mut state = self.0.lock().unwrap();
+        state.reads += 1;
+        state.capacity
     }
     #[zbus(property)]
     fn file_descriptor_store_preserve(&self) -> String {
-        self.0.lock().unwrap().preserve.clone()
+        let mut state = self.0.lock().unwrap();
+        state.reads += 1;
+        state.preserve.clone()
     }
     #[zbus(property)]
     fn runtime_directory_preserve(&self) -> String {
-        self.0.lock().unwrap().directory.clone()
+        let mut state = self.0.lock().unwrap();
+        state.reads += 1;
+        state.directory.clone()
     }
 }
 
@@ -184,6 +196,220 @@ impl Fixture {
             Duration::from_secs(2),
         )
     }
+}
+
+fn queued_acquire(
+    fixture: &Fixture,
+) -> (
+    omavless_dns_channel::Listener,
+    OwnedFd,
+    tempfile::NamedTempFile,
+) {
+    use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage};
+    use std::{io::IoSlice, mem::MaybeUninit, os::fd::AsFd};
+    let path = fixture.bus.root.path().join("channel");
+    let listener =
+        omavless_dns_channel::Listener::bind(&path, rustix::process::geteuid().as_raw()).unwrap();
+    let client = net::socket_with(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    net::connect(&client, &SocketAddrUnix::new(&path).unwrap()).unwrap();
+    let file = tempfile::NamedTempFile::new_in(fixture.bus.root.path()).unwrap();
+    let rights = [file.as_fd()];
+    let mut space = [MaybeUninit::uninit(); rustix::cmsg_aligned_space!(ScmRights(1))];
+    let mut control = SendAncillaryBuffer::new(&mut space);
+    assert!(control.push(SendAncillaryMessage::ScmRights(&rights)));
+    assert_eq!(
+        net::sendmsg(
+            &client,
+            &[IoSlice::new(b"OVDN\x01\x01\x01\x00")],
+            &mut control,
+            net::SendFlags::NOSIGNAL
+        )
+        .unwrap(),
+        8
+    );
+    (listener, client, file)
+}
+
+fn userspace_copies(file: &tempfile::NamedTempFile) -> usize {
+    stdfs::read_dir("/proc/self/fd")
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| stdfs::read_link(entry.path()).is_ok_and(|target| target == file.path()))
+        .count()
+}
+
+#[test]
+fn server_idle_accepts_do_not_recheck_authority_or_refresh_its_budget() {
+    use omavless_dns_channel::Error as ChannelError;
+    let fixture = Fixture::new();
+    let context = fixture.context().unwrap();
+    context.set_deadline(Instant::now()).unwrap();
+    let expired = context.deadline.get();
+    fixture.state.lock().unwrap().reads = 0;
+    let accesses = Cell::new(0);
+    let attempts = Cell::new(0);
+    let result = crate::server::next_session(
+        &context,
+        || {
+            accesses.set(accesses.get() + 1);
+            Ok(())
+        },
+        || {
+            attempts.set(attempts.get() + 1);
+            Err(match attempts.get() {
+                1 => ChannelError::Timeout,
+                2 => ChannelError::PeerRejected,
+                3 => ChannelError::Timeout,
+                4 => ChannelError::Unavailable,
+                _ => panic!("terminal channel failure resumed accept"),
+            })
+        },
+    );
+    assert!(matches!(result, Err(crate::server::Error::Unavailable)));
+    assert_eq!(accesses.get(), 4);
+    assert_eq!(attempts.get(), 4);
+    assert_eq!(context.deadline.get(), expired);
+    assert_eq!(fixture.state.lock().unwrap().reads, 0);
+    assert_eq!(
+        fixture.notify.recv(&mut [0_u8; 64]).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[test]
+fn server_accepted_client_rechecks_before_queued_rights_are_received() {
+    let fixture = Fixture::new();
+    let context = fixture.context().unwrap();
+    context.set_deadline(Instant::now()).unwrap();
+    fixture.state.lock().unwrap().reads = 0;
+    let (listener, _client, file) = queued_acquire(&fixture);
+    let accesses = Cell::new(0);
+    let before = Instant::now();
+    let mut session = crate::server::next_session(
+        &context,
+        || {
+            accesses.set(accesses.get() + 1);
+            Ok(())
+        },
+        || {
+            assert_eq!(accesses.get(), 1, "socket access must precede accept");
+            assert_eq!(
+                fixture.state.lock().unwrap().reads,
+                0,
+                "authority was read before accept"
+            );
+            let session = listener.accept()?;
+            assert!(session.proof().is_none());
+            // Queued SCM_RIGHTS may retain kernel references; none are yet
+            // acquired into the broker process's descriptor table.
+            assert_eq!(userspace_copies(&file), 1);
+            Ok(session)
+        },
+    )
+    .unwrap();
+    assert_eq!(fixture.state.lock().unwrap().reads, 5);
+    let until = context.deadline.get().unwrap();
+    assert!(until >= before + Duration::from_secs(5));
+    assert!(until <= Instant::now() + Duration::from_secs(5));
+    assert!(session.proof().is_none());
+    assert_eq!(userspace_copies(&file), 1);
+    session.receive_acquire().unwrap();
+    assert!(session.proof().is_some());
+    assert_eq!(userspace_copies(&file), 2);
+    assert_eq!(
+        fixture.notify.recv(&mut [0_u8; 64]).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    drop(session);
+    assert_eq!(userspace_copies(&file), 1);
+}
+
+#[test]
+fn server_accepted_authority_failure_terminates_before_receive_or_another_accept() {
+    for case in 0..8 {
+        let mut fixture = Fixture::new();
+        let context = fixture.context().unwrap();
+        let (listener, _client, file) = queued_acquire(&fixture);
+        let mut replacement = None;
+        match case {
+            0 => fixture.state.lock().unwrap().pid += 1,
+            1 => fixture.state.lock().unwrap().access = "all".into(),
+            2 => fixture.state.lock().unwrap().capacity = 2,
+            3 => fixture.state.lock().unwrap().preserve = "restart".into(),
+            4 => fixture.state.lock().unwrap().directory = "no".into(),
+            5 => {
+                fixture.manager.take().unwrap().close().unwrap();
+                replacement = Some(
+                    zbus::blocking::connection::Builder::address(fixture.bus.address().as_str())
+                        .unwrap()
+                        .serve_at(UNIT, Manager(fixture.state.clone()))
+                        .unwrap()
+                        .name(MANAGER)
+                        .unwrap()
+                        .build()
+                        .unwrap(),
+                );
+            }
+            6 => {
+                fixture.resolved.take().unwrap().close().unwrap();
+                replacement = Some(
+                    zbus::blocking::connection::Builder::address(fixture.bus.address().as_str())
+                        .unwrap()
+                        .name(RESOLVED)
+                        .unwrap()
+                        .build()
+                        .unwrap(),
+                );
+            }
+            _ => context.connection().clone().close().unwrap(),
+        }
+        let accepts = Cell::new(0);
+        let result = crate::server::next_session(
+            &context,
+            || Ok(()),
+            || {
+                accepts.set(accepts.get() + 1);
+                assert_eq!(accepts.get(), 1, "bad original context resumed acceptance");
+                let session = listener.accept()?;
+                assert!(session.proof().is_none());
+                Ok(session)
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(crate::server::Error::RecoveryRequired)
+        ));
+        assert_eq!(accepts.get(), 1);
+        assert_eq!(userspace_copies(&file), 1);
+        assert_eq!(
+            fixture.notify.recv(&mut [0_u8; 64]).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        drop(replacement);
+    }
+}
+
+#[test]
+fn server_socket_access_failure_prevents_accept_and_authority_calls() {
+    let fixture = Fixture::new();
+    let context = fixture.context().unwrap();
+    fixture.state.lock().unwrap().reads = 0;
+    let result = crate::server::next_session(
+        &context,
+        || Err(crate::server::Error::AdmissionRefused),
+        || panic!("socket access refusal reached accept"),
+    );
+    assert!(matches!(
+        result,
+        Err(crate::server::Error::AdmissionRefused)
+    ));
+    assert_eq!(fixture.state.lock().unwrap().reads, 0);
 }
 
 fn enrollment(root: &TempDir, value: &[u8]) -> std::path::PathBuf {

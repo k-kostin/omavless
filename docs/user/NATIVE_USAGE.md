@@ -26,6 +26,23 @@ The main clipboard and file buttons accept either one supported profile link
 or one supported subscription URL, then open the corresponding confirmation.
 They do not accept an arbitrary remote configuration file.
 
+In the **0.9.9 development beta**, **+** beside the import buttons opens
+**Enter VPN access**. Type a profile link or subscription URL, or use **Paste**,
+then choose **Review**. The local-bundle development candidate also accepts a
+raw list (one profile link per line) or a Base64-encoded list through entry,
+clipboard and file import. Enter reviews; Shift+Enter inserts a new line.
+
+A list shows new, duplicate and skipped counts before **Add profiles**. It adds
+local profiles, not an updating subscription. Existing profiles are preserved;
+matching canonical connections are skipped and colliding names get a suffix.
+Unsupported or invalid entries are skipped. Nothing connects automatically.
+If the store changes after preview, review the input again before saving.
+
+The entry is private, cleared on Cancel/close, and limited to 32 KiB, including
+Base64 wrapping. The store holds at most 256 profiles; oversized input is refused,
+not truncated. These changes are development-candidate behavior, not a published
+beta package or a change to stable 0.9.8.
+
 In the main profile list:
 
 - The arrow beside a subscription expands or collapses its profiles.
@@ -59,10 +76,9 @@ configuration files can contain private metadata and are not shareable reports.
 Main-screen Test and latency sections are intentionally hidden for later
 improvement; their absence is not evidence of a broken core.
 
-## Open the terminal application (0.9 development candidate)
+## Open the terminal application
 
-This section describes the development candidate, not the published 0.8.2 package.
-With a TUI-enabled application installed, **Open app** appears below the fixed
+OmaVLESS 0.9.8 includes the terminal application. **Open app** appears below the fixed
 Profile actions area on the main panel. It opens the terminal application or
 focuses its existing window. It does not start a second VPN or automatically
 start a stopped runtime. If unavailable, follow the displayed package/setup
@@ -84,17 +100,15 @@ not be retried as a new action blindly.
 the terminal leaves the VPN and accepted background work running. The plugin
 remains available for import, editing and routing management.
 
-The 0.9.5 candidate adds read-only operator pages: Connections, Host, Rules,
+Read-only operator pages include Connections, Host, Rules,
 Providers, Custom rules and Route check. These show local or controller facts,
 not a blanket proof of working Internet, DNS or traffic protection.
 Route check sends only an explicitly entered query and clears it when leaving.
-The unpublished 0.9.6 candidate refines these read-only views: a short
-in-session traffic trend, an explicit notice when older activity has been
-discarded, a bounded log-collection end state and the age of an explicitly
-requested route-check result. None of these is a new network-control action
-or independent proof that all traffic is protected.
-The 0.9.7 candidate shows a loading message while the explicit Connections
-page fetches its first result; a completed unavailable read remains distinct.
+Traffic includes a short in-session trend and identifies discarded older
+activity. Log collection has a bounded end state; explicit route checks show
+result age. These are observations, not network-control actions or independent
+proof that all traffic is protected. Connections distinguishes a loading first
+result from a completed unavailable read.
 Settings also shows the installed plugin's version and author below Shut down
 OmaVLESS. This identifies the plugin frontend, not necessarily the separately
 installed native package.
@@ -105,6 +119,29 @@ verified account entitlement; a provider may supply no usable information.
 Leaving the page discards the result. It does not refresh server lists, change
 the VPN or include the claim in ordinary diagnostic reports.
 
+<a id="encrypted-backup-098-candidate"></a>
+
+## Encrypted Backup (0.9.8)
+
+In the terminal application, press `b` or F2, or open Backup from session
+Settings. Enter a new absolute file path and repeat a passphrase of at least
+12 bytes. Enter reviews the request; a second explicit Enter creates the file.
+Escape cancels before submission. Existing files are never overwritten.
+
+Use an existing private folder owned by you (permissions `0700`); a shared or
+ordinary public folder is refused. Your private home directory is suitable.
+The new archive is created with permissions `0600`.
+
+Backup contains profiles, subscriptions and a supported bundled routing
+template, not all Settings or OS state. Custom or nonstandard templates may be
+refused; a refusal is not permission to reset your routing configuration.
+Keep both the archive and passphrase private: the encrypted archive contains
+reusable VPN access, and a lost passphrase cannot be recovered.
+
+The selected 0.9.8 scope does **not** offer Restore. Restore and interrupted-
+operation recovery remain separate development work. If a submitted operation
+has an unknown outcome, do not resubmit it or assume closing the client cancels it.
+
 ## Close, disconnect, Quit
 
 | Action | Effect |
@@ -112,6 +149,7 @@ the VPN or include the claim in ordinary diagnostic reports.
 | Close panel / restart shell | Leaves the requested tunnel running |
 | Close terminal application | Leaves the requested tunnel and accepted background jobs running |
 | Disconnect | Stops the current VPN connection; keeps the plugin/runtime available |
+| Disable the plugin through Omarchy | After a short reload grace, requests verified application shutdown and disables runtime startup. Re-enable the plugin and explicitly start the application; private data stays saved. |
 | Settings → Shut down OmaVLESS / Quit | Confirms shutdown, verifies core/TUN cleanup, then stops/disables runtime and plugin; preserves private data and installed files |
 
 If shutdown fails or needs recovery, do not interpret the closed UI as proof

@@ -1,15 +1,29 @@
 # Native release, beta and RC preparation
 
-Current assembly source version: **0.9.8-rc.1**, not stable or marketplace-ready.
+Current preparation source version: **0.9.8**, with corrected validation
+packages published at immutable `v0.9.8-fix.1`. Main/stable promotion is now
+owner-authorized through #726; read GitHub for the actual completed event.
+The owner subsequently approved the README and Marketplace update (#10984).
+The QML clipboard correction keeps product/package version 0.9.8 / 0.9.8-1
+and reuses this exact native pair; the fixing PR records its newer immutable
+frontend delivery and exact review SHA. Original archives are not overwritten.
+Both bootstrap maps pin the inspected app/DNS producer
+`e3d2245966c725ee11b505899b22a20721ff2ddd` for ARM64 and x86_64; common frontend
+`43735a1a84db6e513668a4f7beabf92206c7ad9d` selects the fixed delivery tag.
+All seven public assets were anonymously downloaded and hash-verified; the
+actual Required components installation and onboarding pass on Try Omarchy
+ARM64. See [#726](https://github.com/k-kostin/omavless/pull/726) for exact delivery
+and final CI status. Original `v0.9.8` tags/assets/failures remain unchanged.
+Product/Arch versions remain `0.9.8` / `0.9.8-1`; existing validation users need
+the guarded explicit reinstall, not an automatic version upgrade.
+The selected runtime/client feature remains `product-private-backup`.
 The [0.9.8 RC ledger](../../docs/development/RC_098.md) freezes the selected scope
 and separates exact package/installed gates from historical beta evidence.
 The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7
-maintenance source plus explicitly selected, default-off connection-close and
-retained backup/restore checkpoints. This is internal integration, not product
-activation or installed acceptance of the combined binary. Package pins are
-empty; do not relabel 0.9.5 assets. See the
-[RC scope and remaining gates](../../docs/development/RC_096.md) and its
-[beta selection](../../docs/development/BETA_096.md).
+maintenance source and retained research checkpoints. Only the owner-selected
+Backup-only scope is activated in the 0.9.8 product; connection-close, Restore,
+K1 and background recovery remain excluded. Do not relabel 0.9.5 assets or
+transfer historical full-T4 acceptance to this restricted binary.
 
 The separately accepted **0.9.5-rc.1** bootstrap pins identify reviewed RC1 application/DNS packages from
 `b0bfbee681f6abcbb4f8fb23e6957594d0a4ab10` for both architectures.
@@ -194,6 +208,10 @@ detector: API/runtime changes require a new build and their affected acceptance.
 The exact root documentation entry `CONTRIBUTING.md` is allowed alongside
 `AGENTS.md`; adding developer navigation must not invalidate an unchanged runtime
 package. This is not a wildcard for new root files: unknown paths still fail closed.
+`CHANGELOG.md` is also documentation-only, fixing #731's false rejection after
+stable editorial promotion. It must be a regular non-executable Git blob;
+executable or symlink substitutions refuse, and compiled/packaged inputs remain
+protected. A later build that consumes it would change protected build code.
 Original build provenance and host evidence remain required; checksums are not
 signatures. Input equivalence does not prove frontend correctness, release asset
 availability, guided download/install/activation or another architecture's behavior.
@@ -240,6 +258,11 @@ The output is the original two packages, a committed-blob frontend archive,
 `managed-dns-pair.json` and `SHA256SUMS`; the record explicitly states
 `publication: unpublished-candidate` and
 `publishedDownloadVerified: false`.
+
+For an explicitly stable source, append `--stable` to this same triple command.
+Default beta/RC mode rejects stable versions; stable mode rejects beta/RC
+versions. This opt-in changes no archive/source/ELF/hash/pin checks and does not
+publish anything. Use newly built stable packages, never renamed RC archives.
 
 For each architecture, retain CI/build provenance and an independent package
 review. The tool's caller-supplied hashes are not signatures; it cannot prove

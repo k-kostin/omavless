@@ -19,6 +19,7 @@ PKGVER = subprocess.check_output(
     ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
 ).split()[1]
 SOURCE = "b" * 40
+RELEASE_TAG = "v0.9.8-fix.3"
 
 
 class MarketplaceSetupTests(unittest.TestCase):
@@ -67,6 +68,30 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
                     "packages": ({"aarch64": entry(digest),
                                   "x86_64": entry(digest)} if digest else {})}
             (self.directory / name).write_text(json.dumps(data))
+
+    def test_stable_package_identity_requires_stable_schema_and_exact_tuple(self):
+        for schema in ("2", "3"):
+            code = f'''timeout() {{ shift; "$@"; }}
+bsdtar() {{ printf '%s\\n' 'schemaVersion={schema}' 'sourceCommit={SOURCE}' 'architecture=aarch64' 'productVersion={VERSION}'; }}
+app_archive_identity synthetic-archive {SOURCE} aarch64 {VERSION}
+'''
+            self.assertEqual(self.run_shell(code).returncode, 0 if schema == "3" else 1)
+        for source, arch, version in (("c" * 40, "aarch64", VERSION),
+                                      (SOURCE, "x86_64", VERSION),
+                                      (SOURCE, "aarch64", "0.9.8-rc.1")):
+            code = f'''timeout() {{ shift; "$@"; }}
+bsdtar() {{ printf '%s\\n' 'schemaVersion=3' 'sourceCommit={SOURCE}' 'architecture=aarch64' 'productVersion={VERSION}'; }}
+app_archive_identity synthetic-archive {source} {arch} {version}
+'''
+            self.assertNotEqual(self.run_shell(code).returncode, 0)
+
+    def test_corrected_delivery_has_fixed_tag_and_unchanged_product_version(self):
+        self.env["release_tag"] = "v0.8.2/caller-selected"
+        result = self.run_shell('printf "%s\\n" "$release_tag" "$release_version" "$package_version"')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, f"{RELEASE_TAG}\n{VERSION}\n{PKGVER}\n")
+        changed = self.run_shell('release_tag=caller-selected')
+        self.assertNotEqual(changed.returncode, 0)
 
     def test_selected_candidate_has_matching_bounded_pair_pins(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
@@ -341,8 +366,8 @@ install_package
         self.assertEqual(result.returncode, 0, result.stderr)
         urls = (self.directory / "urls").read_text().splitlines()
         self.assertEqual(urls, [
-            f"https://github.com/k-kostin/omavless/releases/download/v{VERSION}/omavless-{PKGVER}-1-x86_64.pkg.tar.zst",
-            f"https://github.com/k-kostin/omavless/releases/download/v{VERSION}/omavless-dns-{PKGVER}-1-x86_64.pkg.tar.zst",
+            f"https://github.com/k-kostin/omavless/releases/download/{RELEASE_TAG}/omavless-{PKGVER}-1-x86_64.pkg.tar.zst",
+            f"https://github.com/k-kostin/omavless/releases/download/{RELEASE_TAG}/omavless-dns-{PKGVER}-1-x86_64.pkg.tar.zst",
         ])
         args = (self.directory / "install-args").read_text().splitlines()
         self.assertEqual(len(args), 2)

@@ -1,4 +1,53 @@
-# Native marketplace update preparation (0.8.2)
+# Native marketplace update preparation
+
+## Current 0.9.8 request — October 11
+
+#736 additionally addresses quadratic scanning of a bounded subscription body.
+Corrected delivery `v0.9.8-fix.3` includes new native packages from
+`8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`, not just the frontend. Final artifact,
+installed and anonymous-download outcomes belong to #736. Update the existing
+request to final main after delivery; older approved/checkpoint evidence is not
+transferred to new bytes. Product/package versions remain 0.9.8 / 0.9.8-1.
+
+#10984 is submitted. Its maintainer identified the Qt passive clipboard read;
+#735 corrects the QML boundary within 0.9.8 and delivers the newer immutable
+`v0.9.8-fix.2` frontend with unchanged native bytes. Update that existing issue
+to the final fixing main SHA after exact compatibility/baseline, rather than
+opening a duplicate. Its original validated snapshot does not approve the fix.
+
+### Earlier copy/preview submission context
+
+The owner authorized the agreed description/preview update and submission of
+the final main SHA. Corrected `v0.9.8-fix.1` supplied immutable
+ARM64/x86_64 app/DNS packages, pinned guided setup and a common frontend;
+see [the release ledger](../development/RC_098.md#corrected-validation-delivery--october-10).
+The user-facing README was merged through #732. Runtime/package inputs were
+unchanged by that editorial update. #736's native correction above requires new
+artifacts; older release tags are never moved or overwritten.
+
+The manifest's owner-approved description is 474 characters. It addresses
+traffic privacy and heavy internet censorship, explains compatible own access,
+bar controls/modes/built-in routing presets/subscription refresh and credits Mihomo. It promises neither
+guaranteed circumvention nor included VPN service. Request category **System**
+and tags **vpn, bar, quickshell** (replace security, retaining three tags).
+The newer-upstream verification form has no tag field, so include the metadata
+request in maintainer notes; do not assume snapshot promotion changes tags.
+
+Root `preview.png` selects the current [main-panel capture](images/main-en.png)
+from #732 byte-for-byte. Production QML, isolated fictional country/city labels
+and honest Disconnected state are retained; no private data, fake connection,
+retouch or upscale. README also illustrates guided setup and the real terminal
+application. This release includes TUI/Open app and encrypted Backup; Restore,
+kill switch, WG/AWG and unaccepted autoconnect are not advertised.
+
+Use the existing `kdk.omavless` listing's **Verify and publish a newer upstream
+commit** action, not a duplicate listing or a reopen of completed #8093.
+Before submission read current upstream policy and run exact-main compatibility
+and Automated Security Baseline. Record the final SHA, request URL and real
+bot/reviewer results on this change's PR; do not create a follow-up main commit
+which immediately changes the requested SHA. Submission is not approval.
+
+## Historical 0.8.2 preparation
 
 Updated September 22. The established filename is retained for external links.
 The current stable release is **0.8.2**, with published, inspected ARM64/x86_64

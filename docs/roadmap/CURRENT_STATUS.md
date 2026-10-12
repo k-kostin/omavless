@@ -1,23 +1,119 @@
 # Current delivery status
 
-Updated 2026-10-08. This is the compact current-state entry point; the detailed
+## 0.9.9 beta development (2026-10-12)
+
+Based on accepted 0.9.8 fix.3 (`b4ef783`); main and Marketplace stay unchanged.
+The first #733 slice adds explicit single-profile/subscription entry to the
+panel, reusing canonical Rust classification and existing confirmation. It
+does not add a runtime mutation or enlarge the 32-KiB private input boundary.
+Clipboard/file actions remain available. Cancel/close clears entry/history;
+no input is saved or connected until the existing explicit confirmation.
+
+The local-bundle dev slice now wires bounded raw/Base64 input through Rust
+classification, a count-only confirmation and the guarded store transaction.
+New standalone profiles are deduplicated by full canonical identity (not UUID);
+existing records/preferences are preserved. The preview binds exact input/store
+bytes as well as the owner revision, and saving neither fetches nor connects.
+Direct entry supports bounded multiline text; clipboard/file share the classifier.
+Candidate rendering/integration evidence belongs to #738; this is not a released
+or installed beta package. Stable 0.9.8 remains unchanged.
+
+This is not completion of #733 or 0.9.9. Mandatory consumer
+Restore/recovery (#722/#724) remains pending; source-only OLD recovery must not
+be advertised as complete Restore. Product/package version and immutable
+0.9.8 pins are retained until a separately assembled beta package is built.
+
+Updated 2026-10-11. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.8 subscription security correction, #736:** the shared Rust feed
+  scanner no longer repeats failed scheme suffixes. Raw/Base64 semantics and
+  existing bounds remain; corrected delivery `v0.9.8-fix.3` selects native
+  producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524` for both architectures.
+  Exact tests, installed validation and actual publication are recorded on #736.
+  Older native packages do not contain this
+  fix. This is maintenance, not the planned #733 Base64-bundle import feature.
+
+- **0.9.8 frontend security correction:** the owner authorized fixing the
+  Marketplace #10984 passive Qt clipboard read without changing the application
+  version or native pair. Editable fields use formats-only input controls and
+  explicit bounded Paste; the concealed URL stays readOnly. Exact validation,
+  immutable frontend delivery `v0.9.8-fix.2` and the updated review SHA belong to
+  fixing #735. Product/Arch versions stay 0.9.8 / 0.9.8-1. This does not enable
+  Restore or any excluded 0.9.9 scope. The earlier fix.1 delivery below retains
+  its native-pair/host evidence, not a recommendation for its old frontend.
+
+- **0.9.8 delivered:** #726 merged at `6345416fd0c777903ae7b15f1ff43120ec56b8e9`;
+  corrected `v0.9.8-fix.1` is retained immutable delivery history with seven assets.
+  The new main full Test workflow subsequently passed. Owner-approved #732
+  updates the user-facing README, first-use/Open app illustrations and usage
+  guide; #732 merged at `2105d077a3c0cff46c3183b9fa7e8a915422e885`.
+  The owner subsequently authorized the agreed 0.9.8 Marketplace description,
+  current preview and exact-main update request with tags vpn/bar/quickshell.
+  Record its exact SHA, bot results and approval on the publication PR, not in
+  a further main commit. Until approval the Marketplace snapshot remains the
+  separately reviewed 0.8.2. No whole
+  T4/K1/V0 acceptance follows from the release.
+
+- **Planned for 0.9.9:** mandatory consumer Restore/recovery remains #722/#724.
+  Owner-selected [#733](https://github.com/k-kostin/omavless/issues/733) adds a
+  private editable VPN-access field in the application/plugin import UI, reusing
+  canonical profile/subscription validation and explicit preview/confirmation.
+  The first single-link plugin slice is in beta as described above; bundle
+  support remains planned. Neither is a 0.9.8 feature or a new protocol family.
+
+- **Corrected 0.9.8 validation delivery:** the owner authorized immutable
+  `v0.9.8-fix.1`, preserving the original `v0.9.8` assets and failures. The
+  frontend pins the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`
+  for ARM64/x86_64. #730 integrates independently reviewed first-use Backup and
+  empty DNS accept-loop fixes. Five producer CI checks pass; installed ARM64
+  first-use Backup without restart and idle → actual owned DNS lease → clean
+  Disconnect pass. All seven corrected assets were publicly published and
+  anonymously hash-verified; clean actual ARM64 Required components setup,
+  separate DNS enrollment, onboarding and same-PID supported-template Backup
+  pass. Original private data were restored. Exact results, final CI and main
+  reconciliation belong to #726 and the [delivery ledger](../development/RC_098.md#corrected-validation-delivery--october-10),
+  not old artifacts. Main/latest/Marketplace remain separately controlled.
+
+- **Owner release decision, 2026-10-08:** public 0.9.8 is **Backup-only**.
+  Trusted product scope restricts capabilities, RPC, CLI and developer actor
+  entries; full Restore remains in development. Preserve old pending/history
+  fences. **Usable Restore plus explicit interrupted/fatal recovery is mandatory
+  for 0.9.9.** Older positive/negative evidence is retained, not relabeled PASS.
+  The new restriction has its own exact-source package and installed gates.
+
 - **0.9.8 internal RC scope freeze:** `rc/0.9.8`, source `0.9.8-rc.1`, selects
-  normal-entry Backup/Restore, corrected explicit application relaunch and ARM64
+  normal-entry Backup (Restore excluded by the decision above), corrected
+  explicit application relaunch and ARM64
   link-count portability on the beta.4 maintenance base. The
   [RC ledger](../development/RC_098.md) retains exact inputs, original failed
   installed readiness and remaining candidate/package/host gates. Exact
   `5e7d4258` has inspected offline pairs for both architectures and passing
-  native package CI; final full Test CI remains pending. Its
+  native package CI; its final full Test CI subsequently passed. #717's managed
+  template correction is integrated into RC, with exact-source cloud/build and
+  x86_64 manual lifecycle evidence. #718's stopped-page and sustained disable
+  successor is installed-checked and carried to RC; #719's private-test scratch
+  correction is integrated after full CI. Selected source26 Backup-only packages
+  and protected-input-equivalent frontend144 are inspected; all five hosted
+  checks on frontend144 passed.
+  The selected Backup-only pair has subsequent
+  [installed ARM64 acceptance](../testing/RC_098_ARM64_2026-10-09.md) for normal
+  client/Backup/relaunch and Restore refusal, with original data restored and
+  scope limits retained. Public assets/pins and clean provisioning still remain;
+  this is not stable/main promotion.
+  Its
   [installed x86_64 report](../testing/RC_098_VM_2026-10-08.md) passes normal
   entry/navigation/reopen, known Quit → re-enable → actual Start and real cold
   configured-Off Start with login preparation, preserved data and disabled
-  startup units. It is agent-operated, not ARM-installed, new Restore mutation,
-  whole T4 or public provisioning acceptance. Pins are
+  startup units. The separately recorded continuation adds normal Completed
+  Restore, controlled same-intent Abort, connected modes and actual sustained
+  disable → re-enable → Start; initial evidence is not rewritten. It is
+  agent-operated, not ARM-installed, whole T4 or public provisioning acceptance.
+  Lost-owner Restore recovery is mandatory for 0.9.9, not an ARM/operator
+  checkbox. Pins are
   empty; main, immutable releases and Marketplace are unchanged. This is not
   accepted/public RC or whole T3/T4 completion.
 
@@ -210,7 +306,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   The name is a planning label; stable release version/assets and
   stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
   Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
-  targets that stable SHA and awaits external review, not RC verification.
+  targets that stable SHA and was approved/published; it does not verify the RC.
   T2d/e passed [combined ARM64 inspection](../testing/T2_INSPECTION_THEME_2026-09-22.md):
   live traffic, details, diagnostics and theme presentation; closing the client
   preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
@@ -457,8 +553,10 @@ passed on x86_64 as recorded in the [fresh VM report](../testing/NATIVE_082_FRES
 This closes that scoped provisioning gate; it does not reopen the unchanged R6
 migration, claim new live-network evidence or publish the marketplace snapshot.
 
-The immutable published marketplace 0.7.0 snapshot remains
-`69fe05b03129a23664fff3f8289821a7b7f80095`.
+The current marketplace 0.8.2 snapshot is
+`d620c300020d3acfa9c00418da7f6cded485ffdb`, approved and published through #8093.
+The 0.7.0 `69fe05b03129a23664fff3f8289821a7b7f80095` snapshot is historical;
+the newer internal RC is not covered by that approval.
 Neither a main merge nor the presence of Rust sources installs a native binary,
 runs Cargo, grants capabilities, changes an ownership marker or enables VPN
 startup on a user's machine.
@@ -490,10 +588,11 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Prepare a separately owner-authorized stable/main proposal from accepted
-   `rc/0.9.5`, reconciling release notes, constituent PRs and candidate docs.
-   RC1 public assets/pins and clean provisioning are completed, not a fresh work
-   queue. Do not silently bump/publish stable packages or main. Preserve accepted UI unless the task
+4. Finish the owner-selected Backup-only 0.9.8 successor's public-download and
+   affected guided-setup gates, then reconcile its source PRs and candidate
+   docs for the authorized main proposal. Preserve 0.9.5 RC1 and original 0.9.8
+   validation artifacts as history, not a fresh work queue. Stable/latest and
+   Marketplace publication remain separate. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
 Retained mandatory RC disposition: [the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)

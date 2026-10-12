@@ -2,10 +2,52 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.8 — corrected release snapshot
+
+- Make subscription candidate scanning linear in input size, including raw and
+  Base64 feeds, so a bounded provider response cannot trigger repeated suffix
+  scanning while the runtime serializes owner operations. Preserve parsing,
+  validation, duplicate handling and atomic subscription updates.
+
+- Avoid Qt's automatic unbounded clipboard payload reads in editable plugin
+  controls. Keep explicit Paste bounded, URL concealment, keyboard navigation
+  and edit history. The application version is unchanged; the separate parser
+  correction above requires updated native packages.
+
+- Add the terminal application alongside the compact bar controls. Open or
+  focus its existing window; closing it leaves the shared VPN runtime running.
+- Add bounded read-only connection, traffic, routing, provider and diagnostic
+  views, plus session-local language/theme settings.
+- Use the explicitly installed and enrolled managed-DNS package instead of
+  repeated DNS authorization during normal connection changes. Setup still
+  requires normal system confirmation; no account-wide passwordless policy.
+- Add encrypted Backup for profiles, subscriptions and supported bundled
+  routing templates, with masked passphrases, explicit confirmation and no
+  overwrite. Restore is not part of this release.
+- Add guarded application Start after shutdown and truthful stopped-state
+  presentation, preserving saved profiles and startup preferences.
+- Correct first-use Backup availability without a runtime restart and keep
+  the idle DNS broker available without repeatedly polling empty admission.
+
+Corrected packages and matching frontend use `v0.9.8-fix.3`, adding the native
+subscription-parser correction to #735's Qt clipboard fix. Both native packages
+identify source `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`; #736 records
+the inspected architecture pairs, installed checks and actual publication/download
+outcome. Existing 0.9.8 installations need a guarded native package reinstall,
+not only a plugin update; product/package versions remain 0.9.8 / 0.9.8-1. The original
+`v0.9.8` validation assets remain immutable. The owner authorized main/stable
+promotion; its actual merge/release event is recorded in PR #726. Marketplace
+submission and the root README were subsequently owner-approved; #10984 is the
+exact-snapshot Marketplace update, with its findings addressed in #735/#736.
+Login autoconnect is Off by default; experimental protocol limitations remain.
+Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
+
 ## 0.9.8-rc.1 — internal scope freeze, not a public release
 
-- Keep selected Backup and authenticated Preview/Cancel/Restore reachable
-  through normal Open app/TUI, without a hidden invocation flag.
+- Offer encrypted private-pair Backup through normal Open app/TUI, without
+  hidden flags. Owner-selected scope excludes Restore; runtime/CLI restrictions
+  enforce this even for crafted requests. Preserve Restore/recovery development
+  and its pending/history evidence as a mandatory 0.9.9 feature.
 - Offer explicit guarded application start after shutdown. Preserve profiles,
   startup preferences and unit enablement; starting does not connect a VPN.
 - Validate readiness against the real native protocol, retained peers and a

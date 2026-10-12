@@ -102,6 +102,19 @@ semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
 
+The owner's October 11 continuation through #736 authorizes the subscription
+scanner correction within 0.9.8 and matching `v0.9.8-fix.3` native/frontend
+delivery from producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`.
+Unlike #735 this changes native inputs: old package equivalence does not apply.
+Use #736 for completed gates/publication, update existing Marketplace #10984
+to final main, and retain older immutable assets. #733 is planned 0.9.9 work.
+
+Owner-authorized October 11 maintenance: #735 corrects the passive Qt clipboard
+query in the 0.9.8 frontend; `v0.9.8-fix.2` keeps the inspected native pair and
+application version unchanged. Update existing Marketplace #10984 to the final
+main SHA. The fixing PR records actual gates/delivery; this is not automatic
+authorization for later main updates or a new 0.9.9 feature selection.
+
 For internal beta selection with hands-on evidence still pending, follow
 [agent-assisted human acceptance](BETA_MANUAL_ACCEPTANCE.md). Prepare runnable
 features and their test cards; do not conflate missing implementation or unsafe
@@ -207,8 +220,17 @@ the change.
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
   `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
   assemblies and `rc/<version>` release candidates follow the canonical
-  workflow; current assembly is `beta/0.9.8` from internal `rc/0.9.7`.
-  The publicly accepted artifact baseline remains `rc/0.9.5`. Internal source
+  workflow; delivered 0.9.8 came from `dev/098-stable-preparation` (#726), now
+  merged and retired, and the selected `rc/0.9.8` Backup-only scope. Corrected immutable
+  delivery is `v0.9.8-fix.1`; its producer/frontend and affected installed gates
+  are in the RC ledger. Old 0.9.8 assets stay immutable and superseded;
+  main/stable promotion completed through #726. The owner approved the bounded
+  user-facing README update through #732 on October 11, not future automatic
+  main updates. The owner's October 11 follow-up authorizes the agreed 0.9.8
+  Marketplace copy/preview and exact-main update request, not maintainer approval
+  or future updates. Record submission/outcome on its PR without moving main
+  again. The publicly accepted historical
+  RC artifact baseline remains `rc/0.9.5`. Internal source
   freeze follows the declared risk-based checks; public provisioning gates do
   not repeat at every internal version. Installed private-restore integration
   is still necessary. Preserve `rc/0.9.0` as

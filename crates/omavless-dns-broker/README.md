@@ -47,9 +47,20 @@ arbitrary ioctl API. Root administrators remain outside this threat boundary.
 
 Apply and release use a shared absolute 30-second budget across typed bus calls
 and retention notifications; each individual bus call also has a two-second
-limit. Idle identity checks share five seconds. Expired budgets prevent new
+limit. After accepting an authenticated client, identity checks share five
+seconds and finish before receiving its Acquire descriptor. Socket access is
+still checked before every accept; accept timeout or rejected peer makes no
+authority RPC. An unused socket's availability is not fresh authority evidence:
+owner or policy drift is discovered at the next accepted client and terminates
+the original context. The outer loop is reached only after startup's empty
+admission, a prewrite refusal, or verified Clean, never after an unknown outcome.
+An accepted session has no userspace-acquired proof yet; the client may already
+have queued SCM_RIGHTS and corresponding kernel references in the socket.
+This is not DNS intent or manager FD-store admission. Expired budgets prevent new
 dispatch; timeout after dispatch is unknown, not cancellation. Resetting a
 budget cannot clear poisoned transport or quarantine state.
+Active lease health checks retain their five-second budget; apply, release,
+retention and quarantine follow the existing transaction paths and bounds.
 
 The reviewed core's 40-second handshake budget accommodates an idle check plus
 release. Runtime readiness waits for the actual managed-DNS flags and Ready,

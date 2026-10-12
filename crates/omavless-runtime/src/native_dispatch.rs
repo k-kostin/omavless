@@ -161,7 +161,7 @@ pub(crate) fn respond_to_import_preview<H: LifecycleHost>(
 ) -> Result<Value, ProtocolError> {
     let request_id = request["id"].as_str().unwrap_or("invalid");
     match owner.import_preview(request) {
-        Ok(preview) => success_response(request_id, owner.revision(), preview.private_ui_value()),
+        Ok(preview) => success_response(request_id, owner.revision(), preview),
         Err(error) => owner_error_response(request_id, owner.revision(), error),
     }
 }
@@ -423,6 +423,8 @@ where
         owner.execute_startup(request)
     } else if method == "profiles.import" {
         owner.execute_profile_import(request, next_record_id)
+    } else if method == "profiles.importBundle" {
+        owner.execute_profile_bundle(request, next_record_id)
     } else if method == "routing.set_preset" {
         owner.execute_routing_preset(request)
     } else if matches!(

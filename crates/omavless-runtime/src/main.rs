@@ -80,6 +80,9 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
     if !cfg!(feature = "t4-manager-actor-service") {
         return None;
     }
+    if omavless_runtime::product_scope::backup_only() {
+        return (arguments == ["tui"]).then_some(PrivatePairTui::Backup);
+    }
     // The selected development build exposes its supported client features
     // through ordinary Open app. Stable/default builds lack this feature.
     if arguments == ["tui"] || arguments == ["tui", "--developer-private-restore"] {
@@ -93,6 +96,11 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    if omavless_runtime::product_scope::cli_disabled(&arguments) {
+        return Err(
+            "Restore/development selectors are unavailable in this Backup-only build".into(),
+        );
+    }
     if arguments == ["app", "can-start"] {
         if !omavless_runtime::runtime_relaunch::can_start() {
             return Err("OmaVLESS runtime start is unavailable".into());
@@ -284,8 +292,18 @@ fn run() -> Result<(), CliError> {
             "  tui --developer-conditional-close  opt-in development workspace; not product pair adoption"
         );
         println!(
-            "{USAGE}\n  import preview                  read private input from stdin; private UI output\n  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
+            "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
+        if omavless_runtime::product_scope::restore_enabled() {
+            println!(
+                "  restore abort --confirm-rollback\n                                  read private recovery input from stdin; keeps fence"
+            );
+        }
+        if omavless_runtime::product_scope::backup_only() {
+            println!(
+                "  backup create --confirm-private-export  read private backup input from stdin"
+            );
+        }
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
         println!("  profile details PROFILE_ID  explicit private endpoint metadata");
@@ -811,7 +829,10 @@ mod tests {
                 .map(std::ffi::OsString::from)
                 .collect::<Vec<_>>()
         };
-        #[cfg(feature = "t4-manager-actor-service")]
+        #[cfg(all(
+            feature = "t4-manager-actor-service",
+            not(feature = "product-private-backup")
+        ))]
         {
             assert_eq!(
                 private_pair_tui_entry(&args(&["tui"])),
@@ -825,6 +846,16 @@ mod tests {
                 private_pair_tui_entry(&args(&["tui", "--developer-private-restore"])),
                 Some(PrivatePairTui::Restore)
             );
+        }
+        #[cfg(feature = "product-private-backup")]
+        {
+            assert_eq!(
+                private_pair_tui_entry(&args(&["tui"])),
+                Some(PrivatePairTui::Backup)
+            );
+            for selector in ["--developer-private-backup", "--developer-private-restore"] {
+                assert_eq!(private_pair_tui_entry(&args(&["tui", selector])), None);
+            }
         }
         #[cfg(not(feature = "t4-manager-actor-service"))]
         for parts in [

@@ -18,6 +18,13 @@ pub(crate) const METHODS: &[&str] = &[
 pub(crate) fn is_method(method: &str) -> bool {
     METHODS.contains(&method)
 }
+pub(crate) fn advertised_methods() -> &'static [&'static str] {
+    if crate::product_scope::backup_only() {
+        &["backup.create"]
+    } else {
+        METHODS
+    }
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
     Create,
@@ -233,10 +240,16 @@ pub(crate) fn ciphertext_hex(value: &[u8; 32]) -> String {
     result
 }
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
+    if crate::product_scope::cli_disabled(arguments) {
+        return false;
+    }
     arguments == ["backup", "create", "--confirm-private-export"]
         || arguments == ["backup", "restore", "--confirm-private-pair"]
 }
 pub fn preview_arguments_admitted(arguments: &[OsString]) -> bool {
+    if crate::product_scope::backup_only() {
+        return false;
+    }
     arguments == ["backup", "preview"]
         || arguments == ["backup", "restore-previewed", "--confirm-private-pair"]
 }
@@ -391,10 +404,12 @@ fn private_tui_exchange(
     };
     // All callers are fixed typed adapters above. This private allowlist also
     // prevents a later internal caller from silently broadening the transport.
-    if !matches!(
-        method,
-        "backup.create" | "backup.preview" | "backup.restore_previewed"
-    ) {
+    if crate::product_scope::method_disabled(method)
+        || !matches!(
+            method,
+            "backup.create" | "backup.preview" | "backup.restore_previewed"
+        )
+    {
         return Err(RuntimeError::Protocol);
     }
     let live = || {

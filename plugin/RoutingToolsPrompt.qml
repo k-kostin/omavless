@@ -148,8 +148,10 @@ Item {
           Row {
             width: parent.width
             spacing: Style.space(7)
-            TextField {
+            SafeTextField {
               id: checkField
+              locale: prompt.locale
+              maximumLength: 1024
               width: parent.width - checkButton.width - parent.spacing
               placeholderText: prompt.textFor("routing_tools.destination_placeholder")
               foreground: prompt.foreground
@@ -253,8 +255,10 @@ Item {
             }
           }
 
-          TextField {
+          SafeTextField {
             id: ruleField
+            locale: prompt.locale
+            maximumLength: 1024
             width: parent.width
             placeholderText: prompt.matchChoice === "ipcidr"
               ? "203.0.113.0/24" : "example.com"

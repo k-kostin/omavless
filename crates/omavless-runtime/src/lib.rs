@@ -11,6 +11,7 @@ mod backup_source_candidate;
 pub mod developer_current_restore;
 mod managed_close_receipt;
 mod pending_private_transaction;
+pub mod product_scope;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;
 #[allow(dead_code)]
@@ -125,6 +126,7 @@ pub mod probe_executor;
 pub mod production_cutover;
 pub mod production_observation;
 pub mod production_owner;
+mod profile_bundle_protocol;
 pub mod profile_export_protocol;
 pub mod profile_import_protocol;
 pub mod profile_mutation;
@@ -353,6 +355,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "startup.configure",
     "profiles.replace",
     "profiles.import",
+    "profiles.importBundle",
     "routing.custom_rules.add",
     "routing.custom_rules.delete",
     "connection.connect",
@@ -378,6 +381,7 @@ fn valid_mutation_shape(request: &Value, instance: &str) -> bool {
             profile_mutation_protocol::parse_profile_mutation_request(request).is_ok()
         }
         "profiles.import" => profile_import_protocol::parse_profile_import_request(request).is_ok(),
+        "profiles.importBundle" => profile_bundle_protocol::parse(request).is_ok(),
         "subscriptions.add" | "subscriptions.update" | "subscriptions.delete" => {
             subscription_mutation_protocol::parse_subscription_mutation_request(request).is_ok()
         }
@@ -1637,7 +1641,9 @@ impl RuntimeServer {
         }) {
             Ok(request) => {
                 #[cfg(feature = "t4-manager-actor-service")]
-                if request["method"] == developer_current_restore::PAUSE_METHOD {
+                if !product_scope::backup_only()
+                    && request["method"] == developer_current_restore::PAUSE_METHOD
+                {
                     let result = self.publish_current_intent_pause(&request, stream);
                     let mut request = request;
                     developer_current_restore::wipe_request(&mut request);
@@ -1712,6 +1718,9 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::method_disabled(request["method"].as_str().unwrap_or("")) {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         if matches!(
             request["method"].as_str(),
             Some("backup.preview" | "backup.restore_previewed")
@@ -1762,6 +1771,9 @@ impl RuntimeServer {
             Restore(private_pair_api::PreviewedRestoreRequest),
         }
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         let input = if request["method"] == "backup.preview" {
             private_pair_api::PreviewRequest::parse(&request["params"]).map(Input::Preview)
         } else {
@@ -1814,6 +1826,19 @@ impl RuntimeServer {
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
+        if product_scope::backup_only() {
+            let response = error_response(
+                request["id"].as_str().unwrap_or("invalid"),
+                0,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            )
+            .map_err(|_| RuntimeError::Protocol)?;
+            let frame = encode_response(&response).map_err(|_| RuntimeError::Protocol)?;
+            return write_unary_frame(stream, &frame, FrameKind::Response)
+                .map_err(|_| RuntimeError::Io);
+        }
         // The SAME dispatcher mutex spans original pause creation AND the
         // response write. No competing resume can slip between write failure
         // and sealing. Only this fixed method can invoke publication feedback.
@@ -1894,6 +1919,9 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         let method = request["method"].as_str().unwrap_or("");
         if method == developer_current_restore::ABORT_METHOD {
             return self.dispatch_developer_current_abort(request);
@@ -1957,6 +1985,9 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
+        }
         let input = match developer_current_restore::AbortRequest::parse(&request["params"]) {
             Ok(input) => input,
             Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
@@ -2790,7 +2821,7 @@ fn dispatch_native(
             let development_methods: &[&str] = &[];
             #[cfg(feature = "t4-manager-actor-service")]
             let pair_methods = if runtime_ownership && owner.normal_private_pair_available() {
-                private_pair_api::METHODS
+                private_pair_api::advertised_methods()
             } else {
                 &[]
             };
@@ -3616,6 +3647,324 @@ mod tests {
         Arc<AtomicUsize>,
     ) {
         owner_fixture(base, OwnershipPhase::Rust)
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn normal_pair_promoted_candidate_backup_is_product_only_and_preserves_restore_refusal() {
+        let home = std::env::var_os("HOME").unwrap();
+        let base = crate::test_temp::directory_under(Path::new(&home), "first-backup").unwrap();
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let store_path = base.join("config/profiles.json");
+        let mut store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        store["routingPreset"] = "roscomvpn-default".into();
+        fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let template_path = base.join("config/route-template.yaml");
+        fs::write(
+            &template_path,
+            include_bytes!("../../../templates/default.yaml"),
+        )
+        .unwrap();
+        fs::set_permissions(&template_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_store = fs::read(&store_path).unwrap();
+        let before_template = fs::read(&template_path).unwrap();
+        let desired_path = base.join("state/omavless/desired.json");
+        let before_desired = fs::read(&desired_path).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let wire = |request: &Value| {
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                std::io::Write::write_all(&mut client, &encode_request(request).unwrap()).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert!(worker.join().unwrap().is_ok());
+                reply
+            })
+        };
+        let caps = make_request("caps", "capabilities.get", json!({})).unwrap();
+        let preparing = wire(&caps);
+        assert_eq!(preparing["result"]["runtimeOwnership"], false);
+        assert!(
+            !preparing["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let uid = fs::metadata(&base).unwrap().uid();
+        let lock = crate::cutover::MigrationLock::acquire(&cutover, uid).unwrap();
+        let busy = wire(&caps);
+        assert_eq!(busy["result"]["runtimeOwnership"], false);
+        assert!(
+            !busy["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        drop(lock);
+        let before_calls = calls.load(Ordering::Relaxed);
+        let promoted = wire(&caps);
+        assert_eq!(promoted["result"]["runtimeOwnership"], true);
+        let methods = promoted["result"]["methods"].as_array().unwrap();
+        assert_eq!(
+            methods.iter().any(|m| m == "backup.create"),
+            product_scope::backup_only()
+        );
+        assert!(!methods.iter().any(|m| matches!(
+            m.as_str(),
+            Some("backup.restore" | "backup.preview" | "backup.restore_previewed")
+        )));
+        assert_eq!(wire(&caps), promoted);
+        let hello = wire(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap());
+        assert_eq!(hello["result"]["instanceId"], server.instance_id);
+        assert_eq!(hello["revision"], 0);
+        let destination = base.join("private.ovb");
+        let create = make_request(
+            "create",
+            "backup.create",
+            json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "confirmation":"export-current-private-pair","instanceId":server.instance_id,
+                "operationId":"first-backup","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        let exported = wire(&create);
+        if product_scope::backup_only() {
+            assert_eq!(exported["ok"], true);
+            assert_eq!(
+                exported["result"],
+                json!({"completed":true,"replayed":false,"scope":"privatePair"})
+            );
+            assert_eq!(
+                crate::backup_destination_candidate::preview_existing(
+                    &destination,
+                    uid,
+                    b"synthetic private passphrase"
+                ),
+                Ok(crate::backup_destination_candidate::BackupPreview {
+                    profiles: 1,
+                    subscriptions: 1
+                })
+            );
+            let ciphertext = fs::read(&destination).unwrap();
+            assert!(
+                !ciphertext
+                    .windows(before_store.len())
+                    .any(|part| part == before_store)
+            );
+        } else {
+            assert_eq!(exported["error"]["code"], "capability_unavailable");
+            assert!(!destination.exists());
+        }
+        let mut restore = create.clone();
+        restore["method"] = "backup.restore".into();
+        restore["params"]["confirmation"] = "replace-current-private-pair".into();
+        restore["params"]["operationId"] = "restore-refused".into();
+        let refused = wire(&restore);
+        assert_eq!(refused["error"]["code"], "capability_unavailable");
+        if product_scope::backup_only() {
+            for method in [
+                "backup.preview",
+                "backup.restore_previewed",
+                "developer.restore_current",
+                "developer.backup_current",
+                "developer.pause_current_intent",
+                "developer.abort_current_intent",
+            ] {
+                let reply = wire(&make_request("disabled", method, json!({})).unwrap());
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+            }
+            let pending = cutover
+                .state_directory
+                .join(crate::restore_staging_candidate::PENDING_DIRECTORY);
+            fs::create_dir(&pending).unwrap();
+            let sentinel = pending.join("sentinel");
+            fs::write(&sentinel, b"preserved pending evidence").unwrap();
+            let blocked_destination = base.join("blocked.ovb");
+            let mut blocked = create.clone();
+            blocked["params"]["archive"] = serde_json::to_value(&blocked_destination).unwrap();
+            blocked["params"]["operationId"] = "pending-backup".into();
+            assert_eq!(wire(&blocked)["error"]["code"], "manual_recovery_required");
+            assert!(!blocked_destination.exists());
+            assert_eq!(fs::read(sentinel).unwrap(), b"preserved pending evidence");
+        }
+        let public = serde_json::to_string(&(promoted, hello, exported, refused)).unwrap();
+        for private in [
+            "synthetic private passphrase",
+            "vless://",
+            "private.example",
+            "subscription-token",
+            destination.to_str().unwrap(),
+        ] {
+            assert!(!public.contains(private));
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(store_path).unwrap(), before_store);
+        assert_eq!(fs::read(template_path).unwrap(), before_template);
+        assert_eq!(fs::read(desired_path).unwrap(), before_desired);
+        assert_eq!(
+            wire(&make_request("status", "status.get", json!({})).unwrap())["revision"],
+            0
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn normal_pair_promoted_candidate_rollback_revokes_capabilities_and_export() {
+        let base = temporary_base("backup-rollback");
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let before_store = fs::read(base.join("config/profiles.json")).unwrap();
+        let before_desired = fs::read(base.join("state/omavless/desired.json")).unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let caps = make_request("caps", "capabilities.get", json!({})).unwrap();
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let promoted = server.dispatch(&caps).unwrap();
+        assert!(
+            promoted["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 3);
+        let revoked = server.dispatch(&caps).unwrap();
+        assert_eq!(revoked["result"]["runtimeOwnership"], false);
+        assert!(
+            !revoked["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "backup.create")
+        );
+        let destination = base.join("refused.ovb");
+        let request = make_request(
+            "create",
+            "backup.create",
+            json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "confirmation":"export-current-private-pair","instanceId":server.instance_id,
+                "operationId":"rollback-backup","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            server.dispatch(&request).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            before_store
+        );
+        assert_eq!(
+            fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            before_desired
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn product_scope_real_wire_refuses_all_restore_and_special_pause_without_effects() {
+        let base = temporary_base("backup-only");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let store_path = base.join("config/profiles.json");
+        let desired_path = base.join("state/omavless/desired.json");
+        let before_store = fs::read(&store_path).unwrap();
+        let before_desired = fs::read(&desired_path).unwrap();
+        // Recognized pending directory: detection must remain true. The
+        // sentinel is data, not a fabricated completed/recoverable transaction.
+        let pending_dir = cutover
+            .state_directory
+            .join(crate::restore_staging_candidate::PENDING_DIRECTORY);
+        fs::create_dir(&pending_dir).unwrap();
+        let pending = pending_dir.join("sentinel");
+        fs::write(&pending, b"unchanged pending evidence").unwrap();
+        assert!(crate::restore_staging_candidate::staging_pending_at(
+            &cutover.state_directory
+        ));
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let before_calls = calls.load(Ordering::Relaxed);
+        for method in [
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+            "developer.restore_current",
+            "developer.backup_current",
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+        ] {
+            let request = make_request("product-refusal", method, json!({})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+            let (mut client, mut incoming) = UnixStream::pair().unwrap();
+            thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let result = server.handle(&mut incoming);
+                    drop(incoming);
+                    result
+                });
+                client
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                std::io::Write::write_all(&mut client, &encode_request(&request).unwrap()).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+                let reply =
+                    decode_response(&read_unary_frame(&mut client, FrameKind::Response).unwrap())
+                        .unwrap();
+                assert_eq!(reply["error"]["code"], "capability_unavailable");
+                assert_eq!(reply["revision"], 0);
+                assert!(worker.join().unwrap().is_ok());
+            });
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(store_path).unwrap(), before_store);
+        assert_eq!(fs::read(desired_path).unwrap(), before_desired);
+        assert_eq!(fs::read(pending).unwrap(), b"unchanged pending evidence");
+        assert!(crate::restore_staging_candidate::staging_pending_at(
+            &cutover.state_directory
+        ));
+        assert_eq!(private_pair_api::advertised_methods(), &["backup.create"]);
+        assert_eq!(
+            server
+                .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+                .unwrap()["revision"],
+            0
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[cfg(feature = "t4-manager-actor-service")]
@@ -4826,6 +5175,164 @@ mod tests {
         assert_eq!(fs::read(&store_path).unwrap(), committed);
         assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
         assert_eq!(effects.load(Ordering::Relaxed), 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn local_bundle_preview_and_plugin_confirm_are_bound_atomic_and_effect_free() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let base = temporary_base("bundle-owner");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        let baseline = calls.load(Ordering::Relaxed);
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired_before = fs::read(&desired_path).unwrap();
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+        let first = "trojan://synthetic-password@203.0.113.1:443#First";
+        let second = "trojan://second-password@203.0.113.2:443#Second";
+        let raw = format!("{first}\n{second}\n{first}\nvless://bad");
+        let preview = call(&paths, "imports.classify", json!({"input":raw})).unwrap();
+        assert_eq!(preview["ok"], true);
+        assert_eq!(preview["result"]["kind"], "bundle");
+        assert_eq!(
+            preview["result"]["counts"],
+            json!({"accepted":2,"duplicates":1,"skipped":1})
+        );
+        let encoded = STANDARD.encode(&raw);
+        let encoded_preview = call(&paths, "imports.classify", json!({"input":encoded})).unwrap();
+        assert_eq!(
+            encoded_preview["result"]["counts"],
+            preview["result"]["counts"]
+        );
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let params = json!({"action":"profile-bundle-import", "instanceId":hello["result"]["instanceId"],
+            "expectedRevision":preview["revision"], "operationId":"bundle",
+            "input":raw, "previewFingerprint":preview["result"]["previewFingerprint"]});
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        for (field, value, code) in [
+            ("instanceId", json!("old-instance"), "daemon_restarting"),
+            ("expectedRevision", json!(999), "conflict"),
+            ("input", json!(encoded), "conflict"),
+        ] {
+            let mut stale = params.clone();
+            stale[field] = value;
+            stale["operationId"] = json!(format!("stale-{field}"));
+            assert_eq!(
+                call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+                code
+            );
+        }
+        // A valid external byte edit does not advance the in-memory revision.
+        // It must nevertheless invalidate the exact preview before any write.
+        let mut external = original.clone();
+        external.push(b'\n');
+        fs::write(&store_path, &external).unwrap();
+        let mut stale = params.clone();
+        stale["operationId"] = json!("external-edit");
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "conflict"
+        );
+        assert_eq!(fs::read(&store_path).unwrap(), external);
+        fs::write(&store_path, &original).unwrap();
+        let applied = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(applied["ok"], true);
+        assert_eq!(applied["revision"], 1);
+        let committed = fs::read(&store_path).unwrap();
+        let result: Value = serde_json::from_slice(&committed).unwrap();
+        let before: Value = serde_json::from_slice(&original).unwrap();
+        assert_eq!(result["profiles"].as_array().unwrap().len(), 3);
+        assert_eq!(result["profiles"][0], before["profiles"][0]);
+        for key in [
+            "activeId",
+            "lastId",
+            "subscriptions",
+            "startup",
+            "routingPreset",
+            "customRules",
+        ] {
+            assert_eq!(result[key], before[key]);
+        }
+        assert_eq!(
+            fs::metadata(&store_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let replay = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(replay["result"], applied["result"]);
+        assert_eq!(replay["revision"], applied["revision"]);
+        let canonical = plugin_action::parse(
+            &make_request("canonical", "plugin.action", params.clone()).unwrap(),
+        )
+        .unwrap()
+        .canonical;
+        assert_eq!(
+            call(&paths, "profiles.importBundle", canonical["params"].clone()).unwrap()["ok"],
+            true
+        );
+        let mut collision = params.clone();
+        collision["previewFingerprint"] = json!("b".repeat(64));
+        assert_eq!(
+            call_plugin_action(&paths, collision).unwrap()["error"]["code"],
+            "conflict"
+        );
+        // All-existing profiles are a successful no-op, with no revision bump.
+        let duplicate_input = STANDARD.encode(first);
+        let duplicates =
+            call(&paths, "imports.classify", json!({"input":duplicate_input})).unwrap();
+        assert_eq!(
+            duplicates["result"]["counts"],
+            json!({"accepted":0,"duplicates":1,"skipped":0})
+        );
+        let noop = call_plugin_action(
+            &paths,
+            json!({"action":"profile-bundle-import", "instanceId":params["instanceId"],
+            "expectedRevision":1,"operationId":"bundle-noop","input":duplicate_input,
+            "previewFingerprint":duplicates["result"]["previewFingerprint"]}),
+        )
+        .unwrap();
+        assert_eq!(noop["ok"], true);
+        assert_eq!(noop["revision"], 1);
+        for input in [
+            "proxies:\nprivate-token",
+            "trojan://synthetic-password@bad\nhttps://synthetic.invalid/feed",
+        ] {
+            let invalid = call(&paths, "imports.classify", json!({"input":input})).unwrap();
+            assert_eq!(invalid["error"]["code"], "invalid_argument");
+            let invalid = call(&paths, "profiles.importBundle", json!({"input":input,
+                "operationId":format!("invalid-{}",input.len()), "expectedRevision":1,
+                "previewFingerprint":profile_bundle_protocol::fingerprint(std::str::from_utf8(&committed).unwrap(), input)})).unwrap();
+            assert_eq!(invalid["ok"], false);
+            assert!(!invalid.to_string().contains("private-token"));
+        }
+        // The pre-existing ordinary single-link route still classifies as profile.
+        assert_eq!(
+            call(&paths, "imports.classify", json!({"input":first})).unwrap()["result"]["kind"],
+            "profile"
+        );
+        assert_eq!(fs::read(&store_path).unwrap(), committed);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        for response in [preview, encoded_preview, applied, replay, duplicates, noop] {
+            for secret in [
+                "synthetic-password",
+                "second-password",
+                "203.0.113.1",
+                "trojan://",
+                "First",
+            ] {
+                assert!(!response.to_string().contains(secret));
+            }
+        }
+        stop.store(true, Ordering::Release);
+        worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -7001,6 +7508,142 @@ mod tests {
         assert_eq!(deleted["ok"], true);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn maximum_subscription_body_refusal_preserves_owner_availability() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::Instant;
+
+        // Real loopback HTTP and private unary sockets, but a fake lifecycle
+        // host: never send an adversarial feed to the installed daemon/TUN.
+        for method in [
+            "subscriptions.add",
+            "subscriptions.update",
+            "subscriptions.refresh",
+            "subscriptions.usage",
+            "subscriptions.refresh_all",
+        ] {
+            let base = temporary_base("max-feed");
+            let (owner, _, host_calls) = native_owner_fixture(&base);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}/synthetic-feed", listener.local_addr().unwrap());
+            let store = base.join("config/profiles.json");
+            let mut content: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+            content["subscriptions"][0]["url"] = json!(url);
+            fs::write(&store, content.to_string()).unwrap();
+            let before = fs::read(&store).unwrap();
+            let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+            let http = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline);
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("synthetic HTTP accept failed: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut headers = Vec::new();
+                while !headers.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    headers.push(byte[0]);
+                    assert!(headers.len() < 8192);
+                }
+                arrived_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                let body =
+                    vec![b'a'; omavless_domain::subscription_feed::MAX_SUBSCRIPTION_FEED_BYTES];
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            });
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            let instance = server.instance_id.clone();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = stop.clone();
+            let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+            let baseline_calls = host_calls.load(Ordering::Relaxed);
+            let params = match method {
+                "subscriptions.add" => {
+                    json!({"name":"Synthetic new source","url":url,"operationId":"max-feed"})
+                }
+                "subscriptions.update" => {
+                    json!({"subscriptionId":SUBSCRIPTION_ID,"name":"Synthetic changed source","url":url,"operationId":"max-feed"})
+                }
+                "subscriptions.usage" => json!({"subscriptionId":SUBSCRIPTION_ID}),
+                "subscriptions.refresh_all" => {
+                    json!({"instanceId":instance,"operationId":"max-feed"})
+                }
+                _ => json!({"subscriptionId":SUBSCRIPTION_ID,"operationId":"max-feed"}),
+            };
+            let request_paths = paths.clone();
+            let request = thread::spawn(move || call(&request_paths, method, params).unwrap());
+            arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
+            let started = Instant::now();
+            release_tx.send(()).unwrap();
+            let result = request.join().unwrap();
+            if method == "subscriptions.refresh_all" {
+                assert_eq!(result["ok"], true);
+                let poll = json!({"instanceId":instance,"operationId":"max-feed"});
+                loop {
+                    let response = call(&paths, "operations.get", poll.clone()).unwrap();
+                    if response["result"]["operation"]["state"] == "failed" {
+                        break;
+                    }
+                    assert!(started.elapsed() < Duration::from_secs(3));
+                    thread::sleep(Duration::from_millis(5));
+                }
+            } else {
+                assert_eq!(result["ok"], false);
+                assert_eq!(result["error"]["code"], "subscription_unavailable");
+            }
+            assert!(started.elapsed() < Duration::from_secs(3));
+            assert_eq!(fs::read(&store).unwrap(), before);
+            assert_eq!(
+                call(&paths, "status.get", json!({})).unwrap()["revision"],
+                0
+            );
+            assert_eq!(host_calls.load(Ordering::Relaxed), baseline_calls);
+            assert_eq!(
+                call(
+                    &paths,
+                    "connection.disconnect",
+                    json!({"operationId":"after-max-feed","expectedRevision":0})
+                )
+                .unwrap()["ok"],
+                true
+            );
+            for private in ["synthetic-feed", "vless://", &url] {
+                assert!(!result.to_string().contains(private));
+            }
+            http.join().unwrap();
+            stop.store(true, Ordering::Release);
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]

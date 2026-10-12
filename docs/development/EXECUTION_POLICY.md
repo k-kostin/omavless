@@ -71,6 +71,13 @@ Diagnostic reads and effect authorization are distinct. New experiments should
 provide bounded phase/error output from the start so routine failures do not
 require a new bespoke observer implementation every time.
 
+When a handled-failure path promises to retain its owned graph, its diagnostics
+must be bounded, best-effort and non-throwing. A broken output stream must not
+turn parking into an unwind/exit that releases the graph; include panic hooks
+and the parking wait itself in that review. Use inert broken-output and
+interrupted-wait controls where applicable. This does not require a new logging
+framework or promise resource survival after fatal process death.
+
 Define the diagnostic surface before the run: exact permitted captures or
 service queries, maximum bytes/time, privacy classification and independence
 from mutation paths. Prefer a reusable reviewed observer with narrow fixed
@@ -189,7 +196,29 @@ one reviewer/helper; replace or finish the helper before starting another.
 Parallelize independent work, not overlapping edits or simultaneous VM control.
 Delegation is optional when coordination would cost more than the task.
 
+Distinguish delivery of a message from starting work. Before assigning a new
+deliverable to an existing agent, check whether it is running or completed.
+Use the available follow-up/resume operation for an idle or completed agent;
+a queued message alone may not trigger another turn. Confirm a short start or
+progress checkpoint before scheduling dependent integration work. Reuse that
+agent and its owned branch rather than spawning a duplicate writer.
+
 ## 8. Checkpoints, branches and session completion
+
+Before each Git write, bind the tool's explicit working directory and check
+the actual checkout root and expected branch. A preceding worktree-add does
+not change the next tool's cwd. Refuse an unexpected main checkout rather than
+assuming a dev branch was selected. If an own write was misdirected, stop,
+preserve the exact own commit and user index/untracked state, then use a
+separately checked exact-ref/path recovery; no broad reset or inferred permission
+to alter the release branch. Record original/final refs and prevent recurrence.
+
+For a feature that replaces persistent user data, earn one real loss-of-owner
+and supported recovery-to-ordinary-availability result before selecting public
+RC scope. A happy path and a same-live-holder Abort do not close that gate.
+If unavailable, record the release decision explicitly and enforce exclusion
+in the trusted producer/runtime, not just hidden client controls. Preserve the
+research feature and its failed evidence for the owning next milestone.
 
 Continue existing feature PRs; create a new PR for an independently reviewable
 change, not every diagnostic token or formatting step. Reuse known-good tooling
@@ -203,6 +232,14 @@ because several steps ran, and do not fabricate closure to avoid a blocker.
 New scope needs its own applicable owner direction.
 
 ## 9. Lightweight orchestration retrospectives
+
+For delayed lifecycle actions, read the actual grace/deadline and hold the
+trigger beyond it before observing the intended outcome. A rapid disable/enable
+cycle proves cancellation during grace, not sustained-disable behavior. For
+wire fixtures, close the responding peer after its original response and bound
+the client read; an EOF-waiting test must not hang indefinitely or be mistaken
+for a product deadlock. Keep the first incomplete result separate from the
+corrected test, and do not use completion markers as state proof.
 
 The primary agent reassesses the working process at a meaningful integration
 checkpoint, after the same bottleneck recurs, or approximately every two to

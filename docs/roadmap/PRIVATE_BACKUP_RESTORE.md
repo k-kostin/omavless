@@ -1,5 +1,22 @@
 # T4 private backup and restore proposal
 
+## Owner release boundary, 2026-10-08
+
+**0.9.8 selects encrypted private-pair Backup only.** Restore and its preview,
+developer staging/pause/abort and actor writer are unavailable in the trusted
+product build. The full T4 research feature remains separate. Do not remove
+pending records, immutable history or old recovery copies to make a failed
+installation appear healthy.
+
+**0.9.9 must finish usable consumer Restore**, including explicit authenticated
+recovery after client/actor loss, verified OLD or committed NEW disposition and
+separately earned fresh ordinary availability. Exercise early/mixed/late cuts
+applicable to its declared guarantee. Unknown remains fenced; guessed FD
+adoption, automatic retry, socket/marker deletion and VM reset are not recovery.
+Happy-path Restore and same-live-holder Abort remain necessary but insufficient.
+The [RC report](../testing/RC_098_VM_2026-10-08.md) retains the fatal restart-loop/
+refused-Abort negative that motivated this boundary.
+
 The owner-approved [execution policy](../development/EXECUTION_POLICY.md)
 selects a separate availability-oriented retained-manager actor SERVICE
 direction. Its [opt-in Rust implementation](../development/T4_MANAGER_ACTOR_SERVICE.md)
@@ -16,7 +33,8 @@ restart. The owning API contract preserves the failed predecessor and exact
 scope46 evidence. This does not activate default methods, a Settings picker,
 Restore UX, whole settings or SLEEP/network/OS-transfer guarantees.
 
-Status: ordinary product activation remains **not approved**. The historical
+Status: full Restore product activation remains **not approved**. Only the
+owner-selected Backup scope above may enter 0.9.8 after its gates. The historical
 inactive envelope/transaction foundations below are now supplemented by the
 explicit developer-feature checkpoint, not default Backup/Restore registration,
 picker, scheduler or normal Restore UX. The development-only first-Abort

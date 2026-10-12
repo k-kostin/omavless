@@ -33,8 +33,20 @@ not replaced by this short entry point.
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
 - New task branches use `dev/<topic>`; temporary development assemblies use
   `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
-  Current assembly is `beta/0.9.8`, based on the internal `rc/0.9.7` source
-  checkpoint. Publicly accepted artifact baseline is `rc/0.9.5`; preserve `rc/0.9.0` and its assets as
+  The owner-selected 0.9.8 release snapshot was promoted through
+  `dev/098-stable-preparation` (#726), carrying
+  the selected `rc/0.9.8` Backup-only scope and corrected immutable
+  `v0.9.8-fix.1` delivery. Read its current ledger before selecting
+  packages; old 0.9.8 assets are immutable and superseded. #726 is merged;
+  `v0.9.8-fix.1` is retained delivery history and the preparation branch is retired.
+  On October 11 the owner approved the user-facing README update through #732.
+  On October 11 the owner also authorized the agreed 0.9.8 Marketplace copy,
+  preview and exact-main update request, with tags vpn/bar/quickshell. Record
+  the request and bot/reviewer outcome on the publication PR, without another
+  main commit that immediately changes the submitted SHA. No standing
+  authorization for future main updates follows. Publicly accepted artifact baseline is `rc/0.9.5`
+  as historical RC evidence, not a selector for the corrected 0.9.8 packages;
+  preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent
   develop/beta/rc lane or direct implementation on main.
   `main` is the stable release snapshot, including its documentation. Keep
@@ -46,6 +58,16 @@ not replaced by this short entry point.
   This includes documentation-only merges: the former standing authorization
   is revoked. Follow the [documentation merge rule](docs/roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates)
   and include roadmap/docs reconciliation in every proposed main update.
+- The October 11 owner follow-up authorizes the Qt clipboard correction within
+  0.9.8 through #735, its immutable frontend delivery `v0.9.8-fix.2` with unchanged
+  native pair, and updating existing Marketplace #10984 to final main. Product
+  version stays 0.9.8; older tags/assets remain immutable. Read #735 for the actual
+  publication/installed outcome, not an inferred PASS from this authorization.
+- The October 11 continuation through #736 authorizes the same-version subscription
+  scan correction, matching native delivery `v0.9.8-fix.3` and existing #10984
+  update. Native source is `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`, not the
+  old e3d22459 pair. Read #736 for actual gates/publication; old assets stay immutable.
+  This is not authorization to implement #733 or publish future versions.
 - README is a product page, not an agent diary. Follow the
   [documentation and retention policy](docs/development/README.md). Preserve
   useful roadmaps, contracts and evidence; keep disposable session files outside Git.

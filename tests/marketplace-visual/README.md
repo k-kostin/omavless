@@ -52,7 +52,7 @@ bwrap --ro-bind / / --bind CAPTURE/runtime /run/user/1000 \
   qs ipc -p CAPTURE call marketplaceReview scene main
 ```
 
-The same prefix supports `inspect`, `scene subscription`, `scene settings`,
+The same prefix supports `inspect`, `scene subscription`, `scene settings`, `scene setup`,
 `capture PUBLIC-SLUG`, `result`, and `finish`. Wait for the scene to settle,
 `inspect` to report disconnected and five demo profiles, and `result` to report
 `captured`. Review each saved PNG yourself before copying to shareable assets.
@@ -63,6 +63,29 @@ Use `finish` to close only the isolated instance, then check that the real
 plugin/runtime state is unchanged. Keep raw scratch captures outside Git; only
 reviewed credential-free selected assets belong under `docs/marketing/images/`.
 Do not run Install or real VPN transitions to create marketing imagery.
+
+`scene setup` projects missing-component facts through the unchanged production
+Setup page. If it reports `not-ready`, wait for the existing presence probe to
+finish before choosing the scene again. Check `inspect.bootstrap === true`
+before capture. This is a setup illustration, not clean-install acceptance.
+
+## Terminal application screenshot
+
+`node tests/marketplace-visual/tui.mjs CAPTURE` binds a private Unix socket only
+under that freshly staged directory. It serves four fixed read responses using
+the same credential-free metadata; every effect-bearing command refuses with a
+fixed error. Frames, concurrent clients and lifetime are bounded. No real store,
+service, controller, provider, network or executable dispatch is present.
+
+Launch the installed `omavless tui` in a terminal through the same home/runtime/
+network isolation above, replacing `qs -p CAPTURE` with `/usr/bin/omavless tui`.
+Keep the renderer's ordinary font/theme; resize only this screenshot window.
+Capture its actual window after resize/redraw settles, with an empty desktop
+behind transparent terminal surfaces. Inspect every saved frame: reject clipped
+borders or background windows. Close the client with `q`, then stop the one
+verified fixture process with SIGTERM; never signal the real daemon or Codex.
+Neither advertised controls nor these pictures establish working mutations or
+VPN health. The README caption identifies example profiles/setup states.
 
 ## Development UI state review
 
@@ -89,3 +112,13 @@ pointer hover at both widths. During `search`, the matching subscription must
 be expanded, toggling must preserve the stored false preference, and clearing
 search must restore collapsed. Review the saved PNGs yourself. Real installed
 runtime/package behavior remains a separate gate.
+
+`reviewImport LOCALE WIDTH` opens the production direct-entry prompt without
+reading the clipboard or supplying credentials. Inspect EN/RU at 360/460 pixels;
+`reviewCancelImport` exercises its Cancel signal before capturing the adjacent
+main screen. Actual typing/Paste/keyboard and private-field clearing are covered
+by `tests/safe-input/`; these captures do not claim a saved import or live VPN.
+
+`reviewBundle LOCALE WIDTH EMPTY` opens the production count-only local-bundle
+confirmation with synthetic counts; `EMPTY=true` exercises the disabled Add
+state. This remains rendering evidence, not a successful persistent import.

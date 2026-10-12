@@ -897,6 +897,103 @@ fn import_preview_cli_sends_only_fixed_private_request_and_prints_response() {
     fs::remove_dir_all(base).unwrap();
 }
 
+#[test]
+fn bundle_confirmation_cli_reads_bound_multiline_input_without_argv_payload() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let links =
+        "trojan://synthetic-token@203.0.113.1:443#One\ntrojan://second-token@203.0.113.2:443#Two\n";
+    let worker = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(std::time::Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("synthetic socket failed: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "plugin.action");
+        assert_eq!(
+            request["params"],
+            serde_json::json!({"action":"profile-bundle-import",
+            "instanceId":"instance", "expectedRevision":7, "operationId":"bundle",
+            "previewFingerprint":"a".repeat(64), "input":links})
+        );
+        let response = success_response(
+            request["id"].as_str().unwrap(),
+            8,
+            serde_json::json!({"schemaVersion":1,"instanceId":"instance","operationId":"bundle",
+                "action":"profile-bundle-import","applied":true}),
+        )
+        .unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let mut child = isolated_command(&base)
+        .args(["plugin", "profile-bundle-import", "instance", "7", "bundle"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{}\n{links}", "a".repeat(64)).as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    worker.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["revision"],
+        8
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-token"));
+    let invalid = isolated_command(&base)
+        .args([
+            "plugin",
+            "profile-bundle-import",
+            "instance",
+            "7",
+            "bundle",
+            "synthetic-payload",
+        ])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("synthetic-payload"));
+    fs::remove_dir_all(base).unwrap();
+}
+
 impl Drop for ChildGuard {
     fn drop(&mut self) {
         let _ = self.0.kill();
