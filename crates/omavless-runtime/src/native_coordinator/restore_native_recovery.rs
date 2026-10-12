@@ -26,6 +26,12 @@ enum RecoveredPairChoice {
     CommittedNew,
 }
 
+fn release_phase(label: &'static [u8]) {
+    // Fixed public categories, one best-effort write. Diagnostic failure cannot
+    // unwind the retained recovery graph or authorize another attempt.
+    let _ = nix::unistd::write(std::io::stderr(), label);
+}
+
 #[cfg(test)]
 #[test]
 fn native_fresh_recovery_reserves_one_original_and_retains_after_handle_loss() {
@@ -1151,6 +1157,7 @@ impl FreshRecovery {
         &mut self,
         choice: RecoveredPairChoice,
     ) -> Result<ReleasedConfiguration, FirstError> {
+        release_phase(b"RESTORE_RELEASE_ALIASES\n");
         // No installed normal owner, completion borrower or external keeper may
         // survive this release. All aliases are classified before taking data.
         if Arc::strong_count(&self.original) != 1
@@ -1175,6 +1182,7 @@ impl FreshRecovery {
         {
             return Err(FirstError::StillFenced);
         }
+        release_phase(b"RESTORE_RELEASE_BOUND_ORIGIN\n");
         let RecoveryHeld {
             lock,
             boundary,
@@ -1218,6 +1226,7 @@ impl FreshRecovery {
                 engine.check_native_new_completed(&mut origin, quiescence, until)?
             }
         }
+        release_phase(b"RESTORE_RELEASE_COMPLETION_VERIFIED\n");
         // Ordinary reconciliation must not rewrite/prune the recovered pair. Check
         // the existing pure pointer planner before publishing disposition.
         let pointers = crate::private_store_transaction::prepare_pointer_mutation(
@@ -1227,10 +1236,15 @@ impl FreshRecovery {
                 prune_missing: true,
             },
         )
-        .map_err(|_| FirstError::StillFenced)?;
+        .map_err(|_| {
+            release_phase(b"RESTORE_RELEASE_POINTER_PLAN_REFUSED\n");
+            FirstError::StillFenced
+        })?;
         if pointers.changed() {
+            release_phase(b"RESTORE_RELEASE_POINTER_CHANGE_REFUSED\n");
             return Err(FirstError::StillFenced);
         }
+        release_phase(b"RESTORE_RELEASE_POINTER_PRESERVED\n");
         match choice {
             RecoveredPairChoice::Old => {
                 engine.dispose_native_old_completed(&mut origin, quiescence)?
@@ -1239,6 +1253,7 @@ impl FreshRecovery {
                 engine.dispose_native_new_completed(&mut origin, quiescence)?
             }
         }
+        release_phase(b"RESTORE_RELEASE_DISPOSITION_VERIFIED\n");
         let mut ordinary = crate::startup_admission::StartupAdmission::ordinary();
         verify_ordinary_off(
             &mut ordinary,

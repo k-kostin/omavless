@@ -105,3 +105,35 @@ Prior committed checks: 44 focused recovery tests at `23fce418`, seven native
 recovery tests plus bounded diagnostics and ten driver tests at `bd83fce1`.
 These are source checkpoints, not full feature closure. The PR comment records
 the new cgroup/CLI checkpoint's actual results and any checks still pending.
+
+## First PC installed result and successor
+
+The optimized CLI-only app/DNS pair at
+`1dcd4c75b7367f0474f087c16d43d6a098d88227` was actually installed and inspected
+in the x86_64 development guest. Normal fresh initialization, managed pair
+selection, disconnected activation, packaged login preparation, bundled preset
+selection and the fixed driver's read-only preflight passed.
+
+The one-shot positive driver passed Backup, ordinary synthetic import, Intent
+pause and normal Stop. Recovery authenticated and completed OLD retirement, but
+the following consuming disposition refused; the original driver exited 2.
+No ordinary Start was attempted. The stopped fixture retains its closure,
+archive and private captures. It is not accepted, replayed or cleaned.
+
+Source review and a new failing regression identify a pointer-planner mismatch:
+ordinary import preserves an empty Last pointer, whereas disconnected pruning
+invented a Last pointer to the first profile. Exact OLD preservation correctly
+refused that proposed rewrite. The successor preserves an originally empty Last
+pointer while retaining repair of nonempty stale/missing pointers. It does not
+disable pruning or remove the release-time preservation check. Closed release
+diagnostic categories distinguish the relevant checks without exposing inputs.
+
+The fixed next positive driver selects a fresh `ovrestore202` scope. It must earn
+its own optimized same-source pair and reviewed preparation; it must not reuse
+the stopped first scope. This is still agent-operated CLI-only VM evidence,
+not product/UI, human-attended or whole-Restore acceptance. Partial closure or
+disposition recovery remains a separate unimplemented gate.
+
+Resume discipline: after compaction/interruption, reconcile the newest trusted
+assignment, stopped/active writer, sole VM operator and next executable gate.
+An old pause/cleanup task is not the current task after an explicit owner resume.

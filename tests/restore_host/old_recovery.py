@@ -21,8 +21,8 @@ import time
 
 # PC-only fresh scope. The ARM accounts and their retained failures are not
 # transferred, resumed or cleaned by this recipe.
-ACCOUNT = "ovrestore201"
-HOME = Path("/home/ovrestore201")
+ACCOUNT = "ovrestore202"
+HOME = Path("/home/ovrestore202")
 ELF = Path("/usr/bin/omavless")
 MAX_FRAME = 256 * 1024
 
