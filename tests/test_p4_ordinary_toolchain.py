@@ -39,12 +39,13 @@ def elf(ptype=1, dynamic=None):
     return bytes(raw)
 
 
-def archive(entries):
+def archive(entries, owners=None):
     out = io.BytesIO()
     with tarfile.open(fileobj=out, mode='w') as stream:
         for name, kind, payload, mode in entries:
             member = tarfile.TarInfo(name)
             member.mode = mode
+            member.uid = (owners or {}).get(name, 0)
             if kind == 'directory':
                 member.type = tarfile.DIRTYPE
             elif kind == 'link':
@@ -67,6 +68,7 @@ def valid_entries():
             ('usr/lib/go/pkg/tool/linux_amd64', 'directory', b'', 0o755),
             *[('usr/lib/go/' + name, 'file', elf(), 0o755)
               for name in admission.REQUIRED_NATIVE_TOOLS if name != 'bin/go'],
+            ('usr/lib/go/doc', 'link', '/usr/share/doc/go', 0o777),
             ('usr/bin/go', 'link', '/usr/lib/go/bin/go', 0o777)]
 
 
@@ -77,10 +79,11 @@ class ToolchainControls(unittest.TestCase):
 
     def test_pure_catalogue_binds_full_tree_and_explicit_go_link(self):
         tree, link = self.catalogue(valid_entries())
-        self.assertEqual(len(tree), 13)
+        self.assertEqual(len(tree), 14)
         self.assertEqual(link, '/usr/lib/go/bin/go')
         self.assertEqual(tree['usr/lib/go/src/empty.go']['size'], 0)
         self.assertEqual(tree['usr/lib/go/bin/go']['sha256'], hashlib.sha256(elf()).hexdigest())
+        self.assertEqual(tree[admission.DOC_LINK], {'kind': 'documentation_symlink', 'mode': 0o777, 'target': admission.DOC_TARGET})
 
     def test_catalogue_refuses_duplicates_escape_and_missing_ancestry(self):
         good = valid_entries()
@@ -92,6 +95,18 @@ class ToolchainControls(unittest.TestCase):
                         good + [('usr/lib/go/unsafe', 'file', b'x', 0o666)]):
             with self.subTest(entries=entries), self.assertRaises(ValueError):
                 self.catalogue(entries)
+
+    def test_signed_catalogue_documentation_exception_is_exact(self):
+        good = [entry for entry in valid_entries() if entry[0] != admission.DOC_LINK]
+        for kind, target, mode in (('link', '/caller/docs', 0o777),
+                                  ('link', admission.DOC_TARGET, 0o755),
+                                  ('directory', b'', 0o777)):
+            with self.subTest(kind=kind, target=target, mode=mode), self.assertRaises(ValueError):
+                self.catalogue(good + [(admission.DOC_LINK, kind, target, mode)])
+        with self.assertRaises(ValueError):
+            self.catalogue(good)
+        with patch.object(admission, 'GO_SHA256', hashlib.sha256(elf()).hexdigest()), self.assertRaises(ValueError):
+            admission.catalogue(archive(valid_entries(), owners={admission.DOC_LINK: 1000}))
 
     def test_elf_refuses_interpreter_shared_dependencies_and_malformed_headers(self):
         admission.static_elf(elf())
@@ -119,22 +134,34 @@ class ToolchainControls(unittest.TestCase):
         package = b'INERT_COMPRESSED_PACKAGE_NEVER_DECOMPRESSED'
         raw = elf()
         paths = [admission.GOROOT, admission.GOROOT / 'bin', admission.GOROOT / 'bin/go']
+        doc = admission.GOROOT / 'doc'
         tree = {'usr/lib/go': {'kind': 'directory', 'mode': 0o755},
                 'usr/lib/go/bin': {'kind': 'directory', 'mode': 0o755},
                 'usr/lib/go/bin/go': {'kind': 'file', 'mode': 0o755, 'size': len(raw),
-                                      'sha256': hashlib.sha256(raw).hexdigest()}}
+                                      'sha256': hashlib.sha256(raw).hexdigest()},
+                admission.DOC_LINK: {'kind': 'documentation_symlink', 'mode': 0o777, 'target': admission.DOC_TARGET}}
         def metadata(mode, size=0):
             return SimpleNamespace(st_dev=1, st_ino=1, st_uid=0, st_gid=0,
                                    st_mode=mode, st_nlink=1, st_size=size,
                                    st_mtime_ns=1, st_ctime_ns=1)
         file_metadata = metadata(0o100755, len(raw))
-        link_reads, directory_reads = [], []
+        link_reads, directory_reads, doc_reads = [], [], []
         def observed(path):
             if path == admission.GO:
                 link_reads.append(True)
                 m = metadata(0o120777)
                 if cut == 'link_owner': m.st_uid = 1000
                 if cut == 'link_drift' and len(link_reads) > 1: m.st_ino = 2
+                return m
+            if path == doc:
+                doc_reads.append(True)
+                m = metadata(0o120777)
+                if cut == 'doc_owner': m.st_uid = 1000
+                if cut == 'doc_group': m.st_gid = 1000
+                if cut == 'doc_mode': m.st_mode = 0o120755
+                if cut == 'doc_type': m.st_mode = 0o100777
+                if cut == 'doc_hardlink': m.st_nlink = 2
+                if cut == 'doc_drift' and len(doc_reads) > 1: m.st_ino = 2
                 return m
             if path in paths:
                 m = metadata(0o040755) if path != paths[-1] else file_metadata
@@ -143,11 +170,20 @@ class ToolchainControls(unittest.TestCase):
             raise AssertionError('unselected synthetic path')
         def children(path):
             directory_reads.append(path)
-            result = [paths[1]] if path == paths[0] else [paths[2]] if path == paths[1] else None
+            result = [paths[1], doc] if path == paths[0] else [paths[2]] if path == paths[1] else None
             if result is None: raise AssertionError('unexpected synthetic directory')
             if cut == 'extra' and path == paths[0]: result += [path / 'extra']
             if cut == 'directory_drift' and directory_reads.count(path) > 1: result = []
             return iter(result)
+        def link_target(path):
+            if path == admission.GO: return admission.GO_SYMLINK
+            if path == doc:
+                changed = cut == 'doc_target' or cut == 'doc_target_drift' and len(doc_reads) > 1
+                return '/caller/docs' if changed else admission.DOC_TARGET
+            raise AssertionError('unexpected synthetic link')
+        def ancestry(path):
+            if path not in (*paths, doc, admission.GO):
+                raise AssertionError('documentation target was traversed')
         def read(path, *args, **kwargs):
             if path == admission.ARCHIVE:
                 return package, metadata(0o100644, len(package))
@@ -157,23 +193,30 @@ class ToolchainControls(unittest.TestCase):
         compression = SimpleNamespace(zstd=SimpleNamespace(ZstdFile=lambda unused: io.BytesIO(b'INERT_TAR')))
         with patch.dict(sys.modules, {'compression': compression}), \
                 patch.object(admission, 'root_bytes', side_effect=read), \
-                patch.object(admission, 'root_ancestry'), \
+                patch.object(admission, 'root_ancestry', side_effect=ancestry), \
                 patch.object(admission, 'ARCHIVE_SIZE', len(package)), \
                 patch.object(admission, 'ARCHIVE_SHA256', hashlib.sha256(package).hexdigest()), \
                 patch.object(admission, 'catalogue', return_value=(tree, admission.GO_SYMLINK)), \
                 patch.object(Path, 'lstat', observed), \
                 patch.object(Path, 'iterdir', children), \
                 patch.object(admission.os, 'listxattr', return_value=[]), \
-                patch.object(admission.os, 'readlink', return_value=admission.GO_SYMLINK):
+                patch.object(admission.os, 'readlink', side_effect=link_target):
             yield
 
     def test_mocked_installed_tree_provenance_and_each_drift_cut(self):
         with self.installed_model():
             record = admission.admit()
-            self.assertEqual(record['members'], 3)
+            self.assertEqual(record['members'], 4)
             self.assertTrue(record['static_executable_closure'])
             self.assertFalse(record['hostile_root_atomic_attestation'])
+            self.assertEqual(record['tree_scope'], 'lexical-goroot')
+            self.assertFalse(record['documentation_target_traversed'])
         for cut in ('link_owner', 'link_drift', 'metadata', 'extra', 'bytes', 'directory_drift'):
+            with self.subTest(cut=cut), self.installed_model(cut), self.assertRaises(ValueError):
+                admission.admit()
+
+    def test_mocked_documentation_link_metadata_target_and_drift_refuse(self):
+        for cut in ('doc_owner', 'doc_group', 'doc_type', 'doc_mode', 'doc_hardlink', 'doc_drift', 'doc_target', 'doc_target_drift'):
             with self.subTest(cut=cut), self.installed_model(cut), self.assertRaises(ValueError):
                 admission.admit()
 

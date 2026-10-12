@@ -26,6 +26,8 @@ MAX_MEMBERS = 50000
 MAX_FILE = 64 * 1024 * 1024
 MAX_TREE = 512 * 1024 * 1024
 GO_SYMLINK = '/usr/lib/go/bin/go'
+DOC_LINK = 'usr/lib/go/doc'
+DOC_TARGET = '/usr/share/doc/go'
 REQUIRED_NATIVE_TOOLS = ('bin/go', 'pkg/tool/linux_amd64/compile',
                          'pkg/tool/linux_amd64/asm', 'pkg/tool/linux_amd64/link',
                          'pkg/tool/linux_amd64/test2json', 'pkg/tool/linux_amd64/vet')
@@ -118,6 +120,16 @@ def catalogue(tar_bytes):
                 continue
             if name != 'usr/lib/go' and not name.startswith('usr/lib/go/'):
                 continue
+            # The signed Arch package places documentation outside lexical
+            # GOROOT. Attest this one link itself; never open/traverse its target.
+            # No compiler/stdlib path receives a symlink exception.
+            if name == DOC_LINK:
+                if (not member.issym() or member.uid != 0 or member.gid != 0
+                        or member.mode != 0o777 or member.linkname != DOC_TARGET):
+                    raise ValueError('fixed_package_documentation_link')
+                found[name] = {'kind': 'documentation_symlink', 'mode': 0o777,
+                               'target': DOC_TARGET}
+                continue
             if member.uid != 0 or member.gid != 0 or member.mode & 0o7022:
                 raise ValueError('package_tree_metadata')
             if member.isdir():
@@ -145,6 +157,8 @@ def catalogue(tar_bytes):
         raise ValueError('fixed_package_go_identity')
     if not set(REQUIRED_NATIVE_TOOLS) <= native:
         raise ValueError('required_native_tool_missing')
+    if found.get(DOC_LINK) != {'kind': 'documentation_symlink', 'mode': 0o777, 'target': DOC_TARGET}:
+        raise ValueError('fixed_package_documentation_link_missing')
     # Explicit hierarchy prevents omitted directory metadata from being inferred.
     for name in found:
         for parent in PurePosixPath(name).parents:
@@ -175,7 +189,7 @@ def admit():
             or before_link.st_gid != 0 or before_link.st_nlink != 1
             or os.listxattr(GO, follow_symlinks=False) or os.readlink(GO) != target):
         raise ValueError('installed_fixed_go_symlink')
-    actual, directory_records = {}, {}
+    actual, directory_records, documentation_links = {}, {}, {}
     pending = [GOROOT]
     total = 0
     while pending:
@@ -187,6 +201,15 @@ def admit():
         m = path.lstat()
         record = wanted[name]
         root_ancestry(path)
+        if record['kind'] == 'documentation_symlink':
+            if (name != DOC_LINK or record != {'kind': 'documentation_symlink', 'mode': 0o777, 'target': DOC_TARGET}
+                    or not stat.S_ISLNK(m.st_mode) or m.st_uid != 0 or m.st_gid != 0
+                    or stat.S_IMODE(m.st_mode) != 0o777 or m.st_nlink != 1
+                    or os.listxattr(path, follow_symlinks=False) or os.readlink(path) != DOC_TARGET):
+                raise ValueError('installed_fixed_documentation_link')
+            documentation_links[path] = identity(m)
+            actual[name] = record
+            continue  # No target ancestry, enumeration, content read or adoption.
         if (m.st_uid != 0 or m.st_gid != 0 or m.st_mode & 0o7022
                 or stat.S_IMODE(m.st_mode) != record['mode'] or os.listxattr(path, follow_symlinks=False)):
             raise ValueError('installed_tree_metadata')
@@ -211,12 +234,17 @@ def admit():
         budget()
         if identity(path.lstat()) != metadata or tuple(sorted(path.iterdir())) != children:
             raise ValueError('installed_tree_directory_drift')
+    for path, metadata in documentation_links.items():
+        budget()
+        if identity(path.lstat()) != metadata or os.readlink(path) != DOC_TARGET:
+            raise ValueError('installed_documentation_link_drift')
     if identity(GO.lstat()) != identity(before_link) or os.readlink(GO) != target:
         raise ValueError('installed_go_link_drift')
     budget()
-    return {'schema': 'p4-ordinary-arch-go-admission-v1', 'package_sha256': ARCHIVE_SHA256,
+    return {'schema': 'p4-ordinary-arch-go-admission-v2', 'package_sha256': ARCHIVE_SHA256,
             'package_signer_fingerprint': SIGNER, 'go_sha256': GO_SHA256,
             'tree_sha256': hashlib.sha256(json.dumps(wanted, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
             'members': len(wanted), 'go_symlink_target': target,
             'goroot': str(GOROOT), 'static_executable_closure': True,
+            'tree_scope': 'lexical-goroot', 'documentation_target_traversed': False,
             'administrator_package_trust': True, 'hostile_root_atomic_attestation': False}

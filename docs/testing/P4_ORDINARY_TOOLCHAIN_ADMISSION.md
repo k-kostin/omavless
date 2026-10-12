@@ -41,9 +41,10 @@ has no CLI, subprocess, extraction or execution capability. On a separately
 selected invocation, Python 3.14's standard-library zstd decoder reads the
 fixed root-owned package in memory under byte/count bounds, checks its independent
 digest, and builds a full path/type/mode/size/content catalogue. No archive
-member is written. Installed `/usr/lib/go` must have exactly those directories
-and files: no omitted compiler, stdlib, assembly, object, support or data input,
-additional file, symlink, hard link, extended attribute or writable ancestry.
+member is written. Lexical installed `/usr/lib/go` must have exactly those
+directories/files plus the fixed documentation symlink described below: no
+omitted compiler, stdlib, assembly, object, support or data input, additional
+file, other symlink, hard link, extended attribute or writable ancestry.
 The only executable-selection symlink is root-owned `/usr/bin/go`, literal
 target `/usr/lib/go/bin/go`; its canonical bytes must match SHA-256
 `3144268876ba974458f06ab523581fabac9e967855e2a1bb9de9ba950167b542`.
@@ -87,3 +88,29 @@ fabricated tar/ELF bytes and mocked runner command/export/admission paths. They
 do not read a real package/tool tree, decompress a real archive, execute Go or
 prove engine behavior. Full ordinary developer-suite and exact-head review
 results belong on the owning Draft PR; installed/native/VM gates remain unrun.
+
+## Original admission failure and narrow successor
+
+ROOT's first actual read-only admission at source
+`2b5e2fedb854676a683c0f8b7ce5e768cf0bb868` exited 1 with
+`package_tree_metadata`, before any Go/export/engine operation. Bounded inspection
+of the independently signed package identified Arch's exact documentation
+symlink `usr/lib/go/doc` → `/usr/share/doc/go`, UID/GID 0 and mode 0777;
+the installed link matched with one link and the same literal target. The
+original failure remains a failure, not acceptance at the successor head.
+
+The successor admits only that signed-package documentation link, checks its
+installed type/UID/GID/mode/link count/literal target and unchanged final metadata
+and target, and includes it in lexical membership. It never opens, enumerates,
+validates ancestry of or adopts `/usr/share/doc/go`. Documentation there is outside
+the selected compiler/stdlib input closure of mod verify, test -c and test2json.
+All other GOROOT symlinks remain forbidden; nonwritable root-owned ancestry and
+all ordinary source/file/hash/ELF guards remain unchanged. Admission schema v2
+explicitly records lexical GOROOT scope and no documentation-target traversal.
+
+Twelve focused inert controls now cover the exact accepted doc link, changed
+archive/installed target, archive/installed mode and owner, foreign GOROOT links,
+changed installed type/group/link count, metadata/target drift, and forbidden
+target access. ROOT and independent delta review precede the next separately
+selected actual read-only admission. This correction itself ran no package
+parse, actual tool-tree admission, Go BUILD or engine case.
