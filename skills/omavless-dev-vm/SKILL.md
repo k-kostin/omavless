@@ -37,6 +37,9 @@ CLI help and compositor version before using remembered commands. Cache those
 facts for that baseline. In particular, an interface change can make an old
 window dispatcher return textual errors despite a zero shell exit; confirm the
 requested window geometry or service state, not merely command completion.
+For a unit observation, establish its actual installed name and `LoadState=loaded`;
+an absent recalled name can otherwise appear inactive/dead without describing
+the running service.
 
 For a freshly started `Type=simple` native unit, successful `systemctl start`
 does not prove its IPC socket is ready. Before the next configuration mutation,
