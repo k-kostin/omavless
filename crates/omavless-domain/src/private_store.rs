@@ -26,6 +26,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub(crate) mod backup_candidate;
+mod local_bundle;
+pub use local_bundle::{LocalBundleCounts, LocalBundlePlan};
 mod startup;
 mod support;
 pub use startup::{StartupPreferences, apply_startup_preferences};

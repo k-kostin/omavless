@@ -130,6 +130,16 @@ ShellRoot {
       prompt.canceled()
       return prompt.visible ? "failed" : "closed"
     }
+    function reviewBundle(locale: string, width: int, empty: bool): string {
+      var state = reviewState(locale, "normal", width)
+      if (state !== "ready") return state
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      var prompt = review.find(product, function(o) { return o.objectName === "omavlessBundleImportPrompt" })
+      if (!service || !prompt) return "unavailable"
+      service.nativeBundlePreview = {accepted:empty ? 0 : 37, duplicates:3, skipped:2}
+      prompt.open()
+      return "ready"
+    }
     function reviewFocus(): string {
       var group = review.subscriptionGroup()
       if (!group) return "not-ready"

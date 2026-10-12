@@ -14,6 +14,15 @@ test('bounded replacement, cursor and refusal without truncation', () => {
   assert.equal(value.text, 'aИc'); assert.equal(value.cursor, 2);
   for (const args of [['abc','x\ny',1,2,80], ['abc','long',1,2,3], ['abc','x',-1,2,80], ['abc','x',2,1,80], ['abc','x',0,4,80]]) assert.equal(context.insertion(...args), null);
 });
+test('only explicit multiline import admits CR/LF without relaxing byte/control bounds', () => {
+  for (const value of ['one\ntwo', 'one\r\ntwo', 'я\n東京']) {
+    assert(context.valid(value, 32768, true));
+    assert(!context.valid(value, 32768));
+    assert.equal(context.insertion('', value, 0, 0, 32768, true).text, value);
+  }
+  for (const value of ['a\0b', 'a\tb', '\ud800', 'я'.repeat(16385), 'x'.repeat(32769)])
+    assert(!context.valid(value, 32768, true));
+});
 test('all editable fields use the shared guarded boundary', () => {
   const files = fs.readdirSync(path.join(root, 'plugin')).filter(name => name.endsWith('.qml'));
   for (const file of files) {
@@ -52,7 +61,7 @@ test('explicit paste preserves late-result fences and safe error codes', () => {
   for (const change of [c => c.visible = false, c => c.enabled = false, c => c.readOnly = true, c => c.activeFocus = false, c => c.text = 'changed', c => c.cursorPosition = 1, c => c.selectionEnd = 1]) {
     Object.assign(context, {text:'abc', visible:true, enabled:true, readOnly:false, activeFocus:true, maximumLength:80,
       selectionStart:0, selectionEnd:3, cursorPosition:3, pasteContext:{text:'abc', start:0, end:3, cursor:3}, edits:0,
-      pasteError:'', SafeText:context, textEdited:() => context.edits++});
+      pasteError:'', multiline:false, SafeText:context, textEdited:() => context.edits++});
     change(context); const before = context.text; context.finishPaste('secret-not-logged');
     assert.equal(context.text, before); assert.equal(context.edits, 0);
   }

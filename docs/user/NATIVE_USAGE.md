@@ -27,11 +27,21 @@ or one supported subscription URL, then open the corresponding confirmation.
 They do not accept an arbitrary remote configuration file.
 
 In the **0.9.9 development beta**, **+** beside the import buttons opens
-**Enter VPN access**. Type one profile link or subscription URL, or use **Paste**,
-then choose **Review**. The existing profile/subscription confirmation is still
-required before saving; neither step connects VPN automatically. The entry is
-private, cleared on Cancel/close, and limited to 32 KiB. Multi-profile/Base64
-bundle entry is not enabled by this first beta slice. Stable 0.9.8 is unchanged.
+**Enter VPN access**. Type a profile link or subscription URL, or use **Paste**,
+then choose **Review**. The local-bundle development candidate also accepts a
+raw list (one profile link per line) or a Base64-encoded list through entry,
+clipboard and file import. Enter reviews; Shift+Enter inserts a new line.
+
+A list shows new, duplicate and skipped counts before **Add profiles**. It adds
+local profiles, not an updating subscription. Existing profiles are preserved;
+matching canonical connections are skipped and colliding names get a suffix.
+Unsupported or invalid entries are skipped. Nothing connects automatically.
+If the store changes after preview, review the input again before saving.
+
+The entry is private, cleared on Cancel/close, and limited to 32 KiB, including
+Base64 wrapping. The store holds at most 256 profiles; oversized input is refused,
+not truncated. These changes are development-candidate behavior, not a published
+beta package or a change to stable 0.9.8.
 
 In the main profile list:
 

@@ -1029,15 +1029,26 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 
     /// Classify private import input against the current store while exact native
     /// ownership and the shared private-store lock are continuously held.
-    pub(crate) fn import_preview(
-        &mut self,
-        request: &Value,
-    ) -> Result<omavless_domain::import::ImportPreview, NativeOwnerError> {
+    pub(crate) fn import_preview(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
         let parsed = crate::import_read_protocol::parse_import_preview_request(request)?;
-        self.with_owned_private_store(|store| {
-            store
-                .preview_import(parsed.private_input())
-                .map_err(|_| MutationProtocolError::InvalidArgument.into())
+        self.with_owned_read(|owner| {
+            crate::private_store_transaction::validate_store_path(
+                owner.transaction.store_path(), owner.transaction.uid())
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            let original = omavless_store::read_private_utf8(
+                owner.transaction.store_path(), owner.transaction.uid())
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            let store = omavless_domain::private_store::parse_private_store(&original)
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            if let Ok(preview) = store.preview_import(parsed.private_input()) {
+                return Ok(preview.private_ui_value());
+            }
+            let plan = store.plan_local_bundle(parsed.private_input())
+                .map_err(|_| NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument))?;
+            let counts = plan.counts();
+            Ok(serde_json::json!({"version":1,"kind":"bundle", "counts":{
+                "accepted":counts.accepted,"duplicates":counts.duplicates,"skipped":counts.skipped},
+                "previewFingerprint":crate::profile_bundle_protocol::fingerprint(&original, parsed.private_input())}))
         })
     }
 
@@ -2087,6 +2098,74 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
         .map_err(store_error)
         .and_then(|plan| {
+            crate::profile_transaction::commit_store_only_profile(
+                &plan,
+                &lock,
+                self.transaction.cutover_paths(),
+            )
+        });
+        self.finish(
+            token,
+            outcome
+                .map(NativeMutationOutcome::Profile)
+                .map_err(NativeTransactionError::Profile),
+            false,
+        )
+    }
+
+    /// Commit a confirmed local snapshot through the existing store-only owner.
+    pub fn execute_profile_bundle<G>(
+        &mut self,
+        request: &Value,
+        next_record_id: G,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError>
+    where
+        G: FnMut() -> String,
+    {
+        let parsed = crate::profile_bundle_protocol::parse(request)?;
+        let token = match self.admit(
+            MutationKind::Other,
+            Some(&parsed.operation_id),
+            Some(parsed.revision),
+            parsed.digest,
+        )? {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
+        )? {
+            return Ok(outcome);
+        }
+        let lock = match self.preflight_lock(token, |error| {
+            NativeTransactionError::Profile(if error == ConnectionTransactionError::Busy {
+                ProfileTransactionError::Busy
+            } else {
+                ProfileTransactionError::Store
+            })
+        })? {
+            LockAdmission::Locked(lock) => lock,
+            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        };
+        let outcome = crate::profile_mutation::prepare_confirmed_local_bundle(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            &parsed.input,
+            next_record_id,
+            &parsed.fingerprint,
+        )
+        .map_err(store_error)
+        .and_then(|(plan, _counts)| {
+            if !plan.changed() {
+                return plan
+                    .commit_locked(&lock, self.transaction.cutover_paths())
+                    .map_err(store_error)
+                    .map(|_| crate::profile_transaction::ProfileMutationOutcome {
+                        changed: false,
+                    });
+            }
             crate::profile_transaction::commit_store_only_profile(
                 &plan,
                 &lock,

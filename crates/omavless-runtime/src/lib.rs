@@ -126,6 +126,7 @@ pub mod probe_executor;
 pub mod production_cutover;
 pub mod production_observation;
 pub mod production_owner;
+mod profile_bundle_protocol;
 pub mod profile_export_protocol;
 pub mod profile_import_protocol;
 pub mod profile_mutation;
@@ -354,6 +355,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "startup.configure",
     "profiles.replace",
     "profiles.import",
+    "profiles.importBundle",
     "routing.custom_rules.add",
     "routing.custom_rules.delete",
     "connection.connect",
@@ -379,6 +381,7 @@ fn valid_mutation_shape(request: &Value, instance: &str) -> bool {
             profile_mutation_protocol::parse_profile_mutation_request(request).is_ok()
         }
         "profiles.import" => profile_import_protocol::parse_profile_import_request(request).is_ok(),
+        "profiles.importBundle" => profile_bundle_protocol::parse(request).is_ok(),
         "subscriptions.add" | "subscriptions.update" | "subscriptions.delete" => {
             subscription_mutation_protocol::parse_subscription_mutation_request(request).is_ok()
         }
@@ -5172,6 +5175,164 @@ mod tests {
         assert_eq!(fs::read(&store_path).unwrap(), committed);
         assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
         assert_eq!(effects.load(Ordering::Relaxed), 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn local_bundle_preview_and_plugin_confirm_are_bound_atomic_and_effect_free() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let base = temporary_base("bundle-owner");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        let baseline = calls.load(Ordering::Relaxed);
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired_before = fs::read(&desired_path).unwrap();
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+        let first = "trojan://synthetic-password@203.0.113.1:443#First";
+        let second = "trojan://second-password@203.0.113.2:443#Second";
+        let raw = format!("{first}\n{second}\n{first}\nvless://bad");
+        let preview = call(&paths, "imports.classify", json!({"input":raw})).unwrap();
+        assert_eq!(preview["ok"], true);
+        assert_eq!(preview["result"]["kind"], "bundle");
+        assert_eq!(
+            preview["result"]["counts"],
+            json!({"accepted":2,"duplicates":1,"skipped":1})
+        );
+        let encoded = STANDARD.encode(&raw);
+        let encoded_preview = call(&paths, "imports.classify", json!({"input":encoded})).unwrap();
+        assert_eq!(
+            encoded_preview["result"]["counts"],
+            preview["result"]["counts"]
+        );
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let params = json!({"action":"profile-bundle-import", "instanceId":hello["result"]["instanceId"],
+            "expectedRevision":preview["revision"], "operationId":"bundle",
+            "input":raw, "previewFingerprint":preview["result"]["previewFingerprint"]});
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        for (field, value, code) in [
+            ("instanceId", json!("old-instance"), "daemon_restarting"),
+            ("expectedRevision", json!(999), "conflict"),
+            ("input", json!(encoded), "conflict"),
+        ] {
+            let mut stale = params.clone();
+            stale[field] = value;
+            stale["operationId"] = json!(format!("stale-{field}"));
+            assert_eq!(
+                call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+                code
+            );
+        }
+        // A valid external byte edit does not advance the in-memory revision.
+        // It must nevertheless invalidate the exact preview before any write.
+        let mut external = original.clone();
+        external.push(b'\n');
+        fs::write(&store_path, &external).unwrap();
+        let mut stale = params.clone();
+        stale["operationId"] = json!("external-edit");
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "conflict"
+        );
+        assert_eq!(fs::read(&store_path).unwrap(), external);
+        fs::write(&store_path, &original).unwrap();
+        let applied = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(applied["ok"], true);
+        assert_eq!(applied["revision"], 1);
+        let committed = fs::read(&store_path).unwrap();
+        let result: Value = serde_json::from_slice(&committed).unwrap();
+        let before: Value = serde_json::from_slice(&original).unwrap();
+        assert_eq!(result["profiles"].as_array().unwrap().len(), 3);
+        assert_eq!(result["profiles"][0], before["profiles"][0]);
+        for key in [
+            "activeId",
+            "lastId",
+            "subscriptions",
+            "startup",
+            "routingPreset",
+            "customRules",
+        ] {
+            assert_eq!(result[key], before[key]);
+        }
+        assert_eq!(
+            fs::metadata(&store_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let replay = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(replay["result"], applied["result"]);
+        assert_eq!(replay["revision"], applied["revision"]);
+        let canonical = plugin_action::parse(
+            &make_request("canonical", "plugin.action", params.clone()).unwrap(),
+        )
+        .unwrap()
+        .canonical;
+        assert_eq!(
+            call(&paths, "profiles.importBundle", canonical["params"].clone()).unwrap()["ok"],
+            true
+        );
+        let mut collision = params.clone();
+        collision["previewFingerprint"] = json!("b".repeat(64));
+        assert_eq!(
+            call_plugin_action(&paths, collision).unwrap()["error"]["code"],
+            "conflict"
+        );
+        // All-existing profiles are a successful no-op, with no revision bump.
+        let duplicate_input = STANDARD.encode(first);
+        let duplicates =
+            call(&paths, "imports.classify", json!({"input":duplicate_input})).unwrap();
+        assert_eq!(
+            duplicates["result"]["counts"],
+            json!({"accepted":0,"duplicates":1,"skipped":0})
+        );
+        let noop = call_plugin_action(
+            &paths,
+            json!({"action":"profile-bundle-import", "instanceId":params["instanceId"],
+            "expectedRevision":1,"operationId":"bundle-noop","input":duplicate_input,
+            "previewFingerprint":duplicates["result"]["previewFingerprint"]}),
+        )
+        .unwrap();
+        assert_eq!(noop["ok"], true);
+        assert_eq!(noop["revision"], 1);
+        for input in [
+            "proxies:\nprivate-token",
+            "trojan://synthetic-password@bad\nhttps://synthetic.invalid/feed",
+        ] {
+            let invalid = call(&paths, "imports.classify", json!({"input":input})).unwrap();
+            assert_eq!(invalid["error"]["code"], "invalid_argument");
+            let invalid = call(&paths, "profiles.importBundle", json!({"input":input,
+                "operationId":format!("invalid-{}",input.len()), "expectedRevision":1,
+                "previewFingerprint":profile_bundle_protocol::fingerprint(std::str::from_utf8(&committed).unwrap(), input)})).unwrap();
+            assert_eq!(invalid["ok"], false);
+            assert!(!invalid.to_string().contains("private-token"));
+        }
+        // The pre-existing ordinary single-link route still classifies as profile.
+        assert_eq!(
+            call(&paths, "imports.classify", json!({"input":first})).unwrap()["result"]["kind"],
+            "profile"
+        );
+        assert_eq!(fs::read(&store_path).unwrap(), committed);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        for response in [preview, encoded_preview, applied, replay, duplicates, noop] {
+            for secret in [
+                "synthetic-password",
+                "second-password",
+                "203.0.113.1",
+                "trojan://",
+                "First",
+            ] {
+                assert!(!response.to_string().contains(secret));
+            }
+        }
+        stop.store(true, Ordering::Release);
+        worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 

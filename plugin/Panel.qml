@@ -122,7 +122,7 @@ Panel {
   // wheel gesture move two surfaces and exposes two competing scrollbars.
   readonly property bool modalInputActive: onboardingWizard.visible
     || startupPrompt.visible || routingToolsPrompt.visible
-    || routingPresetPrompt.visible || importDialog.visible || importEntryPrompt.visible
+    || routingPresetPrompt.visible || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible
     || subscriptionPrompt.visible || pendingEdit !== null
     || pendingDelete !== null || pendingSubscriptionDelete !== null || quitConfirmation
 
@@ -717,7 +717,7 @@ Panel {
         nativeOnboardingPresetPending = ""
     }
     if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
-        && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !importEntryPrompt.visible && !subscriptionPrompt.visible)
+        && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !importEntryPrompt.visible && !bundleImportPrompt.visible && !subscriptionPrompt.visible)
       openOnboarding(1)
   }
 
@@ -1382,6 +1382,7 @@ Panel {
     importKind = ""
     importPayload = ""
     importDialog.dismiss()
+    bundleImportPrompt.dismiss()
     keyCatcher.forceActiveFocus()
   }
 
@@ -1681,9 +1682,13 @@ Panel {
     // The picker runs whether or not the popup is open (bar right-click,
     // IPC); open the popup so the name prompt has somewhere to appear.
     function onImportReady(kind, payload, suggestedName) {
-      if (vless.nativeOwner && kind !== "native-file" && kind !== "native-clipboard") return
+      if (vless.nativeOwner && ["native-file", "native-clipboard", "native-entry"].indexOf(kind) < 0) return
       if (!root.opened) root.open()
       root.beginImport(kind, payload, suggestedName)
+    }
+    function onNativeBundleReady() {
+      if (!root.opened) root.open()
+      bundleImportPrompt.open()
     }
     function onNativeImportCodeChanged() {
       if (vless.nativeOwner && vless.nativeImportCode !== "" && !root.opened) root.open()
@@ -1887,7 +1892,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
-        || root.pendingEdit !== null || importDialog.visible || importEntryPrompt.visible || subscriptionPrompt.visible
+        || root.pendingEdit !== null || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
         || root.panelTabFocusActive || advancedDiagnosticsPage.keyboardControlActive
@@ -4101,6 +4106,17 @@ Panel {
           if (vless.startNativeImportText(value)) dismiss()
         }
         onCanceled: { dismiss(); keyCatcher.forceActiveFocus() }
+      }
+
+      BundleImportPrompt {
+        id: bundleImportPrompt
+        anchors.fill: parent
+        locale: root.uiLocale
+        counts: vless.nativeBundlePreview
+        available: vless.nativeCanAct && !vless.nativeImportBusy
+        errorText: vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
+        onConfirmed: { if (vless.confirmNativeBundle()) { dismiss(); keyCatcher.forceActiveFocus() } }
+        onCanceled: root.cancelImport()
       }
 
       // Backend-parsed, redacted profile preview shared by file and clipboard

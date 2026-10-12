@@ -34,8 +34,11 @@ support is implied; this is not implemented or advertised in 0.9.8.
 
 **0.9.9 beta progress, 2026-10-12:** the first plugin slice provides explicit
 single-link entry through the existing bounded acquisition/confirmation flow.
-Raw/Base64 local bundles (atomic batch save and duplicates) remain pending in
-#733, as does mandatory consumer Restore/recovery. This is a source beta, not
+The local-bundle dev slice supplies raw/Base64 planning, canonical duplicate
+handling and UI/IPC batch confirmation bound to exact input/store bytes and
+owner revision. See #738 for candidate gates; installed beta acceptance and
+mandatory consumer Restore/recovery remain pending.
+This is a source beta, not
 a published package, RC or authorization to change stable main/Marketplace.
 
 **Corrected validation successor, 2026-10-10:** owner-authorized immutable
