@@ -179,6 +179,8 @@ fn cancelled_confirm_and_changed_preview_context_never_replace() {
 #[test]
 fn hidden_submitted_unknown_blocks_backup_mutations_and_full_quit_without_new_id() {
     let (mut app, now) = open(Locale::En);
+    app.import_enabled = true;
+    app.snapshot.as_mut().unwrap().capabilities.private_import = true;
     fill(&mut app, now, "/private/public-fixture.ovb");
     preview(&mut app, now);
     press(&mut app, KeyCode::Enter, now);
@@ -186,9 +188,11 @@ fn hidden_submitted_unknown_blocks_backup_mutations_and_full_quit_without_new_id
     let id = r.params()["operationId"].clone();
     press(&mut app, KeyCode::Esc, now);
     assert!(!app.restore_open);
-    for key in ['b', 'c', 'd', 'Q', 'a', 'u'] {
+    for key in ['b', 'c', 'd', 'Q', 'a', 'u', 'i'] {
         assert_eq!(press(&mut app, KeyCode::Char(key), now), Action::None);
     }
+    assert_eq!(press(&mut app, KeyCode::F(3), now), Action::None);
+    assert!(!app.import_open && app.take_import_request().is_none());
     assert!(app.take_backup_request().is_none());
     assert!(app.pending.is_none() && app.confirmation.is_none());
     press(&mut app, KeyCode::Char('R'), now);
@@ -196,11 +200,40 @@ fn hidden_submitted_unknown_blocks_backup_mutations_and_full_quit_without_new_id
     app.finish_restore(r.settle(Err(ReadError::Unavailable)));
     assert_eq!(app.restore.as_ref().unwrap().state(), State::Unknown);
     press(&mut app, KeyCode::Esc, now);
+    assert_eq!(press(&mut app, KeyCode::F(3), now), Action::None);
+    assert!(!app.import_available(now));
+    assert!(!app.import_open && app.take_import_request().is_none());
     press(&mut app, KeyCode::Char('R'), now);
     assert_eq!(app.restore.as_ref().unwrap().state(), State::Unknown);
     assert_eq!(press(&mut app, KeyCode::Enter, now), Action::None);
     assert!(app.take_restore_request().is_none());
     assert!(id.as_str().is_some());
+}
+
+#[test]
+fn restore_draft_and_import_draft_are_mutually_exclusive_until_explicit_cancel() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = open(locale);
+        app.import_enabled = true;
+        app.snapshot.as_mut().unwrap().capabilities.private_import = true;
+        assert!(!app.import_available(now));
+        assert_eq!(press(&mut app, KeyCode::F(3), now), Action::None);
+        assert!(app.restore_open && !app.import_open);
+        assert!(app.take_restore_request().is_none());
+        assert!(app.take_import_request().is_none());
+        press(&mut app, KeyCode::Esc, now);
+        assert!(!app.restore_open && app.import_available(now));
+        press(&mut app, KeyCode::F(3), now);
+        assert!(app.import_open);
+        assert!(!app.restore_available(now) && !app.backup_available(now));
+        press(&mut app, KeyCode::Char('R'), now);
+        assert!(app.import_open && !app.restore_open);
+        assert!(app.take_restore_request().is_none());
+        assert!(app.take_backup_request().is_none());
+        assert!(app.take_import_request().is_none());
+        press(&mut app, KeyCode::Esc, now);
+        assert!(!app.import_open && app.restore_available(now));
+    }
 }
 #[test]
 fn unavailable_snapshot_while_pending_does_not_discard_original_success() {
