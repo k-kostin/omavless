@@ -10,6 +10,204 @@ use std::sync::Arc;
 const PASSWORD: &[u8] = b"synthetic fixture passphrase";
 const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
 
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
+fn native_developer_loss_cuts_produce_real_mixed_or_terminal_and_retain_same_lease() {
+    for terminal_cut in [false, true] {
+        let mut f = Fixture::new();
+        let template = f.store.with_file_name("route-template.yaml");
+        private(
+            &template,
+            include_bytes!("../../../../templates/default.yaml"),
+        );
+        let mut new: serde_json::Value = serde_json::from_slice(PORTABLE).unwrap();
+        new["routingPreset"] = "china-cn-direct".into();
+        private(
+            &f.backup,
+            &omavless_domain::private_backup::seal(
+                &serde_json::to_vec(&new).unwrap(),
+                include_bytes!("../../../../templates/china.yaml"),
+                PASSWORD,
+            )
+            .unwrap(),
+        );
+        let old_store = fs::read(&f.store).unwrap();
+        let old_template = fs::read(&template).unwrap();
+        let opened = open_existing(&f.backup, f.owner.uid(), PASSWORD).unwrap();
+        let expected = opened.restore_store_off().unwrap();
+        assert_ne!(old_store, expected.as_slice());
+        assert_ne!(old_template, opened.template());
+        let result = if terminal_cut {
+            f.owner.cut_current_terminal(&f.backup, PASSWORD)
+        } else {
+            f.owner.cut_current_first_rename(&f.backup, PASSWORD)
+        };
+        assert_eq!(result, Ok(())); // reached-cut data only
+        assert_eq!(fs::read(&f.store).unwrap(), expected.as_slice());
+        assert_eq!(
+            fs::read(&template).unwrap(),
+            if terminal_cut {
+                opened.template()
+            } else {
+                &old_template
+            }
+        );
+        assert!(f.owner.held_restore_execution.occupied());
+        assert!(f.owner.retained_restore_busy());
+        assert!(f.owner.transaction.independently_blocked());
+        assert!(f.owner.transaction.original_lease_vacant()); // never handed off
+        assert_eq!(f.owner.revision(), 0);
+        let paths = f.owner.transaction.cutover_paths().clone();
+        assert!(MigrationLock::acquire_existing(&paths, f.owner.uid()).is_err());
+        assert_eq!(
+            fs::read(f.stage().join("old-profiles.json")).unwrap(),
+            old_store
+        );
+        assert_eq!(
+            fs::read(f.stage().join("old-route-template.yaml")).unwrap(),
+            old_template
+        );
+        assert!(f.state().join("restore-decision.intent").is_file());
+        let terminal = f.state().join("restore-decision.terminal");
+        if terminal_cut {
+            let record = crate::restore_decision_candidate::DecisionRecord::decode(
+                &fs::read(terminal).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                record.phase(),
+                crate::restore_decision_candidate::DecisionPhase::Committed
+            );
+        } else {
+            assert!(!terminal.exists());
+        }
+        assert!(!f.state().join("restore-disposition.history").exists());
+        assert!(!f.state().join("restore-closure.complete").exists());
+        assert!(
+            f.owner
+                .cut_current_first_rename(&f.backup, PASSWORD)
+                .is_err()
+        );
+        assert!(f.owner.cut_current_terminal(&f.backup, PASSWORD).is_err());
+        assert!(f.owner.abort_current_restore_intent().is_err());
+        assert!(
+            f.owner
+                .execute_first_restore_completed(&f.backup, PASSWORD)
+                .is_err()
+        );
+        let ordinary = crate::make_request(
+            "after-cut",
+            "onboarding.complete",
+            serde_json::json!({"operationId":"after-cut","expectedRevision":0}),
+        )
+        .unwrap();
+        assert!(f.owner.execute_onboarding(&ordinary).is_err());
+        let (mut producer, consumer) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(consumer);
+        assert!(
+            crate::developer_current_restore::publish_positive_cut_response(
+                crate::success_response(
+                    "cut",
+                    0,
+                    serde_json::json!({"cutReachedStillFenced":true})
+                ),
+                &mut producer
+            )
+            .is_err()
+        );
+        assert!(f.owner.retained_restore_busy());
+        assert!(f.owner.transaction.independently_blocked());
+        assert!(!f.owner.current_intent_paused());
+        assert!(MigrationLock::acquire_existing(&paths, f.owner.uid()).is_err());
+    }
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
+fn native_developer_loss_cuts_wrong_auth_or_unreached_gate_never_return_positive() {
+    for terminal in [false, true] {
+        let mut f = Fixture::new();
+        let before = fs::read(&f.store).unwrap();
+        let failed = if terminal {
+            f.owner
+                .cut_current_terminal(&f.backup, b"wrong synthetic passphrase")
+        } else {
+            f.owner
+                .cut_current_first_rename(&f.backup, b"wrong synthetic passphrase")
+        };
+        assert_eq!(failed, Err(FirstError::Prepare));
+        assert!(!f.owner.held_restore_execution.occupied());
+        assert!(!f.stage().exists());
+        assert_eq!(fs::read(&f.store).unwrap(), before);
+        // A real earlier stage refusal is StillFenced, but not the selected cut.
+        private(
+            &f.state().join("restore-pair.pending"),
+            b"foreign fixture fence",
+        );
+        let failed = if terminal {
+            f.owner.cut_current_terminal(&f.backup, PASSWORD)
+        } else {
+            f.owner.cut_current_first_rename(&f.backup, PASSWORD)
+        };
+        assert!(failed.is_err());
+        assert_eq!(fs::read(&f.store).unwrap(), before);
+        assert!(!f.state().join("restore-decision.terminal").exists());
+    }
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
+fn native_developer_loss_cuts_queued_revision_admission_precedes_authentication() {
+    use crate::mutation::{MutationKind, MutationRequest};
+    for terminal in [false, true] {
+        let mut f = Fixture::new();
+        let mutation = MutationRequest::new(
+            MutationKind::Other,
+            Some("queued"),
+            Some(0),
+            MutationDigest::from_semantic_bytes(b"public queued mutation"),
+        )
+        .unwrap();
+        f.owner.coordinator.submit(mutation).unwrap();
+        let error = if terminal {
+            f.owner.cut_current_terminal(&f.backup, PASSWORD)
+        } else {
+            f.owner.cut_current_first_rename(&f.backup, PASSWORD)
+        };
+        assert_eq!(error, Err(FirstError::Admission));
+        assert!(!f.owner.held_restore_execution.occupied());
+        assert!(!f.stage().exists());
+        assert_eq!(f.owner.revision(), 0);
+    }
+}
+
+#[cfg(feature = "product-private-backup")]
+#[test]
+fn native_developer_loss_cuts_product_direct_helpers_deny_before_acquisition() {
+    let mut f = Fixture::new();
+    assert_eq!(
+        f.owner
+            .cut_current_first_rename(Path::new("/public/absent"), PASSWORD),
+        Err(FirstError::Admission)
+    );
+    assert_eq!(
+        f.owner
+            .cut_current_terminal(Path::new("/public/absent"), PASSWORD),
+        Err(FirstError::Admission)
+    );
+    assert!(!f.owner.held_restore_execution.occupied());
+    assert!(!f.stage().exists());
+}
+
 #[cfg(feature = "t4-manager-actor-service")]
 #[test]
 fn native_positive_intent_pause_aborts_old_without_live_rename_and_moves_same_lease() {

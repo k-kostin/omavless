@@ -136,6 +136,10 @@ pub mod profile_transaction;
 pub mod provider_refresh;
 pub mod remote_fetch;
 pub mod restore_abort_cli;
+#[cfg(feature = "t4-manager-actor-service")]
+pub mod restore_old_cli;
+#[cfg(feature = "t4-manager-actor-service")]
+mod restore_old_stopped;
 mod route_check_protocol;
 mod route_probe;
 mod routing_preset;
@@ -439,6 +443,16 @@ trait NativeRuntimeOwner: Send {
     fn refuse_unpublished_intent_pause(&mut self, revision: u64) -> bool;
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_pause(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_first_rename_cut(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_terminal_cut(
         &mut self,
         request: &developer_current_restore::Request,
     ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
@@ -844,6 +858,20 @@ where
         request: &developer_current_restore::Request,
     ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
         self.owner.developer_current_pause(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_first_rename_cut(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_first_rename_cut(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_terminal_cut(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_terminal_cut(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_abort(
@@ -1642,7 +1670,10 @@ impl RuntimeServer {
             Ok(request) => {
                 #[cfg(feature = "t4-manager-actor-service")]
                 if !product_scope::backup_only()
-                    && request["method"] == developer_current_restore::PAUSE_METHOD
+                    && (request["method"] == developer_current_restore::PAUSE_METHOD
+                        || request["method"]
+                            .as_str()
+                            .is_some_and(developer_current_restore::loss_cut_method))
                 {
                     let result = self.publish_current_intent_pause(&request, stream);
                     let mut request = request;
@@ -1839,10 +1870,11 @@ impl RuntimeServer {
             return write_unary_frame(stream, &frame, FrameKind::Response)
                 .map_err(|_| RuntimeError::Io);
         }
-        // The SAME dispatcher mutex spans original pause creation AND the
-        // response write. No competing resume can slip between write failure
-        // and sealing. Only this fixed method can invoke publication feedback.
+        // SAME owner through producer and response. Loss cuts are already
+        // irreversibly sealed; a lost reply grants no resume or cleanup.
         let id = request["id"].as_str().unwrap_or("invalid");
+        let method = request["method"].as_str().unwrap_or("");
+        let loss_cut = developer_current_restore::loss_cut_method(method);
         let input = developer_current_restore::Request::parse(&request["params"]);
         let gate = self.quit_gate.try_read();
         let dispatcher = self.dispatcher.try_lock();
@@ -1862,7 +1894,9 @@ impl RuntimeServer {
         };
         let response = match (&input, &gate, &mut dispatcher) {
             (Ok(input), Ok(gate), Ok(dispatcher)) if !**gate => {
-                if !input.matches_method(developer_current_restore::PAUSE_METHOD) {
+                if !input.matches_method(method)
+                    || !(loss_cut || method == developer_current_restore::PAUSE_METHOD)
+                {
                     error_response(id, 0, StableErrorCode::InvalidArgument, false, None)
                 } else if input.instance() != self.instance_id {
                     error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
@@ -1870,7 +1904,14 @@ impl RuntimeServer {
                     if input.revision() != owner.revision() {
                         error_response(id, owner.revision(), StableErrorCode::Conflict, false, None)
                     } else {
-                        let result = owner.developer_current_pause(input);
+                        let result = if method == developer_current_restore::FIRST_RENAME_CUT_METHOD
+                        {
+                            owner.developer_current_first_rename_cut(input)
+                        } else if method == developer_current_restore::TERMINAL_CUT_METHOD {
+                            owner.developer_current_terminal_cut(input)
+                        } else {
+                            owner.developer_current_pause(input)
+                        };
                         let revision = owner.revision();
                         if let Err(error) = result {
                             error_response(
@@ -1880,6 +1921,17 @@ impl RuntimeServer {
                                 false,
                                 None,
                             )
+                        } else if loss_cut {
+                            // The SAME mutex still holds the sealed original.
+                            // Publication failure never changes its disposition.
+                            return developer_current_restore::publish_positive_cut_response(
+                                success_response(
+                                    id,
+                                    revision,
+                                    json!({"cutReachedStillFenced":true}),
+                                ),
+                                stream,
+                            );
                         } else {
                             return developer_current_restore::publish_positive_pause_response(
                                 success_response(id, revision, json!({"intentPaused":true})),
@@ -1954,6 +2006,10 @@ impl RuntimeServer {
         }
         let result = if method == developer_current_restore::PAUSE_METHOD {
             owner.developer_current_pause(&input)
+        } else if method == developer_current_restore::FIRST_RENAME_CUT_METHOD {
+            owner.developer_current_first_rename_cut(&input)
+        } else if method == developer_current_restore::TERMINAL_CUT_METHOD {
+            owner.developer_current_terminal_cut(&input)
         } else if method == developer_current_restore::BACKUP_METHOD {
             owner.developer_current_backup(&input)
         } else {
@@ -1963,7 +2019,9 @@ impl RuntimeServer {
             Ok(()) => success_response(
                 id,
                 owner.revision(),
-                if method == developer_current_restore::PAUSE_METHOD {
+                if developer_current_restore::loss_cut_method(method) {
+                    json!({"cutReachedStillFenced":true})
+                } else if method == developer_current_restore::PAUSE_METHOD {
                     json!({"intentPaused":true})
                 } else {
                     json!({"completed":true})
@@ -3923,6 +3981,8 @@ mod tests {
             "developer.backup_current",
             "developer.pause_current_intent",
             "developer.abort_current_intent",
+            "developer.cut_current_first_rename",
+            "developer.cut_current_terminal",
         ] {
             let request = make_request("product-refusal", method, json!({})).unwrap();
             assert_eq!(
@@ -4152,6 +4212,46 @@ mod tests {
             server.dispatch(&pause).unwrap()["error"]["code"],
             "capability_unavailable"
         );
+        for (method, confirmation) in [
+            (
+                developer_current_restore::FIRST_RENAME_CUT_METHOD,
+                "cut-current-first-rename",
+            ),
+            (
+                developer_current_restore::TERMINAL_CUT_METHOD,
+                "cut-current-terminal",
+            ),
+        ] {
+            let mut cut = request.clone();
+            cut["method"] = method.into();
+            assert_eq!(
+                server.dispatch(&cut).unwrap()["error"]["code"],
+                "invalid_argument"
+            );
+            cut["params"]["confirmation"] = confirmation.into();
+            assert_eq!(
+                server.dispatch(&cut).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+            assert!(!NATIVE_MUTATION_METHODS.contains(&method));
+            cut["params"]["instanceId"] = "foreign".into();
+            assert_eq!(
+                server.dispatch(&cut).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            cut["params"]["instanceId"] = server.instance_id.clone().into();
+            cut["params"]["expectedRevision"] = 1.into();
+            assert_eq!(server.dispatch(&cut).unwrap()["error"]["code"], "conflict");
+            cut["params"]["expectedRevision"] = 0.into();
+            let guard = server.dispatcher.lock().unwrap();
+            assert_eq!(server.dispatch(&cut).unwrap()["error"]["code"], "busy");
+            drop(guard);
+            cut["params"]["step"] = 0.into();
+            assert_eq!(
+                server.dispatch(&cut).unwrap()["error"]["code"],
+                "invalid_argument"
+            );
+        }
         let abort = make_request(
             "abort",
             developer_current_restore::ABORT_METHOD,
@@ -4285,11 +4385,34 @@ mod tests {
         for method in [
             "developer.pause_current_intent",
             "developer.abort_current_intent",
+            "developer.cut_current_first_rename",
+            "developer.cut_current_terminal",
         ] {
             let request = make_request("absent", method, json!({})).unwrap();
             assert_eq!(
                 server.dispatch(&request).unwrap()["error"]["code"],
                 "unknown_method"
+            );
+            assert!(!NATIVE_MUTATION_METHODS.contains(&method));
+        }
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn product_loss_cut_dispatch_denies_before_private_parameter_parse() {
+        let base = temporary_base("product-loss-denied");
+        let server = RuntimeServer::bind(RuntimePaths::below(&base)).unwrap();
+        for method in [
+            developer_current_restore::FIRST_RENAME_CUT_METHOD,
+            developer_current_restore::TERMINAL_CUT_METHOD,
+        ] {
+            let request =
+                make_request("denied", method, json!({"private":"not a valid request"})).unwrap();
+            assert_eq!(
+                server.dispatch(&request).unwrap()["error"]["code"],
+                "capability_unavailable"
             );
             assert!(!NATIVE_MUTATION_METHODS.contains(&method));
         }

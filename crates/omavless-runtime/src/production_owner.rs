@@ -310,6 +310,26 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
     }
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_first_rename_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_first_rename(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_terminal_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_terminal(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn developer_current_abort(
         &mut self,
         request: &crate::developer_current_restore::AbortRequest,
@@ -351,7 +371,12 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.require_developer_current(request)?;
         self.coordinator
             .create_backup_candidate(request.archive(), request.passphrase())
-            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+            .map_err(|error| {
+                // Best-effort fixed category, no private request or exception text.
+                // Keep the original conservative outcome, even if stderr is closed.
+                let _ = std::io::Write::write_all(&mut std::io::stderr(), error.diagnostic());
+                ProductionOwnerError::ManualRecoveryRequired
+            })
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn require_developer_current(

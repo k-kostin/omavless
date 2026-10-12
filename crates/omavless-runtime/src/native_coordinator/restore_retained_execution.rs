@@ -15,6 +15,8 @@ enum NativeMode {
     FenceCommitted,
     CompleteCommitted,
     PauseIntent,
+    CutFirstRename,
+    CutTerminal,
 }
 
 pub(crate) struct HeldExecution {
@@ -116,6 +118,63 @@ impl Drop for HeldExecutionSlot {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn cut_current_first_rename(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.cut_current_restore(source, passphrase, NativeMode::CutFirstRename)
+    }
+    pub(crate) fn cut_current_terminal(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.cut_current_restore(source, passphrase, NativeMode::CutTerminal)
+    }
+    fn cut_current_restore(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        mode: NativeMode,
+    ) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        let mut reached = false;
+        let result = self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |step| {
+                if matches!(
+                    (mode, step),
+                    (
+                        NativeMode::CutFirstRename,
+                        crate::manager_actor_service::NativeStep::Renamed(0)
+                    ) | (
+                        NativeMode::CutTerminal,
+                        crate::manager_actor_service::NativeStep::Terminal
+                    )
+                ) {
+                    reached = true;
+                    return Err(FirstError::StillFenced);
+                }
+                Ok(())
+            },
+            mode,
+        );
+        // Only after the original engine error handling and owner fence. This
+        // is data about a reached cut, never successful Restore or a live grant.
+        if reached && result == Err(FirstError::StillFenced) {
+            Ok(())
+        } else {
+            match result {
+                Err(error) => Err(error),
+                Ok(_) => Err(FirstError::StillFenced),
+            }
+        }
+    }
     pub(crate) fn pause_current_restore_intent(
         &mut self,
         source: &Path,
@@ -236,10 +295,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<FirstOutcome, FirstError> {
         let complete = mode == NativeMode::CompleteCommitted;
         let pause = mode == NativeMode::PauseIntent;
+        let loss_cut = matches!(mode, NativeMode::CutFirstRename | NativeMode::CutTerminal);
+        let owned_admission = complete || pause || loss_cut;
         if self.retained_restore_busy() {
             return Err(FirstError::StillFenced);
         }
-        let mut revision = if complete || pause {
+        let mut revision = if owned_admission {
             Some(
                 self.coordinator
                     .prepare_retained_restore()
@@ -279,7 +340,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     .acquire_lock()
                     .map_err(|_| FirstError::Admission)?,
             );
-            if (complete || pause)
+            if owned_admission
                 && (!held.lock.as_ref().is_some_and(completion_owns_lease)
                     || !self.transaction.original_lease_vacant()
                     || held.ordinary_lock.get().is_some())
@@ -392,7 +453,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         } else {
             result
         };
-        if (mode == NativeMode::FenceCommitted) || result.is_err() {
+        if loss_cut {
+            // Even an unexpected successful/unreached inner return cannot
+            // grant completion, retirement or ordinary-owner availability.
+            if let Ok(mut held) = original.lock() {
+                held.refuse_ordinary();
+            }
+        }
+        if loss_cut || (mode == NativeMode::FenceCommitted) || result.is_err() {
             self.transaction.block();
         }
         self.invalidate_connection_close();
