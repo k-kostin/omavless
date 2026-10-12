@@ -7,6 +7,7 @@ use nix::sys::statfs::{PROC_SUPER_MAGIC, fstatfs};
 use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid, waitpid};
 use nix::unistd::Pid;
 use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fs::{self, File, Metadata};
 use std::io::Read;
@@ -14,7 +15,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
@@ -42,6 +43,8 @@ macro_rules! capture_step {
 
 enum SelfInvocation {
     Recovery,
+    #[cfg(feature = "t4-manager-actor-service")]
+    OldRecovery,
     #[cfg(test)]
     Diagnostic,
 }
@@ -372,6 +375,17 @@ fn arguments(bytes: &[u8]) -> Result<Vec<&[u8]>> {
 fn recovery_self(command: &[u8]) -> Result<()> {
     let args = arguments(command)?;
     if args.len() != 4 || args[1..] != [b"restore".as_slice(), b"abort", b"--confirm-rollback"] {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn old_recovery_self(command: &[u8]) -> Result<()> {
+    let args = arguments(command)?;
+    if args.len() != 4
+        || args[1..] != [b"restore".as_slice(), b"recover-old", b"--confirm-rollback"]
+    {
         return Err(());
     }
     Ok(())
@@ -975,6 +989,501 @@ fn listener_paths(uid: u32, socket: &Path) -> Result<[String; 2]> {
     ])
 }
 
+// Private bounded reuse for the separately admitted recover-old path. Abort
+// keeps its original command/record parser, and never selects these commands.
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+enum FixedRecoveryCommand {
+    Manager,
+    Legacy,
+    Runtime,
+    StopRuntime,
+    StartRuntime,
+}
+
+impl FixedRecoveryCommand {
+    fn arguments(self, uid: u32) -> Vec<String> {
+        let (system, unit) = match self {
+            Self::Manager => (true, format!("user@{uid}.service")),
+            Self::Legacy => (false, "omavless.service".to_owned()),
+            Self::Runtime | Self::StopRuntime | Self::StartRuntime => {
+                (false, "omavless-runtime.service".to_owned())
+            }
+        };
+        let mut args = vec![
+            if system { "--system" } else { "--user" }.to_owned(),
+            "--no-pager".to_owned(),
+            "--no-ask-password".to_owned(),
+            match self {
+                Self::StopRuntime => "stop",
+                Self::StartRuntime => "start",
+                _ => "show",
+            }
+            .to_owned(),
+            unit,
+        ];
+        if !matches!(self, Self::StopRuntime | Self::StartRuntime) {
+            for property in ["ActiveState", "SubState", "MainPID", "ControlPID", "Job"] {
+                args.push(format!("--property={property}"));
+            }
+            if !system {
+                for property in ["LoadState", "NeedDaemonReload"] {
+                    args.push(format!("--property={property}"));
+                }
+            }
+            if matches!(self, Self::Runtime) {
+                for property in ["RuntimeDirectoryPreserve", "FragmentPath", "DropInPaths"] {
+                    args.push(format!("--property={property}"));
+                }
+            }
+        }
+        args
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct RuntimeUnitConfiguration {
+    fragment: String,
+    dropins: String,
+}
+
+fn recovery_fields(bytes: &[u8]) -> Result<std::collections::BTreeMap<&str, &str>> {
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    if bytes.len() > MAX_STATUS || !text.ends_with('\n') {
+        return Err(());
+    }
+    let mut fields = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let (key, value) = line.split_once('=').ok_or(())?;
+        if fields.insert(key, value).is_some() || value.bytes().any(|b| b.is_ascii_control()) {
+            return Err(());
+        }
+    }
+    Ok(fields)
+}
+
+fn recovery_manager_record(bytes: &[u8]) -> Result<u32> {
+    let mut fields = recovery_fields(bytes)?;
+    if fields.remove("Job") != Some("") || fields.len() != 4 {
+        return Err(());
+    }
+    let mut original = Zeroizing::new(Vec::new());
+    for (key, value) in fields {
+        original.extend_from_slice(key.as_bytes());
+        original.push(b'=');
+        original.extend_from_slice(value.as_bytes());
+        original.push(b'\n');
+    }
+    service_record(&original, true)
+}
+
+fn recovery_unit_record(
+    bytes: &[u8],
+    runtime: bool,
+    off: bool,
+) -> Result<Option<RuntimeUnitConfiguration>> {
+    let mut fields = recovery_fields(bytes)?;
+    let load = fields.remove("LoadState").ok_or(())?;
+    if (load != "loaded" && (runtime || load != "not-found"))
+        || fields.remove("NeedDaemonReload") != Some("no")
+        || (off && fields.get("Job") != Some(&""))
+    {
+        return Err(());
+    }
+    let config = if runtime {
+        if fields.remove("RuntimeDirectoryPreserve") != Some("yes") {
+            return Err(());
+        }
+        let fragment = fields.remove("FragmentPath").ok_or(())?;
+        let dropins = fields.remove("DropInPaths").ok_or(())?;
+        if fragment != "/usr/lib/systemd/user/omavless-runtime.service" {
+            return Err(());
+        }
+        Some(RuntimeUnitConfiguration {
+            fragment: fragment.to_owned(),
+            dropins: dropins.to_owned(),
+        })
+    } else {
+        None
+    };
+    fields.remove("Job").ok_or(())?;
+    if fields.len() != 4 {
+        return Err(());
+    }
+    if off {
+        let mut original = Zeroizing::new(Vec::new());
+        for (key, value) in fields {
+            original.extend_from_slice(key.as_bytes());
+            original.push(b'=');
+            original.extend_from_slice(value.as_bytes());
+            original.push(b'\n');
+        }
+        service_record(&original, false)?;
+    } else {
+        // Lost-owner qualification can cancel a queued automatic restart, but
+        // cannot Stop a live main/control process or a currently starting unit.
+        if decimal(fields.remove("MainPID").ok_or(())?.as_bytes())? != 0
+            || decimal(fields.remove("ControlPID").ok_or(())?.as_bytes())? != 0
+            || !matches!(
+                (fields.remove("ActiveState"), fields.remove("SubState")),
+                (Some("inactive"), Some("dead"))
+                    | (Some("failed"), Some("failed"))
+                    | (Some("activating"), Some("auto-restart"))
+            )
+            || !fields.is_empty()
+        {
+            return Err(());
+        }
+    }
+    Ok(config)
+}
+
+#[allow(dead_code)]
+struct OldRecoveryQueries {
+    tool: TrustedExecutable,
+    // Insert before any fallible child observation. Unknown outcome keeps the
+    // exact Child/stdout here; no kill, reap retry or second command is allowed.
+    child: RefCell<Option<Child>>,
+    configuration: RefCell<Option<RuntimeUnitConfiguration>>,
+    refused: Cell<bool>,
+}
+
+#[allow(dead_code)]
+impl OldRecoveryQueries {
+    fn run(
+        &self,
+        command: FixedRecoveryCommand,
+        uid: u32,
+        budget: &mut Budget,
+    ) -> Result<Zeroizing<Vec<u8>>> {
+        if self.refused.get() || self.child.borrow().is_some() {
+            return Err(());
+        }
+        let result = self.run_inner(command, uid, budget);
+        if result.is_err() {
+            self.refused.set(true);
+        }
+        result
+    }
+
+    fn run_inner(
+        &self,
+        command: FixedRecoveryCommand,
+        uid: u32,
+        budget: &mut Budget,
+    ) -> Result<Zeroizing<Vec<u8>>> {
+        budget.check()?;
+        self.tool.recheck()?;
+        let child = Command::new(self.tool.exec_path())
+            .arg0("/usr/bin/systemctl")
+            .env_clear()
+            .env("LC_ALL", "C")
+            .env("SYSTEMD_COLORS", "0")
+            .env("XDG_RUNTIME_DIR", format!("/run/user/{uid}"))
+            .env(
+                "DBUS_SESSION_BUS_ADDRESS",
+                format!("unix:path=/run/user/{uid}/bus"),
+            )
+            .env(
+                "DBUS_SYSTEM_BUS_ADDRESS",
+                "unix:path=/run/dbus/system_bus_socket",
+            )
+            .args(command.arguments(uid))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| ())?;
+        *self.child.borrow_mut() = Some(child);
+        let mut held = self.child.borrow_mut();
+        let child = held.as_mut().ok_or(())?;
+        let pid = Pid::from_raw(i32::try_from(child.id()).map_err(|_| ())?);
+        let stdout = child.stdout.as_mut().ok_or(())?;
+        fcntl(&*stdout, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).map_err(|_| ())?;
+        let mut output = Zeroizing::new(Vec::new());
+        let mut eof = false;
+        let mut observed = None;
+        loop {
+            budget.check()?;
+            if !eof {
+                let mut bytes = [0_u8; 4096];
+                match stdout.read(&mut bytes) {
+                    Ok(0) => eof = true,
+                    Ok(size) => {
+                        budget.charge(size)?;
+                        output.extend_from_slice(&bytes[..size]);
+                        if output.len() > MAX_STATUS {
+                            return Err(());
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(_) => return Err(()),
+                }
+            }
+            if observed.is_none() {
+                observed = terminal(
+                    waitid(
+                        Id::Pid(pid),
+                        WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT,
+                    )
+                    .map_err(|_| ())?,
+                    pid,
+                )?;
+            }
+            if let Some(status) = observed
+                && (eof || status != WaitStatus::Exited(pid, 0))
+            {
+                known_reap(status, pid, || {
+                    waitpid(pid, Some(WaitPidFlag::WNOHANG)).map_err(|_| ())
+                })?;
+                // Only this proven terminal child can be released.
+                held.take();
+                if status != WaitStatus::Exited(pid, 0) || !eof {
+                    return Err(());
+                }
+                self.tool.recheck()?;
+                return Ok(output);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    fn check_unit(&self, bytes: &[u8], runtime: bool, off: bool) -> Result<()> {
+        let configuration = recovery_unit_record(bytes, runtime, off)?;
+        if runtime {
+            let mut original = self.configuration.borrow_mut();
+            if let Some(original) = original.as_ref() {
+                if configuration.as_ref() != Some(original) {
+                    return Err(());
+                }
+            } else {
+                *original = configuration;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+static RECOVERED_START_RESERVED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+const RECOVERED_START_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+fn reserve_recovered_start(slot: &std::sync::atomic::AtomicBool) -> Result<()> {
+    slot.compare_exchange(
+        false,
+        true,
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+    )
+    .map(|_| ())
+    .map_err(|_| ())
+}
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+#[derive(Default)]
+struct RecoveredStartLifetime {
+    attempted: bool,
+    completed: bool,
+    poisoned: bool,
+}
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+impl RecoveredStartLifetime {
+    fn begin(&mut self) -> Result<()> {
+        if self.attempted || self.poisoned {
+            self.poisoned = true;
+            return Err(());
+        }
+        self.attempted = true;
+        Ok(())
+    }
+
+    fn finish(&mut self, succeeded: bool) {
+        self.completed = succeeded;
+        self.poisoned |= !succeeded;
+    }
+
+    fn retain_on_drop(&self) -> bool {
+        self.poisoned || (self.attempted && !self.completed)
+    }
+}
+
+/// Separate availability action after the parent's positive consuming release.
+/// Neither Clone nor a general service helper. One reservation per process bounds
+/// leaked uncertain command custody, and no Drop signals, retries or waits.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct RecoveredRuntimeStart {
+    uid: u32,
+    queries: Option<Box<OldRecoveryQueries>>,
+    lifetime: RecoveredStartLifetime,
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl RecoveredRuntimeStart {
+    pub(crate) fn reserve(uid: u32) -> Result<Self> {
+        // Consume the global slot before path/tool acquisition. Never reset it,
+        // even if reservation subsequently refuses without spawning a child.
+        reserve_recovered_start(&RECOVERED_START_RESERVED)?;
+        if uid != nix::unistd::getuid().as_raw() || uid != nix::unistd::geteuid().as_raw() {
+            return Err(());
+        }
+        Ok(Self {
+            uid,
+            queries: Some(Box::new(OldRecoveryQueries {
+                tool: TrustedExecutable::capture("/usr/bin/systemctl")?,
+                child: RefCell::new(None),
+                configuration: RefCell::new(None),
+                refused: Cell::new(false),
+            })),
+            lifetime: RecoveredStartLifetime::default(),
+        })
+    }
+
+    pub(crate) fn start_once(&mut self) -> Result<()> {
+        self.lifetime.begin()?;
+        let result = (|| {
+            if self.uid != nix::unistd::getuid().as_raw()
+                || self.uid != nix::unistd::geteuid().as_raw()
+            {
+                return Err(());
+            }
+            let queries = self.queries.as_ref().ok_or(())?;
+            let mut budget = Budget {
+                until: Instant::now() + RECOVERED_START_TIMEOUT,
+                remaining: MAX_TOTAL,
+            };
+            let output = queries.run(FixedRecoveryCommand::StartRuntime, self.uid, &mut budget)?;
+            if !output.is_empty() {
+                return Err(());
+            }
+            Ok(())
+        })();
+        self.lifetime.finish(result.is_ok());
+        result
+    }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl Drop for RecoveredRuntimeStart {
+    fn drop(&mut self) {
+        if self.lifetime.retain_on_drop()
+            && let Some(original) = self.queries.take()
+        {
+            // Retain this original trusted tool and exact Child/stdout without
+            // guessed reaping or signalling. Fatal process loss is unavailable,
+            // not descriptor survival. The global slot prevents replacement.
+            let _ = Box::leak(original);
+        }
+    }
+}
+
+/// No singleton acquisition, socket read/retirement, journal or Start action.
+/// The coordinator keeps this in its original recovery custody on uncertainty.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) struct OldRecoveryOwner {
+    owner: Option<StoppedOwner>,
+    queries: OldRecoveryQueries,
+    uid: u32,
+    socket: std::path::PathBuf,
+    attempted: bool,
+    qualified: bool,
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl OldRecoveryOwner {
+    pub(crate) fn prepare(uid: u32, socket: &Path) -> Result<Self> {
+        // Reserve original command custody without a process query/capture.
+        // The caller installs this guard before qualification can spawn a child.
+        listener_paths(uid, socket)?;
+        Ok(Self {
+            owner: None,
+            queries: OldRecoveryQueries {
+                tool: TrustedExecutable::capture("/usr/bin/systemctl")?,
+                child: RefCell::new(None),
+                configuration: RefCell::new(None),
+                refused: Cell::new(false),
+            },
+            uid,
+            socket: socket.to_owned(),
+            attempted: false,
+            qualified: false,
+        })
+    }
+
+    pub(crate) fn stop_and_qualify(&mut self) -> Result<()> {
+        if self.attempted || self.queries.refused.get() {
+            if let Some(owner) = &self.owner {
+                owner.refused.set(true);
+            }
+            return Err(());
+        }
+        self.attempted = true;
+        let result = (|| {
+            // Qualification already holds the SAME migration and singleton
+            // locks. Initial manager query uses original retained Queries, so
+            // capture failure cannot drop an unknown local Child.
+            self.owner = Some(StoppedOwner::capture_inner(
+                self.uid,
+                &self.socket,
+                SelfInvocation::OldRecovery,
+                Some(&self.queries),
+                #[cfg(test)]
+                None,
+            )?);
+            let owner = self.owner.as_ref().ok_or(())?;
+            qualify_lost_owner(
+                // Reuse the complete original observation BEFORE Stop: all daemon
+                // candidates, canonical listeners and live legacy operations must
+                // be absent. Only runtime failed/queued-restart state is permitted.
+                || owner.observe_inner(Some(&self.queries), false),
+                || {
+                    let mut budget = Budget::new();
+                    let stopped = self.queries.run(
+                        FixedRecoveryCommand::StopRuntime,
+                        owner.uid,
+                        &mut budget,
+                    )?;
+                    if stopped.is_empty() { Ok(()) } else { Err(()) }
+                },
+                || owner.observe_inner(Some(&self.queries), true),
+            )
+        })();
+        if let Some(owner) = &self.owner {
+            owner.refused.set(result.is_err());
+        }
+        self.qualified = result.is_ok();
+        result
+    }
+
+    pub(crate) fn recheck(&self) -> Result<()> {
+        let owner = self.owner.as_ref().ok_or(())?;
+        if !self.qualified
+            || self.queries.refused.get()
+            || !checked_once(&owner.refused, || {
+                owner.observe_inner(Some(&self.queries), true)
+            })
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "t4-manager-actor-service"))]
+fn qualify_lost_owner(
+    before: impl FnOnce() -> Result<()>,
+    stop: impl FnOnce() -> Result<()>,
+    after: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    before()?;
+    stop()?;
+    after()
+}
+
 fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
     std::str::from_utf8(bytes).map_err(|_| ())?;
     let body = bytes.strip_suffix(b"\n").ok_or(())?;
@@ -1036,7 +1545,7 @@ fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
     Ok(())
 }
 
-pub(super) struct StoppedOwner {
+pub(crate) struct StoppedOwner {
     root: File,
     root_identity: Metadata,
     uid: u32,
@@ -1054,6 +1563,7 @@ impl StoppedOwner {
             uid,
             socket,
             SelfInvocation::Recovery,
+            None,
             #[cfg(test)]
             None,
         )
@@ -1061,15 +1571,20 @@ impl StoppedOwner {
 
     #[cfg(test)]
     pub(super) fn capture_for_diagnostic(uid: u32, socket: &Path) -> Result<Self> {
-        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic, None)
+        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic, None, None)
     }
 
     fn capture_inner(
         uid: u32,
         socket: &Path,
         invocation: SelfInvocation,
+        old_queries: Option<&OldRecoveryQueries>,
         #[cfg(test)] retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
     ) -> Result<Self> {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if matches!(invocation, SelfInvocation::OldRecovery) != old_queries.is_some() {
+            return Err(());
+        }
         checkpoint!(ProcRoot);
         let listeners = listener_paths(uid, socket)?;
         let root = File::from(
@@ -1090,6 +1605,8 @@ impl StoppedOwner {
         checkpoint!(SelfArguments);
         match invocation {
             SelfInvocation::Recovery => recovery_self(&myself.command)?,
+            #[cfg(feature = "t4-manager-actor-service")]
+            SelfInvocation::OldRecovery => old_recovery_self(&myself.command)?,
             #[cfg(test)]
             SelfInvocation::Diagnostic => {
                 super::diagnostic::exact_self(&arguments(&myself.command)?)?
@@ -1108,9 +1625,16 @@ impl StoppedOwner {
             namespaces.push((name, file, metadata));
         }
         checkpoint!(ManagerQuery);
-        let reply = query(uid, &format!("user@{uid}.service"), true, &mut budget)?;
+        let reply = match old_queries {
+            Some(queries) => queries.run(FixedRecoveryCommand::Manager, uid, &mut budget)?,
+            None => query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
+        };
         checkpoint!(ManagerRecord);
-        let pid = service_record(&reply, true)?;
+        let pid = if old_queries.is_some() {
+            recovery_manager_record(&reply)?
+        } else {
+            service_record(&reply, true)?
+        };
         checkpoint!(ManagerProcess);
         let manager = Process::capture_inner(
             &root,
@@ -1141,6 +1665,16 @@ impl StoppedOwner {
             listeners,
             refused: Cell::new(false),
         };
+        #[cfg(feature = "t4-manager-actor-service")]
+        if matches!(invocation, SelfInvocation::OldRecovery) {
+            // Original manager/namespace capture is inside already installed
+            // recovery custody and after engine singleton exclusivity. This
+            // capture path itself never issues Stop.
+            observer.namespace_boundary(&mut budget)?;
+            observer.manager.recheck(&observer.root, &mut budget)?;
+            observer.myself.recheck(&observer.root, &mut budget)?;
+            return Ok(observer);
+        }
         if !observer.recheck() {
             return Err(());
         }
@@ -1189,6 +1723,14 @@ impl StoppedOwner {
     }
 
     fn observe(&self) -> Result<()> {
+        self.observe_inner(None, true)
+    }
+
+    fn observe_inner(
+        &self,
+        #[allow(unused_variables)] old: Option<&OldRecoveryQueries>,
+        runtime_off: bool,
+    ) -> Result<()> {
         let mut budget = Budget::new();
         checkpoint!(NamespaceBoundary);
         self.namespace_boundary(&mut budget)?;
@@ -1197,14 +1739,21 @@ impl StoppedOwner {
         checkpoint!(ManagerRecheck);
         self.manager.recheck(&self.root, &mut budget)?;
         checkpoint!(ManagerQuery);
-        let reply = query(
-            self.uid,
-            &format!("user@{}.service", self.uid),
-            true,
-            &mut budget,
-        )?;
+        let reply = match old {
+            Some(queries) => queries.run(FixedRecoveryCommand::Manager, self.uid, &mut budget)?,
+            None => query(
+                self.uid,
+                &format!("user@{}.service", self.uid),
+                true,
+                &mut budget,
+            )?,
+        };
         checkpoint!(ManagerRecord);
-        let pid = service_record(&reply, true)?;
+        let pid = if old.is_some() {
+            recovery_manager_record(&reply)?
+        } else {
+            service_record(&reply, true)?
+        };
         if pid != self.manager.pid {
             return Err(());
         }
@@ -1216,13 +1765,29 @@ impl StoppedOwner {
             } else {
                 checkpoint!(RuntimeUnitQuery);
             }
-            let reply = query(self.uid, unit, false, &mut budget)?;
+            let reply = match old {
+                Some(queries) => queries.run(
+                    if unit == "omavless.service" {
+                        FixedRecoveryCommand::Legacy
+                    } else {
+                        FixedRecoveryCommand::Runtime
+                    },
+                    self.uid,
+                    &mut budget,
+                )?,
+                None => query(self.uid, unit, false, &mut budget)?,
+            };
             if unit == "omavless.service" {
                 checkpoint!(LegacyUnitRecord);
             } else {
                 checkpoint!(RuntimeUnitRecord);
             }
-            service_record(&reply, false)?;
+            if let Some(queries) = old {
+                let runtime = unit == "omavless-runtime.service";
+                queries.check_unit(&reply, runtime, !runtime || runtime_off)?;
+            } else {
+                service_record(&reply, false)?;
+            }
         }
         checkpoint!(Inventory);
         #[cfg(test)]
@@ -1267,6 +1832,213 @@ mod tests {
     use super::*;
     use nix::sys::signal::Signal;
     use std::io::Write;
+
+    #[test]
+    fn recovered_start_command_and_lifetime_are_fixed_and_once_only() {
+        assert_eq!(
+            FixedRecoveryCommand::StartRuntime.arguments(1000),
+            [
+                "--user",
+                "--no-pager",
+                "--no-ask-password",
+                "start",
+                "omavless-runtime.service",
+            ]
+        );
+        assert_eq!(RECOVERED_START_TIMEOUT, Duration::from_secs(15));
+        let slot = std::sync::atomic::AtomicBool::new(false);
+        assert!(reserve_recovered_start(&slot).is_ok());
+        assert!(reserve_recovered_start(&slot).is_err());
+
+        let mut failed = RecoveredStartLifetime::default();
+        assert!(!failed.retain_on_drop());
+        assert!(failed.begin().is_ok());
+        assert!(failed.retain_on_drop());
+        failed.finish(false);
+        assert!(failed.retain_on_drop());
+        assert!(failed.begin().is_err());
+        assert!(failed.retain_on_drop());
+
+        let mut positive = RecoveredStartLifetime::default();
+        assert!(positive.begin().is_ok());
+        positive.finish(true);
+        assert!(!positive.retain_on_drop());
+        assert!(positive.begin().is_err());
+        assert!(positive.retain_on_drop());
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn old_recovery_self_is_exact_and_abort_is_unchanged() {
+        assert!(old_recovery_self(b"binary\0restore\0recover-old\0--confirm-rollback\0").is_ok());
+        for command in [
+            b"binary\0restore\0abort\0--confirm-rollback\0".as_slice(),
+            b"binary\0restore\0recover-old\0".as_slice(),
+            b"binary\0restore\0recover-old\0--confirm-rollback\0extra\0".as_slice(),
+            b"binary\0daemon\0".as_slice(),
+        ] {
+            assert!(old_recovery_self(command).is_err());
+        }
+        assert!(recovery_self(b"binary\0restore\0abort\0--confirm-rollback\0").is_ok());
+        assert!(recovery_self(b"binary\0restore\0recover-old\0--confirm-rollback\0").is_err());
+    }
+
+    #[test]
+    fn old_recovery_unit_requires_current_preserved_runtime_and_no_job() {
+        let off = b"LoadState=loaded\nNeedDaemonReload=no\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nJob=\nRuntimeDirectoryPreserve=yes\nFragmentPath=/usr/lib/systemd/user/omavless-runtime.service\nDropInPaths=\n";
+        assert!(recovery_unit_record(off, true, true).is_ok());
+        let text = std::str::from_utf8(off).unwrap();
+        for changed in [
+            text.replace("Job=\n", "Job=42\n"),
+            text.replace("Preserve=yes", "Preserve=no"),
+            text.replace("Reload=no", "Reload=yes"),
+            text.replace("ControlPID=0", "ControlPID=1"),
+            text.replace("MainPID=0", "MainPID=1"),
+            text.replace("inactive", "active"),
+            text.replace("loaded", "not-found"),
+            text.replace(
+                "/usr/lib/systemd/user/omavless-runtime.service",
+                "/foreign.service",
+            ),
+            text.replace("Job=\n", ""),
+            format!("{text}Job=\n"),
+            format!("{text}Unknown=value\n"),
+        ] {
+            assert!(recovery_unit_record(changed.as_bytes(), true, true).is_err());
+        }
+        let queued = text
+            .replace("Job=\n", "Job=42\n")
+            .replace("inactive", "failed")
+            .replace("SubState=dead", "SubState=failed");
+        assert!(recovery_unit_record(queued.as_bytes(), true, false).is_ok());
+        assert!(recovery_unit_record(queued.as_bytes(), true, true).is_err());
+        let restarting = queued
+            .replace("ActiveState=failed", "ActiveState=activating")
+            .replace("SubState=failed", "SubState=auto-restart");
+        assert!(recovery_unit_record(restarting.as_bytes(), true, false).is_ok());
+        for live in [
+            queued.replace("MainPID=0", "MainPID=42"),
+            queued.replace("ControlPID=0", "ControlPID=42"),
+            queued
+                .replace("ActiveState=failed", "ActiveState=active")
+                .replace("SubState=failed", "SubState=running"),
+            restarting.replace("SubState=auto-restart", "SubState=start"),
+        ] {
+            assert!(recovery_unit_record(live.as_bytes(), true, false).is_err());
+        }
+        let legacy = b"LoadState=not-found\nNeedDaemonReload=no\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nJob=\n";
+        assert!(recovery_unit_record(legacy, false, true).is_ok());
+        assert!(recovery_unit_record(legacy, true, true).is_err());
+        let legacy_queued = std::str::from_utf8(legacy)
+            .unwrap()
+            .replace("Job=\n", "Job=42\n");
+        assert!(recovery_unit_record(legacy_queued.as_bytes(), false, true).is_err());
+    }
+
+    #[test]
+    fn old_recovery_lost_owner_inventory_must_finish_before_fixed_stop() {
+        let calls = RefCell::new(Vec::new());
+        assert!(
+            qualify_lost_owner(
+                || {
+                    calls.borrow_mut().push("before");
+                    Err(())
+                },
+                || {
+                    calls.borrow_mut().push("stop");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("after");
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(*calls.borrow(), ["before"]);
+        calls.borrow_mut().clear();
+        assert!(
+            qualify_lost_owner(
+                || {
+                    calls.borrow_mut().push("before");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("stop");
+                    Err(())
+                },
+                || {
+                    calls.borrow_mut().push("after");
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(*calls.borrow(), ["before", "stop"]);
+        calls.borrow_mut().clear();
+        assert!(
+            qualify_lost_owner(
+                || {
+                    calls.borrow_mut().push("before");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("stop");
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("after");
+                    Ok(())
+                },
+            )
+            .is_ok()
+        );
+        assert_eq!(*calls.borrow(), ["before", "stop", "after"]);
+    }
+
+    #[test]
+    fn old_recovery_manager_requires_no_queued_job_and_exact_original_shape() {
+        let manager = b"ActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\nJob=\n";
+        assert_eq!(recovery_manager_record(manager), Ok(42));
+        for bytes in [
+            b"ActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\nJob=5\n".as_slice(),
+            b"ActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\n".as_slice(),
+            b"ActiveState=active\nSubState=running\nMainPID=42\nControlPID=0\nJob=\nJob=\n"
+                .as_slice(),
+            b"ActiveState=active\nSubState=running\nMainPID=0\nControlPID=0\nJob=\n".as_slice(),
+        ] {
+            assert!(recovery_manager_record(bytes).is_err());
+        }
+    }
+
+    #[test]
+    fn old_recovery_commands_are_fixed_and_have_no_start_or_shell() {
+        let stop = FixedRecoveryCommand::StopRuntime.arguments(1000);
+        assert_eq!(
+            stop,
+            [
+                "--user",
+                "--no-pager",
+                "--no-ask-password",
+                "stop",
+                "omavless-runtime.service"
+            ]
+        );
+        for command in [
+            FixedRecoveryCommand::Manager,
+            FixedRecoveryCommand::Legacy,
+            FixedRecoveryCommand::Runtime,
+        ] {
+            let arguments = command.arguments(1000);
+            assert!(arguments.iter().any(|arg| arg == "show"));
+            assert!(
+                !arguments
+                    .iter()
+                    .any(|arg| ["stop", "start", "restart", "sh", "bash"].contains(&arg.as_str()))
+            );
+            assert!(arguments.iter().any(|arg| arg == "--property=Job"));
+        }
+    }
 
     fn proc_root() -> File {
         File::open("/proc").unwrap()

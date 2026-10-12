@@ -4,6 +4,7 @@ use super::*;
 use crate::cutover::{CutoverPaths, OwnershipMarker, OwnershipPhase, read_marker_existing};
 use crate::desired::{DesiredPaths, DesiredState, read_desired_snapshot};
 use crate::native_host::{NativeHostPaths, ObservationOnlyNativeHost};
+use crate::restore_old_stopped::NativeOldRecoveryQuiescence;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
@@ -14,6 +15,7 @@ enum FreshRecoveryMode {
     MixedIntent,
     OldIntent,
     CompleteAborted,
+    RecoverOldToCompletion,
 }
 
 #[cfg(test)]
@@ -56,6 +58,60 @@ fn move_prechecked_original(
     // The caller checked both under their original mutexes and installed the
     // destination. Only a move: no user callback, allocation or Flock Drop.
     *destination = source.take();
+}
+
+#[cfg(test)]
+#[test]
+fn old_release_without_positive_completion_keeps_original_migration_custody() {
+    let root = tempfile::Builder::new().prefix("or-").tempdir().unwrap();
+    std::fs::set_permissions(
+        root.path(),
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
+    let uid = nix::unistd::getuid().as_raw();
+    let paths = CutoverPaths::below(root.path(), root.path(), uid);
+    let lock = MigrationLock::acquire(&paths, uid).unwrap();
+    let original = Arc::new(Mutex::new(Some(RecoveryHeld {
+        lock: Arc::new(OnceLock::from(lock)),
+        failed_lock: None,
+        scope: Arc::new(AtomicBool::new(false)),
+        boundary: None,
+        authenticated: None,
+        host: None,
+        engine: crate::manager_actor_service::NativeEngine::reserve(),
+        facts: None,
+    })));
+    let weak = Arc::downgrade(&original);
+    let recovery = FreshRecovery {
+        original,
+        destination: Arc::new(Mutex::new(None)),
+        available: Arc::new(AtomicBool::new(true)),
+        disposition_attempted: false,
+        attempted: true,
+        released: false,
+        old_quiescence: None,
+        normal_owner: None,
+    };
+    assert!(recovery.dispose_and_release_old().is_err());
+    let retained = weak.upgrade().unwrap();
+    assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+    let mut slot = retained.lock().unwrap();
+    assert!(
+        slot.as_ref()
+            .unwrap()
+            .lock
+            .get()
+            .unwrap()
+            .authorizes(&paths, uid)
+    );
+    // This local pre-admission fixture never acquired native/manager resources
+    // or issued an effect. Clean only that known original synthetic flock.
+    drop(slot.take());
+    drop(slot);
+    drop(MigrationLock::acquire_existing(&paths, uid).unwrap());
+    std::fs::remove_file(&paths.operation_lock).unwrap();
+    drop(retained);
 }
 
 #[cfg(test)]
@@ -153,9 +209,123 @@ pub(crate) struct FreshRecovery {
     available: Arc<AtomicBool>,
     disposition_attempted: bool,
     attempted: bool,
+    // Only the new OLD consumer can positively release its completed graph.
+    // All errors/unwinds retain the pre-existing fail-closed Drop behavior.
+    released: bool,
+    // The synchronous new consumer's guard is not installed in the ordinary
+    // Send owner graph. Its unknown original child is retained separately.
+    old_quiescence: Option<Box<NativeOldRecoveryQuiescence>>,
     normal_owner: Option<
         crate::production_owner::ProductionNativeOwner<crate::native_host::NativeLifecycleHost>,
     >,
+}
+
+/// Private readback DATA retained after positive release, never a startup or
+/// mutation grant. Normal Start must earn ordinary admission independently.
+pub(crate) struct ReleasedOldConfiguration {
+    paths: CutoverPaths,
+    desired_paths: DesiredPaths,
+    config: std::path::PathBuf,
+    uid: u32,
+    marker: OwnershipMarker,
+    desired: DesiredState,
+    pair: crate::backup_source_candidate::PrivateSourcePair,
+    history_name: &'static str,
+    history_bytes: Zeroizing<Vec<u8>>,
+}
+
+impl ReleasedOldConfiguration {
+    pub(crate) fn verify_current(&self) -> Result<(), FirstError> {
+        // New read-only lease after the normal service has independently
+        // started. Never reacquire its singleton or replay recovery here.
+        let lock = MigrationLock::acquire_existing(&self.paths, self.uid)
+            .map_err(|_| FirstError::StillFenced)?;
+        let mut admission = crate::startup_admission::StartupAdmission::ordinary();
+        verify_ordinary_off(
+            &mut admission,
+            &self.paths,
+            &self.desired_paths,
+            self.uid,
+            &lock,
+            &self.marker,
+            &self.desired,
+        )?;
+        let current = crate::backup_source_candidate::capture_current_pair(
+            &self.config,
+            &self.paths,
+            self.uid,
+            self.marker.generation(),
+            &lock,
+        )
+        .map_err(|_| FirstError::StillFenced)?;
+        if current.store() != self.pair.store() || current.template() != self.pair.template() {
+            return Err(FirstError::StillFenced);
+        }
+        let state = open_private_directory(&self.paths.state_directory, self.uid)
+            .map_err(|_| FirstError::StillFenced)?;
+        let history = File::from(
+            openat(
+                &state,
+                self.history_name,
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| FirstError::StillFenced)?,
+        );
+        let meta = history.metadata().map_err(|_| FirstError::StillFenced)?;
+        if !meta.is_file()
+            || meta.uid() != self.uid
+            || meta.mode() & 0o7777 != 0o600
+            || meta.nlink() != 1
+            || held_bytes(&history, self.history_bytes.len())?.as_slice()
+                != self.history_bytes.as_slice()
+        {
+            return Err(FirstError::StillFenced);
+        }
+        verify_ordinary_off(
+            &mut admission,
+            &self.paths,
+            &self.desired_paths,
+            self.uid,
+            &lock,
+            &self.marker,
+            &self.desired,
+        )
+    }
+}
+
+fn verify_ordinary_off(
+    admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    paths: &CutoverPaths,
+    desired_paths: &DesiredPaths,
+    uid: u32,
+    lock: &MigrationLock,
+    marker: &OwnershipMarker,
+    desired: &DesiredState,
+) -> Result<(), FirstError> {
+    admission
+        .bind(paths, uid, lock)
+        .map_err(|_| FirstError::StillFenced)?;
+    if admission.marker(paths, uid).ok().as_ref() != Some(marker)
+        || marker.phase() != OwnershipPhase::Rust
+        || admission.desired(desired_paths, uid).ok().as_ref() != Some(desired)
+        || desired.connected
+        || !desired.profile_id.is_empty()
+    {
+        return Err(FirstError::StillFenced);
+    }
+    crate::login_activation::require_current_receipt(paths, uid, lock, marker.generation())
+        .map_err(|_| FirstError::StillFenced)?;
+    admission
+        .receipt(paths, uid, lock, marker.generation())
+        .map_err(|_| FirstError::StillFenced)?;
+    admission
+        .transaction(paths, desired_paths, uid, lock, false)
+        .map_err(|_| FirstError::StillFenced)?;
+    admission
+        .action(crate::desired::ReconcileAction::SettledDisconnected)
+        .map_err(|_| FirstError::StillFenced)?;
+    admission.recheck().map_err(|_| FirstError::StillFenced)
 }
 #[derive(Clone)]
 pub(crate) struct NativeSteadyCompletion {
@@ -651,7 +821,15 @@ impl NativeSteadyCompletion {
 }
 impl Drop for FreshRecovery {
     fn drop(&mut self) {
+        if self.released {
+            return;
+        }
         std::mem::forget(self.normal_owner.take());
+        if let Some(original) = self.old_quiescence.take() {
+            // Preserve the actual typed child/observer in stable storage, not
+            // only leaked raw descriptor numbers from a forgotten stack value.
+            Box::leak(original);
+        }
         std::mem::forget(Arc::clone(&self.original));
         std::mem::forget(Arc::clone(&self.destination));
     }
@@ -741,6 +919,14 @@ fn held_bytes(file: &File, maximum: usize) -> Result<Zeroizing<Vec<u8>>, FirstEr
 }
 
 impl NativeRecoveryOrigin<'_> {
+    pub(crate) fn check_old_recovery_lease(&mut self) -> Result<(), FirstError> {
+        // Used only before/after the engine's explicit fixed quiescence phase.
+        // The original lease and Off members are still borrowed, never minted
+        // from a manager snapshot or an earlier constructor-time observation.
+        self.bindings(false)?;
+        self.check_observed_off()?;
+        self.bindings(false)
+    }
     pub(crate) fn uid(&self) -> u32 {
         self.uid
     }
@@ -808,6 +994,23 @@ impl NativeRecoveryOrigin<'_> {
         &mut self,
         view: crate::manager_actor_service::NativeStageView<'_>,
     ) -> Result<(), FirstError> {
+        self.check_inner(view, None)
+    }
+    pub(crate) fn check_old_recovery(
+        &mut self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+        quiescence: &NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        // The concrete original guard, not inactive-unit bytes or a caller
+        // flag, qualifies the failed/stopped runtime in this new consumer.
+        quiescence.bind(self.lock, self.paths, self.uid)?;
+        self.check_inner(view, Some(quiescence))
+    }
+    fn check_inner(
+        &mut self,
+        view: crate::manager_actor_service::NativeStageView<'_>,
+        quiescence: Option<&NativeOldRecoveryQuiescence>,
+    ) -> Result<(), FirstError> {
         if !view.recovery_exclusive() {
             return Err(FirstError::Admission);
         }
@@ -826,7 +1029,15 @@ impl NativeRecoveryOrigin<'_> {
                 return Err(FirstError::Admission);
             }
         }
-        self.manager_empty()?;
+        self.check_manager(quiescence)?;
+        self.check_observed_off()?;
+        if view.stage_present() && !view.pending_allowed(self.desired_paths, self.uid) {
+            return Err(FirstError::Admission);
+        }
+        self.check_manager(quiescence)?;
+        self.bindings(view.live_changed())
+    }
+    fn check_observed_off(&mut self) -> Result<(), FirstError> {
         if !self
             .host
             .fresh_observation(&self.desired)
@@ -839,12 +1050,19 @@ impl NativeRecoveryOrigin<'_> {
                     && !observation.owned_controller_config_verified
                     && !observation.desired_profile_matches_owned
             })
-            || (view.stage_present() && !view.pending_allowed(self.desired_paths, self.uid))
         {
             return Err(FirstError::Admission);
         }
-        self.manager_empty()?;
-        self.bindings(view.live_changed())
+        Ok(())
+    }
+    fn check_manager(
+        &self,
+        quiescence: Option<&NativeOldRecoveryQuiescence>,
+    ) -> Result<(), FirstError> {
+        match quiescence {
+            Some(original) => original.recheck(),
+            None => self.manager_empty(),
+        }
     }
     fn manager_empty(&self) -> Result<(), FirstError> {
         for service in [
@@ -871,6 +1089,154 @@ impl NativeRecoveryOrigin<'_> {
 
 #[allow(dead_code)]
 impl FreshRecovery {
+    /// Distinct consuming release, not the historical in-process owner transfer.
+    /// Every fallible check runs while the original keeper remains installed.
+    pub(crate) fn dispose_and_release_old(
+        mut self,
+    ) -> Result<ReleasedOldConfiguration, FirstError> {
+        if self.disposition_attempted
+            || !self.available.load(Ordering::Acquire)
+            || self.normal_owner.is_some()
+            || self.released
+        {
+            return Err(FirstError::StillFenced);
+        }
+        self.disposition_attempted = true;
+        let result = self.dispose_and_release_old_inner();
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+            if let Ok(mut slot) = self.original.lock()
+                && let Some(held) = slot.as_mut()
+            {
+                held.engine.revoke_native();
+            }
+        }
+        result
+    }
+
+    fn dispose_and_release_old_inner(&mut self) -> Result<ReleasedOldConfiguration, FirstError> {
+        // No installed normal owner, completion borrower or external keeper may
+        // survive this release. All aliases are classified before taking data.
+        if Arc::strong_count(&self.original) != 1
+            || Arc::strong_count(&self.destination) != 1
+            || Arc::strong_count(&self.available) != 1
+        {
+            return Err(FirstError::StillFenced);
+        }
+        let mut slot = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+        let destination = self
+            .destination
+            .lock()
+            .map_err(|_| FirstError::StillFenced)?;
+        if destination.is_some() {
+            return Err(FirstError::StillFenced);
+        }
+        let held = slot.as_mut().ok_or(FirstError::StillFenced)?;
+        if held.failed_lock.is_some()
+            || held.scope.load(Ordering::Acquire)
+            || Arc::strong_count(&held.scope) != 1
+            || Arc::strong_count(&held.lock) != 2
+        {
+            return Err(FirstError::StillFenced);
+        }
+        let RecoveryHeld {
+            lock,
+            boundary,
+            host,
+            engine,
+            facts,
+            ..
+        } = held;
+        let facts = facts.as_ref().ok_or(FirstError::StillFenced)?;
+        let boundary = boundary.as_ref().ok_or(FirstError::StillFenced)?;
+        let config = boundary
+            .directories
+            .first()
+            .ok_or(FirstError::StillFenced)?
+            .0
+            .clone();
+        let quiescence = self
+            .old_quiescence
+            .as_mut()
+            .ok_or(FirstError::StillFenced)?;
+        let lock = lock.get().ok_or(FirstError::StillFenced)?;
+        let mut origin = NativeRecoveryOrigin {
+            lock,
+            boundary,
+            host: host.as_mut().ok_or(FirstError::StillFenced)?,
+            paths: &facts.paths,
+            desired_paths: &facts.desired_paths,
+            marker: facts.marker.clone(),
+            desired: facts.desired.clone(),
+            marker_bytes: facts.marker_bytes.clone(),
+            desired_bytes: facts.desired_bytes.clone(),
+            login_bytes: facts.login_bytes.clone(),
+            uid: facts.uid,
+        };
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        engine.check_native_old_completed(&mut origin, quiescence, until)?;
+        // Ordinary reconciliation must not rewrite/prune OLD on restart. Check
+        // the existing pure pointer planner before publishing disposition.
+        let pointers = crate::private_store_transaction::prepare_pointer_mutation(
+            &config.join("profiles.json"),
+            facts.uid,
+            omavless_domain::private_store::CompatibilityPointerTarget::Disconnected {
+                prune_missing: true,
+            },
+        )
+        .map_err(|_| FirstError::StillFenced)?;
+        if pointers.changed() {
+            return Err(FirstError::StillFenced);
+        }
+        engine.dispose_native_old_completed(&mut origin, quiescence)?;
+        let mut ordinary = crate::startup_admission::StartupAdmission::ordinary();
+        verify_ordinary_off(
+            &mut ordinary,
+            &facts.paths,
+            &facts.desired_paths,
+            facts.uid,
+            lock,
+            &facts.marker,
+            &facts.desired,
+        )?;
+        let pair = crate::backup_source_candidate::capture_current_pair(
+            &config,
+            &facts.paths,
+            facts.uid,
+            facts.marker.generation(),
+            lock,
+        )
+        .map_err(|_| FirstError::StillFenced)?;
+        let (history_name, history) = engine.completed_history_data(&mut origin, quiescence)?;
+        let released = ReleasedOldConfiguration {
+            paths: facts.paths.clone(),
+            desired_paths: facts.desired_paths.clone(),
+            config,
+            uid: facts.uid,
+            marker: facts.marker.clone(),
+            desired: facts.desired.clone(),
+            pair,
+            history_name,
+            history_bytes: Zeroizing::new(history.to_vec()),
+        };
+        engine.check_native_old_completed(
+            &mut origin,
+            quiescence,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )?;
+        if !engine.disposition_ready() {
+            return Err(FirstError::StillFenced);
+        }
+        // Final positive classification above. No fallible work, callback,
+        // service command or lifecycle-host destructor before lease closure.
+        self.available.store(false, Ordering::Release);
+        self.released = true;
+        drop(self.old_quiescence.take());
+        drop(slot.take());
+        drop(destination);
+        drop(slot);
+        Ok(released)
+    }
     #[cfg(test)]
     pub(crate) fn ordinary_owner(
         &mut self,
@@ -1029,6 +1395,8 @@ impl FreshRecovery {
             available: Arc::new(AtomicBool::new(true)),
             disposition_attempted: false,
             attempted: false,
+            released: false,
+            old_quiescence: None,
             normal_owner: None,
         })
     }
@@ -1092,6 +1460,37 @@ impl FreshRecovery {
             uid,
             FreshRecoveryMode::CompleteAborted,
         )
+    }
+    /// One consumer progression: qualify the stopped fixed service under the
+    /// original leases, authenticate OLD/Intent-or-Aborted, and complete it.
+    /// No normal owner is installed and no service is started by this method.
+    pub(crate) fn recover_old_to_completion(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        let result = self.reconcile(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::RecoverOldToCompletion,
+        );
+        if result.is_err() {
+            self.available.store(false, Ordering::Release);
+            if let Ok(mut slot) = self.original.lock()
+                && let Some(held) = slot.as_mut()
+            {
+                held.engine.revoke_native();
+            }
+        }
+        result
     }
     #[cfg(test)]
     pub(crate) fn completed_owner_readonly(&mut self) -> bool {
@@ -1220,7 +1619,29 @@ impl FreshRecovery {
             uid,
         };
         let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
-        if mode == FreshRecoveryMode::CompleteAborted {
+        if mode == FreshRecoveryMode::RecoverOldToCompletion {
+            self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
+                &paths,
+                uid,
+                Arc::clone(lock),
+            )?));
+            engine.recover_native_old_to_completion(
+                &mut origin,
+                backup,
+                self.old_quiescence.as_mut().ok_or(FirstError::Admission)?,
+            )?;
+            *facts = Some(OriginFacts {
+                paths: paths.clone(),
+                desired_paths: desired_paths.clone(),
+                marker: origin.marker.clone(),
+                desired: origin.desired.clone(),
+                marker_bytes: origin.marker_bytes.clone(),
+                desired_bytes: origin.desired_bytes.clone(),
+                login_bytes: origin.login_bytes.clone(),
+                uid,
+            });
+            Ok(())
+        } else if mode == FreshRecoveryMode::CompleteAborted {
             engine.complete_native_aborted(&mut origin, backup)?;
             let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
             let proof = NativeCompletedOff {
