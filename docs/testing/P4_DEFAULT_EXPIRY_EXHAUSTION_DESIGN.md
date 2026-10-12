@@ -1,8 +1,12 @@
 # P4 default rejection, residue expiry and retry exhaustion proposal
 
-Source/design only, based on exact #589
-`466755d0ddb0ac408e01328816444d80b2b7a523`. No new Go build, test executable,
-engine case, VM or native networking has run. The owning
+Current ordinary checkpoint: both separately selected source-engine rejection
+and exhaustion rows passed at exact `e674af921f2a2682c9328968a2a3ab05c4d48b2a`;
+see [exact v4 acceptance and preserved failures](P4_DEFAULT_ORDINARY_V4_2026-10-13.md).
+Race, normal P4, VM/native networking and whole protocol maturity remain unclosed.
+The design/source-only history below is based on exact #589
+`466755d0ddb0ac408e01328816444d80b2b7a523`; its original unrun checkpoints and
+failed evidence are retained, not relabelled as tested at the later docs head. The owning
 [rekey report](P4_DEFAULT_ELAPSED_REKEY_2026-10-03.md),
 [retry report](P4_DEFAULT_ELAPSED_RETRY_2026-10-03.md) and
 [timer boundary report](P4_AWG_TIMER_SOURCE_2026-10-03.md) retain their original

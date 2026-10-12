@@ -7,7 +7,9 @@ required before any Go command or engine selector. No normal P4 activation,
 real socket/TUN FD, VM, Rust runtime owner, profile, merge or release is covered.
 The separately scoped [ordinary installed-toolchain successor](P4_ORDINARY_TOOLCHAIN_ADMISSION.md)
 preserves this runner and its evidence while proposing explicit fixed-GOROOT
-signed-package admission. It has not compiled or executed either engine case.
+signed-package admission. That distinct v4 ordinary entry now has
+[exact-e674 channel acceptance](P4_DEFAULT_ORDINARY_V4_2026-10-13.md) for both
+selectors; this original runner/recipe remains unbuilt and frozen.
 The [owning design](P4_DEFAULT_EXPIRY_EXHAUSTION_DESIGN.md) retains the case
 causality and closure contract; this proposal does not manufacture elapsed proof.
 

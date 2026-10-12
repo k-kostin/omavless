@@ -1,5 +1,11 @@
 # P4 ordinary installed-toolchain admission successor
 
+Current outcome: both original v4 ordinary cases passed at exact
+`e674af921f2a2682c9328968a2a3ab05c4d48b2a`; see
+[the acceptance record](P4_DEFAULT_ORDINARY_V4_2026-10-13.md). Source-only history
+and original failures below retain their heads; the later docs head is untested
+for engine execution. Race, normal P4 and installed/provider maturity stay open.
+
 SOURCE only: the writer performed no Go command, test ELF, source export, engine
 selector, package decompression, actual full installed-tool admission,
 network/service or VM action. Bounded public Go source reads informed the helper
