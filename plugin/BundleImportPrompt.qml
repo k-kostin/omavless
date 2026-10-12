@@ -116,6 +116,7 @@ Item {
             bordered: true
             focusable: true
             enabled: prompt.available && !!prompt.counts && prompt.counts.accepted > 0
+            opacity: enabled ? 1 : 0.45
             KeyNavigation.tab: cancel
             KeyNavigation.backtab: cancel
             onClicked: prompt.confirmed()
