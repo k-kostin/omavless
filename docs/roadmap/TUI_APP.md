@@ -1,6 +1,14 @@
 # OmaVLESS TUI application and control surfaces
 
 Status: T2 MVP plus selected T3/T4 slices in accepted RC 0.9.5, not stable.
+The separate 0.9.9 direct-import client candidate adds masked explicit input,
+runtime classification and preview-bound confirmation through existing
+`imports.classify` / `plugin.action`; no new store/core/lifecycle owner is added.
+Profile/subscription/local-bundle semantics remain in the canonical Rust
+runtime. Subscription confirmation may fetch; classification and a local
+bundle save do not. See [the usage boundary](../user/NATIVE_USAGE.md#import-and-update-subscriptions).
+Exact source, programmatic and installed gates belong to its owning dev PR;
+this is not a released or fully accepted 0.9.9 client.
 Additional read-side TUI refinements are scope-frozen in the unaccepted
 [0.9.6 RC](../development/RC_096.md); no new action or security capability is
 enabled by this selection.

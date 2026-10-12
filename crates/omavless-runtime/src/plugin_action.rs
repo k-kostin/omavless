@@ -75,6 +75,52 @@ pub(crate) struct Action {
     pub canonical: Value,
 }
 
+#[cfg(all(test, feature = "tui"))]
+#[test]
+fn tui_private_import_uses_existing_canonical_classification_and_mutation_shapes() {
+    use omavless_tui::private_import::Workspace;
+    let now = std::time::Instant::now();
+    for (preview, action, canonical) in [
+        (
+            json!({"version":1,"kind":"profile","profile":{"version":1,"protocol":"vless","suggestedName":"Synthetic","insecure":false,"experimental":false}}),
+            "profile-import",
+            "profiles.import",
+        ),
+        (
+            json!({"version":1,"kind":"subscription","suggestedName":"Synthetic","duplicate":false}),
+            "subscription-add",
+            "subscriptions.add",
+        ),
+        (
+            json!({"version":1,"kind":"bundle","counts":{"accepted":1,"duplicates":0,"skipped":0},"previewFingerprint":"a".repeat(64)}),
+            "profile-bundle-import",
+            "profiles.importBundle",
+        ),
+    ] {
+        let mut workspace = Workspace::new("fixture-runtime", 7, 1).unwrap();
+        // Public .invalid fixtures only; parsing never contacts this host.
+        let input = if action == "subscription-add" {
+            "https://fixture.invalid/feed"
+        } else {
+            "trojan://synthetic-not-a-real-key@fixture.invalid:443?security=tls#Synthetic"
+        };
+        assert!(workspace.append(input));
+        let preview_request = workspace.classify(now).unwrap();
+        let value =
+            crate::make_request("preview", "imports.classify", preview_request.params()).unwrap();
+        assert!(crate::import_read_protocol::parse_import_preview_request(&value).is_ok());
+        workspace
+            .accept(preview_request.settle(Ok(json!({"ok":true,"revision":7,"result":preview}))));
+        let request = workspace.confirm("original-operation".into(), now).unwrap();
+        let value = crate::make_request("save", "plugin.action", request.params()).unwrap();
+        let parsed = parse(&value).expect("actual canonical parser must admit TUI shape");
+        assert_eq!(parsed.action, action);
+        assert_eq!(parsed.canonical["method"], canonical);
+        assert_eq!(parsed.operation, "original-operation");
+        assert_eq!(parsed.instance, "fixture-runtime");
+    }
+}
+
 pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
     use MutationProtocolError::InvalidArgument;
     omavless_control_protocol::validate_request(request)

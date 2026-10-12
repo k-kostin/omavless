@@ -103,6 +103,14 @@ Settings layout when the installation is ready.
 No check substitutes for another. A screenshot proves only its captured state;
 controller liveness or a Connected label does not prove internet/DNS health.
 
+Changing a global terminal/input mode requires checking every existing editor,
+not just the new dialog. Bracketed paste must reach only the active field and
+must not replay shortcuts, Enter or confirmations. Verify advertised modified
+keys through real terminal encoding/PTY input; synthetic key objects alone can
+hide an unsupported key combination. Trace action copy to the actual semantic
+runtime dispatch: a save-shaped label must disclose a subscription fetch when
+that existing operation fetches before committing.
+
 ### Pick affected states, not a ceremonial full-product rerun
 
 For profile selection/connection/action layout, cover these contrasts. For

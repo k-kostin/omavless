@@ -42,6 +42,12 @@ pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
 }
 
 pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
+    if app.import_open
+        && let Some(import) = &app.import
+    {
+        draw_import(frame, app, import);
+        return;
+    }
     #[cfg(feature = "private-backup")]
     if app.restore_open
         && let Some(restore) = &app.restore
@@ -111,7 +117,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         Constraint::Length(if app.confirmation.is_some() {
             4
         } else if app.actions_enabled {
-            8
+            if app.import_enabled { 9 } else { 8 }
         } else {
             5
         }),
@@ -577,7 +583,111 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         );
         return;
     }
+    if app.import_enabled && app.confirmation.is_none() && !app.searching {
+        footer.insert(
+            0,
+            Line::from(tr(if app.import_unresolved() {
+                app.import_notice_key()
+            } else if app.page != crate::inspection::Page::Profiles {
+                "tui.import_keys_global"
+            } else {
+                "tui.import_keys"
+            })),
+        );
+    }
     frame.render_widget(Paragraph::new(footer), sections[2]);
+}
+
+fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Workspace) {
+    use crate::private_import::{Kind, State};
+    let tr = |key| app.locale.text(key);
+    let area = frame.area();
+    frame.render_widget(Block::default().style(app.palette.normal()), area);
+    if area.width < 70 || area.height < 24 {
+        frame.render_widget(
+            Paragraph::new(format!(
+                "{}\n{}",
+                tr("tui.action_resize"),
+                tr("tui.import_cancel_keys")
+            ))
+            .wrap(Wrap { trim: false }),
+            area,
+        );
+        return;
+    }
+    let mut lines = vec![
+        Line::from(tr("tui.import_title")),
+        Line::from(""),
+        Line::from(tr("tui.import_scope")),
+        Line::from(tr("tui.import_privacy")),
+        Line::from(""),
+    ];
+    match import.state() {
+        State::Editing => {
+            lines.push(Line::from(format!(
+                "{}: {} / {}",
+                tr("tui.import_bytes"),
+                import.input_bytes(),
+                crate::private_import::MAX_INPUT
+            )));
+            lines.push(Line::from(if import.input_bytes() == 0 {
+                "▏"
+            } else {
+                "●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●"
+            }));
+            lines.push(Line::from(tr("tui.import_edit_keys")));
+        }
+        State::Classifying => lines.push(Line::from(tr("tui.import_classifying"))),
+        State::Preview => {
+            if let Some(preview) = import.preview() {
+                if preview.warning {
+                    lines.push(Line::from(tr("tui.import_warning")));
+                }
+                lines.push(Line::from(tr(match preview.kind {
+                    Kind::Profile => "tui.import_profile",
+                    Kind::Subscription => "tui.import_subscription",
+                    Kind::Bundle => "tui.import_bundle",
+                })));
+                if !preview.name.is_empty() {
+                    lines.push(Line::from(format!(
+                        "{}: {}",
+                        tr("tui.target"),
+                        display(&preview.name, 80)
+                    )));
+                }
+                lines.push(Line::from(format!(
+                    "{}: {}   {}: {}   {}: {}",
+                    tr("tui.import_accepted"),
+                    preview.accepted,
+                    tr("tui.import_duplicates"),
+                    preview.duplicates,
+                    tr("tui.import_skipped"),
+                    preview.skipped
+                )));
+                lines.push(Line::from(tr(if preview.accepted == 0 {
+                    "tui.import_no_new"
+                } else {
+                    "tui.import_confirm_keys"
+                })));
+            }
+        }
+        State::Submitting => lines.push(Line::from(tr("tui.import_submitting"))),
+        State::Completed => lines.push(Line::from(tr("tui.import_saved"))),
+        State::Rejected => lines.push(Line::from(tr("tui.import_rejected"))),
+        State::Changed => lines.push(Line::from(tr("tui.import_changed"))),
+        State::Unknown => lines.push(Line::from(tr("tui.import_unknown"))),
+    }
+    lines.push(Line::from(""));
+    if !app.notice.is_empty() {
+        lines.push(Line::from(tr(app.notice)));
+    }
+    lines.push(Line::from(tr("tui.import_cancel_keys")));
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(Block::default().borders(Borders::ALL).title(" OmaVLESS "))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {

@@ -43,6 +43,22 @@ Base64 wrapping. The store holds at most 256 profiles; oversized input is refuse
 not truncated. These changes are development-candidate behavior, not a published
 beta package or a change to stable 0.9.8.
 
+The separate **0.9.9 TUI development candidate** exposes **i/F3** on Profiles
+and **F3** on other pages. It accepts direct keyboard input or an explicit
+terminal paste; the reusable input stays masked. **Ctrl+N** adds a line,
+**Ctrl+U** clears the draft and **Enter** requests the existing runtime's
+preview. A second **Enter** confirms that preview. Subscription confirmation
+fetches and adds its feed; a local raw/Base64 bundle only saves local profiles.
+Neither action connects the VPN. A zero-new bundle cannot be saved.
+
+**Escape** before confirmation clears the draft without saving. Once a save
+is submitted, leaving or closing the client does not cancel it. An unknown
+outcome blocks further mutations in that client; do not resubmit. Refresh and
+inspect the saved state before starting another client. The admitted draft and
+queued paste chunks are limited to 32 KiB; this is not a bound on transient
+terminal-parser allocations or a promise to zeroize every JSON transport copy.
+Source/synthetic-terminal checks do not establish installed acceptance.
+
 In the main profile list:
 
 - The arrow beside a subscription expands or collapses its profiles.

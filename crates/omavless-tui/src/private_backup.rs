@@ -116,6 +116,18 @@ impl Workspace {
         text.push(value);
         true
     }
+    /// An explicit paste affects only the active editor; no field navigation
+    /// or confirmation is replayed, and a refused chunk changes nothing.
+    pub fn paste(&mut self, value: &str) -> bool {
+        if self.state != State::Editing || value.chars().any(|ch| ch.is_control()
+            || matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}')) { return false; }
+        let (text, bound) = self.active();
+        if text.len().saturating_add(value.len()) > bound {
+            return false;
+        }
+        text.push_str(value);
+        true
+    }
     pub fn backspace(&mut self) {
         if self.state != State::Editing {
             return;
