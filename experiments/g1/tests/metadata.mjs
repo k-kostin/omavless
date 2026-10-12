@@ -7,6 +7,14 @@ import { UpdateView } from "../shell/workload.js";
 
 assert.deepEqual(replacementFixture, JSON.parse(readFileSync(new URL("../metadata-fixtures.json", import.meta.url), "utf8")));
 const initial = Metadata.fixture();
+assert.equal(Object.isFrozen(initial), true);
+assert.equal(Object.isFrozen(initial.rows), true);
+assert.equal(Object.isFrozen(initial.rows[0]), true);
+assert.throws(() => new Metadata([{ ...initial.rows[0], name: "\u001b" }]), /validation/);
+assert.equal(Metadata.validate(initial.rows, { rows: initial.rows, content: initial.content, validated: true }), null);
+assert.equal(Metadata.validate([{ ...initial.rows[0], name: "\u001b", validated: true }], initial), null);
+assert.equal(Metadata.validate([initial.rows[0], initial.rows[0]], initial), null);
+assert.equal(Metadata.validate([{ ...initial.rows[0], name: "\u001b" }], initial), null);
 assert.equal(initial.rows.length, MAX_ROWS);
 const view = new UpdateView(initial);
 view.attach(); view.burst(fixture.scenes[0], 1);

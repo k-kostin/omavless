@@ -72,6 +72,7 @@ export function visibleProfiles(query, large = false, collection = "all", metada
     }
   }
   const needle = query.toLocaleLowerCase();
+  if (needle === "" && large && collection === "all") return profiles;
   return profiles.filter((profile) => {
     const inCollection = collection === "all"
       || (collection === "sample" && profile.subscription === "Sample collection")
