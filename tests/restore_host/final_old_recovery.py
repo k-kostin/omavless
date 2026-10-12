@@ -86,11 +86,13 @@ class Effects(loss.CapturingEffects):
                 old.time.sleep(0.1)
             self.codes[phase] = child.returncode
             raw = self.capture_read(out)
-            error = self.capture_read(err)
+            # Native recovery emits bounded phase diagnostics on stderr even
+            # on success. Retain/read them privately; they are not authority.
+            self.capture_read(err)
         except BaseException:
             old.park(phase + "_child_or_capture_unverified")
             raise
-        old.require(self.codes[phase] == 0 and error == b"")
+        old.require(self.codes[phase] == 0)
         return raw
 
 
@@ -171,6 +173,8 @@ def paused_owner(uid, run, current, original):
                         for item in (first, status, last))
                 and status[1].get("result", {}).get("desired") == "disconnected"
                 and status[1].get("result", {}).get("actual") == "disconnected"
+                and "transition" in status[1].get("result", {})
+                and status[1]["result"]["transition"] is None
                 and first[1].get("revision") == status[1].get("revision")
                 == last[1].get("revision") == current[1].get("revision")
                 and first[1].get("result", {}).get("instanceId")

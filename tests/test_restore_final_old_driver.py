@@ -134,6 +134,36 @@ class FinalOld(unittest.TestCase):
             finally:
                 effect.close_completed()
 
+    def test_recover_diagnostic_stderr_retained_but_exit_code_not_overridden(self):
+        diagnostics = (b"RestoreRecovery\nRESTORE_RELEASE_ALIASES\n"
+                       b"RESTORE_RELEASE_COMPLETION_VERIFIED\n"
+                       b"RESTORE_RELEASE_DISPOSITION_VERIFIED\n")
+        for code in (0, 2):
+            child = mock.Mock(returncode=code)
+            child.poll.return_value = code
+            with tempfile.TemporaryDirectory() as root:
+                effect = driver.Effects(Path(root), Path("/run/user/1"), driver.HOME)
+                def spawned(*args, **kwargs):
+                    os.write(kwargs["stderr"], diagnostics)
+                    return child
+                try:
+                    with mock.patch.object(old.subprocess, "Popen", side_effect=spawned) as spawn:
+                        if code == 0:
+                            self.assertEqual(effect.once("recover", driver.RECOVER, b"private archive request"), b"")
+                        else:
+                            with self.assertRaises(old.Refused):
+                                effect.once("recover", driver.RECOVER, b"private archive request")
+                        self.assertEqual(effect.codes["recover"], code)
+                        self.assertEqual(os.pread(effect.capture_fds[1], 1024, 0), diagnostics)
+                        self.assertIs(effect.children[0], child)
+                        with self.assertRaises(old.Refused):
+                            effect.once("recover", driver.RECOVER, b"private archive request")
+                        self.assertEqual(spawn.call_count, 1)
+                        child.kill.assert_not_called()
+                        child.terminate.assert_not_called()
+                finally:
+                    effect.close_completed()
+
     def test_poll_loss_and_deadline_park_original_without_kill(self):
         for timeout in (False, True):
             child = mock.Mock()
@@ -187,7 +217,8 @@ class FinalOld(unittest.TestCase):
 
     def test_paused_owner_same_instance_revision_and_process_required(self):
         current = (44, {"revision": 2, "result": {"instanceId": "original", "runtimeOwnership": False,
-                                                "desired": "disconnected", "actual": "disconnected"}})
+                                                "desired": "disconnected", "actual": "disconnected",
+                                                "transition": None}})
         fields = {"MainPID": "44", "ActiveState": "active"}
         for changed in [(44, {"revision": 3, "result": {"instanceId": "original"}}),
                         (44, {"revision": 2, "result": {"instanceId": "replacement"}}),
@@ -199,11 +230,34 @@ class FinalOld(unittest.TestCase):
                     mock.patch.object(old, "no_network"):
                 with self.assertRaises(old.Refused):
                     driver.paused_owner(os.getuid(), Path("/run/user/1"), current, "original")
-        with mock.patch.object(old, "reply", return_value=current), \
+        status = (44, {"revision": 2, "result": {key: value for key, value in current[1]["result"].items()
+                                               if key != "instanceId"}})
+        with mock.patch.object(old, "reply", side_effect=[current, status, current]), \
                 mock.patch.object(old, "manager", return_value=fields), \
                 mock.patch.object(old, "process_identity", return_value="original"), \
                 mock.patch.object(old, "no_network"):
             driver.paused_owner(os.getuid(), Path("/run/user/1"), current, "original")
+
+    def test_paused_status_same_peer_revision_and_explicit_null_transition(self):
+        result = {"instanceId": "original", "runtimeOwnership": False,
+                  "desired": "disconnected", "actual": "disconnected", "transition": None}
+        current = (44, {"revision": 2, "result": result})
+        projection = {key: value for key, value in result.items() if key != "instanceId"}
+        for peer, revision, transition in [(45, 2, None), (44, 3, None),
+                                          (44, 2, "missing"), (44, 2, "reconnecting")]:
+            changed = dict(projection)
+            if transition == "missing":
+                changed.pop("transition")
+            else:
+                changed["transition"] = transition
+            status = (peer, {"revision": revision, "result": changed})
+            with mock.patch.object(old, "reply", side_effect=[current, status, current]), \
+                    mock.patch.object(old, "manager") as manager, \
+                    mock.patch.object(old, "process_identity"), \
+                    mock.patch.object(old, "no_network"):
+                with self.assertRaises(old.Refused):
+                    driver.paused_owner(os.getuid(), Path("/run/user/1"), current, "original")
+                manager.assert_not_called()
 
     def run_sequential(self, broken=False, fault=None):
         # Actual temporary DATA files, but every producer operation is mocked.
@@ -308,12 +362,14 @@ class FinalOld(unittest.TestCase):
                 return {"MainPID": "0" if stopped else "2147483000",
                         "ActiveState": "inactive" if stopped else "active", "SubState": "dead"}
 
-            def paused_reply(*_):
+            def paused_reply(_run, _uid, method, _request):
                 self.assertIn("pause", phases)
                 self.assertNotIn("stop", phases)
-                return 2147483000, {"revision": 2, "result": {
-                    "instanceId": "original", "runtimeOwnership": False,
-                    "desired": "disconnected", "actual": "disconnected"}}
+                result = {"runtimeOwnership": False, "desired": "disconnected",
+                          "actual": "disconnected", "transition": None}
+                if method == "system.hello":
+                    result["instanceId"] = "original"
+                return 2147483000, {"revision": 2, "result": result}
 
             try:
                 with mock.patch.object(driver, "HOME", home), \
