@@ -10,7 +10,7 @@ use nix::unistd::Uid;
 use serde::{Deserialize, Deserializer};
 use std::ffi::OsString;
 use std::io::Read;
-use std::path::{Component, Path};
+use std::path::Path;
 use zeroize::Zeroizing;
 
 const MAX_INPUT: usize = 32 * 1024;
@@ -58,15 +58,13 @@ fn parse(input: impl Read) -> Result<Request, Error> {
     }
     let request: Request = serde_json::from_slice(&bytes).map_err(|_| Error::InvalidInput)?;
     let archive = request.archive.0.as_str();
-    if request.schema != 1
-        || archive.len() > 4096
-        || archive.contains('\0')
-        || !Path::new(archive).is_absolute()
-        || Path::new(archive)
-            .components()
-            .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
-        || !(12..=1024).contains(&request.passphrase.0.len())
-    {
+    // Use the producer's spelling/bounds contract too: Path::components alone
+    // normalizes interior '/./', which the archive producer deliberately refuses.
+    if !crate::developer_current_restore::valid_private(
+        request.schema,
+        archive,
+        &request.passphrase.0,
+    ) {
         return Err(Error::InvalidInput);
     }
     Ok(request)
@@ -151,6 +149,30 @@ mod tests {
             assert!(parse(input).is_err());
         }
         assert!(parse(vec![b' '; MAX_INPUT + 1].as_slice()).is_err());
+    }
+
+    #[test]
+    fn old_recovery_uses_producer_path_and_secret_bounds_without_echoing_input() {
+        for archive in [
+            "/", "/a/", "/a//b", "/a/./b", "/a/.", "/a/../b", "/a\nb", "/a\0b",
+        ] {
+            let input = serde_json::to_vec(&serde_json::json!({
+                "schema": 1, "archive": archive, "passphrase": "synthetic secret"
+            }))
+            .unwrap();
+            let error = parse(input.as_slice())
+                .err()
+                .expect("invalid producer path");
+            assert_eq!(error.to_string(), "Invalid private OLD recovery input");
+        }
+        for (length, accepted) in [(11, false), (12, true), (1024, true), (1025, false)] {
+            let input = serde_json::to_vec(&serde_json::json!({
+                "schema": 1, "archive": "/private/archive.ovb", "passphrase": "s".repeat(length)
+            }))
+            .unwrap();
+            assert_eq!(parse(input.as_slice()).is_ok(), accepted);
+        }
+        assert_eq!(parse([0xff].as_slice()).err(), Some(Error::InvalidInput));
     }
     #[cfg(feature = "product-private-backup")]
     #[test]
