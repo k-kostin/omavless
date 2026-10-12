@@ -5,6 +5,9 @@ reviewed overlay/receipt checkpoint f774697b667315a4ae657916f69a3c0a4bdbee0d.
 ROOT and independent FULL source, graph, environment and recipe review are
 required before any Go command or engine selector. No normal P4 activation,
 real socket/TUN FD, VM, Rust runtime owner, profile, merge or release is covered.
+The separately scoped [ordinary installed-toolchain successor](P4_ORDINARY_TOOLCHAIN_ADMISSION.md)
+preserves this runner and its evidence while proposing explicit fixed-GOROOT
+signed-package admission. It has not compiled or executed either engine case.
 The [owning design](P4_DEFAULT_EXPIRY_EXHAUSTION_DESIGN.md) retains the case
 causality and closure contract; this proposal does not manufacture elapsed proof.
 
