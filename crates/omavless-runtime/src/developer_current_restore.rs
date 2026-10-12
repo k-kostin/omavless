@@ -15,12 +15,17 @@ pub(crate) const PAUSE_METHOD: &str = "developer.pause_current_intent";
 const PAUSE_CONFIRM: &str = "pause-current-private-intent";
 pub(crate) const ABORT_METHOD: &str = "developer.abort_current_intent";
 const ABORT_CONFIRM: &str = "abort-current-private-intent";
+pub(crate) const ABORT_RETIREMENT_CUT_METHOD: &str = "developer.abort_current_after_retirement_cut";
+const ABORT_RETIREMENT_CUT_CONFIRM: &str = "abort-current-after-retirement-cut";
 pub(crate) const FIRST_RENAME_CUT_METHOD: &str = "developer.cut_current_first_rename";
 const FIRST_RENAME_CUT_CONFIRM: &str = "cut-current-first-rename";
 pub(crate) const TERMINAL_CUT_METHOD: &str = "developer.cut_current_terminal";
 const TERMINAL_CUT_CONFIRM: &str = "cut-current-terminal";
 pub(crate) fn loss_cut_method(method: &str) -> bool {
-    matches!(method, FIRST_RENAME_CUT_METHOD | TERMINAL_CUT_METHOD)
+    matches!(
+        method,
+        FIRST_RENAME_CUT_METHOD | TERMINAL_CUT_METHOD | ABORT_RETIREMENT_CUT_METHOD
+    )
 }
 pub(crate) fn private_method(method: &str) -> bool {
     matches!(method, METHOD | BACKUP_METHOD | PAUSE_METHOD | ABORT_METHOD)
@@ -135,13 +140,20 @@ pub(crate) struct AbortRequest {
 }
 impl AbortRequest {
     pub(crate) fn parse(value: &Value) -> Result<Self, ()> {
+        Self::parse_for_method(value, ABORT_METHOD)
+    }
+    pub(crate) fn parse_for_method(value: &Value, method: &str) -> Result<Self, ()> {
         let input = serde_json::to_vec(value).map_err(|_| ())?;
         if input.len() > MAX_INPUT {
             return Err(());
         }
         let request: Self = serde_json::from_slice(&input).map_err(|_| ())?;
         if request.schema != 1
-            || request.confirmation != ABORT_CONFIRM
+            || !matches!(
+                (method, request.confirmation.as_str()),
+                (ABORT_METHOD, ABORT_CONFIRM)
+                    | (ABORT_RETIREMENT_CUT_METHOD, ABORT_RETIREMENT_CUT_CONFIRM)
+            )
             || request.instance_id.is_empty()
             || request.instance_id.len() > 128
             || request.expected_revision > omavless_control_protocol::MAX_REVISION
@@ -270,6 +282,12 @@ pub fn arguments_admitted(arguments: &[OsString]) -> bool {
                 "cut-current-terminal",
                 "--confirm-private-terminal-cut",
             ]
+        || arguments
+            == [
+                "developer",
+                "abort-current-after-retirement-cut",
+                "--confirm-private-abort-retirement-cut",
+            ]
 }
 /// A lost reply is UNKNOWN, never an automatic retry. No request data is echoed.
 pub fn from_private_input(
@@ -282,8 +300,17 @@ pub fn from_private_input(
     if !arguments_admitted(arguments) {
         return Err("developer_current_arguments_refused");
     }
-    let abort = arguments[1] == "abort-current-intent";
-    let (method, confirmation, marker) = if abort {
+    let abort = matches!(
+        arguments[1].to_str(),
+        Some("abort-current-intent" | "abort-current-after-retirement-cut")
+    );
+    let (method, confirmation, marker) = if arguments[1] == "abort-current-after-retirement-cut" {
+        (
+            ABORT_RETIREMENT_CUT_METHOD,
+            ABORT_RETIREMENT_CUT_CONFIRM,
+            "t4_current_abort_retirement_cut_reached_still_fenced",
+        )
+    } else if abort {
         (ABORT_METHOD, ABORT_CONFIRM, "t4_current_intent_aborted")
     } else if arguments[1] == "pause-current-intent" {
         (PAUSE_METHOD, PAUSE_CONFIRM, "t4_current_intent_paused")
@@ -383,6 +410,60 @@ pub fn from_private_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn final_old_abort_cut_is_exact_resume_context_without_archive_or_steps() {
+        let arguments = [
+            "developer",
+            "abort-current-after-retirement-cut",
+            "--confirm-private-abort-retirement-cut",
+        ]
+        .map(OsString::from);
+        assert!(arguments_admitted(&arguments));
+        assert!(loss_cut_method(ABORT_RETIREMENT_CUT_METHOD));
+        let value = serde_json::json!({"schema":1,"confirmation":ABORT_RETIREMENT_CUT_CONFIRM,
+            "instanceId":"synthetic-instance","expectedRevision":0});
+        assert!(AbortRequest::parse_for_method(&value, ABORT_RETIREMENT_CUT_METHOD).is_ok());
+        assert!(AbortRequest::parse(&value).is_err());
+        let mut wrong = value.clone();
+        wrong["confirmation"] = ABORT_CONFIRM.into();
+        assert!(AbortRequest::parse_for_method(&wrong, ABORT_RETIREMENT_CUT_METHOD).is_err());
+        for key in ["step", "archive", "passphrase", "unit", "pid", "proof"] {
+            let mut extra = value.clone();
+            extra[key] = "synthetic".into();
+            assert!(AbortRequest::parse_for_method(&extra, ABORT_RETIREMENT_CUT_METHOD).is_err());
+        }
+        let mut extra = arguments.to_vec();
+        extra.push("0".into());
+        assert!(!arguments_admitted(&extra));
+        assert!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"completed":true}}),
+                "cutReachedStillFenced"
+            )
+            .is_err()
+        );
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn final_old_abort_cut_product_union_denies_before_private_input() {
+        struct NoRead;
+        impl Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("disabled selector read input");
+            }
+        }
+        assert_eq!(
+            from_private_input(
+                &[
+                    "developer".into(),
+                    "abort-current-after-retirement-cut".into(),
+                    "--confirm-private-abort-retirement-cut".into()
+                ],
+                NoRead
+            ),
+            Err("developer_restore_disabled")
+        );
+    }
     #[test]
     fn fixed_loss_cut_requests_confirmations_wiping_and_replies_are_distinct() {
         for (method, confirmation, cli, flag) in [

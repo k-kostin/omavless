@@ -10,6 +10,40 @@ use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
 static RECOVERY_RESERVED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(test)]
+#[test]
+fn final_old_fd_capacity_refuses_before_original_acquisition() {
+    const PROBE: &str = "OMAVLESS_SOURCE_FINAL_FD_PROBE";
+    if std::env::var_os(PROBE).is_some() {
+        let limit = (crate::manager_actor_service::NATIVE_RETAINED_ROLE_CEILING + 3) as u64;
+        nix::sys::resource::setrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE, limit, limit)
+            .unwrap();
+        assert!(matches!(
+            FreshRecovery::reserve(),
+            Err(FirstError::Admission)
+        ));
+        return;
+    }
+    // Only this closed Source test child changes its own FD limit. It opens no
+    // fixture, service, manager or production namespace and grants no recovery.
+    let test = format!(
+        "{}::final_old_fd_capacity_refuses_before_original_acquisition",
+        module_path!().split_once("::").unwrap().1
+    );
+    let result = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &test, "--test-threads=1"])
+        .env(PROBE, "1")
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    assert!(result.stdout.len() < 8192 && result.stderr.len() < 8192);
+    assert!(
+        String::from_utf8(result.stdout)
+            .unwrap()
+            .contains("test result: ok. 1 passed; 0 failed")
+    );
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FreshRecoveryMode {
     MixedIntent,
@@ -18,12 +52,14 @@ enum FreshRecoveryMode {
     RecoverOldToCompletion,
     MixedIntentToOldCompletion,
     CommittedNewToCompletion,
+    FinalOldOutput,
 }
 
 #[derive(Clone, Copy)]
 enum RecoveredPairChoice {
     Old,
     CommittedNew,
+    FinalOld,
 }
 
 fn release_phase(label: &'static [u8]) {
@@ -1128,6 +1164,12 @@ impl FreshRecovery {
         self.dispose_and_release(RecoveredPairChoice::CommittedNew)
             .map(ReleasedNewConfiguration)
     }
+    pub(crate) fn dispose_and_release_final_old(
+        self,
+    ) -> Result<ReleasedOldConfiguration, FirstError> {
+        self.dispose_and_release(RecoveredPairChoice::FinalOld)
+            .map(ReleasedOldConfiguration)
+    }
 
     fn dispose_and_release(
         mut self,
@@ -1219,6 +1261,9 @@ impl FreshRecovery {
         };
         let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
         match choice {
+            RecoveredPairChoice::FinalOld => {
+                engine.check_native_final_old_completed(&mut origin, quiescence, until)?
+            }
             RecoveredPairChoice::Old => {
                 engine.check_native_old_completed(&mut origin, quiescence, until)?
             }
@@ -1246,6 +1291,9 @@ impl FreshRecovery {
         }
         release_phase(b"RESTORE_RELEASE_POINTER_PRESERVED\n");
         match choice {
+            RecoveredPairChoice::FinalOld => {
+                engine.dispose_native_final_old_completed(&mut origin, quiescence)?
+            }
             RecoveredPairChoice::Old => {
                 engine.dispose_native_old_completed(&mut origin, quiescence)?
             }
@@ -1286,6 +1334,9 @@ impl FreshRecovery {
         };
         let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
         match choice {
+            RecoveredPairChoice::FinalOld => {
+                engine.check_native_final_old_completed(&mut origin, quiescence, until)?
+            }
             RecoveredPairChoice::Old => {
                 engine.check_native_old_completed(&mut origin, quiescence, until)?
             }
@@ -1593,6 +1644,30 @@ impl FreshRecovery {
             FreshRecoveryMode::CommittedNewToCompletion,
         )
     }
+    /// New closure-only OLD context. No previous engine, receipt FD, terminal
+    /// origin or completed permission is imported from the lost invocation.
+    pub(crate) fn recover_final_old_output(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        self.recover_to_completion(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::FinalOldOutput,
+        )
+    }
     #[allow(clippy::too_many_arguments)]
     fn recover_to_completion(
         &mut self,
@@ -1671,6 +1746,7 @@ impl FreshRecovery {
             FreshRecoveryMode::RecoverOldToCompletion
                 | FreshRecoveryMode::CommittedNewToCompletion
                 | FreshRecoveryMode::MixedIntentToOldCompletion
+                | FreshRecoveryMode::FinalOldOutput
         );
         // Fixed development-driver phases only: no paths, archive data, errors
         // or credentials. Diagnostics must never alter recovery success.
@@ -1776,6 +1852,7 @@ impl FreshRecovery {
             FreshRecoveryMode::RecoverOldToCompletion
                 | FreshRecoveryMode::CommittedNewToCompletion
                 | FreshRecoveryMode::MixedIntentToOldCompletion
+                | FreshRecoveryMode::FinalOldOutput
         ) {
             phase(b"Restore recovery: stopped service\n");
             self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
@@ -1786,6 +1863,9 @@ impl FreshRecovery {
             let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
             phase(b"Restore recovery: engine\n");
             match mode {
+                FreshRecoveryMode::FinalOldOutput => {
+                    engine.qualify_native_final_old(&mut origin, backup, quiescence)?
+                }
                 FreshRecoveryMode::MixedIntentToOldCompletion => {
                     engine.recover_native_mixed_to_completion(&mut origin, backup, quiescence)?
                 }
