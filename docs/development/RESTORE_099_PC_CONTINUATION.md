@@ -137,3 +137,13 @@ disposition recovery remains a separate unimplemented gate.
 Resume discipline: after compaction/interruption, reconcile the newest trusted
 assignment, stopped/active writer, sole VM operator and next executable gate.
 An old pause/cleanup task is not the current task after an explicit owner resume.
+
+## Corrected installed OLD row
+
+The fresh successor completed the real OLD/Intent → ordinary-Off scenario at
+`c6512ce2528f30c9a7c3a22f572cbc3fc7fb15b3`, with original exit 0 and independent
+pair/boundary/history/client readback. See
+[the exact PC-VM evidence](../testing/RESTORE_099_PC_OLD_2026-10-13.md).
+This supersedes the pending successor gate only, not the retained first failure
+or whole Restore matrix. The next practical gates are the genuinely generated
+MIXED and committed NEW cuts; partial-disposition recovery remains unsupported.
