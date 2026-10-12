@@ -329,3 +329,70 @@ Python controls (2 skipped) and its normal JS/QML/navigation checks. Python AST
 syntax, `bash -n tests/run.sh` and `git diff --check` also passed. The mocked
 children are not VM effects; no native/runtime bytes changed and no installed
 203/204, process-loss or host-network acceptance is claimed.
+
+### First fresh final-output OLD route
+
+The next isolated SOURCE implementation starts at the installed-row/evidence
+checkpoint `db15189f16309608936b779c437e4f91adea3572`. It adds exactly
+`restore recover-final-old --confirm-disposition`, with the existing bounded
+schema-1 archive/passphrase stdin. This is **closure-only Aborted/OLD**, not a
+general partial-retirement/disposition repair or Committed/NEW selector.
+Historical 201 is excluded; an installed result must come from a separately
+prepared fresh fixture after exact source, pair and recipe review.
+
+The new fresh invocation authenticates NEW, acquires its own original existing
+migration/singleton locks, and pins current OLD, owner, Desired, required
+packaged Login, directories and canonical closure in the same native ledger.
+Before fixed-service qualification/Stop it brackets the closed original
+catalogue and requires stage, Intent, terminal, receipt, successor/next closure,
+routing-preset pending, BOTH forward/rollback replacements, ticket/complete and
+ALL eight disposition-history slots absent. No other `restore-*`/`.restore-*`
+state entry or any reserved-prefix config entry is admitted; ordinary unrelated
+config names remain preserved in the captured catalogue. Current OLD must match the Aborted closure receipt; current OLD plus
+freshly authenticated portable NEW reconstructs its terminal stage identity
+through the existing pure `output_binding` semantics. These records are DATA,
+not former authority. The finite free-history target is reserved before effects.
+
+Only the exact pinned Scratch3 closure gets a captured-final observation
+exception. It is not completed origin, retirement or a completion grant. The
+actual fixed manager/cgroup guard qualifies under the SAME leases; original
+source/parent synchronization and whole-gate rechecks then earn a private
+`FreshFinalOld` qualification. Missing receipt means a genuinely never-acquired
+Scratch2 role plus repeated named absence, **not** an invented unlinked FD or
+fake retirement flags. Dedicated FinalOld completion/disposition wrappers
+reuse create-only ticket/complete, immutable history and the consuming OLD
+release boundary. Pointer preservation and final pair/history readback precede
+release; only after positive release may one normal Off Start be requested.
+Uncertainty seals and retains the original nonfatal graph without retry/repair.
+
+The fixed SOURCE producer is
+`developer abort-current-after-retirement-cut --confirm-private-abort-retirement-cut`,
+using the existing bounded schema-1-only Abort input and SAME original positive
+PauseIntent/prepared archive/revision owner. Its private method is
+`developer.abort_current_after_retirement_cut`. `NativeStep::RetirementComplete`
+fires AFTER durable receipt unlink and final live/closure/origin checks but
+BEFORE completed permission or disposition. The earlier `NativeStep::Closure`
+still has its receipt and is not this shape. Exact reached expected sealed
+error yields only `cutReachedStillFenced:true` DATA; reply loss under the SAME
+owner mutex is UNKNOWN, with no resend, Abort, cleanup or startup permission.
+Product restriction dominates the new CLI/method/direct helpers before input
+or acquisition; no Cargo feature, archive/corpus or privileged API changes.
+
+Required new SOURCE controls exercise actual private-file native IO and normal
+retained Pause→Abort producer, unsupported phases/history/prefixes, boundary/
+pair/closure/catalogue substitution, descriptor capacity, every qualification
+sync and disposition publication/unlink/rename/sync prefix, retained error
+custody, closed commands and product-union denial. These do not prove installed
+manager/cgroup acceptance; fresh 205 and later partial/torn-prefix repair remain
+pending. Earlier actual OLD/MIXED/Committed rows retain their exact receipts.
+
+Initial original SOURCE gates exited 0: T4 `final_old` (9), the full native
+engine filter (22, including the five new file controls), product-union
+`final_old` (11), product dispatch denial (1) and the stopped-self matcher (1).
+Strict T4 and explicit `product-private-backup,product-image-witness` all-target
+Clippy passed; ordinary `tests/run.sh` passed 721 Python controls (2 skipped)
+and its normal JS/QML/navigation checks. The isolated test executables stayed
+unchanged while their self-reexec controls ran. Default non-test compilation
+has a separately identified inherited optional-rustix cfg repair owned by Root;
+it is not claimed passed from these T4/product gates. Exact source review,
+combined candidate checks and fresh 205 installed acceptance remain pending.

@@ -462,6 +462,11 @@ trait NativeRuntimeOwner: Send {
         request: &developer_current_restore::AbortRequest,
     ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
     #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_abort_retirement_cut(
+        &mut self,
+        request: &developer_current_restore::AbortRequest,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_restore(
         &mut self,
         request: &developer_current_restore::Request,
@@ -879,6 +884,13 @@ where
         request: &developer_current_restore::AbortRequest,
     ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
         self.owner.developer_current_abort(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_abort_retirement_cut(
+        &mut self,
+        request: &developer_current_restore::AbortRequest,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_abort_retirement_cut(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_backup(
@@ -1870,6 +1882,9 @@ impl RuntimeServer {
             return write_unary_frame(stream, &frame, FrameKind::Response)
                 .map_err(|_| RuntimeError::Io);
         }
+        if request["method"] == developer_current_restore::ABORT_RETIREMENT_CUT_METHOD {
+            return self.publish_current_abort_retirement_cut(request, stream);
+        }
         // SAME owner through producer and response. Loss cuts are already
         // irreversibly sealed; a lost reply grants no resume or cleanup.
         let id = request["id"].as_str().unwrap_or("invalid");
@@ -1966,6 +1981,72 @@ impl RuntimeServer {
     }
 
     #[cfg(feature = "t4-manager-actor-service")]
+    fn publish_current_abort_retirement_cut(
+        &self,
+        request: &Value,
+        stream: &mut UnixStream,
+    ) -> Result<()> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if product_scope::backup_only() {
+            return developer_current_restore::publish_positive_cut_response(
+                error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None),
+                stream,
+            );
+        }
+        let input = developer_current_restore::AbortRequest::parse_for_method(
+            &request["params"],
+            developer_current_restore::ABORT_RETIREMENT_CUT_METHOD,
+        );
+        let gate = self.quit_gate.try_read();
+        let dispatcher = self.dispatcher.try_lock();
+        let mut dispatcher = dispatcher;
+        let response = match (&input, &gate, &mut dispatcher) {
+            (Ok(input), Ok(gate), Ok(dispatcher)) if !**gate => {
+                if input.instance() != self.instance_id {
+                    error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
+                } else if let RuntimeDispatcher::Native(owner) = &mut **dispatcher {
+                    if input.revision() != owner.revision() {
+                        error_response(id, owner.revision(), StableErrorCode::Conflict, false, None)
+                    } else {
+                        match owner.developer_current_abort_retirement_cut(input) {
+                            Ok(()) => {
+                                // SAME owner/quit guards span producer and reply. Already
+                                // sealed retained graph; publication loss is UNKNOWN only.
+                                return developer_current_restore::publish_positive_cut_response(
+                                    success_response(
+                                        id,
+                                        owner.revision(),
+                                        json!({"cutReachedStillFenced":true}),
+                                    ),
+                                    stream,
+                                );
+                            }
+                            Err(error) => error_response(
+                                id,
+                                owner.revision(),
+                                developer_current_error_code(error),
+                                false,
+                                None,
+                            ),
+                        }
+                    }
+                } else {
+                    error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None)
+                }
+            }
+            (Err(_), _, _) => error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+            (_, Ok(gate), _) if **gate => {
+                error_response(id, 0, StableErrorCode::DaemonRestarting, false, None)
+            }
+            (_, _, Err(std::sync::TryLockError::Poisoned(_))) => {
+                error_response(id, 0, StableErrorCode::ManualRecoveryRequired, false, None)
+            }
+            _ => error_response(id, 0, StableErrorCode::Busy, true, None),
+        };
+        developer_current_restore::publish_positive_cut_response(response, stream)
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
     fn dispatch_developer_current_restore(
         &self,
         request: &Value,
@@ -1975,7 +2056,11 @@ impl RuntimeServer {
             return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         }
         let method = request["method"].as_str().unwrap_or("");
-        if method == developer_current_restore::ABORT_METHOD {
+        if matches!(
+            method,
+            developer_current_restore::ABORT_METHOD
+                | developer_current_restore::ABORT_RETIREMENT_CUT_METHOD
+        ) {
             return self.dispatch_developer_current_abort(request);
         }
         let input = match developer_current_restore::Request::parse(&request["params"]) {
@@ -2046,7 +2131,13 @@ impl RuntimeServer {
         if product_scope::backup_only() {
             return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         }
-        let input = match developer_current_restore::AbortRequest::parse(&request["params"]) {
+        let method = request["method"].as_str().unwrap_or("");
+        let parsed = if method == developer_current_restore::ABORT_METHOD {
+            developer_current_restore::AbortRequest::parse(&request["params"])
+        } else {
+            developer_current_restore::AbortRequest::parse_for_method(&request["params"], method)
+        };
+        let input = match parsed {
             Ok(input) => input,
             Err(()) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
         };
@@ -2068,8 +2159,22 @@ impl RuntimeServer {
         if input.revision() != owner.revision() {
             return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
         }
-        match owner.developer_current_abort(&input) {
-            Ok(()) => success_response(id, owner.revision(), json!({"completed":true})),
+        let cut = method == developer_current_restore::ABORT_RETIREMENT_CUT_METHOD;
+        let result = if cut {
+            owner.developer_current_abort_retirement_cut(&input)
+        } else {
+            owner.developer_current_abort(&input)
+        };
+        match result {
+            Ok(()) => success_response(
+                id,
+                owner.revision(),
+                if cut {
+                    json!({"cutReachedStillFenced":true})
+                } else {
+                    json!({"completed":true})
+                },
+            ),
             Err(error) => error_response(
                 id,
                 owner.revision(),
@@ -4387,6 +4492,7 @@ mod tests {
             "developer.abort_current_intent",
             "developer.cut_current_first_rename",
             "developer.cut_current_terminal",
+            "developer.abort_current_after_retirement_cut",
         ] {
             let request = make_request("absent", method, json!({})).unwrap();
             assert_eq!(
@@ -4407,6 +4513,7 @@ mod tests {
         for method in [
             developer_current_restore::FIRST_RENAME_CUT_METHOD,
             developer_current_restore::TERMINAL_CUT_METHOD,
+            developer_current_restore::ABORT_RETIREMENT_CUT_METHOD,
         ] {
             let request =
                 make_request("denied", method, json!({"private":"not a valid request"})).unwrap();

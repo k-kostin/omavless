@@ -354,6 +354,28 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
     }
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_abort_retirement_cut(
+        &mut self,
+        request: &crate::developer_current_restore::AbortRequest,
+    ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        let original = self
+            .current_origin
+            .as_ref()
+            .ok_or(ProductionOwnerError::OwnershipUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation == original.generation)
+            || request.revision() != self.revision()
+            || !self.coordinator.current_intent_paused()
+        {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        self.coordinator
+            .abort_current_after_retirement_cut()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn developer_current_restore(
         &mut self,
         request: &crate::developer_current_restore::Request,

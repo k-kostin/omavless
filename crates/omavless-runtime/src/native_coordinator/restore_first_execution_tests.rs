@@ -15,6 +15,82 @@ const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activ
     not(feature = "product-private-backup")
 ))]
 #[test]
+fn native_final_old_producer_consumes_real_pause_and_cuts_only_receipt_absent() {
+    let mut f = Fixture::new();
+    let store = fs::read(&f.store).unwrap();
+    let template = f.store.with_file_name("route-template.yaml");
+    let template_bytes = fs::read(&template).unwrap();
+    let inode = fs::metadata(&f.store).unwrap().ino();
+    assert!(f.owner.abort_current_after_retirement_cut().is_err());
+    assert_eq!(
+        f.owner.pause_current_restore_intent(&f.backup, PASSWORD),
+        Ok(())
+    );
+    assert_eq!(f.owner.abort_current_after_retirement_cut(), Ok(()));
+    assert!(f.owner.retained_restore_busy() && f.owner.transaction.independently_blocked());
+    assert!(!f.owner.current_intent_paused());
+    assert_eq!(f.owner.revision(), 0);
+    assert_eq!(fs::metadata(&f.store).unwrap().ino(), inode);
+    assert_eq!(fs::read(&f.store).unwrap(), store);
+    assert_eq!(fs::read(&template).unwrap(), template_bytes);
+    let state = f.state();
+    for name in [
+        "restore-pair.pending",
+        "restore-decision.intent",
+        "restore-decision.terminal",
+        "restore-finalization.pending",
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+        "restore-disposition.complete",
+        "restore-disposition.history",
+    ] {
+        assert!(
+            fs::symlink_metadata(state.join(name)).is_err(),
+            "public fixture {name}"
+        );
+    }
+    let closure = crate::restore_closure_model::ClosureRecord::decode(
+        &fs::read(state.join(crate::restore_closure_model::CLOSURE_MEMBER)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        closure.receipt().terminal().phase(),
+        crate::restore_decision_candidate::DecisionPhase::Aborted
+    );
+    assert!(closure.receipt().matches_pair(&store, &template_bytes));
+    let paths = f.owner.transaction.cutover_paths().clone();
+    assert!(MigrationLock::acquire_existing(&paths, f.owner.uid()).is_err());
+    assert!(f.owner.abort_current_after_retirement_cut().is_err());
+    assert!(f.owner.abort_current_restore_intent().is_err());
+    let (mut reply, lost) = std::os::unix::net::UnixStream::pair().unwrap();
+    drop(lost);
+    assert!(
+        crate::developer_current_restore::publish_positive_cut_response(
+            crate::success_response("cut", 0, serde_json::json!({"cutReachedStillFenced":true})),
+            &mut reply,
+        )
+        .is_err()
+    );
+    assert!(f.owner.retained_restore_busy() && f.owner.transaction.independently_blocked());
+    assert!(MigrationLock::acquire_existing(&paths, f.owner.uid()).is_err());
+}
+
+#[cfg(feature = "product-private-backup")]
+#[test]
+fn native_final_old_producer_product_helper_denies_before_pause_acquisition() {
+    let mut f = Fixture::new();
+    assert_eq!(
+        f.owner.abort_current_after_retirement_cut(),
+        Err(FirstError::Admission)
+    );
+    assert!(!f.owner.held_restore_execution.occupied());
+    assert!(!f.stage().exists());
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
 fn native_developer_loss_cuts_produce_real_mixed_or_terminal_and_retain_same_lease() {
     for terminal_cut in [false, true] {
         let mut f = Fixture::new();
