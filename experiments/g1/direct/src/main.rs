@@ -725,6 +725,7 @@ impl Render for Trial {
         let profile_panel = panel(self.label("Profiles", "Профили"), cx)
             .min_w(rems(16.))
             .flex_1()
+            .when(narrow, |panel| panel.flex_none())
             .child(
                 div()
                     .text_color(theme.secondary)
@@ -835,6 +836,30 @@ impl Render for Trial {
             )));
         focus_scope("g1-trial")
             .size_full()
+            .when(narrow, |body| body.overflow_y_scroll())
+            .track_scroll(&self.panels_scroll)
+            .track_focus(&self.panels_focus.clone().tab_stop(true))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.modifiers.modified()
+                    || window.bounds().size.width >= rems(60.).to_pixels(window.rem_size())
+                {
+                    return;
+                }
+                let offset = this.panels_scroll.offset();
+                let maximum = this.panels_scroll.max_offset();
+                let viewport = this.panels_scroll.bounds().size.height;
+                let Some(next) = page_offset(
+                    offset.y.as_f32(),
+                    maximum.y.as_f32(),
+                    viewport.as_f32(),
+                    &event.keystroke.key,
+                ) else {
+                    return;
+                };
+                this.panels_scroll.set_offset(point(px(0.), px(next)));
+                cx.notify();
+                cx.stop_propagation();
+            }))
             .bg(theme.background)
             .text_color(theme.foreground)
             .font_family(theme.font.clone())
@@ -986,39 +1011,16 @@ impl Render for Trial {
                 div()
                     .id("g1-panels")
                     .flex()
-                    .when(narrow, |layout| layout.flex_col().overflow_y_scroll())
+                    .when(narrow, |layout| layout.flex_col().flex_none())
                     .when(!narrow, |layout| layout.flex_row())
-                    .track_scroll(&self.panels_scroll)
-                    .track_focus(&self.panels_focus.clone().tab_stop(true))
                     .border_1()
                     .border_color(if self.panels_focus.is_focused(window) {
                         theme.accent
                     } else {
                         theme.border
                     })
-                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                        if event.keystroke.modifiers.modified()
-                            || window.bounds().size.width >= rems(60.).to_pixels(window.rem_size())
-                        {
-                            return;
-                        }
-                        let offset = this.panels_scroll.offset();
-                        let maximum = this.panels_scroll.max_offset();
-                        let viewport = this.panels_scroll.bounds().size.height;
-                        let Some(next) = page_offset(
-                            offset.y.as_f32(),
-                            maximum.y.as_f32(),
-                            viewport.as_f32(),
-                            &event.keystroke.key,
-                        ) else {
-                            return;
-                        };
-                        this.panels_scroll.set_offset(point(px(0.), px(next)));
-                        cx.notify();
-                        cx.stop_propagation();
-                    }))
                     .min_h_0()
-                    .flex_1()
+                    .when(!narrow, |layout| layout.flex_1())
                     .gap(rems(0.75))
                     .child(profile_panel)
                     .child(
@@ -1028,6 +1030,7 @@ impl Render for Trial {
                             .aria_label(details_summary)
                             .min_w(rems(16.))
                             .flex_1()
+                            .when(narrow, |details| details.flex_none())
                             .child(details),
                     ),
             )

@@ -200,7 +200,8 @@ its synthetic default; it then stops following system changes. These controls
 exercise in-process presentation continuity, not live theme-file watching.
 
 In the direct Rust trial, a narrow window also supports `Page Down` and
-`Page Up` for the outer Profiles/Details scroll area, including when search
+`Page Up` for the whole read-only frame, including its wrapped fixture controls
+and Profiles/Details, including when search
 or the profile list has keyboard focus. These keys move only the viewport;
 they do not inspect a different profile or alter the simulated connection.
 
