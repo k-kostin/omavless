@@ -110,6 +110,14 @@ def cut_result(raw):
     old.require(raw == CUT_MARKER)
 
 
+def evidence_path(uid):
+    parent = HOME / ".cache"
+    info = parent.lstat()
+    old.require(stat.S_ISDIR(info.st_mode) and info.st_uid == uid
+                and stat.S_IMODE(info.st_mode) == 0o700 and parent.resolve() == parent)
+    return parent / EVIDENCE
+
+
 def closure_matches(raw, intent, pair):
     def record(value, size, magic, domain):
         old.require(len(value) == size and value[:8] == magic
@@ -177,7 +185,7 @@ def preflight():
     uid, run = old.account_scope(ACCOUNT, HOME)
     held = []
     try:
-        old.require(loss.absent(HOME / ".cache" / EVIDENCE))
+        old.require(loss.absent(evidence_path(uid)))
         config, state = HOME / ".config/omavless", HOME / ".local/state/omavless"
         inventory(config, state, ())
         pair = loss._pair(config, uid, held)
@@ -195,7 +203,7 @@ def positive():
     os.umask(0o077)
     uid, run = old.account_scope(ACCOUNT, HOME)
     config, state = HOME / ".config/omavless", HOME / ".local/state/omavless"
-    evidence = HOME / ".cache" / EVIDENCE
+    evidence = evidence_path(uid)
     evidence.mkdir(mode=0o700)
     effects = Effects(evidence, run, HOME)
     held, stage_fd = [], None
