@@ -200,7 +200,7 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
 test('reopening main resets both scrollers without erasing search',()=>{
   const c=context();c.opened=true;c.panelFlick={contentY:210};c.nativeFlick.contentY=470;c.profileFilter='kept';
   c.vless.refresh=()=>{};
-  for(const name of ['subscriptionPrompt','routingPresetPrompt','startupPrompt','onboardingWizard','routingToolsPrompt']) c[name]={dismiss(){}};
+  for(const name of ['importEntryPrompt','subscriptionPrompt','routingPresetPrompt','startupPrompt','onboardingWizard','routingToolsPrompt']) c[name]={dismiss(){}};
   for(const name of ['cancelImport','cancelRename','cancelFileExport','syncNativeOnboarding']) c[name]=()=>{};
   c.keyCatcher={forceActiveFocus(){}};
   const start=source.indexOf('  onOpenedChanged: {');

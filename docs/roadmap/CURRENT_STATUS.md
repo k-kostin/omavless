@@ -1,5 +1,20 @@
 # Current delivery status
 
+## 0.9.9 beta development (2026-10-12)
+
+Based on accepted 0.9.8 fix.3 (`b4ef783`); main and Marketplace stay unchanged.
+The first #733 slice adds explicit single-profile/subscription entry to the
+panel, reusing canonical Rust classification and existing confirmation. It
+does not add a runtime mutation or enlarge the 32-KiB private input boundary.
+Clipboard/file actions remain available. Cancel/close clears entry/history;
+no input is saved or connected until the existing explicit confirmation.
+
+This is not completion of #733 or 0.9.9. Raw/Base64 local bundles still need
+bounded batch preview, duplicate policy and atomic save. Mandatory consumer
+Restore/recovery (#722/#724) remains pending; source-only OLD recovery must not
+be advertised as complete Restore. Product/package version and immutable
+0.9.8 pins are retained until a separately assembled beta package is built.
+
 Updated 2026-10-11. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.

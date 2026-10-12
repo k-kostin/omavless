@@ -7,6 +7,11 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "import.entry.title": {"en":"Enter VPN access","ru":"Ввести VPN-доступ"},
+  "import.entry.hint": {"en":"Enter one profile link or a subscription URL. Review it before saving; this does not connect your VPN.","ru":"Введите ссылку на профиль или подписку. Перед сохранением можно проверить данные; VPN не подключится."},
+  "import.entry.private": {"en":"This field contains private access details. Do not share screenshots of it.","ru":"Поле содержит приватные данные доступа. Не публикуйте его снимки экрана."},
+  "import.entry.placeholder": {"en":"Profile link or subscription URL","ru":"Ссылка на профиль или подписку"},
+  "import.entry.review": {"en":"Review","ru":"Проверить"},
   "input.cut": {"en":"Cut","ru":"Вырезать"},
   "input.undo": {"en":"Undo","ru":"Отменить"},
   "input.redo": {"en":"Redo","ru":"Повторить"},

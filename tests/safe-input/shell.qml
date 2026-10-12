@@ -58,13 +58,57 @@ ShellRoot {
     Product.SafeTextField { id: second; x: 30; y: 100; width: 400; KeyNavigation.tab: field; KeyNavigation.backtab: field }
     Product.SafeTextField { id: bound; x: 30; y: 170; width: 400; text: review.modelText; onTextChanged: review.modelText = text }
     Product.SubscriptionPrompt { id: subscription; anchors.fill: parent; accepted: true }
+    Product.ImportEntryPrompt {
+      id: importEntry
+      anchors.fill: parent
+      available: true
+      property int submissions: 0
+      property int cancellations: 0
+      onSubmitted: function(value) { submissions++; dismiss() }
+      onCanceled: { cancellations++; dismiss() }
+    }
     TestCase {
       name: "SafeTextFields"
       when: review.ready
       onCompletedChanged: if (completed) console.log("SAFE_INPUT_RESULT " + JSON.stringify({passed:qtest_results.passCount, failed:qtest_results.failCount, skipped:qtest_results.skipCount}))
       function cleanup() { console.log("SAFE_INPUT_CASE " + qtest_results.functionName + " failed=" + qtest_results.failed) }
       function type(value) { for (var i = 0; i < value.length; i++) keyClick(value.charAt(i)) }
-      function init() { subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
+      function init() { importEntry.dismiss(); subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
+      function test_import_entry_typing_review_clear() {
+        importEntry.open(); wait(30)
+        var editor = findChild(importEntry, "omavlessImportEntry")
+        verify(editor !== null); verify(editor.activeFocus)
+        var before = importEntry.submissions
+        type("https://synthetic.invalid/token")
+        compare(editor.text, "https://synthetic.invalid/token")
+        keyClick(Qt.Key_Return)
+        compare(importEntry.submissions, before + 1)
+        compare(importEntry.visible, false); compare(editor.text, "")
+        compare(editor.previousText, ""); compare(editor.undoStates.length, 0)
+        importEntry.open(); wait(30); compare(editor.text, "")
+      }
+      function test_import_entry_cancel_navigation() {
+        importEntry.open(); wait(30)
+        var editor = findChild(importEntry, "omavlessImportEntry")
+        type("private-fixture")
+        var paste = findChild(importEntry, "omavlessImportPaste")
+        keyClick(Qt.Key_Tab); verify(paste.activeFocus, "Tab reaches Paste")
+        keyClick(Qt.Key_Backtab, Qt.ShiftModifier); verify(editor.activeFocus, "Shift+Tab returns to entry")
+        var before = importEntry.cancellations
+        keyClick(Qt.Key_Escape)
+        compare(importEntry.cancellations, before + 1)
+        compare(importEntry.visible, false); compare(editor.text, "")
+        compare(editor.undoStates.length, 0); compare(editor.redoStates.length, 0)
+      }
+      function test_import_entry_explicit_paste() {
+        if (Quickshell.env("OMAVLESS_FIELD_CLIPBOARD_MODE") !== "normal") return
+        importEntry.open(); wait(30)
+        var editor = findChild(importEntry, "omavlessImportEntry")
+        keyClick(Qt.Key_V, Qt.ControlModifier)
+        tryCompare(editor, "text", "replacement", 6500)
+        compare(importEntry.visible, true)
+        importEntry.dismiss(); compare(editor.text, ""); compare(editor.pasteContext, null)
+      }
       function test_typing_enter() {
         type("Safe name"); compare(field.text, "Safe name")
         keyClick(Qt.Key_Return); compare(field.text, "Safe name"); compare(field.accepts, 1)

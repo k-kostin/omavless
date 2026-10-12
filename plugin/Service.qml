@@ -440,8 +440,24 @@ Item {
 
   function cancelNativeImport() {
     if (_nativeSourceContext) _nativeSourceContext.path = ""
+    if (_nativeImportContext) _nativeImportContext.input = ""
     _nativeImportContext = null
     importPreview = ({})
+  }
+
+  // Direct entry has the same private stdin/preview boundary as file and
+  // clipboard acquisition. Classification never saves or connects a profile.
+  function startNativeImportText(input) {
+    if (!nativeCanAct || nativeImportBusy || _nativeImportContext) return false
+    if (!NativeSnapshot.importInput(input)) { nativeImportCode = "input"; return false }
+    nativeImportCode = ""
+    importPreview = ({})
+    _nativeImportContext = {kind:"entry", instanceId:nativeSnapshot.instanceId,
+      revision:nativeSnapshot.revision, input:input}
+    _nativePreviewContext = _nativeImportContext
+    nativeImportPreview.stdinEnabled = true
+    nativeImportPreview.running = true
+    return true
   }
 
   function startNativeImport(kind, path) {

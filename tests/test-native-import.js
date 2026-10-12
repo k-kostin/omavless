@@ -32,7 +32,7 @@ function harness() {
     assert(match, name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',c);
   }
-  for (const name of ['cancelNativeImport','startNativeImport','nativeImportCurrent','finishNativeImportSource',
+  for (const name of ['cancelNativeImport','startNativeImport','startNativeImportText','nativeImportCurrent','finishNativeImportSource',
     'finishNativeImportPreview','confirmNativeImport','isValidName','reconcileNativeAction']) {
     const start=source.indexOf('  function '+name+'('), end=source.indexOf('\n  }',start)+4;
     assert(start>=0 && end>start,name);vm.runInContext(source.slice(start,end),c);
@@ -178,5 +178,46 @@ test('Add rejects duplicates without replacement and confirmation preserves exac
   const saved=JSON.stringify(c.nativePending);c.nativeActionProcess.running=false;c.nativeOutcomeUnknown=true;
   assert.equal(c.reconcileNativeAction(),true);assert.equal(JSON.stringify(c.nativePending),saved);assert.equal(c.nativeActionProcess.stdinEnabled,true);
   assert.equal(JSON.stringify(c.nativeSnapshot),before);
+});
+test('direct entry uses canonical preview without acquisition, write or connection',()=>{
+  const c=harness(), before=JSON.stringify(c.nativeSnapshot);
+  assert(c.startNativeImportText('synthetic-private-link'));
+  assert.equal(c.nativeImportSource.running,false);
+  assert.equal(c.nativeImportPreview.running,true);
+  assert.equal(c._nativePreviewContext.input,'synthetic-private-link');
+  assert.equal(c.nativePending,null);
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
+  assert.deepEqual(c.ready[0],['native-entry','','Synthetic']);
+  assert.equal(JSON.stringify(c.nativeSnapshot),before);
+  assert(c.confirmNativeImport('Typed'));
+  assert.equal(c.nativePending.input,'Typed\nsynthetic-private-link');
+});
+test('direct subscription entry requires confirmation and canonical duplicate decision',()=>{
+  for(const duplicate of [false,true]) {
+    const c=harness();assert(c.startNativeImportText('https://synthetic.invalid/token'));
+    c.nativeImportPreview.running=false;
+    c.finishNativeImportPreview(0,frame({version:1,kind:'subscription',suggestedName:'Subscription',duplicate}));
+    assert.equal(c.subscriptionReady.length,duplicate?0:1);
+    assert.equal(c.nativePending,null);
+    assert.equal(c.nativeImportCode,duplicate?'duplicateSubscription':'');
+  }
+});
+test('direct entry enforces bounds and refuses concurrent or stale work',()=>{
+  for(const value of ['',null,'x'.repeat(32769),'я'.repeat(16385),'\ud800','bad\0value']) {
+    const c=harness();assert.equal(c.startNativeImportText(value),false);
+    assert.equal(c.nativeImportPreview.running,false);
+  }
+  for(const change of [c=>c.nativeOwner=false,c=>c.nativeImportSource.running=true,c=>c._nativeImportContext={}]) {
+    const c=harness();change(c);assert.equal(c.startNativeImportText('private'),false);
+  }
+  const c=harness();c.startNativeImportText('private');c.nativeSnapshot.revision++;
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
+  assert.equal(c.ready.length,0);assert.equal(c.nativeImportCode,'stale');
+});
+test('cancel clears retained private preview context and rejects late completion',()=>{
+  const c=harness();c.startNativeImportText('private');const retained=c._nativePreviewContext;
+  c.cancelNativeImport();assert.equal(retained.input,'');
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
+  assert.equal(c.ready.length,0);assert.equal(c.nativePending,null);
 });
 console.log(`${count} native import tests passed`);
