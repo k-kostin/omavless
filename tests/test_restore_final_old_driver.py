@@ -167,6 +167,24 @@ class FinalOld(unittest.TestCase):
                     driver.preflight()
                 read.assert_not_called()
 
+    def test_fixed_private_cache_parent_rejects_symlink_or_permissions(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            actual = home / "actual"
+            actual.mkdir(mode=0o700)
+            parent = home / ".cache"
+            parent.symlink_to(actual)
+            with mock.patch.object(driver, "HOME", home):
+                with self.assertRaises(old.Refused):
+                    driver.evidence_path(os.getuid())
+                parent.unlink()
+                parent.mkdir(mode=0o755)
+                parent.chmod(0o755)
+                with self.assertRaises(old.Refused):
+                    driver.evidence_path(os.getuid())
+                parent.chmod(0o700)
+                self.assertEqual(driver.evidence_path(os.getuid()), parent / driver.EVIDENCE)
+
     def test_paused_owner_same_instance_revision_and_process_required(self):
         current = (44, {"revision": 2, "result": {"instanceId": "original", "runtimeOwnership": False,
                                                 "desired": "disconnected", "actual": "disconnected"}})

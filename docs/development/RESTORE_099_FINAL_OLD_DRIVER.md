@@ -13,6 +13,9 @@ cannot choose another user, path, step, PID, unit or command. Preflight refuses
 an already existing evidence scope. Positive exclusively creates it before
 effects; any failed attempt remains retained and cannot be replayed. Accounts
 201–204 and their evidence remain untouched.
+The fixed existing cache parent must itself be real same-UID0700 without a
+symlinked ancestor before evidence publication; the recipe does not initialize
+or repair it.
 
 The sole VM operator must separately prepare an ordinary empty China account,
 packaged current login receipt, disabled startup and an exact inspected optimized
@@ -61,8 +64,8 @@ without kill, resend, Abort, unlink, reset or cleanup. Only complete success or
 pre-effect refusal drops read-only pins. Source controls do not prove systemd,
 archive authentication, native authority, physical power loss or installed205.
 
-Original SOURCE checks: 15 new controls plus 24 retained driver controls pass
-(39 total); ordinary tests/run.sh passes 736 Python tests with two declared
+Original SOURCE checks: 16 new controls plus 24 retained driver controls pass
+(40 total); ordinary tests/run.sh passes 737 Python tests with two declared
 skips and its normal JS/QML/navigation checks. Bash syntax and diff whitespace
 checks pass. The first focused run's nonzero result was a test-only mocked-input
 cursor assertion, corrected without changing a runtime or external effect.
