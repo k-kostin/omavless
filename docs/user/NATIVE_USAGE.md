@@ -26,6 +26,13 @@ The main clipboard and file buttons accept either one supported profile link
 or one supported subscription URL, then open the corresponding confirmation.
 They do not accept an arbitrary remote configuration file.
 
+In the **0.9.9 development beta**, **+** beside the import buttons opens
+**Enter VPN access**. Type one profile link or subscription URL, or use **Paste**,
+then choose **Review**. The existing profile/subscription confirmation is still
+required before saving; neither step connects VPN automatically. The entry is
+private, cleared on Cancel/close, and limited to 32 KiB. Multi-profile/Base64
+bundle entry is not enabled by this first beta slice. Stable 0.9.8 is unchanged.
+
 In the main profile list:
 
 - The arrow beside a subscription expands or collapses its profiles.

@@ -32,6 +32,12 @@ reusing the existing classifier, strict subscription validator and preview/save
 confirmation. Clipboard/file flows remain. No new protocols, `vpn://` or raw YAML
 support is implied; this is not implemented or advertised in 0.9.8.
 
+**0.9.9 beta progress, 2026-10-12:** the first plugin slice provides explicit
+single-link entry through the existing bounded acquisition/confirmation flow.
+Raw/Base64 local bundles (atomic batch save and duplicates) remain pending in
+#733, as does mandatory consumer Restore/recovery. This is a source beta, not
+a published package, RC or authorization to change stable main/Marketplace.
+
 **Corrected validation successor, 2026-10-10:** owner-authorized immutable
 `v0.9.8-fix.1` uses the inspected common app/DNS producer `e3d2245966c725ee11b505899b22a20721ff2ddd`.
 #730 integrates first-use Backup origin promotion and DNS idle-admission fixes;

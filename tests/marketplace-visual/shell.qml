@@ -124,6 +124,12 @@ ShellRoot {
       prompt.open()
       return "ready"
     }
+    function reviewCancelImport(): string {
+      var prompt = review.find(product, function(o) { return o.objectName === "omavlessImportEntryPrompt" })
+      if (!prompt || !prompt.visible) return "unavailable"
+      prompt.canceled()
+      return prompt.visible ? "failed" : "closed"
+    }
     function reviewFocus(): string {
       var group = review.subscriptionGroup()
       if (!group) return "not-ready"

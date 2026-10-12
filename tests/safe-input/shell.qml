@@ -101,11 +101,15 @@ ShellRoot {
         compare(editor.undoStates.length, 0); compare(editor.redoStates.length, 0)
       }
       function test_import_entry_explicit_paste() {
-        if (Quickshell.env("OMAVLESS_FIELD_CLIPBOARD_MODE") !== "normal") return
         importEntry.open(); wait(30)
         var editor = findChild(importEntry, "omavlessImportEntry")
         keyClick(Qt.Key_V, Qt.ControlModifier)
-        tryCompare(editor, "text", "replacement", 6500)
+        if (Quickshell.env("OMAVLESS_FIELD_CLIPBOARD_MODE") === "normal")
+          tryCompare(editor, "text", "replacement", 6500)
+        else {
+          tryCompare(editor, "pasteError", "clipboard", 6500)
+          compare(editor.text, "")
+        }
         compare(importEntry.visible, true)
         importEntry.dismiss(); compare(editor.text, ""); compare(editor.pasteContext, null)
       }

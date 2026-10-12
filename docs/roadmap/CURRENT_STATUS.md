@@ -54,7 +54,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   Owner-selected [#733](https://github.com/k-kostin/omavless/issues/733) adds a
   private editable VPN-access field in the application/plugin import UI, reusing
   canonical profile/subscription validation and explicit preview/confirmation.
-  This is planned, not a 0.9.8 feature or support for new protocol/key formats.
+  The first single-link plugin slice is in beta as described above; bundle
+  support remains planned. Neither is a 0.9.8 feature or a new protocol family.
 
 - **Corrected 0.9.8 validation delivery:** the owner authorized immutable
   `v0.9.8-fix.1`, preserving the original `v0.9.8` assets and failures. The

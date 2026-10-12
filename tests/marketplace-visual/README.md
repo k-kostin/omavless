@@ -112,3 +112,9 @@ pointer hover at both widths. During `search`, the matching subscription must
 be expanded, toggling must preserve the stored false preference, and clearing
 search must restore collapsed. Review the saved PNGs yourself. Real installed
 runtime/package behavior remains a separate gate.
+
+`reviewImport LOCALE WIDTH` opens the production direct-entry prompt without
+reading the clipboard or supplying credentials. Inspect EN/RU at 360/460 pixels;
+`reviewCancelImport` exercises its Cancel signal before capturing the adjacent
+main screen. Actual typing/Paste/keyboard and private-field clearing are covered
+by `tests/safe-input/`; these captures do not claim a saved import or live VPN.
