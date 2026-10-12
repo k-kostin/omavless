@@ -236,3 +236,41 @@ Historical Abort retains its strict census. Own namespace/proc visibility checks
 remain. Manager identity uses root-controlled system-service attestation, not
 direct executable/namespace descriptor proof; OS ptrace/security settings are
 not relaxed. Deterministic tests do not replace installed capture and recovery.
+
+### Source-only finite developer producer loss cuts
+
+The dependent `dev/099-restore-loss-cuts` source starts at #739's exact
+`c6512ce2528f30c9a7c3a22f572cbc3fc7fb15b3`. Two closed private developer entries
+select existing callbacks in the SAME retained native engine:
+
+| CLI | Private method | Exact callback |
+| --- | --- | --- |
+| `developer cut-current-first-rename --confirm-private-first-rename-cut` | `developer.cut_current_first_rename` | `NativeStep::Renamed(0)` |
+| `developer cut-current-terminal --confirm-private-terminal-cut` | `developer.cut_current_terminal` | `NativeStep::Terminal` |
+
+Both use the existing bounded schema-1 archive/passphrase stdin and exact
+instance/revision correlation. No step, index, manager command or phase comes
+from input. Product/default builds deny these entries; the product restriction
+also dominates the T4+product feature union and direct helpers before input or
+acquisition. Owned revision admission, migration lease and original-slot vacancy
+match CompleteCommitted/PauseIntent; the older FenceCommitted shortcut is not
+exposed. Completion is always disabled for these two modes, even if a callback
+were unexpectedly unreached. No new filesystem effect is implemented.
+
+Only an exact reached callback plus its expected StillFenced result, AFTER the
+engine's error/seal/retained-holder and transaction-fence handling, returns
+`cutReachedStillFenced: true`. This is data, not completed Restore or resumable
+Intent. Terminal publication precedes whole-pair verification and the engine's
+committed state; it must not be reported as completion. Wrong authentication,
+earlier refusal, busy/unreached callback or another error cannot return this data.
+The SAME owner mutex spans execution and reply publication; broken/lost reply
+is UNKNOWN, never permission to resend, Abort, clean or restart. Existing
+private-input zeroization limitations for JSON temporaries remain unchanged.
+
+Filesystem controls use independently authenticated China NEW and Roscom OLD
+members that differ in BOTH store and template. MIXED must be produced by the
+actual first rename, never hand-written journal/live state. Installed cuts and
+fresh MIXED/committed NEW consumer recovery remain pending. No new cut VM
+selection is authorized until the current OLD gate passes and Root/Astra review
+the exact package, fresh fixture and recipe; preserved failed accounts/images
+are not replay or cleanup targets.

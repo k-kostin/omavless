@@ -15,8 +15,16 @@ pub(crate) const PAUSE_METHOD: &str = "developer.pause_current_intent";
 const PAUSE_CONFIRM: &str = "pause-current-private-intent";
 pub(crate) const ABORT_METHOD: &str = "developer.abort_current_intent";
 const ABORT_CONFIRM: &str = "abort-current-private-intent";
+pub(crate) const FIRST_RENAME_CUT_METHOD: &str = "developer.cut_current_first_rename";
+const FIRST_RENAME_CUT_CONFIRM: &str = "cut-current-first-rename";
+pub(crate) const TERMINAL_CUT_METHOD: &str = "developer.cut_current_terminal";
+const TERMINAL_CUT_CONFIRM: &str = "cut-current-terminal";
+pub(crate) fn loss_cut_method(method: &str) -> bool {
+    matches!(method, FIRST_RENAME_CUT_METHOD | TERMINAL_CUT_METHOD)
+}
 pub(crate) fn private_method(method: &str) -> bool {
     matches!(method, METHOD | BACKUP_METHOD | PAUSE_METHOD | ABORT_METHOD)
+        || loss_cut_method(method)
 }
 pub(crate) const MAX_INPUT: usize = 32768;
 /// Fixed best-effort observation only. Never replaces the original publication
@@ -32,7 +40,19 @@ pub(crate) fn publish_positive_pause_response(
     revision: u64,
     refuse: impl FnOnce(u64),
 ) -> crate::Result<()> {
-    let publication = response
+    let publication = publish_positive_cut_response(response, stream);
+    if publication.is_err() {
+        refuse(revision);
+    }
+    publication
+}
+/// Already sealed cut graph stays retained by the caller's SAME owner mutex.
+/// Reply loss is UNKNOWN; this encoder has no resume, cleanup or retry callback.
+pub(crate) fn publish_positive_cut_response(
+    response: Result<Value, omavless_control_protocol::ProtocolError>,
+    stream: &mut std::os::unix::net::UnixStream,
+) -> crate::Result<()> {
+    response
         .map_err(|_| crate::RuntimeError::Protocol)
         .and_then(|response| {
             crate::encode_response(&response).map_err(|_| crate::RuntimeError::Protocol)
@@ -40,11 +60,7 @@ pub(crate) fn publish_positive_pause_response(
         .and_then(|frame| {
             crate::write_unary_frame(stream, &frame, crate::FrameKind::Response)
                 .map_err(|_| crate::RuntimeError::Io)
-        });
-    if publication.is_err() {
-        refuse(revision);
-    }
-    publication
+        })
 }
 #[derive(Debug, PartialEq, Eq)]
 enum ReplyDisposition {
@@ -55,6 +71,14 @@ fn classify_response(response: &Value) -> Result<(), ReplyDisposition> {
     classify_response_field(response, "completed")
 }
 fn classify_response_field(response: &Value, field: &str) -> Result<(), ReplyDisposition> {
+    if field == "cutReachedStillFenced"
+        && response["ok"] == true
+        && response["result"]
+            .as_object()
+            .is_none_or(|result| result.len() != 1)
+    {
+        return Err(ReplyDisposition::Unknown);
+    }
     if response["ok"] == true && response["result"][field] == true {
         return Ok(());
     }
@@ -176,7 +200,11 @@ impl Request {
         valid_private(self.schema, &self.archive.0, &self.passphrase.0)
             && matches!(
                 self.confirmation.as_str(),
-                CONFIRM | BACKUP_CONFIRM | PAUSE_CONFIRM
+                CONFIRM
+                    | BACKUP_CONFIRM
+                    | PAUSE_CONFIRM
+                    | FIRST_RENAME_CUT_CONFIRM
+                    | TERMINAL_CUT_CONFIRM
             )
             && !self.instance_id.is_empty()
             && self.instance_id.len() <= 128
@@ -197,7 +225,11 @@ impl Request {
     pub(crate) fn matches_method(&self, method: &str) -> bool {
         matches!(
             (method, self.confirmation.as_str()),
-            (METHOD, CONFIRM) | (BACKUP_METHOD, BACKUP_CONFIRM) | (PAUSE_METHOD, PAUSE_CONFIRM)
+            (METHOD, CONFIRM)
+                | (BACKUP_METHOD, BACKUP_CONFIRM)
+                | (PAUSE_METHOD, PAUSE_CONFIRM)
+                | (FIRST_RENAME_CUT_METHOD, FIRST_RENAME_CUT_CONFIRM)
+                | (TERMINAL_CUT_METHOD, TERMINAL_CUT_CONFIRM)
         )
     }
 }
@@ -226,6 +258,18 @@ pub fn arguments_admitted(arguments: &[OsString]) -> bool {
                 "abort-current-intent",
                 "--confirm-private-intent-abort",
             ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-first-rename",
+                "--confirm-private-first-rename-cut",
+            ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-terminal",
+                "--confirm-private-terminal-cut",
+            ]
 }
 /// A lost reply is UNKNOWN, never an automatic retry. No request data is echoed.
 pub fn from_private_input(
@@ -245,6 +289,18 @@ pub fn from_private_input(
         (PAUSE_METHOD, PAUSE_CONFIRM, "t4_current_intent_paused")
     } else if arguments[1] == "backup-current" {
         (BACKUP_METHOD, BACKUP_CONFIRM, "t4_current_backup_created")
+    } else if arguments[1] == "cut-current-first-rename" {
+        (
+            FIRST_RENAME_CUT_METHOD,
+            FIRST_RENAME_CUT_CONFIRM,
+            "t4_current_first_rename_cut_reached_still_fenced",
+        )
+    } else if arguments[1] == "cut-current-terminal" {
+        (
+            TERMINAL_CUT_METHOD,
+            TERMINAL_CUT_CONFIRM,
+            "t4_current_terminal_cut_reached_still_fenced",
+        )
     } else {
         (METHOD, CONFIRM, "t4_current_pair_completed")
     };
@@ -310,7 +366,9 @@ pub fn from_private_input(
     let response =
         crate::call_with_timeout(&paths, method, params, std::time::Duration::from_secs(120))
             .map_err(|_| "developer_current_restore_outcome_unknown")?;
-    let disposition = if method == PAUSE_METHOD {
+    let disposition = if loss_cut_method(method) {
+        classify_response_field(&response, "cutReachedStillFenced")
+    } else if method == PAUSE_METHOD {
         classify_response_field(&response, "intentPaused")
     } else {
         classify_response(&response)
@@ -325,6 +383,66 @@ pub fn from_private_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_loss_cut_requests_confirmations_wiping_and_replies_are_distinct() {
+        for (method, confirmation, cli, flag) in [
+            (
+                FIRST_RENAME_CUT_METHOD,
+                FIRST_RENAME_CUT_CONFIRM,
+                "cut-current-first-rename",
+                "--confirm-private-first-rename-cut",
+            ),
+            (
+                TERMINAL_CUT_METHOD,
+                TERMINAL_CUT_CONFIRM,
+                "cut-current-terminal",
+                "--confirm-private-terminal-cut",
+            ),
+        ] {
+            assert!(private_method(method));
+            assert!(arguments_admitted(&[
+                "developer".into(),
+                cli.into(),
+                flag.into()
+            ]));
+            assert!(!arguments_admitted(&[
+                "developer".into(),
+                cli.into(),
+                flag.into(),
+                "0".into()
+            ]));
+            let raw = wire()
+                .replace(METHOD, method)
+                .replace(CONFIRM, confirmation);
+            assert!(checked(raw.as_bytes()).is_ok());
+            assert!(checked(raw.replace(confirmation, PAUSE_CONFIRM).as_bytes()).is_err());
+            let mut request = crate::decode_request(raw.as_bytes()).unwrap();
+            request["params"]["step"] = "any".into();
+            assert!(Request::parse(&request["params"]).is_err());
+            wipe_request(&mut request);
+            assert!(request["params"].get("passphrase").is_none());
+        }
+        let cut = serde_json::json!({"ok":true,"result":{"cutReachedStillFenced":true}});
+        assert_eq!(
+            classify_response_field(&cut, "cutReachedStillFenced"),
+            Ok(())
+        );
+        assert_eq!(classify_response(&cut), Err(ReplyDisposition::Unknown));
+        assert_eq!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"cutReachedStillFenced":true,"completed":true}}),
+                "cutReachedStillFenced"
+            ),
+            Err(ReplyDisposition::Unknown)
+        );
+        assert_eq!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"completed":true}}),
+                "cutReachedStillFenced"
+            ),
+            Err(ReplyDisposition::Unknown)
+        );
+    }
     #[test]
     fn diagnostic_write_failure_is_ignored_without_flush_or_unwind() {
         struct Failing;
