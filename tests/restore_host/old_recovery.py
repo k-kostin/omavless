@@ -18,10 +18,10 @@ import sys
 import tempfile
 import time
 
-# The first account is retained after an unknown backup outcome. This successor
-# is a distinct user scope, not a replay or cleanup of that operation.
-ACCOUNT = "ovrestore100"
-HOME = Path("/home/ovrestore100")
+# Earlier accounts retain an unknown backup / incomplete activation respectively.
+# This optimized-build successor is a distinct scope, not a replay or cleanup.
+ACCOUNT = "ovrestore101"
+HOME = Path("/home/ovrestore101")
 ELF = Path("/usr/bin/omavless")
 MAX_FRAME = 256 * 1024
 
