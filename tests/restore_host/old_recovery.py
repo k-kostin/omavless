@@ -341,9 +341,11 @@ def positive():
         initial = json.loads(store.data)
         require(initial.get('profiles') == [] and initial.get('subscriptions') == [])
         require(initial.get('startup', {}).get('enabled') is False)
+        require(initial.get('routingPreset') in (
+            'roscomvpn-default', 'china-cn-direct', 'iran-ir-direct'))
     finally:
         store.close()
-    evidence = HOME / '.cache/restore099-positive'
+    evidence = HOME / '.cache/restore099-qualified-positive'
     evidence.mkdir(mode=0o700)  # Existence refuses a second run, including failed runs.
     effects = Effects(evidence, run)
     private = json.dumps({'schema': 1, 'archive': str(evidence / 'new.ovb'),
@@ -411,7 +413,69 @@ def positive():
             item.close()
 
 
+def recover_retained():
+    """Explicit fresh context for the preserved, stopped OLD/Intent fixture.
+
+    Does not rerun Backup, Import, Pause or Stop, or remove failed evidence.
+    The installed recovery consumer must earn all authority again.
+    """
+    os.umask(0o077)
+    uid, run = account_scope()
+    config, state = HOME / '.config/omavless', HOME / '.local/state/omavless'
+    fields = manager(run)
+    require(fields['MainPID'] == '0' and fields['ActiveState'] == 'inactive'
+            and fields['SubState'] == 'dead')
+    no_network()
+    require(set(p.name for p in state.iterdir() if p.name.startswith('restore-'))
+            == {'restore-decision.intent', 'restore-pair.pending'})
+    held = []
+    try:
+        for path, limit in ((config / 'profiles.json', 4 * 1024 * 1024),
+                            (config / 'route-template.yaml', 1024 * 1024),
+                            (state / 'desired.json', 65536), (state / 'ownership.json', 4096),
+                            (run / 'omavless-login.receipt', 4096),
+                            (state / 'restore-decision.intent', 138)):
+            held.append(Held(path, uid, limit))
+        stage = state / 'restore-pair.pending'
+        for leaf, limit, original in (('old-profiles.json', 4 * 1024 * 1024, held[0]),
+                                      ('old-route-template.yaml', 1024 * 1024, held[1])):
+            staged = Held(stage / leaf, uid, limit)
+            held.append(staged)
+            require(staged.data == original.data)
+        require(json.loads(held[0].data).get('startup', {}).get('enabled') is False)
+        evidence = HOME / '.cache/restore099-manager-successor'
+        evidence.mkdir(mode=0o700)
+        private = Held(HOME / '.cache/restore099-qualified-positive/request.json', uid, 32768)
+        held.append(private)
+        request = json.loads(private.data, object_pairs_hook=unique)
+        require(set(request) == {'schema', 'archive', 'passphrase'}
+                and type(request['schema']) is int and request['schema'] == 1
+                and request['archive'] == str(HOME / '.cache/restore099-qualified-positive/new.ovb')
+                and isinstance(request['passphrase'], str))
+        effects = Effects(evidence, run)
+        effects.once('recover', [str(ELF), 'restore', 'recover-old', '--confirm-rollback'], private.data)
+        fresh = ordinary(uid, run)
+        for item in held[:5]:
+            item.unchanged()
+        history = Held(state / 'restore-disposition.history', uid, 8192)
+        held.append(history)
+        history_matches(history.data, held[5].data, uid, [item.data for item in held[:2]])
+        require(set(p.name for p in state.iterdir() if p.name.startswith('restore-'))
+                == {'restore-disposition.history'})
+        again = ordinary(uid, run)
+        require(again[0] == fresh[0]
+                and again[1]['result']['instanceId'] == fresh[1]['result']['instanceId'])
+        history.unchanged()
+        print('RESTORE099_RETAINED_OLD_ORDINARY_OFF_PASS', flush=True)
+    finally:
+        for item in held:
+            item.close()
+
+
 def main(arguments):
+    if arguments == ['recover-retained']:
+        recover_retained()
+        return
     if arguments == ['positive']:
         positive()
         return

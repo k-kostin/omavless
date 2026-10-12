@@ -21,6 +21,10 @@ use zeroize::Zeroizing;
 
 type Result<T> = std::result::Result<T, ()>;
 
+#[path = "restore_recovery_manager_identity.rs"]
+mod recovery_manager_identity;
+use recovery_manager_identity::{ManagerIdentity, RecoveryManagerRecord};
+
 // The ordinary binary has no trace code, flag, sink or runtime override.
 macro_rules! checkpoint {
     ($phase:ident) => {
@@ -745,6 +749,7 @@ fn inspect_inventory(
         budget,
         before,
         order,
+        None,
         #[cfg(test)]
         None,
     )
@@ -757,6 +762,7 @@ fn inspect_inventory_inner(
     budget: &mut Budget,
     before: &BTreeSet<u32>,
     order: Vec<u32>,
+    recovery_manager: Option<&recovery_manager_identity::RecoveryManagerIdentity>,
     #[cfg(test)] retained_parent: Option<&std::rc::Rc<retained_parent_prototype::LocalParent>>,
 ) -> std::result::Result<(), InventoryError> {
     if before.is_empty()
@@ -773,7 +779,10 @@ fn inspect_inventory_inner(
         let initial = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, *pid)?;
         let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, *pid)?;
         let metadata = directory.metadata().map_err(|_| ())?;
-        if initial.uids.contains(&uid) {
+        let authenticated_manager = recovery_manager
+            .map(|manager| manager.inventory_row(root, *pid, &initial, start, &metadata, budget))
+            .transpose()?;
+        if initial.uids.contains(&uid) && authenticated_manager != Some(true) {
             // Only the exact retained original manager row can consult its
             // parent. Every other same-UID row retains ordinary strict capture.
             #[cfg(test)]
@@ -816,6 +825,9 @@ fn inspect_inventory_inner(
     }
     for process in retained {
         process.recheck(root, budget)?;
+    }
+    if let Some(manager) = recovery_manager {
+        manager.recheck(root, budget)?;
     }
     for (pid, held, metadata, initial, start) in classified {
         let current = directory(root, &pid.to_string())?;
@@ -1031,6 +1043,11 @@ impl FixedRecoveryCommand {
                     args.push(format!("--property={property}"));
                 }
             }
+            if system {
+                for property in ["Id", "User", "InvocationID", "LoadState"] {
+                    args.push(format!("--property={property}"));
+                }
+            }
             if matches!(self, Self::Runtime) {
                 for property in ["RuntimeDirectoryPreserve", "FragmentPath", "DropInPaths"] {
                     args.push(format!("--property={property}"));
@@ -1062,6 +1079,7 @@ fn recovery_fields(bytes: &[u8]) -> Result<std::collections::BTreeMap<&str, &str
     Ok(fields)
 }
 
+#[cfg(test)]
 fn recovery_manager_record(bytes: &[u8]) -> Result<u32> {
     let mut fields = recovery_fields(bytes)?;
     if fields.remove("Job") != Some("") || fields.len() != 4 {
@@ -1550,8 +1568,7 @@ pub(crate) struct StoppedOwner {
     root_identity: Metadata,
     uid: u32,
     myself: Process,
-    manager: Process,
-    manager_executable: TrustedExecutable,
+    manager: ManagerIdentity,
     namespaces: Vec<(&'static str, File, Metadata)>,
     listeners: [String; 2],
     refused: Cell<bool>,
@@ -1630,29 +1647,42 @@ impl StoppedOwner {
             None => query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
         };
         checkpoint!(ManagerRecord);
-        let pid = if old_queries.is_some() {
-            recovery_manager_record(&reply)?
+        let manager = if old_queries.is_some() {
+            let record = RecoveryManagerRecord::parse(&reply, uid)?;
+            let manager = recovery_manager_identity::RecoveryManagerIdentity::capture(
+                &root,
+                record,
+                &mut budget,
+            )?;
+            // The first observe_inner below brackets capture with the second
+            // fixed system snapshot AFTER this graph is in OldRecoveryOwner.
+            // An uncertain query therefore retains both original authorities.
+            ManagerIdentity::Recovery(manager)
         } else {
-            service_record(&reply, true)?
+            let pid = service_record(&reply, true)?;
+            checkpoint!(ManagerProcess);
+            let manager = Process::capture_inner(
+                &root,
+                pid,
+                &mut budget,
+                #[cfg(test)]
+                retained_parent,
+            )?;
+            checkpoint!(ManagerExecutable);
+            let manager_executable = TrustedExecutable::capture("/usr/lib/systemd/systemd")?;
+            checkpoint!(ManagerIdentity);
+            if !executable_identity(&manager_executable.metadata, &manager.executable_identity)
+                || manager.status.uids != [uid; 4]
+                || manager.status.namespace_pids != [pid]
+                || !arguments(&manager.command)?.contains(&b"--user".as_slice())
+            {
+                return Err(());
+            }
+            ManagerIdentity::Historical {
+                process: manager,
+                executable: manager_executable,
+            }
         };
-        checkpoint!(ManagerProcess);
-        let manager = Process::capture_inner(
-            &root,
-            pid,
-            &mut budget,
-            #[cfg(test)]
-            retained_parent,
-        )?;
-        checkpoint!(ManagerExecutable);
-        let manager_executable = TrustedExecutable::capture("/usr/lib/systemd/systemd")?;
-        checkpoint!(ManagerIdentity);
-        if !executable_identity(&manager_executable.metadata, &manager.executable_identity)
-            || manager.status.uids != [uid; 4]
-            || manager.status.namespace_pids != [pid]
-            || !arguments(&manager.command)?.contains(&b"--user".as_slice())
-        {
-            return Err(());
-        }
         budget.check()?;
         let observer = Self {
             root,
@@ -1660,7 +1690,6 @@ impl StoppedOwner {
             uid,
             myself,
             manager,
-            manager_executable,
             namespaces,
             listeners,
             refused: Cell::new(false),
@@ -1703,27 +1732,53 @@ impl StoppedOwner {
                 return Err(());
             }
         }
-        for name in ["ns/pid", "ns/user"] {
-            let manager_namespace = {
-                #[cfg(test)]
-                {
-                    self.manager.current_namespace(&self.root, name, _budget)?
-                }
-                #[cfg(not(test))]
-                {
-                    magic_file(&self.manager.directory, name)?
-                }
-            };
-            same_namespace(
-                &manager_namespace,
-                &magic_file(&self.myself.directory, name)?,
-            )?;
+        if let ManagerIdentity::Historical {
+            process: manager, ..
+        } = &self.manager
+        {
+            for name in ["ns/pid", "ns/user"] {
+                let manager_namespace = {
+                    #[cfg(test)]
+                    {
+                        manager.current_namespace(&self.root, name, _budget)?
+                    }
+                    #[cfg(not(test))]
+                    {
+                        magic_file(&manager.directory, name)?
+                    }
+                };
+                same_namespace(
+                    &manager_namespace,
+                    &magic_file(&self.myself.directory, name)?,
+                )?;
+            }
         }
         Ok(())
     }
 
     fn observe(&self) -> Result<()> {
         self.observe_inner(None, true)
+    }
+
+    fn inventory(&self, budget: &mut Budget) -> Result<()> {
+        if let Some(manager) = self.manager.recovery() {
+            let before = pids(&self.root, budget)?;
+            let order = before.iter().copied().collect();
+            inspect_inventory_inner(
+                &self.root,
+                self.uid,
+                &self.myself,
+                budget,
+                &before,
+                order,
+                Some(manager),
+                #[cfg(test)]
+                None,
+            )
+            .map_err(|_| ())
+        } else {
+            inventory(&self.root, self.uid, &self.myself, budget).map_err(|_| ())
+        }
     }
 
     fn observe_inner(
@@ -1750,15 +1805,17 @@ impl StoppedOwner {
         };
         checkpoint!(ManagerRecord);
         let pid = if old.is_some() {
-            recovery_manager_record(&reply)?
+            let record = RecoveryManagerRecord::parse(&reply, self.uid)?;
+            self.manager.recovery().ok_or(())?.matches_record(&record)?;
+            record.pid
         } else {
             service_record(&reply, true)?
         };
-        if pid != self.manager.pid {
+        if pid != self.manager.pid() {
             return Err(());
         }
         checkpoint!(ManagerIdentityRecheck);
-        self.manager_executable.recheck()?;
+        self.manager.recheck_executable()?;
         for unit in ["omavless.service", "omavless-runtime.service"] {
             if unit == "omavless.service" {
                 checkpoint!(LegacyUnitQuery);
@@ -1791,7 +1848,11 @@ impl StoppedOwner {
         }
         checkpoint!(Inventory);
         #[cfg(test)]
-        if let Some(parent) = &self.manager.retained_parent {
+        if let ManagerIdentity::Historical {
+            process: manager, ..
+        } = &self.manager
+            && let Some(parent) = &manager.retained_parent
+        {
             let before = pids(&self.root, &budget)?;
             let order = before.iter().copied().collect();
             inspect_inventory_inner(
@@ -1801,14 +1862,15 @@ impl StoppedOwner {
                 &mut budget,
                 &before,
                 order,
+                None,
                 Some(parent),
             )
             .map_err(|_| ())?;
         } else {
-            inventory(&self.root, self.uid, &self.myself, &mut budget).map_err(|_| ())?;
+            self.inventory(&mut budget)?;
         }
         #[cfg(not(test))]
-        inventory(&self.root, self.uid, &self.myself, &mut budget).map_err(|_| ())?;
+        self.inventory(&mut budget)?;
         checkpoint!(UnixTable);
         let net = directory(&self.myself.directory, "net")?;
         let table = proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?;

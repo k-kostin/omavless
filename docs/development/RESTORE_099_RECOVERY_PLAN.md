@@ -202,3 +202,22 @@ Minimal owning changes include
 `native_coordinator/restore_native_recovery.rs` for one consumer/release,
 and new fixed CLI/stopped-service modules. `product_scope.rs`/producer remain
 unchanged; verify their denies also dominate the new development entry.
+
+### Recovery manager qualification on installed systemd
+
+The installed user manager can be nondumpable even to its own UID. Requiring
+its `/proc/PID/exe` and namespace descriptors therefore blocks recovery on a
+normal host. The new recovery path instead binds the fixed system-manager
+`user@UID.service` attestation (including invocation and PID) to an original
+pidfd, readable process start/status facts, and a retained authenticated peer
+on the canonical `systemd/private` socket. Rechecks must retain that same unit
+invocation, process and peer; disconnection never authorizes reconnection.
+The owner-only socket modes `0600` and systemd's `0700` are accepted, not
+group/other access or special permission bits.
+
+Only this exact manager receives the process-inventory exception. Other
+same-UID processes and the historical Abort command retain their previous
+checks. Own namespace/proc visibility checks remain. This is a root-controlled
+system-service attestation boundary, **not** direct proof of the manager's
+executable inode or namespace descriptors; OS ptrace/security settings are not
+relaxed. Deterministic tests do not replace installed capture and recovery.

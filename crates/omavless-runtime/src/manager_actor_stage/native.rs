@@ -435,6 +435,148 @@ fn old_intent_review(
     Ok(chain)
 }
 
+fn committed_new_review(
+    intent: &[u8],
+    terminal: &[u8],
+    members: [&[u8]; 4],
+    current: [&[u8]; 2],
+    generation: u64,
+    desired: &[u8],
+) -> Result<(DecisionChain, FreshCommittedNew), FirstError> {
+    let plan = planned_stage_identity(members).map_err(|_| FirstError::Admission)?;
+    let chain = DecisionChain::decode(intent, Some(terminal)).map_err(|_| FirstError::Admission)?;
+    let class = class_from_matches(
+        current[0] == members[0],
+        current[1] == members[1],
+        current[0] == members[2],
+        current[1] == members[3],
+    );
+    if current != [members[2], members[3]]
+        || !matches!(class, LivePairClass::New | LivePairClass::Identical)
+        || chain.active().phase() != DecisionPhase::Committed
+        || chain
+            .active()
+            .review_inspection(generation, Some(desired), &plan, class)
+            != RecoveryReview::VerifyCommittedCandidate
+    {
+        return Err(FirstError::Admission);
+    }
+    Ok((
+        chain,
+        FreshCommittedNew {
+            intent: intent.try_into().map_err(|_| FirstError::Admission)?,
+            terminal: terminal.try_into().map_err(|_| FirstError::Admission)?,
+        },
+    ))
+}
+
+#[cfg(test)]
+#[test]
+fn native_recovery_committed_requires_exact_new_and_bound_terminal() {
+    let members: [&[u8]; 4] = [b"old-store", b"old-template", b"new-store", b"new-template"];
+    let desired =
+        br#"{"schemaVersion":1,"generation":0,"connected":false,"profileId":"","mode":"rule"}"#;
+    let intent = DecisionRecord::intent(
+        2,
+        Some(desired),
+        &planned_stage_identity(members).unwrap(),
+        [31; 16],
+    )
+    .unwrap();
+    let terminal = intent.terminal(TerminalChoice::Commit).unwrap().encode();
+    let new = [members[2], members[3]];
+    let (_, qualified) =
+        committed_new_review(&intent.encode(), &terminal, members, new, 2, desired).unwrap();
+    assert!(qualified.matches(&intent.encode(), &terminal));
+    for current in [
+        [members[0], members[1]],
+        [members[0], members[3]],
+        [members[2], members[1]],
+        [b"foreign".as_slice(), members[3]],
+    ] {
+        assert!(
+            committed_new_review(&intent.encode(), &terminal, members, current, 2, desired)
+                .is_err()
+        );
+    }
+    for wrong_terminal in [
+        intent.encode(),
+        intent.terminal(TerminalChoice::Abort).unwrap().encode(),
+        DecisionRecord::intent(
+            2,
+            Some(desired),
+            &planned_stage_identity(members).unwrap(),
+            [32; 16],
+        )
+        .unwrap()
+        .terminal(TerminalChoice::Commit)
+        .unwrap()
+        .encode(),
+    ] {
+        assert!(
+            committed_new_review(&intent.encode(), &wrong_terminal, members, new, 2, desired)
+                .is_err()
+        );
+        assert!(!qualified.matches(&intent.encode(), &wrong_terminal));
+    }
+    assert!(committed_new_review(&intent.encode(), &terminal, members, new, 3, desired).is_err());
+    assert!(committed_new_review(&intent.encode(), &terminal, members, new, 2, b"other").is_err());
+    let changed = [
+        members[0],
+        b"changed-old".as_slice(),
+        members[2],
+        members[3],
+    ];
+    assert!(committed_new_review(&intent.encode(), &terminal, changed, new, 2, desired).is_err());
+    assert!(
+        committed_new_review(
+            &intent.encode(),
+            &terminal[..RECORD_BYTES - 1],
+            members,
+            new,
+            2,
+            desired
+        )
+        .is_err()
+    );
+    let identical = [members[0], members[1], members[0], members[1]];
+    let identical_intent = DecisionRecord::intent(
+        2,
+        Some(desired),
+        &planned_stage_identity(identical).unwrap(),
+        [33; 16],
+    )
+    .unwrap();
+    assert!(
+        committed_new_review(
+            &identical_intent.encode(),
+            &identical_intent
+                .terminal(TerminalChoice::Commit)
+                .unwrap()
+                .encode(),
+            identical,
+            [members[0], members[1]],
+            2,
+            desired
+        )
+        .is_ok()
+    );
+    assert!(
+        committed_new_review(
+            &identical_intent.encode(),
+            &identical_intent
+                .terminal(TerminalChoice::Abort)
+                .unwrap()
+                .encode(),
+            identical,
+            [members[0], members[1]],
+            2,
+            desired
+        )
+        .is_err()
+    );
+}
+
 #[cfg(test)]
 #[test]
 fn native_recovery_old_intent_requires_exact_old_and_bound_intent() {
@@ -536,6 +678,7 @@ enum NativeRecoveryMode {
     OldIntent,
     CompleteAborted,
     RecoverOldToCompletion,
+    CommittedNewToCompletion,
 }
 
 #[cfg(test)]
@@ -573,6 +716,8 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         "terminal-swap",
         "socket-swap",
         "socket-reappears",
+        "committed",
+        "committed-absent",
     ] {
         native_old_completion_fixture(case, None);
     }
@@ -588,9 +733,16 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
     ] {
         native_old_completion_fixture("intent", Some(step));
         native_old_completion_fixture("aborted", Some(step));
+        if step != NativeStep::RecoveryAbortVerified {
+            native_old_completion_fixture("committed", Some(step));
+        }
     }
+    native_old_completion_fixture("committed", Some(NativeStep::RecoveryCommittedVerified));
 
     fn native_old_completion_fixture(case: &str, stop: Option<NativeStep>) {
+        let committed = case.starts_with("committed");
+        let absent_socket = matches!(case, "absent" | "committed-absent");
+        let offset = if committed { 2 } else { 0 };
         let root = crate::test_temp::directory("old-completion").unwrap();
         let config = root.join("c");
         let state = root.join("s");
@@ -634,7 +786,7 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
             drop(socket);
             None
         };
-        if case == "absent" {
+        if absent_socket {
             fs::remove_file(singleton.join(crate::SOCKET_NAME)).unwrap(); // this owned fixture only, before admission
         }
         let stage = state.join(PENDING_DIRECTORY);
@@ -654,7 +806,11 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
             old_intent_review(&intent, members, [members[0], members[1]], 2, desired).unwrap();
         let terminal = chain
             .active()
-            .terminal(TerminalChoice::Abort)
+            .terminal(if committed {
+                TerminalChoice::Commit
+            } else {
+                TerminalChoice::Abort
+            })
             .unwrap()
             .encode();
         for (name, bytes) in MEMBERS.into_iter().zip(members) {
@@ -662,12 +818,12 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         }
         drop(write(&stage.join(READY_MEMBER), &ready_bytes(members)));
         let live = [
-            write(&config.join(LIVE[0].1), members[0]),
-            write(&config.join(LIVE[1].1), members[1]),
+            write(&config.join(LIVE[0].1), members[offset]),
+            write(&config.join(LIVE[1].1), members[offset + 1]),
         ];
         let before = live.each_ref().map(|file| file.metadata().unwrap());
         drop(write(&state.join(INTENT), &intent));
-        let existing_abort = case == "aborted";
+        let existing_abort = case == "aborted" || committed;
         if existing_abort {
             drop(write(&state.join(TERMINAL), &terminal));
         }
@@ -752,7 +908,23 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
             .scan_catalogue(Slot::State, Some(1), &[], until)
             .unwrap();
         engine.catalogues_captured = true;
-        engine.old_recovery_completion = true; // selected lower fixture mode, not a production grant
+        engine.recovery_completion = if committed {
+            RecoveryCompletionSelection::CommittedNew
+        } else {
+            RecoveryCompletionSelection::Old
+        }; // lower fixture selection
+        if committed {
+            let (_, qualified) = committed_new_review(
+                &intent,
+                &terminal,
+                members,
+                [members[2], members[3]],
+                2,
+                desired,
+            )
+            .unwrap();
+            engine.fresh_committed_new = Some(qualified);
+        }
         let mut origin = LocalQuiescence {
             live_listener: socket.is_some(),
             paths: crate::desired::DesiredPaths {
@@ -770,13 +942,17 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
             } else {
                 engine.publish_recovery_abort(&mut origin, members, &intent, &chain, until)?
             };
-            engine.finish_old_to_completion(
+            engine.finish_recovery_to_completion(
                 &mut origin,
                 RetainedTerminal {
                     members,
                     intent: &intent,
                     terminal: &retained_terminal,
-                    choice: NativeTerminalChoice::OldAborted,
+                    choice: if committed {
+                        NativeTerminalChoice::NewCommitted
+                    } else {
+                        NativeTerminalChoice::OldAborted
+                    },
                 },
                 &mut |step| {
                     reached.push(step);
@@ -816,7 +992,10 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
                 until,
             )
         })();
-        let positive = matches!(case, "intent" | "aborted" | "absent") && stop.is_none();
+        let positive = matches!(
+            case,
+            "intent" | "aborted" | "absent" | "committed" | "committed-absent"
+        ) && stop.is_none();
         assert_eq!(result.is_ok(), positive, "public fixture {case} {stop:?}");
         assert_eq!(engine.completed, positive);
         assert!(!engine.disposition_done);
@@ -829,7 +1008,10 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
                 fs::metadata(config.join(name)).unwrap().ino(),
                 before[index].ino()
             );
-            assert_eq!(fs::read(config.join(name)).unwrap(), members[index]);
+            assert_eq!(
+                fs::read(config.join(name)).unwrap(),
+                members[index + offset]
+            );
             assert!(engine.lower.io.test_retains_original(slot));
             assert!(!config.join(NATIVE_ROLLBACKS[index].1).exists());
         }
@@ -838,7 +1020,7 @@ fn native_recovery_old_completion_retains_same_graph_and_endpoint_fault_prefixes
         assert!(
             rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_err()
         );
-        if case != "absent" {
+        if !absent_socket {
             assert!(engine.lower.io.test_retains_original(Slot::Scratch6));
         }
         if engine.unlinked[Slot::Scratch6 as usize] {
@@ -1789,6 +1971,7 @@ pub(crate) enum NativeStep {
     Renamed(usize),
     Terminal,
     RecoveryAbortVerified,
+    RecoveryCommittedVerified,
     EndpointRetiring,
     EndpointUnlinked,
     EndpointSynced,
@@ -1802,9 +1985,27 @@ pub(crate) enum NativeStep {
     HistorySynced,
     History,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum NativeTerminalChoice {
     OldAborted,
     NewCommitted,
+}
+// Newly earned classification, not an adopted current-session Commit grant.
+// The retained exact decision bytes bind this qualification to this invocation.
+struct FreshCommittedNew {
+    intent: [u8; RECORD_BYTES],
+    terminal: [u8; RECORD_BYTES],
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecoveryCompletionSelection {
+    None,
+    Old,
+    CommittedNew,
+}
+impl FreshCommittedNew {
+    fn matches(&self, intent: &[u8], terminal: &[u8]) -> bool {
+        self.intent == intent && self.terminal == terminal
+    }
 }
 struct RetainedTerminal<'a> {
     members: [&'a [u8]; 4],
@@ -1890,7 +2091,8 @@ pub(crate) struct NativeEngine {
     catalogues: [NativeCatalogue; 2],
     catalogues_captured: bool,
     recovery: bool,
-    old_recovery_completion: bool,
+    recovery_completion: RecoveryCompletionSelection,
+    fresh_committed_new: Option<FreshCommittedNew>,
     // Set only after SAME Session execute_native's final original gate.
     committed: bool,
     intent_identity: std::sync::Arc<()>,
@@ -2109,7 +2311,8 @@ impl NativeEngine {
             catalogues: [NativeCatalogue::empty(), NativeCatalogue::empty()],
             catalogues_captured: false,
             recovery: false,
-            old_recovery_completion: false,
+            recovery_completion: RecoveryCompletionSelection::None,
+            fresh_committed_new: None,
             committed: false,
             intent_identity: std::sync::Arc::new(()),
             current_intent: CurrentIntentPhase::None,
@@ -3333,7 +3536,16 @@ impl NativeEngine {
             choice,
         } = retained;
         let committed = matches!(choice, NativeTerminalChoice::NewCommitted);
-        if self.retirement || self.sealed || (committed && (!self.committed || self.recovery)) {
+        let current_commit = self.committed && !self.recovery;
+        let recovered_commit = self.recovery
+            && self.recovery_completion == RecoveryCompletionSelection::CommittedNew
+            && self.singleton_locked
+            && self.lower.live == [LiveRole::Old; 2]
+            && self
+                .fresh_committed_new
+                .as_ref()
+                .is_some_and(|qualified| qualified.matches(intent, terminal));
+        if self.retirement || self.sealed || (committed && !(current_commit || recovered_commit)) {
             return Err(FirstError::StillFenced);
         }
         self.retirement = true;
@@ -3440,7 +3652,7 @@ impl NativeEngine {
         self.own_unlink(Slot::State, Slot::Scratch2, pending, false, origin, until)?;
         let offset = if committed { 2 } else { 0 };
         for index in 0..2 {
-            let live_slot = if committed {
+            let live_slot = if committed && !self.recovery {
                 NATIVE_REPLACEMENTS[index].0
             } else {
                 LIVE[index].0
@@ -3506,6 +3718,21 @@ impl NativeEngine {
             origin,
             backup,
             NativeRecoveryMode::RecoverOldToCompletion,
+            Some(quiescence),
+        )
+    }
+    /// Fresh Committed qualification retains NEW, without adopting a dead
+    /// Session or reversing the terminal decision. No live file is replaced.
+    pub(crate) fn recover_native_committed_to_completion(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.recover_native_inner(
+            origin,
+            backup,
+            NativeRecoveryMode::CommittedNewToCompletion,
             Some(quiescence),
         )
     }
@@ -3776,7 +4003,37 @@ impl NativeEngine {
         quiescence: &mut NativeOldRecoveryQuiescence,
         until: Instant,
     ) -> Result<(), FirstError> {
-        let result = if self.old_recovery_completion
+        self.check_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::Old,
+            until,
+        )
+    }
+    pub(crate) fn check_native_new_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.check_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::CommittedNew,
+            until,
+        )
+    }
+    fn check_native_recovered_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        selection: RecoveryCompletionSelection,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let result = if self.recovery_completion == selection
+            && selection != RecoveryCompletionSelection::None
+            && (selection != RecoveryCompletionSelection::CommittedNew
+                || self.fresh_committed_new.is_some())
             && self.recovery_endpoint == RecoveryEndpoint::SocketAbsent
         {
             self.check_native_completed_inner(
@@ -3800,9 +4057,35 @@ impl NativeEngine {
         origin: &mut NativeRecoveryOrigin<'_>,
         quiescence: &mut NativeOldRecoveryQuiescence,
     ) -> Result<(), FirstError> {
+        self.dispose_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::Old,
+        )
+    }
+    pub(crate) fn dispose_native_new_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.dispose_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::CommittedNew,
+        )
+    }
+    fn dispose_native_recovered_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        selection: RecoveryCompletionSelection,
+    ) -> Result<(), FirstError> {
         let until = Instant::now() + std::time::Duration::from_secs(15);
         let result = (|| {
-            if !self.old_recovery_completion
+            if self.recovery_completion != selection
+                || selection == RecoveryCompletionSelection::None
+                || (selection == RecoveryCompletionSelection::CommittedNew
+                    && self.fresh_committed_new.is_none())
                 || self.recovery_endpoint != RecoveryEndpoint::SocketAbsent
             {
                 return Err(FirstError::StillFenced);
@@ -3869,7 +4152,9 @@ impl NativeEngine {
         ),
         FirstError,
     > {
-        if !self.old_recovery_completion
+        if self.recovery_completion == RecoveryCompletionSelection::None
+            || (self.recovery_completion == RecoveryCompletionSelection::CommittedNew
+                && self.fresh_committed_new.is_none())
             || !self.disposition_ready()
             || self.recovery_endpoint != RecoveryEndpoint::SocketAbsent
         {
@@ -4143,8 +4428,16 @@ impl NativeEngine {
         let until = Instant::now() + std::time::Duration::from_secs(45);
         let complete = mode == NativeRecoveryMode::CompleteAborted;
         let old_completion = mode == NativeRecoveryMode::RecoverOldToCompletion;
+        let new_completion = mode == NativeRecoveryMode::CommittedNewToCompletion;
+        let stopped_completion = old_completion || new_completion;
         self.recovery = true; // consumed before every original acquisition
-        self.old_recovery_completion = old_completion;
+        self.recovery_completion = if old_completion {
+            RecoveryCompletionSelection::Old
+        } else if new_completion {
+            RecoveryCompletionSelection::CommittedNew
+        } else {
+            RecoveryCompletionSelection::None
+        };
         let result = (|| {
             self.uid = Some(origin.uid());
             self.gid = Some(nix::unistd::getgid().as_raw());
@@ -4160,7 +4453,7 @@ impl NativeEngine {
                     .map_err(|_| FirstError::Admission)?;
             }
             self.capture_recovery_singleton(until)?;
-            if old_completion {
+            if stopped_completion {
                 self.check_recovery_singleton(until)
                     .map_err(|_| FirstError::Admission)?;
                 origin.check_old_recovery_lease()?;
@@ -4194,7 +4487,7 @@ impl NativeEngine {
                 crate::restore_executor_candidate::OLD_SLOT[0],
                 crate::restore_executor_candidate::OLD_SLOT[1],
             ] {
-                if name == TERMINAL && (complete || old_completion) {
+                if name == TERMINAL && (complete || stopped_completion) {
                     continue;
                 }
                 let parent = if name == TERMINAL {
@@ -4304,7 +4597,7 @@ impl NativeEngine {
                     Err(_) => return Err(FirstError::Admission),
                 }
             } else {
-                complete
+                complete || new_completion
             };
             let existing_terminal = if terminal_present {
                 Some(self.recover_member(
@@ -4318,20 +4611,33 @@ impl NativeEngine {
                 None
             };
             let chain = if let Some(terminal) = &existing_terminal {
-                let chain = DecisionChain::decode(&intent, Some(terminal))
-                    .map_err(|_| FirstError::Admission)?;
-                if current != [members[0], members[1]]
-                    || chain.active().phase() != DecisionPhase::Aborted
-                    || chain.active().review_inspection(
+                if new_completion {
+                    let (chain, qualified) = committed_new_review(
+                        &intent,
+                        terminal,
+                        members,
+                        current,
                         gate.origin.generation(),
-                        Some(gate.origin.desired_bytes()),
-                        &plan,
-                        LivePairClass::Old,
-                    ) != RecoveryReview::VerifyAbortedCandidate
-                {
-                    return Err(FirstError::Admission);
+                        gate.origin.desired_bytes(),
+                    )?;
+                    self.fresh_committed_new = Some(qualified);
+                    chain
+                } else {
+                    let chain = DecisionChain::decode(&intent, Some(terminal))
+                        .map_err(|_| FirstError::Admission)?;
+                    if current != [members[0], members[1]]
+                        || chain.active().phase() != DecisionPhase::Aborted
+                        || chain.active().review_inspection(
+                            gate.origin.generation(),
+                            Some(gate.origin.desired_bytes()),
+                            &plan,
+                            LivePairClass::Old,
+                        ) != RecoveryReview::VerifyAbortedCandidate
+                    {
+                        return Err(FirstError::Admission);
+                    }
+                    chain
                 }
-                chain
             } else if mode == NativeRecoveryMode::OldIntent || old_completion {
                 old_intent_review(
                     &intent,
@@ -4360,7 +4666,7 @@ impl NativeEngine {
                 ) {
                     Err(nix::errno::Errno::ENOENT) => {}
                     Ok(_) => {
-                        if mode == NativeRecoveryMode::OldIntent || old_completion {
+                        if mode == NativeRecoveryMode::OldIntent || stopped_completion {
                             return Err(FirstError::Admission);
                         }
                         if self
@@ -4386,6 +4692,21 @@ impl NativeEngine {
                 .map_err(|_| FirstError::Admission)?;
             self.catalogues_captured = true;
             self.gate(&mut gate, until)?;
+            if new_completion {
+                self.capture_history(until)?;
+                self.gate(&mut gate, until)?;
+                return self.finish_recovery_to_completion(
+                    &mut gate,
+                    RetainedTerminal {
+                        members,
+                        intent: &intent,
+                        terminal: existing_terminal.as_ref().ok_or(FirstError::Admission)?,
+                        choice: NativeTerminalChoice::NewCommitted,
+                    },
+                    &mut |_| Ok(()),
+                    until,
+                );
+            }
             if old_completion {
                 // Reserve the SAME bounded audit target before Abort publication
                 // or endpoint mutation. Exhaustion leaves the original Intent.
@@ -4585,13 +4906,45 @@ impl NativeEngine {
         cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
         until: Instant,
     ) -> Result<(), FirstError> {
+        if retained.choice != NativeTerminalChoice::OldAborted {
+            return Err(FirstError::StillFenced);
+        }
+        self.finish_recovery_to_completion(origin, retained, cut, until)
+    }
+
+    fn finish_recovery_to_completion<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        retained: RetainedTerminal<'_>,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
         let RetainedTerminal {
             members,
             intent,
             terminal,
             choice,
         } = retained;
-        if !matches!(choice, NativeTerminalChoice::OldAborted)
+        let (selection, phase, offset, step) = match choice {
+            NativeTerminalChoice::OldAborted => (
+                RecoveryCompletionSelection::Old,
+                DecisionPhase::Aborted,
+                0,
+                NativeStep::RecoveryAbortVerified,
+            ),
+            NativeTerminalChoice::NewCommitted => (
+                RecoveryCompletionSelection::CommittedNew,
+                DecisionPhase::Committed,
+                2,
+                NativeStep::RecoveryCommittedVerified,
+            ),
+        };
+        if self.recovery_completion != selection
+            || (selection == RecoveryCompletionSelection::CommittedNew
+                && !self
+                    .fresh_committed_new
+                    .as_ref()
+                    .is_some_and(|qualified| qualified.matches(intent, terminal)))
             || self.sealed
             || self.retirement
             || self.completed
@@ -4604,7 +4957,7 @@ impl NativeEngine {
         }
         let chain =
             DecisionChain::decode(intent, Some(terminal)).map_err(|_| FirstError::StillFenced)?;
-        if chain.active().phase() != DecisionPhase::Aborted
+        if chain.active().phase() != phase
             || !chain.active().matches_stage_identity(
                 &planned_stage_identity(members).map_err(|_| FirstError::StillFenced)?,
             )
@@ -4614,7 +4967,7 @@ impl NativeEngine {
         self.gate(origin, until)?;
         for (index, (slot, name)) in LIVE.into_iter().enumerate() {
             self.lower
-                .verify_member(Slot::Config, slot, name, members[index], until)
+                .verify_member(Slot::Config, slot, name, members[index + offset], until)
                 .map_err(|_| FirstError::StillFenced)?;
         }
         for (slot, name, bytes) in [
@@ -4644,7 +4997,7 @@ impl NativeEngine {
                 .map_err(|_| FirstError::StillFenced)?;
             self.gate(origin, until)?;
         }
-        cut(NativeStep::RecoveryAbortVerified)?;
+        cut(step)?;
         self.retire_recovery_endpoint(origin, cut, until)?;
         if self.recovery_endpoint != RecoveryEndpoint::SocketAbsent {
             return Err(FirstError::StillFenced);

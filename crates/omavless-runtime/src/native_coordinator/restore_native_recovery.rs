@@ -16,6 +16,13 @@ enum FreshRecoveryMode {
     OldIntent,
     CompleteAborted,
     RecoverOldToCompletion,
+    CommittedNewToCompletion,
+}
+
+#[derive(Clone, Copy)]
+enum RecoveredPairChoice {
+    Old,
+    CommittedNew,
 }
 
 #[cfg(test)]
@@ -222,7 +229,10 @@ pub(crate) struct FreshRecovery {
 
 /// Private readback DATA retained after positive release, never a startup or
 /// mutation grant. Normal Start must earn ordinary admission independently.
-pub(crate) struct ReleasedOldConfiguration {
+pub(crate) struct ReleasedOldConfiguration(ReleasedConfiguration);
+#[allow(dead_code)] // Source-only recovery slice; public product entry remains denied.
+pub(crate) struct ReleasedNewConfiguration(ReleasedConfiguration);
+struct ReleasedConfiguration {
     paths: CutoverPaths,
     desired_paths: DesiredPaths,
     config: std::path::PathBuf,
@@ -236,6 +246,17 @@ pub(crate) struct ReleasedOldConfiguration {
 
 impl ReleasedOldConfiguration {
     pub(crate) fn verify_current(&self) -> Result<(), FirstError> {
+        self.0.verify_current()
+    }
+}
+#[allow(dead_code)] // Installed recovery driver integration is a separate gate.
+impl ReleasedNewConfiguration {
+    pub(crate) fn verify_current(&self) -> Result<(), FirstError> {
+        self.0.verify_current()
+    }
+}
+impl ReleasedConfiguration {
+    fn verify_current(&self) -> Result<(), FirstError> {
         // New read-only lease after the normal service has independently
         // started. Never reacquire its singleton or replay recovery here.
         let lock = MigrationLock::acquire_existing(&self.paths, self.uid)
@@ -1091,9 +1112,20 @@ impl NativeRecoveryOrigin<'_> {
 impl FreshRecovery {
     /// Distinct consuming release, not the historical in-process owner transfer.
     /// Every fallible check runs while the original keeper remains installed.
-    pub(crate) fn dispose_and_release_old(
+    pub(crate) fn dispose_and_release_old(self) -> Result<ReleasedOldConfiguration, FirstError> {
+        self.dispose_and_release(RecoveredPairChoice::Old)
+            .map(ReleasedOldConfiguration)
+    }
+
+    pub(crate) fn dispose_and_release_new(self) -> Result<ReleasedNewConfiguration, FirstError> {
+        self.dispose_and_release(RecoveredPairChoice::CommittedNew)
+            .map(ReleasedNewConfiguration)
+    }
+
+    fn dispose_and_release(
         mut self,
-    ) -> Result<ReleasedOldConfiguration, FirstError> {
+        choice: RecoveredPairChoice,
+    ) -> Result<ReleasedConfiguration, FirstError> {
         if self.disposition_attempted
             || !self.available.load(Ordering::Acquire)
             || self.normal_owner.is_some()
@@ -1102,7 +1134,7 @@ impl FreshRecovery {
             return Err(FirstError::StillFenced);
         }
         self.disposition_attempted = true;
-        let result = self.dispose_and_release_old_inner();
+        let result = self.dispose_and_release_inner(choice);
         if result.is_err() {
             self.available.store(false, Ordering::Release);
             if let Ok(mut slot) = self.original.lock()
@@ -1114,7 +1146,10 @@ impl FreshRecovery {
         result
     }
 
-    fn dispose_and_release_old_inner(&mut self) -> Result<ReleasedOldConfiguration, FirstError> {
+    fn dispose_and_release_inner(
+        &mut self,
+        choice: RecoveredPairChoice,
+    ) -> Result<ReleasedConfiguration, FirstError> {
         // No installed normal owner, completion borrower or external keeper may
         // survive this release. All aliases are classified before taking data.
         if Arc::strong_count(&self.original) != 1
@@ -1174,8 +1209,15 @@ impl FreshRecovery {
             uid: facts.uid,
         };
         let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
-        engine.check_native_old_completed(&mut origin, quiescence, until)?;
-        // Ordinary reconciliation must not rewrite/prune OLD on restart. Check
+        match choice {
+            RecoveredPairChoice::Old => {
+                engine.check_native_old_completed(&mut origin, quiescence, until)?
+            }
+            RecoveredPairChoice::CommittedNew => {
+                engine.check_native_new_completed(&mut origin, quiescence, until)?
+            }
+        }
+        // Ordinary reconciliation must not rewrite/prune the recovered pair. Check
         // the existing pure pointer planner before publishing disposition.
         let pointers = crate::private_store_transaction::prepare_pointer_mutation(
             &config.join("profiles.json"),
@@ -1188,7 +1230,14 @@ impl FreshRecovery {
         if pointers.changed() {
             return Err(FirstError::StillFenced);
         }
-        engine.dispose_native_old_completed(&mut origin, quiescence)?;
+        match choice {
+            RecoveredPairChoice::Old => {
+                engine.dispose_native_old_completed(&mut origin, quiescence)?
+            }
+            RecoveredPairChoice::CommittedNew => {
+                engine.dispose_native_new_completed(&mut origin, quiescence)?
+            }
+        }
         let mut ordinary = crate::startup_admission::StartupAdmission::ordinary();
         verify_ordinary_off(
             &mut ordinary,
@@ -1208,7 +1257,7 @@ impl FreshRecovery {
         )
         .map_err(|_| FirstError::StillFenced)?;
         let (history_name, history) = engine.completed_history_data(&mut origin, quiescence)?;
-        let released = ReleasedOldConfiguration {
+        let released = ReleasedConfiguration {
             paths: facts.paths.clone(),
             desired_paths: facts.desired_paths.clone(),
             config,
@@ -1219,11 +1268,15 @@ impl FreshRecovery {
             history_name,
             history_bytes: Zeroizing::new(history.to_vec()),
         };
-        engine.check_native_old_completed(
-            &mut origin,
-            quiescence,
-            std::time::Instant::now() + std::time::Duration::from_secs(2),
-        )?;
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        match choice {
+            RecoveredPairChoice::Old => {
+                engine.check_native_old_completed(&mut origin, quiescence, until)?
+            }
+            RecoveredPairChoice::CommittedNew => {
+                engine.check_native_new_completed(&mut origin, quiescence, until)?
+            }
+        }
         if !engine.disposition_ready() {
             return Err(FirstError::StillFenced);
         }
@@ -1473,7 +1526,7 @@ impl FreshRecovery {
         host_paths: NativeHostPaths,
         uid: u32,
     ) -> Result<(), FirstError> {
-        let result = self.reconcile(
+        self.recover_to_completion(
             source,
             passphrase,
             paths,
@@ -1481,6 +1534,48 @@ impl FreshRecovery {
             host_paths,
             uid,
             FreshRecoveryMode::RecoverOldToCompletion,
+        )
+    }
+    /// Strict complete Intent + Committed + authenticated staged/live NEW only.
+    /// This does not infer or repair partial retirement/disposition evidence.
+    pub(crate) fn recover_committed_to_completion(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.recover_to_completion(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::CommittedNewToCompletion,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn recover_to_completion(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+        mode: FreshRecoveryMode,
+    ) -> Result<(), FirstError> {
+        let result = self.reconcile(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            mode,
         );
         if result.is_err() {
             self.available.store(false, Ordering::Release);
@@ -1619,17 +1714,24 @@ impl FreshRecovery {
             uid,
         };
         let backup = authenticated.as_ref().ok_or(FirstError::Admission)?;
-        if mode == FreshRecoveryMode::RecoverOldToCompletion {
+        if matches!(
+            mode,
+            FreshRecoveryMode::RecoverOldToCompletion | FreshRecoveryMode::CommittedNewToCompletion
+        ) {
             self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
                 &paths,
                 uid,
                 Arc::clone(lock),
             )?));
-            engine.recover_native_old_to_completion(
-                &mut origin,
-                backup,
-                self.old_quiescence.as_mut().ok_or(FirstError::Admission)?,
-            )?;
+            let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
+            match mode {
+                FreshRecoveryMode::RecoverOldToCompletion => {
+                    engine.recover_native_old_to_completion(&mut origin, backup, quiescence)?
+                }
+                FreshRecoveryMode::CommittedNewToCompletion => engine
+                    .recover_native_committed_to_completion(&mut origin, backup, quiescence)?,
+                _ => return Err(FirstError::Admission),
+            }
             *facts = Some(OriginFacts {
                 paths: paths.clone(),
                 desired_paths: desired_paths.clone(),
