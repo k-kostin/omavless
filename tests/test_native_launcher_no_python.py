@@ -90,6 +90,7 @@ CASES = (
     action("profile-favorite", RECORD, "true"),
     action("profile-delete", RECORD),
     action("profile-import", private_stdin=True),
+    action("profile-bundle-import", private_stdin=True),
     action("profile-replace", RECORD, private_stdin=True),
     action("subscription-add", private_stdin=True),
     action("subscription-update", RECORD, private_stdin=True),

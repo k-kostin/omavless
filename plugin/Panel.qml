@@ -122,7 +122,7 @@ Panel {
   // wheel gesture move two surfaces and exposes two competing scrollbars.
   readonly property bool modalInputActive: onboardingWizard.visible
     || startupPrompt.visible || routingToolsPrompt.visible
-    || routingPresetPrompt.visible || importDialog.visible
+    || routingPresetPrompt.visible || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible
     || subscriptionPrompt.visible || pendingEdit !== null
     || pendingDelete !== null || pendingSubscriptionDelete !== null || quitConfirmation
 
@@ -618,7 +618,7 @@ Panel {
   readonly property bool importAmbiguous: vless.nativeOwner ? importNameCount > 0 : importNameCount > 1
   readonly property bool importAccepted: importNameValid && !importAmbiguous
   readonly property var importReplaceTarget: importReplaces ? vless.findByName(importNameClean) : null
-  readonly property string importSourceLabel: importKind === "native-file" ? textFor("native.importFile") : importKind === "native-clipboard" || importKind === "text"
+  readonly property string importSourceLabel: importKind === "native-entry" ? textFor("import.profile_title") : importKind === "native-file" ? textFor("native.importFile") : importKind === "native-clipboard" || importKind === "text"
     ? textFor("import.from_clipboard")
     : textFor("import.from_file", { name: String(importPayload).split("/").pop() })
   readonly property string importHintText: vless.nativeOwner
@@ -717,7 +717,7 @@ Panel {
         nativeOnboardingPresetPending = ""
     }
     if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
-        && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !subscriptionPrompt.visible)
+        && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !importEntryPrompt.visible && !bundleImportPrompt.visible && !subscriptionPrompt.visible)
       openOnboarding(1)
   }
 
@@ -802,7 +802,7 @@ Panel {
       var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
-        : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
+        : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
       if (page === "main" && showMainConnectionTest) targets.push(nativeTestButton)
       if (page === "main" && showMainLatencySection) targets.splice(6, 0, nativePingTest)
@@ -1382,6 +1382,7 @@ Panel {
     importKind = ""
     importPayload = ""
     importDialog.dismiss()
+    bundleImportPrompt.dismiss()
     keyCatcher.forceActiveFocus()
   }
 
@@ -1545,6 +1546,7 @@ Panel {
   // or a `pickConfigFile` landing) would be invisible, unclickable and
   // unfocused until it went away.
   onOpenedChanged: {
+    importEntryPrompt.dismiss()
     quitConfirmation = false
     nativeExpandedDetailsId = ""
     if (!opened && vless.nativeOwner) vless.cancelNativeSubscription()
@@ -1680,9 +1682,13 @@ Panel {
     // The picker runs whether or not the popup is open (bar right-click,
     // IPC); open the popup so the name prompt has somewhere to appear.
     function onImportReady(kind, payload, suggestedName) {
-      if (vless.nativeOwner && kind !== "native-file" && kind !== "native-clipboard") return
+      if (vless.nativeOwner && ["native-file", "native-clipboard", "native-entry"].indexOf(kind) < 0) return
       if (!root.opened) root.open()
       root.beginImport(kind, payload, suggestedName)
+    }
+    function onNativeBundleReady() {
+      if (!root.opened) root.open()
+      bundleImportPrompt.open()
     }
     function onNativeImportCodeChanged() {
       if (vless.nativeOwner && vless.nativeImportCode !== "" && !root.opened) root.open()
@@ -1886,7 +1892,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
-        || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
+        || root.pendingEdit !== null || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
         || root.panelTabFocusActive || advancedDiagnosticsPage.keyboardControlActive
@@ -2492,6 +2498,7 @@ Panel {
             spacing: Style.space(6)
             PlainText { Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; text: root.textFor("profiles.title"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body }
             OmaNavigationButton { id: nativeSubscriptionsButton; iconText: "󰒍"; tooltipText: root.textFor("settings.subscriptions"); focusable: true; Layout.alignment: Qt.AlignVCenter; onClicked: root.openSubscriptions() }
+            OmaNavigationButton { id: nativeImportEntry; iconText: "+"; tooltipText: root.textFor("import.entry.title"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: importEntryPrompt.open() }
             OmaNavigationButton { id: nativeImportClipboard; iconText: "󰅍"; tooltipText: root.textFor("native.importClipboard"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
             OmaNavigationButton { id: nativeImportFile; iconText: "󰉓"; tooltipText: root.textFor("native.importFile"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
           }
@@ -4088,6 +4095,28 @@ Panel {
           dismiss()
           Qt.callLater(function() { keyCatcher.forceActiveFocus() })
         }
+      }
+
+      ImportEntryPrompt {
+        id: importEntryPrompt
+        anchors.fill: parent
+        locale: root.uiLocale
+        available: vless.nativeCanAct && !vless.nativeImportBusy
+        onSubmitted: function(value) {
+          if (vless.startNativeImportText(value)) dismiss()
+        }
+        onCanceled: { dismiss(); keyCatcher.forceActiveFocus() }
+      }
+
+      BundleImportPrompt {
+        id: bundleImportPrompt
+        anchors.fill: parent
+        locale: root.uiLocale
+        counts: vless.nativeBundlePreview
+        available: vless.nativeCanAct && !vless.nativeImportBusy
+        errorText: vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
+        onConfirmed: { if (vless.confirmNativeBundle()) { dismiss(); keyCatcher.forceActiveFocus() } }
+        onCanceled: root.cancelImport()
       }
 
       // Backend-parsed, redacted profile preview shared by file and clipboard

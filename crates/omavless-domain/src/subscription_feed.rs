@@ -87,9 +87,17 @@ struct PrivateFeedEntry {
 pub struct DecodedSubscriptionFeed {
     entries: Vec<PrivateFeedEntry>,
     skipped: usize,
+    duplicates: usize,
 }
 
 impl DecodedSubscriptionFeed {
+    pub(crate) fn duplicate_count(&self) -> usize {
+        self.duplicates
+    }
+
+    pub(crate) fn into_private_uris(self) -> impl Iterator<Item = String> {
+        self.entries.into_iter().map(|entry| entry.uri)
+    }
     #[must_use]
     pub fn counts(&self) -> SubscriptionFeedCounts {
         SubscriptionFeedCounts {
@@ -238,21 +246,124 @@ pub fn decode_subscription_feed(
     } else {
         raw_candidates
     };
+    decode_candidates(candidates)
+}
+
+fn decode_candidates(
+    candidates: Vec<&str>,
+) -> Result<DecodedSubscriptionFeed, SubscriptionFeedError> {
     let mut seen = BTreeSet::new();
     let mut entries = Vec::with_capacity(candidates.len());
     let mut skipped = 0;
+    let mut duplicates = 0;
     for candidate in candidates {
         match parse_candidate(candidate) {
             Ok((uri, identity)) if seen.insert(identity.clone()) => {
                 entries.push(PrivateFeedEntry { uri });
             }
-            Ok(_) | Err(_) => skipped += 1,
+            Ok(_) => {
+                skipped += 1;
+                duplicates += 1;
+            }
+            Err(_) => skipped += 1,
         }
     }
     if entries.is_empty() {
         return Err(SubscriptionFeedError::NoSupportedProfiles);
     }
-    Ok(DecodedSubscriptionFeed { entries, skipped })
+    Ok(DecodedSubscriptionFeed {
+        entries,
+        skipped,
+        duplicates,
+    })
+}
+
+/// Local input is a list of complete links, not a provider document in which
+/// links can be embedded. Reuse the feed's Base64 and canonical identity rules,
+/// but refuse prose, JSON/YAML and mixed subscription URLs as a whole.
+pub(crate) fn decode_local_profile_lines(
+    input: &str,
+) -> Result<DecodedSubscriptionFeed, SubscriptionFeedError> {
+    if input.len() > 32 * 1024 {
+        return Err(SubscriptionFeedError::TooLarge);
+    }
+    let raw = input.trim_start_matches('\u{feff}').trim();
+    let decoded;
+    let text = if raw.contains("://") {
+        raw
+    } else {
+        decoded = decoded_text(raw).ok_or(SubscriptionFeedError::NoSupportedProfiles)?;
+        &decoded
+    };
+    let mut candidates = Vec::new();
+    let mut unsupported = 0;
+    let mut count = 0;
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        count += 1;
+        if count > MAX_SUBSCRIPTION_CANDIDATES {
+            return Err(SubscriptionFeedError::TooManyCandidates);
+        }
+        let (scheme, _) = line
+            .split_once("://")
+            .ok_or(SubscriptionFeedError::NoSupportedProfiles)?;
+        if !scheme
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic())
+            || !scheme
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+            || scheme.eq_ignore_ascii_case("http")
+            || scheme.eq_ignore_ascii_case("https")
+            || line
+                .split('#')
+                .next()
+                .unwrap_or(line)
+                .chars()
+                .any(char::is_whitespace)
+            || line.chars().any(char::is_control)
+        {
+            return Err(SubscriptionFeedError::NoSupportedProfiles);
+        }
+        // A second whitespace-delimited link is ambiguous, but :// inside a
+        // path or display label is not a second item. Canonical parsers accept
+        // encoded fragments; encode only raw label whitespace so their ordinary
+        // single-link extraction does not truncate a multi-word display name.
+        if line.split_whitespace().skip(1).any(|part| {
+            part.split_once("://").is_some_and(|(scheme, _)| {
+                supported_scheme(scheme)
+                    || scheme.eq_ignore_ascii_case("http")
+                    || scheme.eq_ignore_ascii_case("https")
+            })
+        }) {
+            return Err(SubscriptionFeedError::NoSupportedProfiles);
+        }
+        if supported_scheme(scheme) {
+            let normalized = match line.split_once('#') {
+                Some((link, label)) => {
+                    let mut result = format!("{link}#");
+                    for character in label.chars() {
+                        if character.is_whitespace() {
+                            use std::fmt::Write;
+                            for byte in character.encode_utf8(&mut [0; 4]).bytes() {
+                                write!(result, "%{byte:02X}").expect("String write");
+                            }
+                        } else {
+                            result.push(character);
+                        }
+                    }
+                    result
+                }
+                None => line.to_owned(),
+            };
+            candidates.push(normalized);
+        } else {
+            unsupported += 1;
+        }
+    }
+    let mut feed = decode_candidates(candidates.iter().map(String::as_str).collect())?;
+    feed.skipped += unsupported;
+    Ok(feed)
 }
 
 #[cfg(test)]

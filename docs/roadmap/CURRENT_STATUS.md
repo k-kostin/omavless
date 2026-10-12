@@ -1,5 +1,28 @@
 # Current delivery status
 
+## 0.9.9 beta development (2026-10-12)
+
+Based on accepted 0.9.8 fix.3 (`b4ef783`); main and Marketplace stay unchanged.
+The first #733 slice adds explicit single-profile/subscription entry to the
+panel, reusing canonical Rust classification and existing confirmation. It
+does not add a runtime mutation or enlarge the 32-KiB private input boundary.
+Clipboard/file actions remain available. Cancel/close clears entry/history;
+no input is saved or connected until the existing explicit confirmation.
+
+The local-bundle dev slice now wires bounded raw/Base64 input through Rust
+classification, a count-only confirmation and the guarded store transaction.
+New standalone profiles are deduplicated by full canonical identity (not UUID);
+existing records/preferences are preserved. The preview binds exact input/store
+bytes as well as the owner revision, and saving neither fetches nor connects.
+Direct entry supports bounded multiline text; clipboard/file share the classifier.
+Candidate rendering/integration evidence belongs to #738; this is not a released
+or installed beta package. Stable 0.9.8 remains unchanged.
+
+This is not completion of #733 or 0.9.9. Mandatory consumer
+Restore/recovery (#722/#724) remains pending; source-only OLD recovery must not
+be advertised as complete Restore. Product/package version and immutable
+0.9.8 pins are retained until a separately assembled beta package is built.
+
 Updated 2026-10-11. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
@@ -39,7 +62,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   Owner-selected [#733](https://github.com/k-kostin/omavless/issues/733) adds a
   private editable VPN-access field in the application/plugin import UI, reusing
   canonical profile/subscription validation and explicit preview/confirmation.
-  This is planned, not a 0.9.8 feature or support for new protocol/key formats.
+  The first single-link plugin slice is in beta as described above; bundle
+  support remains planned. Neither is a 0.9.8 feature or a new protocol family.
 
 - **Corrected 0.9.8 validation delivery:** the owner authorized immutable
   `v0.9.8-fix.1`, preserving the original `v0.9.8` assets and failures. The
