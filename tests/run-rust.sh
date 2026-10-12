@@ -28,6 +28,20 @@ cargo test --locked -p omavless-dns-broker -p omavless-dns-resolved -- --test-th
 python3 tests/test-tui-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/fixture_preview"
 cargo build --locked -p omavless-tui --example private_import_preview
 python3 tests/test-tui-import-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/private_import_preview"
+# Exercise the real ordinary CLI adapter, not another example callback. Keep
+# this selected build free of private T4/product features, and its copied ELF
+# immutable until every owned PTY/listener has exited. Failure retains the ELF.
+cargo build --locked -p omavless-runtime --bin omavless --no-default-features --features tui
+native_wire_parent="$(python3 -c 'import runpy; print(runpy.run_path("tests/test-tui-native-import-wire.py")["private_parent"]())')"
+native_wire_dir="$(mktemp -d "$native_wire_parent/nw.XXXXXX")"
+install -m 500 "${CARGO_TARGET_DIR:-target}/debug/omavless" "$native_wire_dir/omavless"
+native_wire_sha="$(sha256sum "$native_wire_dir/omavless")"
+if ! python3 tests/test-tui-native-import-wire.py "$native_wire_dir/omavless" --sha256 "${native_wire_sha%% *}"; then
+  printf 'Failed hermetic native client artifact retained: %s\n' "$native_wire_dir/omavless" >&2
+  exit 1
+fi
+rm -- "$native_wire_dir/omavless"
+rmdir -- "$native_wire_dir"
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo check --locked -p omavless-runtime --features tui
 cargo test --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
