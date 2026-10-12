@@ -25,6 +25,7 @@ HELPER_SHA = "55fa8597b183a5b8deb0b0aabf25740ee12dfc221054e04e62ac017d1b86cc6e"
 RECEIPT_SHA = "e47cf22a9886c1a60577f91b23fd58e9c27f649e27c4c22b3d08bc5a0fb63906"
 RECEIPT = HERE / "default_residue_receipt.py"
 ADMISSION = HERE / "ordinary_toolchain_admission.py"
+FORMAT_ADAPTER = HERE / "go127_residue_format.py"
 OVERLAYS = {
     "default_elapsed_rekey_test.go": ("6722869be1b098603966eb0df564579789146a15c1340bc121e4ac96c5d2cb6f", "support.go"),
     "default_residue_support_test.go": ("7ad53ca96f4b98ae6cd03c37f50e8673ba9735a8e46e44263833f1f5bd2315e3", "residue-support.go"),
@@ -105,6 +106,9 @@ PACKAGE = receipts.PACKAGE
 admission = types.ModuleType("p4_ordinary_toolchain")
 ADMISSION_BYTES = object_bytes(ADMISSION, 65536)
 exec(compile(ADMISSION_BYTES, "fixed-p4-ordinary-toolchain", "exec"), admission.__dict__)
+formats = types.ModuleType("p4_go127_residue_format")
+FORMAT_BYTES = object_bytes(FORMAT_ADAPTER, 65536)
+exec(compile(FORMAT_BYTES, "fixed-p4-go127-residue-format", "exec"), formats.__dict__)
 
 
 def inputs():
@@ -112,6 +116,7 @@ def inputs():
              "export-helper.py": (HERE / "run_cookie_overlay.py").read_bytes(),
              "receipt-parser.py": RECEIPT.read_bytes(),
              "toolchain-admission.py": ADMISSION.read_bytes(),
+             "go127-format-adapter.py": FORMAT_ADAPTER.read_bytes(),
              "baseline-runner.py": (HERE / "run_default_residue_overlay.py").read_bytes()}
     for name, (digest, artifact) in OVERLAYS.items():
         raw = (HERE / "upstream-tests" / name).read_bytes()
@@ -143,6 +148,25 @@ def frozen_elf(path):
     if stat.S_IMODE(path.lstat().st_mode) != 0o700:
         raise ValueError("private_frozen_elf_mode_required")
     admission.static_elf(raw)
+    return hashlib.sha256(raw).hexdigest()
+
+
+def record_execution_completion(artifacts, expected, code, out, err):
+    # Called only after the original supervisor returned its complete settled
+    # captures/raw status. This is finite historical evidence, never permission
+    # to retry, cleanup, bypass parsing or treat a later gate as accepted.
+    if owned.UNSETTLED:
+        raise owned.Unsettled("prior_owned_graph_unknown_preserve")
+    if type(code) is not int or not -255 <= code <= 255 or type(out) is not bytes or type(err) is not bytes or len(out) + len(err) > 2 * 1024 * 1024:
+        raise ValueError("finite_original_command_result_required")
+    raw = json.dumps({
+        "schema": "p4-original-execution-command-result-v1",
+        "execution_identity": expected, "supervisor_returned_complete": True,
+        "raw_exit_code": code, "stdout_bytes": len(out), "stderr_bytes": len(err),
+        "stdout_sha256": hashlib.sha256(out).hexdigest(),
+        "stderr_sha256": hashlib.sha256(err).hexdigest(),
+        "engine_gate_verified": False, "retry_or_cleanup_authority": False}, sort_keys=True).encode()
+    owned.save(artifacts, "execution-command-result.json", raw)
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -193,12 +217,13 @@ def main():
     if (captured["supervisor.py"] != SUPERVISOR_BYTES or captured["export-helper.py"] != owned.HELPER_BYTES
             or captured["receipt-parser.py"] != RECEIPT_BYTES
             or captured["toolchain-admission.py"] != ADMISSION_BYTES
+            or captured["go127-format-adapter.py"] != FORMAT_BYTES
             or hashlib.sha256(captured["baseline-runner.py"]).hexdigest() != BASE_RUNNER_SHA):
         raise ValueError("sealed_helpers_changed")
     fixture = owned.helpers.git(HERE, "rev-parse", "HEAD").decode().strip()
     paths = [str(Path(__file__)), str(SUPERVISOR), str(HERE / "run_cookie_overlay.py"), str(RECEIPT),
              *(str(HERE / "upstream-tests" / name) for name in OVERLAYS),
-             str(ADMISSION), str(HERE / "run_default_residue_overlay.py")]
+             str(ADMISSION), str(FORMAT_ADAPTER), str(HERE / "run_default_residue_overlay.py")]
     owned.helpers.git(HERE, "ls-files", "--error-unmatch", "--", *paths)
     owned.helpers.git(HERE, "diff", "--exit-code", "HEAD", "--", *paths)
     archive = owned.helpers.verify_source(source)
@@ -211,7 +236,8 @@ def main():
     tool_hash = toolchain["go_sha256"]
     expected = dict(fixture_commit=fixture, pin=owned.helpers.PIN, source_archive_sha256=owned.helpers.ARCHIVE_SHA256,
                     input_sha256=hashes, tool_sha256=tool_hash, toolchain=toolchain,
-                    recipe="p4-default-residue-ordinary-arch-go-v3", race=False, cases=1,
+                    recipe="p4-default-residue-ordinary-arch-go-v4", race=False, cases=1,
+                    output_format=formats.FORMAT,
                     test2json_build_package="cmd/test2json", telemetry_mode="off",
                     telemetry_mode_sha256=hashlib.sha256(b"off\n").hexdigest(),
                     xdg_configuration_relative="configuration",
@@ -285,7 +311,7 @@ def main():
         build_receipt = json.loads(object_bytes(artifacts / "build-receipt.json", 16384))
         expected["binary_sha256"] = frozen_elf(binary)
         expected["test2json_sha256"] = frozen_elf(test2json)
-        if build_receipt != {**expected, "execution": False} or any(os.path.lexists(artifacts / name) for name in ("execution-attempt.json", "events.jsonl", "test.stderr", "execution-receipt.json")):
+        if build_receipt != {**expected, "execution": False} or any(os.path.lexists(artifacts / name) for name in ("execution-attempt.json", "events.jsonl", "test.stderr", "execution-command-result.json", "execution-receipt.json")):
             raise ValueError("exact_unexecuted_build_receipt_required")
         recheck(captured, fixture, toolchain, source, artifacts, home)
         if frozen_elf(test2json) != expected["test2json_sha256"] or frozen_elf(binary) != expected["binary_sha256"]:
@@ -306,14 +332,19 @@ def main():
             raise
         owned.save(artifacts, "events.jsonl", out)
         owned.save(artifacts, "test.stderr", err)
+        command_result_hash = record_execution_completion(artifacts, expected, code, out, err)
         if code != 0 or err:
             raise ValueError("actual_default_residue_nonpass_preserve")
-        observation = receipts.verify_events(out, args.case)
+        observation = receipts.verify_events(formats.normalize(out), args.case)
         if frozen_elf(binary) != expected["binary_sha256"] or frozen_elf(test2json) != expected["test2json_sha256"]:
             raise ValueError("executed_binary_changed")
         recheck(captured, fixture, toolchain, source, artifacts, home)
+        if object_bytes(artifacts / "events.jsonl", 2 * 1024 * 1024) != out or hashlib.sha256(object_bytes(artifacts / "execution-command-result.json", 16384)).hexdigest() != command_result_hash:
+            raise ValueError("retained_complete_capture_or_result_drift")
         receipt_name = "execution-receipt.json"
-        receipt_bytes = json.dumps({**expected, "execution": True, "observation": observation}, sort_keys=True).encode()
+        receipt_bytes = json.dumps({**expected, "execution": True, "observation": observation,
+                                    "command_result_sha256": command_result_hash,
+                                    "raw_events_sha256": hashlib.sha256(out).hexdigest()}, sort_keys=True).encode()
         result = "PASS_CPU_SOURCE_ENGINE_ONLY"
     # A failed final output is NOT a receipt-bearing positive checkpoint.
     # Neither this line nor a saved receipt alone authorizes another command:

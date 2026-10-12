@@ -26,6 +26,82 @@ def load(name, filename):
 
 admission = load('p4_inert_toolchain', 'ordinary_toolchain_admission.py')
 runner = load('p4_inert_ordinary', 'run_default_residue_ordinary.py')
+formats = load('p4_inert_go127_format', 'go127_residue_format.py')
+
+
+def native_events(case='reject'):
+    # Current ROOT-captured wire shape, using fabricated public receipt values
+    # rather than reading/replaying a failed private artifact or claiming a run.
+    from tests.test_p4_default_residue_source import ReceiptControls
+    events = ReceiptControls().events(case)
+    for event in events:
+        event['Time'] = '2026-10-13T00:00:00Z'
+    for position in (2, 4, 6):
+        events[position]['OutputType'] = 'frame'
+    return events
+
+
+def encoded(events):
+    return b''.join(json.dumps(event).encode() + b'\n' for event in events)
+
+
+class FormatControls(unittest.TestCase):
+    def verify(self, events, case='reject'):
+        return runner.receipts.verify_events(formats.normalize(encoded(events)), case)
+
+    def test_native_shape_normalizes_only_frames_then_frozen_parser_checks(self):
+        for case in ('reject', 'exhaust'):
+            events = native_events(case)
+            raw = encoded(events)
+            with self.assertRaises(ValueError): runner.receipts.verify_events(raw, case)
+            normalized = formats.normalize(raw)
+            result = runner.receipts.verify_events(normalized, case)
+            self.assertEqual(result['case'], case)
+            normalized_events = [json.loads(line) for line in normalized.splitlines()]
+            for position, event in enumerate(events):
+                self.assertEqual(normalized_events[position], {key: value for key, value in event.items() if key != 'OutputType'})
+            self.assertEqual(raw, encoded(events))  # Source capture is untouched.
+
+    def test_frame_field_requires_exact_three_positions_values_and_presence(self):
+        for position in range(8):
+            for value in ('error', 'error-continue', '', 'FRAME', True, 1, None):
+                events = native_events()
+                events[position]['OutputType'] = value
+                with self.subTest(position=position, value=value), self.assertRaises(ValueError):
+                    self.verify(events)
+            if position in (2, 4, 6):
+                events = native_events()
+                del events[position]['OutputType']
+                with self.assertRaises(ValueError): self.verify(events)
+            else:
+                events = native_events()
+                events[position]['OutputType'] = 'frame'
+                with self.assertRaises(ValueError): self.verify(events)
+
+    def test_adapter_retains_duplicate_unknown_and_finite_raw_bounds(self):
+        raw = encoded(native_events())
+        for candidate in (raw.replace(b'"OutputType": "frame"', b'"OutputType": "frame", "OutputType": "frame"', 1),
+                          raw.replace(b'"Action": "start"', b'"Action": "start", "Action": "start"', 1),
+                          raw[:-1], b'\xff\n', raw + b'{}\n', b'x' * (formats.OUTPUT_LIMIT + 1)):
+            with self.assertRaises(ValueError): formats.normalize(candidate)
+        for position in range(8):
+            events = native_events()
+            events[position]['FutureGoField'] = 'unknown'
+            with self.subTest(position=position), self.assertRaises(ValueError): self.verify(events)
+
+    def test_all_old_causal_order_timing_and_selector_guards_remain(self):
+        for case in ('reject', 'exhaust'):
+            events = native_events(case)
+            mutations = [events[:3] + events[4:], events + [events[6]], events[1:] + [events[0]]]
+            for candidate in mutations:
+                with self.assertRaises(ValueError): self.verify(candidate, case)
+            events[3]['Output'] = events[3]['Output'].replace('defaults_unchanged=true', 'defaults_unchanged=false')
+            with self.assertRaises(ValueError): self.verify(events, case)
+            for value in (True, 180, 570.001, float('inf'), float('nan')):
+                events = native_events(case)
+                events[5]['Elapsed'] = value
+                with self.assertRaises(ValueError): self.verify(events, case)
+        with self.assertRaises(ValueError): self.verify(native_events('exhaust'), 'reject')
 
 
 def elf(ptype=1, dynamic=None):
@@ -257,15 +333,13 @@ class OrdinaryRunnerControls(unittest.TestCase):
                         name = 'test2json' if kind == 'helper' else 'device.test'
                         runner.owned.save(paths['artifacts'], name, elf(), 0o700)
                         return 0, b'', b''
-                    from tests.test_p4_default_residue_source import ReceiptControls
-                    control = ReceiptControls()
-                    return 0, control.encoded(control.events('reject')), b''
+                    return 0, encoded(native_events()), b''
                 commands.side_effect = command
                 yield state, admit
 
     def test_fixed_ordinary_environment_and_frozen_baseline(self):
         self.assertEqual(hashlib.sha256((ROOT / 'run_default_residue_overlay.py').read_bytes()).hexdigest(), runner.BASE_RUNNER_SHA)
-        self.assertEqual(len(runner.inputs()), 9)
+        self.assertEqual(len(runner.inputs()), 10)
         source = (ROOT / 'run_default_residue_ordinary.py').read_text()
         for field in ('GOROOT="/usr/lib/go"', 'GOTOOLCHAIN="local"', 'CGO_ENABLED="0"',
                       'body_limit_seconds=570', 'go_timeout_seconds=600',
@@ -285,7 +359,7 @@ class OrdinaryRunnerControls(unittest.TestCase):
             self.assertTrue(all(value[1] == 8192 for _, value in calls))
         source = (ROOT / 'run_default_residue_ordinary.py').read_text()
         self.assertIn("'nproc':2048", source)
-        self.assertIn('recipe="p4-default-residue-ordinary-arch-go-v3"', source)
+        self.assertIn('recipe="p4-default-residue-ordinary-arch-go-v4"', source)
         old = (ROOT / 'run_default_residue_overlay.py').read_text()
         self.assertIn('(resource.RLIMIT_NPROC,1024)', old)
         self.assertIn("'nproc':1024", old)
@@ -433,6 +507,71 @@ class OrdinaryRunnerControls(unittest.TestCase):
             (telemetry / 'upload').mkdir(mode=0o700)
             argv[argv.index('build')] = 'execute'
             runner.main()  # Only empty fixed private directories may coexist.
+
+    def test_complete_command_result_precedes_format_refusal_without_gate_receipt(self):
+        with self.harness() as (state, _):
+            paths, argv, _, _, _, saved, commands, _ = state
+            runner.main()
+            argv[argv.index('build')] = 'execute'
+            def refuse(raw):
+                self.assertIn('execution-command-result.json', saved)
+                self.assertEqual((paths['artifacts'] / 'events.jsonl').read_bytes(), raw)
+                record = json.loads((paths['artifacts'] / 'execution-command-result.json').read_bytes())
+                self.assertEqual(record['raw_exit_code'], 0)
+                self.assertEqual(record['stdout_sha256'], hashlib.sha256(raw).hexdigest())
+                self.assertEqual(record['stdout_bytes'], len(raw))
+                self.assertEqual(record['stderr_bytes'], 0)
+                self.assertEqual(record['execution_identity']['output_format'], formats.FORMAT)
+                self.assertTrue(record['supervisor_returned_complete'])
+                self.assertFalse(record['engine_gate_verified'])
+                self.assertFalse(record['retry_or_cleanup_authority'])
+                raise ValueError('INERT_WIRE_FORMAT_REFUSAL')
+            with patch.object(runner.formats, 'normalize', side_effect=refuse), self.assertRaises(ValueError):
+                runner.main()
+            self.assertEqual(commands.call_count, 4)
+            self.assertNotIn('execution-receipt.json', saved)
+
+    def test_retained_raw_capture_or_command_result_drift_blocks_final_receipt(self):
+        for target in ('events.jsonl', 'execution-command-result.json'):
+            with self.subTest(target=target), self.harness() as (state, _):
+                paths, argv, _, _, _, saved, _, _ = state
+                runner.main()
+                argv[argv.index('build')] = 'execute'
+                normalize = runner.formats.normalize
+                def change(raw):
+                    normalized = normalize(raw)
+                    path = paths['artifacts'] / target
+                    path.write_bytes(path.read_bytes() + b'INERT_DRIFT')
+                    return normalized
+                with patch.object(runner.formats, 'normalize', side_effect=change), self.assertRaises(ValueError):
+                    runner.main()
+                self.assertIn('execution-command-result.json', saved)
+                self.assertNotIn('execution-receipt.json', saved)
+
+    def test_nonzero_complete_result_is_recorded_but_unknown_result_is_not(self):
+        for failure in ('execute', 'execute_unknown'):
+            with self.subTest(failure=failure), self.harness(failure) as (state, _):
+                paths, argv, _, _, _, saved, commands, _ = state
+                runner.main()
+                argv[argv.index('build')] = 'execute'
+                with self.assertRaises((ValueError, runner.owned.Unsettled)): runner.main()
+                self.assertEqual('execution-command-result.json' in saved, failure == 'execute')
+                if failure == 'execute':
+                    record = json.loads((paths['artifacts'] / 'execution-command-result.json').read_bytes())
+                    self.assertEqual(record['raw_exit_code'], 2)
+                    self.assertFalse(record['engine_gate_verified'])
+                self.assertNotIn('execution-receipt.json', saved)
+                self.assertEqual(commands.call_count, 4)
+
+    def test_command_result_bounds_and_unknown_latch_cannot_issue_evidence(self):
+        with patch.object(runner.owned, 'save') as save:
+            for code, out, err in ((True, b'', b''), (256, b'', b''), (0, 'not bytes', b''),
+                                   (0, b'x' * (2 * 1024 * 1024 + 1), b'')):
+                with self.assertRaises(ValueError):
+                    runner.record_execution_completion(Path('inert'), {}, code, out, err)
+            with patch.object(runner.owned, 'UNSETTLED', [object()]), self.assertRaises(runner.owned.Unsettled):
+                runner.record_execution_completion(Path('inert'), {}, 0, b'', b'')
+            save.assert_not_called()
 
     def test_unknown_latch_prevents_toolchain_observation(self):
         with patch.object(runner.owned, 'UNSETTLED', [object()]), \

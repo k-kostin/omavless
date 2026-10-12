@@ -62,7 +62,7 @@ dependencies of this fixed CGO0 Linux/amd64 command. The checker does not use
 
 The build/execution records bind package/signature provenance, explicit GOROOT,
 Go hash, full tree catalogue digest/count, exact link, ordinary recipe identity,
-all nine captured source-input hashes and existing binary/default/resource
+all ten captured source-input hashes and existing binary/default/resource
 fields. The full toolchain observation repeats before each Go command, before
 execution-attempt consumption, and before final success issuance. Directory
 membership/identity and the original link are rechecked within each observation.
@@ -209,3 +209,68 @@ helper compilation, dynamic helper/device ELF refusal, missing/drifted/unsafe
 helper refusal without regeneration, pre/post execution drift, private OFF mode
 and allowed empty telemetry directories. Actual Go/helper/device compilation,
 engine execution and full tool admission remain unrun by the writer.
+
+## Go 1.27 frame-format successor after original closed execution
+
+ROOT's actual source `6801a601ad4f786fb3191d3a80140455c8c78e5e`
+passed read-only tool admission (17329 lexical members) and one zero-case BUILD
+with original exit0, completed offline module verification, empty compiler
+streams and inspected static private helper/device ELFs. The subsequent one-shot
+ordinary reject EXECUTE completed its original supervised command and retained
+complete captures (1982 stdout bytes, empty stderr), but the outer runner exited1
+with ValueError after roughly540 seconds. No execution-receipt was issued; that
+attempt remains sealed and the overall gate remains FAILED.
+
+The closed eight events included case/package PASS and the causal observation
+of early delivery around177.099s, late consumption around181.001s, actual zero
+callback around540.000s, removal around540.001s and bounded teardown. These are
+ROOT-supplied original observation projections, not a new source checkpoint's
+accepted engine/provider/product/VM result. The deterministic frozen-parser
+revalidation rejected its closed field set: official Go 1.27 adds exactly
+`OutputType:"frame"` to RUN, case PASS banner and package PASS banner events,
+zero-based positions2/4/6. All other original event positions lacked this field.
+Neither an engine timer failure nor a shortened/default-overridden case was
+identified by that format diagnosis. The original outer failure is not repaired
+or back-credited by a new parser.
+
+The pure [Go 1.27 adapter](../../tests/fixtures/p4_awg_peer/go127_residue_format.py)
+requires bounded raw eight-line UTF-8 JSON with duplicate rejection, an explicit
+closed field vocabulary, exact frame string at positions2/4/6, and no OutputType
+at any other position. It removes only those three individually validated
+fields from a new in-memory encoding. The byte-identical frozen parser at
+SHA-256 `e47cf22a9886c1a60577f91b23fd58e9c27f649e27c4c22b3d08bc5a0fb63906`
+then enforces every existing event/action/package/selector/field/order, finite
+elapsed/teardown, causal/default/network/count constraint. Unknown fields,
+wrong/missing/extra frame fields, duplicates and newer unexpected formats refuse.
+Raw captures are not edited. Ordinary recipe v4 binds the adapter input hash and
+fixed output-format identity along with the existing source/helper/tool hashes.
+
+After an original supervisor returns complete captures and actual raw status,
+the runner saves raw stdout/stderr and exclusively records a finite
+execution-command-result before status or format validation. It binds execution
+identity, complete-return flag, raw exit code, byte lengths and SHA-256 values,
+while explicitly marking engine_gate_verified=false and retry/cleanup authority
+false. It is never issued from an exception/unknown path or reconstructed for
+the older attempt. A format/nonzero failure retains this record without success
+receipt. Final success binds its digest and raw-event digest after verifying the
+retained raw stream/result bytes. The same original one-shot marker still comes
+before the command; no result record enables a second attempt or recovery.
+
+Twenty-seven focused inert controls use the observed native wire shape with
+fabricated public values. They cover exact normalization followed by the old
+parser, wrong-position/value/missing/extra/duplicate fields, unchanged causal
+and timing refusal, complete command-result before mocked format refusal,
+nonzero completed status, retained capture/result drift and absent evidence
+after unknown supervision. They
+are not replays of a private stopped scope or engine acceptance. ROOT may
+separately revalidate its already settled current allowed capture for format
+compatibility, explicitly without back-crediting the old whole gate or inventing
+an old command-result record.
+
+No new stdin/descriptor graph or synthetic engine-looking probe is needed:
+actual settled Go 1.27 captures plus the official converter source already
+establish the wire change. Full ROOT/independent changed-source/recipe review
+must precede fresh v4 BUILD and separately selected once-only EXECUTE on a new
+snapshot. The failed old attempt/artifacts remain preserved and cannot be
+renamed/reused as that fresh selection. Normal P4, main, release and VM remain
+outside this correction.
