@@ -503,6 +503,51 @@ Later management candidates:
 These remain structured, bounded features; no arbitrary provider YAML/config
 injection.
 
+#### DNSControl workflow reference (research, 2026-10-12)
+
+This records ideas for later T4 work, not an adopted dependency or new release
+scope. Mandatory consumer Restore/recovery in 0.9.9 keeps its priority under the
+[delivery ledger](../../DEVELOPMENT_ROADMAP.md) and
+[Restore contract](PRIVATE_BACKUP_RESTORE.md).
+
+**Upstream facts.** [DNSControl](https://github.com/DNSControl/dnscontrol)
+manages DNS records through provider APIs. Its
+[preview/push workflow](https://github.com/DNSControl/dnscontrol/blob/0418d8f26957976596c30b5ceec06a3451ffa182/documentation/commands/preview-push.md)
+compares desired and live configuration before applying corrections;
+`--expect-no-changes` can report drift without applying it. Its
+[integration tests](https://github.com/DNSControl/dnscontrol/blob/0418d8f26957976596c30b5ceec06a3451ffa182/documentation/advanced-features/integration-tests.md)
+apply a change, then require a second pass to find no further changes.
+This does not provide OmaVLESS's Mihomo resolver, fake-IP/TUN routing or
+[managed system-DNS ownership](DNS_AUTHORIZATION.md). Some upstream adapters
+also manage local DNS services; the useful distinction is record management
+versus OmaVLESS's resolver/routing and host-lifecycle responsibilities.
+
+**Ideas to evaluate, not implementation claims:**
+
+- Reuse the clear preview/apply separation for future structured DNS controls:
+  show a bounded, credential-safe description of what would change before an
+  explicit action. Validate the candidate first; do not expose raw config,
+  profile links or subscription URLs as a diff.
+- Preserve and build on Restore's existing preview, validation and
+  commit-time owner/revision checks rather than add a second planner. A preview
+  is not a reservation or proof that Restore is currently admissible.
+- Test idempotence within each operation's allowed lifecycle: after a successful,
+  verified application, an unchanged desired configuration should need no
+  additional effects. Existing
+  [managed-template tests](../../crates/omavless-runtime/src/managed_template.rs)
+  already check unchanged repeated rendering; do not duplicate that coverage.
+- Keep observation separate from repair. A detected difference never permits
+  overwriting a foreign change, retrying an unknown effect or clearing
+  quarantine. Preserve the broker's
+  [verified readback and recovery boundary](../../crates/omavless-dns-broker/src/transaction.rs)
+  and the Restore contract's explicit recovery and fresh admission.
+
+Do not embed DNSControl or its provider credentials into the client runtime.
+If managing owned VPN/subscription-server domain records becomes a separate
+infrastructure requirement, evaluate DNSControl independently for that task.
+No installation, provider access, automatic reconciliation or product feature
+is authorized by this reference.
+
 ## 13. Interaction with App proxy
 
 S1 App proxy becomes more useful with a full application but remains a runtime/
