@@ -47,6 +47,13 @@ Desired/owner/required-login identities remain unchanged. Original paused
 instance/revision/process/manager readbacks are required before and after cut.
 Paused hello/status correctly report runtimeOwnership=false with Off data;
 this is fenced-holder observation, not ordinary admission.
+Status must carry an explicitly present null transition; SAME authenticated
+peer/PID and revision correlate it to the hello endpoints and original process.
+Review's proposed mandatory status.result.instanceId was withdrawn after exact
+call-site inspection: base db151 lib.rs2826 returns the status projection
+directly, lib.rs1298 has transition but no instance field, lib.rs5059 asserts
+that absence, and runtime_relaunch.rs418 explicitly retains that contract.
+Do not fabricate the field in mocks or expand the runtime schema for this recipe.
 
 Only after those checks: one known normal Stop, then
 `restore recover-final-old --confirm-disposition` with the original authenticated
@@ -64,8 +71,15 @@ without kill, resend, Abort, unlink, reset or cleanup. Only complete success or
 pre-effect refusal drops read-only pins. Source controls do not prove systemd,
 archive authentication, native authority, physical power loss or installed205.
 
-Original SOURCE checks: 16 new controls plus 24 retained driver controls pass
-(40 total); ordinary tests/run.sh passes 737 Python tests with two declared
+Native successful recovery emits stderr phase diagnostics. The driver retains
+and bounds that private capture without requiring it empty or interpreting it
+as authority; code0 still needs the independent whole outcome checks above.
+Code2 never becomes success because a diagnostic says completion. The initial
+ad2a1216 SOURCE checkpoint's blanket-empty requirement was rejected in review;
+its installed selection remained pending, with no VM effects performed.
+
+Original corrected SOURCE checks: 18 new controls plus 24 retained driver controls pass
+(42 total); ordinary tests/run.sh passes 739 Python tests with two declared
 skips and its normal JS/QML/navigation checks. Bash syntax and diff whitespace
 checks pass. The first focused run's nonzero result was a test-only mocked-input
 cursor assertion, corrected without changing a runtime or external effect.
