@@ -147,3 +147,14 @@ pair/boundary/history/client readback. See
 This supersedes the pending successor gate only, not the retained first failure
 or whole Restore matrix. The next practical gates are the genuinely generated
 MIXED and committed NEW cuts; partial-disposition recovery remains unsupported.
+
+## Controlled producer-loss rows
+
+At integrated developer checkpoint
+`b933bf7cc0813b504abd70d29e9b11e5cb4de345`, fresh real first-rename MIXED → OLD
+and terminal-publication Committed → NEW both completed with original exit 0,
+independent selected-pair/boundary/history and fresh ordinary-Off/client readback.
+See [the exact loss-row evidence](../testing/RESTORE_099_PC_LOSS_2026-10-13.md).
+This closes those two controlled rows only, not arbitrary loss or whole Restore.
+The next finite milestone is freshly qualified partial final-output disposition;
+the retained first closure is not automatically a retry or cleanup target.
