@@ -194,7 +194,7 @@ export default class G1Trial extends View {
       .child(new MutedText(strings.selected).build(cx))
       .child(new Label(selected?.name ?? strings.invalid).build(cx))
       .child(new MutedText(strings.source).build(cx))
-      .child(new Label(selected?.subscription || (this.locale === "ru" ? "Локальный" : "Local")).build(cx))
+      .child(new Label(selected === null ? "—" : selected.subscription || (this.locale === "ru" ? "Локальный" : "Local")).build(cx))
       .child(new MutedText(connection.kind === "previous" ? strings.previous : strings.connected).build(cx))
       .child(new Label(connectedName).build(cx))
       .child(new MutedText(strings.readonly).build(cx));
