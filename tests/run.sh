@@ -18,6 +18,7 @@ python3 -m unittest -v \
   "$here/test_first_restore_owner_execution.py" \
   "$here/test_restore_host_driver.py" \
   "$here/test_restore_loss_driver.py" \
+  "$here/test_restore_final_old_driver.py" \
   "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \
   "$here/test_beta_acceptance_entry.py" \
