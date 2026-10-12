@@ -1736,7 +1736,7 @@ impl StoppedOwner {
             // The first observe_inner below brackets capture with the second
             // fixed system snapshot AFTER this graph is in OldRecoveryOwner.
             // An uncertain query therefore retains both original authorities.
-            ManagerIdentity::Recovery(manager)
+            ManagerIdentity::Recovery(Box::new(manager))
         } else {
             let pid = service_record(&reply, true)?;
             checkpoint!(ManagerProcess);
@@ -1759,7 +1759,7 @@ impl StoppedOwner {
             }
             ManagerIdentity::Historical {
                 process: Box::new(manager),
-                executable: manager_executable,
+                executable: Box::new(manager_executable),
             }
         };
         let recovery_cgroup = if old_queries.is_some() {
