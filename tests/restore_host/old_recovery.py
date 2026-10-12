@@ -25,6 +25,11 @@ ACCOUNT = "ovrestore202"
 HOME = Path("/home/ovrestore202")
 ELF = Path("/usr/bin/omavless")
 MAX_FRAME = 256 * 1024
+FIXED_ACCOUNTS = {
+    ACCOUNT: HOME,
+    "ovrestore203": Path("/home/ovrestore203"),
+    "ovrestore204": Path("/home/ovrestore204"),
+}
 
 
 class Refused(Exception):
@@ -96,23 +101,24 @@ class Held:
             self.fd = None
 
 
-def account_scope():
-    account = pwd.getpwnam(ACCOUNT)
+def account_scope(account_name=ACCOUNT, home=HOME):
+    require(FIXED_ACCOUNTS.get(account_name) == home)
+    account = pwd.getpwnam(account_name)
     uid = account.pw_uid
-    require(uid > 0 and account.pw_dir == str(HOME)
+    require(uid > 0 and account.pw_dir == str(home)
             and os.getuid() == os.geteuid() == uid)
     # Fixture capacity, not a claim that the runtime's older 60-FD minimum
     # accounts for the enlarged manager/cgroup graph or supports low limits.
     soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
     require(soft == resource.RLIM_INFINITY or soft >= 256)
     run = Path(f"/run/user/{uid}")
-    require(os.environ.get("HOME") == str(HOME)
+    require(os.environ.get("HOME") == str(home)
             and os.environ.get("XDG_RUNTIME_DIR") == str(run))
     for key in ("OMAVLESS_HOME", "OMAVLESS_MIHOMO", "LD_PRELOAD", "LD_LIBRARY_PATH",
                 "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
         require(key not in os.environ)
-    for path in (HOME, run, run / "omavless", HOME / ".config/omavless",
-                 HOME / ".local/state/omavless"):
+    for path in (home, run, run / "omavless", home / ".config/omavless",
+                 home / ".local/state/omavless"):
         info = path.lstat()
         require(stat.S_ISDIR(info.st_mode) and info.st_uid == uid
                 and stat.S_IMODE(info.st_mode) == 0o700
@@ -278,7 +284,9 @@ def ordinary(uid, run):
     return first
 
 
-def history_matches(raw, intent, uid, old):
+def history_matches(raw, intent, uid, old, phase=3):
+    # Comparison data only: this parser never grants recovery or Start.
+    require(type(phase) is int and phase in (2, 3))
     def record(raw, size, magic, domain):
         require(len(raw) == size and raw[:8] == magic
                 and hashlib.sha256(domain + raw[:-32]).digest() == raw[-32:])
@@ -292,7 +300,7 @@ def history_matches(raw, intent, uid, old):
     record(receipt, 250, b'OVRFIN01', b'omavless-restore-finalization-v1\0')
     terminal = receipt[8:146]
     record(terminal, 138, b'OVRDEC01', b'omavless-restore-decision-v1\0')
-    require(terminal[8] == 3 and terminal[9:106] == intent[9:106])
+    require(terminal[8] == phase and terminal[9:106] == intent[9:106])
     for offset, item in zip((146, 182), old):
         require(int.from_bytes(receipt[offset:offset + 4], 'big') == len(item)
                 and receipt[offset + 4:offset + 36] == hashlib.sha256(item).digest())
@@ -300,8 +308,10 @@ def history_matches(raw, intent, uid, old):
 
 class Effects:
     """Finite fixture commands, private capture, no retry/timeout kill."""
-    def __init__(self, directory, run):
+    def __init__(self, directory, run, home=HOME):
+        require(home in FIXED_ACCOUNTS.values())
         self.directory, self.run = directory, run
+        self.home = home
         self.used = set()
 
     def once(self, phase, argv, data=b''):
@@ -314,7 +324,7 @@ class Effects:
             incoming.write(data)
             incoming.seek(0)
             child = subprocess.Popen(argv, stdin=incoming, stdout=out, stderr=err,
-                                     env={'HOME': str(HOME), 'PATH': '/usr/bin', 'LC_ALL': 'C',
+                                     env={'HOME': str(self.home), 'PATH': '/usr/bin', 'LC_ALL': 'C',
                                           'XDG_RUNTIME_DIR': str(self.run)})
             try:
                 deadline = time.monotonic() + 150

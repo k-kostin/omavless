@@ -274,3 +274,58 @@ fresh MIXED/committed NEW consumer recovery remain pending. No new cut VM
 selection is authorized until the current OLD gate passes and Root/Astra review
 the exact package, fresh fixture and recipe; preserved failed accounts/images
 are not replay or cleanup targets.
+
+### Fixed PC loss-driver preparation
+
+The dependent driver delta is SOURCE preparation, not an effect grant. Root
+reports the separate fresh 202 OLD row completed; its exact result remains in
+the owning installed evidence. Neither that result nor the producer's original
+`56a928970755bada78740726cac23a9df3971c29` source checks accepts a new cut row.
+Select the exact app/DNS pair, these scripts and the fresh-account preparation
+with primary and independent review before execution. Historical 201 closure
+and all earlier scopes remain untouched. No source-unchanged native suite needs
+to be relabeled or repeated for this Python/card delta.
+
+| Fixed entry | Account / fresh evidence leaf | Actual producer and consumer | Independent required outcome | Status |
+| --- | --- | --- | --- | --- |
+| `loss_recovery.py positive-mixed` | `ovrestore203` / `restore099-pc-mixed` | first live store rename; `recover-mixed --confirm-rollback` | MIXED is staged NEW store + OLD template with Intent only; both members differ; exact OLD byte recovery; Aborted history phase 3; fresh ordinary Off and client reopen | SOURCE recipe; VM pending |
+| `loss_recovery.py positive-committed` | `ovrestore204` / `restore099-pc-committed` | original terminal publication; `recover-committed --confirm-completion` | both live NEW members plus bound Committed terminal; both members differ; exact authenticated-consumer NEW readback; Committed history phase 2; fresh ordinary Off and client reopen | SOURCE recipe; VM pending |
+
+Each account must be separately initialized with the reviewed managed pair,
+packaged login receipt, startup disabled, and normal China preset before the
+driver. Matching `preflight-mixed` / `preflight-committed` entries only observe.
+The positive recipe exclusively creates its fixed evidence directory before
+any command; its existence blocks reuse even after refusal. It runs Backup of
+empty China NEW, then ordinary semantic Roscom preset (keep mode **on**) and
+ordinary synthetic profile import to OLD. Desired/owner/login are pinned only
+after those legitimate mutations complete. No Connect, TUN, DNS lease, shell,
+caller step, PID, unit or arbitrary account/path input is introduced.
+
+The exact CLI cut marker follows the client's positive-only
+`cutReachedStillFenced` response check. It is not completed Restore, including
+at the terminal cut. The driver independently pins the four actual staged
+members, ready digest, Intent and applicable terminal and verifies every byte
+binding before and after one known normal Stop. Stage NEW is comparison DATA;
+the consumer authenticates the archive. Empty China counts/preset/startup and
+semantic equality to the independently saved portable input are also checked,
+allowing `restore_store_off` reserialization rather than inventing Python byte
+normalization. MIXED rollback may replace both live inodes: only exact OLD
+bytes, not old named-inode survival, are required. Both rows retain unchanged
+Desired/owner/login identity and bytes through final readback.
+
+The new fixed driver keeps original private capture descriptors, input files,
+children and boundary/stage pins after attempted effects. Its per-command
+budget is 150 seconds; poll, capture substitution/size, lost or malformed cut
+marker, or post-effect readback uncertainty parks without kill, retry, unlink
+or cleanup. A known completed nonzero exit remains recorded as that exit; it is
+not assumed to prove no effect, and the outer unverified scope parks too.
+Diagnostics and parking waits are best-effort/nonthrowing. The legacy 202
+entry/default remains unchanged; shared account parameters accept only exact
+202/203/204 username/home pairs, and history phase is data-only/default Aborted.
+
+The driver delta's original SOURCE checks on 2026-10-13 exited 0: legacy 10
+plus new 14 fixed-data/mock controls (24 total), then `./tests/run.sh` with 721
+Python controls (2 skipped) and its normal JS/QML/navigation checks. Python AST
+syntax, `bash -n tests/run.sh` and `git diff --check` also passed. The mocked
+children are not VM effects; no native/runtime bytes changed and no installed
+203/204, process-loss or host-network acceptance is claimed.
