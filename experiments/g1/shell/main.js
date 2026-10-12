@@ -12,6 +12,7 @@ import { connectionPresentation, fixture, nextHighlightedProfile, profileById, P
 import { BROKEN, DARK, LIGHT, resolvedPalette } from "./palette.js";
 import { UpdateView } from "./workload.js";
 import { Metadata } from "./metadata.js";
+import { plainKey, navigatePage } from "./keyboard.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
 const copy = {
@@ -153,19 +154,20 @@ export default class G1Trial extends View {
         (element) => element.border(1).border_color(colors.ring));
 
     const navigateList = (event, context) => {
-      if (event.key === "down" || event.key === "up") {
-        const id = nextHighlightedProfile(visible, this.highlighted, event.key === "down" ? 1 : -1);
+      const key = plainKey(event);
+      if (key === "down" || key === "up") {
+        const id = nextHighlightedProfile(visible, this.highlighted, key === "down" ? 1 : -1);
         if (id !== null) {
           this.highlighted = id;
           this.listScroll.scroll_to_item(visible.findIndex((profile) => profile.id === id), "center");
           context.notify();
         }
         context.stop_propagation();
-      } else if (event.key === "enter" && visible.some((profile) => profile.id === this.highlighted)) {
+      } else if (key === "enter" && visible.some((profile) => profile.id === this.highlighted)) {
         this.selected = this.highlighted;
         context.notify();
         context.stop_propagation();
-      } else if (event.key === "escape") {
+      } else if (key === "escape") {
         this.panelFocus.focus();
         context.stop_propagation();
       }
@@ -217,18 +219,6 @@ export default class G1Trial extends View {
     const body = v_flex().size_full().min_h_0().p(18).gap(12)
       .track_focus(this.panelFocus)
       .overflow_y_scrollbar()
-      .on_key_down((event, context) => {
-        if (event.keystroke === "pagedown" && !this.detailsOnly) {
-          this.detailsOnly = true;
-        } else if (event.keystroke === "pageup" && this.detailsOnly) {
-          this.detailsOnly = false;
-        } else {
-          return;
-        }
-        this.panelFocus.focus();
-        context.notify();
-        context.stop_propagation();
-      })
       .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx));
     if (!this.updates.metadataFresh) body.child(new MutedText(strings.cached).build(cx));
     if (this.detailsOnly) {
@@ -279,6 +269,7 @@ export default class G1Trial extends View {
             .onClick((_event, context) => { this.locale = this.locale === "ru" ? "en" : "ru"; context.notify(); }).build(cx)))
         .build(cx))
       .content(body)
-      .build(cx);
+      .build(cx)
+      .on_key_down((event, context) => navigatePage(event, this, context));
   }
 }

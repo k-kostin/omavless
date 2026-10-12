@@ -1,0 +1,14 @@
+[
+  {"key":"down","modified":false,"plain":"down"},
+  {"key":"up","modified":false,"plain":"up"},
+  {"key":"enter","modified":false,"plain":"enter"},
+  {"key":"escape","modified":false,"plain":"escape"},
+  {"key":"pagedown","modified":false,"plain":"pagedown"},
+  {"key":"pageup","modified":false,"plain":"pageup"},
+  {"key":"down","modified":true,"plain":null},
+  {"key":"up","modified":true,"plain":null},
+  {"key":"enter","modified":true,"plain":null},
+  {"key":"escape","modified":true,"plain":null},
+  {"key":"pagedown","modified":true,"plain":null},
+  {"key":"pageup","modified":true,"plain":null}
+]

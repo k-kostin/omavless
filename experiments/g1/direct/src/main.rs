@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::rc::Rc;
 
 mod freshness;
+mod keyboard;
 mod metadata;
 mod profiles;
 mod workload;
@@ -756,10 +757,13 @@ impl Render for Trial {
                         theme.border
                     })
                     .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                        if event.keystroke.modifiers.modified() {
+                        let Some(key) = keyboard::plain_key(
+                            &event.keystroke.key,
+                            event.keystroke.modifiers.modified(),
+                        ) else {
                             return;
-                        }
-                        match event.keystroke.key.as_str() {
+                        };
+                        match key {
                             "down" | "up" => {
                                 let direction = if event.keystroke.key == "down" { 1 } else { -1 };
                                 if let Some(index) = next_highlight_index(
@@ -840,9 +844,12 @@ impl Render for Trial {
             .track_scroll(&self.panels_scroll)
             .track_focus(&self.panels_focus.clone().tab_stop(true))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.modifiers.modified()
-                    || window.bounds().size.width >= rems(60.).to_pixels(window.rem_size())
-                {
+                let Some(key) =
+                    keyboard::plain_key(&event.keystroke.key, event.keystroke.modifiers.modified())
+                else {
+                    return;
+                };
+                if window.bounds().size.width >= rems(60.).to_pixels(window.rem_size()) {
                     return;
                 }
                 let offset = this.panels_scroll.offset();
@@ -852,7 +859,7 @@ impl Render for Trial {
                     offset.y.as_f32(),
                     maximum.y.as_f32(),
                     viewport.as_f32(),
-                    &event.keystroke.key,
+                    key,
                 ) else {
                     return;
                 };

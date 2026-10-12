@@ -28,6 +28,7 @@ node experiments/g1/tests/fixture-parity.mjs
 node experiments/g1/tests/freshness.mjs
 node experiments/g1/tests/workload.mjs
 node experiments/g1/tests/metadata.mjs
+node experiments/g1/tests/keyboard.mjs
 ```
 
 The GPUI Shell runtime is a separate, upstream, non-published binary; the
@@ -212,6 +213,24 @@ and the header button or `Page Up` returns to Profiles. This is page
 navigation, **not** equivalent scroll behavior. The inspected profile and
 separately confirmed synthetic connection remain unchanged. Mouse-wheel
 scrolling of the original combined page remains available.
+
+The keyboard-routing successor to #743 places Shell page navigation on the
+application frame rather than only the body: header-button focus is part of
+the same GPUI bubble path. Children still receive keys first and can stop
+propagation; no capture listener or global binding overrides native editing.
+Only plain Page Down/Page Up navigate pages. Both clients admit only plain
+Up/Down/Enter/Escape as list actions; modified chords, Tab and text-editing keys
+remain unhandled by the trial. Shared key fixtures and the actual Shell
+page-handler effects are source-tested, not native event-dispatch proof.
+
+Do not advertise a universal focus shortcut: the pinned Shell InputState has
+no public programmatic editor focus method, and tracking a separate frame
+handle would not move its caret. Existing Escape destinations stay distinct:
+Direct returns to editable search; Shell returns to the panel. No F6/Shift+F6
+or global keyboard/accessibility completeness is claimed. Exact successor
+header/search/list key priority, visible focus and 400×700 EN/RU navigation
+remain **NOT RUN** until a separately authorized native slot. #743's inspected
+0a21c3bd matrix and private artifacts remain unchanged.
 
 For deterministic visual review, the direct Rust trial accepts only
 `--scene <synthetic-id>` (for example, `--scene switching`). An unknown ID
