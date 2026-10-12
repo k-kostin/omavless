@@ -389,7 +389,7 @@
   "tui.import_privacy":{"en":"Private input stays masked. No clipboard read, command arguments or input history.","ru":"Приватный ввод скрыт. Нет чтения буфера обмена, аргументов команды и истории ввода."},
   "tui.import_bytes":{"en":"Private input bytes","ru":"Байтов приватного ввода"},
   "tui.import_edit_keys":{"en":"Type or use terminal paste; Ctrl+N: newline; Ctrl+U: clear; Enter: preview","ru":"Ввод или вставка терминалом; Ctrl+N: новая строка; Ctrl+U: очистить; Enter: просмотр"},
-  "tui.paste_too_large":{"en":"Paste refused: over 32 KiB. Use the existing file-import route for larger input.","ru":"Вставка отклонена: больше 32 КиБ. Для большого ввода используйте существующий импорт файла."},
+  "tui.paste_too_large":{"en":"Paste refused: over 32 KiB. Split a local profile list into smaller inputs.","ru":"Вставка отклонена: больше 32 КиБ. Разделите локальный список профилей на меньшие части."},
   "tui.import_classifying":{"en":"Preparing private preview; nothing has been saved","ru":"Готовим приватный просмотр; ничего не сохранено"},
   "tui.import_profile":{"en":"Save one standalone profile","ru":"Сохранить отдельный профиль"},
   "tui.import_subscription":{"en":"Fetch and add this subscription","ru":"Загрузить и добавить эту подписку"},
