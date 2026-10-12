@@ -32,11 +32,11 @@ OVERLAYS = {
     "default_residue_cases_test.go": ("1a7b81da0684da3506914f3941c27df5173d89e004fa172d81ba366b6097dfae", "residue-cases.go"),
 }
 
-def object_bytes(path, maximum):
+def object_bytes(path, maximum, allow_empty=False):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_mode & 0o7022 or before.st_nlink != 1 or not 0 < before.st_size <= maximum or os.listxattr(fd):
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_mode & 0o7022 or before.st_nlink != 1 or not (0 if allow_empty else 1) <= before.st_size <= maximum or os.listxattr(fd):
             raise ValueError("unsafe_frozen_member")
         data = bytearray()
         while len(data) <= maximum:
@@ -339,7 +339,7 @@ def main():
         if frozen_elf(binary) != expected["binary_sha256"] or frozen_elf(test2json) != expected["test2json_sha256"]:
             raise ValueError("executed_binary_changed")
         recheck(captured, fixture, toolchain, source, artifacts, home)
-        if object_bytes(artifacts / "events.jsonl", 2 * 1024 * 1024) != out or hashlib.sha256(object_bytes(artifacts / "execution-command-result.json", 16384)).hexdigest() != command_result_hash:
+        if object_bytes(artifacts / "events.jsonl", 2 * 1024 * 1024) != out or object_bytes(artifacts / "test.stderr", 2 * 1024 * 1024, allow_empty=True) != err or hashlib.sha256(object_bytes(artifacts / "execution-command-result.json", 16384)).hexdigest() != command_result_hash:
             raise ValueError("retained_complete_capture_or_result_drift")
         receipt_name = "execution-receipt.json"
         receipt_bytes = json.dumps({**expected, "execution": True, "observation": observation,

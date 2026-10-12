@@ -532,7 +532,7 @@ class OrdinaryRunnerControls(unittest.TestCase):
             self.assertNotIn('execution-receipt.json', saved)
 
     def test_retained_raw_capture_or_command_result_drift_blocks_final_receipt(self):
-        for target in ('events.jsonl', 'execution-command-result.json'):
+        for target in ('events.jsonl', 'test.stderr', 'execution-command-result.json'):
             with self.subTest(target=target), self.harness() as (state, _):
                 paths, argv, _, _, _, saved, _, _ = state
                 runner.main()
@@ -547,6 +547,15 @@ class OrdinaryRunnerControls(unittest.TestCase):
                     runner.main()
                 self.assertIn('execution-command-result.json', saved)
                 self.assertNotIn('execution-receipt.json', saved)
+
+    def test_empty_closed_capture_optin_preserves_nonempty_frozen_inputs_and_elf(self):
+        with self.harness() as (state, _):
+            paths, _, _, _, _, _, _, _ = state
+            path = paths['artifacts'] / 'empty-capture'
+            runner.owned.save(paths['artifacts'], path.name, b'')
+            self.assertEqual(runner.object_bytes(path, 32, allow_empty=True), b'')
+            with self.assertRaises(ValueError): runner.object_bytes(path, 32)
+            with self.assertRaises(ValueError): runner.frozen_elf(path)
 
     def test_nonzero_complete_result_is_recorded_but_unknown_result_is_not(self):
         for failure in ('execute', 'execute_unknown'):
