@@ -487,6 +487,34 @@ The saved-override subview uses the separate explicit private
 these as configured rules rather than loaded core policy; it has no edit/delete
 action or shareable output.
 
+The separate `dev/t3-connection-order` client candidate starts at corrective
+RC source `56fa7e6be7dadb750754bcaa3d1eb0574ecbfa9d`, not the earlier
+managed-template-defective source. On ordinary read-only Connections, `o`
+cycles **As received / Destination / Network / Route**. This is a window-local
+display preference for the already received maximum128 rows, not a request to
+the core, a persisted endpoint cache, a route decision or close authority.
+Original order remains the default and returning choice. Search still filters
+only that received subset; total/shown/truncated coverage remains explicit.
+
+Destination compares the literal displayed host/IP case-insensitively, then
+numeric port; missing destination/port sorts last. Network groups TCP/UDP/other;
+Route groups VPN/direct/blocked/unclassified, with destination as tie-breaker.
+Complete ties retain received order. The canonical snapshot and its row
+identities are not reordered or cloned. Existing explicit-page, owner/revision,
+stale-read and leaving-page privacy fences remain; sorting never extends their
+freshness or retains rows after loss. The separate experimental conditional-close
+workspace is untouched. The preference resets with a new TUI window and stores
+no private data or new activity/history event.
+
+Programmatic acceptance covers local order/filter/cycle, unchanged command and
+metadata state, stable ties and absent fields, maximum128/truncated/empty input,
+search/modifier/modal priority and stale/page-loss disposal. EN/RU and narrow
+TestBackend review is synthetic, not installed evidence. Remaining installed
+card: normal Open app → Connections → `o`/filter/clear/scroll → lose/reload current
+observation → leave/reopen the page; rows never persist across unavailable state,
+private queries never go to the backend and VPN/Desired stay unchanged. Current
+RC writer retains VM custody; no main, RC inclusion or publication follows.
+
 ### T4
 
 Later management candidates:

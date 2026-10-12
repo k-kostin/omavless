@@ -58,6 +58,8 @@ pub struct App {
     pub query: String,
     /// Local filter for the currently visible bounded rules/providers snapshot.
     pub operator_query: String,
+    /// Display preference only; never stores row identities or close handles.
+    pub connection_order: crate::connection_browsing::Order,
     /// UI-private and discarded when leaving the route-check page.
     pub route_query: String,
     pub route_editing: bool,
@@ -184,6 +186,7 @@ impl App {
             subscription_attempts: std::collections::BTreeMap::new(),
             query: String::new(),
             operator_query: String::new(),
+            connection_order: crate::connection_browsing::Order::default(),
             route_query: String::new(),
             route_editing: false,
             route_request: None,
@@ -707,6 +710,11 @@ impl App {
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             {
                 match key.code {
+                    KeyCode::Char('o') if self.page == crate::inspection::Page::Connections => {
+                        self.connection_order = self.connection_order.next();
+                        self.inspection_scroll = 0;
+                        return Action::None;
+                    }
                     KeyCode::Char('/') => {
                         self.searching = true;
                         return Action::None;
