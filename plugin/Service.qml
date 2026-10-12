@@ -436,6 +436,8 @@ Item {
   property var _nativeSourceContext: null
   property var _nativePreviewContext: null
   property string nativeImportCode: ""
+  property var nativeBundlePreview: null
+  signal nativeBundleReady()
   readonly property bool nativeImportBusy: nativeImportSource.running || nativeImportPreview.running
 
   function cancelNativeImport() {
@@ -443,6 +445,7 @@ Item {
     if (_nativeImportContext) _nativeImportContext.input = ""
     _nativeImportContext = null
     importPreview = ({})
+    nativeBundlePreview = null
   }
 
   // Direct entry has the same private stdin/preview boundary as file and
@@ -523,19 +526,44 @@ Item {
       return
     }
     context.ready = true
+    context.previewKind = result.kind
+    if (result.kind === "bundle") {
+      context.previewFingerprint = result.previewFingerprint
+      nativeBundlePreview = result.counts
+      nativeBundleReady()
+      return
+    }
     importPreview = result.profile
     importReady("native-" + context.kind, "", result.profile.suggestedName || "Profile")
   }
 
   function confirmNativeImport(name) {
     var context = _nativeImportContext
-    if (!nativeImportCurrent(context) || !context.ready) { nativeImportCode = "stale"; return false }
+    if (!nativeImportCurrent(context) || !context.ready || context.previewKind !== "profile") { nativeImportCode = "stale"; return false }
     if (!isValidName(name) || /[\r\n]/.test(name)
         || nativeSnapshot.profiles.some(function(p) { return p.name === name })) return false
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
     var args = ["bash", backendPath, "native-profile-import", context.instanceId, String(context.revision), operation]
     nativePending = {instanceId:context.instanceId, revision:context.revision, operationId:operation,
       action:"profile-import", command:args, input:name + "\n" + context.input}
+    nativeActionCode = ""
+    nativeImportCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
+    nativeActionProcess.running = true
+    cancelNativeImport()
+    return true
+  }
+
+  function confirmNativeBundle() {
+    var context = _nativeImportContext
+    if (!nativeImportCurrent(context) || nativeOutcomeUnknown || nativeActionRunning || !context.ready || context.previewKind !== "bundle"
+        || !nativeBundlePreview || nativeBundlePreview.accepted < 1) { nativeImportCode = "stale"; return false }
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-profile-bundle-import", context.instanceId, String(context.revision), operation]
+    nativePending = {instanceId:context.instanceId, revision:context.revision, operationId:operation,
+      action:"profile-bundle-import", command:args, input:context.previewFingerprint + "\n" + context.input}
     nativeActionCode = ""
     nativeImportCode = ""
     nativeOutcomeUnknown = false

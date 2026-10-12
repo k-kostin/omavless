@@ -316,6 +316,7 @@ exec /usr/bin/cat
             ("profile-favorite", []),
             ("profile-delete", []),
             ("profile-import", []),
+            ("profile-bundle-import", []),
             ("profile-replace", []),
             ("routing-preset", []),
             ("custom-rule-add", []),

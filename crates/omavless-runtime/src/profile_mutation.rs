@@ -103,13 +103,59 @@ pub fn prepare_local_bundle(
     ),
     ProfileMutationCommitError,
 > {
+    prepare_local_bundle_inner(store_path, uid, input, next_record_id, None)
+}
+
+pub(crate) fn prepare_confirmed_local_bundle(
+    store_path: &Path,
+    uid: u32,
+    input: &str,
+    next_record_id: impl FnMut() -> String,
+    expected: &str,
+) -> Result<
+    (
+        PreparedProfileMutation,
+        omavless_domain::private_store::LocalBundleCounts,
+    ),
+    ProfileMutationCommitError,
+> {
+    prepare_local_bundle_inner(store_path, uid, input, next_record_id, Some(expected))
+}
+
+fn prepare_local_bundle_inner(
+    store_path: &Path,
+    uid: u32,
+    input: &str,
+    next_record_id: impl FnMut() -> String,
+    expected: Option<&str>,
+) -> Result<
+    (
+        PreparedProfileMutation,
+        omavless_domain::private_store::LocalBundleCounts,
+    ),
+    ProfileMutationCommitError,
+> {
     let mut counts = None;
+    let mut mismatch = false;
     let prepared = prepare_private_store_write(store_path, uid, |original| {
+        if expected.is_some_and(|value| {
+            crate::profile_bundle_protocol::fingerprint(original, input) != value
+        }) {
+            mismatch = true;
+            return Err(omavless_domain::private_store::PrivateStoreError::InvalidShape);
+        }
         let plan = omavless_domain::private_store::parse_private_store(original)?
             .plan_local_bundle(input)?;
         counts = Some(plan.counts());
         let result = plan.into_mutation(next_record_id)?;
         Ok((result.payload().to_vec(), result.changed))
+    })
+    .map_err(|error| {
+        if mismatch {
+            ProfileMutationCommitError::StoreChanged
+        } else {
+            error
+        }
     })?;
     Ok((
         PreparedProfileMutation { prepared },

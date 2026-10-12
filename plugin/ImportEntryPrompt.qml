@@ -75,7 +75,9 @@ Item {
           id: entry
           objectName: "omavlessImportEntry"
           width: parent.width
+          height: Style.space(96)
           locale: prompt.locale
+          multiline: true
           maximumLength: 32768
           placeholderText: prompt.tr("import.entry.placeholder")
           onAccepted: if (review.enabled) prompt.submitted(text)

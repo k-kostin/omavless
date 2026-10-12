@@ -9,11 +9,14 @@ does not add a runtime mutation or enlarge the 32-KiB private input boundary.
 Clipboard/file actions remain available. Cancel/close clears entry/history;
 no input is saved or connected until the existing explicit confirmation.
 
-The next dev slice prepares bounded raw/Base64 local bundles as standalone
-profiles, deduplicated by full canonical identity (not UUID). It preserves
-existing records/preferences and uses the existing guarded private-store
-transaction. This foundation has no IPC/CLI/UI registration: batch preview,
-confirmation/revision fencing and installed end-to-end save remain pending.
+The local-bundle dev slice now wires bounded raw/Base64 input through Rust
+classification, a count-only confirmation and the guarded store transaction.
+New standalone profiles are deduplicated by full canonical identity (not UUID);
+existing records/preferences are preserved. The preview binds exact input/store
+bytes as well as the owner revision, and saving neither fetches nor connects.
+Direct entry supports bounded multiline text; clipboard/file share the classifier.
+Candidate rendering/integration evidence belongs to #738; this is not a released
+or installed beta package. Stable 0.9.8 remains unchanged.
 
 This is not completion of #733 or 0.9.9. Mandatory consumer
 Restore/recovery (#722/#724) remains pending; source-only OLD recovery must not

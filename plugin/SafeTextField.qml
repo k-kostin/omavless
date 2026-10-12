@@ -27,6 +27,7 @@ FocusScope {
   property color foreground: Color.foreground
   property string locale: "en"
   property int maximumLength: 8192
+  property bool multiline: false
   property string pasteError: ""
   property string previousText: ""
   property var pasteContext: null
@@ -94,7 +95,7 @@ FocusScope {
     restore(value)
   }
   function insertBounded(value, start, end) {
-    var result = SafeText.insertion(text, value, start, end, maximumLength)
+    var result = SafeText.insertion(text, value, start, end, maximumLength, multiline)
     if (!result) { pasteError = "input"; return false }
     var before = snapshot()
     reverting = true
@@ -123,7 +124,7 @@ FocusScope {
     if (!context || !visible || !enabled || readOnly || !activeFocus
         || context.text !== text || context.start !== selectionStart
         || context.end !== selectionEnd || context.cursor !== cursorPosition) return
-    var result = SafeText.insertion(text, value, context.start, context.end, maximumLength)
+    var result = SafeText.insertion(text, value, context.start, context.end, maximumLength, multiline)
     if (!result) { pasteError = "input"; return }
     insertBounded(value, context.start, context.end)
   }
@@ -157,13 +158,13 @@ FocusScope {
     id: viewport
     anchors.fill: parent
     clip: true
-    interactive: false
+    interactive: field.multiline
     boundsBehavior: Flickable.StopAtBounds
     Controls.TextArea.flickable: Controls.TextArea {
       id: editor
       focus: true
       textFormat: TextEdit.PlainText
-      wrapMode: TextEdit.NoWrap
+      wrapMode: field.multiline ? TextEdit.WrapAnywhere : TextEdit.NoWrap
       selectByMouse: true
       persistentSelection: false
       color: field.foreground
@@ -173,7 +174,7 @@ FocusScope {
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       leftPadding: Style.spacing.controlPaddingX + Style.normalBorderWidth
-      rightPadding: Style.spacing.controlPaddingX + Style.normalBorderWidth
+      rightPadding: Style.spacing.controlPaddingX + Style.normalBorderWidth + (field.multiline ? Style.space(12) : 0)
       topPadding: Style.spacing.inputPaddingY + Style.normalBorderWidth
       bottomPadding: Style.spacing.inputPaddingY + Style.normalBorderWidth
       // Every activation path uses our bounded Paste, never editor.paste().
@@ -189,12 +190,14 @@ FocusScope {
           field.requestPaste()
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
           event.accepted = true
-          field.accepted()
+          if (field.multiline && (event.modifiers & Qt.ShiftModifier))
+            field.insertBounded("\n", selectionStart, selectionEnd)
+          else field.accepted()
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
           // Attached navigation on the outer scope precedes TextArea's Tab.
           event.accepted = true
         } else if (event.text && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
-                   && !SafeText.insertion(text, event.text, selectionStart, selectionEnd, field.maximumLength)) {
+                   && !SafeText.insertion(text, event.text, selectionStart, selectionEnd, field.maximumLength, field.multiline)) {
           // Reject ordinary excess typing before it joins Qt's Undo group.
           event.accepted = true
           field.pasteError = "input"
@@ -207,7 +210,7 @@ FocusScope {
       onTextChanged: {
         if (field.reverting) return
         field.cancelPaste()
-        if (!SafeText.valid(text, field.maximumLength)) {
+        if (!SafeText.valid(text, field.maximumLength, field.multiline)) {
           field.reverting = true
           remove(0, length)
           insert(0, field.previousText)
@@ -234,6 +237,9 @@ FocusScope {
         radius: Style.cornerRadius
       }
     }
+    Controls.ScrollBar.vertical: Controls.ScrollBar {
+      policy: field.multiline ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
+    }
     // Do not silently substitute ordinary clipboard for primary selection.
     MouseArea {
       anchors.fill: parent
@@ -243,5 +249,5 @@ FocusScope {
   }
   Controls.ToolTip.visible: pasteError !== ""
   Controls.ToolTip.timeout: 4000
-  Controls.ToolTip.text: I18n.translate(pasteError === "input" ? "input.error.invalid" : pasteError === "primary" ? "input.error.primary" : "input.error.clipboard", locale)
+  Controls.ToolTip.text: I18n.translate(pasteError === "input" ? (multiline ? "input.error.multiline" : "input.error.invalid") : pasteError === "primary" ? "input.error.primary" : "input.error.clipboard", locale)
 }

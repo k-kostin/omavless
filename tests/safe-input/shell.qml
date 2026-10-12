@@ -67,13 +67,49 @@ ShellRoot {
       onSubmitted: function(value) { submissions++; dismiss() }
       onCanceled: { cancellations++; dismiss() }
     }
+    Product.BundleImportPrompt {
+      id: bundlePrompt
+      anchors.fill: parent
+      available: true
+      counts: ({accepted:2, duplicates:1, skipped:1})
+      property int confirmations: 0
+      property int cancellations: 0
+      onConfirmed: { confirmations++; dismiss() }
+      onCanceled: { cancellations++; dismiss() }
+    }
     TestCase {
       name: "SafeTextFields"
       when: review.ready
       onCompletedChanged: if (completed) console.log("SAFE_INPUT_RESULT " + JSON.stringify({passed:qtest_results.passCount, failed:qtest_results.failCount, skipped:qtest_results.skipCount}))
       function cleanup() { console.log("SAFE_INPUT_CASE " + qtest_results.functionName + " failed=" + qtest_results.failed) }
       function type(value) { for (var i = 0; i < value.length; i++) keyClick(value.charAt(i)) }
-      function init() { importEntry.dismiss(); subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
+      function init() { bundlePrompt.dismiss(); importEntry.dismiss(); subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
+      function test_import_multiline_and_undo() {
+        importEntry.open(); wait(30)
+        var editor = findChild(importEntry, "omavlessImportEntry")
+        type("first"); keyClick(Qt.Key_Return, Qt.ShiftModifier); type("second")
+        compare(editor.text, "first\nsecond")
+        editor.selectAll(); verify(editor.insertBounded("wrapped\nBase64", 0, editor.text.length))
+        compare(editor.text, "wrapped\nBase64")
+        editor.undo(); compare(editor.text, "first\nsecond")
+        importEntry.dismiss(); compare(editor.text, ""); compare(editor.undoStates.length, 0)
+        compare(field.multiline, false)
+      }
+      function test_bundle_confirmation_navigation_cancel_and_no_new() {
+        bundlePrompt.counts = {accepted:2,duplicates:1,skipped:1}
+        bundlePrompt.open(); wait(30)
+        var cancel = findChild(bundlePrompt, "omavlessBundleCancel")
+        var save = findChild(bundlePrompt, "omavlessBundleSave")
+        verify(cancel.activeFocus); verify(save.enabled)
+        var before = bundlePrompt.confirmations
+        keyClick(Qt.Key_Tab); verify(save.activeFocus)
+        keyClick(Qt.Key_Return); compare(bundlePrompt.confirmations, before + 1)
+        bundlePrompt.counts = {accepted:0,duplicates:3,skipped:0}
+        bundlePrompt.open(); wait(30); verify(!save.enabled)
+        before = bundlePrompt.cancellations
+        keyClick(Qt.Key_Escape); compare(bundlePrompt.cancellations, before + 1)
+        compare(bundlePrompt.visible, false)
+      }
       function test_import_entry_typing_review_clear() {
         importEntry.open(); wait(30)
         var editor = findChild(importEntry, "omavlessImportEntry")
