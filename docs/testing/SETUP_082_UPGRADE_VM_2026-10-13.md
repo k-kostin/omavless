@@ -257,3 +257,99 @@ resulting new package identities, ARM64 matching build/installed gate, public
 download verification, remaining installed fault/RU matrix, explicit release/main
 authorization and separately attended physical-PC update. Issue #772's own failed
 stage remains unknown; no additional reporter comment or resolved claim was made.
+
+## Corrected core version: repeated guided upgrade
+
+The previous core-version failure was preserved, not relabelled. The ordinary
+DNS producer now embeds the pinned upstream release's `constant.Version` linker
+value. Exact new native/DNS producer:
+`b82a51ba8d63d251b3040c6c71470cfcafb85347`; installed frontend:
+`b80dc946ccf945deda9b0dda2503ca223c63084b`.
+
+| Artifact | SHA256 |
+| --- | --- |
+| x86_64 app archive | `fd196541ca94276d742d4a1c911c841792cf99e043e11266d55619920db735a9` |
+| x86_64 DNS archive | `29d37fb8c960b4e8e38f8a387c2449a4318adced414627b60162804452c90d29` |
+| Managed core ELF | `365d7a4ee4e24a0ceb11037bbc791a77e23823a8864769677fc97f4ae9b501e8` |
+
+A separate clean baseline overlay completed the genuine public 0.8.2 setup,
+synthetic stdin profile import and native Quit. Its exact default template was
+changed only to canonical Global for the fixture. With the newly built matched
+archives in the digest-verified cache, the actual **Update required components**
+button completed ordinary UPGRADE/sudo/pacman and returned
+`packages_updated_dns_required`, without connecting or activating the runtime.
+The actual **Continue DNS setup** button separately completed FIRST/DNS and
+returned `needs_runtime_start`. Profiles, Desired and ownership stayed
+byte-identical; the original Global template backup matched its saved bytes.
+
+The test driver's tool-owned QEMU was unexpectedly terminated by Codex after
+DNS setup had completed. This was retained as an infrastructure interruption,
+not a product failure or proof of setup retry safety. The same overlay booted
+normally: selected pair and preserved bytes were independently confirmed;
+enrollment was not repeated. The actual **Start OmaVLESS** button then returned
+`ready`. The real first-use wizard displayed **Installed version: 1.19.31**,
+TUN device present and managed-core file capabilities present. Stock Mihomo
+1.19.32 remained without file capabilities. Runtime active/disabled, Desired
+false, startup Off, one synthetic profile, broker FD store zero, no TUN.
+Native Quit and normal guest poweroff completed before archiving this checkpoint.
+
+VM-driver correction: a long-lived guest launcher must not inherit a bounded
+command tool's process lifetime. Running the unchanged reviewed launcher in a
+temporary user-systemd service preserved observation between tool calls;
+there was no autostart, launcher edit or physical VPN/system change. Confirm
+shutdown and absent disk writers before swapping overlays. A checkpoint is
+administrative preservation, not product rollback acceptance.
+
+At producer b82, the normal runner passed 738 Python tests with two declared
+opt-in skips plus JS/QML contracts. At frontend b80, 22 native upgrade tests,
+manifest validation, affected QML with installed Omarchy imports and shell
+syntax passed. These are still unpublished x86_64 candidate/cache gates, not
+public download, ARM64, connected or human-attended acceptance. Issue #772's
+reporter-specific failed stage remains unknown.
+
+## Fresh install and cancelled-DNS continuation
+
+A separate empty baseline overlay, boot
+`f14d07b1-121a-45dd-850f-6bd675cb129b`, contained no OmaVLESS application,
+DNS package, stock Mihomo or private profile/state. Ordinary Omarchy plugin add
+cloned the public repository; the checkout was explicitly pinned to candidate
+`8d8d273c31a1d7414d47c47a30137ae07e8b6a1e` before enable and a deliberate guest
+shell reload. This is the reviewed candidate flow, **not** acceptance of main's
+unchanged installer. App/DNS remain the exact b82 pair listed above.
+
+This frontend shares the updater's fixed digest-keyed cache with fresh install.
+Both archives were preloaded for unpublished-candidate acceptance: real cache
+owner/mode/link checks, exact hashes, package identities, both receipts and
+repeated fresh-machine admission still ran. No curl shim, alternate URL, TLS
+bypass, production Python/Cargo fallback or manually invoked pacman replaced
+the actual **Install required components** button and its normal INSTALL,
+guest sudo and pacman confirmations. The paired transaction completed without
+stock Mihomo installed or any CORE prompt.
+
+After the packages and private configuration had been prepared, DNS consent
+was deliberately cancelled with Enter. The actual terminal reported the exact
+`dns-consent` stage and a neutral partial-completion message. Both runtime and
+broker were inactive/PID0; state files had not yet been initialized. Closing
+that terminal and reopening the widget offered **Continue DNS setup**, without
+another package installation. Its actual FIRST/DNS operation enrolled and
+selected the pair, performed the normal first Rust activation, and ended ready.
+The initial-install runtime unit was enabled; this is service startup, **not**
+VPN autoconnect. Desired false, saved autoconnect false, empty profile list,
+broker active/FD store0 and only loopback/Ethernet were independently confirmed.
+
+The actual first-use wizard displayed core1.19.31/capabilities present, accepted
+the builtin Russia routing choice, and completed its Finish later action with
+no profile or connection. A settled ordinary panel displayed **Disconnected**
+and the honest empty-profile message. The transient initial observation before
+settling was not used as a final state claim. No setup/sudo terminal remained.
+
+Source verification at candidate8d: normal runner passed 748 Python tests with
+two declared opt-in skips, JS/QML contracts; all plugin QML passed qmllint with
+installed Omarchy imports; manifest, shell syntax and diff checks passed.
+Independent review found no blocking findings in the two-file shared-cache
+change. Existing same-user cooperative pathname and abrupt cache-publication
+interruption limits were not reclassified as stronger guarantees.
+
+Still separate: ARM64 matched packages/installed acceptance, real published
+fix.4 download verification, remaining fault/localization matrix and authorized
+main/release/physical-PC delivery. No additional issue772 reply was sent.
