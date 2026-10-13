@@ -29,9 +29,12 @@ RELEASE_TAG = "v0.9.8-fix.4"
 
 class MarketplaceSetupTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="omavless-bootstrap-test-")
+        parent = Path.home() / ".cache/ovt"
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="omavless-bootstrap-test-", dir=parent)
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
+        shutil.copyfile(ROOT / "plugin/setup-predecessor.sh", self.directory / "setup-predecessor.sh")
         self.env = {"PATH": "/usr/bin:/bin", "HOME": str(self.directory),
                     "TEST_DIR": str(self.directory)}
 
@@ -515,6 +518,204 @@ pair_installed() {{ [[ -f "$TEST_DIR/installed" ]]; }}
 {boundary_override}
 install_package
 ''')
+
+    def seed_pair_cache(self):
+        payload = b"synthetic package -- NOT AN ARCH PACKAGE"
+        digest = hashlib.sha256(payload).hexdigest()
+        cache = self.directory / ".cache/omavless/upgrade082" / f"{digest}.{digest}"
+        cache.mkdir(parents=True, mode=0o700)
+        for path in (self.directory / ".cache", cache.parent.parent, cache.parent, cache):
+            path.chmod(0o700)
+        pair = [cache / f"{name}-{PKGVER}-1-x86_64.pkg.tar.zst"
+                for name in ("omavless", "omavless-dns")]
+        for path in pair:
+            path.write_bytes(payload)
+            path.chmod(0o600)
+        return cache, pair
+
+    def test_fresh_install_reuses_only_exact_verified_pair_cache(self):
+        cache, pair = self.seed_pair_cache()
+        before = [(path.read_bytes(), path.stat().st_mtime_ns) for path in pair]
+        result = self.download_fixture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.directory / "urls").exists())
+        self.assertEqual((self.directory / "install-args").read_text().splitlines(),
+                         [str(path) for path in pair])
+        self.assertEqual(before, [(path.read_bytes(), path.stat().st_mtime_ns) for path in pair])
+        self.assertFalse(list(cache.glob(".download.*")))
+
+    def test_cached_pair_never_waives_fresh_owner_boundary(self):
+        self.seed_pair_cache()
+        for override in (
+            "native_present() { return 0; }",
+            "package_installed() { echo 'omavless 0.8.2-1'; }",
+            "dns_package_registered() { return 0; }",
+            "fresh_user_runtime_absent() { return 1; }",
+            "no_managed_tun() { return 1; }",
+            '''native_present() { [[ -f "$TEST_DIR/appeared" ]]; }
+dns_archive_identity() { touch "$TEST_DIR/appeared"; }''',
+        ):
+            with self.subTest(boundary=override):
+                result = self.download_fixture(boundary_override=override)
+                self.assertNotEqual(result.returncode, 0)
+                for name in ("urls", "installed", "install-args"):
+                    self.assertFalse((self.directory / name).exists())
+
+    def test_cached_pair_poison_mode_link_and_changed_hash_refuse_without_network(self):
+        _, pair = self.seed_pair_cache()
+        payload = pair[0].read_bytes()
+        for path in pair:
+            for poison in ("bytes", "mode", "symlink", "hardlink"):
+                with self.subTest(package=path.name, poison=poison):
+                    alias = self.directory / "alias"
+                    if poison == "bytes": path.write_bytes(b"poisoned archive")
+                    elif poison == "mode": path.chmod(0o644)
+                    elif poison == "symlink":
+                        path.rename(alias)
+                        path.symlink_to(alias)
+                    else: os.link(path, alias)
+                    result = self.download_fixture()
+                    self.assertNotEqual(result.returncode, 0)
+                    for name in ("urls", "installed", "install-args"):
+                        self.assertFalse((self.directory / name).exists())
+                    if poison == "symlink":
+                        path.unlink()
+                        alias.rename(path)
+                    elif poison == "hardlink": alias.unlink()
+                    path.write_bytes(payload)
+                    path.chmod(0o600)
+
+    def test_cached_pair_unsafe_parent_and_digest_directory_refuse(self):
+        cache, _ = self.seed_pair_cache()
+        for path in (self.directory / ".cache", cache.parent.parent, cache.parent, cache):
+            with self.subTest(parent=path.name):
+                path.chmod(0o777)
+                result = self.download_fixture()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.directory / "install-args").exists())
+                self.assertFalse((self.directory / "urls").exists())
+                self.assertEqual(path.stat().st_mode & 0o777, 0o777)
+                path.chmod(0o700)
+
+    def test_failed_download_does_not_poison_final_cache_name(self):
+        digest = hashlib.sha256(b"synthetic package -- NOT AN ARCH PACKAGE").hexdigest()
+        result = self.download_fixture(boundary_override='''
+curl() {
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == --output ]]; then printf partial > "$2"; return 1; fi
+    shift
+  done
+  return 99
+}
+''')
+        self.assertNotEqual(result.returncode, 0)
+        cache = self.directory / ".cache/omavless/upgrade082" / f"{digest}.{digest}"
+        self.assertEqual(list(cache.iterdir()), [])
+        self.assertFalse((self.directory / "install-args").exists())
+        result = self.download_fixture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(list(cache.glob(".download.*")))
+
+    def test_cached_pair_receipt_identity_is_required_and_hashes_are_rechecked(self):
+        _, pair = self.seed_pair_cache()
+        for override in (
+            {"app_identity_ok": False}, {"dns_identity_ok": False},
+            {"dns_package_ok": False},
+            {"boundary_override": '''dns_archive_identity() {
+  printf poisoned > "$HOME/.cache/omavless/upgrade082/"*"/omavless-"*".pkg.tar.zst"
+}'''},
+        ):
+            with self.subTest(refusal=override):
+                result = self.download_fixture(**override)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.directory / "urls").exists())
+                self.assertFalse((self.directory / "install-args").exists())
+
+    def test_cache_cannot_bypass_missing_architecture_pins(self):
+        self.seed_pair_cache()
+        self.pins(app="a" * 64, dns="c" * 64)
+        for name in ("runtime-release.json", "dns-release.json"):
+            path = self.directory / name
+            data = json.loads(path.read_text())
+            del data["packages"]["aarch64"]
+            path.write_text(json.dumps(data))
+        result = self.run_shell('uname() { echo aarch64; }; install_package')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("UNEXPECTED", result.stdout + result.stderr)
+
+    def test_frozen_stable_pair_pins_select_their_own_cache_key(self):
+        # Public immutable fix.3 x86_64 tuple retained in the installed VM
+        # reproduction report. This is pin/cache selection, not a download or
+        # claim that the synthetic package fixtures are these public bytes.
+        app = "bf27584874c7e75d40f856739783f66fdf6af5652e37ba638232a2bc5a3c7750"
+        dns = "3309fb54ab92c5f1f30f6ba3c925ddc153619841dc4ae5640f4f279383f6b464"
+        source = "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524"
+        report = (ROOT / "docs/testing/SETUP_082_UPGRADE_VM_2026-10-13.md").read_text()
+        for identity in (app, dns, source): self.assertIn(identity, report)
+        self.pins(app=app, dns=dns, source=source)
+        result = self.run_shell('uname() { echo x86_64; }; release_fields')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"{VERSION}\tx86_64\t{app}\t{dns}\t{source}\n")
+        result = self.run_shell(f'setup_release_cache {app} {dns}')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(
+            self.directory / ".cache/omavless/upgrade082" / f"{app}.{dns}"))
+        self.assertFalse((self.directory / "urls").exists())
+
+    def test_shared_cache_rejects_non_digest_keys_and_linked_cache_parent(self):
+        for arguments in ("", "a b", "'../arbitrary' " + "a" * 64,
+                          "a" * 64 + " " + "c" * 64 + " extra"):
+            with self.subTest(arguments=arguments):
+                result = self.run_shell("setup_release_cache " + arguments)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse((self.directory / ".cache").exists())
+        alias = self.directory / "cache-target"
+        alias.mkdir(mode=0o700)
+        (self.directory / ".cache").symlink_to(alias)
+        result = self.run_shell("setup_release_cache " + "a" * 64 + " " + "c" * 64)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(alias.iterdir()), [])
+
+    def test_cached_fresh_install_still_requires_install_then_separate_dns_consent(self):
+        cache, pair = self.seed_pair_cache()
+        digest = hashlib.sha256(pair[0].read_bytes()).hexdigest()
+        fixture = f'''
+setup_dir="$TEST_DIR"
+setup_runtime_directory_safe() {{ return 0; }}
+setup_status() {{ echo needs_package; }}
+native_present() {{ return 1; }}
+package_installed() {{ [[ -f "$TEST_DIR/installed" ]] && echo 'omavless {PKGVER}-1'; }}
+dns_package_registered() {{ return 1; }}
+fresh_user_runtime_absent() {{ return 0; }}
+no_managed_tun() {{ return 0; }}
+release_fields() {{ printf '{VERSION}\tx86_64\t{digest}\t{digest}\t{SOURCE}\n'; }}
+package_info() {{ case "$1" in *omavless-dns-*) echo 'omavless-dns {PKGVER}-1';; *) echo 'omavless {PKGVER}-1';; esac; }}
+app_archive_identity() {{ return 0; }}
+dns_archive_identity() {{ return 0; }}
+package_install() {{ printf '%s\\n' "$1" "$2" > "$TEST_DIR/install-args"; touch "$TEST_DIR/installed"; echo packages >> "$TEST_DIR/trace"; }}
+pair_installed() {{ [[ -f "$TEST_DIR/installed" ]]; }}
+reload_units() {{ echo reload >> "$TEST_DIR/trace"; }}
+prepare_private_store() {{ echo store >> "$TEST_DIR/trace"; }}
+pair_selection_status() {{ echo '{{"schemaVersion":1,"scope":"local_pair_only","selected":false}}'; }}
+system_broker_idle() {{ return 1; }}
+user_runtime_stopped() {{ return 0; }}
+enroll_uid() {{ echo UNEXPECTED_ENROLL >> "$TEST_DIR/trace"; return 99; }}
+curl() {{ echo UNEXPECTED_DOWNLOAD >> "$TEST_DIR/trace"; return 99; }}
+native() {{ echo UNEXPECTED_NATIVE >> "$TEST_DIR/trace"; return 99; }}
+setup_main install en
+'''
+        status, _ = self.run_terminal(fixture, "\n")
+        self.assertEqual(status, 0)  # Existing no-change cancellation outcome.
+        self.assertFalse((self.directory / "trace").exists())
+        status, output = self.run_terminal(fixture, "INSTALL\n\n")
+        self.assertEqual(status, 1)
+        self.assertIn("Type DNS", output)
+        self.assertIn("stage: dns-consent", output)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(),
+                         ["packages", "reload", "store"])
+        self.assertEqual((self.directory / "install-args").read_text().splitlines(),
+                         [str(path) for path in pair])
+        self.assertFalse(list(cache.glob(".download.*")))
 
     def test_fresh_boundary_refuses_before_download_or_install(self):
         for override in (

@@ -390,36 +390,28 @@ resume_pending_dns() {
 }
 
 install_package() {
-  local version arch app_hash dns_hash source app_package dns_package url actual
+  local version arch app_hash dns_hash source app_package dns_package cache
   fresh_package_boundary || return 1
   IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
   [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
   app_package="omavless-${package_version}-1-${arch}.pkg.tar.zst"
   dns_package="omavless-dns-${package_version}-1-${arch}.pkg.tar.zst"
-  say 'Downloading the pinned OmaVLESS application and managed DNS packages…' \
-      'Загрузка проверенных пакетов приложения OmaVLESS и управляемого DNS…'
-  # HTTPS redirects are required by GitHub's asset delivery. Only the exact
-  # pinned archive hashes authorize the downloaded payloads for pacman.
-  url="https://github.com/k-kostin/omavless/releases/download/${release_tag}/${app_package}"
-  curl --disable --fail --silent --show-error --location --max-redirs 3 \
-    --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
-    --max-filesize 268435456 --output "$setup_temp/$app_package" "$url" 2>/dev/null || return 1
-  actual=$(sha256sum -- "$setup_temp/$app_package")
-  [[ "${actual%% *}" == "$app_hash" ]] || return 1
-  [[ $(package_info "$setup_temp/$app_package") == "omavless $package_version-1" ]] || return 1
-  app_archive_identity "$setup_temp/$app_package" "$source" "$arch" "$version" || return 1
-  url="https://github.com/k-kostin/omavless/releases/download/${release_tag}/${dns_package}"
-  curl --disable --fail --silent --show-error --location --max-redirs 3 \
-    --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
-    --max-filesize 536870912 --output "$setup_temp/$dns_package" "$url" 2>/dev/null || return 1
-  actual=$(sha256sum -- "$setup_temp/$dns_package")
-  [[ "${actual%% *}" == "$dns_hash" ]] || return 1
-  [[ $(package_info "$setup_temp/$dns_package") == "omavless-dns $package_version-1" ]] || return 1
-  dns_archive_identity "$setup_temp/$dns_package" "$source" "$arch" || return 1
+  cache=$(setup_release_cache "$app_hash" "$dns_hash") || return 1
+  say 'Checking the pinned application and managed DNS packages…' 'Проверка пакетов приложения и управляемого DNS…'
+  # Cache presence is not trust. Reuse only the same fixed reviewed pins and
+  # authenticated regular archives as upgrade; a poisoned entry refuses.
+  upgrade_download "$app_package" "$app_hash" "$cache" \
+    && upgrade_download "$dns_package" "$dns_hash" "$cache" || return 1
+  [[ $(package_info "$cache/$app_package") == "omavless $package_version-1" \
+     && $(package_info "$cache/$dns_package") == "omavless-dns $package_version-1" ]] || return 1
+  app_archive_identity "$cache/$app_package" "$source" "$arch" "$version" \
+    && dns_archive_identity "$cache/$dns_package" "$source" "$arch" || return 1
   fresh_package_boundary || return 1
+  upgrade_archive_safe "$cache/$app_package" "$app_hash" \
+    && upgrade_archive_safe "$cache/$dns_package" "$dns_hash" || return 1
   # Normal dependency and user confirmation checks. No --nodeps/--overwrite,
   # --noconfirm, package hooks added by this script, or background sudo.
-  package_install "$setup_temp/$app_package" "$setup_temp/$dns_package" || return 1
+  package_install "$cache/$app_package" "$cache/$dns_package" || return 1
   [[ $(package_installed) == "omavless $package_version-1" ]] && pair_installed
 }
 
@@ -466,18 +458,17 @@ upgrade_download() (
   rm -f -- "$candidate" || return 1
   upgrade_archive_safe "$cache/$name" "$hash"
 )
-upgrade_package() {
-  local version arch app_hash dns_hash source app_name dns_name cache receipt binary_hash actual predecessor metadata
-  # Advisory public-byte inspection earns no private or replacement authority.
+setup_release_cache() {
+  [[ $# == 2 && "$1" =~ ^[0-9a-f]{64}$ && "$2" =~ ^[0-9a-f]{64}$ ]] || return 2
+  local cache="$HOME/.cache/omavless/upgrade082/$1.$2" parent="$HOME/.cache"
   source "$setup_dir/setup-predecessor.sh"
-  predecessor=$(omavless_predecessor_status) || return 1
-  jq -e '.schemaVersion == 1 and .status == "qualified" and .reason == "public_0_8_2"' \
-    >/dev/null <<< "$predecessor" || return 1
-  IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
-  [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
-  cache="$HOME/.cache/omavless/upgrade082/$app_hash.$dns_hash"
-  # Reject unsafe existing parents before mkdir; never adopt or chmod them.
-  local parent="$HOME/.cache"
+  # This shared directory is still selected only by the reviewed pair pins.
+  # The parent checker is advisory filesystem validation, not predecessor or
+  # updater admission. Fresh install never runs the predecessor inspector.
+  if [[ ! -e "$parent" && ! -L "$parent" ]]; then
+    _omavless_predecessor_parents_safe "$parent" "$(id -u)" || return 1
+    mkdir -m 700 -- "$parent" || return 1
+  fi
   _omavless_predecessor_parents_safe "$parent/entry" "$(id -u)" || return 1
   if [[ ! -e "$HOME/.cache/omavless" && ! -L "$HOME/.cache/omavless" ]]; then
     mkdir -m 700 -- "$HOME/.cache/omavless" || return 1
@@ -491,6 +482,18 @@ upgrade_package() {
   upgrade_cache_safe "$HOME/.cache/omavless/upgrade082" || return 1
   if [[ ! -e "$cache" && ! -L "$cache" ]]; then mkdir -m 700 -- "$cache" || return 1; fi
   upgrade_cache_safe "$cache" || return 1
+  printf '%s\n' "$cache"
+}
+upgrade_package() {
+  local version arch app_hash dns_hash source app_name dns_name cache receipt binary_hash actual predecessor metadata
+  # Advisory public-byte inspection earns no private or replacement authority.
+  source "$setup_dir/setup-predecessor.sh"
+  predecessor=$(omavless_predecessor_status) || return 1
+  jq -e '.schemaVersion == 1 and .status == "qualified" and .reason == "public_0_8_2"' \
+    >/dev/null <<< "$predecessor" || return 1
+  IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
+  [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
+  cache=$(setup_release_cache "$app_hash" "$dns_hash") || return 1
   app_name="omavless-${package_version}-1-${arch}.pkg.tar.zst"
   dns_name="omavless-dns-${package_version}-1-${arch}.pkg.tar.zst"
   say 'Checking the pinned application and managed DNS packages…' 'Проверка пакетов приложения и управляемого DNS…'
