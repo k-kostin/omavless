@@ -128,7 +128,14 @@ normal Rust gate. It launches the actual `omavless tui` binary built with only
 Its same-UID Unix peer has fixed synthetic read/classify/action replies in a
 new mode-0700 HOME-backed fixture with a mode-0600 socket. Real 70×24 EN/RU PTYs
 exercise F3, Ctrl+N, bracketed paste, masking, Cancel/Save counts, exact Hello
-guards, owner/revision refusal and unknown Save without retry. A fixed bounded
+guards, owner/revision refusal and unknown Save without retry. A standalone
+Escape must visibly close the Unknown modal before ordinary
+selection/Connect/confirmation/mode keys are tried; F3 then visibly reopens the
+same Unknown workspace without another classify or Save. A paired Cancel→
+Connect control earns actual ordinary-action reachability against the synthetic
+peer, so missing capabilities or an unparsed Escape cannot make the refusal
+row pass vacuously. This is still not a real connection or authorization.
+A fixed bounded
 H/J/K text-cell projection handles only the selected one-cell EN/RU fixtures,
 not arbitrary terminal emulation. Failed binaries are retained; known-success
 cleanup removes only the copied executable and its fresh empty directory.
