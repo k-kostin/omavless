@@ -18,6 +18,7 @@ enum NativeMode {
     CutFirstRename,
     CutTerminal,
     CutCommittedRetirement,
+    CutCommittedTicket,
 }
 
 pub(crate) struct HeldExecution {
@@ -82,6 +83,23 @@ pub(crate) struct HeldExecutionSlot {
 }
 impl HeldExecutionSlot {
     #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_reserve_ticket_write_fault(&mut self, panic: bool) {
+        assert!(self.original.is_none() && self.reservation.is_none());
+        let mut held = HeldExecution::reserve();
+        held.engine.test_set_ticket_write_fault(panic);
+        self.reservation = Some(Arc::new(Mutex::new(held)));
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_ticket_cut_unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .engine
+                .ticket_cut_unavailable()
+        })
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
     pub(super) fn test_original_identity(&self) -> Option<usize> {
         self.original
             .as_ref()
@@ -133,6 +151,94 @@ impl Drop for HeldExecutionSlot {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    pub(crate) fn cut_current_committed_ticket(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        let mut reached = false;
+        let (result, unwound) = self.run_committed_ticket_cut(source, passphrase, |step| {
+            if step == crate::manager_actor_service::NativeStep::DispositionTicket {
+                reached = true;
+                Err(FirstError::StillFenced)
+            } else {
+                Ok(())
+            }
+        });
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.ordinary_lock.get().is_none()
+                })
+            });
+        if !unwound
+            && reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            result.and(Err(FirstError::StillFenced))
+        }
+    }
+    fn run_committed_ticket_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> (Result<FirstOutcome, FirstError>, bool) {
+        if !crate::product_scope::restore_enabled() {
+            return (Err(FirstError::Admission), false);
+        }
+        // No submission and no mutation of an older original, including Pause.
+        if self.held_restore_execution.original.is_some() {
+            return (Err(FirstError::StillFenced), false);
+        }
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.execute_first_restore_mode(
+                source,
+                passphrase,
+                || Ok(()),
+                cut,
+                NativeMode::CutCommittedTicket,
+            )
+        }));
+        let (result, unwound) = match caught {
+            Ok(result) => (result, false),
+            Err(_) => (Err(FirstError::StillFenced), true),
+        };
+        // Only THIS attempt may have installed an original. Even unwind before
+        // the ticket capability exists permanently blocks it. Poisoned data is
+        // sealed, never adopted or resumed; sealing uses only irreversible flags.
+        if let Some(original) = &self.held_restore_execution.original {
+            original
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .refuse_ordinary();
+            self.transaction.block();
+        }
+        (result, unwound)
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_ticket_cut_callback(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        self.run_committed_ticket_cut(source, passphrase, cut)
+            .0
+            .map(|_| ())
+    }
     #[cfg(all(test, not(feature = "product-private-backup")))]
     pub(super) fn test_unreached_committed_retirement_cut(
         &mut self,
@@ -393,6 +499,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             NativeMode::CutFirstRename
                 | NativeMode::CutTerminal
                 | NativeMode::CutCommittedRetirement
+                | NativeMode::CutCommittedTicket
         );
         let owned_admission = complete || pause || loss_cut;
         if self.retained_restore_busy() {
@@ -490,6 +597,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 // Dedicated engine entry latches typed CutOnly BEFORE Stage.
                 // It has no completed/disposition/ordinary handoff return.
                 engine.execute_native_committed_retirement_cut(&mut origin, prepared, &mut cut)?;
+                return Err(FirstError::StillFenced);
+            }
+            if mode == NativeMode::CutCommittedTicket {
+                engine.execute_native_committed_ticket_cut(&mut origin, prepared, &mut cut)?;
                 return Err(FirstError::StillFenced);
             }
             engine

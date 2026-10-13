@@ -11,6 +11,8 @@ use std::fs::File;
 mod native_final_old;
 #[path = "native_history.rs"]
 mod native_history;
+#[path = "native_new_ticket.rs"]
+mod native_new_ticket;
 pub(crate) const NATIVE_HISTORY_SLOTS: usize = native_history::CAPACITY;
 // Legacy first basename retained for exact historical source controls only.
 #[cfg(test)]
@@ -2026,6 +2028,7 @@ pub(crate) enum NativeStep {
     RetirementComplete,
     FinalOldSourceSynced(usize),
     FinalNewSourceSynced(usize),
+    NewTicketSourceSynced(usize),
     DispositionTicket,
     DispositionComplete,
     DispositionClosureUnlinked,
@@ -2053,23 +2056,26 @@ enum RecoveryCompletionSelection {
     CommittedNew,
     FinalOld,
     FinalNew,
+    NewTicket,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FinalOutputChoice {
     OldAborted,
     NewCommitted,
+    NewTicketCommitted,
 }
 impl FinalOutputChoice {
     fn selection(self) -> RecoveryCompletionSelection {
         match self {
             Self::OldAborted => RecoveryCompletionSelection::FinalOld,
             Self::NewCommitted => RecoveryCompletionSelection::FinalNew,
+            Self::NewTicketCommitted => RecoveryCompletionSelection::NewTicket,
         }
     }
     fn phase(self) -> DecisionPhase {
         match self {
             Self::OldAborted => DecisionPhase::Aborted,
-            Self::NewCommitted => DecisionPhase::Committed,
+            Self::NewCommitted | Self::NewTicketCommitted => DecisionPhase::Committed,
         }
     }
 }
@@ -2081,10 +2087,21 @@ struct FreshFinalOld {
 struct FreshFinalNew {
     closure_digest: [u8; 32],
 }
+struct FreshNewTicket {
+    closure_digest: [u8; 32],
+    ticket_digest: [u8; 32],
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeTicketRole {
+    None,
+    ObservedNew([u8; 32]),
+    OwnedCut,
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NativeRetirementPermission {
     Complete,
     CutOnly,
+    NewTicketCutOnly,
 }
 impl FreshCommittedNew {
     fn matches(&self, intent: &[u8], terminal: &[u8]) -> bool {
@@ -2096,6 +2113,12 @@ struct RetainedTerminal<'a> {
     intent: &'a [u8],
     terminal: &'a [u8],
     choice: NativeTerminalChoice,
+}
+struct CheckedCommittedRetirement<'a> {
+    members: [&'a [u8]; 4],
+    intent: [u8; RECORD_BYTES],
+    terminal: [u8; RECORD_BYTES],
+    desired: zeroize::Zeroizing<Vec<u8>>,
 }
 
 // One private positive checkpoint, never a decoded record or failed-IO grant.
@@ -2181,6 +2204,11 @@ pub(crate) struct NativeEngine {
     fresh_final_old: Option<FreshFinalOld>,
     final_new_captured: bool,
     fresh_final_new: Option<FreshFinalNew>,
+    new_ticket_captured: bool,
+    fresh_new_ticket: Option<FreshNewTicket>,
+    ticket_role: NativeTicketRole,
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    ticket_write_fault: Option<bool>,
     retirement_permission: NativeRetirementPermission,
     // Set only after SAME Session execute_native's final original gate.
     committed: bool,
@@ -2239,7 +2267,7 @@ impl NativeStageView<'_> {
             Slot::Scratch2
         } else if name == crate::restore_closure_model::CLOSURE_MEMBER {
             Slot::Scratch3
-        } else if self.engine.disposition
+        } else if (self.engine.disposition || self.engine.ticket_observation_owned())
             && name == crate::restore_disposition_ticket_model::TICKET_MEMBER
         {
             Slot::Scratch0
@@ -2252,6 +2280,8 @@ impl NativeStageView<'_> {
             return false;
         };
         (self.engine.completed_origin()
+            || (matches!(slot, Slot::Scratch0 | Slot::Scratch3)
+                && self.engine.new_ticket_observation_captured())
             || (matches!(slot, Slot::Scratch3)
                 && (self.engine.final_old_observation_captured()
                     || self.engine.final_new_observation_captured())))
@@ -2264,7 +2294,9 @@ impl NativeStageView<'_> {
             return false;
         }
         if !self.stage_present() {
-            if self.engine.retirement && self.engine.completed_origin() {
+            if (self.engine.retirement && self.engine.completed_origin())
+                || self.engine.new_ticket_observation_captured()
+            {
                 return !crate::routing_preset::pending(paths)
                     && [
                         PENDING_DIRECTORY,
@@ -2409,6 +2441,11 @@ impl NativeEngine {
             fresh_final_old: None,
             final_new_captured: false,
             fresh_final_new: None,
+            new_ticket_captured: false,
+            fresh_new_ticket: None,
+            ticket_role: NativeTicketRole::None,
+            #[cfg(all(test, not(feature = "product-private-backup")))]
+            ticket_write_fault: None,
             retirement_permission: NativeRetirementPermission::Complete,
             committed: false,
             intent_identity: std::sync::Arc::new(()),
@@ -2442,6 +2479,7 @@ impl NativeEngine {
             && match self.recovery_completion {
                 RecoveryCompletionSelection::FinalOld => self.final_old_qualified(),
                 RecoveryCompletionSelection::FinalNew => self.final_new_qualified(),
+                RecoveryCompletionSelection::NewTicket => self.new_ticket_qualified(),
                 _ => true,
             })
             || (!self.recovery
@@ -2614,6 +2652,21 @@ impl NativeEngine {
             && !self.ordinary_handoff
             && !self.history
     }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(crate) fn test_set_ticket_write_fault(&mut self, panic: bool) {
+        self.ticket_write_fault = Some(panic);
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(crate) fn ticket_cut_unavailable(&self) -> bool {
+        self.retirement_permission == NativeRetirementPermission::NewTicketCutOnly
+            && self.sealed
+            && !self.completed
+            && !self.disposition
+            && !self.disposition_done
+            && !self.ordinary_handoff
+            && !self.history
+            && self.lower.io.test_retains_original(Slot::Scratch0)
+    }
     fn view(&self) -> NativeStageView<'_> {
         NativeStageView { engine: self }
     }
@@ -2733,7 +2786,7 @@ impl NativeEngine {
         if self.recovery {
             self.check_recovery_singleton(until)?;
         }
-        if self.final_old_captured || self.final_new_captured {
+        if self.final_old_captured || self.final_new_captured || self.new_ticket_captured {
             self.check_final_output_retired_sources(until)?;
         }
         if !self.catalogues_captured {
@@ -2997,11 +3050,16 @@ impl NativeEngine {
                             self.recovery_completion,
                             RecoveryCompletionSelection::FinalOld
                                 | RecoveryCompletionSelection::FinalNew
+                                | RecoveryCompletionSelection::NewTicket
                         )) =>
                 {
                     Slot::Scratch3
                 }
-                n if n == Slot::Scratch0 as usize && self.disposition => Slot::Scratch0,
+                n if n == Slot::Scratch0 as usize
+                    && (self.disposition || self.ticket_observation_owned()) =>
+                {
+                    Slot::Scratch0
+                }
                 n if n == Slot::Scratch1 as usize && self.disposition => Slot::Scratch1,
                 n if n == NATIVE_CURRENT_STORE as usize && self.current_store => {
                     NATIVE_CURRENT_STORE
@@ -3125,6 +3183,27 @@ impl NativeEngine {
             .map_err(|_| FirstError::StillFenced)?;
         self.shape(slot, false, until)
             .map_err(|_| FirstError::StillFenced)?;
+        #[cfg(all(test, not(feature = "product-private-backup")))]
+        if matches!(slot, Slot::Scratch0)
+            && name == crate::restore_disposition_ticket_model::TICKET_MEMBER
+            && self.retirement_permission == NativeRetirementPermission::NewTicketCutOnly
+            && let Some(panic) = self.ticket_write_fault
+        {
+            // Actual exclusive file + actual prefix write, then error/unwind.
+            // Source-only fixed fault; never a production caller-selected IO.
+            self.lower
+                .io
+                .perform(
+                    slot,
+                    || tick(until),
+                    |mut file| file.write_all(&bytes[..8]).map_err(|_| Unavailable),
+                )
+                .map_err(|_| FirstError::StillFenced)?;
+            if panic {
+                panic!("source partial ticket writer unwind");
+            }
+            return Err(FirstError::StillFenced);
+        }
         let mut done = 0;
         while done < bytes.len() {
             self.lower
@@ -3656,6 +3735,20 @@ impl NativeEngine {
         cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
         until: Instant,
     ) -> Result<(), FirstError> {
+        self.retire_native_terminal_ungranted(origin, retained, cut, until)?;
+        if self.retirement_permission != NativeRetirementPermission::Complete {
+            return Err(FirstError::StillFenced);
+        }
+        self.completed = true; // exact original final checks/callback precede grant
+        Ok(())
+    }
+    fn retire_native_terminal_ungranted<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        retained: RetainedTerminal<'_>,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
         let RetainedTerminal {
             members,
             intent,
@@ -3810,12 +3903,8 @@ impl NativeEngine {
         // passed final original live/closure/origin checks. No completion grant
         // or disposition effect has happened yet.
         cut(NativeStep::RetirementComplete)?;
-        // CutOnly was consumed before Stage effects by its dedicated entry.
-        // Even an always-OK/unreached callback cannot grant completion.
-        if self.retirement_permission == NativeRetirementPermission::CutOnly {
-            return Err(FirstError::StillFenced);
-        }
-        self.completed = true; // only after last ORIGINAL origin + all durable reads
+        // No completed/disposition grant. Only the normal Complete wrapper or
+        // the private operation-local ticket capability can continue this point.
         Ok(())
     }
 
@@ -4060,6 +4149,27 @@ impl NativeEngine {
         permission: NativeRetirementPermission,
         until: Instant,
     ) -> Result<zeroize::Zeroizing<Vec<u8>>, FirstError> {
+        let checked = self.checked_committed_retirement(origin, prepared, permission, until)?;
+        self.retire_native_terminal(
+            origin,
+            RetainedTerminal {
+                members: checked.members,
+                intent: &checked.intent,
+                terminal: &checked.terminal,
+                choice: NativeTerminalChoice::NewCommitted,
+            },
+            cut,
+            until,
+        )?;
+        Ok(checked.desired)
+    }
+    fn checked_committed_retirement<'a, H: LifecycleHost>(
+        &mut self,
+        origin: &mut NativeSessionOrigin<'_, H>,
+        prepared: &'a PreparedRestorePair,
+        permission: NativeRetirementPermission,
+        until: Instant,
+    ) -> Result<CheckedCommittedRetirement<'a>, FirstError> {
         if self.recovery
             || !self.committed
             || self.completed
@@ -4111,18 +4221,12 @@ impl NativeEngine {
         {
             return Err(FirstError::StillFenced);
         }
-        self.retire_native_terminal(
-            origin,
-            RetainedTerminal {
-                members,
-                intent: &intent,
-                terminal: &terminal,
-                choice: NativeTerminalChoice::NewCommitted,
-            },
-            cut,
-            until,
-        )?;
-        Ok(desired)
+        Ok(CheckedCommittedRetirement {
+            members,
+            intent,
+            terminal,
+            desired,
+        })
     }
     /// Fixed CutOnly permission is consumed BEFORE native admission/Stage.
     /// No completion/disposition/ordinary branch exists, even if cut is no-op.
@@ -4199,7 +4303,9 @@ impl NativeEngine {
             }
         }
         if !(self.unlinked[Slot::Scratch2 as usize]
-            || ((self.final_old_qualified() || self.final_new_qualified())
+            || ((self.final_old_qualified()
+                || self.final_new_qualified()
+                || self.new_ticket_qualified())
                 && self.lower.original[Slot::Scratch2 as usize].is_none()
                 && self.expected[Slot::Scratch2 as usize].is_none()))
             || self.unlinked[Slot::Scratch3 as usize] != self.disposition_done
@@ -4259,6 +4365,19 @@ impl NativeEngine {
             origin,
             quiescence,
             RecoveryCompletionSelection::FinalNew,
+            until,
+        )
+    }
+    pub(crate) fn check_native_new_ticket_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.check_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::NewTicket,
             until,
         )
     }
@@ -4333,6 +4452,17 @@ impl NativeEngine {
             origin,
             quiescence,
             RecoveryCompletionSelection::FinalNew,
+        )
+    }
+    pub(crate) fn dispose_native_new_ticket_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.dispose_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::NewTicket,
         )
     }
     fn dispose_native_recovered_completed(
@@ -4496,6 +4626,10 @@ impl NativeEngine {
         {
             return Err(FirstError::StillFenced);
         }
+        let existing_ticket = self.recovery_completion == RecoveryCompletionSelection::NewTicket;
+        if existing_ticket && !self.new_ticket_qualified() {
+            return Err(FirstError::StillFenced);
+        }
         self.disposition = true; // one attempt consumed before first publisher effect
         self.gate(origin, until)?;
         let state = self
@@ -4508,6 +4642,9 @@ impl NativeEngine {
             COMPLETE_MEMBER,
             self.audit.target().map_err(|_| FirstError::StillFenced)?,
         ] {
+            if existing_ticket && name == TICKET_MEMBER {
+                continue;
+            }
             if !matches!(
                 fstatat(state, name, AtFlags::AT_SYMLINK_NOFOLLOW),
                 Err(nix::errno::Errno::ENOENT)
@@ -4533,18 +4670,24 @@ impl NativeEngine {
             return Err(FirstError::StillFenced);
         }
         // These pure records are consistency data, not producers of authority.
-        let ticket = Ticket::from_bound_closure(&closure, uid, generation, Some(desired))
-            .ok_or(FirstError::StillFenced)?;
+        let ticket = if existing_ticket {
+            self.verify_observed_new_ticket(&closure, uid, generation, desired, until)?
+        } else {
+            Ticket::from_bound_closure(&closure, uid, generation, Some(desired))
+                .ok_or(FirstError::StillFenced)?
+        };
         let complete = CompleteRecord::from_ticket(&ticket).ok_or(FirstError::StillFenced)?;
-        self.write(
-            Slot::State,
-            Slot::Scratch0,
-            TICKET_MEMBER,
-            &ticket.encode(),
-            origin,
-            until,
-        )?;
-        cut(NativeStep::DispositionTicket)?;
+        if !existing_ticket {
+            self.write(
+                Slot::State,
+                Slot::Scratch0,
+                TICKET_MEMBER,
+                &ticket.encode(),
+                origin,
+                until,
+            )?;
+            cut(NativeStep::DispositionTicket)?;
+        }
         self.write(
             Slot::State,
             Slot::Scratch1,

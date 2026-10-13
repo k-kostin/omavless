@@ -33,6 +33,7 @@ struct Fixture {
     lock: File,
     closure: Vec<u8>,
     new_output: bool,
+    new_ticket: bool,
     members: [Vec<u8>; 4],
 }
 struct LocalGate {
@@ -82,6 +83,25 @@ impl Fixture {
     }
     fn new_committed(case: &str) -> Self {
         Self::from_members(case, true, MEMBERS)
+    }
+    fn with_ticket(mut self) -> Self {
+        self.new_ticket = true;
+        self.engine.recovery_completion = RecoveryCompletionSelection::NewTicket;
+        let closure = crate::restore_closure_model::ClosureRecord::decode(&self.closure).unwrap();
+        let ticket = crate::restore_disposition_ticket_model::Ticket::from_bound_closure(
+            &closure,
+            nix::unistd::getuid().as_raw(),
+            2,
+            Some(DESIRED),
+        )
+        .unwrap();
+        drop(write(
+            &self
+                .state
+                .join(crate::restore_disposition_ticket_model::TICKET_MEMBER),
+            &ticket.encode(),
+        ));
+        self
     }
     fn from_members(case: &str, new_output: bool, members: [&[u8]; 4]) -> Self {
         let root = crate::test_temp::directory("final-old").unwrap();
@@ -256,6 +276,7 @@ impl Fixture {
             lock,
             closure,
             new_output,
+            new_ticket: false,
             members: members.map(<[u8]>::to_vec),
         }
     }
@@ -273,7 +294,15 @@ impl Fixture {
             DESIRED
         };
         let until = Instant::now() + std::time::Duration::from_secs(10);
-        let result = if self.new_output {
+        let result = if self.new_ticket {
+            self.engine.capture_final_output_data(
+                new,
+                2,
+                desired,
+                FinalOutputChoice::NewTicketCommitted,
+                until,
+            )
+        } else if self.new_output {
             self.engine.capture_final_new_data(new, 2, desired, until)
         } else {
             self.engine.capture_final_old_data(new, 2, desired, until)
@@ -299,7 +328,14 @@ impl Fixture {
     ) -> Result<(), FirstError> {
         let until = Instant::now() + std::time::Duration::from_secs(10);
         let result = (|| {
-            if self.new_output {
+            if self.new_ticket {
+                self.engine.qualify_final_output_inner(
+                    &mut self.gate,
+                    FinalOutputChoice::NewTicketCommitted,
+                    cut,
+                    until,
+                )?;
+            } else if self.new_output {
                 self.engine
                     .qualify_final_new_inner(&mut self.gate, cut, until)?;
             } else {
@@ -1145,4 +1181,355 @@ fn native_final_history_all_sync_disposition_cuts_preserve_prior_audits() {
             f.cleanup();
         }
     }
+}
+
+#[test]
+fn native_new_ticket_existing_observation_is_not_a_grant_and_all_prior_prefixes_append() {
+    for count in 0..native_history::CAPACITY {
+        let mut f = Fixture::new_committed("positive").with_ticket();
+        let past = prior_audits(&f.state, count);
+        let ticket_path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let ticket = File::open(&ticket_path).unwrap();
+        let old_ticket = ticket.metadata().unwrap();
+        let bytes = fs::read(&ticket_path).unwrap();
+        f.capture("positive").unwrap();
+        assert_eq!(f.gate.calls, 0);
+        assert!(f.engine.new_ticket_observation_captured() && !f.engine.new_ticket_qualified());
+        assert!(!f.engine.completed && !f.engine.disposition && !f.engine.completed_origin());
+        assert!(
+            f.engine
+                .check_native_completed_inner(&mut f.gate, Instant::now())
+                .is_err()
+        );
+        assert_eq!(
+            f.engine
+                .lower
+                .io
+                .original(Slot::Scratch0)
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .ino(),
+            old_ticket.ino()
+        );
+        let mut reached = Vec::new();
+        f.finish_with(&mut |event| {
+            reached.push(event);
+            Ok(())
+        })
+        .unwrap();
+        assert!(f.engine.new_ticket_qualified() && f.engine.disposition_ready());
+        assert!(!f.engine.final_old_qualified() && !f.engine.final_new_qualified());
+        assert!(!reached.contains(&NativeStep::DispositionTicket)); // NEVER republishes/relabels it
+        assert!(reached.contains(&NativeStep::NewTicketSourceSynced(10)));
+        assert_eq!(ticket.metadata().unwrap().nlink(), 0);
+        assert_eq!(ticket.metadata().unwrap().ino(), old_ticket.ino());
+        let mut held_bytes = vec![0; bytes.len()];
+        ticket.read_exact_at(&mut held_bytes, 0).unwrap();
+        assert_eq!(held_bytes, bytes);
+        let (name, result) = f
+            .engine
+            .completed_history_data_inner(
+                &mut f.gate,
+                Instant::now() + std::time::Duration::from_secs(10),
+            )
+            .unwrap();
+        assert_eq!(name, native_history::NAMES[count]);
+        let original_ticket =
+            crate::restore_disposition_ticket_model::Ticket::decode(&bytes).unwrap();
+        assert!(
+            crate::restore_disposition_complete_model::CompleteRecord::decode(&result)
+                .unwrap()
+                .matches_ticket(&original_ticket)
+        );
+        f.retained();
+        assert_past_unchanged(&f.state, &past);
+        assert!(!crate::pending_private_transaction::pending_at(&f.state));
+        assert!(f.finish(None).is_err());
+        assert_past_unchanged(&f.state, &past);
+        drop((past, ticket));
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_ticket_wrong_current_or_competing_shapes_refuse_before_qualification() {
+    for case in [
+        "wrong-phase",
+        "torn",
+        "wrong-new",
+        "wrong-auth-template",
+        "wrong-store",
+        "wrong-template",
+        "wrong-desired",
+        "missing-login",
+        "history",
+        "later-history",
+        "complete",
+        "receipt",
+        "intent",
+        "terminal",
+        "stage",
+        "unknown-prefix",
+        "dot-state-prefix",
+        "config-prefix",
+        "dot-config-prefix",
+        "next",
+        "successor",
+        "preset",
+        "forward",
+        "rollback",
+    ] {
+        let mut f = Fixture::new_committed(case).with_ticket();
+        assert!(f.capture(case).is_err(), "public ticket shape {case}");
+        assert_eq!(f.gate.calls, 0);
+        assert!(
+            f.engine.sealed
+                && !f.engine.completed
+                && !f.engine.disposition
+                && !f.engine.new_ticket_qualified()
+        );
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_ticket_canonical_crossed_ticket_and_unsafe_members_never_supply_authority() {
+    for case in [
+        "missing",
+        "torn",
+        "corrupt",
+        "uid",
+        "generation-desired",
+        "crossed-closure",
+        "mode",
+        "xattr",
+        "hardlink",
+        "symlink",
+        "full-history",
+        "sparse-history",
+    ] {
+        let mut f = Fixture::new_committed("positive").with_ticket();
+        let path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        match case {
+            "missing" => fs::remove_file(&path).unwrap(),
+            "torn" => OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_len(1)
+                .unwrap(),
+            "corrupt" => OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .write_all(b"x")
+                .unwrap(),
+            "uid" | "generation-desired" | "crossed-closure" => {
+                let raw = if case == "generation-desired" {
+                    let raw = past_audit(1);
+                    raw[8..8 + crate::restore_disposition_ticket_model::TICKET_BYTES].to_vec()
+                } else {
+                    let closure = if case == "crossed-closure" {
+                        let other = Fixture::from_members(
+                            "positive",
+                            true,
+                            [b"other OLD", b"other template", MEMBERS[2], MEMBERS[3]],
+                        );
+                        let closure =
+                            crate::restore_closure_model::ClosureRecord::decode(&other.closure)
+                                .unwrap();
+                        other.cleanup();
+                        closure
+                    } else {
+                        crate::restore_closure_model::ClosureRecord::decode(&f.closure).unwrap()
+                    };
+                    crate::restore_disposition_ticket_model::Ticket::from_bound_closure(
+                        &closure,
+                        nix::unistd::getuid().as_raw() + u32::from(case == "uid"),
+                        2,
+                        Some(DESIRED),
+                    )
+                    .unwrap()
+                    .encode()
+                    .to_vec()
+                };
+                assert!(crate::restore_disposition_ticket_model::Ticket::decode(&raw).is_some());
+                fs::remove_file(&path).unwrap();
+                drop(write(&path, &raw));
+            }
+            "mode" => fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap(),
+            "xattr" => rustix::fs::lsetxattr(
+                &path,
+                "user.t4_ticket_test",
+                b"public",
+                rustix::fs::XattrFlags::empty(),
+            )
+            .unwrap(),
+            "hardlink" => fs::hard_link(&path, f.state.join("ticket-alias")).unwrap(),
+            "symlink" => {
+                fs::remove_file(&path).unwrap();
+                symlink("missing", &path).unwrap();
+            }
+            "full-history" => {
+                drop(prior_audits(&f.state, 8));
+            }
+            "sparse-history" => {
+                drop(write(
+                    &f.state.join(native_history::NAMES[1]),
+                    &past_audit(1),
+                ));
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            f.capture("positive").is_err(),
+            "public ticket refusal {case}"
+        );
+        assert_eq!(f.gate.calls, 0);
+        assert!(f.engine.sealed && !f.engine.completed && !f.engine.disposition);
+        assert!(f.engine.fresh_new_ticket.is_none());
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_ticket_every_sync_and_actual_disposition_cut_retains_original_ticket_and_history() {
+    let mut steps: Vec<_> = (0..11).map(NativeStep::NewTicketSourceSynced).collect();
+    steps.extend([
+        NativeStep::EndpointSynced,
+        NativeStep::EndpointRetired,
+        NativeStep::DispositionComplete,
+        NativeStep::DispositionClosureUnlinked,
+        NativeStep::DispositionTicketUnlinked,
+        NativeStep::HistoryRenamePrepared,
+        NativeStep::HistoryRenamed,
+        NativeStep::HistorySynced,
+        NativeStep::History,
+    ]);
+    for step in steps {
+        let mut f = Fixture::new_committed("positive").with_ticket();
+        let past = prior_audits(&f.state, 7);
+        f.capture("positive").unwrap();
+        let held_ticket = File::open(
+            f.state
+                .join(crate::restore_disposition_ticket_model::TICKET_MEMBER),
+        )
+        .unwrap();
+        let before = f
+            .engine
+            .lower
+            .io
+            .original(Slot::Scratch0)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .ino();
+        assert!(f.finish(Some(step)).is_err(), "public ticket cut {step:?}");
+        assert!(f.engine.sealed && !f.engine.disposition_ready());
+        assert!(f.engine.lower.io.test_retains_original(Slot::Scratch0));
+        assert_eq!(held_ticket.metadata().unwrap().ino(), before);
+        f.retained();
+        assert_past_unchanged(&f.state, &past);
+        assert!(f.finish(None).is_err());
+        drop(past);
+        drop(held_ticket);
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_ticket_original_gate_failures_and_same_byte_ticket_swap_seal_once() {
+    let mut good = Fixture::new_committed("positive").with_ticket();
+    good.capture("positive").unwrap();
+    good.finish(None).unwrap();
+    let calls = good.gate.calls;
+    good.cleanup();
+    for fail in 1..=calls {
+        let mut f = Fixture::new_committed("positive").with_ticket();
+        f.capture("positive").unwrap();
+        f.gate.fail = Some(fail);
+        assert!(f.finish(None).is_err(), "public ticket origin gate {fail}");
+        assert!(f.engine.sealed && !f.engine.disposition_ready());
+        f.retained();
+        assert!(f.engine.lower.io.test_retains_original(Slot::Scratch0));
+        assert!(f.finish(None).is_err());
+        f.cleanup();
+    }
+    for step in [
+        NativeStep::NewTicketSourceSynced(0),
+        NativeStep::NewTicketSourceSynced(10),
+        NativeStep::DispositionComplete,
+    ] {
+        let mut f = Fixture::new_committed("positive").with_ticket();
+        f.capture("positive").unwrap();
+        let state = f.state.clone();
+        assert!(
+            f.finish_with(&mut |event| {
+                if event == step {
+                    let path = state.join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+                    let bytes = fs::read(&path).unwrap();
+                    fs::rename(&path, state.join("displaced-ticket")).unwrap();
+                    drop(write(&path, &bytes));
+                }
+                Ok(())
+            })
+            .is_err()
+        );
+        assert!(f.engine.sealed && !f.engine.disposition_ready());
+        f.retained();
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_ticket_actual_authenticated_archive_output_and_missing_observed_role_controls() {
+    let root = crate::test_temp::directory("new-ticket-auth").unwrap();
+    let source = root.join("new.ovb");
+    let password = b"synthetic ticket passphrase";
+    let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"china-cn-direct","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+    drop(write(
+        &source,
+        &omavless_domain::private_backup::seal(
+            portable,
+            include_bytes!("../../../../templates/china.yaml"),
+            password,
+        )
+        .unwrap(),
+    ));
+    let uid = nix::unistd::getuid().as_raw();
+    assert!(crate::backup_destination_candidate::open_existing(&source, uid, b"wrong").is_err());
+    let opened =
+        crate::backup_destination_candidate::open_existing(&source, uid, password).unwrap();
+    let off = opened.restore_store_off().unwrap();
+    let members = [MEMBERS[0], MEMBERS[1], off.as_slice(), opened.template()];
+    let mut good = Fixture::from_members("positive", true, members).with_ticket();
+    good.capture("positive").unwrap();
+    good.finish(None).unwrap();
+    assert!(good.engine.new_ticket_qualified() && good.engine.disposition_ready());
+    good.retained();
+    good.cleanup();
+    for role in [
+        NativeTicketRole::None,
+        NativeTicketRole::OwnedCut,
+        NativeTicketRole::ObservedNew([0; 32]),
+    ] {
+        let mut f = Fixture::from_members("positive", true, members).with_ticket();
+        f.capture("positive").unwrap();
+        f.engine.ticket_role = role;
+        assert!(f.finish(None).is_err());
+        assert!(f.engine.sealed && f.engine.fresh_new_ticket.is_none());
+        assert!(
+            !f.state
+                .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER)
+                .exists()
+        );
+        f.cleanup();
+    }
+    drop(opened);
+    fs::remove_dir_all(root).unwrap(); // completed wholly synthetic authentication fixture
 }
