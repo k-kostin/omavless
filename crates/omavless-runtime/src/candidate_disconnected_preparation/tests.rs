@@ -302,3 +302,159 @@ fn existing_strict_domain_parser_keeps_v3_and_duplicate_sources_out() {
     assert!(parse_candidate_private_store(&duplicate).is_err());
     assert!(parse_private_store(&raw).is_err());
 }
+
+/// Explicit DATA-only opt-in: the selected file is a public, non-executable
+/// cache projection, never an installed/private core or a process target.
+#[test]
+#[ignore = "requires separately admitted exact public core DATA; never executes it"]
+fn authentic_pinned_core_constructor_data_only_optin() {
+    use std::fs::{Metadata, OpenOptions};
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let path = std::env::var_os("OMAVLESS_TEST_CANDIDATE_CORE_DATA")
+        .expect("explicitly selected public core DATA is required");
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+        .open(&path)
+        .expect("selected DATA open must succeed");
+    let stable = |metadata: &Metadata| {
+        (
+            metadata.dev(),
+            metadata.ino(),
+            metadata.mode(),
+            metadata.uid(),
+            metadata.gid(),
+            metadata.nlink(),
+            metadata.len(),
+            metadata.mtime(),
+            metadata.mtime_nsec(),
+            metadata.ctime(),
+            metadata.ctime_nsec(),
+        )
+    };
+    let before = file.metadata().expect("selected DATA metadata is required");
+    assert!(before.is_file());
+    assert_eq!(before.uid(), nix::unistd::Uid::current().as_raw());
+    assert_eq!(before.mode() & 0o7777, 0o400);
+    assert_eq!(before.nlink(), 1);
+    assert_eq!(before.len(), 61_886_168);
+    assert!(before.len() <= MAX_CORE_BYTES as u64);
+    assert!(
+        stable(&std::fs::symlink_metadata(&path).expect("selected DATA path is required"))
+            == stable(&before)
+    );
+    let mut core = Vec::new();
+    Read::by_ref(&mut file)
+        .take(MAX_CORE_BYTES as u64 + 1)
+        .read_to_end(&mut core)
+        .expect("selected bounded DATA read must succeed");
+    assert_eq!(core.len() as u64, before.len());
+    assert!(
+        stable(
+            &file
+                .metadata()
+                .expect("selected DATA final metadata is required")
+        ) == stable(&before)
+    );
+    assert!(
+        stable(&std::fs::symlink_metadata(&path).expect("selected DATA final path is required"))
+            == stable(&before)
+    );
+    assert!(<[u8; 32]>::from(Sha256::digest(&core)) == REVIEWED_CORE_SHA256);
+
+    let modes = [RoutingMode::Rule, RoutingMode::Global, RoutingMode::Direct];
+    let mut accepted = 0;
+    let mut refused = 0;
+    let mut config_hashes = Vec::new();
+    for generation in 0..=4 {
+        let candidate = parse_candidate_private_store(&source(generation).to_string()).unwrap();
+        for mode in modes {
+            let desired = DesiredState {
+                mode,
+                ..DesiredState::default()
+            };
+            let result = prepare_disconnected_candidate(
+                &candidate, &desired, WG_ID, TEMPLATE, CONTROLLER, &core,
+            );
+            if generation == 1 || generation == 2 {
+                assert_eq!(result.err().unwrap(), PreparationError::UnsupportedFlavor);
+                refused += 1;
+            } else {
+                let prepared = result.unwrap();
+                assert!(prepared.expose_captured_core_bytes() == core);
+                assert_eq!(prepared.mode(), mode);
+                let expected = candidate
+                    .prepare_private_config_mode(WG_ID, TEMPLATE, CONTROLLER, mode.as_str())
+                    .unwrap();
+                assert!(prepared.expose_private_config() == expected.expose_private_bytes());
+                config_hashes.push(format!(
+                    "{:x}",
+                    Sha256::digest(prepared.expose_private_config())
+                ));
+                accepted += 1;
+            }
+        }
+    }
+    for (protocol, uri) in [
+        ("vless", VLESS),
+        (
+            "trojan",
+            "trojan://synthetic-password@192.0.2.2:443?sni=edge.invalid",
+        ),
+        (
+            "hysteria2",
+            "hysteria2://synthetic-auth@192.0.2.3:443?sni=edge.invalid",
+        ),
+        (
+            "tuic",
+            "tuic://22222222-2222-4222-8222-222222222222:synthetic-password@192.0.2.4:443?congestion_control=bbr&udp_relay_mode=quic",
+        ),
+    ] {
+        let mut document = source(3);
+        document["profiles"][0]["protocol"] = protocol.into();
+        document["profiles"][0]["uri"] = uri.into();
+        let candidate = parse_candidate_private_store(&document.to_string()).unwrap();
+        for mode in modes {
+            let desired = DesiredState {
+                mode,
+                ..DesiredState::default()
+            };
+            let prepared = prepare_disconnected_candidate(
+                &candidate, &desired, URI_ID, TEMPLATE, CONTROLLER, &core,
+            )
+            .unwrap();
+            let expected = candidate
+                .prepare_private_config_mode(URI_ID, TEMPLATE, CONTROLLER, mode.as_str())
+                .unwrap();
+            assert!(prepared.expose_private_config() == expected.expose_private_bytes());
+            config_hashes.push(format!(
+                "{:x}",
+                Sha256::digest(prepared.expose_private_config())
+            ));
+            accepted += 1;
+        }
+    }
+    let candidate = parse_candidate_private_store(&source(3).to_string()).unwrap();
+    core[128] ^= 1;
+    assert_eq!(
+        prepare_disconnected_candidate(
+            &candidate,
+            &DesiredState::default(),
+            WG_ID,
+            TEMPLATE,
+            CONTROLLER,
+            &core
+        )
+        .err()
+        .unwrap(),
+        PreparationError::UnsupportedCore
+    );
+    refused += 1;
+    assert_eq!((accepted, refused), (21, 7));
+    // Public projection only: synthetic config bytes/names/keys never print.
+    eprintln!(
+        "candidate constructor DATA: accepted={accepted} refused={refused} config_hashes={config_hashes:?}"
+    );
+}
