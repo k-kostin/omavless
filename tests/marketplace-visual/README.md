@@ -14,8 +14,10 @@ node tests/test-marketplace-assets.js
 bash tests/marketplace-visual/prepare.sh /absolute/reviewed/source
 ```
 
-The preparation command prints a fresh `/tmp/omavless-marketplace.XXXXXX`
-directory, records its source commit/tree and stages only committed plugin
+The preparation command prints a fresh `~/.cache/ovt/omavless-marketplace.XXXXXX`
+directory under checked same-UID non-writable, non-symlink parents (the `ovt`
+namespace must be mode0700); it never repairs an unsafe existing parent.
+It records its source commit/tree and stages only committed plugin
 blobs plus the adjacent public `manifest.json` used by the Settings credit.
 Dirty plugin/manifest changes refuse staging. `backend.sh` and
 `plugin/setup-runtime.sh` are replaced with the included
@@ -122,3 +124,11 @@ by `tests/safe-input/`; these captures do not claim a saved import or live VPN.
 `reviewBundle LOCALE WIDTH EMPTY` opens the production count-only local-bundle
 confirmation with synthetic counts; `EMPTY=true` exercises the disabled Add
 state. This remains rendering evidence, not a successful persistent import.
+
+`reviewSubscriptions LOCALE KIND WIDTH` projects `loading`, `unavailable`,
+`empty` or `populated` through the production Subscriptions page, at 360/460
+pixels in EN/RU. Only the isolated read fixture's snapshot/failure flag changes;
+polling stays stopped and every runtime mutation still refuses. Inspect the
+loading/unavailable/confirmed-empty wording, the existing Refresh action and a
+populated adjacent state. This is rendering evidence, not a daemon read or
+subscription fetch; use `reviewCapture` and finish only this isolated instance.
