@@ -15,9 +15,16 @@ cargo fmt --all -- --check
 # that budget on scheduler contention, not the owned-group cleanup under test.
 # Keep every assertion and run this one case separately, once, below.
 cargo test --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
-  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
+  --skip native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy
 cargo test --locked -p omavless-runtime --lib \
   core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
+  --exact --test-threads=1
+# This test deliberately parks an actual proof lease and measures the owner's
+# fixed cancellation budget. Retain its deadline and all three race cases, but
+# do not measure unrelated process-heavy fixture scheduling inside that budget.
+cargo test --locked -p omavless-runtime --lib \
+  native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy -- \
   --exact --test-threads=1
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
@@ -70,6 +77,10 @@ cargo test --locked -p omavless-runtime --lib --features product-private-backup,
 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service
 cargo clippy --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service -- -D warnings
 cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
-  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
+  --skip native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy
+cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+  native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy -- \
+  --exact --test-threads=1
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json
