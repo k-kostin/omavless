@@ -194,13 +194,17 @@ impl NativeEngine {
         self.scan_catalogue(Slot::State, Some(1), &[], until)
             .map_err(|_| FirstError::Admission)?;
         self.catalogues_captured = true;
-        // This first finite route admits NO previous/torn/completed history or
-        // other restore prefix. Later history/prefix recovery is separate scope.
+        // Prior complete histories are pinned audit DATA, never authority or
+        // prior durability proof. Only the exact bounded vocabulary is admitted;
+        // capture_history below validates the contiguous prefix and free target.
         let state = &self.catalogues[1];
         if !(0..state.count).all(|index| {
             let name = &state.names[index][..state.lengths[index]];
             !(name.starts_with(b"restore-") || name.starts_with(b".restore-"))
                 || name == crate::restore_closure_model::CLOSURE_MEMBER.as_bytes()
+                || native_history::NAMES
+                    .iter()
+                    .any(|allowed| allowed.as_bytes() == name)
         }) || !(0..self.catalogues[0].count).all(|index| {
             let config = &self.catalogues[0];
             let name = &config.names[index][..config.lengths[index]];
@@ -211,9 +215,6 @@ impl NativeEngine {
         self.check_final_output_retired_sources(until)
             .map_err(|_| FirstError::Admission)?;
         self.capture_history(until)?; // capacity/free target BEFORE Stop or publication
-        if self.audit.target().map_err(|_| FirstError::Admission)? != native_history::NAMES[0] {
-            return Err(FirstError::Admission);
-        }
         self.check_original_bytes(until)?;
         self.check_bindings(until)
             .map_err(|_| FirstError::Admission)?;

@@ -461,3 +461,52 @@ NEW/history/ordinary-Off/reopen readback exited 0. See the
 This supersedes the pending fresh206 row only: product Restore integration,
 ticket/complete/history-prefix recovery and other remaining gates are not
 accepted by that result. Original201 and accepted205 evidence are preserved.
+
+### Closure-only output with an existing valid audit prefix
+
+The next bounded SOURCE slice starts at
+`4fc317b987480e142812ea90bf10d9eb19ad2faf`. Both existing fixed final-OLD and
+final-NEW selectors may admit zero through seven previous complete audit files.
+Within the state catalogue's reserved-prefix predicate, only the current
+closure and the exact eight `native_history::NAMES` leaves are eligible. This
+is not the more permissive generic catalogue-name predicate. Reserved config
+prefixes, current ticket/complete and all previous unsupported active shapes
+still refuse; no new CLI, producer or input selector is introduced.
+
+The SAME native history ledger is captured before guard qualification/Stop and
+effects. It requires a contiguous immutable prefix, exact complete-record bytes,
+owned UID/GID, mode0600, one link, no xattrs, held/named identity and a genuinely
+free next target. Full capacity, sparse/torn/unsafe files or unknown suffixes
+refuse; nothing is evicted, renumbered, repaired or recaptured. Existing history
+is audit DATA only: syntax does not prove its original publication/fsync or
+create current recovery authority. Its older owner generation, Desired and pair
+may legitimately differ. Current closure/archive/Owner/Desired/required Login
+binding and distinct freshly earned OLD/NEW qualifications remain unchanged.
+
+All existing past files/metadata are checked across the original gates and
+create-only disposition. The first unused target is published with the existing
+`RENAME_NOREPLACE` operation and SAME Complete/Scratch1, not recaptured as another
+past audit. Substitution, content/metadata/xattr drift or target collision seals
+after effects; unknown outcomes never retry. Final current pair/history readback
+and the unchanged typed consuming release still precede ordinary Off Start.
+
+New real-file SOURCE controls cover both selections with every zero-to-seven
+prefix, exhausted/sparse/torn/unsafe/xattr/unknown admission, historical and
+target drift at qualification/publication/final gates, every existing sync and
+disposition cut, and unchanged past bytes/inodes after positive fixture release.
+Fixture release is not installed manager/quiescence or FreshRecovery acceptance.
+Ticket/complete-prefix recovery remains a separate unsupported slice. Future
+fresh207 must earn its previous history through a genuine completed Restore and
+known ordinary restart, not fabricated records; 201–206 are not reused. Exact
+SOURCE review, combined gates and that separate installed recipe remain pending.
+
+Original focused SOURCE gates passed: four new history controls (130 matrix
+cases), complete native engine filter31, retained/final-output filter18,
+unchanged history ledger5, actual self-reexec FD-capacity1 and ordinary completed
+Restore/replay1. Explicit `product-private-backup,product-image-witness` union
+passed native final-output16, closed recovery CLI9, dispatch denial1 and history
+ledger5. Strict T4 and that explicit union all-target Clippy passed; bare and
+default-TUI non-test compilation, formatting/diff checks and normal755 Python
+controls (2 skipped) plus JS/QML passed. Each original test ELF stayed unchanged
+through its runs. These counts are SOURCE evidence, not fresh207 admission or
+whole Restore/product acceptance.
