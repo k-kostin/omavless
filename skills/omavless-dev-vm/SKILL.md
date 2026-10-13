@@ -18,6 +18,12 @@ local stdin. Do not start another authorization in that state: inspect the
 original operation and settle it under the execution policy before a new attempt.
 Non-interactive reads do not require a PTY.
 
+Send one command at a time in an interactive administrative terminal, then
+observe its outcome before sending the next. Sudo can flush already queued
+terminal input: echoed later lines are not evidence that those commands ran.
+Keep the previous command's exit status separate from the next action, rather
+than treating a returned prompt or batched input as a successful sequence.
+
 ## Before using the VM
 
 Identify the designated sole operator, exact VM directory/image, current QEMU
