@@ -234,6 +234,9 @@ closed throughout.
 The [capture-only source successor](P4_CANDIDATE_VALIDATION_CAPTURE.md) now
 prepares the same raw candidate/template/core inputs and mandatory cached
 resource bytes together behind the existing opt-in feature. It does not execute
-the validator or wire a host/startup path. Its new controls and authentic DATA
-row remain unrun pending their own source review and resource selection; the
-#756 results above are not credited to this successor by implication.
+the validator or wire a host/startup path. At exact
+`fa0abec7e472c6c6c5fb84a914cacf07ea0d5137`, its seven new controls, three
+existing v3 capture controls, bare/feature checks, strict clippy and separately
+selected nine-capture DATA row passed. The owning contract retains the original
+compile-only refusal and exact command identities. These are new capture-only
+results, not inherited #756 or actual engine/host acceptance.

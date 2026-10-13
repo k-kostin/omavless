@@ -3,9 +3,9 @@
 Source-only successor to #756 documentation head
 `1c22e9127f75364e1cfa37161cd23982df67834f`. This is immutable **input capture**,
 not a validator, host/startup bridge, permission grant or product activation.
-No core, bwrap, namespace, network, VM or privileged action is performed. Rust
-compilation and all new controls remain unrun pending Root's resource release
-and exact-source boundary review.
+No core, bwrap, namespace, network, VM or privileged action is performed. The
+corrected exact-head capture/source results below close only this input-capture
+slice, not resource-aware validator execution or host/startup integration.
 
 ### Original compile-only refusal retained
 
@@ -83,7 +83,7 @@ revision, lease, exact generation and mutable input snapshots before effects.
 
 ## Prepared controls and remaining gate
 
-Seven normal controls are prepared, not yet executed:
+Seven normal controls passed at the corrected tested source below:
 
 - Complete declared membership across all bundles/mode variants, ignoring extra
   files and retaining immutable copied bytes after source mutation.
@@ -99,13 +99,48 @@ public `0400` exact core projection. It prepares nine bundle/mode captures with
 synthetic cache bytes, privately compares configuration/core/resources and
 checks carrier redaction/generation/mode. It never executes those bytes or the
 validator. No external binary is embedded in Git, and a missing selection fails
-the explicit opt-in rather than silently passing. This future row would prove
-only real-byte capture compatibility; synthetic MRS bytes are not valid-engine
-resource evidence.
+the explicit opt-in rather than silently passing. The separately selected row
+below proves only real-byte capture compatibility; synthetic MRS bytes are not
+valid-engine resource evidence.
 
-After source review, run only the capture/default-compatibility source controls
-and plain non-test/default-off feature checks under separately released target
-custody. An authentic DATA row needs its own Root selection. Resource-aware
-execution, original finite completion, scratch lifetime/rechecks, host-empty and
-owner fences remain a separately reviewed next slice. Production v3, default
+## Corrected exact-head result
+
+All eight renewed originals below tested
+`fa0abec7e472c6c6c5fb84a914cacf07ea0d5137`. Production capture/carrier source
+remains unchanged from reviewed `036a02b386f657739ee43299ef0b56120a093598`;
+only the inherited allocator call in tests was corrected. Source/executables
+stayed frozen until original closure. The existing maintenance target was
+explicitly loaned serially, jobs=1, offline/locked, with a fresh verified owned
+HOME `0700` TMP; target/heavy custody was returned after all children closed.
+
+| Selected original | Original identity | Result |
+| --- | --- | --- |
+| Bare non-test default check, before test dependency unification | Command chunk `336d46` | Exit 0 |
+| Feature-enabled non-test check | Command chunk `729dcd` | Exit 0 |
+| Feature-enabled all-target strict clippy | Session `19134` | Exit 0 |
+| Seven new normal controls | Session `56411` | Exit 0; 7 passed, DATA-only test ignored |
+| Existing v3 canonical byte/resource capture control | Command chunk `ac6b40` | Exit 0; 1 passed |
+| Existing exact bundle/mode membership control | Command chunk `6905b1` | Exit 0; 1 passed |
+| Existing bounded resource-refusal control | Command chunk `2d0155` | Exit 0; 1 passed |
+| Separately selected authentic capture DATA | Session `53392` | Exit 0; 1 passed, 9 captures; body 7.39 s |
+
+The DATA row privately compared URI configuration bytes, captured core/template
+and every synthetic resource across RU/CN/IR × Rule/Global/Direct. It retained
+the existing canonical rule-line input semantics and checked redaction,
+generation and mode. Public output was only `captured=9`, synthetic-MRS scope
+and `validator_executed=false`. Installed-core/rule-cache/VM opt-ins were absent;
+only this named ignored DATA test was selected. No `validate`, core, bwrap,
+namespace, network, provider, host or privileged action occurred.
+
+The previously Root-admitted public core projection remained ordinary, UID
+1000, mode `0400`, single-link and 61,886,168 bytes. Independent pre/post-row
+metadata/hash readback retained exact SHA-256
+`ba7a74ed6bbc3098930e6e172fa9b7d4ef7e42a77f7a516046d61fbeb3bfcfe6`.
+The final source recheck was clean at exact `fa0abec7`. No private paths, raw
+logs or external binary are committed. Later docs-only heads gain no new
+tested-code/engine credit. Original `036a` clippy `91724` remains failed `101`.
+
+Resource-aware execution, original finite completion, scratch lifetime/rechecks,
+host-empty and owner fences remain a separately reviewed next slice; no
+execution refactor or activation follows automatically. Production v3, default
 features, active replacement/recovery and all P4 exposure gates remain closed.
