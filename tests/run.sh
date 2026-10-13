@@ -21,6 +21,7 @@ python3 -m unittest -v \
   "$here/test_restore_final_old_driver.py" \
   "$here/test_restore_final_new_driver.py" \
   "$here/test_restore_final_history_driver.py" \
+  "$here/test_restore_ticket_new_driver.py" \
   "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \
   "$here/test_beta_acceptance_entry.py" \
