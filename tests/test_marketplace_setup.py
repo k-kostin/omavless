@@ -242,7 +242,10 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             metadata = json.loads((ROOT / "plugin" / filename).read_text())
             self.assertEqual(metadata["schemaVersion"], 1)
             self.assertEqual(metadata["version"], manifest["version"])
-            self.assertIn(set(metadata["packages"]), (set(), {"aarch64", "x86_64"}))
+            # An unpublished native-architecture candidate must not invent
+            # the other architecture's pins. release_fields refuses absent
+            # architectures; paired app/DNS coverage is checked below.
+            self.assertTrue(set(metadata["packages"]) <= {"aarch64", "x86_64"})
             for entry in metadata["packages"].values():
                 self.assertEqual(set(entry), {"sha256", "sourceCommit"})
                 self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
@@ -260,6 +263,11 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             return
         for arch in ("aarch64", "x86_64"):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
+            if arch not in records["runtime-release.json"]["packages"]:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                                 "release_unavailable\n")
+                continue
             self.assertEqual(result.returncode, 0)
             app = records["runtime-release.json"]["packages"][arch]
             dns = records["dns-release.json"]["packages"][arch]
