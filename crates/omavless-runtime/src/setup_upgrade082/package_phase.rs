@@ -835,7 +835,9 @@ mod tests {
             .enumerate()
         {
             let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../plugin")
+                // Developer fixed-pair controls retain the immutable public
+                // fix.3 record; mutable successor frontend pins are separate.
+                .join("../../tests/fixtures/setup-upgrade082-public")
                 .join(filename);
             let data: serde_json::Value =
                 serde_json::from_slice(&fs::read(source).unwrap()).unwrap();
