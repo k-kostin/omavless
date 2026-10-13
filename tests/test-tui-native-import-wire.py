@@ -37,7 +37,7 @@ LOCALES = json.loads((Path(__file__).resolve().parents[1] /
                      "crates/omavless-tui/locales.json").read_text())
 
 
-def terminal_text(output):
+def terminal_text(output, *, bordered=True):
     """Fixed 70x24 fixture projection, not a general terminal emulator.
 
     Ratatui paints word runs at absolute positions and reuses old cells. Raw
@@ -89,9 +89,10 @@ def terminal_text(output):
             col = min(69, col + 1)
         else:
             require(False, "unsupported fixture output control")
-    # Every selected 70x24 import frame has the same outer bordered block.
-    # Exclude only its two gutter cells so wrapped sentences join as text.
-    return " ".join("".join(line[1:-1]).strip() for line in cells)
+    # Import frames have two gutter cells; the ordinary Profiles footer is
+    # unbordered and must retain its edge columns. A main-screen assertion must
+    # not accidentally discard the first letter of its notice.
+    return " ".join("".join(line[1:-1] if bordered else line).strip() for line in cells)
 
 
 def require(condition, category):
@@ -336,9 +337,9 @@ def check(binary, locale, kind, fault):
                 drain()
             require(ready(), "native terminal phase not reached")
 
-        def text(key):
+        def text(key, *, bordered=True):
             phrase = LOCALES[key][locale]
-            return " ".join(phrase.split()) in " ".join(terminal_text(terminal_stream).split())
+            return " ".join(phrase.split()) in " ".join(terminal_text(terminal_stream, bordered=bordered).split())
 
         def settle_for(seconds):
             deadline = time.monotonic() + seconds
@@ -432,9 +433,14 @@ def check(binary, locale, kind, fault):
                             settle_for(0.15)
                             require(text("tui.import_title"), "Unknown modal remains open")
                             os.write(master, b"\x1b")
-                            wait(lambda: not text("tui.import_title"))
-                            # The closed footer may clip the long notice at70
-                            # columns; modal absence is the observed boundary.
+                            # Clearing the modal can arrive in an earlier PTY
+                            # chunk than painting the new footer. Earn both.
+                            wait(lambda: not text("tui.import_title") and
+                                 text("tui.import_unknown_footer", bordered=False))
+                            require(text("tui.import_unknown_footer", bordered=False),
+                                    "whole narrow Unknown footer with review/close keys")
+                            # The complete short footer is observed above;
+                            # ordinary keys cannot resurrect a new import.
                             for keys in (b"\x1b[B", b"c", b"\r", b"\r", b"1", b"2", b"3"):
                                 os.write(master, keys)
                                 settle_for(0.15)
@@ -491,6 +497,8 @@ if __name__ == "__main__":
             "fixed cell projection replacement")
     require("first second" in terminal_text("\x1b[2;2Hfirst\x1b[2;70H│\x1b[3;1H│second"),
             "fixed bordered wrap projection")
+    require("edge" in terminal_text("\x1b[2;1Hedge", bordered=False),
+            "ordinary footer retains edge columns")
     split = codecs.getincrementaldecoder("utf-8")("strict")
     encoded = "Сохранено".encode()
     require(split.decode(encoded[:1]) == "" and split.decode(encoded[1:]) == "Сохранено",
