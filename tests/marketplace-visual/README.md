@@ -122,3 +122,11 @@ by `tests/safe-input/`; these captures do not claim a saved import or live VPN.
 `reviewBundle LOCALE WIDTH EMPTY` opens the production count-only local-bundle
 confirmation with synthetic counts; `EMPTY=true` exercises the disabled Add
 state. This remains rendering evidence, not a successful persistent import.
+
+`reviewSubscriptions LOCALE KIND WIDTH` projects `loading`, `unavailable`,
+`empty` or `populated` through the production Subscriptions page, at 360/460
+pixels in EN/RU. Only the isolated read fixture's snapshot/failure flag changes;
+polling stays stopped and every runtime mutation still refuses. Inspect the
+loading/unavailable/confirmed-empty wording, the existing Refresh action and a
+populated adjacent state. This is rendering evidence, not a daemon read or
+subscription fetch; use `reviewCapture` and finish only this isolated instance.
