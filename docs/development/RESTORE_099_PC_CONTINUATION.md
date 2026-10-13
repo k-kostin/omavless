@@ -198,3 +198,18 @@ client readback both exited0. See
 Existing history remains audit DATA, not current recovery authority. Current
 ticket/complete-prefix recovery and user-facing integration remain separate.
 The independent ticket writer is not included in that installed source.
+
+## Committed existing-ticket recovery
+
+At combined source `d90553ca70c2258d4b2d0d2412499bc546758ee3`, native #761 and
+fixed driver #765 earned one installed fresh208 row: actual Committed closure
+and existing ticket, known Stop, freshly qualified ticket recovery, unchanged
+NEW and history0 containing that exact ticket, then ordinary owned-Off/reopen.
+Original driver and independent readback exited0. See
+[exact installed evidence](../testing/RESTORE_099_PC_TICKET_NEW_2026-10-13.md).
+The private matched package pair includes no frontend; this is agent-operated
+x86_64 VM evidence, not public distribution or whole Restore acceptance.
+Earlier unsupported-ticket prose remains the historical boundary of its
+earlier source. Complete-present/later disposition/history-only and torn-prefix
+recovery still require their own gates. Original201 was not read or retried;
+accepted207 was normally stopped after readback with all data retained.

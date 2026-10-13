@@ -597,3 +597,14 @@ default CLI harness initially guessed the wrong fixed error category; its
 original failure is preserved and corrected exact-error/read-block controls
 passed. Test ELFs remained unchanged throughout original/self-reexec runs.
 No Source result grants packet, timed VM, product or whole Restore acceptance.
+
+The finite existing-ticket row subsequently completed at installed combined
+`d90553ca70c2258d4b2d0d2412499bc546758ee3`, including the separately reviewed
+fixed208 driver: actual empty NEW Backup, ordinary synthetic OLD, genuine
+Committed ticket cut, known Stop and fresh ticket recovery to unchanged NEW,
+history0 and ordinary owned-Off/reopen. Original driver and separate independent
+readback exited0. See [exact installed evidence](../testing/RESTORE_099_PC_TICKET_NEW_2026-10-13.md).
+This accepts only that no-prior-history ticket shape; Complete-present, later
+disposition/history-only, torn-state and whole user-facing product gates remain
+separate. Old207 data/evidence and failed201 were preserved; no publication or
+main update follows from this row.
