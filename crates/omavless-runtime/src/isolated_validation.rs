@@ -22,6 +22,9 @@ const BUNDLES: [&str; 3] = [
 #[cfg(any(test, feature = "p4-candidate-preparation"))]
 pub mod candidate_capture;
 
+#[cfg(any(test, feature = "p4-candidate-preparation"))]
+mod candidate_validation;
+
 /// Fixed classifications only: never retain a path, parser fragment or stderr.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidationError {
