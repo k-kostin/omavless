@@ -696,3 +696,13 @@ retains the original graph only while its process lives; it does not promise
 descriptor survival or a permanent restriction on a later ordinary owner. The
 failed consumer never calls ordinary start before its consuming release. No
 package or VM acceptance follows from this preparation.
+
+The earliest all-three Complete row subsequently completed at installed
+`82f8e02063e5f7570ad649d8b047adf18de6537c`, including reviewed fixed209 #769:
+genuine Committed Complete cut, known Stop, fresh authenticated NEW qualification
+and SAME existing Complete inode renamed to history0, then ordinary owned-Off.
+Original driver and separate independent NEW/history/Off/reopen readback exited0.
+See [exact installed evidence](../testing/RESTORE_099_PC_COMPLETE_NEW_2026-10-13.md).
+This does not accept later absent-record shapes, history-only/torn-prefix or
+whole product/distribution gates. Earlier208 data/evidence and failed201 were
+preserved; no main or publication action follows.

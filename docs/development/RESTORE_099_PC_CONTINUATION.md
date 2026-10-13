@@ -213,3 +213,17 @@ Earlier unsupported-ticket prose remains the historical boundary of its
 earlier source. Complete-present/later disposition/history-only and torn-prefix
 recovery still require their own gates. Original201 was not read or retried;
 accepted207 was normally stopped after readback with all data retained.
+
+## Existing all-three Complete recovery
+
+At combined source `82f8e02063e5f7570ad649d8b047adf18de6537c`, reviewed native
+#767 and fixed209 #769 earned genuine Committed closure/ticket/Complete cut,
+known Stop, fresh Complete recovery and SAME existing Complete inode renamed
+to history0, with unchanged NEW/boundaries and ordinary owned-Off/reopen.
+Original driver and separate independent readback exited0. See
+[exact installed evidence](../testing/RESTORE_099_PC_COMPLETE_NEW_2026-10-13.md).
+This accepts only the earliest all-three/no-prior-history row; later absent-
+record shapes and fault/crash/product/distribution gates remain separate.
+Accepted208 was normally stopped after readback with data retained; original201
+was not read or retried. The private CLI pair includes no frontend; main and
+publication remain unchanged.
