@@ -1,5 +1,11 @@
 # P4 ordinary real default send-keepalive proposal
 
+Current ordinary outcome: the original BUILD/EXECUTE gate passed at exact
+`82cc734a3ccc19eb987d54081474a2fe3a10732b`; see the
+[accepted row and preserved preparation failures](P4_DEFAULT_SEND_KEEPALIVE_2026-10-13.md).
+The source-only proposal below retains its earlier checkpoint, not a claim that
+this later docs head ran the engine. Race/provider/product/VM gates remain open.
+
 SOURCE only, from docs-only #744 checkpoint
 `89c74e6e07331bd428315e46ccd094f323c8493c`. The accepted rejection/exhaustion
 rows belong to exact [e674 ordinary evidence](P4_DEFAULT_ORDINARY_V4_2026-10-13.md),
