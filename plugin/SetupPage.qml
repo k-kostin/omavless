@@ -22,6 +22,7 @@ Item {
   property bool launching: false
   property bool terminalOpened: false
   property string launchAction: "install"
+  property bool nativeEffectBlocked: false
   readonly property bool busy: probe.running || launching || startApp.running
   readonly property string script: String(Qt.resolvedUrl("setup-runtime.sh")).replace(/^file:\/\//, "")
   readonly property var focusTargets: requirements.focusTargets.concat([closeButton])
@@ -36,6 +37,7 @@ Item {
     var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
     if (action === "update-help") { guide(); return }
+    if (nativeEffectBlocked) return
     if (action === "start-app") { startApp.running = true; return }
     launchAction = action
     launching = true
@@ -97,7 +99,7 @@ Item {
     RequiredComponents {
       id: requirements
       Layout.fillWidth: true
-      locale: setup.locale; facts: setup.facts; busy: setup.busy; terminalOpened: setup.terminalOpened
+      locale: setup.locale; facts: setup.facts; busy: setup.busy || setup.nativeEffectBlocked; terminalOpened: setup.terminalOpened
       onInstallRequested: function(action) { setup.install(action) }
       onCheckRequested: setup.check()
       onTerminalClosed: setup.acknowledgeTerminalClosed()

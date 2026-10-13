@@ -19,7 +19,7 @@ test('stopped app offers only explicit native start, never reinstall or terminal
   for(const locale of ['en','ru']) for(const key of ['start_app','needs_runtime_start']) assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
   const vm=require('node:vm');
   const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
-  const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,startApp:{running:false},launch:{running:false}});
+  const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,startApp:{running:false},launch:{running:false}});
   vm.runInContext(page.slice(start,end),c);
   c.install('start-app');assert(c.startApp.running);assert(!c.launch.running);assert(!c.launching);
   c.startApp.running=false;c.busy=true;c.install('start-app');assert(!c.startApp.running);
@@ -138,7 +138,7 @@ test('installed programs disappear from the required-components card; readiness 
 test('real install handler rejects stale target, arbitrary action and repeated launch', () => {
   const vm=require('node:vm');
   const start=page.indexOf('  function install(action)'), end=page.indexOf('\n  }',start)+4;
-  const c=vm.createContext({SetupState:state,facts:{state:'needs_companion',coreInstalled:false},busy:false,launching:false,terminalOpened:false,launch:{running:false}});
+  const c=vm.createContext({SetupState:state,facts:{state:'needs_companion',coreInstalled:false},busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,launch:{running:false}});
   vm.runInContext(page.slice(start,end),c);
   c.install('install');assert(!c.launch.running);
   c.install('shell');assert(!c.launch.running);
@@ -149,6 +149,23 @@ test('real install handler rejects stale target, arbitrary action and repeated l
   c.terminalOpened=false;c.facts={state:'needs_activation',coreInstalled:true};c.install('install');assert(c.launch.running);
   c.launching=false;c.launch.running=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
   c.launching=false;c.launch.running=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
+});
+test('setup effect handler blocks unresolved native work across both card locations', () => {
+  const vm=require('node:vm');
+  const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+  for(const action of ['resume-dns','start-app']) {
+    const c=vm.createContext({SetupState:state,facts:{state:action==='resume-dns'?'needs_dns_setup':'needs_runtime_start',coreInstalled:true},
+      busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:true,
+      launch:{running:false},startApp:{running:false}});
+    vm.runInContext(page.slice(start,end),c);
+    c.install(action); assert(!c.launch.running); assert(!c.startApp.running);
+    c.nativeEffectBlocked=false; c.install(action);
+    assert.equal(action==='resume-dns'?c.launch.running:c.startApp.running,true);
+  }
+  assert(panel.includes('nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null'));
+  assert(panel.includes('|| vless.nativeOutcomeUnknown || vless.nativeQuitting'));
+  assert(panel.includes('busy: setupPage.busy || setupPage.nativeEffectBlocked'));
+  assert(page.includes('busy: setup.busy || setup.nativeEffectBlocked'));
 });
 test('partial DNS entry is explicit and never substitutes for generic broker recovery', () => {
   for (const present of [false,true]) {

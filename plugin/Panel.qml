@@ -2031,6 +2031,8 @@ Panel {
           width: Math.max(0, setupFlick.width - root.scrollGutter)
           locale: root.uiLocale
           panelOpen: root.opened
+          nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null
+            || vless.nativeOutcomeUnknown || vless.nativeQuitting
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
           onCloseRequested: root.close()
         }
@@ -2673,7 +2675,7 @@ Panel {
             id: nativeRequiredComponents
             Layout.fillWidth: true
             visible: root.page === "main" && setupPage.needsAttention
-            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; terminalOpened: setupPage.terminalOpened
+            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy || setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
             onInstallRequested: function(action) { setupPage.install(action) }
             onCheckRequested: setupPage.check()
             onTerminalClosed: setupPage.acknowledgeTerminalClosed()

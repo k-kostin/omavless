@@ -132,8 +132,9 @@ broker_access_for_user() {
   [[ -S "$socket" && ! -L "$socket" && -w "$socket"
      && $(stat -c %u -- "$socket") == 0 ]]
 }
-# systemctl start on a simple unit may return before its control socket is
-# ready. Observe only fixed facts after the original successful start; never
+# The release unit uses Type=notify for initial readiness. Later fixed status
+# queries may still be transiently unavailable. Observe only fixed facts after
+# the original successful start; never
 # repeat enrollment/start or turn a readiness timeout into cleanup/recovery.
 # The five-second window also retains each existing bounded query's timeout.
 wait_broker_fact() {
