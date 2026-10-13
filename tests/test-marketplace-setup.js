@@ -126,7 +126,7 @@ test('installed programs disappear from the required-components card; readiness 
   assert(card.includes('visible: card.appMissing; text: card.tr("app_missing")'));
   assert(card.includes('visible: card.coreMissing; text: card.tr("core_missing")'));
   assert(card.includes('visible: SetupState.needsAttention(facts)'));
-  assert(card.includes('[installButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
+  assert(card.includes('[installButton, updateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
   assert(card.includes('visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"'));
   assert(card.includes('RowLayout {\n        Layout.fillWidth: true\n        spacing: Style.space(8)\n        visible: card.facts.state'));
   assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));
@@ -193,28 +193,43 @@ test('Later closes only the panel and never marks onboarding complete or hides r
   assert(page.includes('onClicked: setup.closeRequested()'));
   assert(!/completeOnboarding|onboardingComplete|settings\.[\w]+\s*=/.test(page));
 });
-test('prior stable app is explicitly outdated, never fresh or an automatic update', () => {
+test('prior stable upgrade is explicit and help remains navigational', () => {
   const vm=require('node:vm');
   for(const present of [false,true]) {
     const facts=state.inventory('needs_update\t'+(present?'present':'missing')+'\n',0);
     assert.equal(facts.state,'needs_update');
-    assert(!state.appMissing(facts));assert(!state.canInstall(facts.state));
-    assert.equal(state.missingAction(facts),'update-help');
+    assert(!state.appMissing(facts));assert(state.canInstall(facts.state));
+    assert.equal(state.missingAction(facts),'upgrade');
+    assert(state.canRunAction(facts,'upgrade'));
     assert(state.canRunAction(facts,'update-help'));
-    for(const action of ['install','upgrade','start-app','restore-enrollment']) assert(!state.canRunAction(facts,action));
+    for(const action of ['install','shell','start-app','restore-enrollment']) assert(!state.canRunAction(facts,action));
     const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
     let guides=0;
     const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,
-      launch:{running:false},startApp:{running:false},guide(){guides++}});
+      nativeEffectBlocked:false,launch:{running:false},startApp:{running:false},guide(){guides++}});
     vm.runInContext(page.slice(start,end),c);c.install('update-help');
     assert.equal(guides,1);assert(!c.launch.running);assert(!c.startApp.running);
-    c.install('upgrade');assert.equal(guides,1);
+    c.nativeEffectBlocked=true;c.install('upgrade');assert(!c.launch.running);
+    c.install('update-help');assert.equal(guides,2);
+    c.nativeEffectBlocked=false;c.install('upgrade');assert(c.launch.running);
+    assert.equal(c.launchAction,'upgrade');assert(!c.startApp.running);
+    c.launch.running=false;c.install('upgrade');assert(!c.launch.running);
   }
-  for(const locale of ['en','ru'])for(const key of ['update_title','update_help','needs_update']) {
+  for(const locale of ['en','ru'])for(const key of ['update_title','update_help','update_components','needs_update']) {
     const text=i18n.translate('setup.'+key,locale,{});
     assert(text.length>0&&text.length<=512&&!text.includes('Missing translation'));
   }
   assert(card.includes('id: updateHelpButton'));
   assert(card.includes('onClicked: card.installRequested("update-help")'));
+  assert(card.includes('onClicked: card.installRequested("upgrade")'));
+  for(const busy of [false,true])for(const effectBlocked of [false,true])for(const terminalOpened of [false,true]) {
+    const context={visible:true,card:{busy,effectBlocked,effectBusy:busy||effectBlocked,terminalOpened}};
+    const update=card.slice(card.indexOf('id: updateButton')).match(/enabled: ([^\n]+)/)[1];
+    const help=card.slice(card.indexOf('id: updateHelpButton')).match(/enabled: ([^\n]+)/)[1];
+    assert.equal(vm.runInNewContext(update,context),!busy&&!effectBlocked&&!terminalOpened);
+    assert.equal(vm.runInNewContext(help,context),!busy&&!terminalOpened);
+  }
+  for(const value of ['ready','needs_package','needs_activation','needs_dns_setup','needs_attention'])
+    assert(!state.canRunAction({state:value,coreInstalled:true},'upgrade'));
 });
 console.log(`${count} marketplace setup contracts passed`);
