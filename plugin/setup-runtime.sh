@@ -23,7 +23,7 @@ setup_step() {
   local stage="$1"
   shift
   case "$stage" in
-    setup-state|package-install|unit-reload|private-settings|store-validation|dns-pair-status|dns-preconditions|dns-consent|dns-enrollment|dns-broker-start|dns-broker-readiness|dns-socket-access|dns-template|dns-selection|dns-selection-confirmation|broker-enrollment-check|application-preconditions|application-activation|runtime-enablement|completion) ;;
+    runtime-directory|setup-lock|temporary-directory|setup-state|package-install|unit-reload|private-settings|private-initialization|store-validation|dns-pair-status|dns-preconditions|dns-consent|dns-enrollment|dns-broker-start|dns-broker-readiness|dns-socket-access|dns-template|dns-selection|dns-selection-confirmation|broker-enrollment-check|application-preconditions|application-activation|runtime-enablement|completion) ;;
     *) return 2 ;;
   esac
   if "$@"; then return 0; fi
@@ -36,6 +36,11 @@ setup_step() {
 store_compatible() {
   native store-compatibility 2>/dev/null \
     | jq -e '.schemaVersion == 1 and .compatible == true' >/dev/null
+}
+setup_runtime_directory_safe() {
+  local runtime="$1"
+  [[ "$runtime" == "/run/user/$(id -u)" && -d "$runtime" && ! -L "$runtime" ]] \
+    && [[ $(stat -c '%u:%a' "$runtime") == "$(id -u):700" ]]
 }
 native_present() { [[ -f /usr/bin/omavless && -x /usr/bin/omavless && ! -L /usr/bin/omavless ]]; }
 native_target() { timeout 8 /usr/bin/omavless plugin target 2>/dev/null; }
@@ -361,7 +366,7 @@ prepare_private_store() {
   # Match the canonical Rust store, which does not use XDG_CONFIG_HOME.
   config="$HOME/.config/omavless/profiles.json"
   if [[ ! -e "$config" && ! -L "$config" ]]; then
-    native setup initialize >/dev/null 2>&1 || return 1
+    setup_step private-initialization native_quiet setup initialize || return 1
   fi
   # Existing data is validated by the canonical Rust owner; never parsed,
   # repaired, reset or overwritten by shell. Connected/enabled legacy owners,
@@ -441,11 +446,12 @@ setup_main() {
   # One transaction per user runtime directory. A stale lock after a killed
   # terminal is deliberately not removed automatically on the next attempt.
   local runtime=${XDG_RUNTIME_DIR:-} setup_lock setup_temp
-  [[ "$runtime" == "/run/user/$(id -u)" && -d "$runtime" && ! -L "$runtime" ]] || return 1
-  [[ $(stat -c '%u:%a' "$runtime") == "$(id -u):700" ]] || return 1
+  setup_step runtime-directory setup_runtime_directory_safe "$runtime" || return 1
   setup_lock="$runtime/omavless-first-run.lock"
-  mkdir -- "$setup_lock" 2>/dev/null || return 1
-  setup_temp=$(mktemp -d "$runtime/omavless-first-run.XXXXXX") || { rmdir -- "$setup_lock"; return 1; }
+  create_setup_lock() { mkdir -- "$setup_lock" 2>/dev/null; }
+  create_setup_temp() { setup_temp=$(mktemp -d "$runtime/omavless-first-run.XXXXXX"); }
+  setup_step setup-lock create_setup_lock || return 1
+  setup_step temporary-directory create_setup_temp || { rmdir -- "$setup_lock"; return 1; }
   # A subshell keeps the cleanup trap and private download scope local.
   (
     trap 'rm -f -- "$setup_temp/omavless-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-${package_version}-1-x86_64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-x86_64.pkg.tar.zst"; rmdir -- "$setup_temp" "$setup_lock"' EXIT

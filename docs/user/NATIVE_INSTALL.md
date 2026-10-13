@@ -51,6 +51,63 @@ The matching frontend verifies both package hashes and source identities before
 normal installation. Earlier validation users must use the guarded update path;
 the unchanged Arch version may show **reinstalling**, not an automatic update.
 
+### When managed setup stops
+
+Successful pacman installation proves that the packages were installed, not that
+DNS enrollment, managed-pair selection or application activation finished.
+Typing `DNS` consents to one administrative step; it is not a completion receipt.
+If you already made another attempt, inspect the **current** state rather than
+assuming the original attempt is still the latest one. Finish or cancel any open
+setup/OS prompts before checking again; do not reset data to recreate an error.
+
+Setup diagnostics may report `Setup stopped at stage: CODE`. The fixed code
+identifies the failed boundary, not its underlying cause or permission to retry:
+
+| Stage | Meaning |
+| --- | --- |
+| `runtime-directory`, `setup-lock`, `temporary-directory` | Setup could not safely prepare its local transaction. An existing lock is not automatically disposable. |
+| `private-initialization`, `store-validation` | Private settings could not be prepared or validated. Existing profiles are not reset. |
+| `dns-enrollment`, `dns-broker-start` | The separate administrator action did not report success. Its effects must be inspected before another attempt. |
+| `dns-broker-readiness`, `dns-socket-access` | Required service/socket facts were not established after the preceding action. |
+| `dns-template`, `dns-selection` | The installed pair could not be prepared/selected. A custom template is not silently rewritten. |
+| `application-activation`, `runtime-enablement`, `completion` | Application activation, startup enablement or final readiness was not confirmed. |
+
+Older setup versions show only a generic failure. That warning by itself does
+not establish that an authorization dialog is pending. Keep the terminal's
+stage/message and inspect package versions, plugin commit, `omavless plugin target`,
+`omavless dns-pair status` and the two services' state. These reads do not enroll
+DNS or connect a VPN; do not publish private files or raw journals.
+
+Use **Check again** to obtain the appropriate remaining action. An installed
+application awaiting activation is not a missing package. If this account is
+already enrolled and the existing broker is idle and accessible, finishing
+selection uses explicit `SELECT` consent without enrolling it again. A stopped
+existing broker and revoked enrollment have the separate actions described above.
+An unavailable/unknown state needs diagnosis, not repeated DNS enrollment,
+forced activation, ownership edits or deleting a socket/lock to bypass a check.
+
+### Updating is not starting over
+
+Updating the plugin checkout alone does not replace either native package.
+When native replacement is actually required, preserve private data and use
+the guarded **matching app/DNS pair** update route; the historical one-package
+0.8.2 commands below are not a complete 0.9.8 procedure. The version `0.9.8-1`
+alone cannot distinguish corrected immutable deliveries: check their source and
+archive hashes. Reinstalling the same packages does not repair an unknown
+ownership or enrollment state and must not repeat first-use activation.
+
+Removing the widget with `omarchy plugin remove kdk.omavless` likewise leaves
+`omavless`, `omavless-dns`, the bundled core, broker enrollment and private data
+installed. The removal observer requests native shutdown, but does not disable
+the system DNS-broker service or uninstall packages. Do not infer successful
+shutdown from disappearance of the icon. Full removal is a separate administrator
+procedure: verified native shutdown, clean broker stop/disable and empty-state
+checks, guarded enrollment revocation while the broker binary still exists,
+then package removal. The [managed-DNS lifecycle contract](../development/DNS_RELEASE_DISTRIBUTION.md#replacement-removal-and-firewall)
+retains those safety requirements; plugin removal alone is not full uninstall.
+Keep profiles by default. Never delete unknown broker state or bypass ALPM guards
+to make an update/removal succeed.
+
 ## Released 0.8.2 route and historical compatibility
 
 This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-only

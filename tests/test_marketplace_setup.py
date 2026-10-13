@@ -4,11 +4,16 @@
 No test invokes pacman, sudo, systemd, a network client, or a private store.
 """
 import hashlib
+import errno
 import json
+import os
 from pathlib import Path
+import pty
+import select
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -59,6 +64,86 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
         return subprocess.run(["/bin/bash", "-c", prefix + code, "test", str(SCRIPT)],
                               env=self.env, input=input, text=True, capture_output=True,
                               timeout=10, check=False)
+
+    def run_terminal(self, code, input="INSTALL\nSELECT\n"):
+        """Real shell/consent/cleanup, fixed synthetic boundaries; no host effects."""
+        if os.geteuid() == 0:
+            self.skipTest("interactive setup deliberately refuses root")
+        master, slave = pty.openpty()
+        env = {**self.env, "XDG_RUNTIME_DIR": str(self.directory)}
+        process = None
+        output = bytearray()
+        try:
+            process = subprocess.Popen(
+                ["/bin/bash", "-c", 'source "$1"\n' + code, "test", str(SCRIPT)],
+                env=env, stdin=slave, stdout=slave, stderr=slave,
+            )
+            os.close(slave)
+            slave = -1
+            os.write(master, input.encode())
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline:
+                readable, _, _ = select.select([master], [], [], 0.05)
+                if readable:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError as error:
+                        if error.errno == errno.EIO:
+                            break
+                        raise
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                    self.assertLessEqual(len(output), 16384, "bounded synthetic output")
+                elif process.poll() is not None:
+                    break
+            returncode = process.wait(timeout=1)
+            return returncode, output.decode().replace("\r\n", "\n")
+        finally:
+            if process is not None and process.poll() is None:
+                # Only this fixture-owned shell; no resource-owning real commands.
+                process.kill()
+                process.wait(timeout=2)
+            os.close(master)
+            if slave != -1:
+                os.close(slave)
+
+    def terminal_fixture(self):
+        store = self.directory / ".config/omavless/profiles.json"
+        store.parent.mkdir(parents=True, exist_ok=True)
+        store.write_text("synthetic existing profile data")
+        return '''
+setup_status() { echo needs_activation; }
+setup_runtime_directory_safe() { return 0; }
+native_target() { if [[ -f "$TEST_DIR/activated" ]]; then echo rust; else echo legacy; fi; }
+pair_installed() { return 0; }
+user_runtime_stopped() { return 0; }
+no_managed_tun() { return 0; }
+system_broker_idle() { return 0; }
+system_broker_available() { return 0; }
+broker_access_for_user() { return 0; }
+pair_selection_status() {
+  if [[ -f "$TEST_DIR/selected" ]]; then
+    echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'
+  else
+    echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'
+  fi
+}
+enroll_uid() { echo UNEXPECTED_ENROLL >> "$TEST_DIR/trace"; return 99; }
+start_broker() { echo UNEXPECTED_START >> "$TEST_DIR/trace"; return 99; }
+package_install() { echo UNEXPECTED_INSTALL >> "$TEST_DIR/trace"; return 99; }
+enable_runtime() { echo enable >> "$TEST_DIR/trace"; }
+native() {
+  echo "$*" >> "$TEST_DIR/trace"
+  case "$*" in
+    store-compatibility) echo '{"schemaVersion":1,"compatible":true}' ;;
+    'dns-pair prepare-template') : ;;
+    'dns-pair select') touch "$TEST_DIR/selected" ;;
+    'cutover activate') touch "$TEST_DIR/activated" ;;
+    *) return 99 ;;
+  esac
+}
+'''
 
     def pins(self, *, app=None, dns=None, source=SOURCE, version=VERSION):
         entry = lambda digest: {"sha256": digest, "sourceCommit": source}
@@ -717,6 +802,110 @@ finish_pair_selection
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "needs_activation" + ("\tmissing" if command == "components" else "") + "\n")
             self.assertEqual(result.stderr, "")
+
+    def test_terminal_existing_enrollment_refusal_has_exact_stage_and_no_reenroll(self):
+        for locale in ("en", "ru"):
+            with self.subTest(locale=locale):
+                for name in ("trace", "selected", "activated"):
+                    (self.directory / name).unlink(missing_ok=True)
+                fixture = self.terminal_fixture()
+                # Keep every native boundary synthetic, including the failing one.
+                fixture = fixture.replace(
+                    "'cutover activate') touch \"$TEST_DIR/activated\"",
+                    "'cutover activate') echo synthetic-private-error >&2; return 42",
+                )
+                code, output = self.run_terminal(fixture + f"\nsetup_main install {locale}")
+                self.assertEqual(code, 1)
+                expected = ("Setup stopped at stage: " if locale == "en"
+                            else "Настройка остановлена на этапе: ")
+                self.assertEqual(output.count(expected), 1)
+                self.assertIn(expected + "application-activation.", output)
+                self.assertNotIn("synthetic-private-error", output)
+                self.assertNotIn("Do not repeat an unresolved authorization", output)
+                self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+                    "store-compatibility", "dns-pair prepare-template", "dns-pair select",
+                    "store-compatibility", "cutover activate",
+                ])
+                self.assertEqual((self.directory / ".config/omavless/profiles.json").read_text(),
+                                 "synthetic existing profile data")
+                self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+                self.assertEqual(list(self.directory.glob("omavless-first-run.*")), [])
+
+    def test_terminal_cancelled_selection_never_reenrolls_or_activates(self):
+        code, output = self.run_terminal(self.terminal_fixture() + "\nsetup_main install en",
+                                         "INSTALL\n\n")
+        self.assertEqual(code, 1)
+        self.assertIn("Setup stopped at stage: dns-selection-confirmation.", output)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["store-compatibility"])
+        self.assertFalse((self.directory / "selected").exists())
+        self.assertFalse((self.directory / "activated").exists())
+
+    def test_terminal_resume_success_preserves_data_and_never_reenrolls(self):
+        for selected in (False, True):
+            with self.subTest(already_selected=selected):
+                for name in ("trace", "selected", "activated"):
+                    (self.directory / name).unlink(missing_ok=True)
+                fixture = self.terminal_fixture() + '''
+setup_status() {
+  if [[ -f "$TEST_DIR/activated" ]]; then echo ready; else echo needs_activation; fi
+}
+setup_main install en
+'''
+                if selected:
+                    (self.directory / "selected").touch()
+                code, output = self.run_terminal(fixture,
+                                                 "INSTALL\n" if selected else "INSTALL\nSELECT\n")
+                self.assertEqual(code, 0)
+                self.assertIn("OmaVLESS is ready.", output)
+                self.assertNotIn("Setup stopped", output)
+                self.assertNotIn("Setup did not finish", output)
+                expected = ["store-compatibility"]
+                if not selected:
+                    expected += ["dns-pair prepare-template", "dns-pair select"]
+                expected += ["store-compatibility", "cutover activate", "enable"]
+                self.assertEqual((self.directory / "trace").read_text().splitlines(), expected)
+                self.assertEqual((self.directory / ".config/omavless/profiles.json").read_text(),
+                                 "synthetic existing profile data")
+                self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+                self.assertEqual(list(self.directory.glob("omavless-first-run.*")), [])
+
+    def test_terminal_preparation_refusals_have_no_native_effects(self):
+        cases = (
+            ("runtime-directory", "setup_runtime_directory_safe() { return 1; }"),
+            ("setup-lock", ""),
+            ("temporary-directory", "mktemp() { return 1; }"),
+        )
+        for stage, override in cases:
+            with self.subTest(stage=stage):
+                (self.directory / "trace").unlink(missing_ok=True)
+                lock = self.directory / "omavless-first-run.lock"
+                if stage == "setup-lock":
+                    lock.mkdir()
+                code, output = self.run_terminal(self.terminal_fixture() + override
+                                                 + "\nsetup_main install en", "INSTALL\n")
+                self.assertEqual(code, 1)
+                self.assertIn(f"Setup stopped at stage: {stage}.", output)
+                self.assertFalse((self.directory / "trace").exists())
+                if stage == "setup-lock":
+                    self.assertTrue(lock.is_dir(), "existing lock must remain untouched")
+                    lock.rmdir()
+                else:
+                    self.assertFalse(lock.exists())
+
+    def test_private_initialization_failure_is_quiet_and_never_validates_or_selects(self):
+        result = self.run_shell('''
+native_target() { echo legacy; }
+native() {
+  echo "$*" >> "$TEST_DIR/trace"
+  echo synthetic-private-error >&2
+  return 1
+}
+setup_step private-settings prepare_private_store
+''')
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "Setup stopped at stage: private-initialization.\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["setup initialize"])
 
 
 if __name__ == "__main__":
