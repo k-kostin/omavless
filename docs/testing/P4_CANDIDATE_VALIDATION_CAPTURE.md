@@ -140,6 +140,10 @@ The final source recheck was clean at exact `fa0abec7`. No private paths, raw
 logs or external binary are committed. Later docs-only heads gain no new
 tested-code/engine credit. Original `036a` clippy `91724` remains failed `101`.
 
+The [private staging/completion-model successor](P4_CAPTURED_ISOLATED_VALIDATION.md)
+prepares exact captured-byte proofs and failure retention only; its installed
+execution entry remains closed and it grants no actual validator result.
+
 Resource-aware execution, original finite completion, scratch lifetime/rechecks,
 host-empty and owner fences remain a separately reviewed next slice; no
 execution refactor or activation follows automatically. Production v3, default
