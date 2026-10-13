@@ -445,23 +445,27 @@ upgrade_archive_safe() {
   actual=$(timeout 15 sha256sum -- "$1") || return 1
   [[ "${actual%% *}" == "$2" ]]
 }
-upgrade_download() {
-  local name="$1" hash="$2" cache="$3" actual
+upgrade_download() (
+  local name="$1" hash="$2" cache="$3" actual candidate
   if [[ -e "$cache/$name" || -L "$cache/$name" ]]; then
     upgrade_archive_safe "$cache/$name" "$hash"; return
   fi
+  candidate=$(mktemp "$cache/.download.XXXXXX") || return 1
+  trap 'rm -f -- "$candidate"' EXIT
   curl --disable --fail --silent --show-error --location --max-redirs 3 \
     --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
-    --max-filesize 268435456 --output "$setup_temp/$name" \
+    --max-filesize 268435456 --output "$candidate" \
     "https://github.com/k-kostin/omavless/releases/download/${release_tag}/${name}" 2>/dev/null || return 1
-  actual=$(sha256sum -- "$setup_temp/$name") || return 1
+  actual=$(sha256sum -- "$candidate") || return 1
   [[ "${actual%% *}" == "$hash" ]] || return 1
   # Never replace an artifact appearing during the download.
-  (set -o noclobber; > "$cache/$name") 2>/dev/null || return 1
-  chmod 600 -- "$cache/$name" || return 1
-  cp -- "$setup_temp/$name" "$cache/$name" || return 1
+  # Publish completed verified bytes atomically on the same filesystem. A
+  # failed download never reserves the final name. link() does not replace an
+  # artifact appearing concurrently; unlink our own temporary before recheck.
+  ln -- "$candidate" "$cache/$name" 2>/dev/null || return 1
+  rm -f -- "$candidate" || return 1
   upgrade_archive_safe "$cache/$name" "$hash"
-}
+)
 upgrade_package() {
   local version arch app_hash dns_hash source app_name dns_name cache receipt binary_hash actual predecessor metadata
   # Advisory public-byte inspection earns no private or replacement authority.
@@ -471,7 +475,7 @@ upgrade_package() {
     >/dev/null <<< "$predecessor" || return 1
   IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
   [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
-  cache="$HOME/.cache/omavless/upgrade082"
+  cache="$HOME/.cache/omavless/upgrade082/$app_hash.$dns_hash"
   # Reject unsafe existing parents before mkdir; never adopt or chmod them.
   local parent="$HOME/.cache"
   _omavless_predecessor_parents_safe "$parent/entry" "$(id -u)" || return 1
@@ -481,6 +485,10 @@ upgrade_package() {
   [[ -d "$HOME/.cache/omavless" && ! -L "$HOME/.cache/omavless" \
      && $(stat -c %u -- "$HOME/.cache/omavless") == "$(id -u)" ]] || return 1
   _omavless_predecessor_parents_safe "$HOME/.cache/omavless/entry" "$(id -u)" || return 1
+  if [[ ! -e "$HOME/.cache/omavless/upgrade082" && ! -L "$HOME/.cache/omavless/upgrade082" ]]; then
+    mkdir -m 700 -- "$HOME/.cache/omavless/upgrade082" || return 1
+  fi
+  upgrade_cache_safe "$HOME/.cache/omavless/upgrade082" || return 1
   if [[ ! -e "$cache" && ! -L "$cache" ]]; then mkdir -m 700 -- "$cache" || return 1; fi
   upgrade_cache_safe "$cache" || return 1
   app_name="omavless-${package_version}-1-${arch}.pkg.tar.zst"

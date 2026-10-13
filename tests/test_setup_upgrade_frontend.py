@@ -53,9 +53,11 @@ echo helper >> "$TEST_DIR/trace"
 touch "$TEST_DIR/upgraded"
 ''')
         self.helper_hash = hashlib.sha256(self.helper.read_bytes()).hexdigest()
-        self.cache = self.directory / ".cache/omavless/upgrade082"
+        expected_app = hashlib.sha256(b"synthetic app archive").hexdigest()
+        expected_dns = hashlib.sha256(b"synthetic dns archive").hexdigest()
+        self.cache = self.directory / ".cache/omavless/upgrade082" / (expected_app + "." + expected_dns)
         self.cache.mkdir(parents=True, mode=0o700)
-        for path in (self.directory / ".cache", self.cache.parent, self.cache):
+        for path in (self.directory / ".cache", self.cache.parent.parent, self.cache.parent, self.cache):
             path.chmod(0o700)
         self.app = self.cache / f"omavless-{VERSION}-1-x86_64.pkg.tar.zst"
         self.dns = self.cache / f"omavless-dns-{VERSION}-1-x86_64.pkg.tar.zst"
@@ -82,7 +84,7 @@ package_info() {{ case "$1" in *omavless-dns-*) echo 'omavless-dns {VERSION}-1';
 app_archive_identity() {{ [[ "$2" == '{SOURCE}' && "$3" == x86_64 && "$4" == '{VERSION}' ]]; }}
 dns_archive_identity() {{ [[ "$2" == '{SOURCE}' && "$3" == x86_64 ]]; }}
 bsdtar() {{
-  [[ "$1" == -xOf && "$2" == "$HOME/.cache/omavless/upgrade082/omavless-{VERSION}-1-x86_64.pkg.tar.zst" ]] || return 99
+  [[ "$1" == -xOf && "$2" == '{self.app}' ]] || return 99
   case "$3" in
     usr/share/doc/omavless/build-identity.txt) printf '%s\\n' 'binarySha256={self.helper_hash}';;
     usr/bin/omavless) /usr/bin/cat "$TEST_DIR/fixture-helper";;
@@ -172,6 +174,54 @@ setup_completion() {{ echo UNEXPECTED_COMPLETION_EFFECT >> "$TEST_DIR/trace"; re
         self.assertEqual(status, 1)
         self.assertEqual(self.trace(), [])
         self.assertFalse((self.directory / "upgraded").exists())
+
+    def test_interrupted_download_does_not_poison_the_final_cache_or_retry(self):
+        for path, name in ((self.app, "download-app"), (self.dns, "download-dns")):
+            shutil.copyfile(path, self.directory / name)
+            path.unlink()
+        partial = '''
+curl() {
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == --output ]]; then printf partial > "$2"; return 1; fi
+    shift
+  done
+  return 99
+}
+'''
+        status, _ = self.run_script(extra=partial)
+        self.assertEqual(status, 1)
+        self.assertFalse(self.app.exists())
+        self.assertFalse(self.dns.exists())
+        self.assertFalse(list(self.cache.glob(".download.*")))
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+        complete = '''
+curl() {
+  local output='' url="${@: -1}"
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == --output ]]; then output="$2"; break; fi
+    shift
+  done
+  case "$url" in
+    *'/omavless-dns-'*) /usr/bin/cp "$TEST_DIR/download-dns" "$output";;
+    *'/omavless-'*) /usr/bin/cp "$TEST_DIR/download-app" "$output";;
+    *) return 99;;
+  esac
+}
+'''
+        status, output = self.run_script(extra=complete)
+        self.assertEqual(status, 0, output)
+        self.assertEqual(self.trace(), ["helper", "reload"])
+        self.assertFalse(list(self.cache.glob(".download.*")))
+
+    def test_previous_delivery_cache_is_not_reused_or_overwritten(self):
+        obsolete = self.cache.parent / ("a" * 64 + "." + "c" * 64)
+        obsolete.mkdir(mode=0o700)
+        old_app = obsolete / self.app.name
+        old_app.write_bytes(b"different previously verified delivery")
+        old_app.chmod(0o600)
+        status, output = self.run_script()
+        self.assertEqual(status, 0, output)
+        self.assertEqual(old_app.read_bytes(), b"different previously verified delivery")
 
     def test_upgrade_downloads_only_fixed_urls_and_verifies_both_archives(self):
         for path, name in ((self.app, "download-app"), (self.dns, "download-dns")):

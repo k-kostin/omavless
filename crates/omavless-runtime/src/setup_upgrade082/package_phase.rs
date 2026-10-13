@@ -240,7 +240,8 @@ impl Pair {
     fn current(metadata: Metadata) -> Result<Self> {
         let uid = Uid::current().as_raw();
         let root = PathBuf::from(std::env::var_os("HOME").ok_or(Blocker::Environment)?)
-            .join(".cache/omavless/upgrade082");
+            .join(".cache/omavless/upgrade082")
+            .join(format!("{}.{}", metadata.app_sha, metadata.dns_sha));
         Self::at(root, uid, metadata)
     }
     fn at(root: PathBuf, uid: u32, metadata: Metadata) -> Result<Self> {
