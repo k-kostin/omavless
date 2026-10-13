@@ -1,4 +1,5 @@
 """No package build/install, root action, host systemd query or real DNS input."""
+import contextlib
 import hashlib
 import importlib.util
 import io
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -31,6 +33,67 @@ EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFile
 
 
 class PackageTests(unittest.TestCase):
+    def core_build_invocation(self, flavor):
+        """Reach the real producer's build call; never invoke a compiler."""
+        class CoreBuildReached(Exception):
+            pass
+
+        calls = []
+
+        def export(_repository, _revision, destination, _diagnostics=False):
+            destination.mkdir()
+            if destination.name == "mihomo":
+                (destination / "vendor").mkdir()
+                (destination / "vendor/modules.txt").write_text("synthetic vendor fixture")
+
+        def run(arguments, **kwargs):
+            if "build" in arguments:
+                calls.append((arguments, kwargs))
+                raise CoreBuildReached
+            if kwargs.get("output"):
+                kwargs["output"].write_bytes(b"synthetic test receipt\n")
+
+        with contextlib.ExitStack() as stack:
+            for name, value in (
+                ("export_git", export), ("command", run),
+                ("git_value", lambda _repo, *args: "a" * 40 if args == ("rev-parse", "HEAD") else ""),
+                ("reviewed_go", lambda *_args: "go version go1.26.8 linux/amd64"),
+                ("qualified_tmpdir", lambda: str(self.root)),
+                ("conditional_tests_completed", lambda _raw: None),
+                ("tests_completed", lambda *_args: None),
+            ):
+                stack.enter_context(mock.patch.object(build_pair, name, side_effect=value))
+            stack.enter_context(mock.patch.object(build_pair.os, "uname",
+                return_value=types.SimpleNamespace(sysname="Linux", machine="x86_64")))
+            stack.enter_context(mock.patch.object(build_pair.sys, "stderr", io.StringIO()))
+            with self.assertRaises(CoreBuildReached):
+                build_pair.build(self.root, self.root, "/reviewed/go", "x86_64",
+                                 self.root / ("output-" + flavor), flavor)
+        self.assertEqual(len(calls), 1)
+        return calls[0]
+
+    def test_normal_release_core_embeds_pinned_upstream_version(self):
+        arguments, options = self.core_build_invocation("release")
+        self.assertEqual(arguments[:5], ["/reviewed/go", "build", "-mod=vendor",
+                                        "-tags=with_gvisor", "-trimpath"])
+        self.assertIn("-ldflags=-s -w -X github.com/metacubex/mihomo/constant.Version=v1.19.31",
+                      arguments)
+        self.assertNotIn("-buildvcs=false", arguments)
+        self.assertEqual(arguments[-1], ".")
+        self.assertEqual(options["cwd"].name, "mihomo")
+        self.assertEqual(options["env"]["CGO_ENABLED"], "0")
+        self.assertEqual(options["env"]["GOPROXY"], "off")
+
+    def test_experimental_and_closed_qualified_core_commands_remain_unchanged(self):
+        for flavor in ("experimental", "release-close", "release-close-k1"):
+            with self.subTest(flavor=flavor):
+                arguments, _options = self.core_build_invocation(flavor)
+                self.assertIn("-ldflags=-s -w", arguments)
+                self.assertFalse(any("constant.Version=" in arg for arg in arguments))
+                self.assertEqual("-buildvcs=false" in arguments, flavor != "experimental")
+                tags = "with_gvisor,omavless_k1_device" if flavor == "release-close-k1" else "with_gvisor"
+                self.assertIn("-tags=" + tags, arguments)
+
     def test_four_family_requires_actual_device_test_not_zero_case_metadata(self):
         package = next(iter(build_pair.DEVICE_TESTS))
         name = next(iter(build_pair.DEVICE_TESTS[package]))

@@ -19,6 +19,18 @@ broker receipt, mismatched ELF architecture, source, patch, Go/toolchain,
 license, symlink, checksum or occupied/unsafe destination. The staged
 `PKGBUILD` has only fixed local inputs and exact SHA-256 pins; `makepkg` is a
 separate ordinary-user action after review.
+The ordinary `release` producer embeds Mihomo's pinned upstream version
+`v1.19.31` in `github.com/metacubex/mihomo/constant.Version`, following the
+[upstream linker variable](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/Makefile).
+That exact commit is the upstream `v1.19.31` tag; without the linker value,
+[the source default](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/constant/version.go)
+reports `1.10.0`. This is core version metadata, not a claim of runtime health,
+an OmaVLESS product version, or upstream endorsement of the local patches.
+No wall-clock build time is injected. Existing `experimental`, `release-close`
+and `release-close-k1` recipes, patches, tags and ABI receipts stay unchanged;
+their previously recorded qualification is not transferred to newly built bytes.
+The corrected ordinary release must be rebuilt and inspected, and its installed
+`mihomo -v`/desktop setup facts checked before new package hashes are selected.
 The native CI builder explicitly sets `PKGEXT=.pkg.tar.zst` on both
 architectures and rejects a different output suffix. Arch Linux ARM's
 default `.pkg.tar.xz` must not be silently renamed or published as the
