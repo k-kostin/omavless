@@ -185,3 +185,16 @@ corrected without changing production behavior. A subsequent whole wrapper's
 SIGTERM143 remains incomplete despite separately successful missing-union and
 parity continuations; see exact source/outcome boundaries in the evidence.
 Main/beta/RC and publication remain unchanged.
+
+## Recovery preserving genuine prior history
+
+At integrated source `578387e92923657e451ded762fc66880c8b43157`, fresh207 first
+earned a genuine normal completed Restore/history0, then a known ordinary
+restart and newer disconnected Desired. A second real committed-retirement
+cut/fresh final-NEW recovery appended history1 while preserving the original
+history0 FD/bytes/metadata/xattrs. Driver and independent Off/NEW/two-history/
+client readback both exited0. See
+[the exact installed evidence](../testing/RESTORE_099_PC_PRIOR_HISTORY_2026-10-13.md).
+Existing history remains audit DATA, not current recovery authority. Current
+ticket/complete-prefix recovery and user-facing integration remain separate.
+The independent ticket writer is not included in that installed source.

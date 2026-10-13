@@ -510,3 +510,12 @@ default-TUI non-test compilation, formatting/diff checks and normal755 Python
 controls (2 skipped) plus JS/QML passed. Each original test ELF stayed unchanged
 through its runs. These counts are SOURCE evidence, not fresh207 admission or
 whole Restore/product acceptance.
+
+The finite prior-history scenario subsequently completed at installed
+`578387e92923657e451ded762fc66880c8b43157`: genuine normal Restore/history0,
+known ordinary restart, newer disconnected Desired, second real committed cut
+and final-NEW recovery/history1 with preserved prior FD/bytes/metadata/xattrs.
+Original driver and independent Off/NEW/history/client readback exited0. See
+[exact fresh207 evidence](../testing/RESTORE_099_PC_PRIOR_HISTORY_2026-10-13.md).
+This accepts that controlled row only, not same-process repeated Restore,
+eight-slot VM coverage, current ticket/complete-prefix or whole product gates.
