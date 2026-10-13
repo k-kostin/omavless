@@ -260,6 +260,7 @@ mod tests {
                 "rgba" => Some(dark.replace("#7aa2f7", "#7aa2f7ff")),
                 "duplicate" => Some(format!("{dark}\naccent = \"#ffffff\"")),
                 "unknown" => Some(format!("{dark}\nname = \"Public fixture\"")),
+                "prototype" => Some(format!("{dark}\n__proto__ = \"#ffffff\"")),
                 "control" => Some(format!("{dark}\n#\u{1b}")),
                 _ => panic!("unknown synthetic case"),
             };

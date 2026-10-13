@@ -4,12 +4,22 @@
 use gpui_shell::{HostError, HostModule, HostValue};
 use std::os::unix::fs::MetadataExt;
 use std::{fs, path::PathBuf, sync::Arc};
+#[path = "../../theme_environment.rs"]
+mod theme_environment;
 #[path = "../../theme_fixture.rs"]
 mod theme_fixture;
 #[path = "../../theme_source.rs"]
 mod theme_source;
 
-fn selected() -> Option<Arc<theme_fixture::Sampler>> {
+struct Selected {
+    sampler: Arc<theme_fixture::Sampler>,
+    // Hold selected scope identities for the entire SDK run. The sole public
+    // fixture writer must not replace these roots while the host is active;
+    // this is not a hostile same-UID sandbox around the SDK's path-based I/O.
+    _scopes: Vec<theme_fixture::OwnedFixture>,
+}
+
+fn selected() -> Option<Selected> {
     // Fresh synthetic process HOME prevents the SDK's initial ambient
     // theme/storage paths from reaching the real user's directories.
     let home = PathBuf::from(std::env::var_os("HOME")?);
@@ -19,6 +29,8 @@ fn selected() -> Option<Arc<theme_fixture::Sampler>> {
         || !home.file_name()?.to_str()?.starts_with("g1h-")
         || home.parent()?.file_name()? != "ovt"
         || home.parent()?.parent()?.file_name()? != ".cache"
+        || fs::canonicalize(&home).ok()? != home
+        || !theme_environment::admitted(&home, |key| std::env::var_os(key))
     {
         return None;
     }
@@ -33,6 +45,11 @@ fn selected() -> Option<Arc<theme_fixture::Sampler>> {
             return None;
         }
     }
+    let mut scopes = vec![theme_fixture::OwnedFixture::open_root(&home).ok()?];
+    for child in ["sdk-data", "sdk-config", "sdk-cache", "sdk-state"] {
+        let directory = home.join(child);
+        scopes.push(theme_fixture::OwnedFixture::open_empty_root(&directory).ok()?);
+    }
     if fs::symlink_metadata(home.join(".config")).is_ok()
         || fs::symlink_metadata(home.join(".local")).is_ok()
     {
@@ -42,23 +59,31 @@ fn selected() -> Option<Arc<theme_fixture::Sampler>> {
     if std::env::args_os().skip(1).collect::<Vec<_>>() != [app.clone().into_os_string()] {
         return None;
     }
-    // Exact existing manifest. No other manifest can request generic grants
-    // from the supported host CLI. The bounded read is rooted in a held FD.
-    if !theme_fixture::OwnedFixture::open_root(&app)
-        .ok()?
-        .has_trial_manifest()
-    {
+    // Exact existing manifest prevents additional manifest-requested grants.
+    // The supported CLI STILL adds app/store reads, store writes and exit even
+    // with storage:false. These inherited grants await explicit approval.
+    // All store/config XDG destinations above are fresh owned HOME children.
+    let app_scope = theme_fixture::OwnedFixture::open_root(&app).ok()?;
+    if !app_scope.has_trial_manifest() {
         return None;
     }
+    scopes.push(app_scope);
+    // Same public identity function as grant_local_access. sdk-data was just
+    // opened owned/no-symlink/empty, so its store descendants do not preexist.
+    let _store = theme_environment::store_path(&home, &gpui_shell::bundle_id_for_path(&app))?;
     let fixture = theme_fixture::OwnedFixture::open_root(&home.join(".cache/ovt/g1-theme")).ok()?;
-    Some(theme_fixture::Sampler::new(fixture))
+    Some(Selected {
+        sampler: theme_fixture::Sampler::new(fixture),
+        _scopes: scopes,
+    })
 }
 
 fn main() {
-    let Some(sampler) = selected() else {
+    let Some(selected) = selected() else {
         eprintln!("G1 owned public theme fixture unavailable");
         std::process::exit(2);
     };
+    let sampler = Arc::clone(&selected.sampler);
     let module = HostModule::new("g1-synthetic-theme")
         .declarations("export function samplePalette(): Promise<{sequence:number,status:string,palette:Record<string,string>}>;")
         .async_function("samplePalette", move |arguments| {

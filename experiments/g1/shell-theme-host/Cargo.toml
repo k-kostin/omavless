@@ -10,5 +10,9 @@ publish = false
 # Same inspected SDK as the retained Shell host, not a framework fork/upgrade.
 gpui-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "b4c7cbdbbb57952c692c47ed13bbde9a06cdb7c5" }
 
+[dev-dependencies]
+# Existing shared fixture test dependency; no native dependency resolution run.
+serde_json = "1"
+
 [profile.release.package.gpui-pre-macros]
 debug-assertions = true

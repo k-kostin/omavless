@@ -16,7 +16,8 @@ assert.deepEqual(matrix.optional, OPTIONAL);
 assert.deepEqual(matrix.default, DEFAULT_PALETTE);
 const inputs = { dark: DARK, light: LIGHT, broken: BROKEN, missing: null,
   oversize: " ".repeat(MAX_THEME_BYTES + 1), rgba: DARK.replaceAll("#7aa2f7", "#7aa2f7ff"),
-  duplicate: `${DARK}\naccent = "#ffffff"`, unknown: `${DARK}\nname = "Public fixture"`, control: `${DARK}\n#\x1b` };
+  duplicate: `${DARK}\naccent = "#ffffff"`, unknown: `${DARK}\nname = "Public fixture"`,
+  prototype: `${DARK}\n__proto__ = "#ffffff"`, control: `${DARK}\n#\x1b` };
 for (const row of matrix.cases) {
   const prepared = prepareTheme(inputs[row.input]);
   assert.equal(prepared.status, row.status);

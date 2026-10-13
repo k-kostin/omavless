@@ -44,6 +44,13 @@ pub struct OwnedFixture {
     uid: u32,
 }
 impl OwnedFixture {
+    pub fn open_empty_root(root: &Path) -> std::io::Result<Self> {
+        let selected = Self::open_root(root)?;
+        if fs::read_dir(fd_path(&selected.root, "."))?.next().is_some() {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
+        Ok(selected)
+    }
     pub fn has_trial_manifest(&self) -> bool {
         let Ok(mut file) = open(&fd_path(&self.root, "gpui-shell.json"), false) else {
             return false;
@@ -280,6 +287,15 @@ mod tests {
             .unwrap();
         symlink("../light", root.join("current/theme")).unwrap();
         let fixture = OwnedFixture::open_root(&root).unwrap();
+        let sdk_data = root.join("sdk-data");
+        fs::DirBuilder::new().mode(0o700).create(&sdk_data).unwrap();
+        drop(OwnedFixture::open_empty_root(&sdk_data).unwrap());
+        fs::write(sdk_data.join("public-marker"), b"public").unwrap();
+        assert!(OwnedFixture::open_empty_root(&sdk_data).is_err());
+        fs::remove_file(sdk_data.join("public-marker")).unwrap();
+        fs::remove_dir(&sdk_data).unwrap();
+        symlink(&public_outside, &sdk_data).unwrap();
+        assert!(OwnedFixture::open_empty_root(&sdk_data).is_err());
         assert!(!fixture.has_trial_manifest());
         fs::write(
             root.join("gpui-shell.json"),

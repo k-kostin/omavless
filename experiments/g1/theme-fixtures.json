@@ -13,6 +13,7 @@
     {"id":"rgba","input":"rgba","status":"malformed","mode":"dark"},
     {"id":"duplicate","input":"duplicate","status":"malformed","mode":"dark"},
     {"id":"unknown","input":"unknown","status":"malformed","mode":"dark"},
+    {"id":"prototype-key","input":"prototype","status":"malformed","mode":"dark"},
     {"id":"control","input":"control","status":"malformed","mode":"dark"}
   ]
 }

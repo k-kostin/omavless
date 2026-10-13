@@ -20,6 +20,13 @@ window/build of the embedding host was performed.
   exports, `export_module`, and `host::main_with_components`. Its cap-std
   directory grant is private, not an available embedding-reader API. The staged
   embedding source uses real public APIs, not a fork or new permission framework.
+- The supported CLI entry has **inherited grants even with `storage:false`**:
+  app/store read roots, store write root and `exit`. The manifest blocks
+  `localStorage`, not those filesystem grants or creation of its SDK store.
+  `set_capabilities` before this entry is replaced by `local_capabilities`.
+  The public branded entry uses the same grant path; no CLI grant override was
+  found. This proposal does not claim deny-all fs and its inherited grants still
+  require approval before runtime use.
 
 ## Implemented source portion
 
@@ -65,17 +72,33 @@ file check, but an actual FIFO/native gate remains unrun.
 ## Staged embedding source — NOT built or activated
 
 `shell-theme-host/` is a reviewable sketch with the existing pinned SDK as its
-only framework dependency. No lockfile/dependency resolution or GPUI consumer
-build ran. Its future all-targets gate must also declare the existing
-`serde_json = "1"` test-only dependency used by the shared fixture tests; that
-manifest change has not been resolved or approved as part of this sketch.
+only framework dependency and existing `serde_json = "1"` as a test-only
+dependency. No lockfile/dependency resolution or GPUI consumer build ran.
 It requires a fresh owned synthetic process HOME `g1h-*` under
 `.cache/ovt`, fixed public `.cache/ovt/g1-theme` root and copied `app` directory
-with the exact existing denied-grants manifest. It refuses preexisting
-`.config`/`.local` trees before initialization. It registers only no-argument
+with the exact existing `storage:false` manifest. Before SDK initialization it
+rejects symlink/parent escape in selected HOME and requires exact synthetic HOME
+children for `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`,
+and singleton `XDG_DATA_DIRS`/`XDG_CONFIG_DIRS`. Missing/inherited/outside/list
+overrides refuse; no environment variables are mutated. The four selected SDK
+roots must be owned mode-0700 directories with no preexisting entries, captured
+with held FDs. The public `bundle_id_for_path(app)` must yield a bounded safe
+identity; the pinned SDK store then resolves to new descendants under captured
+`sdk-data/gpui-shell/apps` before its `create_dir_all` can run.
+
+It refuses preexisting `.config`/`.local` trees before initialization. Actual
+`XDG_RUNTIME_DIR`/display transport remains the OS session, not a store grant.
+The fixture writer must not replace selected roots during the path-based SDK
+run: held FDs do not turn SDK I/O into a hostile same-UID sandbox. The standalone
+driver tests exact XDG/bundle identity admission plus empty/symlink root refusal
+without initializing the SDK or using an actual process environment.
+
+The extension itself registers only no-argument
 `samplePalette()`, max-one inflight, work off UI; replies have only validated
-mode/colors/status/sequence. No script fs/process/network/storage/clipboard or
-backend/core IPC is introduced. No raw path/error/palette text is returned.
+mode/colors/status/sequence. It adds no arbitrary path or fs/process/network/
+storage/clipboard API and no backend/core IPC. The CLI's inherited scoped fs and
+exit grants remain as enumerated above, not denied or newly approved. No raw
+path/error/palette text is returned by `samplePalette()`.
 
 Before native use: primary/independent permission/reader-delta review; exact
 dependency/lock/consumer build; full fixture preflight; dedicated Shell consumer

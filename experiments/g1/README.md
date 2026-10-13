@@ -45,8 +45,12 @@ CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-shell-target" cargo build --release -
 ```
 
 Use `--watch` only for development; hot reload resets this prototype's
-in-memory scene/selection. The Shell manifest explicitly disables storage and
-grants no script network, process, filesystem or clipboard authority. Its
+in-memory scene/selection. The Shell manifest explicitly disables localStorage
+and requests no network, process or clipboard authority. The supported CLI
+nevertheless grants app/store reads, store writes and exit; `storage:false`
+is not deny-all filesystem policy. Future theme-host use requires owned
+synthetic HOME/XDG scopes and explicit approval of those inherited grants;
+see the [source-stage limits](THEME_SOURCE.md). Its
 `omarchy-ui` source is bundled, pinned and licensed under
 [`vendor/omarchy-ui/`](shell/vendor/omarchy-ui/UPSTREAM.md); the normal launch
 must not fetch it. The profile/details panels now reflow through native flex

@@ -45,7 +45,7 @@ export function prepareTheme(source) {
   if (bytes === null) return fallback("malformed");
   if (bytes > MAX_THEME_BYTES) return fallback("oversize");
   if (!/^[\x09\x0a\x0d\x20-\x7e]*$/.test(source)) return fallback("malformed");
-  const values = {};
+  const values = Object.create(null);
   for (const line of source.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
