@@ -68,8 +68,8 @@ requires an explicitly admitted public core projection; it never executes those
 bytes. It checks Standard WG, AWG 3/3.1 and four URI families in all three modes,
 AWG 1/2 refusal and changed-core refusal, compares config bytes privately and
 reports only counts/hashes. A missing opt-in input fails rather than silently
-passing. Rust compilation and this authentic constructor row remain pending
-serial custody of an existing build target. Normal source suite: 276 controls,
+passing. Exact corrected source gates and the authentic DATA result are recorded
+below. Normal source suite: 276 controls,
 two existing skips, native/JS/QML and 67-link documentation navigation passed.
 Source-only formatting/diff checks passed; these are not engine acceptance.
 
@@ -99,7 +99,8 @@ matching that historical PKGBUILD. No download, signature verification, package
 installation or source-build attestation was performed. Container/package
 metadata is qualified supporting history, not a substitute for the exact
 expanded core-byte pin. DATA acquisition is not constructor/validator/transport
-PASS; the ignored constructor row remains unrun.
+PASS. The separately selected constructor DATA row below establishes only pure
+preparation eligibility, not resource-aware validation or core execution.
 
 ### Original fixture refusal preserved
 
@@ -114,8 +115,41 @@ no DATA constructor row or core execution ran.
 The narrow test successor supplies the existing complete disabled startup
 shape (`last`, empty profile ID, `rule`) and retains the original incomplete
 shape as a refusal control. Production parsing, eligibility and host paths are
-unchanged. Corrected source gates remain pending; this original failure is not
-replayed or relabelled PASS.
+unchanged. The corrected gates below belong to their new immutable source;
+this original failure is not replayed or relabelled PASS.
+
+### Corrected exact-head source and constructor DATA result
+
+All five serial originals below tested
+`5cc3581ea852d625b2bac2828bc721220d5ee2e8`; the preparation implementation
+is unchanged from reviewed `10de89f47e374b2d273f09711eb5b495a71599c7`.
+The existing maintenance target was explicitly loaned, one build job was used,
+and target custody was returned after every original child completed. No
+installed-core or rule-cache opt-in was inherited. Later documentation-only
+heads do not acquire tested-source or core-execution credit.
+
+| Original gate | Original result | Scope |
+| --- | --- | --- |
+| Focused runtime controls, session `37486` | Exit 0; 8 passed, 1 DATA-only ignored | Hermetic eligibility/refusal/redaction controls |
+| Existing domain candidate contract, command chunk `661771` | Exit 0; 9 passed | Typed rendering/pointer and four-family v3 parity |
+| Feature-enabled runtime all-target strict clippy, session `41090` | Exit 0 | `p4-candidate-preparation`; warnings denied |
+| Default-off runtime library check, session `81698` | Exit 0 | `--no-default-features`; no product registration |
+| Explicit authentic constructor DATA, session `95325` | Exit 0; 1 selected test passed | 21 accepted, 7 refused; original body 21.85 s |
+
+The DATA positives were Standard WG, AWG 3 and AWG 3.1 in Rule/Global/Direct
+(nine rows), plus VLESS/Trojan/Hysteria2/TUIC in those same modes (12 rows).
+All 21 returned configs matched the existing private domain rendering bytes;
+only synthetic config hashes/counts were reported. AWG 1/2 in all three modes
+refused (six rows), and one changed core byte refused (one row). The selected
+`0400` ordinary single-link core data was FD/path-stable and exact-hash checked;
+independent post-row readback retained the original core and DATA-receipt hashes.
+No source fixture or external binary is embedded in Git.
+
+This is a successful real-byte **pure constructor** row, not a Mihomo config
+check, transport, live host-empty proof, startup, TUN/namespace/provider,
+production activation or source-build/provenance acceptance. Full workspace
+Rust gates are not inferred from these focused results. The next validator API
+plan remains design-only.
 
 ## Next bounded integration, not enablement
 

@@ -344,3 +344,11 @@ startup wiring, publication, installed v4 admission or active lifecycle/recovery
 authority is added. Actual resource-aware validation and acquisition/owner
 identity remain separate gates; production v3 and active mutation fences stay
 unchanged.
+
+The separately selected pure constructor DATA row at
+`5cc3581ea852d625b2bac2828bc721220d5ee2e8` passed 21 exact-core/flavor/mode
+preparations and seven refusals without executing the core. Eight hermetic
+controls, nine existing domain contracts, opt-in all-target strict clippy and
+default-off library check passed. The owning proposal retains the earlier
+synthetic fixture failure and exact original command identities. This does not
+close actual resource-aware validation, host/startup wiring or product gates.
