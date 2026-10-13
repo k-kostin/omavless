@@ -655,9 +655,26 @@ the nine new Complete controls, shared native module (37), retained execution
 module (38), closed developer/consumer/self/wire/model controls, and ordinary
 Python (773, two skipped)/JS/QML. The same test executable's inode/size/timestamp
 stayed unchanged throughout direct execution. The first check's visibility
-warning was preserved and narrowed before clean test compilation. Strict T4 and
-strengthened product-union/default gates and immutable whole-boundary review
-remain pending; these results are SOURCE only, not installed feature assembly.
+warning was preserved and narrowed before clean test compilation.
+
+The remaining bounded originals ran on unchanged runtime/test source at
+`2472633917bf5a1c9433ff2fafdd6d49e7a376be` and exited 0: strict all-target
+Clippy `-D warnings` for T4 and explicit
+`product-private-backup,product-image-witness` with default TUI retained; union
+library compilation and nine Complete, 17 developer, 11 consumer, two scope,
+one wire and four prior direct-helper controls. Plain, no-default and explicit
+no-default/TUI non-test checks passed. Default library compilation, one
+unknown-method dispatch and one scope control passed. Both fixed Complete CLI
+commands refused exit 2 with stdin held OPEN/empty, empty stdout and exact bounded
+diagnostics, before any private request or runtime/archive/host context was
+supplied. The attempted default consumer-module filter selected zero because that
+module is cfg-absent: it is UNTESTED, not a passing unit gate; the actual binary
+and unknown-method controls cover the default route. Executable identities stayed
+unchanged during originals; all processes closed before any later cache build.
+No runtime/test repair was needed. The successor only records these receipts.
+Immutable whole-boundary review remains separate; these results are SOURCE only,
+not installed feature assembly or a new VM outcome.
+
 The first later installed row is earliest all-three only after a separately
 reviewed exact source/packet/recipe; 201–208 are not reused. A late rename failure
 can lack an active existence prefix: report unavailable/unknown, not blanket
