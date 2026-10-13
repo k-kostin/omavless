@@ -301,7 +301,12 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         core_command = [go, "build", "-mod=vendor", "-tags="+tags, "-trimpath"]
         if close:
             core_command.append("-buildvcs=false")
-        run(core_command + ["-ldflags=-s -w", "-o", str(core), "."],
+        # Exact pinned upstream tag, not this product's version or ambient Git.
+        # Preserve previously qualified experimental/closed build recipes.
+        core_ldflags = "-s -w"
+        if flavor == "release":
+            core_ldflags += " -X github.com/metacubex/mihomo/constant.Version=v1.19.31"
+        run(core_command + ["-ldflags=" + core_ldflags, "-o", str(core), "."],
                 cwd=sources / "mihomo", env=go_env)
         info = subprocess.run([go, "version", "-m", str(core)],
                               stdin=subprocess.DEVNULL, capture_output=True,
