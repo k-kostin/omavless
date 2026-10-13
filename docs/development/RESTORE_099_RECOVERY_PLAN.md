@@ -396,3 +396,59 @@ unchanged while their self-reexec controls ran. Default non-test compilation
 has a separately identified inherited optional-rustix cfg repair owned by Root;
 it is not claimed passed from these T4/product gates. Exact source review,
 combined candidate checks and fresh 205 installed acceptance remain pending.
+
+### Distinct fresh final-output Committed NEW route
+
+The next SOURCE slice starts at `400676cfd796f6370f5b85ed541bf2d45642e9a5`,
+after the separately recorded actual fresh 205 OLD row. It adds only
+`restore recover-final-new --confirm-disposition`, using the same bounded
+private archive/passphrase input. `FinalNewOutput`, private `FreshFinalNew` and
+the recovered/release NEW selectors are distinct from OLD; no fallback or
+decoded-record grant is introduced. Current NEW must byte-equal authenticated
+`restore_store_off`/template and the Committed closure's pair bindings, with
+unchanged owner/Desired and required packaged Login, before fixed guard Stop.
+Retired OLD lineage is unavailable and is not claimed or used for rollback.
+
+The shared native helper preserves OLD semantics and all strict first-route
+absence/catalogue rules: stage/Intent/terminal/receipt/successor/next, BOTH
+replacement families, routing pending, ticket/complete, all eight history
+slots and other reserved state/config prefixes refuse. Captured closure is
+observation DATA only. The SAME original migration/singleton and concrete
+manager/cgroup guard, ten held-source/parent syncs and final gates earn the
+private NEW qualification. Missing Scratch2 still means never-acquired receipt
+plus repeated absence, not a fabricated retired descriptor. Existing create-
+only disposition/history and pointer-preserving consuming release precede a
+single ordinary Off Start and independent NEW/history verification.
+
+The fixed producer is
+`developer cut-current-committed-retirement --confirm-private-committed-retirement-cut`
+/ `developer.cut_current_committed_retirement`, with existing full schema-1
+archive/passphrase input and strong owned revision/migration/vacancy admission.
+Its dedicated typed `CutOnly` retirement permission is consumed BEFORE native
+IO/Stage. The committed-chain validation is reused, but this mode structurally
+cannot set completed, disposition or ordinary handoff even if its callback is
+always OK/unreached. Actual `RetirementComplete` occurs only after receipt
+removal and final original checks; exact reached expected sealed error may
+yield only still-fenced CUT DATA. The SAME owner/quit mutex spans publication;
+lost reply is UNKNOWN with no retry or cleanup.
+
+An occupied previous holder is a not-submitted refusal: it is not sealed or
+reclassified by the new cut. Revision/auth refusal before installation also
+preserves that ordinary context. Any outcome after THIS attempt's new holder
+admission unconditionally seals/blocks its graph, including an unreached cut.
+Product/default/direct-helper denial remains before private input, acquisition
+and effects. No features, pins, corpus/archive or privileged API changes.
+Native file/auth/phase/pair/Login/catalogue/history/FD and every sync/disposition
+fault controls, genuine producer/unreached/no-touch cases and broken reply are
+SOURCE only. Exact authority review, combined packet and fresh 206 recipe/VM
+acceptance remain pending; 201/205 are not reuse or cleanup targets.
+
+Original bounded SOURCE checks passed: T4 `final_new` 10, full native filter 27,
+product-union `final_new` 10, product dispatch 1, exact stopped-self matcher 1,
+and the shared self-reexec FD-capacity check 1. Strict T4 and explicit
+`product-private-backup,product-image-witness` all-target Clippy, bare/default-
+TUI non-test compilation, formatting/diff checks and ordinary 739 Python
+controls (2 skipped) with JS/QML passed. Initial private-test visibility and
+product-only unused-test-helper failures remain original Source failures;
+their narrow test fixes do not change runtime authority. Executables were held
+unchanged through original/self-reexec tests. These are not fresh 206 effects.

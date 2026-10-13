@@ -84,6 +84,7 @@ enum Choice {
     Mixed,
     Committed,
     FinalOld,
+    FinalNew,
 }
 
 fn choice(arguments: &[OsString]) -> Option<Choice> {
@@ -95,6 +96,8 @@ fn choice(arguments: &[OsString]) -> Option<Choice> {
         Some(Choice::Committed)
     } else if arguments == ["restore", "recover-final-old", "--confirm-disposition"] {
         Some(Choice::FinalOld)
+    } else if arguments == ["restore", "recover-final-new", "--confirm-disposition"] {
+        Some(Choice::FinalNew)
     } else {
         None
     }
@@ -143,6 +146,14 @@ fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     let mut recovery = FreshRecovery::reserve().map_err(|_| Error::RecoveryRefused)?;
     phase(b"RESTORE_RECOVERY_RESERVED\n");
     let result = match choice {
+        Choice::FinalNew => recovery.recover_final_new_output(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
         Choice::FinalOld => recovery.recover_final_old_output(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
@@ -188,6 +199,12 @@ fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     })?;
     phase(b"RESTORE_RECOVERY_COMPLETED\n");
     match choice {
+        Choice::FinalNew => {
+            let released = recovery
+                .dispose_and_release_final_new()
+                .map_err(|_| Error::RecoveryRefused)?;
+            start_and_verify(|| released.verify_current())
+        }
         Choice::FinalOld => {
             let released = recovery
                 .dispose_and_release_final_old()
@@ -220,6 +237,50 @@ fn start_and_verify<E>(verify: impl FnOnce() -> Result<(), E>) -> Result<(), Err
 mod tests {
     use super::*;
     #[test]
+    fn final_new_is_a_distinct_closed_disposition_selector() {
+        let valid = ["restore", "recover-final-new", "--confirm-disposition"].map(OsString::from);
+        assert!(arguments_admitted(&valid));
+        assert_eq!(
+            crate::product_scope::cli_disabled(&valid),
+            crate::product_scope::backup_only()
+        );
+        for args in [
+            vec!["restore", "recover-final-new", "--confirm-completion"],
+            vec!["restore", "recover-final-new", "--confirm-rollback"],
+            vec![
+                "restore",
+                "recover-final-new",
+                "--confirm-disposition",
+                "step",
+            ],
+        ] {
+            assert!(!arguments_admitted(
+                &args.into_iter().map(OsString::from).collect::<Vec<_>>()
+            ));
+        }
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn final_new_product_union_denies_before_reading_private_input() {
+        struct NoRead;
+        impl Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("disabled Source selector read input");
+            }
+        }
+        assert_eq!(
+            recover_selected_from_private_input(
+                &[
+                    "restore".into(),
+                    "recover-final-new".into(),
+                    "--confirm-disposition".into()
+                ],
+                NoRead
+            ),
+            Err(Error::Disabled)
+        );
+    }
+    #[test]
     fn final_old_is_a_distinct_closed_disposition_selector() {
         let valid = ["restore", "recover-final-old", "--confirm-disposition"].map(OsString::from);
         assert!(arguments_admitted(&valid));
@@ -236,7 +297,7 @@ mod tests {
                 "--confirm-disposition",
                 "step",
             ],
-            vec!["restore", "recover-final-new", "--confirm-disposition"],
+            vec!["restore", "recover-final-both", "--confirm-disposition"],
         ] {
             assert!(!arguments_admitted(
                 &args.into_iter().map(OsString::from).collect::<Vec<_>>()

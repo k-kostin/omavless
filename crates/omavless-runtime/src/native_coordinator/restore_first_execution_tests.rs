@@ -15,6 +15,182 @@ const PORTABLE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activ
     not(feature = "product-private-backup")
 ))]
 #[test]
+fn native_final_new_real_committed_retirement_cut_and_unreached_callback_never_grant_completion() {
+    for no_callback in [false, true] {
+        let mut f = Fixture::new();
+        let template = f.store.with_file_name("route-template.yaml");
+        private(
+            &template,
+            include_bytes!("../../../../templates/default.yaml"),
+        );
+        let mut incoming: serde_json::Value = serde_json::from_slice(PORTABLE).unwrap();
+        incoming["routingPreset"] = "china-cn-direct".into();
+        private(
+            &f.backup,
+            &omavless_domain::private_backup::seal(
+                &serde_json::to_vec(&incoming).unwrap(),
+                include_bytes!("../../../../templates/china.yaml"),
+                PASSWORD,
+            )
+            .unwrap(),
+        );
+        let old_store = fs::File::open(&f.store).unwrap();
+        let old_template = fs::File::open(&template).unwrap();
+        let opened = open_existing(&f.backup, f.owner.uid(), PASSWORD).unwrap();
+        let expected = opened.restore_store_off().unwrap();
+        let result = if no_callback {
+            f.owner
+                .test_unreached_committed_retirement_cut(&f.backup, PASSWORD)
+        } else {
+            f.owner
+                .cut_current_committed_retirement(&f.backup, PASSWORD)
+        };
+        assert_eq!(
+            result,
+            if no_callback {
+                Err(FirstError::StillFenced)
+            } else {
+                Ok(())
+            }
+        );
+        assert!(f.owner.retained_restore_busy() && f.owner.transaction.independently_blocked());
+        assert_eq!(f.owner.revision(), 0);
+        assert_eq!(fs::read(&f.store).unwrap(), expected.as_slice());
+        assert_eq!(fs::read(&template).unwrap(), opened.template());
+        assert_eq!(old_store.metadata().unwrap().nlink(), 0);
+        assert_eq!(old_template.metadata().unwrap().nlink(), 0);
+        let state = f.state();
+        for name in [
+            "restore-pair.pending",
+            "restore-decision.intent",
+            "restore-decision.terminal",
+            "restore-finalization.pending",
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            "restore-disposition.complete",
+            "restore-disposition.history",
+        ] {
+            assert!(
+                fs::symlink_metadata(state.join(name)).is_err(),
+                "public cut absence {name}"
+            );
+        }
+        let closure = crate::restore_closure_model::ClosureRecord::decode(
+            &fs::read(state.join(crate::restore_closure_model::CLOSURE_MEMBER)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            closure.receipt().terminal().phase(),
+            crate::restore_decision_candidate::DecisionPhase::Committed
+        );
+        assert!(closure.receipt().matches_pair(&expected, opened.template()));
+        assert!(f.owner.held_restore_execution.test_cut_only_unavailable());
+        let paths = f.owner.transaction.cutover_paths().clone();
+        assert!(MigrationLock::acquire_existing(&paths, f.owner.uid()).is_err());
+        assert!(
+            f.owner
+                .cut_current_committed_retirement(&f.backup, PASSWORD)
+                .is_err()
+        );
+        let (mut reply, lost) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(lost);
+        assert!(
+            crate::developer_current_restore::publish_positive_cut_response(
+                crate::success_response(
+                    "cut",
+                    0,
+                    serde_json::json!({"cutReachedStillFenced":true})
+                ),
+                &mut reply
+            )
+            .is_err()
+        );
+        assert!(f.owner.retained_restore_busy() && f.owner.transaction.independently_blocked());
+    }
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
+fn native_final_new_busy_original_is_not_sealed_or_reclassified_by_unsubmitted_cut() {
+    let mut f = Fixture::new();
+    f.owner
+        .pause_current_restore_intent(&f.backup, PASSWORD)
+        .unwrap();
+    let original = f.owner.held_restore_execution.test_original_identity();
+    assert!(f.owner.current_intent_paused() && !f.owner.transaction.independently_blocked());
+    assert_eq!(
+        f.owner.cut_current_committed_retirement(
+            Path::new("/public/absent"),
+            b"wrong source password"
+        ),
+        Err(FirstError::StillFenced)
+    );
+    assert_eq!(
+        original,
+        f.owner.held_restore_execution.test_original_identity()
+    );
+    assert!(f.owner.current_intent_paused() && !f.owner.transaction.independently_blocked());
+    f.owner.abort_current_restore_intent().unwrap(); // same genuine positive pause remains usable
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
+fn native_final_new_authentication_and_queued_admission_refusals_never_submit_or_return_cut_data() {
+    let mut f = Fixture::new();
+    assert_eq!(
+        f.owner
+            .cut_current_committed_retirement(&f.backup, b"wrong source password"),
+        Err(FirstError::Prepare)
+    );
+    assert!(
+        !f.owner.held_restore_execution.occupied() && !f.owner.transaction.independently_blocked()
+    );
+    use crate::mutation::{MutationKind, MutationRequest};
+    f.owner
+        .coordinator
+        .submit(
+            MutationRequest::new(
+                MutationKind::Other,
+                Some("queued"),
+                Some(0),
+                MutationDigest::from_semantic_bytes(b"source queued cut"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        f.owner
+            .cut_current_committed_retirement(Path::new("/public/absent"), PASSWORD),
+        Err(FirstError::Admission)
+    );
+    assert!(
+        !f.owner.held_restore_execution.occupied() && !f.owner.transaction.independently_blocked()
+    );
+    assert!(!f.stage().exists());
+}
+
+#[cfg(feature = "product-private-backup")]
+#[test]
+fn native_final_new_product_direct_cut_helper_denies_before_original_acquisition() {
+    let mut f = Fixture::new();
+    assert_eq!(
+        f.owner
+            .cut_current_committed_retirement(Path::new("/public/absent"), PASSWORD),
+        Err(FirstError::Admission)
+    );
+    assert!(!f.owner.held_restore_execution.occupied() && !f.stage().exists());
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
 fn native_final_old_producer_consumes_real_pause_and_cuts_only_receipt_absent() {
     let mut f = Fixture::new();
     let store = fs::read(&f.store).unwrap();
