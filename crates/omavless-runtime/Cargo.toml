@@ -20,6 +20,8 @@ developer-conditional-close = ["omavless-tui?/developer-conditional-close"]
 developer-image-witness = ["developer-conditional-close", "dep:omavless-image-witness", "omavless-image-witness/developer-helper", "dep:rustix"]
 # Source-only product lifetime candidate; no default flag/service/registration.
 product-image-witness = ["developer-image-witness", "omavless-image-witness/product-epochs"]
+# Source-built single-user development VM only; never a shipped updater gate.
+developer-upgrade082 = []
 
 [dependencies]
 base64 = "0.22"
