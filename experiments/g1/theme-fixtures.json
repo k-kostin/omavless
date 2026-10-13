@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "maxBytes": 4096,
+  "required": ["background", "foreground", "accent", "red", "green", "yellow", "blue", "magenta", "cyan"],
+  "optional": ["selection", "lighter_background", "dark_background", "light_foreground", "bright_foreground", "dark_foreground"],
+  "default": {"mode":"dark","background":"#1a1b26","foreground":"#c0caf5","accent":"#7aa2f7","red":"#f7768e","green":"#9ece6a","yellow":"#e0af68","blue":"#7aa2f7","magenta":"#bb9af7","cyan":"#7dcfff"},
+  "cases": [
+    {"id":"dark","input":"dark","status":"good","mode":"dark"},
+    {"id":"light","input":"light","status":"good","mode":"light"},
+    {"id":"missing","input":"missing","status":"missing","mode":"dark"},
+    {"id":"malformed","input":"broken","status":"malformed","mode":"dark"},
+    {"id":"oversize","input":"oversize","status":"oversize","mode":"dark"},
+    {"id":"rgba","input":"rgba","status":"malformed","mode":"dark"},
+    {"id":"duplicate","input":"duplicate","status":"malformed","mode":"dark"},
+    {"id":"unknown","input":"unknown","status":"malformed","mode":"dark"},
+    {"id":"control","input":"control","status":"malformed","mode":"dark"}
+  ]
+}

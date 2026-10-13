@@ -1,0 +1,14 @@
+[package]
+name = "omavless-g1-theme-host-source"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Same inspected SDK as the retained Shell host, not a framework fork/upgrade.
+gpui-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "b4c7cbdbbb57952c692c47ed13bbde9a06cdb7c5" }
+
+[profile.release.package.gpui-pre-macros]
+debug-assertions = true

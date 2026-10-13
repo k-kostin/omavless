@@ -29,6 +29,7 @@ node experiments/g1/tests/freshness.mjs
 node experiments/g1/tests/workload.mjs
 node experiments/g1/tests/metadata.mjs
 node experiments/g1/tests/keyboard.mjs
+node experiments/g1/tests/theme-source.mjs
 ```
 
 The GPUI Shell runtime is a separate, upstream, non-published binary; the
@@ -199,6 +200,12 @@ The controls do not modify Omarchy's real theme files. The direct toolkit
 initialization may read the system theme before the trial explicitly applies
 its synthetic default; it then stops following system changes. These controls
 exercise in-process presentation continuity, not live theme-file watching.
+
+The [bounded public theme-source successor](THEME_SOURCE.md) uses a shared
+4-KiB whole-palette policy/latest slot and source replacement tests, with an
+unregistered narrow embedding-host sketch for review. File-watch/native
+continuity and the new Direct fallback remain unrun; static buttons alone do
+not earn them. Frozen #743/#746 artifacts/evidence are unchanged.
 
 In the direct Rust trial, a narrow window also supports `Page Down` and
 `Page Up` for the whole read-only frame, including its wrapped fixture controls

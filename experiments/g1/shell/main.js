@@ -9,10 +9,11 @@ import {
   Title, TitleBar, applyOmarchyRoles, applyOmarchyStyle, omarchyTheme,
 } from "./vendor/omarchy-ui/src/index.js";
 import { connectionPresentation, fixture, nextHighlightedProfile, profileById, ProfileCache } from "./data.js";
-import { BROKEN, DARK, LIGHT, resolvedPalette } from "./palette.js";
+import { BROKEN, DARK, LIGHT } from "./palette.js";
 import { UpdateView } from "./workload.js";
 import { Metadata } from "./metadata.js";
 import { plainKey, navigatePage } from "./keyboard.js";
+import { prepareTheme, paletteText, ThemeUpdates } from "./theme-source.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
 const copy = {
@@ -53,6 +54,9 @@ export default class G1Trial extends View {
     this.themeTokens = tokens;
     this.themeChoice = "dark";
     this.themeFallback = false;
+    this.themeUpdates = new ThemeUpdates();
+    this.themeUpdates.receive(1, prepareTheme(DARK));
+    this.themeUpdates.flush();
     applyOmarchyRoles(DARK);
     const theme = omarchyTheme(DARK, this.baseTheme, tokens);
     if (theme) set_theme(theme);
@@ -86,14 +90,24 @@ export default class G1Trial extends View {
 
   applyPalette(choice, context) {
     const source = choice === "light" ? LIGHT : choice === "broken" ? BROKEN : DARK;
-    const resolved = resolvedPalette(source);
-    const theme = omarchyTheme(resolved.source, this.baseTheme, this.themeTokens);
-    if (!theme) return;
-    set_theme(theme);
-    applyOmarchyRoles(resolved.source);
     this.themeChoice = choice;
-    this.themeFallback = resolved.fallback;
+    this.applyThemeSample(this.themeUpdates.sequence + 1, prepareTheme(source), context);
     context.notify();
+  }
+
+  applyThemeSample(sequence, prepared, context) {
+    if (!this.themeUpdates.receive(sequence, prepared)) return;
+    const delivery = this.themeUpdates.flush();
+    if (delivery === null) return;
+    if (delivery.paletteChanged) {
+      const source = paletteText(delivery.sample.palette);
+      const theme = omarchyTheme(source, this.baseTheme, this.themeTokens);
+      if (!theme) return;
+      set_theme(theme);
+      applyOmarchyRoles(source);
+    }
+    this.themeFallback = delivery.sample.status !== "good";
+    if (delivery.paletteChanged || delivery.statusChanged) context.notify();
   }
 
   replaceMetadata(action, context) {

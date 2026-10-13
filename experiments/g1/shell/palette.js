@@ -1,6 +1,7 @@
 // @ts-check
 // SPDX-License-Identifier: MIT
 // Synthetic palette inputs only. This module does not read the user's theme.
+import { prepareTheme } from "./theme-source.js";
 
 export const DARK = `
 mode = "dark"
@@ -35,10 +36,6 @@ foreground = "not-a-color"
 accent = "#6948a5"
 `;
 
-const REQUIRED_COLORS = ["background", "foreground", "accent", "red", "green", "yellow", "blue", "magenta", "cyan"];
-const OPTIONAL_COLORS = ["selection", "lighter_background", "dark_background", "light_foreground", "bright_foreground", "dark_foreground"];
-const HEX_COLOR = /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/;
-
 /**
  * A theme change is all-or-default. No mixed palette may be installed after a
  * malformed replacement. Production theme file watching remains out of G1a.
@@ -46,18 +43,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/;
  * @returns {boolean}
  */
 export function completePalette(source) {
-  /** @type {Record<string, string>} */
-  const values = {};
-  for (const line of source.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = trimmed.match(/^([a-z_]+)\s*=\s*"([^"]*)"$/);
-    if (!match || Object.hasOwn(values, match[1])) return false;
-    values[match[1]] = match[2];
-  }
-  if (values.mode !== "dark" && values.mode !== "light") return false;
-  return REQUIRED_COLORS.every((key) => HEX_COLOR.test(values[key] ?? ""))
-    && OPTIONAL_COLORS.every((key) => values[key] === undefined || HEX_COLOR.test(values[key]));
+  return prepareTheme(source).status === "good";
 }
 
 /** @param {string} source */

@@ -18,6 +18,8 @@ mod freshness;
 mod keyboard;
 mod metadata;
 mod profiles;
+#[path = "../../theme_source.rs"]
+mod theme_source;
 mod workload;
 
 // Keep these synthetic inputs byte-for-byte aligned with shell/palette.js.
@@ -59,10 +61,12 @@ fn synthetic_theme(index: usize) -> (Theme, bool) {
         1 => SYNTHETIC_LIGHT,
         _ => SYNTHETIC_BROKEN,
     };
-    match Theme::from_colors_toml("G1 synthetic", source) {
-        Ok(theme) => (theme, false),
-        Err(_) => (Theme::tokyo_night(), true),
-    }
+    let prepared = theme_source::Prepared::from_bytes(Some(source.as_bytes()));
+    (
+        Theme::from_colors_toml("G1 synthetic", &prepared.palette.text())
+            .expect("strict synthetic colors must parse"),
+        prepared.status.name() != "good",
+    )
 }
 
 #[derive(Clone, Deserialize, PartialEq, Eq)]
@@ -216,6 +220,7 @@ struct Trial {
     panels_scroll: ScrollHandle,
     russian: bool,
     palette: usize,
+    theme_updates: theme_source::ThemeUpdates,
     large: bool,
     collection: usize,
     profile_cache: profiles::ProfileCache,
@@ -274,6 +279,7 @@ impl Trial {
             panels_scroll: ScrollHandle::new(),
             russian: false,
             palette: 0,
+            theme_updates: theme_source::ThemeUpdates::default(),
             large: false,
             collection: 0,
             row_sizes: Rc::new(Vec::new()),
@@ -283,6 +289,28 @@ impl Trial {
 
     fn label<'a>(&self, english: &'a str, russian: &'a str) -> &'a str {
         if self.russian { russian } else { english }
+    }
+
+    fn apply_theme_sample(
+        &mut self,
+        sequence: u64,
+        prepared: theme_source::Prepared,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.theme_updates.receive(sequence, prepared) {
+            return;
+        }
+        let Some(delivery) = self.theme_updates.flush() else {
+            return;
+        };
+        if delivery.palette_changed {
+            Theme::from_colors_toml("G1 synthetic", &delivery.sample.prepared.palette.text())
+                .expect("strict synthetic colors must parse")
+                .apply(cx);
+        }
+        if delivery.palette_changed || delivery.status_changed {
+            cx.notify();
+        }
     }
 
     fn replace_metadata(&mut self, action: usize) {
@@ -536,7 +564,18 @@ impl Render for Trial {
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.palette = index;
-                    synthetic_theme(index).0.apply(cx);
+                    let source = match index {
+                        0 => SYNTHETIC_DARK,
+                        1 => SYNTHETIC_LIGHT,
+                        _ => SYNTHETIC_BROKEN,
+                    };
+                    if let Some(sequence) = this.theme_updates.sequence.checked_add(1) {
+                        this.apply_theme_sample(
+                            sequence,
+                            theme_source::Prepared::from_bytes(Some(source.as_bytes())),
+                            cx,
+                        );
+                    }
                     cx.notify();
                 }))
                 .into_any_element(),
@@ -1214,7 +1253,7 @@ mod tests {
         assert!(!synthetic_theme(1).1);
         let (fallback, used_fallback) = synthetic_theme(2);
         assert!(used_fallback);
-        assert_eq!(fallback, Theme::tokyo_night());
+        assert_eq!(fallback, synthetic_theme(0).0);
         assert_ne!(fallback, synthetic_theme(1).0);
     }
 }
