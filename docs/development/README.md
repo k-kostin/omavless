@@ -29,6 +29,8 @@ documentation-only main updates require explicit owner authorization.
   [localization](../../skills/omavless-localization/SKILL.md): reusable skills.
 - [Release preparation](../../packaging/release/README.md): source/artifact
   identity and publication gates, not a product README section.
+- [Existing-install upgrade and removal](SETUP_UPGRADE_UNINSTALL_099.md): proposed
+  0.9.9 user paths and gates; not an implemented updater or removal feature.
 
 Moving a document requires updating relative links and checking readers in
 tests/scripts/skills. Keep a useful stable navigation path where an established
