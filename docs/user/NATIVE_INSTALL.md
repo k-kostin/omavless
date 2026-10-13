@@ -97,12 +97,31 @@ Rust-owned application, neither path initializes private settings, activates
 ownership again or enables the user runtime. After the terminal completes,
 close it, acknowledge that its prompts are closed, and use the separate
 **Start OmaVLESS** action. This successor is not yet part of the public 0.9.8
-installer and does not complete its paired-package updater.
+installer. The unpublished x86_64 successor also implements the qualified
+public 0.8.2 package-update phase described below; it does not authorize an
+arbitrary existing-companion replacement.
 
 `APPLICATION UPDATE REQUIRED` identifies the known prior public native version,
 not a fresh install or package-integrity proof. **Review update requirements**
 opens this guide; it does not install packages, start the application or enroll
 DNS. That navigation must not be mistaken for a completed guided updater.
+
+In the unpublished successor, **Update required components** is a separate
+terminal action for the verified public 0.8.2 Rust installation with OmaVLESS
+fully closed, startup Off and no existing DNS companion. It checks the pinned
+destination pair and the original private-state/ownership boundary before the
+normal `UPGRADE` and sudo/pacman confirmations. Profiles and the stopped runtime
+are retained. Afterwards **Check again** offers **Continue DNS setup**, followed
+by a separate **Start OmaVLESS**. No VPN connection is started by updating.
+Modified/unknown predecessors, active owners and custom templates need diagnosis;
+do not delete private ownership records to force this route.
+
+The candidate's `v0.9.8-fix.4` delivery name is reserved, **not published**.
+Only x86_64 candidate package pins exist; ARM64 build and public-download
+verification remain separate gates. If an already running shell displays old
+controls after a frontend replacement, finish open prompts and deliberately
+use the documented shell-reload guidance below before checking again. Repeated
+DNS enrollment or application installation cannot refresh cached QML.
 The supported paired upgrade needs its separate compatibility and installed
 acceptance; an unknown/modified version remains a diagnostic limitation.
 

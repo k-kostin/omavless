@@ -14,6 +14,9 @@ Protected historical recovery evidence remains inside that archived overlay.
 A fresh overlay over the unchanged clean baseline isolated this experiment.
 Raw logs, images, stores, backups and archives remain outside Git.
 
+Later sections distinguish the newly tested guided successor from this initial
+manual reproduction. None is evidence of a published fix.4 download.
+
 | Item | Exact identity |
 | --- | --- |
 | Historical public frontend `v0.8.2` | `f442714362620c18e1bbaa6415d9e0c2e08c0a8a` |
@@ -173,3 +176,84 @@ verification, then ends with packages-updated/DNS-required. A later explicitly
 chosen DNS setup is a new operation earning fresh admission; it never inherits
 authority from an UPDATE result. No updater, main release or physical-PC update
 is accepted by the partial-DNS checks above.
+
+## Guided x86_64 successor: package update, DNS and Start
+
+Installed frontend `5c4aead288273080d16bd705c270bfbed9c290e7` was paired with
+native/DNS producer `5fb00e20b2ff6c50be0a42d9eaacc63d5304b5e6` by the normal
+offline release-triple inspector. Both archives were newly built, not modified
+public packages. App SHA256:
+`dc82ca68e3659169221ec4bb335c1dec5c8938a9a2f040937dcf2c742652c601`;
+DNS SHA256:
+`63c3b7f7382f7ab2a54106021bbd6d61a7bdcfb8a407ab2e7dcf11b81bc8bba6`.
+These are **unpublished** fix.4 candidate bytes, transported into the exact
+digest-qualified cache for this VM gate; no public HTTPS-download PASS is claimed.
+ARM64 pins/build are deliberately absent rather than copied from an older pair.
+
+The guest first completed the genuine public 0.8.2 setup and stdin import, then
+its genuine Full Quit. A preliminary developer-only helper package phase also
+completed and preserved all private config/state bytes. Ordinary pacman downgrade
+and guarded removal of its still-unenrolled, inactive DNS package returned the
+fixture to the exact stopped public predecessor. For the guided successor test,
+the exact default template was deliberately changed only from Rule to Global
+as fixture administration; that baseline was retained privately. This is not a
+product repair or a modification to an actual private provider configuration.
+
+The installed **Update required components** button opened the real terminal.
+The candidate was extracted from the pinned application archive and independently
+verified its own ELF, original predecessor and private-state admission. Separate
+`UPGRADE`, ordinary guest sudo and pacman confirmations produced
+`packages_updated_dns_required`; the original helper completed. Profiles, Desired,
+ownership and the entire pre-DNS config/state comparison were unchanged. Runtime
+remained inactive/disabled, broker inactive, and there was no managed TUN.
+
+After closing the terminal and acknowledging settled prompts, the real
+**Continue DNS setup** button opened a new operation. Explicit `FIRST` and separate
+`DNS` consent completed first enrollment, broker start and selection. No repeated
+Rust activation or initialization occurred. The original Global template backup
+was byte-identical, the managed template retained Global, and profiles/state
+still matched the saved baseline. The UI then offered the separate **Start
+OmaVLESS** action. Its actual button started the runtime without enabling it or
+connecting: final inventory `ready / present`, one synthetic profile, Desired
+false, saved startup configured/Off and last-known Disconnected; broker FD store
+zero and no managed TUN. This is agent-operated disconnected setup acceptance,
+not tunnel/connectivity or human-attended acceptance.
+
+Selected-core inventory now reports the bundled file's capabilities as present;
+the stock core remains without granted capabilities. One remaining packaging
+finding is explicit: this ordinary source builder did not embed the upstream
+version linker value, so the bundled `-v` string uses its default `1.10.0` and the
+strict desktop version projection is null. Receipt/ELF/source identity is verified,
+but an accurate displayed core version is **not** PASS and needs a packaging
+correction before final delivery.
+
+### Loaded-QML boundary and workflow correction
+
+An actual failed UI observation was retained: after atomically replacing the
+old frontend, disable/enable and rescan left old 0.8.2 dependencies mixed with
+the new panel. CLI inventory was correct, while old SetupState parsing projected
+`needs_attention / null`; a new Panel also reported a property absent from the
+old Service. An independent inert real Quickshell Process confirmed stdout
+completion preceded exit with the exact 21-byte inventory, excluding the proposed
+collector-order explanation. The documented deliberate **guest-only**
+`omarchy restart shell` established a fresh engine and correct visible Update,
+Continue DNS and Start controls. No core or VM restart was used for this refresh.
+Future acceptance must verify loaded distinctive controls/dependencies, not
+substitute installed hashes or a rescan success. A shell restart is not silently
+added to an installer or declared universally VPN-neutral.
+
+The final normal runner at `3d6370f0473afb6bf6994075d919291a932b0190` exited 0:
+736 Python tests, two declared opt-in skips, JS/QML contracts. Native 22 focused
+upgrade tests and combined selected-feature clippy passed; affected installed-
+import qmllint, manifest validation, syntax and documentation navigation passed.
+The DNS build exposed an unrelated test-path limit: a long HOME cache TMPDIR
+still exceeded the Unix socket limit after Go's generated test suffix. A single
+qualified short owned HOME compiler directory allowed the unchanged pinned tests
+to pass; both temporary short directories were removed after known build exit.
+No fixture socket assertion or security admission was weakened to bypass it.
+
+Remaining before external delivery: accurate embedded core version and any
+resulting new package identities, ARM64 matching build/installed gate, public
+download verification, remaining installed fault/RU matrix, explicit release/main
+authorization and separately attended physical-PC update. Issue #772's own failed
+stage remains unknown; no additional reporter comment or resolved claim was made.
