@@ -353,3 +353,73 @@ interruption limits were not reclassified as stronger guarantees.
 Still separate: ARM64 matched packages/installed acceptance, real published
 fix.4 download verification, remaining fault/localization matrix and authorized
 main/release/physical-PC delivery. No additional issue772 reply was sent.
+
+## Cold stopped predecessor: missing volatile exclusions
+
+A separately attended physical-PC attempt did not complete. Read-only inspection
+after the owner confirmed all authorization prompts were settled found the app
+still at the authentic public 0.8.2 bytes, DNS absent, and the frontend updated.
+Profiles, Desired and ownership matched their retained baseline; the runtime
+was inactive/disabled/PID0 and its volatile directory was absent. The closed
+terminal's original native error was not retained, so that attempt's precise
+failure stage is unknown. A generic message printed after `settled` is not
+evidence that `settled` itself failed.
+
+Source inspection exposed a real uncovered boundary: the updater required
+existing volatile owner/migration locks. Those objects disappear after reboot.
+The new regression failed with `Environment` before the correction. Producer
+`fce963e59b4cdeda49a5a1f71f3cc4cc3beaaa47` admits canonical absent volatile
+objects only after explicit UPGRADE and stopped, disconnected native-owner
+qualification. It holds the original newly opened exclusions through the
+package child and rechecks durable state under both locks. Existing unsafe
+permissions, symlinks, hardlinks or changed names remain refusals: no chmod,
+unlink, service Start or shell-created ownership bypass is added. A later
+refusal can leave harmless canonical volatile objects; this is not zero-write
+or hostile-same-UID race exclusion.
+
+| Corrected artifact | SHA256 |
+| --- | --- |
+| x86_64 app archive | `a538e992008ddf1ca1e905a9d29ea7a6755eece7b3cf0ace7a827af7de701e22` |
+| x86_64 DNS archive | `8f0aba0a95c3d0596b35e46d3b643e713d7dc3f75e418299c3c90ac6b7813d71` |
+
+The normal matched-triple assembler verified frontend
+`7148acb567f0c6fa9c0b0b26c617eef49932ffc9` against that producer. Unpublished
+archives were preloaded into the exact digest-qualified cache, not downloaded
+from a fictitious public release.
+
+The genuine 0.8.2 fixture was fully closed, then genuinely rebooted. Before any
+application Start or updater input, boot
+`52e79663-29e8-48de-bd91-7fde023b5495` independently showed inactive/disabled/PID0,
+absent runtime directory and absent migration lock, with private bytes unchanged.
+The actual fresh-engine Update button and UPGRADE/sudo/pacman operation completed
+with `packages_updated_dns_required`. Both installed package receipts matched
+fce; profiles, Desired, ownership and canonical Global template were byte-identical.
+The updater itself created the canonical 700 directory and 600 single-link locks.
+Runtime remained stopped and no managed TUN appeared. No helper seeded those
+locks, enabled the old runtime, or ran a compensating recovery.
+
+After closing the real update terminal and acknowledging settled prompts in
+the panel, the actual Continue DNS action completed separate FIRST/DNS and
+normal guest sudo. The original operation reached components-prepared; profile,
+Desired and ownership comparisons remained equal and the pre-managed template
+backup matched. Closing and acknowledging that terminal exposed the actual
+Start button. It started the app without enabling the unit or connecting:
+native observation reported Disconnected, manualRecoveryRequired false,
+managedTunCount0 and no core process. The real wizard displayed core1.19.31
+and managed file capabilities. Broker active/FD store0; only loopback/Ethernet.
+This additional gate is disconnected setup continuation, not VPN connectivity.
+
+Fixture-driver failure is retained separately: an initial Quit refused because
+the widget was not enabled. After inspecting that known refusal, the widget was
+enabled and a new admitted native Quit returned shutdown true before the
+authoritative pre-reboot baseline was captured. The initial compound fixture
+command continuing after Quit refusal is not counted as successful acceptance;
+future fixture effects must check each original outcome before proceeding.
+
+At frontend714, the normal runner passed 748 Python tests, two declared opt-in
+skips and JS/QML contracts. All 25 focused native updater regressions passed;
+selected-feature clippy, formatting and diff checks passed. Independent review
+found no blocking finding in the cold-exclusion correction. This is a real
+agent-operated x86_64 cold-upgrade gate, not proof of the physical attempt's
+precise error, the reporter's separate issue772 stage, ARM64 installation,
+public-download behavior or connected/human-attended acceptance.
