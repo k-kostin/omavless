@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Linux-only source-stage reader for a selected OWNED public fixture.
 //! No script path arguments, ambient theme loader, writes or watcher API.
-//! NOT registered in either candidate. Host integration/review remains pending.
+//! Source-bound only behind public-fixture preflight; not built/activated.
 use crate::theme_source::{MAX_THEME_BYTES, Prepared, Status};
 use std::os::unix::{
     fs::{MetadataExt, OpenOptionsExt},
@@ -51,14 +51,20 @@ impl OwnedFixture {
         }
         Ok(selected)
     }
+    #[cfg(test)]
     pub fn has_trial_manifest(&self) -> bool {
+        self.manifest_matches(include_bytes!("shell/gpui-shell.json"))
+    }
+    pub fn has_theme_manifest(&self) -> bool {
+        self.manifest_matches(include_bytes!("shell/theme-manifest.json"))
+    }
+    fn manifest_matches(&self, expected: &[u8]) -> bool {
         let Ok(mut file) = open(&fd_path(&self.root, "gpui-shell.json"), false) else {
             return false;
         };
         let Ok(metadata) = file.metadata() else {
             return false;
         };
-        let expected = include_bytes!("shell/gpui-shell.json");
         if !metadata.is_file()
             || metadata.uid() != self.uid
             || metadata.mode() & 0o022 != 0
@@ -303,6 +309,14 @@ mod tests {
         )
         .unwrap();
         assert!(fixture.has_trial_manifest());
+        assert!(!fixture.has_theme_manifest());
+        fs::write(
+            root.join("gpui-shell.json"),
+            include_bytes!("shell/theme-manifest.json"),
+        )
+        .unwrap();
+        assert!(fixture.has_theme_manifest());
+        assert!(!fixture.has_trial_manifest());
         assert_eq!(fixture.sample().palette.mode(), "light");
         fs::remove_file(root.join("current/theme")).unwrap();
         symlink(public_outside.join("light"), root.join("current/theme")).unwrap();
@@ -347,6 +361,22 @@ mod tests {
             Status::Unavailable
         );
         drop(socket);
+        fs::remove_file(root.join("light/colors.toml")).unwrap();
+        unsafe extern "C" {
+            fn mkfifo(path: *const std::ffi::c_char, mode: u32) -> std::ffi::c_int;
+        }
+        let fifo_path = root.join("light/colors.toml");
+        let fifo = std::ffi::CString::new(fifo_path.as_os_str().as_encoded_bytes()).unwrap();
+        // TEST ONLY: one FIFO at the just-removed owned public fixture file.
+        // No writer, process/service API or new dependency. The standalone
+        // driver is externally deadline-bounded when invoked.
+        assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let started = std::time::Instant::now();
+        assert_eq!(
+            sampler.reserve().unwrap().sample().unwrap().1.status,
+            Status::Unavailable
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
         assert!(root.as_os_str().len() < 256);
         drop(sampler);
         fs::remove_dir_all(root).unwrap();

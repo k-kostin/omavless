@@ -8,6 +8,33 @@ import { DARK, LIGHT, BROKEN } from "../shell/palette.js";
 import { MAX_THEME_BYTES, MAX_THEME_SEQUENCE, REQUIRED, OPTIONAL, DEFAULT_PALETTE, prepareTheme, paletteText, ThemeUpdates } from "../shell/theme-source.js";
 import { fixture, ProfileCache } from "../shell/data.js";
 import { Metadata } from "../shell/metadata.js";
+import { POLL_MS, ThemeFollow } from "../shell/theme-follow.js";
+import { checkedSample, installThemeSource, manualTheme, followTheme } from "../shell/theme-client.js";
+
+const follow = new ThemeFollow();
+assert.equal(follow.mode(true), true);
+const old = follow.begin();
+assert.equal(follow.begin(), null);
+follow.mode(false); follow.mode(true);
+assert.equal(follow.begin(), null); // Manual/resume never frees active I/O.
+assert.equal(follow.complete({ ...old }, 1), false);
+assert.equal(follow.begin(), null);
+assert.equal(follow.complete(old, 1), false); // Known completion, old generation.
+const current = follow.begin();
+assert.equal(follow.complete(current, 2), true);
+assert.equal(follow.complete(current, 3), false); // No pending operation.
+const stale = follow.begin();
+assert.equal(follow.complete(current, 3), false); // Same generation, OLD request.
+assert.equal(follow.begin(), null);
+assert.equal(follow.complete(stale, 2), false);
+assert.equal(follow.complete(follow.begin(), MAX_THEME_SEQUENCE + 1), false);
+assert.equal(follow.failed(follow.begin()), true);
+assert.equal(follow.following, false);
+assert.equal(follow.begin(), null);
+assert.equal(POLL_MS, 500);
+follow.generation = MAX_THEME_SEQUENCE; follow.following = true;
+assert.equal(follow.mode(false), false);
+assert.equal(follow.following, false);
 
 const matrix = JSON.parse(fs.readFileSync(new URL("../theme-fixtures.json", import.meta.url), "utf8"));
 assert.equal(matrix.maxBytes, MAX_THEME_BYTES);
@@ -81,6 +108,59 @@ assert.equal(paints, previousPaints);
 assert.equal(notices, previousNotices);
 deliver(3, LIGHT);
 assert.equal(paints, previousPaints); // Stale delivery does not repaint.
+
+// Actual consumer loop and the actual view apply method, with only native
+// scheduling/color effects substituted. No real timer/window/host registration.
+const replies = [], sleeps = [], tasks = [];
+let requests = 0;
+const pollContext = { notify: context.notify, sleep: (ms) => {
+  assert.equal(ms, POLL_MS); return new Promise((resolve) => sleeps.push(resolve));
+} };
+const startContext = { notify: context.notify, spawn: (body, options) => {
+  assert.strictEqual(options.owner, pollView);
+  const task = body(pollContext); tasks.push(task); return task;
+} };
+const pollView = { ...view, themeUpdates: new ThemeUpdates(), applyThemeSample: apply };
+installThemeSource(pollView, () => { requests++; return new Promise((resolve) => replies.push(resolve)); });
+const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
+followTheme(pollView, startContext);
+assert.equal(requests, 1);
+manualTheme(pollView);
+apply.call(pollView, 1, prepareTheme(LIGHT), pollContext);
+followTheme(pollView, startContext); // Resume while OLD native read is outstanding.
+assert.equal(requests, 1);
+replies.shift()({ sequence: 1, ...prepareTheme(DARK) });
+await tick();
+assert.equal(pollView.themeUpdates.current.palette.mode, "light");
+assert.equal(pollView.themeUpdates.sequence, 1); // Old answer did not consume UI clock.
+assert.equal(sleeps.length, 1);
+sleeps.shift()(); await tick();
+assert.equal(requests, 2);
+replies.shift()({ sequence: 2, ...prepareTheme(LIGHT) }); await tick();
+assert.equal(pollView.themeUpdates.sequence, 2); // Source seq != initial/static UI seq.
+manualTheme(pollView);
+sleeps.shift()(); await tick();
+await Promise.all(tasks);
+assert.equal(pollView.themePollRunning, false);
+assert.equal(requests, 2);
+assert.equal(checkedSample({ sequence: 3, ...prepareTheme(LIGHT), extra: "outside" }), null);
+assert.equal(checkedSample({ sequence: MAX_THEME_SEQUENCE + 1, ...prepareTheme(LIGHT) }), null);
+assert.equal(checkedSample({ sequence: 3, status: "missing", palette: prepareTheme(LIGHT).palette }), null);
+followTheme(pollView, startContext);
+replies.shift()({ sequence: 3, status: "unavailable", palette: prepareTheme(LIGHT).palette });
+await tick(); await Promise.all(tasks);
+assert.equal(pollView.themeFollow.following, false);
+assert.equal(pollView.themeUpdates.current.status, "unavailable");
+assert.strictEqual(pollView.themeUpdates.current.palette, DEFAULT_PALETTE);
+assert.equal(requests, 3); // Failed reply stops; no silent automatic retries.
+assert.equal(sleeps.length, 0);
+assert.equal(pollView.query, "north");
+assert.equal(pollView.selected, "north");
+assert.equal(pollView.highlighted, "south");
+assert.equal(pollView.confirmed, "south");
+[pollView.listScroll, pollView.panelFocus, pollView.profileCache, pollView.metadata]
+  .forEach((owner, index) => assert.strictEqual(owner, owners[index]));
+assert.strictEqual(pollView.profileCache.get("north", true, "all", pollView.metadata), rows);
 
 // Source-fixture replacement, NOT a watcher test. Sole test writer mutates only
 // this new checked public tree, then samples a bounded regular file.

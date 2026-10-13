@@ -64,6 +64,15 @@ export function paletteText(palette) {
 
 const samePalette = (a, b) => paletteText(a) === paletteText(b);
 
+export function checkedTheme(prepared) {
+  if (!prepared || typeof prepared !== "object" || Object.keys(prepared).length !== 2
+    || !Object.hasOwn(prepared, "status") || !Object.hasOwn(prepared, "palette")
+    || !statuses.includes(prepared.status)) return null;
+  const palette = checkedPalette(prepared.palette);
+  if (!palette || (prepared.status !== "good" && !samePalette(palette, DEFAULT_PALETTE))) return null;
+  return Object.freeze({ status: prepared.status, palette: prepared.status === "good" ? palette : DEFAULT_PALETTE });
+}
+
 export class ThemeUpdates {
   constructor() {
     this.sequence = 0;
@@ -73,11 +82,9 @@ export class ThemeUpdates {
   receive(sequence, prepared) {
     // Admission BEFORE coalescing. A late malformed record cannot displace good.
     if (!Number.isSafeInteger(sequence) || sequence <= this.sequence || sequence > MAX_THEME_SEQUENCE) return false;
-    if (!prepared || typeof prepared !== "object" || Object.keys(prepared).length !== 2
-      || !Object.hasOwn(prepared, "status") || !Object.hasOwn(prepared, "palette")
-      || !statuses.includes(prepared.status)) return false;
-    let palette = checkedPalette(prepared.palette);
-    if (!palette || (prepared.status !== "good" && !samePalette(palette, DEFAULT_PALETTE))) return false;
+    prepared = checkedTheme(prepared);
+    if (!prepared) return false;
+    let palette = prepared.palette;
     if (prepared.status !== "good") palette = DEFAULT_PALETTE;
     else if (samePalette(palette, this.current.palette)) palette = this.current.palette;
     this.sequence = sequence;

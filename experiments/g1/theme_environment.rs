@@ -24,6 +24,7 @@ pub fn admitted(home: &Path, value: impl Fn(&str) -> Option<OsString>) -> bool {
             .all(|(key, child)| value(key).as_deref() == Some(home.join(child).as_os_str()))
 }
 
+#[allow(dead_code)] // Host store guard; Direct has no scripting store.
 pub fn store_path(home: &Path, identity: &str) -> Option<PathBuf> {
     // Pinned runtime::app_data_dir/data_home layout. Before its create_dir_all,
     // exact empty sdk-data scope and safe bundle identity imply only new

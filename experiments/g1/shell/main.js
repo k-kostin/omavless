@@ -14,6 +14,7 @@ import { UpdateView } from "./workload.js";
 import { Metadata } from "./metadata.js";
 import { plainKey, navigatePage } from "./keyboard.js";
 import { prepareTheme, paletteText, ThemeUpdates } from "./theme-source.js";
+import { manualTheme, followTheme } from "./theme-client.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
 const copy = {
@@ -24,6 +25,7 @@ const copy = {
     note: "Tab to list: arrows move, Enter inspects; Page Down opens Details", large: "10,005 synthetic rows · virtualized", noResults: "No matching profiles",
     readonly: "No VPN action exists in this experiment.", search: "Search sample profiles…",
     theme: "Synthetic theme", dark: "Dark", light: "Light", broken: "Broken → default", fallback: "Default palette restored",
+    themeFollow: "Read public palette", themeFollowing: "Polling owned public sample", themeManual: "Manual palette · source paused",
     largeList: "Show generated samples", smallList: "Hide generated samples",
     viewDetails: "Details", viewProfiles: "Profiles", returnHint: "Page Up or Profiles returns to the list",
     burst: "Simulate 1,000 updates", lost: "Lose sample source", attach: "Read fresh sample", sample: "Sample update",
@@ -38,6 +40,7 @@ const copy = {
     note: "Tab — к списку, стрелки — выбор, Enter — просмотр; Page Down — детали", large: "10 005 демонстрационных строк · виртуализация", noResults: "Профили не найдены",
     readonly: "В этом эксперименте нет управления VPN.", search: "Поиск демонстрационных профилей…",
     theme: "Тема макета", dark: "Тёмная", light: "Светлая", broken: "Сбой → стандартная", fallback: "Стандартная палитра восстановлена",
+    themeFollow: "Читать публичную палитру", themeFollowing: "Чтение принадлежащего макету образца", themeManual: "Ручная палитра · источник приостановлен",
     largeList: "Показать сгенерированные строки", smallList: "Скрыть сгенерированные строки",
     viewDetails: "Детали", viewProfiles: "Профили", returnHint: "Page Up или «Профили» вернёт к списку",
     burst: "Смоделировать 1 000 обновлений", lost: "Потерять источник макета", attach: "Прочитать свежий макет", sample: "Обновление макета",
@@ -89,6 +92,7 @@ export default class G1Trial extends View {
   }
 
   applyPalette(choice, context) {
+    manualTheme(this);
     const source = choice === "light" ? LIGHT : choice === "broken" ? BROKEN : DARK;
     this.themeChoice = choice;
     this.applyThemeSample(this.themeUpdates.sequence + 1, prepareTheme(source), context);
@@ -267,6 +271,11 @@ export default class G1Trial extends View {
             new Button(`theme-${choice}`).label(label).outlined().selected(this.themeChoice === choice)
               .onClick((_event, context) => this.applyPalette(choice, context)).build(cx))))
         .when(this.themeFallback, (element) => element.child(new MutedText(strings.fallback).build(cx)))
+        .when(Boolean(this.themeFollow), (element) => element.child(h_flex().flex_wrap().gap(6)
+          .child(new Button("theme-follow").label(strings.themeFollow).outlined()
+            .selected(this.themeFollow.following)
+            .onClick((_event, context) => followTheme(this, context)).build(cx))
+          .child(new MutedText(this.themeFollow.following ? strings.themeFollowing : strings.themeManual).build(cx))))
         .child(panels);
     }
     return new AppShell()

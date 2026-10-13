@@ -2,8 +2,9 @@
 //! SOURCE PROPOSAL ONLY. Not built/registered/launched. Review before native use.
 //! Same public pinned host entry; one fixed readonly public-data extension.
 use gpui_shell::{HostError, HostModule, HostValue};
-use std::os::unix::fs::MetadataExt;
-use std::{fs, path::PathBuf, sync::Arc};
+use std::sync::Arc;
+#[path = "../../theme_client.rs"]
+mod theme_client;
 #[path = "../../theme_environment.rs"]
 mod theme_environment;
 #[path = "../../theme_fixture.rs"]
@@ -11,71 +12,18 @@ mod theme_fixture;
 #[path = "../../theme_source.rs"]
 mod theme_source;
 
-struct Selected {
-    sampler: Arc<theme_fixture::Sampler>,
-    // Hold selected scope identities for the entire SDK run. The sole public
-    // fixture writer must not replace these roots while the host is active;
-    // this is not a hostile same-UID sandbox around the SDK's path-based I/O.
-    _scopes: Vec<theme_fixture::OwnedFixture>,
-}
-
-fn selected() -> Option<Selected> {
-    // Fresh synthetic process HOME prevents the SDK's initial ambient
-    // theme/storage paths from reaching the real user's directories.
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    let uid = fs::metadata("/proc/self").ok()?.uid();
-    if uid == 0
-        || !home.is_absolute()
-        || !home.file_name()?.to_str()?.starts_with("g1h-")
-        || home.parent()?.file_name()? != "ovt"
-        || home.parent()?.parent()?.file_name()? != ".cache"
-        || fs::canonicalize(&home).ok()? != home
-        || !theme_environment::admitted(&home, |key| std::env::var_os(key))
-    {
+fn selected() -> Option<theme_client::PublicClient> {
+    let selected = theme_client::PublicClient::select()?;
+    if std::env::args_os().skip(1).collect::<Vec<_>>() != [selected.app.clone().into_os_string()] {
         return None;
     }
-    for directory in [
-        &home,
-        &home.join(".cache"),
-        &home.join(".cache/ovt"),
-        &home.join("app"),
-    ] {
-        let metadata = fs::symlink_metadata(directory).ok()?;
-        if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o777 != 0o700 {
-            return None;
-        }
-    }
-    let mut scopes = vec![theme_fixture::OwnedFixture::open_root(&home).ok()?];
-    for child in ["sdk-data", "sdk-config", "sdk-cache", "sdk-state"] {
-        let directory = home.join(child);
-        scopes.push(theme_fixture::OwnedFixture::open_empty_root(&directory).ok()?);
-    }
-    if fs::symlink_metadata(home.join(".config")).is_ok()
-        || fs::symlink_metadata(home.join(".local")).is_ok()
-    {
-        return None;
-    }
-    let app = home.join("app");
-    if std::env::args_os().skip(1).collect::<Vec<_>>() != [app.clone().into_os_string()] {
-        return None;
-    }
-    // Exact existing manifest prevents additional manifest-requested grants.
-    // The supported CLI STILL adds app/store reads, store writes and exit even
-    // with storage:false. These inherited grants await explicit approval.
-    // All store/config XDG destinations above are fresh owned HOME children.
-    let app_scope = theme_fixture::OwnedFixture::open_root(&app).ok()?;
-    if !app_scope.has_trial_manifest() {
-        return None;
-    }
-    scopes.push(app_scope);
     // Same public identity function as grant_local_access. sdk-data was just
     // opened owned/no-symlink/empty, so its store descendants do not preexist.
-    let _store = theme_environment::store_path(&home, &gpui_shell::bundle_id_for_path(&app))?;
-    let fixture = theme_fixture::OwnedFixture::open_root(&home.join(".cache/ovt/g1-theme")).ok()?;
-    Some(Selected {
-        sampler: theme_fixture::Sampler::new(fixture),
-        _scopes: scopes,
-    })
+    let _store = theme_environment::store_path(
+        selected.app.parent()?,
+        &gpui_shell::bundle_id_for_path(&selected.app),
+    )?;
+    Some(selected)
 }
 
 fn main() {

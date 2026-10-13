@@ -5,7 +5,7 @@ use gpui_kit::base::VirtualListScrollHandle;
 use gpui_kit::base::input::{InputEvent, InputState};
 use gpui_kit::{
     AccessibleAction, AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
-    ParentElement, Pixels, Render, Role, ScrollHandle, ScrollStrategy, Size, Styled, Window,
+    ParentElement, Pixels, Render, Role, ScrollHandle, ScrollStrategy, Size, Styled, Task, Window,
     WindowOptions, div, point, prelude::*, px, rems,
 };
 use gpui_omarchy::{
@@ -18,6 +18,14 @@ mod freshness;
 mod keyboard;
 mod metadata;
 mod profiles;
+#[path = "../../theme_client.rs"]
+mod theme_client;
+#[path = "../../theme_environment.rs"]
+mod theme_environment;
+#[path = "../../theme_fixture.rs"]
+mod theme_fixture;
+#[path = "../../theme_follow.rs"]
+mod theme_follow;
 #[path = "../../theme_source.rs"]
 mod theme_source;
 mod workload;
@@ -221,6 +229,10 @@ struct Trial {
     russian: bool,
     palette: usize,
     theme_updates: theme_source::ThemeUpdates,
+    theme_client: Option<theme_client::PublicClient>,
+    theme_follow: theme_follow::Follow,
+    theme_poll_running: bool,
+    theme_task: Option<Task<()>>,
     large: bool,
     collection: usize,
     profile_cache: profiles::ProfileCache,
@@ -230,7 +242,12 @@ struct Trial {
 }
 
 impl Trial {
-    fn new(window: &mut Window, cx: &mut Context<Self>, initial_scene: usize) -> Self {
+    fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        initial_scene: usize,
+        theme_client: Option<theme_client::PublicClient>,
+    ) -> Self {
         let fixtures = Fixtures::load();
         assert!(initial_scene < fixtures.scenes.len());
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search / Поиск"));
@@ -264,6 +281,12 @@ impl Trial {
         updates.burst(&scene.phase, scene.connected.as_deref(), 1);
         let mut profile_cache = profiles::ProfileCache::default();
         profile_cache.refresh(&updates.metadata, "", false, "all");
+        let mut theme_updates = theme_source::ThemeUpdates::default();
+        theme_updates.receive(
+            1,
+            theme_source::Prepared::from_bytes(Some(SYNTHETIC_DARK.as_bytes())),
+        );
+        theme_updates.flush();
         Self {
             visible: profile_cache.visible.clone(),
             profile_cache,
@@ -279,7 +302,11 @@ impl Trial {
             panels_scroll: ScrollHandle::new(),
             russian: false,
             palette: 0,
-            theme_updates: theme_source::ThemeUpdates::default(),
+            theme_updates,
+            theme_client,
+            theme_follow: theme_follow::Follow::default(),
+            theme_poll_running: false,
+            theme_task: None,
             large: false,
             collection: 0,
             row_sizes: Rc::new(Vec::new()),
@@ -311,6 +338,83 @@ impl Trial {
         if delivery.palette_changed || delivery.status_changed {
             cx.notify();
         }
+    }
+
+    fn follow_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.theme_client.as_ref() else {
+            return;
+        };
+        let sampler = std::sync::Arc::clone(&source.sampler);
+        if !self.theme_follow.mode(true) {
+            return;
+        }
+        self.palette = usize::MAX; // No static choice falsely represents source colors.
+        cx.notify();
+        if self.theme_poll_running {
+            return;
+        }
+        self.theme_poll_running = true;
+        self.theme_task = Some(cx.spawn(async move |view, cx| {
+            loop {
+                let Ok(Some(generation)) = view.update(cx, |this, _| this.theme_follow.begin())
+                else {
+                    break;
+                };
+                let Some(permit) = sampler.reserve() else {
+                    let _ = view.update(cx, |this, cx| {
+                        if this.theme_follow.failed(generation) {
+                            this.apply_theme_sample(
+                                this.theme_updates.sequence + 1,
+                                theme_source::Prepared::fallback(theme_source::Status::Unavailable),
+                                cx,
+                            );
+                        }
+                    });
+                    break;
+                };
+                // Permit moves INTO the background work, not into a foreground
+                // cancellation guard. Manual drains the active read. Dropping
+                // the view/task cannot free a Permit during synchronous I/O.
+                let sample = cx
+                    .background_executor()
+                    .spawn(async move { permit.sample() })
+                    .await;
+                let Ok(keep_running) = view.update(cx, |this, cx| {
+                    match sample {
+                        Some((sequence, prepared)) => {
+                            if this.theme_follow.complete(generation, sequence) {
+                                this.apply_theme_sample(
+                                    this.theme_updates.sequence + 1,
+                                    prepared,
+                                    cx,
+                                );
+                            }
+                        }
+                        None => {
+                            if this.theme_follow.failed(generation) {
+                                this.apply_theme_sample(
+                                    this.theme_updates.sequence + 1,
+                                    theme_source::Prepared::fallback(
+                                        theme_source::Status::Unavailable,
+                                    ),
+                                    cx,
+                                );
+                            }
+                        }
+                    }
+                    this.theme_follow.following
+                }) else {
+                    break;
+                };
+                if !keep_running {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(theme_follow::POLL_MS))
+                    .await;
+            }
+            let _ = view.update(cx, |this, _| this.theme_poll_running = false);
+        }));
     }
 
     fn replace_metadata(&mut self, action: usize) {
@@ -563,6 +667,7 @@ impl Render for Trial {
                     cx,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
+                    this.theme_follow.mode(false); // Never frees an unfinished read.
                     this.palette = index;
                     let source = match index {
                         0 => SYNTHETIC_DARK,
@@ -579,6 +684,37 @@ impl Render for Trial {
                     cx.notify();
                 }))
                 .into_any_element(),
+            );
+        }
+        if self.theme_client.is_some() {
+            palette_buttons.push(
+                button(
+                    "palette-follow",
+                    self.label("Read public palette", "Читать публичную палитру"),
+                    if self.theme_follow.following {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.follow_theme(cx)))
+                .into_any_element(),
+            );
+            palette_buttons.push(
+                div()
+                    .child(if self.theme_follow.following {
+                        self.label(
+                            "Polling owned public sample",
+                            "Чтение принадлежащего макету образца",
+                        )
+                    } else {
+                        self.label(
+                            "Manual palette · source paused",
+                            "Ручная палитра · источник приостановлен",
+                        )
+                    })
+                    .into_any_element(),
             );
         }
         let mut scene_buttons = Vec::<AnyElement>::new();
@@ -963,11 +1099,14 @@ impl Render for Trial {
                             .child(self.label("Synthetic palette", "Палитра макета")),
                     )
                     .children(palette_buttons)
-                    .when(self.palette == 2, |row| {
-                        row.child(div().text_color(theme.secondary).child(
-                            self.label("Whole default fallback", "Полный откат к базовой теме"),
-                        ))
-                    }),
+                    .when(
+                        self.theme_updates.current.prepared.status != theme_source::Status::Good,
+                        |row| {
+                            row.child(div().text_color(theme.secondary).child(
+                                self.label("Whole default fallback", "Полный откат к базовой теме"),
+                            ))
+                        },
+                    ),
             )
             .child(
                 div()
@@ -1084,6 +1223,19 @@ impl Render for Trial {
 }
 
 fn main() {
+    let theme_client = if std::env::var_os("G1_PUBLIC_THEME_SOURCE").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        match theme_client::PublicClient::select() {
+            Some(selected) => Some(selected),
+            None => {
+                eprintln!("G1 owned public theme fixture unavailable");
+                std::process::exit(2);
+            }
+        }
+    } else {
+        None
+    };
     let fixtures = Fixtures::load();
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let initial_scene = match fixtures.initial_scene(&arguments) {
@@ -1098,8 +1250,8 @@ fn main() {
         .run(move |cx| {
             gpui_omarchy::init(cx);
             synthetic_theme(0).0.apply(cx);
-            cx.open_window(WindowOptions::default(), |window, cx| {
-                cx.new(|cx| Trial::new(window, cx, initial_scene))
+            cx.open_window(WindowOptions::default(), move |window, cx| {
+                cx.new(move |cx| Trial::new(window, cx, initial_scene, theme_client))
             })
             .expect("open synthetic G1 window");
             cx.activate(true);
