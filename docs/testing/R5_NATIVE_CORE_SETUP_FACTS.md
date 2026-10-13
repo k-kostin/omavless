@@ -5,10 +5,20 @@ The fixed read-only `omavless desktop core-readiness` command supplies version-1
 a daemon method and does not open the store or a controller, create a TUN,
 change service state, install anything or invoke privilege escalation.
 
-It reuses accepted core discovery precedence (explicit override, user-local,
-absolute PATH candidates) in the calling desktop environment. This environment
-may differ from the systemd user runtime. No claim is made that the executable
-discovered here is the runtime's current child.
+It first uses the runtime's credential-free managed-pair selection and existing
+package verifier. A valid selected pair takes precedence over stock discovery;
+its selector/package bytes are rechecked around the bounded version/capability
+probes. An invalid or changed selected pair gives the fixed desktop-unavailable
+error, never stock fallback or a false missing-core/install offer. No enrollment,
+broker/controller query or ownership grant follows from that verification.
+
+Only when no pair is selected does it retain accepted core discovery precedence
+(explicit override, user-local, absolute PATH candidates) in the calling desktop
+environment. Configuration roots match native discovery, including the existing
+isolated-test `OMAVLESS_HOME` override. This environment may differ from the
+systemd user runtime. No claim is made that the selected/discovered executable
+is the runtime's current child, or that a point-in-time read excludes later
+package/selection changes.
 
 The public projection contains only:
 

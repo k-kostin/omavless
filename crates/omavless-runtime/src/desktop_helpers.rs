@@ -118,15 +118,59 @@ impl DesktopHelpers {
 
     /// Read-only desktop-context facts, deliberately not proof that the service
     /// can create a TUN. No profile/store/controller access or setup commands.
-    pub fn core_readiness(&self) -> serde_json::Value {
-        let home = env::var_os("HOME").map(PathBuf::from);
-        let core = home
-            .as_deref()
-            .filter(|home| home.is_absolute())
-            .and_then(|home| {
-                omavless_mihomo::discover_core(home, self.find("mihomo").as_deref()).ok()
-            });
-        self.core_readiness_for(core.as_deref(), Path::new("/dev/net/tun"))
+    pub fn core_readiness(&self) -> Result<serde_json::Value> {
+        // Match the runtime's selected configuration root, including its
+        // isolated-test override. This reads only the credential-free selector
+        // and fixed package objects, never profiles or ownership state.
+        let home = env::var_os("OMAVLESS_HOME")
+            .or_else(|| env::var_os("HOME"))
+            .map(PathBuf::from);
+        let Some(home) = home.as_deref().filter(|home| home.is_absolute()) else {
+            return Ok(self.core_readiness_for(None, Path::new("/dev/net/tun")));
+        };
+        let selected = crate::managed_pair::ManagedPair::detect(
+            &home.join(".config/omavless"),
+            Uid::current().as_raw(),
+        );
+        self.core_readiness_with_pair(home, Path::new("/dev/net/tun"), selected)
+    }
+
+    pub(crate) fn core_readiness_with_pair(
+        &self,
+        home: &Path,
+        tun: &Path,
+        selected: std::result::Result<
+            Option<crate::managed_pair::ManagedPair>,
+            crate::lifecycle::HostStepError,
+        >,
+    ) -> Result<serde_json::Value> {
+        match selected.map_err(|_| Error::Unavailable)? {
+            Some(pair) => {
+                // A selected pair takes precedence over every stock discovery
+                // path. Do not fall back if its objects change during probes.
+                pair.verify().map_err(|_| Error::Unavailable)?;
+                let facts = self.core_readiness_for(Some(pair.core_path()), tun);
+                pair.verify().map_err(|_| Error::Unavailable)?;
+                Ok(facts)
+            }
+            None => {
+                let core =
+                    omavless_mihomo::discover_core(home, self.find("mihomo").as_deref()).ok();
+                let facts = self.core_readiness_for(core.as_deref(), tun);
+                // A pair selected while the old discovery probe was running
+                // invalidates that sample too. Never publish stale stock facts.
+                if crate::managed_pair::ManagedPair::detect(
+                    &home.join(".config/omavless"),
+                    Uid::current().as_raw(),
+                )
+                .map_err(|_| Error::Unavailable)?
+                .is_some()
+                {
+                    return Err(Error::Unavailable);
+                }
+                Ok(facts)
+            }
+        }
     }
 
     fn core_readiness_for(&self, core: Option<&Path>, tun: &Path) -> serde_json::Value {

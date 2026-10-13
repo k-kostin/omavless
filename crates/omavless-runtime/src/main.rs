@@ -439,7 +439,7 @@ fn run() -> Result<(), CliError> {
                 return Ok(());
             }
             Some("core-readiness") => {
-                println!("{}", helpers.core_readiness());
+                println!("{}", helpers.core_readiness().map_err(|e| e.to_string())?);
                 return Ok(());
             }
             Some("clipboard-read") => helpers.clipboard_read(),

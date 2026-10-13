@@ -40,6 +40,7 @@ impl Fixture {
             .env("XDG_RUNTIME_DIR", &self.0)
             .env("HOME", &self.0)
             .env("OMAVLESS_HOME", &self.0)
+            .env_remove("OMAVLESS_MIHOMO")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -80,6 +81,73 @@ fn core_readiness_cli_is_fixed_read_only_and_does_not_claim_service_permissions(
     assert_eq!(rejected.status.code(), Some(2));
     assert!(rejected.stdout.is_empty());
     assert!(!String::from_utf8_lossy(&rejected.stderr).contains("private-token"));
+}
+
+#[test]
+fn core_readiness_cli_invalid_selection_refuses_without_stock_probe_or_private_output() {
+    let f = Fixture::new();
+    let config = f.0.join(".config/omavless");
+    fs::create_dir_all(&config).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+    let selector = config.join("managed-dns-selection");
+    fs::write(&selector, b"synthetic-invalid-selection").unwrap();
+    fs::set_permissions(&selector, fs::Permissions::from_mode(0o600)).unwrap();
+    f.publish_tool(
+        "mihomo",
+        b"#!/bin/bash\n: >\"$HOME/stock-probed\"\nprintf 'Mihomo Meta v1.19.32 linux amd64\\n'\n",
+    );
+    let before = fs::read(&selector).unwrap();
+    let response = f.call(&["desktop", "core-readiness"], b"");
+    assert_eq!(response.status.code(), Some(2));
+    assert!(response.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(response.stderr).unwrap().trim(),
+        "Desktop helper could not complete the action"
+    );
+    assert!(!f.0.join("stock-probed").exists());
+    assert_eq!(fs::read(&selector).unwrap(), before);
+    assert!(!f.0.join("omavless").exists());
+}
+
+#[test]
+fn core_readiness_cli_without_selection_keeps_stock_discovery_only_as_setup_facts() {
+    let f = Fixture::new();
+    f.publish_tool(
+        "mihomo",
+        b"#!/bin/bash\ntest \"$*\" = '-v' || exit 9\nprintf 'Mihomo Meta v1.19.32 linux amd64 private-build\\n'\n",
+    );
+    let response = f.call(&["desktop", "core-readiness"], b"");
+    assert!(response.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&response.stdout).unwrap();
+    assert_eq!(value["installed"], true);
+    assert_eq!(value["version"], "1.19.32");
+    assert_eq!(value["servicePermissionReadiness"], "not_verified");
+    assert_eq!(value["coverage"]["controllerQueried"], false);
+    assert!(
+        !String::from_utf8(response.stdout)
+            .unwrap()
+            .contains("private-build")
+    );
+    assert!(!f.0.join(".config").exists());
+    assert!(!f.0.join("omavless").exists());
+}
+
+#[test]
+fn core_readiness_cli_discards_stock_sample_if_selection_appears_during_probe() {
+    let f = Fixture::new();
+    f.publish_tool(
+        "mihomo",
+        b"#!/bin/bash\nprintf 'Mihomo Meta v1.19.32 linux amd64\\n'\n",
+    );
+    // A synthetic external observation helper changes only this private fixture.
+    f.publish_tool("getcap", b"#!/bin/bash\n/usr/bin/mkdir -p \"$HOME/.config/omavless\"\n/usr/bin/chmod 0700 \"$HOME/.config/omavless\"\nprintf 'synthetic-new-selection' >\"$HOME/.config/omavless/managed-dns-selection\"\n/usr/bin/chmod 0600 \"$HOME/.config/omavless/managed-dns-selection\"\nprintf '/private/core cap_net_admin,cap_net_raw,cap_net_bind_service=ep\\n'\n");
+    let response = f.call(&["desktop", "core-readiness"], b"");
+    assert_eq!(response.status.code(), Some(2));
+    assert!(response.stdout.is_empty());
+    let error = String::from_utf8(response.stderr).unwrap();
+    assert!(!error.contains("synthetic-new-selection"));
+    assert!(!error.contains("private/core"));
+    assert!(!f.0.join("omavless").exists());
 }
 
 #[test]
