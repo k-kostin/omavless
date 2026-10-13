@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+p4-candidate-preparation = []
+
 [dependencies]
 base64 = "0.22"
 nix = { version = "0.30", features = ["fs", "process", "signal", "socket", "user"] }

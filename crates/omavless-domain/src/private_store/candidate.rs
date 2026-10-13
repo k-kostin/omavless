@@ -32,6 +32,26 @@ pub struct CandidatePrivateStore {
 }
 
 impl CandidatePrivateStore {
+    /// Safe, credential-derived eligibility fact for a separately reviewed
+    /// candidate preparation boundary. None denotes an existing URI family;
+    /// a native flavor is never supplied by the caller or stored discriminator.
+    /// This exposes no keys, endpoint, name, private record or host authority.
+    pub fn selected_wireguard_flavor(
+        &self,
+        id: &str,
+    ) -> Result<Option<omavless_profile::wireguard::WireGuardFlavor>, PrivateStoreError> {
+        let index = self
+            .state
+            .profiles
+            .iter()
+            .position(|profile| profile.id == id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        Ok(match &self.credentials[index] {
+            CandidateCredential::Uri(_) => None,
+            CandidateCredential::WireGuard(profile) => Some(profile.facts().flavor),
+        })
+    }
+
     /// Private, pure configuration preparation for an already-v4 candidate.
     /// This performs no core/version admission, host operation or publication.
     /// The installed owner deliberately does not call this method.

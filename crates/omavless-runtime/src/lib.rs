@@ -34,6 +34,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auxiliary_core;
 mod batch_scheduler;
+#[cfg(any(test, feature = "p4-candidate-preparation"))]
+pub mod candidate_disconnected_preparation;
 pub mod candidate_store_transaction;
 mod connection_test;
 pub mod connection_transaction;

@@ -331,3 +331,16 @@ editor/export framing, every subscription/backup consumer, core/privacy review
 and matching-server mode/lifecycle/IP-family acceptance remain unclosed.
 The separately scoped [loopback smoke design](P4_WG_LOOPBACK_SMOKE_PLAN.md)
 is a proposal only; no VM, namespace, peer or core is launched by this slice.
+
+### Opt-in disconnected preparation prerequisite
+
+The [disconnected preparation proposal](P4_CANDIDATE_DISCONNECTED_PREPARATION.md)
+adds a pure, non-default runtime input carrier on the #545 lineage. Validated
+off intent, no candidate active pointer, credential-derived flavor and exact
+tested x86-64 core bytes are required before private config rendering. Unknown
+core bytes and AWG 1/2 refuse; the selected artifact is a scoped compatibility
+row, not a minimum-version or provenance guarantee. No host/core invocation,
+startup wiring, publication, installed v4 admission or active lifecycle/recovery
+authority is added. Actual resource-aware validation and acquisition/owner
+identity remain separate gates; production v3 and active mutation fences stay
+unchanged.
