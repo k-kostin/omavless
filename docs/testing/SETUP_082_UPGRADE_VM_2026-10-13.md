@@ -488,3 +488,43 @@ retained-work namespace, not the application's state root; nevertheless those
 unconsumed siblings must not invalidate an otherwise admitted package update.
 Do not repair a user's profile store, move private state, or weaken pending
 transaction fences to make an installation demonstration pass.
+
+## Attended PC continuation and clearer setup prompts
+
+The owner completed the separately attended producer49f update: retained
+wrapper result packages_updated/exit0/settled, both exact package receipts
+verified independently. The first reopened panel still projected generic
+attention while the installed fixed inventory returned needs_dns_setup/present.
+After the owner's deliberate shell reload, the actual Continue DNS action
+appeared. With registration demonstrably absent, the owner chose FIRST and
+completed the separate DNS/app preparation. Read-only observation subsequently
+returned ready/present, native Disconnected and manualRecoveryRequired false.
+Profiles, Desired, ownership and the pre-managed template backup matched the
+retained baseline. No connection-health or whole issue772-resolution claim is
+made; no physical shell restart, DNS consent or VPN toggle was entered by the
+agent.
+
+Frontend `708a27bbf33b3ef4a86ca21e97c688ed14a72774` clarifies FIRST and START in
+separate EN/RU lines and offers optional RELOAD only after successful direct
+upgrade completion/cleanup. Exact RELOAD is separate whole-shell consent, not
+automatic install behavior; Enter skips. It rechecks the stopped/DNS-pending
+state and never converts shell failure into another package update. Success
+after install/resume and failed upgrade do not offer reload. The successor
+`4409778493c815905bf236003cda6ca5958ccd32` additionally refuses an unsafe runtime
+directory or any occupied setup-lock name, including dangling symlinks; it
+does not delete a blocker. Native package inputs/pins remain producer49f.
+
+Both language versions of the exact production prompt functions were inspected
+in actual guest foot windows, 1890px width/scale1.666, with the choice blocks,
+spacing, warnings and input prompt visible and readable. This was an explicitly
+inert terminal preview: effects mocked, Enter cancellation used; not live
+enrollment or whole-shell-restart acceptance. The nonsurface guard successor
+does not change those rendered strings. The initial installed resume attempt
+refused a preexisting setup lock; that refusal is retained, not silently removed
+or counted as a prompt-flow PASS. Guest idle preference was restored and private
+baseline comparisons remained equal. Full independent source review covers the
+reload boundary; dedicated deterministic tests cover exact consent, changed/
+busy/unsafe state, failed reload, no retry and direct-entry action selection.
+The new successful explicit RELOAD branch still needs its own installed gate
+before final delivery. No physical frontend or main replacement accompanied
+these presentation changes.
