@@ -75,7 +75,11 @@ small source/kernel control, not SDK/native GUI rendering evidence.
 
 `shell-theme-host/` is a reviewable sketch with the existing pinned SDK as its
 only framework dependency and existing `serde_json = "1"` as a test-only
-dependency. No lockfile/dependency resolution or GPUI consumer build ran.
+dependency. Its manifest mirrors the exact upstream root `rquickjs` facade
+patch through SDK Git b4c7: actual facade 0.12.9 routes quickjs-jit 0.12.11/965.
+Dependent Git packages do not inherit this required SDK root policy. Direct has
+no Shell JS dependency and does not receive that patch. An exact standalone
+lock/resolution DATA gate is now retained; no GPUI consumer build ran.
 It requires a fresh owned synthetic process HOME `g1h-*` under
 `.cache/ovt`, explicit `G1_PUBLIC_THEME_SOURCE=1`, fixed public
 `.cache/ovt/g1-theme` root and copied `app` directory. The exact
@@ -146,15 +150,24 @@ remain UNRUN and require immutable-delta re-review.
 
 ## Dependency preflight and build plan
 
-The initial `cargo generate-lockfile --offline` preflight refused: shared Cargo
-had no checkout for the exact public SDK b4c7 Git dependency. No lockfile or
-compile was produced. The separate b4c7 clone is clean and its lock retained;
-quickjs965/605 and llrt7b95 source pins already exist in shared Cargo cache.
-This is cache preparation, not a fundamental dependency blocker or permission
-to upgrade. The next agreed recipe uses an isolated HOME-backed Cargo cache for
-exact pinned public source fetch, reuses retained registry/lock data (no heavy
-target copying) and compares every SDK/git revision and overlapping crate
-version. No fetch has run; significant graph changes must be reviewed first.
+Initial offline cache miss, registry-directory missing checksum metadata and
+conservative all-SDK/bench closure misses are preserved as data-preparation
+failures, not actual x64 build blockers. No invented checksum/shared-cache
+repair or missing-archive download was performed. A separate owned Cargo cache
+fetched exact b4c7 source and copied existing exact quickjs965/605, llrt7b95 and
+their cached QuickJS gitlink fd0a021 source objects; shared sparse index/archive
+data was read only. No GB target tree was copied.
+
+Official `cargo update --offline --workspace` retained SDK seed versions and
+resolved the actual standalone root: 949 package IDs, 920 registry records,
+zero version/checksum drift against retained SDK lock. Git sources are only
+b4c7/quickjs965/605/llrt7b95. Committed host lock SHA:
+`cd076d3d14c986a05b3c3d48df0703725432d33c3115791ee5ac9f1877a836c1`.
+Filtered locked offline x86_64 Linux metadata completed: 730 reachable package
+IDs, 701 registry crates, all active existing archives authenticated against
+actual lock checksums with none missing. Eleven cross-platform lock archives
+were absent but are not active x64 requirements. This is resolution/source DATA,
+not Rust SDK typecheck, native linking, host registration or rendering PASS.
 Typecheck exact locked clients sequentially in separate owned G1 targets,
 never overwrite frozen #743/#746/native-wire executables or use the main
 agent maintenance target. Only after source/typecheck review may executable/

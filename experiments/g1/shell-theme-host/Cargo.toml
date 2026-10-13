@@ -14,5 +14,11 @@ gpui-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "b4c7cbdbbb
 # Existing shared fixture test dependency; no native dependency resolution run.
 serde_json = "1"
 
+[patch.crates-io]
+# Exact pinned SDK root policy: LLRT and Shell must share the same VM/types.
+# The upstream facade is rquickjs 0.12.9 -> quickjs-jit 0.12.11 (96593cd).
+# Git dependencies do not inherit their repository root's patch section.
+rquickjs = { git = "https://github.com/longbridge/gpui-kit", rev = "b4c7cbdbbb57952c692c47ed13bbde9a06cdb7c5" }
+
 [profile.release.package.gpui-pre-macros]
 debug-assertions = true
