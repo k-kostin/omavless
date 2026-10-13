@@ -224,6 +224,7 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
                 code = f'''
 setup_status() {{ echo {state}; }}
 user_runtime_stopped() {{ return {0 if stopped else 1}; }}
+setup_runtime_directory_safe() {{ return 0; }}
 omarchy() {{ echo "$*" >> "$TEST_DIR/reload-trace"; }}
 offer_shell_reload
 '''
@@ -236,6 +237,7 @@ offer_shell_reload
         code = '''
 setup_status() { echo needs_dns_setup; }
 user_runtime_stopped() { return 0; }
+setup_runtime_directory_safe() { return 0; }
 omarchy() { echo "$*" >> "$TEST_DIR/reload-trace"; return 1; }
 offer_shell_reload
 '''
@@ -243,6 +245,31 @@ offer_shell_reload
         self.assertEqual(status, 0, output)
         self.assertIn('Packages remain updated; do not repeat UPGRADE.', output)
         self.assertEqual((self.directory / 'reload-trace').read_text().splitlines(), ['restart shell'])
+
+    def test_shell_reload_refuses_an_occupied_or_unsafe_setup_scope(self):
+        for kind in ['directory', 'file', 'dangling-symlink', 'unsafe-runtime']:
+            with self.subTest(kind=kind):
+                lock = self.directory / 'omavless-first-run.lock'
+                if kind == 'directory':
+                    lock.mkdir()
+                elif kind == 'file':
+                    lock.write_text('synthetic retained lock')
+                elif kind == 'dangling-symlink':
+                    lock.symlink_to('missing')
+                code = f'''
+setup_status() {{ echo needs_dns_setup; }}
+user_runtime_stopped() {{ return 0; }}
+setup_runtime_directory_safe() {{ return {1 if kind == 'unsafe-runtime' else 0}; }}
+omarchy() {{ echo UNEXPECTED_RELOAD >> "$TEST_DIR/reload-trace"; }}
+offer_shell_reload
+'''
+                status, output = self.run_terminal(code, 'RELOAD\n')
+                self.assertEqual(status, 0, output)
+                self.assertFalse((self.directory / 'reload-trace').exists())
+                if kind == 'directory':
+                    lock.rmdir()
+                elif kind != 'unsafe-runtime':
+                    lock.unlink()
 
     def test_direct_entry_offers_reload_only_after_successful_upgrade(self):
         entry = SCRIPT.read_text().split('if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then\n', 1)[1]

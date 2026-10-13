@@ -430,7 +430,10 @@ offer_shell_reload() {
   [[ "$choice" == RELOAD ]] || return 0
   # Re-earn the current stopped setup facts after the user's decision. Do not
   # restart during a newly started runtime, completed DNS setup or uncertainty.
-  if [[ $(setup_status) != needs_dns_setup ]] || ! user_runtime_stopped; then
+  local runtime=${XDG_RUNTIME_DIR:-}
+  if ! setup_runtime_directory_safe "$runtime" \
+      || [[ -e "$runtime/omavless-first-run.lock" || -L "$runtime/omavless-first-run.lock" ]] \
+      || [[ $(setup_status) != needs_dns_setup ]] || ! user_runtime_stopped; then
     say 'Reload skipped: setup state changed. Check the plugin; do not repeat UPGRADE.' \
       'Перезагрузка пропущена: состояние изменилось. Проверьте плагин; не повторяйте UPGRADE.'
     return 0
