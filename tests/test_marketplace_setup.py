@@ -619,6 +619,105 @@ prepare_application
         self.assertIn('[[ ! ${OMAVLESS_HOME+x} ]] || return 2', source)
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
+    def test_stage_reporting_is_closed_and_success_is_silent(self):
+        for stage in ("application-activation", "dns-enrollment", "dns-template",
+                      "private-settings", "completion"):
+            result = self.run_shell(f"setup_step {stage} true")
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout + result.stderr, "")
+        for stage in ("secret://synthetic", "application-activation extra", "",
+                      "x" * 1000, "bad\nname"):
+            result = self.run_shell('''
+effect() { touch "$TEST_DIR/unexpected"; }
+setup_step "$STAGE" effect
+'''.replace('"$STAGE"', "'" + stage + "'"))
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout + result.stderr, "")
+            self.assertFalse((self.directory / "unexpected").exists())
+
+    def test_native_failure_reports_one_inner_stage_without_private_output(self):
+        for locale, expected in (
+            ("en", "Setup stopped at stage: application-activation.\n"),
+            ("ru", "Настройка остановлена на этапе: application-activation.\n"),
+        ):
+            result = self.run_shell(f'''
+setup_locale={locale}
+native() {{
+  echo 'synthetic-private-stdout'
+  echo 'synthetic-private-stderr' >&2
+  return 42
+}}
+activate() {{ setup_step application-activation native_quiet cutover activate; }}
+setup_step application-preconditions activate
+''')
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, expected)
+            self.assertEqual(result.stderr, "")
+
+    def test_dns_failures_keep_original_order_and_do_not_repeat_enrollment(self):
+        fixture = '''
+pair_installed() { return 0; }
+user_runtime_stopped() { return 0; }
+no_managed_tun() { return 0; }
+confirm_dns_enrollment() { return 0; }
+enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
+start_broker() { echo start >> "$TEST_DIR/trace"; }
+system_broker_idle() { return 0; }
+broker_access_for_user() { return 0; }
+native() { echo "$*" >> "$TEST_DIR/trace"; }
+pair_selected() { return 0; }
+'''
+        cases = (
+            ("enroll_uid", "dns-enrollment", ["enroll"]),
+            ("start_broker", "dns-broker-start", ["enroll", "start"]),
+            ("system_broker_idle", "dns-broker-readiness", ["enroll", "start"]),
+            ("broker_access_for_user", "dns-socket-access", ["enroll", "start"]),
+        )
+        for function, stage, trace in cases:
+            with self.subTest(stage=stage):
+                (self.directory / "trace").unlink(missing_ok=True)
+                if function == "enroll_uid":
+                    failing = 'enroll_uid() { echo enroll >> "$TEST_DIR/trace"; return 1; }'
+                elif function == "start_broker":
+                    failing = 'start_broker() { echo start >> "$TEST_DIR/trace"; return 1; }'
+                else:
+                    failing = function + "() { return 1; }"
+                result = self.run_shell(fixture + failing + "\nenroll_and_select_pair")
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, f"Setup stopped at stage: {stage}.\n")
+                self.assertEqual(result.stderr, "")
+                self.assertEqual((self.directory / "trace").read_text().splitlines(), trace)
+
+    def test_template_failure_does_not_select_or_activate(self):
+        result = self.run_shell('''
+pair_installed() { return 0; }
+system_broker_idle() { return 0; }
+broker_access_for_user() { return 0; }
+native() {
+  echo "$*" >> "$TEST_DIR/trace"
+  echo 'synthetic-private-template-error' >&2
+  return 1
+}
+finish_pair_selection
+''', "SELECT\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Setup stopped at stage: dns-template.\n", result.stdout)
+        self.assertNotIn("synthetic-private-template-error", result.stdout + result.stderr)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(),
+                         ["dns-pair prepare-template"])
+
+    def test_failure_guidance_does_not_claim_pending_authorization(self):
+        source = SCRIPT.read_text()
+        self.assertIn("Earlier steps may have completed", source)
+        self.assertIn("this message does not imply pending authorization", source)
+        self.assertNotIn("Do not repeat an unresolved authorization", source)
+        # Reporting must not change either read-only projection to include stages.
+        for command in ("status", "components"):
+            result = self.run_shell('setup_status() { echo needs_activation; }; setup_main ' + command)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "needs_activation" + ("\tmissing" if command == "components" else "") + "\n")
+            self.assertEqual(result.stderr, "")
+
 
 if __name__ == "__main__":
     unittest.main()

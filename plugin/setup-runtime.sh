@@ -7,6 +7,7 @@ umask 077
 
 setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
+setup_failure_reported=false
 release_version=0.9.8
 package_version=0.9.8
 # Corrected validation delivery; the original v0.9.8 assets stay immutable.
@@ -15,6 +16,27 @@ readonly release_tag=v0.9.8-fix.3
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
+native_quiet() { native "$@" >/dev/null 2>&1; }
+# Fixed public stage identifiers only; never print command arguments, private
+# native output or rejected input. Reporting does not authorize retry/recovery.
+setup_step() {
+  local stage="$1"
+  shift
+  case "$stage" in
+    setup-state|package-install|unit-reload|private-settings|store-validation|dns-pair-status|dns-preconditions|dns-consent|dns-enrollment|dns-broker-start|dns-broker-readiness|dns-socket-access|dns-template|dns-selection|dns-selection-confirmation|broker-enrollment-check|application-preconditions|application-activation|runtime-enablement|completion) ;;
+    *) return 2 ;;
+  esac
+  if "$@"; then return 0; fi
+  if [[ "$setup_failure_reported" == false ]]; then
+    setup_failure_reported=true
+    say "Setup stopped at stage: $stage." "Настройка остановлена на этапе: $stage."
+  fi
+  return 1
+}
+store_compatible() {
+  native store-compatibility 2>/dev/null \
+    | jq -e '.schemaVersion == 1 and .compatible == true' >/dev/null
+}
 native_present() { [[ -f /usr/bin/omavless && -x /usr/bin/omavless && ! -L /usr/bin/omavless ]]; }
 native_target() { timeout 8 /usr/bin/omavless plugin target 2>/dev/null; }
 package_info() { /usr/bin/pacman -Qp -- "$1" 2>/dev/null; }
@@ -220,16 +242,16 @@ enroll_and_select_pair() {
   pair_installed || return 1
   user_runtime_stopped || return 1
   no_managed_tun || return 1
-  confirm_dns_enrollment || return 1
+  setup_step dns-consent confirm_dns_enrollment || return 1
   # The broker itself requires the exact empty-state package guard. Never
   # recover an unknown result by silently repeating this one-time action.
-  enroll_uid "$(id -u)" || return 1
-  start_broker || return 1
-  system_broker_idle || return 1
-  broker_access_for_user || return 1
-  native dns-pair prepare-template >/dev/null 2>&1 || return 1
-  native dns-pair select >/dev/null 2>&1 || return 1
-  pair_selected
+  setup_step dns-enrollment enroll_uid "$(id -u)" || return 1
+  setup_step dns-broker-start start_broker || return 1
+  setup_step dns-broker-readiness system_broker_idle || return 1
+  setup_step dns-socket-access broker_access_for_user || return 1
+  setup_step dns-template native_quiet dns-pair prepare-template || return 1
+  setup_step dns-selection native_quiet dns-pair select || return 1
+  setup_step dns-selection pair_selected
 }
 
 finish_pair_selection() {
@@ -243,9 +265,9 @@ finish_pair_selection() {
       'Можно подготовить только стандартный DNS-шаблон без изменений. Введите SELECT, чтобы выбрать установленную управляемую пару; Enter отменяет.'
   IFS= read -r answer || return 1
   [[ "$answer" == SELECT ]] || return 1
-  native dns-pair prepare-template >/dev/null 2>&1 || return 1
-  native dns-pair select >/dev/null 2>&1 || return 1
-  pair_selected
+  setup_step dns-template native_quiet dns-pair prepare-template || return 1
+  setup_step dns-selection native_quiet dns-pair select || return 1
+  setup_step dns-selection pair_selected
 }
 
 restore_enrollment() {
@@ -259,12 +281,12 @@ restore_enrollment() {
   no_managed_tun || return 1
   system_broker_stopped || return 1
   no_broker_socket || return 1
-  confirm_dns_enrollment || return 1
-  enroll_uid "$(id -u)" || return 1
-  start_broker || return 1
-  system_broker_idle || return 1
-  broker_access_for_user || return 1
-  pair_selected
+  setup_step dns-consent confirm_dns_enrollment || return 1
+  setup_step dns-enrollment enroll_uid "$(id -u)" || return 1
+  setup_step dns-broker-start start_broker || return 1
+  setup_step dns-broker-readiness system_broker_idle || return 1
+  setup_step dns-socket-access broker_access_for_user || return 1
+  setup_step dns-selection pair_selected
 }
 
 existing_enrollment_metadata() {
@@ -289,11 +311,11 @@ start_existing_broker() {
   no_managed_tun || return 1
   system_broker_stopped || return 1
   no_broker_socket || return 1
-  existing_enrollment_metadata || return 1
-  start_stopped_broker_service || return 1
-  system_broker_idle || return 1
-  broker_access_for_user || return 1
-  pair_selected
+  setup_step broker-enrollment-check existing_enrollment_metadata || return 1
+  setup_step dns-broker-start start_stopped_broker_service || return 1
+  setup_step dns-broker-readiness system_broker_idle || return 1
+  setup_step dns-socket-access broker_access_for_user || return 1
+  setup_step dns-selection pair_selected
 }
 
 install_package() {
@@ -344,7 +366,7 @@ prepare_private_store() {
   # Existing data is validated by the canonical Rust owner; never parsed,
   # repaired, reset or overwritten by shell. Connected/enabled legacy owners,
   # malformed stores and incomplete prior transitions refuse safely.
-  native store-compatibility 2>/dev/null | jq -e '.schemaVersion == 1 and .compatible == true' >/dev/null || return 1
+  setup_step store-validation store_compatible || return 1
 }
 
 prepare_application() {
@@ -356,10 +378,10 @@ prepare_application() {
   # cutover. Activating before local pair selection fails and rolls back.
   pair_selected || return 1
   system_broker_available || return 1
-  native store-compatibility 2>/dev/null | jq -e '.schemaVersion == 1 and .compatible == true' >/dev/null || return 1
-  native cutover activate >/dev/null 2>&1 || return 1
+  setup_step store-validation store_compatible || return 1
+  setup_step application-activation native_quiet cutover activate || return 1
   [[ $(native_target) == rust ]] || return 1
-  enable_runtime || return 1
+  setup_step runtime-enablement enable_runtime || return 1
 }
 
 setup_completion() {
@@ -383,6 +405,7 @@ setup_main() {
   esac
   [[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2
   [[ ! ${OMAVLESS_HOME+x} ]] || return 2
+  setup_failure_reported=false
   local state
   state=$(setup_status)
   if [[ "$1" == install && "$state" == ready ]]; then
@@ -428,42 +451,43 @@ setup_main() {
     trap 'rm -f -- "$setup_temp/omavless-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-${package_version}-1-x86_64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-x86_64.pkg.tar.zst"; rmdir -- "$setup_temp" "$setup_lock"' EXIT
     # Recheck after consent and the lock. Never replace a package that appeared
     # while the user was reading the prompt, or activate a now-unknown owner.
-    [[ $(setup_status) == "$state" ]] || exit 1
+    setup_state_unchanged() { [[ $(setup_status) == "$state" ]]; }
+    setup_step setup-state setup_state_unchanged || exit 1
     if [[ "$1" == finish-selection ]]; then
-      finish_pair_selection || exit 1
+      setup_step dns-selection-confirmation finish_pair_selection || exit 1
     elif [[ "$1" == start-broker ]]; then
-      start_existing_broker || exit 1
+      setup_step dns-preconditions start_existing_broker || exit 1
     elif [[ "$1" == restore-enrollment ]]; then
-      restore_enrollment || exit 1
+      setup_step dns-preconditions restore_enrollment || exit 1
     else
       if [[ "$state" == needs_package ]]; then
-        install_package || exit 1
-        reload_units || exit 1
+        setup_step package-install install_package || exit 1
+        setup_step unit-reload reload_units || exit 1
       fi
-      prepare_private_store || exit 1
-      selected=$(pair_selection_status) || exit 1
+      setup_step private-settings prepare_private_store || exit 1
+      selected=$(pair_selection_status) || { setup_step dns-pair-status false; exit 1; }
       if jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
         >/dev/null 2>&1 <<< "$selected"; then
         if system_broker_idle; then
           # A prior enrollment may have succeeded before selection was
           # interrupted. Resume only if this UID can access the exact live
           # broker socket; never repeat or replace root enrollment blindly.
-          broker_access_for_user || exit 1
-          finish_pair_selection || exit 1
+          setup_step dns-socket-access broker_access_for_user || exit 1
+          setup_step dns-selection-confirmation finish_pair_selection || exit 1
         else
-          enroll_and_select_pair || exit 1
+          setup_step dns-preconditions enroll_and_select_pair || exit 1
         fi
       else
-        pair_selected || exit 1
+        setup_step dns-selection pair_selected || exit 1
       fi
-      prepare_application || exit 1
+      setup_step application-preconditions prepare_application || exit 1
     fi
-    setup_completion || exit 1
+    setup_step completion setup_completion || exit 1
     say 'After connecting, omavless runtime test checks HTTPS on the current route. It is not a VPN leak test.' \
         'После подключения omavless runtime test проверяет HTTPS на текущем маршруте. Это не проверка утечки VPN.'
   ) || {
-    say 'Setup did not finish. Do not repeat an unresolved authorization. Existing data was not reset; inspect the setup guide before retrying.' \
-        'Настройка не завершена. Не повторяйте незавершённую авторизацию. Данные не сбрасывались; перед повтором откройте руководство.'
+    say 'Setup did not finish. Earlier steps may have completed; this message does not imply pending authorization. Resolve any open setup or OS prompts, then use Check again to inspect the remaining step. Existing data was not reset.' \
+        'Настройка не завершена. Предыдущие этапы могли завершиться; это сообщение не означает, что остался запрос авторизации. Завершите открытые запросы установки или ОС, затем нажмите «Проверить снова». Данные не сбрасывались.'
     return 1
   }
 }
