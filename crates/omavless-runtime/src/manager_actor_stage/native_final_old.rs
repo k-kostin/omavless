@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Fresh closure-only OLD qualification inside the SAME native engine ledger.
+//! Distinct fresh closure-only OLD/NEW qualifications in the SAME engine ledger.
 //! Records are comparison DATA; no candidate mutation stack is activated.
 use super::*;
 #[cfg(all(test, target_os = "linux", target_env = "gnu"))]
@@ -8,11 +8,20 @@ mod tests;
 
 impl NativeEngine {
     pub(super) fn final_old_observation_captured(&self) -> bool {
+        self.final_output_observation_captured(FinalOutputChoice::OldAborted)
+    }
+    pub(super) fn final_new_observation_captured(&self) -> bool {
+        self.final_output_observation_captured(FinalOutputChoice::NewCommitted)
+    }
+    fn final_output_observation_captured(&self, choice: FinalOutputChoice) -> bool {
         self.recovery
             && self.singleton_locked
             && !self.sealed
-            && self.recovery_completion == RecoveryCompletionSelection::FinalOld
-            && self.final_old_captured
+            && self.recovery_completion == choice.selection()
+            && match choice {
+                FinalOutputChoice::OldAborted => self.final_old_captured,
+                FinalOutputChoice::NewCommitted => self.final_new_captured,
+            }
             && self.stage_name.is_none()
             && self.lower.original[Slot::Scratch3 as usize].is_some()
             && self.expected[Slot::Scratch3 as usize]
@@ -33,8 +42,18 @@ impl NativeEngine {
                     ))
             })
     }
+    pub(super) fn final_new_qualified(&self) -> bool {
+        self.final_new_observation_captured()
+            && self.fresh_final_new.as_ref().is_some_and(|qualified| {
+                self.expected[Slot::Scratch3 as usize]
+                    == Some((
+                        crate::restore_closure_model::RECORD_BYTES,
+                        qualified.closure_digest,
+                    ))
+            })
+    }
 
-    pub(super) fn check_final_old_retired_sources(
+    pub(super) fn check_final_output_retired_sources(
         &self,
         until: Instant,
     ) -> Result<(), Unavailable> {
@@ -89,11 +108,43 @@ impl NativeEngine {
         desired: &[u8],
         until: Instant,
     ) -> Result<(), FirstError> {
+        self.capture_final_output_data(
+            new,
+            generation,
+            desired,
+            FinalOutputChoice::OldAborted,
+            until,
+        )
+    }
+    fn capture_final_new_data(
+        &mut self,
+        new: [&[u8]; 2],
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.capture_final_output_data(
+            new,
+            generation,
+            desired,
+            FinalOutputChoice::NewCommitted,
+            until,
+        )
+    }
+    fn capture_final_output_data(
+        &mut self,
+        new: [&[u8]; 2],
+        generation: u64,
+        desired: &[u8],
+        choice: FinalOutputChoice,
+        until: Instant,
+    ) -> Result<(), FirstError> {
         if !self.recovery
             || self.sealed
             || !self.singleton_locked
-            || self.recovery_completion != RecoveryCompletionSelection::FinalOld
+            || self.recovery_completion != choice.selection()
             || self.final_old_captured
+            || self.final_new_captured
             || self.completed
             || self.retirement
         {
@@ -108,7 +159,7 @@ impl NativeEngine {
                 return Err(FirstError::Admission);
             }
         }
-        self.check_final_old_retired_sources(until)
+        self.check_final_output_retired_sources(until)
             .map_err(|_| FirstError::Admission)?;
         let raw = self.recover_member(
             Slot::State,
@@ -119,16 +170,20 @@ impl NativeEngine {
         )?;
         let closure = crate::restore_closure_model::ClosureRecord::decode(&raw)
             .map_err(|_| FirstError::Admission)?;
-        let old_store = self.read_original_live(0, until)?;
-        let old_template = self.read_original_live(1, until)?;
-        if closure.receipt().terminal().phase() != DecisionPhase::Aborted
+        // These LIVE roles name original CURRENT descriptors. For FinalNew
+        // they are NEW; no missing former OLD inode/lineage is reconstructed.
+        let current_store = self.read_original_live(0, until)?;
+        let current_template = self.read_original_live(1, until)?;
+        let current = [current_store.as_slice(), current_template.as_slice()];
+        if closure.receipt().terminal().phase() != choice.phase()
+            || (choice == FinalOutputChoice::NewCommitted && current != new)
             || !closure
                 .receipt()
                 .terminal()
                 .matches_owner_desired(generation, Some(desired))
             || !crate::restore_executor_candidate::successor::rotation::final_review::output_binding(
                 closure.receipt(),
-                [old_store.as_slice(), old_template.as_slice()],
+                current,
                 new,
             )
         {
@@ -153,7 +208,7 @@ impl NativeEngine {
         }) {
             return Err(FirstError::Admission);
         }
-        self.check_final_old_retired_sources(until)
+        self.check_final_output_retired_sources(until)
             .map_err(|_| FirstError::Admission)?;
         self.capture_history(until)?; // capacity/free target BEFORE Stop or publication
         if self.audit.target().map_err(|_| FirstError::Admission)? != native_history::NAMES[0] {
@@ -162,7 +217,10 @@ impl NativeEngine {
         self.check_original_bytes(until)?;
         self.check_bindings(until)
             .map_err(|_| FirstError::Admission)?;
-        self.final_old_captured = true; // only the pinned closure observation exception
+        match choice {
+            FinalOutputChoice::OldAborted => self.final_old_captured = true,
+            FinalOutputChoice::NewCommitted => self.final_new_captured = true,
+        }
         Ok(())
     }
 
@@ -172,10 +230,29 @@ impl NativeEngine {
         cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
         until: Instant,
     ) -> Result<(), FirstError> {
-        if !self.final_old_observation_captured()
+        self.qualify_final_output_inner(origin, FinalOutputChoice::OldAborted, cut, until)
+    }
+    fn qualify_final_new_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.qualify_final_output_inner(origin, FinalOutputChoice::NewCommitted, cut, until)
+    }
+    fn qualify_final_output_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        choice: FinalOutputChoice,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        if !self.final_output_observation_captured(choice)
             || self.completed
             || self.retirement
             || self.fresh_final_old.is_some()
+            || self.fresh_final_new.is_some()
+            || self.retirement_permission != NativeRetirementPermission::Complete
             || !self.audit.attempted()
         {
             return Err(FirstError::Admission);
@@ -208,10 +285,13 @@ impl NativeEngine {
                     |file| file.sync_all().map_err(|_| Unavailable),
                 )
                 .map_err(|_| FirstError::StillFenced)?;
-            cut(NativeStep::FinalOldSourceSynced(index))?;
+            cut(match choice {
+                FinalOutputChoice::OldAborted => NativeStep::FinalOldSourceSynced(index),
+                FinalOutputChoice::NewCommitted => NativeStep::FinalNewSourceSynced(index),
+            })?;
             self.gate(origin, until)?;
         }
-        self.check_final_old_retired_sources(until)
+        self.check_final_output_retired_sources(until)
             .map_err(|_| FirstError::StillFenced)?;
         self.gate(origin, until)?;
         let (size, closure_digest) =
@@ -221,7 +301,14 @@ impl NativeEngine {
         }
         // No fallible work between final original checks and this concrete new
         // qualification. Never represent the missing receipt as an unlinked FD.
-        self.fresh_final_old = Some(FreshFinalOld { closure_digest });
+        match choice {
+            FinalOutputChoice::OldAborted => {
+                self.fresh_final_old = Some(FreshFinalOld { closure_digest })
+            }
+            FinalOutputChoice::NewCommitted => {
+                self.fresh_final_new = Some(FreshFinalNew { closure_digest })
+            }
+        }
         self.retirement = true;
         self.completed = true;
         Ok(())
@@ -233,6 +320,28 @@ impl NativeEngine {
         backup: &omavless_domain::private_backup::OpenedBackup,
         quiescence: &mut NativeOldRecoveryQuiescence,
     ) -> Result<(), FirstError> {
+        self.qualify_native_final_output(origin, backup, quiescence, FinalOutputChoice::OldAborted)
+    }
+    pub(crate) fn qualify_native_final_new(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.qualify_native_final_output(
+            origin,
+            backup,
+            quiescence,
+            FinalOutputChoice::NewCommitted,
+        )
+    }
+    fn qualify_native_final_output(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        choice: FinalOutputChoice,
+    ) -> Result<(), FirstError> {
         if crate::product_scope::backup_only() {
             return Err(FirstError::Admission);
         }
@@ -240,7 +349,7 @@ impl NativeEngine {
             return Err(FirstError::StillFenced);
         }
         self.recovery = true;
-        self.recovery_completion = RecoveryCompletionSelection::FinalOld;
+        self.recovery_completion = choice.selection();
         let until = Instant::now() + std::time::Duration::from_secs(45);
         let result = (|| {
             self.uid = Some(origin.uid());
@@ -275,12 +384,20 @@ impl NativeEngine {
             let off = backup
                 .restore_store_off()
                 .map_err(|_| FirstError::Prepare)?;
-            self.capture_final_old_data(
-                [&off, backup.template()],
-                origin.generation(),
-                origin.desired_bytes(),
-                until,
-            )?;
+            match choice {
+                FinalOutputChoice::OldAborted => self.capture_final_old_data(
+                    [&off, backup.template()],
+                    origin.generation(),
+                    origin.desired_bytes(),
+                    until,
+                )?,
+                FinalOutputChoice::NewCommitted => self.capture_final_new_data(
+                    [&off, backup.template()],
+                    origin.generation(),
+                    origin.desired_bytes(),
+                    until,
+                )?,
+            }
             origin.check_old_recovery_lease()?;
             self.check_bindings(until)
                 .map_err(|_| FirstError::Admission)?;
@@ -288,14 +405,18 @@ impl NativeEngine {
             origin.check_old_recovery_lease()?;
             self.check_bindings(until)
                 .map_err(|_| FirstError::Admission)?;
-            self.qualify_final_old_inner(
-                &mut NativeRecoveryGate {
-                    origin,
-                    quiescence: Some(quiescence),
-                },
-                &mut |_| Ok(()),
-                until,
-            )
+            let mut gate = NativeRecoveryGate {
+                origin,
+                quiescence: Some(quiescence),
+            };
+            match choice {
+                FinalOutputChoice::OldAborted => {
+                    self.qualify_final_old_inner(&mut gate, &mut |_| Ok(()), until)
+                }
+                FinalOutputChoice::NewCommitted => {
+                    self.qualify_final_new_inner(&mut gate, &mut |_| Ok(()), until)
+                }
+            }
         })();
         if result.is_err() {
             self.revoke_native();
