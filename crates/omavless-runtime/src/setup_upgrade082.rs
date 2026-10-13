@@ -675,20 +675,11 @@ impl UpgradeContext {
         {
             return Err(Blocker::StateChanged);
         }
-        let mut entries =
-            fs::read_dir(&self.scope.cutover.state_directory).map_err(|_| Blocker::PrivateState)?;
-        for entry in entries.by_ref().take(4) {
-            let entry = entry.map_err(|_| Blocker::PrivateState)?;
-            if !["ownership.json", "frontend-bridge.target", "desired.json"]
-                .iter()
-                .any(|name| entry.file_name() == *name)
-            {
-                return Err(Blocker::PrivateState);
-            }
-        }
-        if entries.next().is_some() {
-            return Err(Blocker::PrivateState);
-        }
+        // This package-only operation neither consumes nor migrates unrelated
+        // siblings (e.g. retained support notes). Authority remains the pinned
+        // directory, exact captured canonical members and reserved transaction
+        // absence fence above, repeated while both original leases are held.
+        // Do not enumerate, traverse, delete or normalize ancillary entries.
         for capture in &mut self.captured {
             capture.recheck()?;
         }

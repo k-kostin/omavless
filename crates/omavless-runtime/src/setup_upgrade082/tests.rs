@@ -100,6 +100,38 @@ fn stopped_post_reboot_owner_acquires_fresh_volatile_exclusions() {
 }
 
 #[test]
+fn unrelated_state_siblings_are_not_upgrade_inputs_and_are_preserved() {
+    let f = Fixture::new();
+    let scope = f.scope();
+    let ancillary = scope.cutover.state_directory.join("developer-notes");
+    fs::create_dir(&ancillary).unwrap();
+    f.put(&ancillary.join("retained.txt"), b"synthetic-private-note");
+    let note = scope.cutover.state_directory.join("unrelated-note.txt");
+    f.put(&note, b"synthetic-note");
+    let profiles = fs::read(scope.config.join("profiles.json")).unwrap();
+    let mut context = f
+        .acquire()
+        .expect("unrelated siblings are not state inputs");
+    let later = scope.cutover.state_directory.join("later-notes");
+    fs::create_dir(&later).unwrap();
+    f.put(&later.join("note.txt"), b"later-synthetic-note");
+    context.recheck_private().unwrap();
+    assert_eq!(fs::read(&note).unwrap(), b"synthetic-note");
+    assert_eq!(
+        fs::read(ancillary.join("retained.txt")).unwrap(),
+        b"synthetic-private-note"
+    );
+    assert_eq!(
+        fs::read(later.join("note.txt")).unwrap(),
+        b"later-synthetic-note"
+    );
+    assert_eq!(
+        fs::read(scope.config.join("profiles.json")).unwrap(),
+        profiles
+    );
+}
+
+#[test]
 fn cold_connected_or_startup_on_refuses_before_volatile_creation() {
     for connected in [false, true] {
         let f = Fixture::new();
@@ -360,16 +392,7 @@ fn changed_private_name_bytes_and_directory_refuse() {
 }
 
 #[test]
-fn unknown_state_entries_and_unsafe_files_refuse_without_changes() {
-    let f = Fixture::new();
-    f.put(
-        &f.scope()
-            .cutover
-            .state_directory
-            .join("unknown-private-entry"),
-        b"synthetic-private-secret",
-    );
-    assert!(matches!(f.acquire(), Err(Blocker::PrivateState)));
+fn unsafe_canonical_files_refuse_without_changes() {
     for kind in ["mode", "symlink", "hardlink"] {
         let f = Fixture::new();
         let path = f.scope().config.join("profiles.json");
@@ -382,6 +405,42 @@ fn unknown_state_entries_and_unsafe_files_refuse_without_changes() {
             _ => fs::hard_link(&path, f.root.join("linked")).unwrap(),
         }
         assert!(matches!(f.acquire(), Err(Blocker::PrivateState)));
+    }
+}
+
+#[test]
+fn all_reserved_transaction_names_refuse_before_and_during_update() {
+    for name in [
+        "routing-preset.pending.json",
+        "restore-pair.pending",
+        "restore-decision.intent",
+        "restore-decision.terminal",
+        "restore-finalization.pending",
+        crate::restore_closure_model::CLOSURE_MEMBER,
+        crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+        crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+    ] {
+        for kind in ["file", "directory", "dangling-symlink"] {
+            for after_acquisition in [false, true] {
+                let f = Fixture::new();
+                let mut context = after_acquisition.then(|| f.acquire().ok().unwrap());
+                let path = f.scope().cutover.state_directory.join(name);
+                match kind {
+                    "file" => f.put(&path, b"synthetic-pending"),
+                    "directory" => fs::create_dir(&path).unwrap(),
+                    _ => std::os::unix::fs::symlink("missing", &path).unwrap(),
+                }
+                let before = fs::symlink_metadata(&path).unwrap();
+                if let Some(context) = context.as_mut() {
+                    assert_eq!(context.recheck_private(), Err(Blocker::PendingRecovery));
+                } else {
+                    assert!(matches!(f.acquire(), Err(Blocker::PendingRecovery)));
+                }
+                assert!(same(&before, &fs::symlink_metadata(&path).unwrap()));
+            }
+        }
     }
 }
 
