@@ -3,8 +3,8 @@
   "version": "0.9.8",
   "packages": {
     "x86_64": {
-      "sha256": "29d37fb8c960b4e8e38f8a387c2449a4318adced414627b60162804452c90d29",
-      "sourceCommit": "b82a51ba8d63d251b3040c6c71470cfcafb85347"
+      "sha256": "8f0aba0a95c3d0596b35e46d3b643e713d7dc3f75e418299c3c90ac6b7813d71",
+      "sourceCommit": "fce963e59b4cdeda49a5a1f71f3cc4cc3beaaa47"
     }
   }
 }
