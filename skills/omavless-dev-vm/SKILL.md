@@ -18,6 +18,18 @@ local stdin. Do not start another authorization in that state: inspect the
 original operation and settle it under the execution policy before a new attempt.
 Non-interactive reads do not require a PTY.
 
+Send one command at a time in an interactive administrative terminal, then
+observe its outcome before sending the next. Sudo can flush already queued
+terminal input: echoed later lines are not evidence that those commands ran.
+Keep the previous command's exit status separate from the next action, rather
+than treating a returned prompt or batched input as a successful sequence.
+
+For a fixture in another UID's private home, observe file absence as that UID
+or an already authorized administrator. A failed `test -e` without parent
+traversal permission is not absence proof. Distinguish `ENOENT` from permission
+errors and existing symlinks before create-only preparation; do not infer an
+empty destination from the desktop user's inability to inspect it.
+
 ## Before using the VM
 
 Identify the designated sole operator, exact VM directory/image, current QEMU
@@ -37,6 +49,18 @@ CLI help and compositor version before using remembered commands. Cache those
 facts for that baseline. In particular, an interface change can make an old
 window dispatcher return textual errors despite a zero shell exit; confirm the
 requested window geometry or service state, not merely command completion.
+For a unit observation, establish its actual installed name and `LoadState=loaded`;
+an absent recalled name can otherwise appear inactive/dead without describing
+the running service.
+
+For a freshly started `Type=simple` native unit, successful `systemctl start`
+does not prove its IPC socket is ready. Before the next configuration mutation,
+use bounded read-only native status/hello observations to establish the expected
+owned state; do not substitute a fixed sleep or restart loop. A proven absent
+socket before connect/send is a not-submitted refusal: retain that original
+result and admit a separate command only after readiness is actually observed.
+Lost replies or uncertainty after submission still follow the original
+operation's recovery policy; later readiness is not permission to resend.
 
 After a frontend update, matching files are not proof that the long-lived shell
 loaded the new QML/JS. If the native facts are correct but controls remain old,
@@ -104,6 +128,10 @@ manual authentication or formal human-attended acceptance. If DPMS is off, use
 the guest's installed brightness/display command and verify a new rendered frame.
 Do not stop lock services or edit the physical host's idle configuration.
 
+Interpret that command's actual status, not just its tooltip: an offered
+"Allow Idle Lock & Screensaver" action can mean stay-awake is currently active.
+Do not toggle an already correct preference based on the opposite action label.
+
 Retain the effective scale, window rectangle, font and terminal size with visual
 evidence. Matching coarse character dimensions does not prove identical glyph
 rasterization; a fresh setup can require new independently reviewed references.
@@ -111,6 +139,32 @@ Measure the real observe/capture/input path with no product keys first. Separate
 no-key diagnostic time from the native confirmation deadline, and never extend
 that deadline or weaken image checks to make a slow operator pass. A failed
 driver's keys-sent marker is not a native outcome; preserve its original result.
+
+### Verified graphical targeting and geometry
+
+Guest SSH does not necessarily inherit the graphical session environment.
+Discover the actual guest compositor instance, runtime directory and Wayland
+display before compositor queries or guest capture; do not copy another boot's
+signature, socket or UID. Check the installed compositor version and its local
+configuration/API before selecting dispatch syntax. Modern Hyprland Lua
+dispatchers and legacy string dispatchers are not interchangeable; a textual
+syntax error is a failed action even if the shell returned zero. Do not probe
+guessed mutations repeatedly or edit global configuration to fit automation.
+
+Bind each affected window to the test's actual PID, verified executable and
+current compositor address before focus, float, resize, move or close. Window
+addresses can be reused after an earlier client exits; a remembered address or
+matching title alone is not identity. Act only on the owned test window, not
+the VM viewer or unrelated host/guest windows.
+
+After resize/move, read back the current window rectangle and monitor scale
+before clicking or cropping. Floating resize can recenter the window, so old
+coordinates can make a healthy layout look clipped. Convert compositor logical
+coordinates to the selected capture/input surface using its actual origin,
+dimensions and scale; do not assume they equal image pixels. Confirm the
+rendered target after input and retain a fresh frame. Graceful close additionally
+needs the original process completion and independent window/process absence;
+an input-delivered marker or missing old address is not that proof.
 
 For firewall or routing experiments, establish a private bidirectional serial
 console and bounded private capture **before** changing guest networking. SSH
@@ -137,7 +191,11 @@ that the interrupted network operation completed.
 
 For a virgl/SDL guest, QMP `screendump` may return `no surface` even while
 the visible VM works. Check the maintained VM application's capture guidance
-before trying extra display devices or reset. When permitted, identify the
+before trying extra display devices or reset. Where authorized, prefer guest-side
+capture through the discovered graphical environment (for example, the installed
+`grim`) and copy the result into the test's private capture directory. Keep
+captures below the owned HOME-backed scope, not loose files in HOME or /tmp.
+If viewer-region capture is needed and permitted, identify the
 exact QEMU window by PID/title and capture only its visible unobscured region;
 exclude unrelated windows and host notification overlays. An independent guest
 TTY can supply observation while a retained original serial foreground is
