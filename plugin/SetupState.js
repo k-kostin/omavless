@@ -6,7 +6,7 @@ function parse(raw, exitCode) {
   return ["ready", "needs_package", "needs_update", "needs_activation", "needs_companion", "needs_selection", "needs_broker", "needs_dns_setup", "needs_broker_stopped", "needs_runtime_stop", "needs_runtime_start", "needs_attention", "release_unavailable"].indexOf(value) >= 0
     ? value : "needs_attention"
 }
-function canInstall(state) { return state === "needs_package" || state === "needs_activation" || state === "needs_selection" || state === "needs_broker_stopped" || state === "needs_dns_setup" }
+function canInstall(state) { return state === "needs_update" || state === "needs_package" || state === "needs_activation" || state === "needs_selection" || state === "needs_broker_stopped" || state === "needs_dns_setup" }
 function inventory(raw, exitCode) {
   if (exitCode !== 0 || typeof raw !== "string" || raw.length > 96) return {state:"needs_attention", coreInstalled:null}
   var match = /^(ready|needs_package|needs_update|needs_activation|needs_companion|needs_selection|needs_broker|needs_dns_setup|needs_broker_stopped|needs_runtime_stop|needs_runtime_start|needs_attention|release_unavailable)\t(present|missing)\n?$/.exec(raw)
@@ -15,7 +15,7 @@ function inventory(raw, exitCode) {
 function appMissing(facts) { return facts.state === "needs_package" || facts.state === "release_unavailable" }
 function missingAction(facts) {
   if (appMissing(facts)) return facts.state === "needs_package" ? "install" : ""
-  if (facts.state === "needs_update") return "update-help"
+  if (facts.state === "needs_update") return "upgrade"
   if (facts.coreInstalled !== true) return ""
   if (facts.state === "needs_dns_setup") return "resume-dns"
   if (facts.state === "needs_runtime_start") return "start-app"
@@ -25,6 +25,7 @@ function missingAction(facts) {
 }
 function canRunAction(facts, action) {
   return action !== "" && (action === missingAction(facts)
+    || (facts.state === "needs_update" && action === "update-help")
     || (facts.state === "needs_broker_stopped" && facts.coreInstalled === true && action === "restore-enrollment"))
 }
 function needsAttention(facts) { return facts.state !== "ready" || facts.coreInstalled !== true }

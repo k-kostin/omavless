@@ -32,6 +32,7 @@ var CATALOG = {
   "setup.prepare_title": {"en":"COMPLETE SETUP","ru":"ЗАВЕРШИТЕ НАСТРОЙКУ"},
   "setup.update_title": {"en":"APPLICATION UPDATE REQUIRED","ru":"ТРЕБУЕТСЯ ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ"},
   "setup.update_help": {"en":"Review update requirements","ru":"Как обновить приложение"},
+  "setup.update_components": {"en":"Update required components","ru":"Обновить необходимые компоненты"},
   "setup.needs_update": {"en":"The installed application is older than this plugin. Updating the plugin does not update the application or install managed DNS. Review the matching-package update requirements; this screen does not reinstall or reset your profiles.","ru":"Установленное приложение старее плагина. Обновление плагина не обновляет приложение и не устанавливает управляемый DNS. Ознакомьтесь с порядком обновления парных пакетов; этот экран не переустанавливает приложение и не сбрасывает профили."},
   "setup.guide_short": {"en":"Setup help","ru":"Помощь"},
   "setup.panel_unavailable": {"en":"Finish application setup to manage your VPN. You can return to this panel later.","ru":"Завершите настройку приложения для управления VPN. В эту панель можно вернуться позже."},

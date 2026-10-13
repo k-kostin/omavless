@@ -23,7 +23,7 @@ setup_step() {
   local stage="$1"
   shift
   case "$stage" in
-    runtime-directory|setup-lock|temporary-directory|setup-state|package-install|unit-reload|private-settings|private-initialization|store-validation|dns-pair-status|dns-preconditions|dns-consent|dns-enrollment|dns-broker-start|dns-broker-readiness|dns-socket-access|dns-template|dns-selection|dns-selection-confirmation|broker-enrollment-check|application-preconditions|application-activation|runtime-enablement|completion) ;;
+    runtime-directory|setup-lock|temporary-directory|setup-state|package-install|upgrade-artifacts|upgrade-operation|unit-reload|private-settings|private-initialization|store-validation|dns-pair-status|dns-preconditions|dns-consent|dns-enrollment|dns-broker-start|dns-broker-readiness|dns-socket-access|dns-template|dns-selection|dns-selection-confirmation|broker-enrollment-check|application-preconditions|application-activation|runtime-enablement|completion) ;;
     *) return 2 ;;
   esac
   if "$@"; then return 0; fi
@@ -423,6 +423,92 @@ install_package() {
   [[ $(package_installed) == "omavless $package_version-1" ]] && pair_installed
 }
 
+# The frontend authenticates exact release pins. The extracted candidate then
+# independently qualifies the predecessor/private boundary, retains original
+# owner/migration leases and verifies both archives plus its own ELF. Metadata
+# is closed DATA, never caller-supplied commands or an authorization token.
+upgrade_cache_safe() {
+  [[ $# == 1 ]] || return 2
+  local path="$1" metadata
+  [[ -d "$path" && ! -L "$path" ]] || return 1
+  metadata=$(stat -c '%u:%a' -- "$path") || return 1
+  [[ "$metadata" == "$(id -u):700" ]] || return 1
+  _omavless_predecessor_parents_safe "$path/entry" "$(id -u)"
+}
+upgrade_archive_safe() {
+  [[ $# == 2 ]] || return 2
+  local metadata actual
+  [[ -f "$1" && ! -L "$1" ]] || return 1
+  metadata=$(stat -c '%u:%a:%h:%s' -- "$1") || return 1
+  [[ "$metadata" =~ ^$(id -u):600:1:([0-9]+)$ ]] || return 1
+  (( BASH_REMATCH[1] > 0 && BASH_REMATCH[1] <= 268435456 )) || return 1
+  actual=$(timeout 15 sha256sum -- "$1") || return 1
+  [[ "${actual%% *}" == "$2" ]]
+}
+upgrade_download() {
+  local name="$1" hash="$2" cache="$3" actual
+  if [[ -e "$cache/$name" || -L "$cache/$name" ]]; then
+    upgrade_archive_safe "$cache/$name" "$hash"; return
+  fi
+  curl --disable --fail --silent --show-error --location --max-redirs 3 \
+    --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
+    --max-filesize 268435456 --output "$setup_temp/$name" \
+    "https://github.com/k-kostin/omavless/releases/download/${release_tag}/${name}" 2>/dev/null || return 1
+  actual=$(sha256sum -- "$setup_temp/$name") || return 1
+  [[ "${actual%% *}" == "$hash" ]] || return 1
+  # Never replace an artifact appearing during the download.
+  (set -o noclobber; > "$cache/$name") 2>/dev/null || return 1
+  chmod 600 -- "$cache/$name" || return 1
+  cp -- "$setup_temp/$name" "$cache/$name" || return 1
+  upgrade_archive_safe "$cache/$name" "$hash"
+}
+upgrade_package() {
+  local version arch app_hash dns_hash source app_name dns_name cache receipt binary_hash actual predecessor metadata
+  # Advisory public-byte inspection earns no private or replacement authority.
+  source "$setup_dir/setup-predecessor.sh"
+  predecessor=$(omavless_predecessor_status) || return 1
+  jq -e '.schemaVersion == 1 and .status == "qualified" and .reason == "public_0_8_2"' \
+    >/dev/null <<< "$predecessor" || return 1
+  IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
+  [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
+  cache="$HOME/.cache/omavless/upgrade082"
+  # Reject unsafe existing parents before mkdir; never adopt or chmod them.
+  local parent="$HOME/.cache"
+  _omavless_predecessor_parents_safe "$parent/entry" "$(id -u)" || return 1
+  if [[ ! -e "$HOME/.cache/omavless" && ! -L "$HOME/.cache/omavless" ]]; then
+    mkdir -m 700 -- "$HOME/.cache/omavless" || return 1
+  fi
+  [[ -d "$HOME/.cache/omavless" && ! -L "$HOME/.cache/omavless" \
+     && $(stat -c %u -- "$HOME/.cache/omavless") == "$(id -u)" ]] || return 1
+  _omavless_predecessor_parents_safe "$HOME/.cache/omavless/entry" "$(id -u)" || return 1
+  if [[ ! -e "$cache" && ! -L "$cache" ]]; then mkdir -m 700 -- "$cache" || return 1; fi
+  upgrade_cache_safe "$cache" || return 1
+  app_name="omavless-${package_version}-1-${arch}.pkg.tar.zst"
+  dns_name="omavless-dns-${package_version}-1-${arch}.pkg.tar.zst"
+  say 'Checking the pinned application and managed DNS packages…' 'Проверка пакетов приложения и управляемого DNS…'
+  upgrade_download "$app_name" "$app_hash" "$cache" \
+    && upgrade_download "$dns_name" "$dns_hash" "$cache" || return 1
+  [[ $(package_info "$cache/$app_name") == "omavless $package_version-1" \
+     && $(package_info "$cache/$dns_name") == "omavless-dns $package_version-1" ]] || return 1
+  app_archive_identity "$cache/$app_name" "$source" "$arch" "$version" \
+    && dns_archive_identity "$cache/$dns_name" "$source" "$arch" || return 1
+  receipt=$(timeout 8 bsdtar -xOf "$cache/$app_name" usr/share/doc/omavless/build-identity.txt \
+    | head -c 4097) || return 1
+  [[ ${#receipt} -le 4096 ]] || return 1
+  binary_hash=$(sed -n 's/^binarySha256=//p' <<< "$receipt")
+  [[ "$binary_hash" =~ ^[0-9a-f]{64}$ ]] || return 1
+  timeout 15 bsdtar -xOf "$cache/$app_name" usr/bin/omavless > "$setup_temp/upgrade-helper" || return 1
+  actual=$(sha256sum -- "$setup_temp/upgrade-helper") || return 1
+  [[ "${actual%% *}" == "$binary_hash" ]] || return 1
+  chmod 700 -- "$setup_temp/upgrade-helper" || return 1
+  upgrade_archive_safe "$cache/$app_name" "$app_hash" \
+    && upgrade_archive_safe "$cache/$dns_name" "$dns_hash" || return 1
+  metadata=$(jq -cn --arg app "$app_hash" --arg dns "$dns_hash" --arg source "$source" \
+    --arg version "$version" --arg arch "$arch" \
+    '{schemaVersion:1,appSHA:$app,dnsSHA:$dns,sourceCommit:$source,version:$version,arch:$arch}') || return 1
+  printf '%s\n' "$metadata" | "$setup_temp/upgrade-helper" setup upgrade082
+}
+
 prepare_private_store() {
   local target config
   target=$(native_target) || return 1
@@ -471,7 +557,7 @@ setup_main() {
   case "$1" in
     status) [[ $# == 1 ]] || return 2; setup_status; return ;;
     components) [[ $# == 1 ]] || return 2; setup_components; return ;;
-    install|finish-selection|start-broker|restore-enrollment|resume-dns) ;;
+    install|upgrade|finish-selection|start-broker|restore-enrollment|resume-dns) ;;
     *) return 2 ;;
   esac
   [[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2
@@ -483,7 +569,8 @@ setup_main() {
     say 'OmaVLESS is already prepared. No changes made.' 'OmaVLESS уже настроен. Ничего не изменено.'
     return
   fi
-  if [[ "$1" == finish-selection && "$state" != needs_selection ]] \
+  if [[ "$1" == upgrade && "$state" != needs_update ]] \
+      || [[ "$1" == finish-selection && "$state" != needs_selection ]] \
       || [[ "$1" == start-broker && "$state" != needs_broker_stopped ]] \
       || [[ "$1" == restore-enrollment && "$state" != needs_broker_stopped ]] \
       || [[ "$1" == resume-dns && "$state" != needs_dns_setup ]] \
@@ -491,7 +578,10 @@ setup_main() {
     say 'Setup is unavailable. No changes made. Check the setup guide.' 'Установка недоступна. Ничего не изменено. Откройте руководство.'
     return 1
   fi
-  if [[ "$1" == resume-dns ]]; then
+  if [[ "$1" == upgrade ]]; then
+    say 'Update the public 0.8.2 application and add managed DNS. Profiles and the stopped application remain unchanged. The native updater will check the boundary and ask for UPGRADE; DNS setup is a separate next step.' \
+      'Обновить публичное приложение 0.8.2 и добавить управляемый DNS. Профили и остановленное приложение сохраняются. Приложение проверит условия и запросит UPGRADE; настройка DNS выполняется отдельно.'
+  elif [[ "$1" == resume-dns ]]; then
     say 'Continue the stopped, unselected DNS setup. First enrollment and use of an existing enrollment are separate choices; unknown results must not be retried.' \
       'Продолжить настройку остановленного DNS без выбранной пары. Первая и существующая регистрации — отдельные варианты; неизвестный результат нельзя повторять.'
   elif [[ "$1" == start-broker ]]; then
@@ -524,12 +614,19 @@ setup_main() {
   setup_step temporary-directory create_setup_temp || { rmdir -- "$setup_lock"; return 1; }
   # A subshell keeps the cleanup trap and private download scope local.
   (
-    trap 'rm -f -- "$setup_temp/omavless-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-${package_version}-1-x86_64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-x86_64.pkg.tar.zst"; rmdir -- "$setup_temp" "$setup_lock"' EXIT
+    trap 'rm -f -- "$setup_temp/upgrade-helper" "$setup_temp/omavless-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-${package_version}-1-x86_64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-dns-${package_version}-1-x86_64.pkg.tar.zst"; rmdir -- "$setup_temp" "$setup_lock"' EXIT
     # Recheck after consent and the lock. Never replace a package that appeared
     # while the user was reading the prompt, or activate a now-unknown owner.
     setup_state_unchanged() { [[ $(setup_status) == "$state" ]]; }
     setup_step setup-state setup_state_unchanged || exit 1
-    if [[ "$1" == resume-dns ]]; then
+    if [[ "$1" == upgrade ]]; then
+      setup_step upgrade-operation upgrade_package || exit 1
+      setup_step unit-reload reload_units || exit 1
+      [[ $(setup_status) == needs_dns_setup ]] || { setup_step completion false; exit 1; }
+      say 'Packages updated. Return to the plugin, press Check again and Continue DNS setup. No application or VPN was started.' \
+        'Пакеты обновлены. Вернитесь в плагин, нажмите «Проверить снова» и «Продолжить настройку DNS». Приложение и VPN не запускались.'
+      exit 0
+    elif [[ "$1" == resume-dns ]]; then
       setup_step dns-preconditions resume_pending_dns || exit 1
     elif [[ "$1" == finish-selection ]]; then
       setup_step dns-selection-confirmation finish_pair_selection || exit 1
@@ -573,7 +670,7 @@ setup_main() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   result=0
   setup_main "$@" || result=$?
-  if [[ ( "${1:-}" == install || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment || "${1:-}" == resume-dns ) && -t 0 ]]; then
+  if [[ ( "${1:-}" == install || "${1:-}" == upgrade || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment || "${1:-}" == resume-dns ) && -t 0 ]]; then
     say 'Press Enter to close.' 'Нажмите Enter, чтобы закрыть.'
     IFS= read -r _ || true
   fi

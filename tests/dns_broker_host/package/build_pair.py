@@ -217,7 +217,10 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
     close = flavor in ("release-close", "release-close-k1")
     k1 = flavor == "release-close-k1"
     tags = "with_gvisor,omavless_k1_device" if k1 else "with_gvisor"
-    compiler_tmp = qualified_tmpdir() if close else None
+    # Preserve the caller's HOME-backed compiler scratch also in ordinary
+    # release builds. Explicit child environments must not silently fall back
+    # to quota-limited /tmp. Closed-feature qualification remains stricter.
+    compiler_tmp = qualified_tmpdir() if close else os.environ.get("TMPDIR")
     output = stage.outside_git_destination(output)
     host = os.uname()
     go_arch = reviewed_target(architecture, host.sysname, host.machine)
@@ -261,6 +264,8 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
                   "GOOS": "linux", "GOARCH": go_arch, "CGO_ENABLED": "0"}
         if close:
             go_env.update(GOENV="off", GOMAXPROCS="4", TMPDIR=compiler_tmp)
+        elif compiler_tmp:
+            go_env["TMPDIR"] = compiler_tmp
         run([go, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"],
                 cwd=sources / "mihomo", env=go_env)
         if close:
@@ -310,6 +315,8 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
                      "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": str(work / "cargo-target")}
         if close:
             cargo_env["CARGO_BUILD_JOBS"] = "4"
+            cargo_env["TMPDIR"] = compiler_tmp
+        elif compiler_tmp:
             cargo_env["TMPDIR"] = compiler_tmp
         cargo_command = ["/usr/bin/cargo", "build", "--release", "--locked", "--offline",
                          "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"]

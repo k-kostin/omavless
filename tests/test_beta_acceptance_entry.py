@@ -36,11 +36,12 @@ class BetaAcceptanceEntryTests(unittest.TestCase):
         current = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
         result = subprocess.run(["bash", str(script), current], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "product-private-backup\n")
+        self.assertEqual(result.stdout, "product-private-backup,setup-upgrade082\n")
         for version in ["0.9.8-rc.1", "0.9.8"]:
             result = subprocess.run(["bash", str(script), version], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0)
-            self.assertEqual(result.stdout, "product-private-backup\n")
+            self.assertEqual(result.stdout, ("product-private-backup,setup-upgrade082\n"
+                                          if version == "0.9.8" else "product-private-backup\n"))
         result = subprocess.run(["bash", str(script), "0.9.8-beta.4"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "t4-manager-actor-service\n")
