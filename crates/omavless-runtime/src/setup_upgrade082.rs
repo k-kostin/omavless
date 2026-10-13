@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-//! Before-effect context for a future SINGLE-PROCESS predecessor upgrade.
-//! No package/service/core mutation, child spawning for effects, serialized
-//! ticket, or public success path. The app package lacks an all-user upgrade
-//! guard and this candidate has no reviewed effect consumer yet.
+//! Retained stopped-owner context for SINGLE-PROCESS predecessor UPDATE.
+//! The package-only consumer is development-feature gated. DNS is a NEW
+//! explicit operation. No serialized ticket, service/core start or all-user
+//! upgrade claim is introduced; helper delivery authentication is separate.
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::cutover_transaction::BridgeTarget;
 use crate::desired::{DesiredState, MAX_DESIRED_STATE_BYTES};
@@ -36,6 +36,10 @@ pub enum Blocker {
     PendingRecovery,
     StateChanged,
     HostAdmissionUnavailable,
+    StagingUnavailable,
+    CancelledBeforeSubmission,
+    PackageOutcomeUnverified,
+    PackageSubmissionUnavailable,
 }
 impl std::fmt::Display for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,8 +58,12 @@ impl std::fmt::Display for Blocker {
             Self::PendingRecovery => "pending_recovery",
             Self::StateChanged => "state_changed",
             Self::HostAdmissionUnavailable => "host_admission_unavailable",
+            Self::StagingUnavailable => "staging_unavailable",
+            Self::CancelledBeforeSubmission => "cancelled_before_submission",
+            Self::PackageOutcomeUnverified => "package_outcome_unverified",
+            Self::PackageSubmissionUnavailable => "package_submission_unavailable",
         };
-        write!(f, "OmaVLESS upgrade082 refused before effects: {reason}")
+        write!(f, "OmaVLESS upgrade082: {reason}")
     }
 }
 type Result<T> = std::result::Result<T, Blocker>;
@@ -215,7 +223,14 @@ impl Scope {
         let home = PathBuf::from(std::env::var_os("HOME").ok_or(Blocker::Environment)?);
         let runtime = PathBuf::from(format!("/run/user/{uid}"));
         let state = home.join(".local/state");
-        for (name, expected) in [("XDG_RUNTIME_DIR", &runtime), ("XDG_STATE_HOME", &state)] {
+        let config_base = home.join(".config");
+        let cache_base = home.join(".cache");
+        for (name, expected) in [
+            ("XDG_RUNTIME_DIR", &runtime),
+            ("XDG_STATE_HOME", &state),
+            ("XDG_CONFIG_HOME", &config_base),
+            ("XDG_CACHE_HOME", &cache_base),
+        ] {
             if std::env::var_os(name).is_some_and(|value| Path::new(&value) != expected.as_path()) {
                 return Err(Blocker::Environment);
             }
@@ -325,7 +340,7 @@ fn units() -> Result<[String; 2]> {
         command.env_clear().env("PATH", "/usr/bin").env("LC_ALL", "C")
             .env("XDG_RUNTIME_DIR", format!("/run/user/{}", Uid::current().as_raw()))
             .args(["--user", "show", name, "--no-pager",
-                "--property=LoadState,ActiveState,SubState,MainPID,Job,FragmentPath,DropInPaths,UnitFileState"]);
+                "--property=LoadState,ActiveState,SubState,MainPID,Job,FragmentPath,DropInPaths,UnitFileState,NeedDaemonReload,ExecStart"]);
         let raw =
             crate::production_observation::bounded_fixed_query(command, Duration::from_secs(2))
                 .map_err(|_| Blocker::RuntimeActive)?;
@@ -348,7 +363,7 @@ fn validate_unit(raw: &str, name: &str) -> Result<()> {
         || (!runtime
             && values.get("ActiveState") == Some(&"active")
             && values.get("SubState") == Some(&"exited"));
-    if values.len() != 8
+    if values.len() != 10
         || !settled
         || values.get("LoadState") != Some(&"loaded")
         || values.get("MainPID") != Some(&"0")
@@ -357,10 +372,41 @@ fn validate_unit(raw: &str, name: &str) -> Result<()> {
         || values.get("FragmentPath").copied()
             != Some(format!("/usr/lib/systemd/user/{name}").as_str())
         || values.get("UnitFileState") != Some(&if runtime { "disabled" } else { "static" })
+        || values.get("NeedDaemonReload") != Some(&"no")
+        || !values
+            .get("ExecStart")
+            .is_some_and(|raw| exec_matches(raw, runtime))
     {
         return Err(Blocker::RuntimeActive);
     }
     Ok(())
+}
+
+fn exec_matches(raw: &str, runtime: bool) -> bool {
+    let Some(inner) = raw
+        .trim()
+        .strip_prefix('{')
+        .and_then(|raw| raw.strip_suffix('}'))
+    else {
+        return false;
+    };
+    let mut fields = std::collections::BTreeMap::new();
+    for item in inner.split(';') {
+        let Some((key, value)) = item.trim().split_once('=') else {
+            return false;
+        };
+        if fields.insert(key, value).is_some() {
+            return false;
+        }
+    }
+    fields.get("path") == Some(&"/usr/bin/omavless")
+        && fields.get("argv[]")
+            == Some(&if runtime {
+                "/usr/bin/omavless daemon"
+            } else {
+                "/usr/bin/omavless login-prepare"
+            })
+        && fields.get("ignore_errors") == Some(&"no")
 }
 
 // A future reviewed effect consumer must own this value for its ENTIRE lifetime.
@@ -597,21 +643,31 @@ impl UpgradeContext {
     }
 }
 
-/// Internal precursor only. Not a callable updater or public readiness report.
-/// The future coordinator must keep this ORIGINAL value through all effects.
+/// Internal admission only, never an exported advisory ticket. The concrete
+/// consumer keeps this ORIGINAL value through its entire package-only phase.
 pub(crate) fn acquire_current() -> Result<UpgradeContext> {
-    let uid = Uid::current().as_raw();
-    let scope = Scope::current(uid)?;
-    predecessor()?;
-    let mut context = UpgradeContext::acquire(scope, uid, units()?)?;
-    context.recheck()?;
-    predecessor()?;
-    // The private captures/exclusions above are implemented. Full strict orphan
-    // core/TUN absence, authenticated manager roots/loaded unit execution and
-    // staged-candidate authenticity are still separate admission work. Never
-    // return this precursor as a production effect capability meanwhile.
-    Err(Blocker::HostAdmissionUnavailable)
+    crate::cutover_activation::environment::with_current(|| {
+        let uid = Uid::current().as_raw();
+        let scope = Scope::current(uid)?;
+        predecessor()?;
+        let mut context = UpgradeContext::acquire(scope, uid, units()?)?;
+        let observer = crate::production_observation::ProductionOwnershipObserver::current()
+            .map_err(|_| Blocker::HostAdmissionUnavailable)?;
+        observer
+            .verify_native_empty()
+            .map_err(|_| Blocker::HostAdmissionUnavailable)?;
+        context.recheck()?;
+        predecessor()?;
+        Ok(context)
+    })
+    .map_err(|_| Blocker::Environment)?
 }
+
+#[cfg(feature = "developer-upgrade082")]
+#[path = "setup_upgrade082/package_phase.rs"]
+mod package_phase;
+#[cfg(feature = "developer-upgrade082")]
+pub use package_phase::run_development_update;
 
 #[cfg(test)]
 mod tests;

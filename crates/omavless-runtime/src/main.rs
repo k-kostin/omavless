@@ -373,6 +373,10 @@ fn run() -> Result<(), CliError> {
         println!(
             "  setup initialize                 create initial private config only; no activation"
         );
+        #[cfg(feature = "developer-upgrade082")]
+        println!(
+            "  setup upgrade082                 attended single-user VM UPDATE only; DNS is separate"
+        );
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );
@@ -542,6 +546,13 @@ fn run() -> Result<(), CliError> {
         return Ok(());
     }
     if arguments.first().is_some_and(|arg| arg == "setup") {
+        #[cfg(feature = "developer-upgrade082")]
+        if arguments == ["setup", "upgrade082"] {
+            let result = omavless_runtime::setup_upgrade082::run_development_update()
+                .map_err(|error| error.to_string())?;
+            println!("{result}");
+            return Ok(());
+        }
         if arguments != ["setup", "initialize"] {
             return Err("Invalid native setup command".into());
         }

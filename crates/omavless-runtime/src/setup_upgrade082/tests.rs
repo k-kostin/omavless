@@ -328,8 +328,13 @@ fn unit_gate_requires_settled_fixed_unmodified_loaded_units() {
         } else {
             "static"
         };
+        let command = if name == "omavless-runtime.service" {
+            "daemon"
+        } else {
+            "login-prepare"
+        };
         let raw = format!(
-            "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nJob=\nFragmentPath=/usr/lib/systemd/user/{name}\nDropInPaths=\nUnitFileState={enabled}\n"
+            "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nJob=\nFragmentPath=/usr/lib/systemd/user/{name}\nDropInPaths=\nUnitFileState={enabled}\nNeedDaemonReload=no\nExecStart={{ path=/usr/bin/omavless ; argv[]=/usr/bin/omavless {command} ; ignore_errors=no ; pid=0 }}\n"
         );
         assert_eq!(validate_unit(&raw, name), Ok(()));
         for changed in [
@@ -338,8 +343,109 @@ fn unit_gate_requires_settled_fixed_unmodified_loaded_units() {
             raw.replace("DropInPaths=\n", "DropInPaths=/private\n"),
             raw.replace("LoadState=loaded", "LoadState=not-found"),
             format!("{raw}Job=\n"),
+            raw.replace("NeedDaemonReload=no", "NeedDaemonReload=yes"),
+            raw.replace("path=/usr/bin/omavless", "path=/untrusted/helper"),
+            raw.replace("ignore_errors=no", "ignore_errors=yes"),
         ] {
             assert_eq!(validate_unit(&changed, name), Err(Blocker::RuntimeActive));
         }
     }
+}
+
+#[cfg(feature = "developer-upgrade082")]
+#[test]
+fn real_package_consumer_retains_exclusions_through_settlement_and_verification() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for (program, success, cancellation) in [
+        ("/usr/bin/true", true, false),
+        ("/usr/bin/false", false, false),
+        ("/usr/bin/sleep", true, true),
+    ] {
+        let f = Fixture::new();
+        let scope = f.scope();
+        let mut context = f.acquire().unwrap();
+        let cancel = AtomicBool::new(false);
+        let verified = AtomicBool::new(false);
+        let result = super::package_phase::consume(
+            &mut context,
+            &cancel,
+            || {
+                let mut command = Command::new(program);
+                if cancellation {
+                    command.arg("0.1");
+                }
+                let child = command.spawn().unwrap();
+                if cancellation {
+                    cancel.store(true, Ordering::Release);
+                }
+                assert!(f.contends(&scope.runtime.owner_lock));
+                assert!(f.contends(&scope.cutover.operation_lock));
+                Ok(child)
+            },
+            |context| {
+                assert!(f.contends(&scope.runtime.owner_lock));
+                assert!(f.contends(&scope.cutover.operation_lock));
+                context.recheck_private()?;
+                verified.store(true, Ordering::Release);
+                Ok(())
+            },
+        );
+        assert!(verified.load(Ordering::Acquire)); // includes nonzero child exit
+        assert_eq!(
+            result,
+            if success {
+                Ok(())
+            } else {
+                Err(Blocker::PackageOutcomeUnverified)
+            }
+        );
+        assert!(f.contends(&scope.runtime.owner_lock));
+        drop(context);
+        assert!(!f.contends(&scope.runtime.owner_lock));
+        assert!(!f.contends(&scope.cutover.operation_lock));
+    }
+}
+
+#[cfg(feature = "developer-upgrade082")]
+#[test]
+fn package_consumer_refuses_before_submit_and_marks_failed_postreadback_unknown() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = Fixture::new();
+    let mut context = f.acquire().unwrap();
+    let submitted = AtomicBool::new(false);
+    let cancelled = AtomicBool::new(true);
+    let result = super::package_phase::consume(
+        &mut context,
+        &cancelled,
+        || {
+            submitted.store(true, Ordering::Release);
+            Ok(Command::new("/usr/bin/true").spawn().unwrap())
+        },
+        |_| Ok(()),
+    );
+    assert_eq!(result, Err(Blocker::CancelledBeforeSubmission));
+    assert!(!submitted.load(Ordering::Acquire));
+    cancelled.store(false, Ordering::Release);
+    let result = super::package_phase::consume(
+        &mut context,
+        &cancelled,
+        || Ok(Command::new("/usr/bin/true").spawn().unwrap()),
+        |_| Err(Blocker::StateChanged),
+    );
+    assert_eq!(result, Err(Blocker::PackageOutcomeUnverified));
+    f.put(
+        &f.scope().config.join("profiles.json"),
+        b"synthetic changed before submission",
+    );
+    let result = super::package_phase::consume(
+        &mut context,
+        &cancelled,
+        || {
+            submitted.store(true, Ordering::Release);
+            Ok(Command::new("/usr/bin/true").spawn().unwrap())
+        },
+        |_| Ok(()),
+    );
+    assert_eq!(result, Err(Blocker::StateChanged));
+    assert!(!submitted.load(Ordering::Acquire));
 }
