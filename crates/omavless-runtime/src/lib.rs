@@ -143,7 +143,7 @@ mod runtime_observation;
 mod runtime_quit;
 pub mod runtime_relaunch;
 pub mod semantic_cli;
-#[cfg(any(test, feature = "developer-upgrade082"))]
+#[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
 #[allow(dead_code)]
 pub mod setup_upgrade082;
 mod startup_admission;

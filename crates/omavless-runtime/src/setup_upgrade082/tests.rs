@@ -352,7 +352,7 @@ fn unit_gate_requires_settled_fixed_unmodified_loaded_units() {
     }
 }
 
-#[cfg(feature = "developer-upgrade082")]
+#[cfg(any(feature = "developer-upgrade082", feature = "setup-upgrade082"))]
 #[test]
 fn real_package_consumer_retains_exclusions_through_settlement_and_verification() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -406,7 +406,7 @@ fn real_package_consumer_retains_exclusions_through_settlement_and_verification(
     }
 }
 
-#[cfg(feature = "developer-upgrade082")]
+#[cfg(any(feature = "developer-upgrade082", feature = "setup-upgrade082"))]
 #[test]
 fn package_consumer_refuses_before_submit_and_marks_failed_postreadback_unknown() {
     use std::sync::atomic::{AtomicBool, Ordering};

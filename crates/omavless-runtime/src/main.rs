@@ -375,7 +375,11 @@ fn run() -> Result<(), CliError> {
         );
         #[cfg(feature = "developer-upgrade082")]
         println!(
-            "  setup upgrade082                 attended single-user VM UPDATE only; DNS is separate"
+            "  setup upgrade082-vm              attended QEMU VM UPDATE only; DNS is separate"
+        );
+        #[cfg(feature = "setup-upgrade082")]
+        println!(
+            "  setup upgrade082                 first migration; stdin delivery metadata, tty consent"
         );
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
@@ -547,8 +551,15 @@ fn run() -> Result<(), CliError> {
     }
     if arguments.first().is_some_and(|arg| arg == "setup") {
         #[cfg(feature = "developer-upgrade082")]
-        if arguments == ["setup", "upgrade082"] {
+        if arguments == ["setup", "upgrade082-vm"] {
             let result = omavless_runtime::setup_upgrade082::run_development_update()
+                .map_err(|error| error.to_string())?;
+            println!("{result}");
+            return Ok(());
+        }
+        #[cfg(feature = "setup-upgrade082")]
+        if arguments == ["setup", "upgrade082"] {
+            let result = omavless_runtime::setup_upgrade082::run_delivery_update()
                 .map_err(|error| error.to_string())?;
             println!("{result}");
             return Ok(());

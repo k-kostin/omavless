@@ -22,6 +22,8 @@ developer-image-witness = ["developer-conditional-close", "dep:omavless-image-wi
 product-image-witness = ["developer-image-witness", "omavless-image-witness/product-epochs"]
 # Source-built single-user development VM only; never a shipped updater gate.
 developer-upgrade082 = []
+# Exact public 0.8.2 first migration, via frontend-qualified destination helper.
+setup-upgrade082 = []
 
 [dependencies]
 base64 = "0.22"

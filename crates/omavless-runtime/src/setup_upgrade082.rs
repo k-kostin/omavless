@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! Retained stopped-owner context for SINGLE-PROCESS predecessor UPDATE.
-//! The package-only consumer is development-feature gated. DNS is a NEW
-//! explicit operation. No serialized ticket, service/core start or all-user
-//! upgrade claim is introduced; helper delivery authentication is separate.
+//! First-migration and optional VM consumers are explicitly feature selected.
+//! DNS is a NEW operation. No serialized ticket, service/core start or persistent
+//! all-user exclusion is introduced; frontend delivery authentication is separate.
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::cutover_transaction::BridgeTarget;
 use crate::desired::{DesiredState, MAX_DESIRED_STATE_BYTES};
@@ -41,6 +41,10 @@ pub enum Blocker {
     PackageOutcomeUnverified,
     PackageSubmissionUnavailable,
     UnsupportedDevelopmentGuest,
+    DeliveryMetadataInvalid,
+    HelperIdentityUnverified,
+    TtyUnavailable,
+    ForeignOwnerObserved,
 }
 impl std::fmt::Display for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -64,6 +68,10 @@ impl std::fmt::Display for Blocker {
             Self::PackageOutcomeUnverified => "package_outcome_unverified",
             Self::PackageSubmissionUnavailable => "package_submission_unavailable",
             Self::UnsupportedDevelopmentGuest => "unsupported_development_guest",
+            Self::DeliveryMetadataInvalid => "delivery_metadata_invalid",
+            Self::HelperIdentityUnverified => "helper_identity_unverified",
+            Self::TtyUnavailable => "tty_unavailable",
+            Self::ForeignOwnerObserved => "foreign_owner_observed",
         };
         write!(f, "OmaVLESS upgrade082: {reason}")
     }
@@ -665,9 +673,14 @@ pub(crate) fn acquire_current() -> Result<UpgradeContext> {
     .map_err(|_| Blocker::Environment)?
 }
 
-#[cfg(feature = "developer-upgrade082")]
+#[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
+#[path = "setup_upgrade082/delivery_metadata.rs"]
+mod delivery_metadata;
+#[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
 #[path = "setup_upgrade082/package_phase.rs"]
 mod package_phase;
+#[cfg(feature = "setup-upgrade082")]
+pub use package_phase::run_delivery_update;
 #[cfg(feature = "developer-upgrade082")]
 pub use package_phase::run_development_update;
 

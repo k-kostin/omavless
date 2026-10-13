@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: MIT
-//! Explicit UPDATE-only developer VM phase. DNS is a separate newly admitted
-//! operation. No downloaded helper authentication or general multiuser claim.
+//! Exact public-0.8.2 first package UPDATE. The frontend independently qualifies
+//! release archives/helper; closed stdin is DATA and native checks consistency.
+//! DNS is a NEW admitted operation. Other-owner observation is not persistent
+//! all-user exclusion; no foreign private files or stock core are changed.
+use super::delivery_metadata::Metadata;
 use super::*;
-use std::io::BufRead;
-use std::process::{Child, ExitStatus};
+use std::io::Write;
+use std::os::unix::fs::FileTypeExt;
+use std::process::{Child, ExitStatus, Stdio};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 
-const SOURCE: &str = "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524";
-const VERSION: &str = "0.9.8";
+pub(super) const SOURCE: &str = "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524";
+pub(super) const VERSION: &str = "0.9.8";
 
 fn guest_identity(vendor: &[u8], product: &[u8]) -> bool {
     vendor == b"QEMU\n" && product == b"Standard PC (Q35 + ICH9, 2009)\n"
@@ -168,8 +172,9 @@ struct Pair {
     app_identity: Vec<u8>,
     dns_receipt: Vec<u8>,
     app_digest: String,
+    metadata: Metadata,
 }
-fn pins(arch: &str) -> Result<(&'static str, &'static str)> {
+pub(super) fn pins(arch: &str) -> Result<(&'static str, &'static str)> {
     match arch {
         "x86_64" => Ok((
             "bf27584874c7e75d40f856739783f66fdf6af5652e37ba638232a2bc5a3c7750",
@@ -182,11 +187,11 @@ fn pins(arch: &str) -> Result<(&'static str, &'static str)> {
         _ => Err(Blocker::StagingUnavailable),
     }
 }
-fn package_metadata(bytes: &[u8], name: &str, arch: &str) -> Result<()> {
+fn package_metadata(bytes: &[u8], name: &str, arch: &str, version: &str) -> Result<()> {
     let text = std::str::from_utf8(bytes).map_err(|_| Blocker::StagingUnavailable)?;
     for (key, expected) in [
         ("pkgname", name.to_owned()),
-        ("pkgver", format!("{VERSION}-1")),
+        ("pkgver", format!("{version}-1")),
         ("arch", arch.to_owned()),
     ] {
         let found = text
@@ -201,7 +206,7 @@ fn package_metadata(bytes: &[u8], name: &str, arch: &str) -> Result<()> {
     }
     Ok(())
 }
-fn app_identity(bytes: &[u8], arch: &str) -> Result<String> {
+fn app_identity(bytes: &[u8], arch: &str, source: &str, version: &str) -> Result<String> {
     let text = std::str::from_utf8(bytes).map_err(|_| Blocker::StagingUnavailable)?;
     let mut fields = std::collections::BTreeMap::new();
     for line in text.lines() {
@@ -212,9 +217,9 @@ fn app_identity(bytes: &[u8], arch: &str) -> Result<String> {
     }
     if fields.len() != 6
         || fields.get("schemaVersion") != Some(&"3")
-        || fields.get("sourceCommit") != Some(&SOURCE)
+        || fields.get("sourceCommit") != Some(&source)
         || fields.get("architecture") != Some(&arch)
-        || fields.get("productVersion") != Some(&VERSION)
+        || fields.get("productVersion") != Some(&version)
         || fields.get("provenance") != Some(&"caller-supplied-prebuilt")
     {
         return Err(Blocker::StagingUnavailable);
@@ -232,38 +237,38 @@ fn app_identity(bytes: &[u8], arch: &str) -> Result<String> {
     Ok((*digest).to_owned())
 }
 impl Pair {
-    fn current() -> Result<Self> {
+    fn current(metadata: Metadata) -> Result<Self> {
         let uid = Uid::current().as_raw();
-        let arch = std::env::consts::ARCH;
         let root = PathBuf::from(std::env::var_os("HOME").ok_or(Blocker::Environment)?)
             .join(".cache/omavless/upgrade082");
-        Self::at(root, uid, arch)
+        Self::at(root, uid, metadata)
     }
-    fn at(root: PathBuf, uid: u32, arch: &str) -> Result<Self> {
+    fn at(root: PathBuf, uid: u32, metadata: Metadata) -> Result<Self> {
+        let arch = metadata.arch.as_str();
+        let version = metadata.version.as_str();
         let staging = Directory::pin(&root, uid)?;
-        let (app_pin, dns_pin) = pins(arch)?;
         let mut app = Archive::open(
-            root.join(format!("omavless-{VERSION}-1-{arch}.pkg.tar.zst")),
+            root.join(format!("omavless-{version}-1-{arch}.pkg.tar.zst")),
             uid,
-            app_pin,
+            &metadata.app_sha,
             0o600,
         )?;
         let mut dns = Archive::open(
-            root.join(format!("omavless-dns-{VERSION}-1-{arch}.pkg.tar.zst")),
+            root.join(format!("omavless-dns-{version}-1-{arch}.pkg.tar.zst")),
             uid,
-            dns_pin,
+            &metadata.dns_sha,
             0o600,
         )?;
-        package_metadata(&app.member(".PKGINFO")?, "omavless", arch)?;
-        package_metadata(&dns.member(".PKGINFO")?, "omavless-dns", arch)?;
+        package_metadata(&app.member(".PKGINFO")?, "omavless", arch, version)?;
+        package_metadata(&dns.member(".PKGINFO")?, "omavless-dns", arch, version)?;
         let identity = app.member("usr/share/doc/omavless/build-identity.txt")?;
-        let app_digest = app_identity(&identity, arch)?;
+        let app_digest = app_identity(&identity, arch, &metadata.source, version)?;
         let receipt = dns.member("usr/share/omavless-dns/source-receipt.json")?;
         let parsed: serde_json::Value =
             serde_json::from_slice(&receipt).map_err(|_| Blocker::StagingUnavailable)?;
         if parsed["schema"] != 1
             || parsed["architecture"] != arch
-            || parsed["omavless_commit"] != SOURCE
+            || parsed["omavless_commit"] != metadata.source
             || parsed["package_flavor"] != "release"
             || parsed["broker_feature"] != "release-package"
         {
@@ -279,6 +284,7 @@ impl Pair {
             app_identity: identity,
             dns_receipt: receipt,
             app_digest,
+            metadata,
         })
     }
     fn recheck(&mut self) -> Result<()> {
@@ -320,7 +326,10 @@ impl Pair {
             .args(["-Q", "omavless", "omavless-dns"]);
         if crate::production_observation::bounded_fixed_query(query, Duration::from_secs(3))
             .map_err(|_| Blocker::PackageOutcomeUnverified)?
-            != "omavless 0.9.8-1\nomavless-dns 0.9.8-1\n"
+            != format!(
+                "omavless {}-1\nomavless-dns {}-1\n",
+                self.metadata.version, self.metadata.version
+            )
         {
             return Err(Blocker::PackageOutcomeUnverified);
         }
@@ -469,6 +478,7 @@ fn after_packages(context: &mut UpgradeContext, pair: &Pair) -> Result<()> {
     // Check actual installation even when pacman reports failure. No automatic
     // replay, rollback, daemon reload, DNS enrollment or next phase follows.
     pair.installed()?;
+    other_owners().map_err(|_| Blocker::PackageOutcomeUnverified)?;
     context
         .recheck_private()
         .map_err(|_| Blocker::PackageOutcomeUnverified)?;
@@ -517,32 +527,148 @@ fn guest_then<T>(guest: Result<()>, continue_operation: impl FnOnce() -> Result<
     continue_operation()
 }
 
+#[cfg(feature = "developer-upgrade082")]
 pub fn run_development_update() -> Result<serde_json::Value> {
-    guest_then(development_guest(), run_qualified_update)
+    guest_then(development_guest(), || {
+        run_qualified_update(Metadata::developer()?, false)
+    })
 }
 
-fn run_qualified_update() -> Result<serde_json::Value> {
-    let cancel = Arc::new(AtomicBool::new(false));
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        return Err(Blocker::Environment);
+#[cfg(feature = "setup-upgrade082")]
+pub fn run_delivery_update() -> Result<serde_json::Value> {
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Err(Blocker::DeliveryMetadataInvalid);
     }
-    eprintln!(
-        "Development single-user VM only; other users are not excluded. Installs the pinned 0.9.8 app/DNS pair. DNS setup is a separate operation. Type UPGRADE SINGLE-USER VM:"
-    );
-    let mut consent = String::new();
-    std::io::stdin()
-        .lock()
-        .take(128)
-        .read_line(&mut consent)
-        .map_err(|_| Blocker::Environment)?;
-    if consent != "UPGRADE SINGLE-USER VM\n" || cancel.load(Ordering::Acquire) {
+    // Must consume the whole bounded frame and EOF before opening the tty or
+    // considering consent. The metadata pipe is NEVER child stdin.
+    let metadata = Metadata::read(&mut std::io::stdin().lock())?;
+    run_qualified_update(metadata, true)
+}
+
+fn open_tty() -> Result<File> {
+    let tty = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open("/dev/tty")
+        .map_err(|_| Blocker::TtyUnavailable)?;
+    if !tty
+        .metadata()
+        .map_err(|_| Blocker::TtyUnavailable)?
+        .file_type()
+        .is_char_device()
+        || !std::io::IsTerminal::is_terminal(&tty)
+    {
+        return Err(Blocker::TtyUnavailable);
+    }
+    Ok(tty)
+}
+fn consent_from_tty(tty: &mut File, expected: &[u8]) -> Result<()> {
+    let mut bytes = Vec::new();
+    while bytes.len() < 128 {
+        let mut byte = [0];
+        if tty.read(&mut byte).map_err(|_| Blocker::TtyUnavailable)? == 0 {
+            break;
+        }
+        bytes.push(byte[0]);
+        if byte[0] == b'\n' {
+            break;
+        }
+    }
+    if bytes != expected {
         return Err(Blocker::CancelledBeforeSubmission);
     }
+    Ok(())
+}
+fn running_digest() -> Result<String> {
+    // /proc/self/exe is the fixed kernel reference, deliberately not a caller
+    // path or an assertion that this helper is already the installed app.
+    let mut file = File::open("/proc/self/exe").map_err(|_| Blocker::HelperIdentityUnverified)?;
+    let before = file
+        .metadata()
+        .map_err(|_| Blocker::HelperIdentityUnverified)?;
+    if !before.is_file()
+        || before.len() == 0
+        || before.len() > 512 * 1024 * 1024
+        || before.mode() & 0o022 != 0
+    {
+        return Err(Blocker::HelperIdentityUnverified);
+    }
+    let mut sha = Sha256::new();
+    let mut total = 0;
+    let mut buffer = [0; 65536];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| Blocker::HelperIdentityUnverified)?;
+        if count == 0 {
+            break;
+        }
+        total += count;
+        if total > 512 * 1024 * 1024 {
+            return Err(Blocker::HelperIdentityUnverified);
+        }
+        sha.update(&buffer[..count]);
+    }
+    if !same(
+        &before,
+        &file
+            .metadata()
+            .map_err(|_| Blocker::HelperIdentityUnverified)?,
+    ) {
+        return Err(Blocker::HelperIdentityUnverified);
+    }
+    Ok(format!("{:x}", sha.finalize()))
+}
+fn qualify_helper(expected: &str) -> Result<()> {
+    if running_digest()? != expected {
+        return Err(Blocker::HelperIdentityUnverified);
+    }
+    Ok(())
+}
+fn other_owners() -> Result<()> {
+    // Observation is not persistent exclusion and never reads another user's
+    // private files or signals their process. The admin consents to replacement.
+    let pids = omavless_mihomo::observation::processes_named_strict(Path::new("/proc"), "omavless")
+        .map_err(|_| Blocker::HostAdmissionUnavailable)?;
+    for pid in pids {
+        if pid == std::process::id() {
+            continue;
+        }
+        let uid = fs::metadata(format!("/proc/{pid}"))
+            .map_err(|_| Blocker::HostAdmissionUnavailable)?
+            .uid();
+        if uid != Uid::current().as_raw() {
+            return Err(Blocker::ForeignOwnerObserved);
+        }
+    }
+    Ok(())
+}
+
+fn run_qualified_update(metadata: Metadata, delivered: bool) -> Result<serde_json::Value> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut tty = open_tty()?;
+    let mut pair = Pair::current(metadata)?;
+    if delivered {
+        qualify_helper(&pair.app_digest)?;
+    }
+    writeln!(&mut tty, "Update the system OmaVLESS app and DNS packages to {}. Profiles and settings are kept. DNS setup and Start are separate. Type {}:",
+        pair.metadata.version, if delivered { "UPGRADE" } else { "UPGRADE SINGLE-USER VM" })
+        .map_err(|_| Blocker::TtyUnavailable)?;
+    tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
+    consent_from_tty(
+        &mut tty,
+        if delivered {
+            b"UPGRADE\n"
+        } else {
+            b"UPGRADE SINGLE-USER VM\n"
+        },
+    )?;
     let _signals = Signals::capture(&cancel)?;
-    let mut pair = Pair::current()?;
     let mut context = acquire_current()?;
     let mut unit_files = predecessor_units()?;
     package_owner_before()?;
+    other_owners()?;
     for name in ["managed-dns-selection", ".managed-dns-selection.candidate"] {
         if !absent(&context.scope.config.join(name)) {
             return Err(Blocker::Predecessor);
@@ -556,7 +682,11 @@ fn run_qualified_update() -> Result<serde_json::Value> {
     if cancel.load(Ordering::Acquire) {
         return Err(Blocker::CancelledBeforeSubmission);
     }
+    other_owners()?;
     let mut command = Command::new("/usr/bin/sudo");
+    command.stdin(Stdio::from(
+        tty.try_clone().map_err(|_| Blocker::TtyUnavailable)?,
+    ));
     command
         .args(["/usr/bin/pacman", "-U", "--"])
         .arg(&pair.app.path)
@@ -575,7 +705,7 @@ fn run_qualified_update() -> Result<serde_json::Value> {
     // verification. The result is DATA; NEW DNS setup must re-earn admission.
     drop(context);
     Ok(
-        serde_json::json!({"schemaVersion":1,"scope":"single_user_development_vm",
+        serde_json::json!({"schemaVersion":1,"scope":if delivered {"first_082_package_phase"} else {"single_user_development_vm"},
         "outcome":"packages_updated_dns_required","dnsSetupRequired":true,"startAllowed":false,
         "cancellationRequested":cancel.load(Ordering::Acquire)}),
     )
@@ -584,6 +714,45 @@ fn run_qualified_update() -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn running_helper_digest_is_separate_from_installed_predecessor_and_mismatch_refuses() {
+        let digest = running_digest().unwrap();
+        assert_eq!(qualify_helper(&digest), Ok(()));
+        let wrong = if digest == "a".repeat(64) {
+            "b".repeat(64)
+        } else {
+            "a".repeat(64)
+        };
+        assert_eq!(
+            qualify_helper(&wrong),
+            Err(Blocker::HelperIdentityUnverified)
+        );
+    }
+    #[test]
+    fn app_receipt_requires_the_closed_source_arch_and_version_tuple() {
+        let identity = format!(
+            "schemaVersion=3\nsourceCommit={}\nbinarySha256={}\narchitecture={}\nprovenance=caller-supplied-prebuilt\nproductVersion={}\n",
+            SOURCE,
+            "a".repeat(64),
+            std::env::consts::ARCH,
+            VERSION
+        );
+        assert!(app_identity(identity.as_bytes(), std::env::consts::ARCH, SOURCE, VERSION).is_ok());
+        for (arch, source, version) in [
+            ("unknown", SOURCE, VERSION),
+            (
+                std::env::consts::ARCH,
+                "cccccccccccccccccccccccccccccccccccccccc",
+                VERSION,
+            ),
+            (std::env::consts::ARCH, SOURCE, "9.9.9"),
+        ] {
+            assert_eq!(
+                app_identity(identity.as_bytes(), arch, source, version),
+                Err(Blocker::StagingUnavailable)
+            );
+        }
+    }
     #[test]
     fn fixed_guest_guard_refuses_physical_or_other_virtual_targets_before_continuation() {
         let expected = b"Standard PC (Q35 + ICH9, 2009)\n";
@@ -614,13 +783,17 @@ mod tests {
     #[test]
     fn pinned_metadata_is_closed_and_duplicate_refuses() {
         let good = b"pkgname = omavless\npkgver = 0.9.8-1\narch = x86_64\n";
-        assert_eq!(package_metadata(good, "omavless", "x86_64"), Ok(()));
-        assert!(package_metadata(good, "omavless-dns", "x86_64").is_err());
+        assert_eq!(
+            package_metadata(good, "omavless", "x86_64", VERSION),
+            Ok(())
+        );
+        assert!(package_metadata(good, "omavless-dns", "x86_64", VERSION).is_err());
         assert!(
             package_metadata(
                 &[good.as_slice(), b"pkgname = omavless\n"].concat(),
                 "omavless",
-                "x86_64"
+                "x86_64",
+                VERSION
             )
             .is_err()
         );
@@ -693,10 +866,15 @@ mod tests {
             fs::copy(source, &destination).unwrap();
             fs::set_permissions(destination, fs::Permissions::from_mode(0o600)).unwrap();
         }
-        let mut pair = Pair::at(root.clone(), Uid::current().as_raw(), arch).unwrap();
+        let mut pair = Pair::at(
+            root.clone(),
+            Uid::current().as_raw(),
+            Metadata::developer().unwrap(),
+        )
+        .unwrap();
         pair.recheck().unwrap();
         assert_eq!(
-            app_identity(&pair.app_identity, arch).unwrap(),
+            app_identity(&pair.app_identity, arch, SOURCE, VERSION).unwrap(),
             pair.app_digest
         );
         drop(pair);
