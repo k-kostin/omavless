@@ -270,6 +270,40 @@ fn uncertain_save_blocks_mutations_and_cannot_be_revived_by_late_success() {
     assert!(w.confirm("another".into(), now).is_none());
 }
 #[test]
+fn hidden_unresolved_import_footer_keeps_state_review_and_close_visible_at_minimum_size() {
+    for locale in [Locale::En, Locale::Ru] {
+        for unknown in [false, true] {
+            let (mut app, now) = app(locale);
+            let mut w = draft(1);
+            preview(&mut w, profile(), now);
+            let request = w.confirm("original-op".into(), now).unwrap();
+            if unknown {
+                w.accept(request.settle(Err(ReadError::Unavailable)));
+            }
+            app.import = Some(w);
+            let footer = locale.text(if unknown {
+                "tui.import_unknown_footer"
+            } else {
+                "tui.import_pending_footer"
+            });
+            assert!(footer.chars().count() <= 68);
+            let rendered = render(&app, now, 70, 24);
+            assert!(rendered.contains(footer));
+            assert!(!rendered.contains(PRIVATE));
+            assert!(app.import_unresolved());
+            assert_eq!(press(&mut app, KeyCode::Char('c'), now), Action::None);
+            assert!(app.confirmation.is_none());
+            assert_eq!(press(&mut app, KeyCode::F(3), now), Action::None);
+            assert!(app.import_open);
+            assert!(render(&app, now, 70, 24).contains(locale.text("tui.import_title")));
+            assert_eq!(press(&mut app, KeyCode::Esc, now), Action::None);
+            assert!(!app.import_open && app.import_unresolved());
+            assert!(render(&app, now, 70, 24).contains(footer));
+            assert_eq!(press(&mut app, KeyCode::Char('q'), now), Action::Close);
+        }
+    }
+}
+#[test]
 fn wrong_mutation_operation_action_or_instance_never_reports_saved() {
     let now = Instant::now();
     for (field, bad) in [
