@@ -11,6 +11,17 @@ struct Fixture {
 impl Fixture {
     fn new(body: &str) -> Self {
         let root = crate::test_temp::directory("empty-host").unwrap();
+        Self::under(body, root)
+    }
+    fn new_socket(body: &str) -> Self {
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "empty-host",
+        )
+        .unwrap();
+        Self::under(body, root)
+    }
+    fn under(body: &str, root: PathBuf) -> Self {
         let uid = Uid::current().as_raw();
         let paths = ProductionObservationPaths::below(
             root.join("systemctl"),
@@ -58,7 +69,7 @@ impl Drop for Fixture {
 }
 
 fn disconnected_native_fixture(native: &str, legacy: &str) -> Fixture {
-    let f = Fixture::new(&format!(
+    let f = Fixture::new_socket(&format!(
         "if [ \"$3\" = omavless-runtime.service ]; then printf '{native}'; else printf '{legacy}'; fi"
     ));
     f.runtime_child();
@@ -209,7 +220,13 @@ fn stdout_eof_does_not_replace_successful_child_exit() {
 fn every_controller_presence_including_dead_socket_is_a_blocker() {
     for index in 0..3 {
         for kind in ["file", "symlink", "socket"] {
-            let f = Fixture::empty();
+            let f = if kind == "socket" {
+                Fixture::new_socket(
+                    "printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'",
+                )
+            } else {
+                Fixture::empty()
+            };
             f.runtime_child();
             let path = [
                 &f.paths.legacy_controller,

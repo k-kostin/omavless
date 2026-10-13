@@ -1839,7 +1839,19 @@ mod tests {
     }
 
     fn observation_fixture() -> (PathBuf, NativeLifecycleHost) {
-        let root = crate::test_temp::directory("fresh-native").unwrap();
+        observation_fixture_at(crate::test_temp::directory("fresh-native").unwrap())
+    }
+
+    fn socket_observation_fixture() -> (PathBuf, NativeLifecycleHost) {
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "fresh-native",
+        )
+        .unwrap();
+        observation_fixture_at(root)
+    }
+
+    fn observation_fixture_at(root: PathBuf) -> (PathBuf, NativeLifecycleHost) {
         let uid = nix::unistd::Uid::current().as_raw();
         for name in ["data", "config", "runtime", "proc", "sys"] {
             fs::create_dir(root.join(name)).unwrap();
@@ -1923,7 +1935,7 @@ mod tests {
     fn observation_only_host_preserves_unowned_names_and_refuses_all_effects() {
         use std::os::unix::net::{UnixListener, UnixStream};
         for refuse in [false, true] {
-            let (root, initial) = observation_fixture();
+            let (root, initial) = socket_observation_fixture();
             drop(initial);
             let uid = nix::unistd::Uid::current().as_raw();
             let paths = NativeHostPaths::new(
@@ -1986,7 +1998,7 @@ mod tests {
     #[test]
     fn ordinary_host_drop_keeps_existing_path_cleanup_policy() {
         use std::os::unix::net::UnixListener;
-        let (root, host) = observation_fixture();
+        let (root, host) = socket_observation_fixture();
         let staged = host.paths.staged_config.clone();
         let controller = host.paths.controller_socket.clone();
         fs::write(&staged, b"synthetic-staging").unwrap();
@@ -2238,7 +2250,7 @@ mod tests {
     #[test]
     fn fresh_controller_verification_rejects_socket_of_wrong_pid_without_repair() {
         use std::os::unix::net::UnixListener;
-        let (root, mut host) = observation_fixture();
+        let (root, mut host) = socket_observation_fixture();
         fs::write(&host.paths.core, b"#!/bin/sh\nexec /usr/bin/sleep 5\n").unwrap();
         fs::write(&host.paths.active_config, b"synthetic config").unwrap();
         let listener = UnixListener::bind(&host.paths.controller_socket).unwrap();

@@ -101,7 +101,7 @@ impl Bus {
     fn new() -> Self {
         let root = tempfile::Builder::new()
             .prefix("omavless-admission-")
-            .tempdir()
+            .tempdir_in(crate::test_temp::home_parent().unwrap())
             .unwrap();
         let address = format!("unix:path={}", root.path().join("bus").display());
         let child = Command::new("dbus-daemon")
@@ -626,7 +626,7 @@ fn enrollment_owner_mode_symlink_hardlink_and_nonregular_refuse() {
 
 #[test]
 fn protected_paths_refuse_wrong_owner_writable_or_symlink_targets() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
     let owner = rustix::process::geteuid().as_raw();
     protected_directory(root.path(), owner).unwrap();
     assert_eq!(

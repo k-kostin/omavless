@@ -134,7 +134,7 @@ fn native_recovery_existing_singleton_busy_and_named_drift_are_real_files() {
     use std::fs;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::UnixListener;
-    for (index, case) in [
+    for case in [
         "positive",
         "busy",
         "directory-drift",
@@ -142,9 +142,10 @@ fn native_recovery_existing_singleton_busy_and_named_drift_are_real_files() {
         "socket-drift",
     ]
     .into_iter()
-    .enumerate()
     {
-        let root = std::env::temp_dir().join(format!("rs-{:x}-{index}", std::process::id()));
+        let root =
+            crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "rs")
+                .unwrap();
         assert!(
             root.join("omavless")
                 .join(crate::SOCKET_NAME)
@@ -153,7 +154,6 @@ fn native_recovery_existing_singleton_busy_and_named_drift_are_real_files() {
                 .len()
                 < 108
         );
-        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
         let directory = root.join("omavless");
         fs::DirBuilder::new()
             .mode(0o700)
@@ -245,7 +245,7 @@ fn native_recovery_normal_server_drop_absence_is_exclusive_and_never_downgrades(
     use std::fs;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     use std::os::unix::net::UnixListener;
-    for (index, case) in [
+    for case in [
         "positive",
         "busy",
         "missing-lock",
@@ -259,10 +259,10 @@ fn native_recovery_normal_server_drop_absence_is_exclusive_and_never_downgrades(
         "bind-excluded",
     ]
     .into_iter()
-    .enumerate()
     {
-        let root = std::env::temp_dir().join(format!("ra-{:x}-{index}", std::process::id()));
-        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let root =
+            crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "ra")
+                .unwrap();
         let paths = crate::RuntimePaths::below(&root);
         // Real ordinary bind and Drop, not a manually invented missing socket.
         let server = crate::RuntimeServer::bind(paths.clone()).unwrap();

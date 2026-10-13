@@ -179,7 +179,7 @@ impl Bus {
     fn start() -> Self {
         let directory = tempfile::Builder::new()
             .prefix("omavless-retention-bus-")
-            .tempdir()
+            .tempdir_in(crate::test_temp::home_parent().unwrap())
             .unwrap();
         let socket = directory.path().join("bus");
         let child = Command::new("dbus-daemon")

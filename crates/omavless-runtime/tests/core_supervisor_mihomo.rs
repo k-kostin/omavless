@@ -3,26 +3,19 @@
 use omavless_runtime::core::OwnedCore;
 use std::env;
 use std::fs;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
 
 fn configured_core() -> Option<PathBuf> {
     env::var_os("OMAVLESS_TEST_MIHOMO").map(PathBuf::from)
 }
 
 fn root() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = env::temp_dir().join(format!(
-        "omavless-owned-mihomo-{}-{nonce}",
-        std::process::id()
-    ));
-    let mut builder = fs::DirBuilder::new();
-    builder.mode(0o700).create(&root).unwrap();
-    root
+    test_temp::directory_under(&test_temp::home_parent().unwrap(), "owned-controller").unwrap()
 }
 
 fn write_config(root: &Path, socket: &Path) -> PathBuf {

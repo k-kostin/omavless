@@ -261,7 +261,11 @@ mod tests {
     use std::thread;
 
     fn fixture() -> (PathBuf, UnixListener, ProbeController) {
-        let root = crate::test_temp::directory("probe-controller").unwrap();
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "probe-controller",
+        )
+        .unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let path = root.join("controller.sock");
         let listener = UnixListener::bind(&path).unwrap();

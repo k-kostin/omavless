@@ -868,6 +868,17 @@ mod tests {
     impl Fixture {
         fn new(_label: &str) -> Self {
             let root = crate::test_temp::directory("cutover").unwrap();
+            Self::under(root)
+        }
+        fn new_socket() -> Self {
+            let root = crate::test_temp::directory_under(
+                &crate::test_temp::home_parent().unwrap(),
+                "cutover",
+            )
+            .unwrap();
+            Self::under(root)
+        }
+        fn under(root: PathBuf) -> Self {
             let home = root.join("home");
             let runtime = root.join("runtime");
             let state = root.join("state");
@@ -999,7 +1010,7 @@ mod tests {
 
     #[test]
     fn absent_legacy_activation_commits_without_legacy_actions() {
-        let fixture = Fixture::new("absent-legacy");
+        let fixture = Fixture::new_socket();
         fixture.write_private(
             &fixture.paths.store,
             std::str::from_utf8(crate::store_bootstrap::EMPTY_STORE_PAYLOAD).unwrap(),
@@ -1560,7 +1571,7 @@ mod tests {
 
     #[test]
     fn wrong_bootstrap_generation_stops_candidate_and_restores_legacy() {
-        let fixture = Fixture::new("wrong-bootstrap");
+        let fixture = Fixture::new_socket();
         prepare_disconnected_fixture(&fixture);
         let service_state = install_service_harness(&fixture, false, false);
         let server = spawn_candidate_server(
@@ -1592,7 +1603,7 @@ mod tests {
 
     #[test]
     fn inconsistent_candidate_status_stops_candidate_and_restores_legacy() {
-        let fixture = Fixture::new("bad-status");
+        let fixture = Fixture::new_socket();
         prepare_disconnected_fixture(&fixture);
         let service_state = install_service_harness(&fixture, false, false);
         let server = spawn_candidate_server(
@@ -1647,7 +1658,7 @@ mod tests {
 
     #[test]
     fn disconnected_transaction_uses_fixed_services_and_commits_exact_candidate() {
-        let fixture = Fixture::new("transaction");
+        let fixture = Fixture::new_socket();
         fixture.write_private(
             &fixture.paths.store,
             r#"{"version":3,"activeId":"","lastId":"","profiles":[],"subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"onboardingComplete":false}"#,
@@ -1761,7 +1772,7 @@ mod tests {
                 Ok(())
             }
         }
-        let fixture = Fixture::new("final-inventory-refusal");
+        let fixture = Fixture::new_socket();
         prepare_disconnected_fixture(&fixture);
         install_service_harness(&fixture, false, false);
         let hello =
@@ -1802,7 +1813,7 @@ mod tests {
 
     #[test]
     fn failed_bridge_switch_stops_candidate_and_restores_exact_desired_state() {
-        let fixture = Fixture::new("bridge-rollback");
+        let fixture = Fixture::new_socket();
         fixture.write_private(
             &fixture.paths.store,
             r#"{"version":3,"activeId":"","lastId":"","profiles":[],"subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"onboardingComplete":false}"#,

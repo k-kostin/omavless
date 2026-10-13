@@ -453,6 +453,17 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let root = crate::test_temp::directory("aux-core").unwrap();
+            Self::under(root)
+        }
+        fn new_socket() -> Self {
+            let root = crate::test_temp::directory_under(
+                &crate::test_temp::home_parent().unwrap(),
+                "aux-core",
+            )
+            .unwrap();
+            Self::under(root)
+        }
+        fn under(root: PathBuf) -> Self {
             let tool = root.join("synthetic-core");
             fs::write(&tool, "#!/bin/sh\nexec /usr/bin/sleep 60\n").unwrap();
             fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
@@ -567,7 +578,7 @@ mod tests {
 
     #[test]
     fn replaced_controller_and_wrong_process_start_fail_closed() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new_socket();
         let slot = Arc::<AuxiliarySlot>::default();
         let lease = slot.reserve().unwrap();
         fixture.spawn(&lease).unwrap();
