@@ -75,7 +75,8 @@ Source-only formatting/diff checks passed; these are not engine acceptance.
 
 ### Qualified public DATA acquisition
 
-The owner selected the retained public `mihomo-bin 1.19.31-1` package cache,
+Root selected, under owner authorization, the retained public
+`mihomo-bin 1.19.31-1` package cache,
 not the current host's 1.19.32 binary or any private/VM state. Bounded read-only
 tar/zstd parsing (no package scripts or blanket extraction) found 15 members
 and exactly one ordinary root-owned `0755` `usr/bin/mihomo` member. Its
@@ -99,6 +100,22 @@ installation or source-build attestation was performed. Container/package
 metadata is qualified supporting history, not a substitute for the exact
 expanded core-byte pin. DATA acquisition is not constructor/validator/transport
 PASS; the ignored constructor row remains unrun.
+
+### Original fixture refusal preserved
+
+The first focused Rust gate at `57e3de93851b72e56efba66ffa8ee1a53db95160`
+(original session `39165`, exit `101`) compiled successfully, then reported
+three controls passed, five failed and one DATA-only control ignored. All five
+failures reached the existing strict candidate parser's `InvalidShape` before
+preparation: the shared synthetic fixture supplied `startup.enabled=false` but
+omitted required `startup.target` and `startup.mode`. Dependent gates stopped;
+no DATA constructor row or core execution ran.
+
+The narrow test successor supplies the existing complete disabled startup
+shape (`last`, empty profile ID, `rule`) and retains the original incomplete
+shape as a refusal control. Production parsing, eligibility and host paths are
+unchanged. Corrected source gates remain pending; this original failure is not
+replayed or relabelled PASS.
 
 ## Next bounded integration, not enablement
 

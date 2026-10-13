@@ -44,7 +44,8 @@ fn source(generation: usize) -> Value {
     json!({"version":4,"profiles":[
         {"id":URI_ID,"name":"URI","protocol":"vless","uri":VLESS},
         {"id":WG_ID,"name":LABEL,"protocol":profile.facts().flavor.protocol_name(),"wireguard":record}],
-        "subscriptions":[],"activeId":"","lastId":URI_ID,"startup":{"enabled":false}})
+        "subscriptions":[],"activeId":"","lastId":URI_ID,
+        "startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"}})
 }
 
 fn synthetic_elf() -> Vec<u8> {
@@ -294,6 +295,9 @@ fn carrier_debug_and_errors_hide_private_labels_credentials_and_core_bytes() {
 
 #[test]
 fn existing_strict_domain_parser_keeps_v3_and_duplicate_sources_out() {
+    let mut incomplete = source(3);
+    incomplete["startup"] = json!({"enabled":false});
+    assert!(parse_candidate_private_store(&incomplete.to_string()).is_err());
     let mut legacy = source(0);
     legacy["version"] = 3.into();
     assert!(parse_candidate_private_store(&legacy.to_string()).is_err());
