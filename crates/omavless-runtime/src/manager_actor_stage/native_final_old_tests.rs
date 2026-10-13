@@ -32,6 +32,8 @@ struct Fixture {
     live: [File; 2],
     lock: File,
     closure: Vec<u8>,
+    new_output: bool,
+    members: [Vec<u8>; 4],
 }
 struct LocalGate {
     dirs: Vec<(PathBuf, Metadata)>,
@@ -76,6 +78,12 @@ impl NativeGate for LocalGate {
 }
 impl Fixture {
     fn new(case: &str) -> Self {
+        Self::from_members(case, false, MEMBERS)
+    }
+    fn new_committed(case: &str) -> Self {
+        Self::from_members(case, true, MEMBERS)
+    }
+    fn from_members(case: &str, new_output: bool, members: [&[u8]; 4]) -> Self {
         let root = crate::test_temp::directory("final-old").unwrap();
         let config = root.join("c");
         let state = root.join("s");
@@ -91,25 +99,30 @@ impl Fixture {
         let intent = DecisionRecord::intent(
             2,
             Some(DESIRED),
-            &planned_stage_identity(MEMBERS).unwrap(),
+            &planned_stage_identity(members).unwrap(),
             [31; 16],
         )
         .unwrap();
+        let committed = if new_output {
+            case != "wrong-phase"
+        } else {
+            case == "committed"
+        };
         let terminal = intent
-            .terminal(if case == "committed" {
+            .terminal(if committed {
                 TerminalChoice::Commit
             } else {
                 TerminalChoice::Abort
             })
             .unwrap();
-        let receipt = if case == "committed" {
+        let receipt = if committed {
             crate::restore_retirement_candidate::RetirementReceipt::from_retained_committed(
-                &terminal, MEMBERS,
+                &terminal, members,
             )
             .unwrap()
         } else {
             crate::restore_retirement_candidate::RetirementReceipt::from_retained_terminal(
-                &terminal, MEMBERS,
+                &terminal, members,
             )
             .unwrap()
         };
@@ -155,20 +168,32 @@ impl Fixture {
         if case == "dot-config-prefix" {
             drop(write(&config.join(".restore-foreign"), b"foreign"));
         }
+        let offset = if new_output { 2 } else { 0 };
         let live = [
             write(
                 &config.join(LIVE[0].1),
-                if case == "wrong-old" {
+                if case == "wrong-old" || case == "wrong-store" {
                     b"other OLD"
                 } else {
-                    MEMBERS[0]
+                    members[offset]
                 },
             ),
-            write(&config.join(LIVE[1].1), MEMBERS[1]),
+            write(
+                &config.join(LIVE[1].1),
+                if case == "wrong-template" {
+                    b"other template"
+                } else {
+                    members[offset + 1]
+                },
+            ),
         ];
         let mut engine = NativeEngine::reserve();
         engine.recovery = true;
-        engine.recovery_completion = RecoveryCompletionSelection::FinalOld;
+        engine.recovery_completion = if new_output {
+            RecoveryCompletionSelection::FinalNew
+        } else {
+            RecoveryCompletionSelection::FinalOld
+        };
         engine.uid = Some(nix::unistd::getuid().as_raw());
         engine.gid = Some(nix::unistd::getgid().as_raw());
         engine.lower.io.native_admit().unwrap();
@@ -208,6 +233,9 @@ impl Fixture {
                 b"synthetic login".as_slice(),
             ),
         ] {
+            if case == "missing-login" && matches!(slot, Slot::Login) {
+                continue;
+            }
             let path = parent.join(name);
             let file = write(&path, bytes);
             engine.clone_file(slot, &file, false, until).unwrap();
@@ -227,24 +255,29 @@ impl Fixture {
             live,
             lock,
             closure,
+            new_output,
+            members: members.map(<[u8]>::to_vec),
         }
     }
     fn capture(&mut self, case: &str) -> Result<(), FirstError> {
         let new = if case == "wrong-new" {
-            [b"other NEW".as_slice(), MEMBERS[3]]
+            [b"other NEW".as_slice(), self.members[3].as_slice()]
+        } else if case == "wrong-auth-template" {
+            [self.members[2].as_slice(), b"other NEW template".as_slice()]
         } else {
-            [MEMBERS[2], MEMBERS[3]]
+            [self.members[2].as_slice(), self.members[3].as_slice()]
         };
-        let result = self.engine.capture_final_old_data(
-            new,
-            2,
-            if case == "wrong-desired" {
-                b"other desired"
-            } else {
-                DESIRED
-            },
-            Instant::now() + std::time::Duration::from_secs(10),
-        );
+        let desired = if case == "wrong-desired" {
+            b"other desired"
+        } else {
+            DESIRED
+        };
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        let result = if self.new_output {
+            self.engine.capture_final_new_data(new, 2, desired, until)
+        } else {
+            self.engine.capture_final_old_data(new, 2, desired, until)
+        };
         if result.is_err() {
             self.engine.revoke_native();
         }
@@ -260,8 +293,13 @@ impl Fixture {
             }
         };
         let result = (|| {
-            self.engine
-                .qualify_final_old_inner(&mut self.gate, &mut cut, until)?;
+            if self.new_output {
+                self.engine
+                    .qualify_final_new_inner(&mut self.gate, &mut cut, until)?;
+            } else {
+                self.engine
+                    .qualify_final_old_inner(&mut self.gate, &mut cut, until)?;
+            }
             self.engine
                 .check_native_completed_inner(&mut self.gate, until)?;
             self.engine.dispose_completed_inner_cut(
@@ -296,7 +334,10 @@ impl Fixture {
                 fs::metadata(self.config.join(name)).unwrap().ino(),
                 self.live[index].metadata().unwrap().ino()
             );
-            assert_eq!(fs::read(self.config.join(name)).unwrap(), MEMBERS[index]);
+            assert_eq!(
+                fs::read(self.config.join(name)).unwrap(),
+                self.members[index + if self.new_output { 2 } else { 0 }]
+            );
         }
     }
     fn cleanup(self) {
@@ -482,6 +523,210 @@ fn native_final_old_every_origin_gate_failure_retains_and_never_retries() {
         assert!(f.engine.sealed && !f.engine.disposition_ready());
         f.retained();
         assert!(f.finish(None).is_err());
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_final_new_actual_authenticated_output_is_required_and_no_old_grant_exists() {
+    let root = crate::test_temp::directory("final-new-auth").unwrap();
+    let source = root.join("new.ovb");
+    let password = b"synthetic new output passphrase";
+    let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"china-cn-direct","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+    drop(write(
+        &source,
+        &omavless_domain::private_backup::seal(
+            portable,
+            include_bytes!("../../../../templates/china.yaml"),
+            password,
+        )
+        .unwrap(),
+    ));
+    let uid = nix::unistd::getuid().as_raw();
+    assert!(
+        crate::backup_destination_candidate::open_existing(
+            &source,
+            uid,
+            b"wrong synthetic password"
+        )
+        .is_err()
+    );
+    let opened =
+        crate::backup_destination_candidate::open_existing(&source, uid, password).unwrap();
+    let off = opened.restore_store_off().unwrap();
+    let members = [MEMBERS[0], MEMBERS[1], off.as_slice(), opened.template()];
+    let mut f = Fixture::from_members("positive", true, members);
+    f.capture("positive").unwrap();
+    assert!(f.engine.final_new_observation_captured());
+    assert!(!f.engine.completed_origin() && !f.engine.completed);
+    assert!(f.engine.fresh_final_old.is_none() && f.engine.fresh_final_new.is_none());
+    f.finish(None).unwrap();
+    assert!(f.engine.final_new_qualified() && !f.engine.final_old_qualified());
+    assert!(f.engine.fresh_final_old.is_none() && f.engine.disposition_ready());
+    f.retained();
+    let (name, bytes) = f
+        .engine
+        .completed_history_data_inner(
+            &mut f.gate,
+            Instant::now() + std::time::Duration::from_secs(10),
+        )
+        .unwrap();
+    let closure = crate::restore_closure_model::ClosureRecord::decode(&f.closure).unwrap();
+    assert_eq!(
+        closure.receipt().terminal().phase(),
+        DecisionPhase::Committed
+    );
+    let ticket = crate::restore_disposition_ticket_model::Ticket::from_bound_closure(
+        &closure,
+        uid,
+        2,
+        Some(DESIRED),
+    )
+    .unwrap();
+    assert!(
+        crate::restore_disposition_complete_model::CompleteRecord::decode(&bytes)
+            .unwrap()
+            .matches_ticket(&ticket)
+    );
+    assert_eq!(fs::read(f.state.join(name)).unwrap(), bytes);
+    assert!(!crate::pending_private_transaction::pending_at(&f.state));
+    f.cleanup();
+    drop(opened);
+    fs::remove_dir_all(root).unwrap(); // completed private local auth fixture only
+}
+
+#[test]
+fn native_final_new_wrong_phase_pair_archive_login_history_prefixes_refuse_before_qualification() {
+    for case in [
+        "wrong-phase",
+        "torn",
+        "wrong-new",
+        "wrong-auth-template",
+        "wrong-store",
+        "wrong-template",
+        "wrong-desired",
+        "missing-login",
+        "history",
+        "later-history",
+        "ticket",
+        "complete",
+        "receipt",
+        "intent",
+        "terminal",
+        "stage",
+        "unknown-prefix",
+        "dot-state-prefix",
+        "config-prefix",
+        "dot-config-prefix",
+        "next",
+        "successor",
+        "preset",
+        "forward",
+        "rollback",
+    ] {
+        let mut f = Fixture::new_committed(case);
+        assert!(f.capture(case).is_err(), "public NEW refusal {case}");
+        assert_eq!(f.gate.calls, 0);
+        assert!(f.engine.sealed && !f.engine.completed);
+        assert!(f.engine.fresh_final_new.is_none() && f.engine.fresh_final_old.is_none());
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_final_new_every_sync_disposition_cut_retains_exact_current_new_graph() {
+    let mut steps = (0..10)
+        .map(NativeStep::FinalNewSourceSynced)
+        .collect::<Vec<_>>();
+    steps.extend([
+        NativeStep::EndpointSynced,
+        NativeStep::EndpointRetired,
+        NativeStep::DispositionTicket,
+        NativeStep::DispositionComplete,
+        NativeStep::DispositionClosureUnlinked,
+        NativeStep::DispositionTicketUnlinked,
+        NativeStep::HistoryRenamePrepared,
+        NativeStep::HistoryRenamed,
+        NativeStep::HistorySynced,
+        NativeStep::History,
+    ]);
+    for stop in steps {
+        let mut f = Fixture::new_committed("positive");
+        f.capture("positive").unwrap();
+        assert!(f.finish(Some(stop)).is_err(), "public NEW cut {stop:?}");
+        assert!(
+            f.engine.sealed && !f.engine.disposition_ready() && f.engine.fresh_final_old.is_none()
+        );
+        f.retained();
+        assert!(f.finish(None).is_err());
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_final_new_every_original_gate_failure_retains_and_rejects_reuse() {
+    let mut good = Fixture::new_committed("positive");
+    good.capture("positive").unwrap();
+    good.finish(None).unwrap();
+    let calls = good.gate.calls;
+    good.cleanup();
+    for fail in 1..=calls {
+        let mut f = Fixture::new_committed("positive");
+        f.capture("positive").unwrap();
+        f.gate.fail = Some(fail);
+        assert!(f.finish(None).is_err(), "public NEW original gate {fail}");
+        assert!(f.engine.sealed && !f.engine.disposition_ready());
+        f.retained();
+        assert!(f.finish(None).is_err());
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_final_new_rechecks_current_inodes_boundaries_closure_catalogue_and_absent_receipt() {
+    for case in [
+        "closure",
+        "live",
+        "owner",
+        "desired",
+        "login",
+        "foreign",
+        "receipt-fd",
+    ] {
+        let mut f = Fixture::new_committed("positive");
+        f.capture("positive").unwrap();
+        let path = match case {
+            "closure" => Some(f.state.join(crate::restore_closure_model::CLOSURE_MEMBER)),
+            "live" => Some(f.config.join(LIVE[0].1)),
+            "owner" => Some(f.gate.members[0].0.clone()),
+            "desired" => Some(f.gate.members[1].0.clone()),
+            "login" => Some(f.gate.members[2].0.clone()),
+            _ => None,
+        };
+        if let Some(path) = path {
+            let bytes = fs::read(&path).unwrap();
+            fs::rename(&path, path.with_file_name("displaced")).unwrap();
+            drop(write(&path, &bytes));
+        } else if case == "foreign" {
+            drop(write(&f.config.join(".restore-foreign"), b"foreign"));
+        } else {
+            let file = write(&f.state.join("foreign-receipt"), b"foreign");
+            f.engine
+                .clone_file(
+                    Slot::Scratch2,
+                    &file,
+                    false,
+                    Instant::now() + std::time::Duration::from_secs(10),
+                )
+                .unwrap();
+        }
+        assert!(f.finish(None).is_err(), "public NEW substitution {case}");
+        assert!(
+            f.engine.sealed
+                && f.engine.fresh_final_new.is_none()
+                && f.engine.fresh_final_old.is_none()
+        );
+        assert!(f.engine.lower.io.test_retains_original(Slot::Scratch3));
         f.cleanup();
     }
 }

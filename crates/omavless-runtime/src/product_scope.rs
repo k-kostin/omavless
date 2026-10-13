@@ -25,6 +25,7 @@ pub(crate) fn method_disabled(method: &str) -> bool {
                 | "developer.cut_current_first_rename"
                 | "developer.cut_current_terminal"
                 | "developer.abort_current_after_retirement_cut"
+                | "developer.cut_current_committed_retirement"
         )
 }
 
@@ -59,6 +60,7 @@ mod tests {
             "developer.cut_current_first_rename",
             "developer.cut_current_terminal",
             "developer.abort_current_after_retirement_cut",
+            "developer.cut_current_committed_retirement",
         ] {
             assert_eq!(method_disabled(method), backup_only());
         }

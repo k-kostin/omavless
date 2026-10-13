@@ -53,6 +53,7 @@ enum FreshRecoveryMode {
     MixedIntentToOldCompletion,
     CommittedNewToCompletion,
     FinalOldOutput,
+    FinalNewOutput,
 }
 
 #[derive(Clone, Copy)]
@@ -60,6 +61,7 @@ enum RecoveredPairChoice {
     Old,
     CommittedNew,
     FinalOld,
+    FinalNew,
 }
 
 fn release_phase(label: &'static [u8]) {
@@ -1170,6 +1172,12 @@ impl FreshRecovery {
         self.dispose_and_release(RecoveredPairChoice::FinalOld)
             .map(ReleasedOldConfiguration)
     }
+    pub(crate) fn dispose_and_release_final_new(
+        self,
+    ) -> Result<ReleasedNewConfiguration, FirstError> {
+        self.dispose_and_release(RecoveredPairChoice::FinalNew)
+            .map(ReleasedNewConfiguration)
+    }
 
     fn dispose_and_release(
         mut self,
@@ -1261,6 +1269,9 @@ impl FreshRecovery {
         };
         let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
         match choice {
+            RecoveredPairChoice::FinalNew => {
+                engine.check_native_final_new_completed(&mut origin, quiescence, until)?
+            }
             RecoveredPairChoice::FinalOld => {
                 engine.check_native_final_old_completed(&mut origin, quiescence, until)?
             }
@@ -1291,6 +1302,9 @@ impl FreshRecovery {
         }
         release_phase(b"RESTORE_RELEASE_POINTER_PRESERVED\n");
         match choice {
+            RecoveredPairChoice::FinalNew => {
+                engine.dispose_native_final_new_completed(&mut origin, quiescence)?
+            }
             RecoveredPairChoice::FinalOld => {
                 engine.dispose_native_final_old_completed(&mut origin, quiescence)?
             }
@@ -1334,6 +1348,9 @@ impl FreshRecovery {
         };
         let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
         match choice {
+            RecoveredPairChoice::FinalNew => {
+                engine.check_native_final_new_completed(&mut origin, quiescence, until)?
+            }
             RecoveredPairChoice::FinalOld => {
                 engine.check_native_final_old_completed(&mut origin, quiescence, until)?
             }
@@ -1668,6 +1685,28 @@ impl FreshRecovery {
             FreshRecoveryMode::FinalOldOutput,
         )
     }
+    pub(crate) fn recover_final_new_output(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        self.recover_to_completion(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::FinalNewOutput,
+        )
+    }
     #[allow(clippy::too_many_arguments)]
     fn recover_to_completion(
         &mut self,
@@ -1747,6 +1786,7 @@ impl FreshRecovery {
                 | FreshRecoveryMode::CommittedNewToCompletion
                 | FreshRecoveryMode::MixedIntentToOldCompletion
                 | FreshRecoveryMode::FinalOldOutput
+                | FreshRecoveryMode::FinalNewOutput
         );
         // Fixed development-driver phases only: no paths, archive data, errors
         // or credentials. Diagnostics must never alter recovery success.
@@ -1853,6 +1893,7 @@ impl FreshRecovery {
                 | FreshRecoveryMode::CommittedNewToCompletion
                 | FreshRecoveryMode::MixedIntentToOldCompletion
                 | FreshRecoveryMode::FinalOldOutput
+                | FreshRecoveryMode::FinalNewOutput
         ) {
             phase(b"Restore recovery: stopped service\n");
             self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
@@ -1863,6 +1904,9 @@ impl FreshRecovery {
             let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
             phase(b"Restore recovery: engine\n");
             match mode {
+                FreshRecoveryMode::FinalNewOutput => {
+                    engine.qualify_native_final_new(&mut origin, backup, quiescence)?
+                }
                 FreshRecoveryMode::FinalOldOutput => {
                     engine.qualify_native_final_old(&mut origin, backup, quiescence)?
                 }

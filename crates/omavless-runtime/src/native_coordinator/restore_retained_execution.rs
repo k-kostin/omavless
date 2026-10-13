@@ -17,6 +17,7 @@ enum NativeMode {
     PauseIntent,
     CutFirstRename,
     CutTerminal,
+    CutCommittedRetirement,
 }
 
 pub(crate) struct HeldExecution {
@@ -80,6 +81,20 @@ pub(crate) struct HeldExecutionSlot {
     reservation: Option<Arc<Mutex<HeldExecution>>>,
 }
 impl HeldExecutionSlot {
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_original_identity(&self) -> Option<usize> {
+        self.original
+            .as_ref()
+            .map(|original| Arc::as_ptr(original) as usize)
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_cut_only_unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original
+                .lock()
+                .is_ok_and(|held| held.engine.cut_only_unavailable())
+        })
+    }
     #[cfg(test)]
     pub(crate) fn occupied(&self) -> bool {
         self.original.is_some()
@@ -118,6 +133,84 @@ impl Drop for HeldExecutionSlot {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_unreached_committed_retirement_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |_| Ok(()),
+            NativeMode::CutCommittedRetirement,
+        )
+        .map(|_| ())
+    }
+    pub(crate) fn cut_current_committed_retirement(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        // Not submitted: never seal/block a previous paused, failed or ordinary
+        // holder when this new cut cannot acquire its original vacant slot.
+        if self.held_restore_execution.original.is_some() {
+            return Err(FirstError::StillFenced);
+        }
+        let mut reached = false;
+        let result = self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |step| {
+                if step == crate::manager_actor_service::NativeStep::RetirementComplete {
+                    reached = true;
+                    Err(FirstError::StillFenced)
+                } else {
+                    Ok(())
+                }
+            },
+            NativeMode::CutCommittedRetirement,
+        );
+        // Entry was vacant; only THIS attempt's newly installed graph is ours
+        // to seal. Revision/auth refusal before installation has no such grant.
+        if let Some(original) = &self.held_restore_execution.original {
+            if let Ok(mut held) = original.lock() {
+                held.refuse_ordinary();
+            }
+            self.transaction.block();
+        }
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.ordinary_lock.get().is_none()
+                })
+            });
+        if reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            match result {
+                Err(error) => Err(error),
+                Ok(_) => Err(FirstError::StillFenced),
+            }
+        }
+    }
     pub(crate) fn cut_current_first_rename(
         &mut self,
         source: &Path,
@@ -295,7 +388,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<FirstOutcome, FirstError> {
         let complete = mode == NativeMode::CompleteCommitted;
         let pause = mode == NativeMode::PauseIntent;
-        let loss_cut = matches!(mode, NativeMode::CutFirstRename | NativeMode::CutTerminal);
+        let loss_cut = matches!(
+            mode,
+            NativeMode::CutFirstRename
+                | NativeMode::CutTerminal
+                | NativeMode::CutCommittedRetirement
+        );
         let owned_admission = complete || pause || loss_cut;
         if self.retained_restore_busy() {
             return Err(FirstError::StillFenced);
@@ -387,6 +485,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 held.pause_revision = revision.take();
                 held.pause_instance = pause_instance;
                 return Ok(FirstOutcome::IntentPaused);
+            }
+            if mode == NativeMode::CutCommittedRetirement {
+                // Dedicated engine entry latches typed CutOnly BEFORE Stage.
+                // It has no completed/disposition/ordinary handoff return.
+                engine.execute_native_committed_retirement_cut(&mut origin, prepared, &mut cut)?;
+                return Err(FirstError::StillFenced);
             }
             engine
                 .execute_native(&mut origin, prepared, &mut cut)
