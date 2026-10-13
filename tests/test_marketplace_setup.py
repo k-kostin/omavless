@@ -192,6 +192,79 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
         self.assertEqual((self.directory / 'trace').read_text().splitlines(),
                          ['first-enroll', 'start-first', 'dns-pair prepare-template', 'dns-pair select'])
 
+    def test_dns_choices_are_separate_readable_lines_in_both_locales(self):
+        for locale, title, first, existing in [
+            ('en', 'Choose how to finish DNS setup:', 'FIRST — first-time setup',
+             'START — you already completed DNS registration'),
+            ('ru', 'Выберите, как завершить настройку DNS:', 'FIRST — первая настройка',
+             'START — регистрация DNS на этом компьютере уже была завершена'),
+        ]:
+            with self.subTest(locale=locale):
+                code = self.pending_dns_fixture() + f'\nsetup_main resume-dns {locale}\n'
+                status, output = self.run_terminal(code, '\n')
+                self.assertEqual(status, 1)
+                self.assertIn(title, output)
+                lines = output.splitlines()
+                self.assertTrue(any(first in line and 'START' not in line for line in lines))
+                self.assertTrue(any(existing in line and 'FIRST' not in line for line in lines))
+                self.assertFalse((self.directory / 'trace').exists())
+
+    def test_shell_reload_needs_exact_consent_and_fresh_stopped_state(self):
+        for answer, state, stopped, effects in [
+            ('\n', 'needs_dns_setup', True, []),
+            ('RELOAD; echo unsafe\n', 'needs_dns_setup', True, []),
+            ('RELOAD\n', 'ready', True, []),
+            ('RELOAD\n', 'needs_dns_setup', False, []),
+            ('RELOAD\n', 'needs_dns_setup', True, ['restart shell']),
+        ]:
+            with self.subTest(answer=answer, state=state, stopped=stopped):
+                trace = self.directory / 'reload-trace'
+                if trace.exists():
+                    trace.unlink()
+                code = f'''
+setup_status() {{ echo {state}; }}
+user_runtime_stopped() {{ return {0 if stopped else 1}; }}
+omarchy() {{ echo "$*" >> "$TEST_DIR/reload-trace"; }}
+offer_shell_reload
+'''
+                status, output = self.run_terminal(code, answer)
+                self.assertEqual(status, 0, output)
+                self.assertEqual(trace.read_text().splitlines() if trace.exists() else [], effects)
+                self.assertIn('other shell plugins also reload', output)
+
+    def test_shell_reload_failure_does_not_turn_package_success_into_retry(self):
+        code = '''
+setup_status() { echo needs_dns_setup; }
+user_runtime_stopped() { return 0; }
+omarchy() { echo "$*" >> "$TEST_DIR/reload-trace"; return 1; }
+offer_shell_reload
+'''
+        status, output = self.run_terminal(code, 'RELOAD\n')
+        self.assertEqual(status, 0, output)
+        self.assertIn('Packages remain updated; do not repeat UPGRADE.', output)
+        self.assertEqual((self.directory / 'reload-trace').read_text().splitlines(), ['restart shell'])
+
+    def test_direct_entry_offers_reload_only_after_successful_upgrade(self):
+        entry = SCRIPT.read_text().split('if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then\n', 1)[1]
+        entry = entry.rsplit('\nfi', 1)[0]
+        for action, result, expected in [
+            ('upgrade', 0, ['offered']), ('upgrade', 1, []),
+            ('install', 0, []), ('resume-dns', 0, []), ('start-broker', 0, []),
+        ]:
+            with self.subTest(action=action, result=result):
+                trace = self.directory / 'entry-trace'
+                if trace.exists():
+                    trace.unlink()
+                code = f'''
+setup_main() {{ return {result}; }}
+offer_shell_reload() {{ echo offered >> "$TEST_DIR/entry-trace"; }}
+say() {{ :; }}
+set -- {action} en
+''' + entry
+                status, output = self.run_terminal(code, '\n')
+                self.assertEqual(status, result, output)
+                self.assertEqual(trace.read_text().splitlines() if trace.exists() else [], expected)
+
     def test_pending_dns_failed_existing_metadata_never_infers_first_enrollment(self):
         code = self.pending_dns_fixture() + '''
 existing_enrollment_metadata() { echo metadata-refused >> "$TEST_DIR/trace"; return 1; }

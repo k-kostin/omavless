@@ -370,8 +370,25 @@ start_existing_broker() {
 resume_pending_dns() {
   pending_dns_boundary || return 1
   local choice
-  say 'DNS setup is incomplete. Type START to use an existing enrollment without changing it, or FIRST for first enrollment. Enter cancels. No VPN will connect; existing profiles are preserved.' \
-    'Настройка DNS не завершена. Введите START для запуска с существующей регистрацией без её изменения или FIRST для первой регистрации. Enter отменяет. VPN не подключится; профили сохранятся.'
+  say 'Choose how to finish DNS setup:' 'Выберите, как завершить настройку DNS:'
+  say '' ''
+  say '  FIRST — first-time setup of managed DNS on this computer.' \
+    '  FIRST — первая настройка управляемого DNS на этом компьютере.'
+  say '          Choose this after installing the DNS component for the first time.' \
+    '          Выберите после первой установки DNS-компонента.'
+  say '          The next prompt asks for separate DNS consent and may ask for sudo.' \
+    '          Далее нужно отдельное подтверждение DNS; может потребоваться sudo.'
+  say '' ''
+  say '  START — you already completed DNS registration on this computer.' \
+    '  START — регистрация DNS на этом компьютере уже была завершена.'
+  say '          Use the existing registration; do not create a new one.' \
+    '          Использовать существующую регистрацию, не создавать новую.'
+  say '' ''
+  say 'Press Enter to cancel. No VPN will connect; saved profiles are kept.' \
+    'Enter — отмена. VPN не подключится; сохранённые профили не изменятся.'
+  say 'If an earlier attempt had an unknown result, inspect it before choosing either option.' \
+    'Если результат прошлой попытки неизвестен, сначала проверьте его, не повторяйте настройку.'
+  say 'Type FIRST or START, then press Enter:' 'Введите FIRST или START и нажмите Enter:'
   IFS= read -r choice || return 1
   [[ "$choice" == START || "$choice" == FIRST ]] || return 1
   pending_dns_boundary || return 1
@@ -387,6 +404,42 @@ resume_pending_dns() {
     setup_step dns-preconditions enroll_and_select_pair || return 1
   fi
   setup_step application-preconditions prepare_application
+}
+
+# Optional frontend refresh after a completed package-only update. Never part
+# of native updater authority, automatic installation or failure recovery.
+offer_shell_reload() {
+  [[ -t 0 && -t 1 ]] || return 0
+  say '' ''
+  say 'The packages are updated. The running shell may still show the old plugin.' \
+    'Пакеты обновлены. Работающая оболочка может ещё показывать старый плагин.'
+  say 'Optional: reload the entire Omarchy shell so it reads the new plugin.' \
+    'Можно перезагрузить всю оболочку Omarchy, чтобы загрузить новый плагин.'
+  say 'The bar and panels will briefly disappear; other shell plugins also reload.' \
+    'Бар и панели ненадолго исчезнут; другие плагины оболочки тоже перезагрузятся.'
+  say 'First finish all setup and OS authorization prompts. This is not VPN recovery.' \
+    'Сначала завершите все запросы установки и авторизации ОС. Это не восстановление VPN.'
+  say 'Type RELOAD to reload now, or press Enter to leave the shell unchanged:' \
+    'Введите RELOAD для перезагрузки сейчас или Enter, чтобы ничего не менять:'
+  local choice
+  IFS= read -r -n 33 choice || return 0
+  [[ "$choice" == RELOAD ]] || return 0
+  # Re-earn the current stopped setup facts after the user's decision. Do not
+  # restart during a newly started runtime, completed DNS setup or uncertainty.
+  if [[ $(setup_status) != needs_dns_setup ]] || ! user_runtime_stopped; then
+    say 'Reload skipped: setup state changed. Check the plugin; do not repeat UPGRADE.' \
+      'Перезагрузка пропущена: состояние изменилось. Проверьте плагин; не повторяйте UPGRADE.'
+    return 0
+  fi
+  if omarchy restart shell; then
+    say 'Shell reloaded. Close this terminal, reopen OmaVLESS and Continue DNS setup.' \
+      'Оболочка перезагружена. Закройте терминал, откройте OmaVLESS и продолжите настройку DNS.'
+  else
+    say 'Shell reload did not complete. Packages remain updated; do not repeat UPGRADE.' \
+      'Перезагрузка оболочки не завершилась. Пакеты обновлены; не повторяйте UPGRADE.'
+    say 'After resolving the shell problem, run: omarchy restart shell' \
+      'После устранения проблемы оболочки выполните: omarchy restart shell'
+  fi
 }
 
 install_package() {
@@ -593,8 +646,8 @@ setup_main() {
     say 'Update the public 0.8.2 application and add managed DNS. Profiles and the stopped application remain unchanged. The native updater will check the boundary and ask for UPGRADE; DNS setup is a separate next step.' \
       'Обновить публичное приложение 0.8.2 и добавить управляемый DNS. Профили и остановленное приложение сохраняются. Приложение проверит условия и запросит UPGRADE; настройка DNS выполняется отдельно.'
   elif [[ "$1" == resume-dns ]]; then
-    say 'Continue the stopped, unselected DNS setup. First enrollment and use of an existing enrollment are separate choices; unknown results must not be retried.' \
-      'Продолжить настройку остановленного DNS без выбранной пары. Первая и существующая регистрации — отдельные варианты; неизвестный результат нельзя повторять.'
+    say 'Finish DNS setup. The application is stopped; no VPN will connect.' \
+      'Завершение настройки DNS. Приложение остановлено; VPN не подключится.'
   elif [[ "$1" == start-broker ]]; then
     say 'Start the existing DNS broker after a clean stop or package update. Enrollment, profiles and startup stay unchanged; no VPN connection is started.' \
         'Запустить существующий DNS-брокер после чистой остановки или обновления пакета. Регистрация, профили и автозапуск не меняются; VPN не подключается.'
@@ -681,6 +734,9 @@ setup_main() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   result=0
   setup_main "$@" || result=$?
+  if [[ "${1:-}" == upgrade && "$result" == 0 && -t 0 ]]; then
+    offer_shell_reload
+  fi
   if [[ ( "${1:-}" == install || "${1:-}" == upgrade || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment || "${1:-}" == resume-dns ) && -t 0 ]]; then
     say 'Press Enter to close.' 'Нажмите Enter, чтобы закрыть.'
     IFS= read -r _ || true

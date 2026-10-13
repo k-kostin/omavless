@@ -561,6 +561,15 @@ Unsafe, pending or unverified state is not a reason to repeat Start or reset dat
 After updating the frontend, old cached controls can require the deliberate
 shell reload described above; check what is actually loaded, not just file hashes.
 
+After a successful guided 0.8.2 package update, the terminal offers an optional
+shell refresh: type `RELOAD`, or press Enter to skip. Finish all setup/OS
+authorization prompts first. This restarts the whole Omarchy shell, briefly
+hiding its bar/panels and reloading other shell plugins. It is never automatic,
+is not VPN recovery and is skipped if the stopped DNS-setup state has changed.
+A failed shell refresh does not undo the package update or mean you should
+repeat `UPGRADE`; resolve the shell problem and use the explicit reload command
+above. Reopen OmaVLESS afterwards to continue the separate DNS step.
+
 For the currently tested update route, set startup Off and disconnect first.
 After verifying clean state and settled authorization, stop the native service,
 install the reviewed replacement archive with ordinary `pacman -U`, reload user
