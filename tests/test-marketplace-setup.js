@@ -130,7 +130,7 @@ test('installed programs disappear from the required-components card; readiness 
   assert(card.includes('visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"'));
   assert(card.includes('RowLayout {\n        Layout.fillWidth: true\n        spacing: Style.space(8)\n        visible: card.facts.state'));
   assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));
-  assert(card.includes('card.facts.coreInstalled === true && !card.busy'));
+  assert(card.includes('card.facts.coreInstalled === true && !card.effectBusy'));
   assert(panel.includes('panelOpen: root.opened'));
   assert(panel.includes('id: nativeRequiredComponents'));
   assert(panel.indexOf('id: nativeRequiredComponents')>panel.indexOf('} // nativeProfilesFrame'));
@@ -164,8 +164,18 @@ test('setup effect handler blocks unresolved native work across both card locati
   }
   assert(panel.includes('nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null'));
   assert(panel.includes('|| vless.nativeOutcomeUnknown || vless.nativeQuitting'));
-  assert(panel.includes('busy: setupPage.busy || setupPage.nativeEffectBlocked'));
-  assert(page.includes('busy: setup.busy || setup.nativeEffectBlocked'));
+  assert(panel.includes('busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked'));
+  assert(page.includes('busy: setup.busy; effectBlocked: setup.nativeEffectBlocked'));
+  for (const busy of [false,true]) for (const effectBlocked of [false,true]) {
+    const context={card:{busy,effectBlocked}};
+    context.card.effectBusy=busy||effectBlocked;
+    const check=card.match(/id: checkButton;[^\n]*enabled: ([^;]+);/)[1];
+    assert.equal(require('node:vm').runInNewContext(check,context),!busy);
+    const install=card.slice(card.indexOf('id: installButton'));
+    const enabled=install.match(/enabled: ([^\n]+)/)[1];
+    context.visible=true;context.card.terminalOpened=false;
+    assert.equal(require('node:vm').runInNewContext(enabled,context),!busy&&!effectBlocked);
+  }
 });
 test('partial DNS entry is explicit and never substitutes for generic broker recovery', () => {
   for (const present of [false,true]) {

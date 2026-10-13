@@ -2675,7 +2675,7 @@ Panel {
             id: nativeRequiredComponents
             Layout.fillWidth: true
             visible: root.page === "main" && setupPage.needsAttention
-            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy || setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
+            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
             onInstallRequested: function(action) { setupPage.install(action) }
             onCheckRequested: setupPage.check()
             onTerminalClosed: setupPage.acknowledgeTerminalClosed()

@@ -99,7 +99,7 @@ Item {
     RequiredComponents {
       id: requirements
       Layout.fillWidth: true
-      locale: setup.locale; facts: setup.facts; busy: setup.busy || setup.nativeEffectBlocked; terminalOpened: setup.terminalOpened
+      locale: setup.locale; facts: setup.facts; busy: setup.busy; effectBlocked: setup.nativeEffectBlocked; terminalOpened: setup.terminalOpened
       onInstallRequested: function(action) { setup.install(action) }
       onCheckRequested: setup.check()
       onTerminalClosed: setup.acknowledgeTerminalClosed()

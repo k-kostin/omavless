@@ -12,6 +12,8 @@ ColumnLayout {
   property string locale: "en"
   property var facts: ({state:"checking", coreInstalled:null})
   property bool busy: false
+  property bool effectBlocked: false
+  readonly property bool effectBusy: busy || effectBlocked
   property bool terminalOpened: false
   readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
@@ -44,7 +46,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: card.tr(card.coreMissing ? "install_all" : "install_app")
         visible: card.appMissing && card.action === "install"
-        enabled: visible && !card.busy && !card.terminalOpened
+        enabled: visible && !card.effectBusy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45
         bordered: true; focusable: true
         onClicked: card.installRequested(card.action)
@@ -82,7 +84,7 @@ ColumnLayout {
           id: prepareButton
           Layout.fillWidth: true
           text: card.tr(card.facts.state === "needs_dns_setup" ? "resume_dns" : card.facts.state === "needs_runtime_start" ? "start_app" : card.facts.state === "needs_selection" ? "select_pair" : card.facts.state === "needs_broker_stopped" ? "start_broker" : "prepare")
-          enabled: parent.visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
+          enabled: parent.visible && card.facts.coreInstalled === true && !card.effectBusy && !card.terminalOpened
           opacity: enabled ? 1 : 0.45
           bordered: true; focusable: true
           onClicked: card.installRequested(card.action)
@@ -92,7 +94,7 @@ ColumnLayout {
           Layout.fillWidth: true
           text: card.tr("restore_enrollment")
           visible: card.facts.state === "needs_broker_stopped"
-          enabled: visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
+          enabled: visible && card.facts.coreInstalled === true && !card.effectBusy && !card.terminalOpened
           opacity: enabled ? 1 : 0.45
           bordered: true; focusable: true
           onClicked: card.installRequested("restore-enrollment")
