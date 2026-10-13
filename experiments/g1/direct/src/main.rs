@@ -368,6 +368,7 @@ impl Trial {
                                 theme_source::Prepared::fallback(theme_source::Status::Unavailable),
                                 cx,
                             );
+                            cx.notify(); // Manual transition can be a palette no-op.
                         }
                     });
                     break;
@@ -399,6 +400,7 @@ impl Trial {
                                     ),
                                     cx,
                                 );
+                                cx.notify(); // Manual transition can be a palette no-op.
                             }
                         }
                     }

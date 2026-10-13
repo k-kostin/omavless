@@ -154,6 +154,16 @@ assert.equal(pollView.themeUpdates.current.status, "unavailable");
 assert.strictEqual(pollView.themeUpdates.current.palette, DEFAULT_PALETTE);
 assert.equal(requests, 3); // Failed reply stops; no silent automatic retries.
 assert.equal(sleeps.length, 0);
+// Preseed unavailable/default: palette/status delivery itself does NOT notify.
+// The accepted failed read must still invalidate the visible polling label.
+followTheme(pollView, startContext);
+const notifiedBeforeFailure = notices;
+replies.shift()({ sequence: 4, status: "missing", palette: prepareTheme(LIGHT).palette });
+await tick(); await Promise.all(tasks);
+assert.equal(pollView.themeFollow.following, false);
+assert.equal(pollView.themeUpdates.current.status, "unavailable");
+assert.equal(notices, notifiedBeforeFailure + 1);
+assert.equal(requests, 4);
 assert.equal(pollView.query, "north");
 assert.equal(pollView.selected, "north");
 assert.equal(pollView.highlighted, "south");

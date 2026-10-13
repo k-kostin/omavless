@@ -42,6 +42,7 @@ export function followTheme(view, cx) {
           if (view.themeFollow.failed(generation)) {
             view.applyThemeSample(view.themeUpdates.sequence + 1,
               { status: "unavailable", palette: DEFAULT_PALETTE }, context);
+            context.notify(); // Mode changed even if colors/status were retained.
           }
         } else if (view.themeFollow.complete(generation, sample.sequence)) {
           // Producer and UI clocks are separate: static/startup updates cannot
