@@ -117,6 +117,110 @@ bounded predecessor qualification and pre-replacement compatibility checks,
 single-writer admission, partial-result handling, and installed upgrade evidence.
 This document grants none of the effect authority those implementations need.
 
+### Minimal native upgrade-readiness boundary (design only)
+
+Propose a fixed zero-argument semantic `app upgrade-readiness` command in the
+qualified candidate, backed by one native inspector. No raw JSON method,
+caller-supplied path/UID/unit/command or daemon snapshot is required. The old
+0.8.2 binary and current public 0.9.8 do **not** implement this proposed command;
+do not invoke it on the predecessor or assume its availability from destination
+version. The reviewed delivery must supply the inspector before advertising an
+executable updater. Source design is not permission to download/run an arbitrary
+helper or treat a staged candidate as installed package ownership.
+
+The smallest proposed internal API has two distinct outputs:
+
+```rust
+// Proposed signatures, not existing implementations.
+pub fn inspect_upgrade_readiness() -> UpgradeReadiness;
+fn inspect_existing_scope(exclusion: &ExistingUpgradeExclusion)
+    -> Result<UpgradeSnapshot, UpgradeBlocker>;
+```
+
+`UpgradeSnapshot` keeps private captured inputs and original file identities
+inside Rust; no Debug/Clone/Serialize or caller-constructed authority.
+`ExistingUpgradeExclusion` borrows only actual validated existing locks for this
+invocation. The CLI emits a bounded fixed projection, for example:
+
+```json
+{"schemaVersion":1,"scope":"stopped_native_upgrade_data","status":"compatible","reason":"none"}
+```
+
+Other fixed reasons include `runtime_active`, `operation_busy`,
+`owner_exclusion_unavailable`, `ownership_unverified`, `desired_unavailable`,
+`desired_connected`, `startup_requires_off`, `private_state_incompatible`,
+`template_requires_review`, `pending_recovery` and `state_changed`.
+`compatible` means a coherent compatible stopped-owner snapshot was observed
+while its local exclusions were held, **not** permission to run pacman, proof
+of root broker emptiness, readiness to connect or persistent exclusion after
+the command returns. Unknown and unsupported facts remain a refusal, not Off.
+
+Reuse the read-existing part of `runtime_relaunch::Installed::admit`, not its
+whole Start admission:
+
+1. Bind real/effective non-root UID, canonical same-user HOME/state/runtime
+   roots and the supported predecessor's installed identity. Reject test-only
+   `OMAVLESS_HOME` and inconsistent manager roots; allow no roots in argv.
+   Candidate qualification and predecessor qualification are distinct: do not
+   require the staged candidate's inode to equal `/usr/bin/omavless`.
+2. Inspect the fixed runtime and login units' actual loaded state, jobs, PIDs,
+   fragment/drop-ins and enablement against the selected predecessor; no
+   `daemon-reload`, enable/disable, login preparation or service start. Acquire
+   the existing daemon owner lock with read-only no-follow/nonblocking open and
+   flock, and `MigrationLock::acquire_existing` in a consistent bounded order.
+   Recheck pinned directory/name/inode/UID/mode/link identities. A busy lease
+   refuses immediately. Missing locks/runtime directories have a separate
+   exclusion-unavailable outcome; never create them or start the old runtime
+   to make this diagnostic pass. The updater's cold-absence admission is a
+   separate implementation decision, not inferred from this command.
+3. Read existing ownership marker and frontend selector coherently; require
+   committed Rust with their matching generation. Refuse pending private
+   transactions, ambiguous transitions and unknown existing entries. Never
+   consume a login receipt, recover a journal or advance owner generation.
+4. Capture bounded private store, Desired and routing-template inputs under
+   the same exclusions using validated no-follow descriptors and before/after
+   identity checks. Strictly require an existing valid Desired file and
+   `connected = false`; the generic reader's missing-file default is not an
+   upgrade proof. Parse startup preference and require the declared Off
+   condition without changing it. Use canonical store/template parsing and
+   pure supported-template classification, not shell profile JSON, generated
+   configuration output, core execution or network validation.
+5. Recheck host state, exclusions, marker/selector and captured named-file
+   identities/bytes before producing the projection. A change refuses. Drop
+   the diagnostic leases normally, retaining no serialized ticket or FD for
+   another process to adopt. Cooperative same-UID exclusion is not protection
+   against arbitrary hostile same-UID replacement/restoration.
+
+Existing wrappers which must **not** be called as this read-only boundary:
+
+- `cutover-preflight`: correctly refuses a Rust marker as not legacy; not an
+  upgrade precondition and not a reason to activate again.
+- `runtime_relaunch::can_start` wholesale: validates current installed self/unit
+  integration and Start/login receipts, not a candidate reading an old package.
+- `current_store_compatibility`: calls `MigrationLock::acquire`, which may create
+  or repair a lock. Reuse its strict parser/check logic with an existing lease.
+- `OwnerLock::acquire`, `read_desired`, `read_marker`: may create directories,
+  files or repair permissions; use read-existing variants instead.
+- Startup reconciliation/validation: may prepare state, execute core validation
+  or stage configuration. No such effects belong in this inspector.
+
+Before any future update mutation, the trusted coordinator must independently
+re-earn and retain its original local exclusions through the admitted phases;
+the CLI's successful exit/JSON is advisory DATA, never a lock handoff. Admission
+of all-user package replacement and privileged broker state stays with the
+existing package/broker guards. This narrow inspector neither implements that
+coordinator nor makes arbitrary package spawning part of the runtime IPC.
+
+The executable test plan is bounded: genuine committed-Rust 0.8.2 fixtures and
+stopped units; held/busy/absent/replaced locks; missing versus disconnected
+Desired; configured startup On/unconfigured; duplicate/oversized/unsafe store
+and template; pending recovery; marker/selector mismatch; races at capture and
+final recheck; deterministic fixed public output with synthetic secrets absent.
+Use another process to demonstrate exclusion while the inspector holds the
+original locks, then prove its report cannot exclude a later start after exit.
+Assert zero package/core/service mutation calls and unchanged private bytes,
+metadata and directory membership. These tests are proposed, **not run**.
+
 ## 0.9.9 removal entry from every state
 
 Provide **Remove OmaVLESS…** on setup, postponed, normal, missing-component,
