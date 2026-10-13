@@ -7,6 +7,40 @@ use super::*;
 mod tests;
 
 impl NativeEngine {
+    pub(super) fn capture_fresh_output_originals(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.uid = Some(origin.uid());
+        self.gid = Some(nix::unistd::getgid().as_raw());
+        self.lower
+            .io
+            .native_admit()
+            .map_err(|_| FirstError::Admission)?;
+        for (index, slot) in [Slot::Config, Slot::State, Slot::Run]
+            .into_iter()
+            .enumerate()
+        {
+            self.clone_file(slot, origin.directory(index)?, true, until)
+                .map_err(|_| FirstError::Admission)?;
+        }
+        self.capture_recovery_singleton(until)?;
+        origin.check_old_recovery_lease()?;
+        for (index, slot) in [Slot::Owner, Slot::Desired, Slot::Login]
+            .into_iter()
+            .enumerate()
+        {
+            let file = origin.member(index)?.ok_or(FirstError::Admission)?;
+            self.clone_file(slot, file, false, until)
+                .map_err(|_| FirstError::Admission)?;
+        }
+        for (index, (slot, _)) in LIVE.into_iter().enumerate() {
+            self.clone_file(slot, origin.live(index)?, false, until)
+                .map_err(|_| FirstError::Admission)?;
+        }
+        Ok(())
+    }
     pub(super) fn final_old_observation_captured(&self) -> bool {
         self.final_output_observation_captured(FinalOutputChoice::OldAborted)
     }
@@ -416,35 +450,7 @@ impl NativeEngine {
         self.recovery_completion = choice.selection();
         let until = Instant::now() + std::time::Duration::from_secs(45);
         let result = (|| {
-            self.uid = Some(origin.uid());
-            self.gid = Some(nix::unistd::getgid().as_raw());
-            self.lower
-                .io
-                .native_admit()
-                .map_err(|_| FirstError::Admission)?;
-            for (index, slot) in [Slot::Config, Slot::State, Slot::Run]
-                .into_iter()
-                .enumerate()
-            {
-                self.clone_file(slot, origin.directory(index)?, true, until)
-                    .map_err(|_| FirstError::Admission)?;
-            }
-            self.capture_recovery_singleton(until)?;
-            origin.check_old_recovery_lease()?;
-            for (index, slot) in [Slot::Owner, Slot::Desired, Slot::Login]
-                .into_iter()
-                .enumerate()
-            {
-                // This initial closure-only route requires the packaged Login
-                // boundary, not fabricated receipt/optional-absence admission.
-                let file = origin.member(index)?.ok_or(FirstError::Admission)?;
-                self.clone_file(slot, file, false, until)
-                    .map_err(|_| FirstError::Admission)?;
-            }
-            for (index, (slot, _)) in LIVE.into_iter().enumerate() {
-                self.clone_file(slot, origin.live(index)?, false, until)
-                    .map_err(|_| FirstError::Admission)?;
-            }
+            self.capture_fresh_output_originals(origin, until)?;
             let off = backup
                 .restore_store_off()
                 .map_err(|_| FirstError::Prepare)?;

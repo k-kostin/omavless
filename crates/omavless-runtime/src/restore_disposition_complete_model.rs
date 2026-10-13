@@ -49,6 +49,10 @@ impl CompleteRecord {
     pub(crate) fn matches_ticket(&self, ticket: &Ticket) -> bool {
         self.ticket.encode() == ticket.encode()
     }
+    /// Canonical nested comparison DATA only; never admission/publication proof.
+    pub(crate) fn ticket_data(&self) -> &Ticket {
+        &self.ticket
+    }
 }
 
 pub(crate) fn pending_at(directory: &std::path::Path) -> bool {

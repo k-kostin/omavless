@@ -597,3 +597,74 @@ default CLI harness initially guessed the wrong fixed error category; its
 original failure is preserved and corrected exact-error/read-block controls
 passed. Test ELFs remained unchanged throughout original/self-reexec runs.
 No Source result grants packet, timed VM, product or whole Restore acceptance.
+
+### Closed Complete-present Committed NEW prefixes (SOURCE preparation)
+
+The isolated successor starts at
+`a467f1921b6cefbc245fd5ce9cf7c6d695a0af81`. Fixed consumer
+`restore recover-complete-new --confirm-disposition` admits only a captured-once
+closed presence enum: closure+ticket+Complete, ticket+Complete with closure
+absent, or Complete-only with both absent. Complete-absent/history-renamed,
+unordered closure+Complete without ticket, OLD, active/torn/unsafe/foreign and
+exhausted-history shapes remain unsupported. No resampling after error occurs.
+
+Complete's canonical nested ticket/closure are immutable comparison DATA, not
+publication/durability or former authority. Before fixed guard Stop, current NEW
+must match authenticated portable NEW and the Committed nested output; nested
+ticket UID/generation/Desired, current owner, required Login and all boundaries
+must match. Every present record is pinned at its actual Scratch1/0/3 and exactly
+matches the nested bytes. Absent closure/ticket remain genuinely never-acquired:
+metadata/FD/digest None, unlink false and repeated named absence. Full catalogue,
+replacement/pending/competing-prefix rules and zero-to-seven immutable past
+history/free target admission stay strict.
+
+Distinct observed-Complete roles permit only those byte/named/pending checks,
+never completed/disposition/owned flags. SAME concrete guard and 12/11/10 fresh
+present-source/parent syncs plus final gates earn private FreshNewComplete.
+Its typed completion checker understands only the captured shape; no global
+optional-closure or receipt exemption is added. Consuming disposition starts
+before its first effect, verifies SAME existing Complete and NEVER creates or
+recreates either ticket or Complete, nor unlinks a never-acquired role. Present
+originals use the existing native owned unlink; SAME Scratch1 is renamed with
+RENAME_NOREPLACE to the pre-reserved history target. The captured baseline
+Complete catalogue index is prevalidated; immediately after positive rename,
+its removal and new history role are recorded nonfallibly before callbacks,
+deadlines or postchecks. SAME FD/digest survive, with only verified own-rename
+metadata change. Old-name absence, history binding, parent sync, past history
+and final current pair/pointer checks precede typed NEW release/ordinary Off.
+
+The separate genuine producer is
+`developer cut-current-committed-complete --confirm-private-committed-complete-cut`
+/ `developer.cut_current_committed_complete`. CompletedCutOnly is latched before
+Stage. Only actual original retirement/final gates construct its non-Clone
+engine/session-borrowing capability. Its only consuming continuation publishes
+ticket and Complete, then seals—even a no-op callback has no unlink/history/
+completion/ordinary branch. Ticket's prior capability and OwnedCut role are
+not broadened. Flags-only Drop and outer THIS-admitted-holder unwind/blocking,
+prior Pause/pre-install no-touch and SAME owner/quit reply custody remain.
+Only verified all-three post-Complete CUT DATA may emit
+`t4_current_committed_complete_cut_reached_still_fenced`. Broken/lost reply is
+UNKNOWN. Product/default/direct denial precedes input/acquisition.
+
+Pure file/control preparation covers three shapes, all prior prefixes, actual
+archive authentication, exact/unsafe/crossed records, absent-role forgeries,
+each source/gate/unlink/rename/sync cut and target collision, SAME observed inode,
+real producer/no-op/partial Complete error/unwind/prior-holder/refusal and reply
+loss. Initial originals exited 0: T4 non-test check, all-target no-run compilation,
+the nine new Complete controls, shared native module (37), retained execution
+module (38), closed developer/consumer/self/wire/model controls, and ordinary
+Python (773, two skipped)/JS/QML. The same test executable's inode/size/timestamp
+stayed unchanged throughout direct execution. The first check's visibility
+warning was preserved and narrowed before clean test compilation. Strict T4 and
+strengthened product-union/default gates and immutable whole-boundary review
+remain pending; these results are SOURCE only, not installed feature assembly.
+The first later installed row is earliest all-three only after a separately
+reviewed exact source/packet/recipe; 201–208 are not reused. A late rename failure
+can lack an active existence prefix: report unavailable/unknown, not blanket
+still-fenced, historical completion or safe retry. After CLI exit releases kernel
+leases, current NEW and a later independently admitted ordinary Off may remain,
+while this invocation's completion/history durability is UNKNOWN. Error custody
+retains the original graph only while its process lives; it does not promise
+descriptor survival or a permanent restriction on a later ordinary owner. The
+failed consumer never calls ordinary start before its consuming release. No
+package or VM acceptance follows from this preparation.

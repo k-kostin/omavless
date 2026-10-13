@@ -11,8 +11,11 @@ use std::fs::File;
 mod native_final_old;
 #[path = "native_history.rs"]
 mod native_history;
+#[path = "native_new_complete.rs"]
+mod native_new_complete;
 #[path = "native_new_ticket.rs"]
 mod native_new_ticket;
+use native_new_complete::{FreshNewComplete, NativeCompleteRole, NewCompletePresence};
 pub(crate) const NATIVE_HISTORY_SLOTS: usize = native_history::CAPACITY;
 // Legacy first basename retained for exact historical source controls only.
 #[cfg(test)]
@@ -2029,6 +2032,7 @@ pub(crate) enum NativeStep {
     FinalOldSourceSynced(usize),
     FinalNewSourceSynced(usize),
     NewTicketSourceSynced(usize),
+    NewCompleteSourceSynced(usize),
     DispositionTicket,
     DispositionComplete,
     DispositionClosureUnlinked,
@@ -2057,6 +2061,7 @@ enum RecoveryCompletionSelection {
     FinalOld,
     FinalNew,
     NewTicket,
+    NewComplete,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FinalOutputChoice {
@@ -2102,6 +2107,7 @@ enum NativeRetirementPermission {
     Complete,
     CutOnly,
     NewTicketCutOnly,
+    CompletedCutOnly,
 }
 impl FreshCommittedNew {
     fn matches(&self, intent: &[u8], terminal: &[u8]) -> bool {
@@ -2207,6 +2213,13 @@ pub(crate) struct NativeEngine {
     new_ticket_captured: bool,
     fresh_new_ticket: Option<FreshNewTicket>,
     ticket_role: NativeTicketRole,
+    complete_role: NativeCompleteRole,
+    complete_capture_attempted: bool,
+    complete_shape: Option<NewCompletePresence>,
+    fresh_new_complete: Option<FreshNewComplete>,
+    complete_catalogue_index: Option<usize>,
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    complete_write_fault: Option<bool>,
     #[cfg(all(test, not(feature = "product-private-backup")))]
     ticket_write_fault: Option<bool>,
     retirement_permission: NativeRetirementPermission,
@@ -2267,11 +2280,13 @@ impl NativeStageView<'_> {
             Slot::Scratch2
         } else if name == crate::restore_closure_model::CLOSURE_MEMBER {
             Slot::Scratch3
-        } else if (self.engine.disposition || self.engine.ticket_observation_owned())
+        } else if (self.engine.disposition
+            || self.engine.ticket_observation_owned()
+            || self.engine.complete_member_observed(Slot::Scratch0))
             && name == crate::restore_disposition_ticket_model::TICKET_MEMBER
         {
             Slot::Scratch0
-        } else if self.engine.disposition
+        } else if (self.engine.disposition || self.engine.complete_member_observed(Slot::Scratch1))
             && name == crate::restore_disposition_complete_model::COMPLETE_MEMBER
             && !self.engine.history
         {
@@ -2280,6 +2295,8 @@ impl NativeStageView<'_> {
             return false;
         };
         (self.engine.completed_origin()
+            || (matches!(slot, Slot::Scratch0 | Slot::Scratch1 | Slot::Scratch3)
+                && self.engine.new_complete_observation_captured())
             || (matches!(slot, Slot::Scratch0 | Slot::Scratch3)
                 && self.engine.new_ticket_observation_captured())
             || (matches!(slot, Slot::Scratch3)
@@ -2296,6 +2313,7 @@ impl NativeStageView<'_> {
         if !self.stage_present() {
             if (self.engine.retirement && self.engine.completed_origin())
                 || self.engine.new_ticket_observation_captured()
+                || self.engine.new_complete_observation_captured()
             {
                 return !crate::routing_preset::pending(paths)
                     && [
@@ -2444,6 +2462,13 @@ impl NativeEngine {
             new_ticket_captured: false,
             fresh_new_ticket: None,
             ticket_role: NativeTicketRole::None,
+            complete_role: NativeCompleteRole::None,
+            complete_capture_attempted: false,
+            complete_shape: None,
+            fresh_new_complete: None,
+            complete_catalogue_index: None,
+            #[cfg(all(test, not(feature = "product-private-backup")))]
+            complete_write_fault: None,
             #[cfg(all(test, not(feature = "product-private-backup")))]
             ticket_write_fault: None,
             retirement_permission: NativeRetirementPermission::Complete,
@@ -2480,6 +2505,7 @@ impl NativeEngine {
                 RecoveryCompletionSelection::FinalOld => self.final_old_qualified(),
                 RecoveryCompletionSelection::FinalNew => self.final_new_qualified(),
                 RecoveryCompletionSelection::NewTicket => self.new_ticket_qualified(),
+                RecoveryCompletionSelection::NewComplete => self.new_complete_qualified(),
                 _ => true,
             })
             || (!self.recovery
@@ -2657,6 +2683,22 @@ impl NativeEngine {
         self.ticket_write_fault = Some(panic);
     }
     #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(crate) fn test_set_complete_write_fault(&mut self, panic: bool) {
+        self.complete_write_fault = Some(panic);
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(crate) fn complete_cut_unavailable(&self) -> bool {
+        self.retirement_permission == NativeRetirementPermission::CompletedCutOnly
+            && self.sealed
+            && !self.completed
+            && !self.disposition
+            && !self.disposition_done
+            && !self.ordinary_handoff
+            && !self.history
+            && self.lower.io.test_retains_original(Slot::Scratch1)
+            && self.ticket_role == NativeTicketRole::None
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
     pub(crate) fn ticket_cut_unavailable(&self) -> bool {
         self.retirement_permission == NativeRetirementPermission::NewTicketCutOnly
             && self.sealed
@@ -2788,6 +2830,9 @@ impl NativeEngine {
         }
         if self.final_old_captured || self.final_new_captured || self.new_ticket_captured {
             self.check_final_output_retired_sources(until)?;
+        }
+        if matches!(self.complete_role, NativeCompleteRole::Observed(_)) {
+            self.check_new_complete_retired_sources(until)?;
         }
         if !self.catalogues_captured {
             return Ok(());
@@ -3051,16 +3096,23 @@ impl NativeEngine {
                             RecoveryCompletionSelection::FinalOld
                                 | RecoveryCompletionSelection::FinalNew
                                 | RecoveryCompletionSelection::NewTicket
+                                | RecoveryCompletionSelection::NewComplete
                         )) =>
                 {
                     Slot::Scratch3
                 }
                 n if n == Slot::Scratch0 as usize
-                    && (self.disposition || self.ticket_observation_owned()) =>
+                    && (self.disposition
+                        || self.ticket_observation_owned()
+                        || self.complete_member_observed(Slot::Scratch0)) =>
                 {
                     Slot::Scratch0
                 }
-                n if n == Slot::Scratch1 as usize && self.disposition => Slot::Scratch1,
+                n if n == Slot::Scratch1 as usize
+                    && (self.disposition || self.complete_member_observed(Slot::Scratch1)) =>
+                {
+                    Slot::Scratch1
+                }
                 n if n == NATIVE_CURRENT_STORE as usize && self.current_store => {
                     NATIVE_CURRENT_STORE
                 }
@@ -3205,6 +3257,25 @@ impl NativeEngine {
             return Err(FirstError::StillFenced);
         }
         let mut done = 0;
+        #[cfg(all(test, not(feature = "product-private-backup")))]
+        if matches!(slot, Slot::Scratch1)
+            && name == crate::restore_disposition_complete_model::COMPLETE_MEMBER
+            && self.retirement_permission == NativeRetirementPermission::CompletedCutOnly
+            && let Some(panic) = self.complete_write_fault
+        {
+            self.lower
+                .io
+                .perform(
+                    slot,
+                    || tick(until),
+                    |mut file| file.write_all(&bytes[..8]).map_err(|_| Unavailable),
+                )
+                .map_err(|_| FirstError::StillFenced)?;
+            if panic {
+                panic!("source partial Complete writer unwind");
+            }
+            return Err(FirstError::StillFenced);
+        }
         while done < bytes.len() {
             self.lower
                 .io
@@ -4278,6 +4349,9 @@ impl NativeEngine {
         origin: &mut O,
         until: Instant,
     ) -> Result<(), FirstError> {
+        if self.recovery_completion == RecoveryCompletionSelection::NewComplete {
+            return self.check_new_complete_completed_inner(origin, until);
+        }
         if self.retirement_permission != NativeRetirementPermission::Complete
             || !self.completed
             || self.sealed
@@ -4381,6 +4455,19 @@ impl NativeEngine {
             until,
         )
     }
+    pub(crate) fn check_native_new_complete_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.check_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::NewComplete,
+            until,
+        )
+    }
     fn check_native_recovered_completed(
         &mut self,
         origin: &mut NativeRecoveryOrigin<'_>,
@@ -4463,6 +4550,17 @@ impl NativeEngine {
             origin,
             quiescence,
             RecoveryCompletionSelection::NewTicket,
+        )
+    }
+    pub(crate) fn dispose_native_new_complete_completed(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.dispose_native_recovered_completed(
+            origin,
+            quiescence,
+            RecoveryCompletionSelection::NewComplete,
         )
     }
     fn dispose_native_recovered_completed(
@@ -4614,6 +4712,9 @@ impl NativeEngine {
         cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
         until: Instant,
     ) -> Result<(), FirstError> {
+        if self.recovery_completion == RecoveryCompletionSelection::NewComplete {
+            return self.dispose_new_complete_inner(origin, uid, generation, desired, cut, until);
+        }
         use crate::restore_disposition_complete_model::{COMPLETE_MEMBER, CompleteRecord};
         use crate::restore_disposition_ticket_model::{TICKET_MEMBER, Ticket};
         if self.retirement_permission != NativeRetirementPermission::Complete
@@ -4715,11 +4816,28 @@ impl NativeEngine {
             until,
         )?;
         cut(NativeStep::DispositionTicketUnlinked)?;
+        self.finish_native_history(origin, &complete, cut, until)
+    }
+    fn finish_native_history<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        complete: &crate::restore_disposition_complete_model::CompleteRecord,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        use crate::restore_disposition_complete_model::COMPLETE_MEMBER;
+        use crate::restore_disposition_ticket_model::TICKET_MEMBER;
         self.gate(origin, until)?;
         self.lower
             .binding(Slot::State, Slot::Scratch1, COMPLETE_MEMBER, false, until)
             .map_err(|_| FirstError::StillFenced)?;
         cut(NativeStep::HistoryRenamePrepared)?;
+        let captured_complete =
+            if self.recovery_completion == RecoveryCompletionSelection::NewComplete {
+                Some(self.prevalidate_complete_catalogue_index()?)
+            } else {
+                None
+            };
         self.lower
             .io
             .perform(
@@ -4736,6 +4854,9 @@ impl NativeEngine {
                             nix::fcntl::RenameFlags::RENAME_NOREPLACE,
                         )
                         .map_err(|_| Unavailable)?;
+                        if let Some(index) = captured_complete {
+                            self.catalogues[1].removed[index] = true; // known positive rename; no fallible work
+                        }
                         self.history = true; // positive original rename BEFORE sampled postcheck
                         Ok(())
                     }
