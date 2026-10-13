@@ -587,7 +587,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         footer.insert(
             0,
             Line::from(tr(if app.import_unresolved() {
-                app.import_notice_key()
+                app.import_footer_key()
             } else if app.page != crate::inspection::Page::Profiles {
                 "tui.import_keys_global"
             } else {

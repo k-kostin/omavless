@@ -401,6 +401,8 @@
   "tui.import_confirm_keys":{"en":"Enter: save this preview; Esc: cancel without saving","ru":"Enter: сохранить просмотренное; Esc: отменить без сохранения"},
   "tui.import_submitting":{"en":"Saving through the runtime; do not submit again","ru":"Сохраняем через службу; не отправляйте повторно"},
   "tui.import_pending_entry":{"en":"Import saving in progress; F3: review (do not resubmit)","ru":"Импорт сохраняется; F3: просмотр (не отправляйте повторно)"},
+  "tui.import_pending_footer":{"en":"Import pending · F3: review · q: close","ru":"Импорт выполняется · F3: просмотр · q: выйти"},
+  "tui.import_unknown_footer":{"en":"Import outcome unknown · F3: review · q: close","ru":"Результат импорта неизвестен · F3: просмотр · q: выйти"},
   "tui.import_warning":{"en":"Warning: this profile is experimental or disables TLS verification. Review before saving.","ru":"Внимание: профиль экспериментальный или отключает проверку TLS. Проверьте перед сохранением."},
   "tui.import_saved":{"en":"Saved locally. No connection was started; refresh shows actual state.","ru":"Сохранено локально. Подключение не запускалось; обновление покажет фактическое состояние."},
   "tui.import_rejected":{"en":"Import refused; close, refresh and review the input","ru":"Импорт отклонён; закройте, обновите данные и проверьте ввод"},

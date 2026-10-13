@@ -190,6 +190,17 @@ impl App {
             "tui.import_unknown"
         }
     }
+    pub(crate) fn import_footer_key(&self) -> &'static str {
+        if self
+            .import
+            .as_ref()
+            .is_some_and(|w| w.state() == State::Submitting)
+        {
+            "tui.import_pending_footer"
+        } else {
+            "tui.import_unknown_footer"
+        }
+    }
     pub(crate) fn import_worker_lost(&mut self) {
         self.import_enabled = false;
         if let Some(w) = &mut self.import {
