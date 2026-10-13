@@ -17,6 +17,61 @@ pub(crate) enum BackupCreateError {
     Publish(PublishError),
 }
 
+impl BackupCreateError {
+    /// Fixed diagnostic only: never changes the operation's outcome or permits retry.
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn diagnostic(&self) -> &'static [u8] {
+        match self {
+            Self::OwnershipUnavailable => b"T4_BACKUP_OWNERSHIP\n",
+            Self::Busy => b"T4_BACKUP_BUSY\n",
+            Self::RecoveryRequired => b"T4_BACKUP_RECOVERY\n",
+            Self::Source(SnapshotError::Admission) => b"T4_BACKUP_SOURCE_ADMISSION\n",
+            Self::Source(SnapshotError::UnsafeSource) => b"T4_BACKUP_SOURCE_UNSAFE\n",
+            Self::Source(SnapshotError::SourceChanged) => b"T4_BACKUP_SOURCE_CHANGED\n",
+            Self::Source(SnapshotError::InvalidBackupInput) => b"T4_BACKUP_PAYLOAD\n",
+            Self::Source(SnapshotError::SealingUnavailable) => b"T4_BACKUP_SEALING\n",
+            Self::Publish(PublishError::InvalidDestination) => b"T4_BACKUP_DESTINATION\n",
+            Self::Publish(PublishError::Exists) => b"T4_BACKUP_EXISTS\n",
+            Self::Publish(PublishError::Unavailable) => b"T4_BACKUP_PUBLICATION_UNAVAILABLE\n",
+            Self::Publish(PublishError::Ambiguous) => b"T4_BACKUP_PUBLICATION_AMBIGUOUS\n",
+        }
+    }
+}
+
+#[cfg(all(test, feature = "t4-manager-actor-service"))]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn categories_are_fixed_bounded_ascii_and_distinguish_publication_ambiguity() {
+        let errors = [
+            BackupCreateError::OwnershipUnavailable,
+            BackupCreateError::Busy,
+            BackupCreateError::RecoveryRequired,
+            BackupCreateError::Source(SnapshotError::Admission),
+            BackupCreateError::Source(SnapshotError::UnsafeSource),
+            BackupCreateError::Source(SnapshotError::SourceChanged),
+            BackupCreateError::Source(SnapshotError::InvalidBackupInput),
+            BackupCreateError::Source(SnapshotError::SealingUnavailable),
+            BackupCreateError::Publish(PublishError::InvalidDestination),
+            BackupCreateError::Publish(PublishError::Exists),
+            BackupCreateError::Publish(PublishError::Unavailable),
+            BackupCreateError::Publish(PublishError::Ambiguous),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for error in errors {
+            let code = error.diagnostic();
+            assert!(code.len() <= 64 && code.starts_with(b"T4_BACKUP_") && code.ends_with(b"\n"));
+            assert!(
+                code[..code.len() - 1]
+                    .iter()
+                    .all(|b| b.is_ascii_uppercase() || *b == b'_' || *b == b'4')
+            );
+            assert!(seen.insert(code));
+        }
+    }
+}
+
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// Capture and seal one exact committed pair while the native owner holds
     /// its mutation lease, then exclusively publish only ciphertext. A caller

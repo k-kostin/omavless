@@ -310,6 +310,56 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
     }
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_first_rename_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_first_rename(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_terminal_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_terminal(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_committed_retirement_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_committed_retirement(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_committed_ticket_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_committed_ticket(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_committed_complete_cut(
+        &mut self,
+        request: &crate::developer_current_restore::Request,
+    ) -> Result<(), ProductionOwnerError> {
+        self.require_developer_current(request)?;
+        self.coordinator
+            .cut_current_committed_complete(request.archive(), request.passphrase())
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn developer_current_abort(
         &mut self,
         request: &crate::developer_current_restore::AbortRequest,
@@ -334,6 +384,28 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
     }
     #[cfg(feature = "t4-manager-actor-service")]
+    pub(crate) fn developer_current_abort_retirement_cut(
+        &mut self,
+        request: &crate::developer_current_restore::AbortRequest,
+    ) -> Result<(), ProductionOwnerError> {
+        if crate::product_scope::backup_only() {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        let original = self
+            .current_origin
+            .as_ref()
+            .ok_or(ProductionOwnerError::OwnershipUnavailable)?;
+        if !matches!(self.ownership, ProductionOwnership::Committed { rust_generation, .. } if rust_generation == original.generation)
+            || request.revision() != self.revision()
+            || !self.coordinator.current_intent_paused()
+        {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        self.coordinator
+            .abort_current_after_retirement_cut()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn developer_current_restore(
         &mut self,
         request: &crate::developer_current_restore::Request,
@@ -351,7 +423,12 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.require_developer_current(request)?;
         self.coordinator
             .create_backup_candidate(request.archive(), request.passphrase())
-            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)
+            .map_err(|error| {
+                // Best-effort fixed category, no private request or exception text.
+                // Keep the original conservative outcome, even if stderr is closed.
+                let _ = std::io::Write::write_all(&mut std::io::stderr(), error.diagnostic());
+                ProductionOwnerError::ManualRecoveryRequired
+            })
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn require_developer_current(

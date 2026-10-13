@@ -10,6 +10,10 @@ if ! command -v cc >/dev/null 2>&1; then
 fi
 
 cargo fmt --all -- --check
+# Library unit tests unify dev-dependencies: they can conceal an accidental
+# production import of an optional dependency. Check the plain non-test build
+# without either TUI or development recovery before running those fixtures.
+cargo check --locked -p omavless-runtime --no-default-features
 # This fixture forks a helper holding an inherited flock and tests a fixed
 # cleanup budget. Running it beside unrelated process-heavy tests can spend
 # that budget on scheduler contention, not the owned-group cleanup under test.

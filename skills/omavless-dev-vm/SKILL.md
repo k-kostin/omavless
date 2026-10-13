@@ -18,6 +18,18 @@ local stdin. Do not start another authorization in that state: inspect the
 original operation and settle it under the execution policy before a new attempt.
 Non-interactive reads do not require a PTY.
 
+Send one command at a time in an interactive administrative terminal, then
+observe its outcome before sending the next. Sudo can flush already queued
+terminal input: echoed later lines are not evidence that those commands ran.
+Keep the previous command's exit status separate from the next action, rather
+than treating a returned prompt or batched input as a successful sequence.
+
+For a fixture in another UID's private home, observe file absence as that UID
+or an already authorized administrator. A failed `test -e` without parent
+traversal permission is not absence proof. Distinguish `ENOENT` from permission
+errors and existing symlinks before create-only preparation; do not infer an
+empty destination from the desktop user's inability to inspect it.
+
 ## Before using the VM
 
 Identify the designated sole operator, exact VM directory/image, current QEMU
@@ -37,6 +49,18 @@ CLI help and compositor version before using remembered commands. Cache those
 facts for that baseline. In particular, an interface change can make an old
 window dispatcher return textual errors despite a zero shell exit; confirm the
 requested window geometry or service state, not merely command completion.
+For a unit observation, establish its actual installed name and `LoadState=loaded`;
+an absent recalled name can otherwise appear inactive/dead without describing
+the running service.
+
+For a freshly started `Type=simple` native unit, successful `systemctl start`
+does not prove its IPC socket is ready. Before the next configuration mutation,
+use bounded read-only native status/hello observations to establish the expected
+owned state; do not substitute a fixed sleep or restart loop. A proven absent
+socket before connect/send is a not-submitted refusal: retain that original
+result and admit a separate command only after readiness is actually observed.
+Lost replies or uncertainty after submission still follow the original
+operation's recovery policy; later readiness is not permission to resend.
 
 After a frontend update, matching files are not proof that the long-lived shell
 loaded the new QML/JS. If the native facts are correct but controls remain old,
