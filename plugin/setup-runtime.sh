@@ -122,6 +122,31 @@ broker_access_for_user() {
   [[ -S "$socket" && ! -L "$socket" && -w "$socket"
      && $(stat -c %u -- "$socket") == 0 ]]
 }
+# systemctl start on a simple unit may return before its control socket is
+# ready. Observe only fixed facts after the original successful start; never
+# repeat enrollment/start or turn a readiness timeout into cleanup/recovery.
+# The five-second window also retains each existing bounded query's timeout.
+wait_broker_fact() {
+  [[ $# == 1 ]] || return 2
+  local fact="$1" setup_broker_deadline=$((SECONDS + 5))
+  case "$fact" in idle|socket) ;; *) return 2 ;; esac
+  while (( SECONDS < setup_broker_deadline )); do
+    if [[ "$fact" == idle ]]; then
+      if system_broker_idle && (( SECONDS < setup_broker_deadline )); then return 0; fi
+    elif system_broker_idle && broker_access_for_user \
+        && (( SECONDS < setup_broker_deadline )); then
+      return 0
+    fi
+    (( SECONDS < setup_broker_deadline )) || break
+    sleep 0.1 || return 1
+  done
+  return 1
+}
+await_broker_ready() {
+  [[ $# == 0 ]] || return 2
+  setup_step dns-broker-readiness wait_broker_fact idle || return 1
+  setup_step dns-socket-access wait_broker_fact socket
+}
 no_managed_tun() { [[ ! -e /sys/class/net/Meta && ! -L /sys/class/net/Meta ]]; }
 fresh_package_boundary() {
   # A missing executable is not proof of a fresh machine. Never let the
@@ -260,8 +285,7 @@ enroll_and_select_pair() {
   # recover an unknown result by silently repeating this one-time action.
   setup_step dns-enrollment enroll_uid "$(id -u)" || return 1
   setup_step dns-broker-start start_broker || return 1
-  setup_step dns-broker-readiness system_broker_idle || return 1
-  setup_step dns-socket-access broker_access_for_user || return 1
+  await_broker_ready || return 1
   setup_step dns-template native_quiet dns-pair prepare-template || return 1
   setup_step dns-selection native_quiet dns-pair select || return 1
   setup_step dns-selection pair_selected
@@ -297,8 +321,7 @@ restore_enrollment() {
   setup_step dns-consent confirm_dns_enrollment || return 1
   setup_step dns-enrollment enroll_uid "$(id -u)" || return 1
   setup_step dns-broker-start start_broker || return 1
-  setup_step dns-broker-readiness system_broker_idle || return 1
-  setup_step dns-socket-access broker_access_for_user || return 1
+  await_broker_ready || return 1
   setup_step dns-selection pair_selected
 }
 
@@ -326,8 +349,7 @@ start_existing_broker() {
   no_broker_socket || return 1
   setup_step broker-enrollment-check existing_enrollment_metadata || return 1
   setup_step dns-broker-start start_stopped_broker_service || return 1
-  setup_step dns-broker-readiness system_broker_idle || return 1
-  setup_step dns-socket-access broker_access_for_user || return 1
+  await_broker_ready || return 1
   setup_step dns-selection pair_selected
 }
 

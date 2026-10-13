@@ -891,6 +891,165 @@ setup_main install en
                 self.assertFalse((self.directory / "omavless-first-run.lock").exists())
                 self.assertEqual(list(self.directory.glob("omavless-first-run.*")), [])
 
+    def post_dns_terminal_fixture(self):
+        # Real production inventory/setup_main; only the external boundaries
+        # are synthetic. A successful simple-unit start need not expose its
+        # socket on the very first read-only observation.
+        return self.terminal_fixture().replace(
+            "setup_status() { echo needs_activation; }", ""
+        ) + '''
+native_present() { return 0; }
+package_installed() { echo "omavless $package_version-1"; }
+runtime_start_available() { return 1; }
+user_runtime_stopped() { [[ ! -f "$TEST_DIR/activated" ]]; }
+enroll_uid() { echo enroll >> "$TEST_DIR/trace"; touch "$TEST_DIR/enrolled"; }
+start_broker() { echo start >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker-started"; }
+system_broker_idle() {
+  [[ -f "$TEST_DIR/broker-started" ]] || return 1
+  local count=0
+  if [[ -f "$TEST_DIR/unit-reads" ]]; then read -r count < "$TEST_DIR/unit-reads"; fi
+  count=$((count + 1))
+  echo "$count" > "$TEST_DIR/unit-reads"
+  (( count >= 2 ))
+}
+broker_access_for_user() {
+  [[ -f "$TEST_DIR/broker-started" ]] || return 1
+  local count=0
+  if [[ -f "$TEST_DIR/socket-reads" ]]; then read -r count < "$TEST_DIR/socket-reads"; fi
+  count=$((count + 1))
+  echo "$count" > "$TEST_DIR/socket-reads"
+  (( count >= 2 ))
+}
+system_broker_available() { system_broker_idle && broker_access_for_user; }
+'''
+
+    def test_terminal_post_dns_delayed_broker_readiness_completes_once(self):
+        code, output = self.run_terminal(
+            self.post_dns_terminal_fixture() + "\nsetup_main install en", "INSTALL\nDNS\n"
+        )
+        self.assertEqual(code, 0, output)
+        self.assertIn("OmaVLESS is ready.", output)
+        self.assertNotIn("Setup stopped", output)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+            "store-compatibility", "enroll", "start", "dns-pair prepare-template",
+            "dns-pair select", "store-compatibility", "cutover activate", "enable",
+        ])
+        self.assertGreaterEqual(int((self.directory / "unit-reads").read_text()), 2)
+        self.assertGreaterEqual(int((self.directory / "socket-reads").read_text()), 2)
+        self.assertEqual((self.directory / ".config/omavless/profiles.json").read_text(),
+                         "synthetic existing profile data")
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+        self.assertEqual(list(self.directory.glob("omavless-first-run.*")), [])
+
+    def test_terminal_post_dns_socket_timeout_retains_enrollment_without_activation(self):
+        code, output = self.run_terminal(self.post_dns_terminal_fixture() + '''
+broker_access_for_user() { return 1; }
+setup_main install en
+''', "INSTALL\nDNS\n")
+        self.assertEqual(code, 1)
+        self.assertEqual(output.count("Setup stopped at stage:"), 1)
+        self.assertIn("Setup stopped at stage: dns-socket-access.", output)
+        self.assertNotIn("OmaVLESS is ready.", output)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+            "store-compatibility", "enroll", "start",
+        ])
+        self.assertTrue((self.directory / "enrolled").exists())
+        self.assertFalse((self.directory / "selected").exists())
+        self.assertFalse((self.directory / "activated").exists())
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+        self.assertEqual((self.directory / ".config/omavless/profiles.json").read_text(),
+                         "synthetic existing profile data")
+
+    def test_terminal_post_dns_start_refusal_never_waits_or_resubmits(self):
+        code, output = self.run_terminal(self.post_dns_terminal_fixture() + '''
+start_broker() { echo start >> "$TEST_DIR/trace"; return 1; }
+setup_main install en
+''', "INSTALL\nDNS\n")
+        self.assertEqual(code, 1)
+        self.assertIn("Setup stopped at stage: dns-broker-start.", output)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+            "store-compatibility", "enroll", "start",
+        ])
+        self.assertFalse((self.directory / "unit-reads").exists())
+        self.assertFalse((self.directory / "socket-reads").exists())
+        self.assertFalse((self.directory / "activated").exists())
+
+    def test_terminal_post_dns_unit_timeout_never_reaches_socket_or_selection(self):
+        code, output = self.run_terminal(self.post_dns_terminal_fixture() + '''
+system_broker_idle() { return 1; }
+setup_main install en
+''', "INSTALL\nDNS\n")
+        self.assertEqual(code, 1)
+        self.assertIn("Setup stopped at stage: dns-broker-readiness.", output)
+        self.assertFalse((self.directory / "socket-reads").exists())
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+            "store-compatibility", "enroll", "start",
+        ])
+
+    def test_terminal_post_dns_template_refusal_is_quiet_and_keeps_stage(self):
+        fixture = self.post_dns_terminal_fixture().replace(
+            "'dns-pair prepare-template') : ;;",
+            "'dns-pair prepare-template') echo synthetic-private-template-error >&2; return 42 ;;",
+        )
+        code, output = self.run_terminal(fixture + "\nsetup_main install en", "INSTALL\nDNS\n")
+        self.assertEqual(code, 1)
+        self.assertIn("Setup stopped at stage: dns-template.", output)
+        self.assertNotIn("synthetic-private-template-error", output)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+            "store-compatibility", "enroll", "start", "dns-pair prepare-template",
+        ])
+        self.assertFalse((self.directory / "selected").exists())
+        self.assertFalse((self.directory / "activated").exists())
+
+    def test_broker_wait_accepts_only_fixed_observation_targets(self):
+        for fact in ("unknown", "start", "shell", "idle extra"):
+            with self.subTest(fact=fact):
+                result = self.run_shell('''
+system_broker_idle() { echo unexpected-unit >> "$TEST_DIR/trace"; }
+broker_access_for_user() { echo unexpected-socket >> "$TEST_DIR/trace"; }
+wait_broker_fact ''' + "'" + fact + "'")
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout + result.stderr, "")
+                self.assertFalse((self.directory / "trace").exists())
+        for command in ("wait_broker_fact", "wait_broker_fact idle extra",
+                        "await_broker_ready extra"):
+            result = self.run_shell(command)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_existing_broker_and_clean_reenrollment_wait_without_repeating_effects(self):
+        fixture = '''
+pair_installed() { return 0; }
+native_target() { echo rust; }
+pair_selected() { return 0; }
+system_broker_stopped() { return 0; }
+no_broker_socket() { return 0; }
+existing_enrollment_metadata() { return 0; }
+setup_test_unit_reads=0
+setup_test_socket_reads=0
+system_broker_idle() {
+  setup_test_unit_reads=$((setup_test_unit_reads + 1))
+  (( setup_test_unit_reads >= 2 ))
+}
+broker_access_for_user() {
+  setup_test_socket_reads=$((setup_test_socket_reads + 1))
+  (( setup_test_socket_reads >= 2 ))
+}
+start_stopped_broker_service() { echo start >> "$TEST_DIR/trace"; }
+enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
+start_broker() { echo start >> "$TEST_DIR/trace"; }
+'''
+        for command, consent, expected in (
+            ("start_existing_broker", "", ["start"]),
+            ("restore_enrollment", "DNS\n", ["enroll", "start"]),
+        ):
+            with self.subTest(command=command):
+                (self.directory / "trace").unlink(missing_ok=True)
+                result = self.run_shell(fixture + command, consent)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("Setup stopped", result.stdout)
+                self.assertEqual((self.directory / "trace").read_text().splitlines(), expected)
+
     def test_terminal_preparation_refusals_have_no_native_effects(self):
         cases = (
             ("runtime-directory", "setup_runtime_directory_safe() { return 1; }"),
