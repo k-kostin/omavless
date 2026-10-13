@@ -102,7 +102,7 @@ fn state_path_is_present(path: &Path, uid: u32) -> Result<bool, FrontendBridgeEr
     Ok(!missing)
 }
 
-fn read_committed_plugin_target(
+pub(crate) fn read_committed_plugin_target(
     cutover: &CutoverPaths,
     uid: u32,
 ) -> Result<BridgeTarget, FrontendBridgeError> {
