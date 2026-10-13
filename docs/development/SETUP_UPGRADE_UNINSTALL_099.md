@@ -282,3 +282,30 @@ tests cover actual panel/TUI meaning, consent, settled state, retained private
 data, no unsolicited VPN/startup and the declared next action after refusal.
 Keep x86_64/ARM64 evidence scoped; historical clean-install PASS remains valid
 only for its original path. All gates above are pending in this SOURCE design.
+
+### Current follow-up queue
+
+The separately recorded [manual predecessor upgrade and removal/re-add](https://github.com/k-kostin/omavless/pull/775)
+are scoped VM evidence, not completion of this guided updater. The
+[default-template canonical-mode correction](https://github.com/k-kostin/omavless/pull/776)
+is a separate source successor; until integrated and installed-checked, the
+current public preparation behavior described above is unchanged.
+
+The next bounded user results are:
+
+1. A qualified guided paired-package upgrade, rather than guide-only navigation
+   or a fresh-install bypass. Keep explicit consent and partial/unknown results.
+2. An existing-Rust partial-setup continuation for broker enrollment/start and
+   pair selection. Distinguish first enrollment, preserved enrollment and revoked
+   enrollment; do not repeat application activation or selector creation.
+3. Correct onboarding/core-readiness facts for a selected managed core.
+   `desktop_helpers` currently discovers stock HOME/PATH Mihomo while the normal
+   `native_host` selects `ManagedPair` first. Use the verified selected-core
+   projection; an invalid selected pair is unavailable, never stock fallback or
+   a request to grant capabilities to the unrelated stock executable.
+4. The always-reachable removal review and guarded execution specified above.
+
+These are pending implementation/affected-acceptance results, not additional
+frontier scope or permission to resume VM tests. The setup reporter's failure
+stage remains independently investigated; a local successful migration does not
+establish their root cause.
