@@ -58,12 +58,16 @@ printing profile IDs, DNS values, provider URLs or privileged-command output.
    enrollment for that UID, then explicitly enable/start the broker. A timeout
    or unknown answer stops the sequence; inspect before retrying.
 4. With the user runtime stopped and Disconnected, prepare only the exact
-   bundled default route template with its private backup and select the
+   bundled default route template (including its canonical rule/global/direct
+   mode variants), preserve its mode header and exact private backup, and select the
    installed managed pair **before the Rust cutover**. The candidate runtime
    resolves its bundled core through that selection; activating first can
    start and then roll back. Custom YAML must refuse automatic rewriting.
    Only then perform disconnected ownership cutover and enable the user
    runtime; login/startup remains Off until the owner opts in.
+   Template preparation adds only the two managed DNS flags; it does not reset
+   routing directives or change actual Desired mode. Changed directives and
+   partial flags still refuse before backup/staging writes.
 5. Confirm the fixed package/selector, actual broker readiness and one real
    DNS/TUN/HTTPS cycle. A local selection flag alone proves neither enrollment
    nor Internet connectivity.
