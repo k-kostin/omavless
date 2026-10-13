@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
@@ -28,6 +29,49 @@ RELEASE_SPEC = importlib.util.spec_from_file_location(
 release_stage = importlib.util.module_from_spec(RELEASE_SPEC)
 RELEASE_SPEC.loader.exec_module(release_stage)
 EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFileDescriptorStore=0\n"
+
+
+def socket_fixture_parent():
+    """Test-only counterpart of tests/support/temp.rs home_parent policy."""
+    value = os.environ.get("HOME", "")
+    home = Path(value)
+    if not home.is_absolute() or home != Path(os.path.normpath(value)):
+        raise ValueError("unsafe_test_home")
+    parent = home
+    for component in (None, ".cache", "ovt"):
+        if component is not None:
+            parent = parent / component
+            try:
+                parent.mkdir(mode=0o700)
+            except FileExistsError:
+                pass
+        info = parent.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o022
+                or (component == "ovt" and stat.S_IMODE(info.st_mode) != 0o700)):
+            raise ValueError("unsafe_test_home")
+    return parent
+
+
+class SocketFixtureTests(unittest.TestCase):
+    def test_home_parent_refuses_unsafe_nodes_without_repair(self):
+        from types import SimpleNamespace
+        good = SimpleNamespace(st_uid=os.getuid(), st_mode=0o40700)
+        cases = [(position, os.getuid(), mode)
+                 for mode in (0o120700, 0o100700, 0o40777)
+                 for position in range(3)]
+        cases += [(position, os.getuid() + 1, 0o40700) for position in range(3)]
+        cases.append((2, os.getuid(), 0o40755))
+        for position, uid, mode in cases:
+            nodes = [good, good, good]
+            nodes[position] = SimpleNamespace(st_uid=uid, st_mode=mode)
+            with mock.patch.dict(os.environ, HOME="/home/synthetic"), \
+                 mock.patch.object(Path, "lstat", side_effect=nodes), \
+                 mock.patch.object(Path, "mkdir"), \
+                 mock.patch.object(Path, "chmod") as repair:
+                with self.assertRaises(ValueError):
+                    socket_fixture_parent()
+                repair.assert_not_called()
 
 
 class PackageTests(unittest.TestCase):
@@ -592,8 +636,23 @@ class PackageTests(unittest.TestCase):
             (self.root / "run/omavless-dns/private" / entry).unlink()
 
     def test_stale_socket_or_symlink_blocks_without_cleanup(self):
+        # Only this test binds a real pathname socket. Keep all file-only
+        # fixtures on their original TMPDIR policy. A deliberately long TMPDIR
+        # must not affect this short, exclusively allocated HOME-backed root.
+        long_tmp = self.root / ("long-tmp-" + "x" * 108)
+        long_tmp.mkdir(mode=0o700)
+        with mock.patch.object(tempfile, "tempdir", str(long_tmp)), \
+             tempfile.TemporaryDirectory(prefix="dns-", dir=socket_fixture_parent()) as root, \
+             mock.patch.object(self, "root", Path(root)):
+            self.assertEqual(Path(root).parent, Path(os.environ["HOME"]) / ".cache/ovt")
+            self.assertEqual(stat.S_IMODE(Path(root).lstat().st_mode), 0o700)
+            self.check_stale_socket_or_symlink()
+        self.assertFalse(Path(root).exists())
+
+    def check_stale_socket_or_symlink(self):
         self.assertEqual(self.run_guard_fixture().returncode, 0)
         path = self.root / "run/omavless-dns/control.sock"
+        self.assertLess(len(os.fsencode(path)), 108)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
             listener.bind(str(path))
         self.assertNotEqual(self.run_guard_fixture().returncode, 0)
