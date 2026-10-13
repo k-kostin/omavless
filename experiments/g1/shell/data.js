@@ -86,19 +86,53 @@ export function visibleProfiles(query, large = false, collection = "all", metada
 // Only actual metadata content and filters invalidate this projection.
 // Status samples/source epochs never enter its key.
 export class ProfileCache {
-  key = null;
-  visible = [];
-  ids = new Set();
+  #fixtureRows = null;
+  #projection = { key: null, rows: null, terms: null, visible: [], ids: new Set(), positions: new Map() };
+  get key() { return this.#projection.key; }
+  get visible() { return this.#projection.visible; }
+  get ids() { return this.#projection.ids; }
+  get positions() { return this.#projection.positions; }
 
   get(query, large, collection, metadata = null) {
-    const key = JSON.stringify([query, large, collection, metadata?.content ?? 0]);
-    if (key !== this.key) {
-      this.visible = visibleProfiles(query, large, collection, metadata);
-      this.ids = new Set(this.visible.map((profile) => profile.id));
-      this.key = key;
+    // One admitted immutable source and one projection, never a query history.
+    // Keep visibleProfiles unchanged as the independent legacy parity oracle.
+    const rows = metadata === null ? (this.#fixtureRows ??= visibleProfiles("", true)) : metadata.rows;
+    const key = JSON.stringify([query, large, collection]);
+    const current = this.#projection;
+    if (key !== current.key || rows !== current.rows) {
+      let terms = rows !== current.rows ? null : current.terms;
+      const needle = query.toLocaleLowerCase();
+      if (needle !== "" && terms === null) {
+        terms = rows.map((profile) => [profile.name, profile.country, profile.host, profile.subscription]
+          .map((value) => value.toLocaleLowerCase()));
+      }
+      const visible = needle === "" && large && collection === "all" ? rows : rows.filter((profile, index) => {
+        const inCollection = collection === "all"
+          || (collection === "sample" && profile.subscription === "Sample collection")
+          || (collection === "generated" && profile.subscription === "Generated samples")
+          || (collection === "local" && profile.subscription === "");
+        return (large || profile.subscription !== "Generated samples") && inCollection
+          && (needle === "" || terms[index].some((value) => value.includes(needle)));
+      });
+      const positions = new Map(visible.map((profile, index) => [profile.id, index]));
+      const ids = new Set(positions.keys());
+      // One publication after all preparation; an interrupted event cannot
+      // leave a new row array paired with an old key/index. Old snapshots keep
+      // their own unchanged arrays and maps for lazy count/key/range callbacks.
+      this.#projection = { key, rows, terms, visible: Object.freeze(visible), positions, ids };
     }
     return this.visible;
   }
+}
+
+// Use the index belonging to the same rendered projection, not a newer cache.
+// Arrow events retain their original ordering; this does not debounce inputs.
+export function nextIndexedProfile(visible, positions, currentId, direction) {
+  if (visible.length === 0) return null;
+  const current = positions.get(currentId);
+  if (current === undefined) return visible[direction < 0 ? visible.length - 1 : 0].id;
+  const next = Math.max(0, Math.min(visible.length - 1, current + direction));
+  return visible[next].id;
 }
 
 // Keyboard position is navigation, not profile selection or a connection.

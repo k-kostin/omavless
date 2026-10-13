@@ -8,7 +8,7 @@ import {
   AppShell, Badge, Button, Label, ListRow, MutedText, Panel, TextField,
   Title, TitleBar, applyOmarchyRoles, applyOmarchyStyle, omarchyTheme,
 } from "./vendor/omarchy-ui/src/index.js";
-import { connectionPresentation, fixture, nextHighlightedProfile, profileById, ProfileCache } from "./data.js";
+import { connectionPresentation, fixture, nextIndexedProfile, profileById, ProfileCache } from "./data.js";
 import { BROKEN, DARK, LIGHT } from "./palette.js";
 import { UpdateView } from "./workload.js";
 import { Metadata } from "./metadata.js";
@@ -64,9 +64,10 @@ export default class G1Trial extends View {
     const theme = omarchyTheme(DARK, this.baseTheme, tokens);
     if (theme) set_theme(theme);
     this.search = InputState.new({ placeholder: "Search / Поиск" });
-    this.search.on("change", (_event, context) => context.notify());
+    this.search.on("change", (_event, context) => { this.refreshProjection(); context.notify(); });
     this.search.on("submit", (_event, context) => {
-      const first = this.profileCache.get(this.search.value(), this.large, this.collection, this.updates.metadata)[0];
+      this.refreshProjection();
+      const first = this.profileCache.visible[0];
       if (first) {
         this.selected = first.id;
         this.highlighted = first.id;
@@ -89,6 +90,13 @@ export default class G1Trial extends View {
     this.updates = new UpdateView(Metadata.fixture());
     this.updates.attach();
     this.updates.burst(fixture.scenes[0], 1);
+    this.refreshProjection();
+  }
+
+  // Filtering belongs to init/input/metadata events (500ms SDK scope), not
+  // render/layout (50ms). No delayed task, dropped key or partial projection.
+  refreshProjection() {
+    this.profileCache.get(this.search.value(), this.large, this.collection, this.updates.metadata);
   }
 
   applyPalette(choice, context) {
@@ -122,6 +130,7 @@ export default class G1Trial extends View {
       : action === "replace" ? metadata.replacedCollection() : Metadata.fixture().rows;
     if (rows !== null && this.updates.replace(fixture.scenes[this.scene], rows)) {
       this.selected = this.updates.metadata.selection(this.selected);
+      this.refreshProjection();
       context.notify();
     }
   }
@@ -135,8 +144,8 @@ export default class G1Trial extends View {
     const connected = profileById(connection.id, metadata);
     const connectedName = connected?.name ?? (connection.id === null ? strings.none : `${connection.id} · ${strings.missingProfile}`);
     const selected = profileById(this.selected, metadata);
-    const query = this.search.value();
-    const visible = this.profileCache.get(query, this.large, this.collection, metadata);
+    const visible = this.profileCache.visible;
+    const positions = this.profileCache.positions;
     if (!this.profileCache.ids.has(this.highlighted)) {
       this.highlighted = visible[0]?.id ?? null;
     }
@@ -157,7 +166,7 @@ export default class G1Trial extends View {
         .label(item.id === "all" ? (this.locale === "ru" ? "Все" : "All")
           : item.id === "local" ? (this.locale === "ru" ? "Локальные" : "Local") : item.name)
         .outlined().selected(item.id === this.collection)
-        .onClick((_event, context) => { this.collection = item.id; context.notify(); }).build(cx)));
+        .onClick((_event, context) => { this.collection = item.id; this.refreshProjection(); context.notify(); }).build(cx)));
 
     const row = (profile) => new ListRow(`profile-${profile.id}`)
       .selected(this.selected === profile.id)
@@ -173,15 +182,20 @@ export default class G1Trial extends View {
 
     const navigateList = (event, context) => {
       const key = plainKey(event);
+      // A callback from the last drawn snapshot can arrive after a new filter
+      // or metadata projection was prepared. Its old index must not scroll or
+      // inspect an unrelated row in the new projection.
+      if (this.profileCache.visible !== visible) return;
       if (key === "down" || key === "up") {
-        const id = nextHighlightedProfile(visible, this.highlighted, key === "down" ? 1 : -1);
-        if (id !== null) {
+        const id = nextIndexedProfile(visible, positions, this.highlighted, key === "down" ? 1 : -1);
+        if (id !== null && this.updates.metadata.selection(id) !== null) {
           this.highlighted = id;
-          this.listScroll.scroll_to_item(visible.findIndex((profile) => profile.id === id), "center");
+          this.listScroll.scroll_to_item(positions.get(id), "center");
           context.notify();
         }
         context.stop_propagation();
-      } else if (key === "enter" && visible.some((profile) => profile.id === this.highlighted)) {
+      } else if (key === "enter" && positions.has(this.highlighted)
+        && this.updates.metadata.selection(this.highlighted) !== null) {
         this.selected = this.highlighted;
         context.notify();
         context.stop_propagation();
@@ -208,7 +222,10 @@ export default class G1Trial extends View {
             (range) => Array.from({ length: range.end - range.start }, (_unused, offset) =>
               row(visible[range.start + offset])))
             .size_full().track_scroll(this.listScroll)
-            .on_item_click((id, context) => { this.highlighted = id; this.selected = id; context.notify(); }))
+            .on_item_click((id, context) => {
+              if (this.updates.metadata.selection(id) === null || !this.profileCache.ids.has(id)) return;
+              this.highlighted = id; this.selected = id; context.notify();
+            }))
           .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0())));
     const details = v_flex().min_w_0().gap(12).p(12)
       .child(new MutedText(strings.selected).build(cx))
@@ -264,7 +281,7 @@ export default class G1Trial extends View {
                 || (["rename", "remove"].includes(action) && selected === null))
               .onClick((_event, context) => this.replaceMetadata(action, context)).build(cx))))
         .child(new Button("large-list").label(this.large ? strings.smallList : strings.largeList).outlined()
-          .onClick((_event, context) => { this.large = !this.large; context.notify(); }).build(cx))
+          .onClick((_event, context) => { this.large = !this.large; this.refreshProjection(); context.notify(); }).build(cx))
         .child(h_flex().flex_wrap().gap(6)
           .child(new MutedText(strings.theme).build(cx))
           .children([["dark", strings.dark], ["light", strings.light], ["broken", strings.broken]].map(([choice, label]) =>
