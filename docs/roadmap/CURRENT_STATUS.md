@@ -1,10 +1,19 @@
 # Current delivery status
 
-Updated 2026-10-11. This is the compact current-state entry point; the detailed
+Updated 2026-10-13. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **Setup/removal follow-up, October 13:** frontend-only update over committed
+  Rust 0.8.2 currently has no guided paired-package upgrade. Preserve fresh-only
+  guards and existing ownership; a distinct explicit update path is required.
+  Owner-selected 0.9.9 removal review must be reachable from all setup/normal/
+  error states, while busy or unknown operations block execution. The
+  [owning contract](../development/SETUP_UPGRADE_UNINSTALL_099.md) is SOURCE design;
+  implementation and installed user-path gates are pending. This local finding
+  does not establish the root cause of the separate setup report #772.
 
 - **0.9.8 subscription security correction, #736:** the shared Rust feed
   scanner no longer repeats failed scheme suffixes. Raw/Base64 semantics and
