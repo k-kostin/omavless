@@ -172,6 +172,18 @@ class Peer:
                 "accepted": 0 if self.fault == "no-new" else 2, "duplicates": 1,
                 "skipped": 0}, "previewFingerprint": FINGERPRINT}
         if method == "plugin.action":
+            if self.fault == "cancel-connect":
+                require(set(params) == {"instanceId", "expectedRevision", "operationId",
+                                       "action", "profileId", "mode"}, "positive Connect fields")
+                require(params["instanceId"] == INSTANCE and params["expectedRevision"] == 7
+                        and params["action"] == "connect" and params["mode"] == "rule"
+                        and params["profileId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                        "positive Connect target")
+                require(isinstance(params["operationId"], str) and
+                        1 <= len(params["operationId"]) <= 64, "positive Connect operation")
+                self.revision = 8
+                return {"schemaVersion": 1, "applied": True, "instanceId": INSTANCE,
+                        "operationId": params["operationId"], "action": "connect"}
             fields = {"instanceId", "expectedRevision", "operationId", "action"}
             extra = {"input", "previewFingerprint"} if self.kind == "bundle" else (
                 {"url", "name"} if self.kind == "subscription" else {"input", "name"})
@@ -207,7 +219,11 @@ class Peer:
             self.post_pending = False
             return {"instanceId": owner, "version": 1, "runtimeOwnership": True}, revision
         if method == "capabilities.get":
-            return {"runtimeOwnership": True, "methods": METHODS}
+            # Real ordinary action eligibility must be present in the Unknown
+            # negative row, not vacuously absent. Any unexpected action reaches
+            # the strict peer and fails rather than invoking a host operation.
+            return {"runtimeOwnership": True, "methods": METHODS +
+                    ["connection.connect", "routing.set_mode"]}
         desired = {"connected": False, "profileId": "", "mode": "rule", "generation": 5}
         common = {"schemaVersion": 1, "instanceId": INSTANCE, "transition": None,
                   "desired": desired, "lastKnownActual": "disconnected"}
@@ -365,10 +381,19 @@ def check(binary, locale, kind, fault):
                 require(relevant[:3] == ["system.hello", "imports.classify", "system.hello"],
                         "native classify pre/post hello sequence")
                 require(relevant.count("imports.classify") == 1, "one original classify")
-                if fault == "cancel":
+                if fault in ("cancel", "cancel-connect"):
                     os.write(master, b"\x1b")
                     settle_for(0.35)
                     require("plugin.action" not in peer.methods(), "Cancel must not Save")
+                    if fault == "cancel-connect":
+                        require(not text("tui.import_title"), "positive Cancel left modal")
+                        os.write(master, b"\x1b[B")
+                        settle_for(0.15)
+                        os.write(master, b"c")
+                        wait(lambda: text("tui.confirm"))
+                        os.write(master, b"\r")
+                        wait(lambda: peer.methods().count("plugin.action") == 1)
+                        wait(lambda: peer.methods()[-4:] == METHODS[:4])
                 elif fault == "no-new":
                     os.write(master, b"\r\r")
                     settle_for(0.35)
@@ -398,11 +423,26 @@ def check(binary, locale, kind, fault):
                         key = "tui.import_unknown" if fault == "unknown" else "tui.import_saved"
                         wait(lambda: text(key))
                         if fault == "unknown":
-                            # Unknown import: Enter cannot resend; after leaving,
-                            # ordinary Connect/confirm keys cannot send a new
-                            # mutation either. F3 only reviews the old context.
-                            os.write(master, b"\r\x1b\r\r\x1bOR\r")
-                            settle_for(0.6)
+                            # Separate standalone Escape from following bytes:
+                            # ESC+Enter in one write can decode as Alt+Enter.
+                            # Earn the visibly closed modal before exercising
+                            # global Connect/confirm/mode keys, then visibly
+                            # reopen the retained Unknown context with F3.
+                            os.write(master, b"\r")
+                            settle_for(0.15)
+                            require(text("tui.import_title"), "Unknown modal remains open")
+                            os.write(master, b"\x1b")
+                            wait(lambda: not text("tui.import_title"))
+                            # The closed footer may clip the long notice at70
+                            # columns; modal absence is the observed boundary.
+                            for keys in (b"\x1b[B", b"c", b"\r", b"\r", b"1", b"2", b"3"):
+                                os.write(master, keys)
+                                settle_for(0.15)
+                                require(not text("tui.import_title"), "global keys do not reopen import")
+                            os.write(master, b"\x1bOR")
+                            wait(lambda: text("tui.import_title") and text("tui.import_unknown"))
+                            os.write(master, b"\r")
+                            settle_for(0.15)
                             require(peer.methods().count("plugin.action") == 1,
                                     "unknown Save must not retry")
                             require(peer.methods().count("imports.classify") == 1,
@@ -417,15 +457,18 @@ def check(binary, locale, kind, fault):
             calls = peer.methods()
             classifications = int(not fault.startswith("before-"))
             saves = int(fault in ("save", "unknown"))
+            connect_control = int(fault == "cancel-connect")
+            # Import has a guarded pre-Hello; the existing ordinary action
+            # adapter dispatches its fenced plugin.action without that guard.
             guards = (2 if classifications else 1) + int(saves or fault.startswith("save-"))
             cycles = calls.count("capabilities.get")
             require(calls.count("imports.classify") == classifications and
-                    calls.count("plugin.action") == saves, "final exact classify/Save counts")
+                    calls.count("plugin.action") == saves + connect_control, "final exact classify/action counts")
             require(calls.count("ui.snapshot") == cycles == calls.count("runtime.observation") and
                     calls.count("system.hello") == cycles + guards,
                     "exact native read cycles and import Hello guards")
             return {"classify": calls.count("imports.classify"),
-                    "Save": calls.count("plugin.action"),
+                    "Save": saves, "ConnectControl": connect_control,
                     "HelloGuards": guards, "readCycles": cycles}
         finally:
             if child.poll() is None:
@@ -471,7 +514,7 @@ if __name__ == "__main__":
     cases = [(kind, outcome) for kind in ("bundle", "profile", "subscription")
              for outcome in ("cancel", "save")]
     cases += [("bundle", fault) for fault in ("before-owner", "before-revision",
-              "after-owner", "after-revision", "save-owner", "save-revision", "unknown", "no-new")]
+              "after-owner", "after-revision", "save-owner", "save-revision", "unknown", "no-new", "cancel-connect")]
     for locale in ("en", "ru"):
         for kind, fault in cases:
             counts = check(binary, locale, kind, fault)
