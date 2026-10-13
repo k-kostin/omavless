@@ -24,6 +24,12 @@ terminal input: echoed later lines are not evidence that those commands ran.
 Keep the previous command's exit status separate from the next action, rather
 than treating a returned prompt or batched input as a successful sequence.
 
+For a fixture in another UID's private home, observe file absence as that UID
+or an already authorized administrator. A failed `test -e` without parent
+traversal permission is not absence proof. Distinguish `ENOENT` from permission
+errors and existing symlinks before create-only preparation; do not infer an
+empty destination from the desktop user's inability to inspect it.
+
 ## Before using the VM
 
 Identify the designated sole operator, exact VM directory/image, current QEMU
