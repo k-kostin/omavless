@@ -23,11 +23,10 @@ fn document(version: u8) -> String {
 struct Cache(PathBuf);
 impl Cache {
     fn new(bundle: &str) -> Self {
-        let root = crate::test_temp::directory_under(
-            &crate::test_temp::home_parent().unwrap(),
-            "p4-capture",
-        )
-        .unwrap();
+        // This older #756 lineage has the existing exclusive directory helper
+        // only. The selected test recipe supplies a verified private HOME TMP.
+        // No pathname socket is bound by these resource-only fixtures.
+        let root = crate::test_temp::directory("p4-capture").unwrap();
         fs::DirBuilder::new()
             .mode(0o700)
             .create(root.join("ruleset"))

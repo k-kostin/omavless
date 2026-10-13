@@ -7,6 +7,23 @@ No core, bwrap, namespace, network, VM or privileged action is performed. Rust
 compilation and all new controls remain unrun pending Root's resource release
 and exact-source boundary review.
 
+### Original compile-only refusal retained
+
+At source `036a02b386f657739ee43299ef0b56120a093598`, the bare non-test
+default check (original session `16966`) and feature check (`3586`) both exited
+0. The strict all-target clippy original `91724` exited `101` before any test:
+the new test fixture referenced `test_temp::home_parent`/`directory_under`, but
+the older #756 lineage only supplies the existing exclusive `directory` helper.
+No normal control, authentic DATA row or validator/core execution ran. Dependent
+gates stopped and target/heavy custody was returned after known closure.
+
+The narrow test-only successor uses that existing `directory("p4-capture")`
+under the explicitly selected, verified owned HOME `0700` TMP. These resource
+fixtures bind no pathname socket, so no new short-parent API or allocator is
+needed. Production capture/reader/renderer/execution source remains unchanged.
+Corrected gates need their own immutable source selection; this original
+compile failure is not replayed or relabelled PASS.
+
 ## One closed constructor, not config/manifest pairing
 
 The explicit `p4-candidate-preparation` feature exposes
