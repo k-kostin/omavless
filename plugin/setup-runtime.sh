@@ -82,6 +82,16 @@ pair_selected() {
   jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == true' \
     >/dev/null 2>&1 <<< "$selected"
 }
+pending_dns_boundary() {
+  local selected target
+  pair_installed && user_runtime_stopped && no_managed_tun \
+    && system_broker_stopped && no_broker_socket || return 1
+  target=$(native_target) || return 1
+  [[ "$target" == rust || "$target" == legacy ]] || return 1
+  selected=$(pair_selection_status) || return 1
+  jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
+    >/dev/null 2>&1 <<< "$selected"
+}
 user_runtime_stopped() {
   local state
   state=$(timeout 8 /usr/bin/systemctl --user show omavless-runtime.service --no-pager \
@@ -205,7 +215,8 @@ setup_status() {
           fi
         elif jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
           >/dev/null 2>&1 <<< "$selected"; then
-          if ! system_broker_available; then printf 'needs_broker\n'
+          if pending_dns_boundary; then printf 'needs_dns_setup\n'
+          elif ! system_broker_available; then printf 'needs_broker\n'
           elif ! no_managed_tun; then printf 'needs_attention\n'
           elif user_runtime_stopped; then printf 'needs_selection\n'
           else printf 'needs_runtime_stop\n'; fi
@@ -213,7 +224,9 @@ setup_status() {
           printf 'needs_attention\n'
         fi
         ;;
-      legacy) printf 'needs_activation\n' ;;
+      legacy)
+        if pending_dns_boundary; then printf 'needs_dns_setup\n'
+        else printf 'needs_activation\n'; fi ;;
       *) printf 'needs_attention\n' ;;
     esac
   elif ! fresh_package_boundary; then
@@ -331,6 +344,28 @@ start_existing_broker() {
   setup_step dns-selection pair_selected
 }
 
+resume_pending_dns() {
+  pending_dns_boundary || return 1
+  local choice
+  say 'DNS setup is incomplete. Type START to use an existing enrollment without changing it, or FIRST for first enrollment. Enter cancels. No VPN will connect; existing profiles are preserved.' \
+    'Настройка DNS не завершена. Введите START для запуска с существующей регистрацией без её изменения или FIRST для первой регистрации. Enter отменяет. VPN не подключится; профили сохранятся.'
+  IFS= read -r choice || return 1
+  [[ "$choice" == START || "$choice" == FIRST ]] || return 1
+  pending_dns_boundary || return 1
+  setup_step private-settings prepare_private_store || return 1
+  if [[ "$choice" == START ]]; then
+    # Failure/absence here NEVER means permission to enroll. The user must
+    # explicitly choose FIRST; the root broker then earns its empty-state guard.
+    setup_step broker-enrollment-check existing_enrollment_metadata || return 1
+    setup_step dns-broker-start start_stopped_broker_service || return 1
+    setup_step dns-broker-readiness await_broker_ready || return 1
+    setup_step dns-selection-confirmation finish_pair_selection || return 1
+  else
+    setup_step dns-preconditions enroll_and_select_pair || return 1
+  fi
+  setup_step application-preconditions prepare_application
+}
+
 install_package() {
   local version arch app_hash dns_hash source app_package dns_package url actual
   fresh_package_boundary || return 1
@@ -413,7 +448,7 @@ setup_main() {
   case "$1" in
     status) [[ $# == 1 ]] || return 2; setup_status; return ;;
     components) [[ $# == 1 ]] || return 2; setup_components; return ;;
-    install|finish-selection|start-broker|restore-enrollment) ;;
+    install|finish-selection|start-broker|restore-enrollment|resume-dns) ;;
     *) return 2 ;;
   esac
   [[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2
@@ -428,11 +463,15 @@ setup_main() {
   if [[ "$1" == finish-selection && "$state" != needs_selection ]] \
       || [[ "$1" == start-broker && "$state" != needs_broker_stopped ]] \
       || [[ "$1" == restore-enrollment && "$state" != needs_broker_stopped ]] \
+      || [[ "$1" == resume-dns && "$state" != needs_dns_setup ]] \
       || [[ "$1" == install && "$state" != needs_package && "$state" != needs_activation ]]; then
     say 'Setup is unavailable. No changes made. Check the setup guide.' 'Установка недоступна. Ничего не изменено. Откройте руководство.'
     return 1
   fi
-  if [[ "$1" == start-broker ]]; then
+  if [[ "$1" == resume-dns ]]; then
+    say 'Continue the stopped, unselected DNS setup. First enrollment and use of an existing enrollment are separate choices; unknown results must not be retried.' \
+      'Продолжить настройку остановленного DNS без выбранной пары. Первая и существующая регистрации — отдельные варианты; неизвестный результат нельзя повторять.'
+  elif [[ "$1" == start-broker ]]; then
     say 'Start the existing DNS broker after a clean stop or package update. Enrollment, profiles and startup stay unchanged; no VPN connection is started.' \
         'Запустить существующий DNS-брокер после чистой остановки или обновления пакета. Регистрация, профили и автозапуск не меняются; VPN не подключается.'
   elif [[ "$1" == restore-enrollment ]]; then
@@ -467,7 +506,9 @@ setup_main() {
     # while the user was reading the prompt, or activate a now-unknown owner.
     setup_state_unchanged() { [[ $(setup_status) == "$state" ]]; }
     setup_step setup-state setup_state_unchanged || exit 1
-    if [[ "$1" == finish-selection ]]; then
+    if [[ "$1" == resume-dns ]]; then
+      setup_step dns-preconditions resume_pending_dns || exit 1
+    elif [[ "$1" == finish-selection ]]; then
       setup_step dns-selection-confirmation finish_pair_selection || exit 1
     elif [[ "$1" == start-broker ]]; then
       setup_step dns-preconditions start_existing_broker || exit 1
@@ -509,7 +550,7 @@ setup_main() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   result=0
   setup_main "$@" || result=$?
-  if [[ ( "${1:-}" == install || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment ) && -t 0 ]]; then
+  if [[ ( "${1:-}" == install || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment || "${1:-}" == resume-dns ) && -t 0 ]]; then
     say 'Press Enter to close.' 'Нажмите Enter, чтобы закрыть.'
     IFS= read -r _ || true
   fi

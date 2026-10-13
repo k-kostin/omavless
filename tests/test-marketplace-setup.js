@@ -150,6 +150,18 @@ test('real install handler rejects stale target, arbitrary action and repeated l
   c.launching=false;c.launch.running=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
   c.launching=false;c.launch.running=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
 });
+test('partial DNS entry is explicit and never substitutes for generic broker recovery', () => {
+  for (const present of [false,true]) {
+    const facts=state.inventory('needs_dns_setup\t'+(present?'present':'missing')+'\n',0);
+    assert.equal(state.missingAction(facts),present?'resume-dns':'');
+    assert.equal(state.canRunAction(facts,'resume-dns'),present);
+    assert(!state.canRunAction(facts,'install'));
+    assert(!state.canRunAction({state:'needs_broker',coreInstalled:present},'resume-dns'));
+    assert(state.bootstrapRequired(facts,true,true,false,false,false));
+  }
+  assert(card.includes('"resume_dns"'));
+  assert(card.includes('card.facts.state === "needs_dns_setup"'));
+});
 test('Later closes only the panel and never marks onboarding complete or hides reminders persistently', () => {
   assert(page.includes('onClicked: setup.closeRequested()'));
   assert(!/completeOnboarding|onboardingComplete|settings\.[\w]+\s*=/.test(page));

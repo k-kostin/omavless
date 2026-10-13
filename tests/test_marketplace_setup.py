@@ -154,6 +154,63 @@ native() {
                                   "x86_64": entry(digest)} if digest else {})}
             (self.directory / name).write_text(json.dumps(data))
 
+    def pending_dns_fixture(self):
+        return self.terminal_fixture() + '''
+setup_status() {
+  if [[ -f "$TEST_DIR/selected" ]]; then echo needs_runtime_start;
+  else echo needs_dns_setup; fi
+}
+native_target() { echo rust; }
+system_broker_stopped() { [[ ! -f "$TEST_DIR/broker-started" ]]; }
+no_broker_socket() { [[ ! -f "$TEST_DIR/broker-started" ]]; }
+system_broker_idle() { [[ -f "$TEST_DIR/broker-started" ]]; }
+broker_access_for_user() { [[ -f "$TEST_DIR/broker-started" ]]; }
+existing_enrollment_metadata() { echo metadata >> "$TEST_DIR/trace"; }
+start_stopped_broker_service() { echo start-existing >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker-started"; }
+enroll_uid() { echo first-enroll >> "$TEST_DIR/trace"; }
+start_broker() { echo start-first >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker-started"; }
+await_broker_ready() { system_broker_idle && broker_access_for_user; }
+'''
+
+    def test_pending_dns_existing_enrollment_continues_without_reactivation(self):
+        code = self.pending_dns_fixture() + '\nsetup_main resume-dns en\n'
+        status, output = self.run_terminal(code, 'START\nSELECT\n')
+        self.assertEqual(status, 0, output)
+        self.assertEqual((self.directory / 'trace').read_text().splitlines(),
+                         ['metadata', 'start-existing', 'dns-pair prepare-template', 'dns-pair select'])
+        self.assertIn('Components are prepared', output)
+        self.assertEqual((self.directory / '.config/omavless/profiles.json').read_text(),
+                         'synthetic existing profile data')
+
+    def test_pending_dns_first_enrollment_requires_its_separate_consent(self):
+        code = self.pending_dns_fixture() + '\nsetup_main resume-dns en\n'
+        status, output = self.run_terminal(code, 'FIRST\nDNS\n')
+        self.assertEqual(status, 0, output)
+        self.assertEqual((self.directory / 'trace').read_text().splitlines(),
+                         ['first-enroll', 'start-first', 'dns-pair prepare-template', 'dns-pair select'])
+
+    def test_pending_dns_failed_existing_metadata_never_infers_first_enrollment(self):
+        code = self.pending_dns_fixture() + '''
+existing_enrollment_metadata() { echo metadata-refused >> "$TEST_DIR/trace"; return 1; }
+setup_main resume-dns en
+'''
+        status, output = self.run_terminal(code, 'START\n')
+        self.assertEqual(status, 1)
+        self.assertIn('stage: broker-enrollment-check', output)
+        self.assertEqual((self.directory / 'trace').read_text().splitlines(), ['metadata-refused'])
+        self.assertFalse((self.directory / 'selected').exists())
+
+    def test_pending_dns_cancel_and_stale_boundary_do_not_submit_effects(self):
+        for extra, response in [('', '\n'), ('user_runtime_stopped() { return 1; }', 'FIRST\nDNS\n'),
+                                ('no_broker_socket() { return 1; }', 'START\nSELECT\n'),
+                                ('native_target() { echo unknown; }', 'FIRST\nDNS\n')]:
+            with self.subTest(extra=extra):
+                code = self.pending_dns_fixture() + '\n' + extra + '\nsetup_main resume-dns en\n'
+                status, _ = self.run_terminal(code, response)
+                self.assertEqual(status, 1)
+                self.assertFalse((self.directory / 'trace').exists())
+                self.assertFalse((self.directory / 'selected').exists())
+
     def test_stable_package_identity_requires_stable_schema_and_exact_tuple(self):
         for schema in ("2", "3"):
             code = f'''timeout() {{ shift; "$@"; }}
