@@ -61,6 +61,7 @@ const bindList = new Function("visible", "positions", "nextIndexedProfile", "pla
 const listRun = (input, visible = [{ id: "north" }, { id: "south" }], highlighted = "north") => {
   const calls = [];
   const view = { highlighted, selected: "north", confirmed: "south",
+    projectionCurrent: () => true,
     profileCache: { visible }, updates: { metadata: { selection: (id) => visible.some((row) => row.id === id) ? id : null } },
     listScroll: { scroll_to_item: (index) => calls.push(`scroll:${index}`) },
     panelFocus: { focus: () => calls.push("focus") } };

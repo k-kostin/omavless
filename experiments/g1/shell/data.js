@@ -87,11 +87,19 @@ export function visibleProfiles(query, large = false, collection = "all", metada
 // Status samples/source epochs never enter its key.
 export class ProfileCache {
   #fixtureRows = null;
-  #projection = { key: null, rows: null, terms: null, visible: [], ids: new Set(), positions: new Map() };
+  #projection = { key: null, query: null, large: null, collection: null, rows: null, terms: null,
+    visible: [], ids: new Set(), positions: new Map() };
   get key() { return this.#projection.key; }
   get visible() { return this.#projection.visible; }
   get ids() { return this.#projection.ids; }
   get positions() { return this.#projection.positions; }
+
+  isCurrent(query, large, collection, metadata = null) {
+    const current = this.#projection;
+    const rows = metadata === null ? this.#fixtureRows : metadata.rows;
+    return rows !== null && current.rows === rows && current.query === query
+      && current.large === large && current.collection === collection;
+  }
 
   get(query, large, collection, metadata = null) {
     // One admitted immutable source and one projection, never a query history.
@@ -119,7 +127,8 @@ export class ProfileCache {
       // One publication after all preparation; an interrupted event cannot
       // leave a new row array paired with an old key/index. Old snapshots keep
       // their own unchanged arrays and maps for lazy count/key/range callbacks.
-      this.#projection = { key, rows, terms, visible: Object.freeze(visible), positions, ids };
+      this.#projection = { key, query, large, collection, rows, terms,
+        visible: Object.freeze(visible), positions, ids };
     }
     return this.visible;
   }

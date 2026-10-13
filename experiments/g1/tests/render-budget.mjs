@@ -13,7 +13,7 @@ import { manualTheme, followTheme } from "../shell/theme-client.js";
 
 const source = readFileSync(new URL("../shell/main.js", import.meta.url), "utf8");
 const script = source.replace(/^import[\s\S]*?;\n/gm, "").replace("export default class", "return class");
-let phase = "idle", view, buttons, keys, labels, virtual;
+let phase = "idle", view, buttons, keys, labels, virtual, notices = 0;
 const counts = { init: 0, event: 0, render: 0, navigation: 0 };
 const lower = String.prototype.toLocaleLowerCase;
 const get = data.ProfileCache.prototype.get;
@@ -84,7 +84,7 @@ const input = { new: () => ({ text: "", events: new Map(),
 const context = {
   theme: () => ({ colors: { ring: "ring" } }),
   focus_handle: () => ({ focused: false, focus() { this.focused = true; }, is_focused() { return this.focused; } }),
-  notify: () => {}, stop_propagation: () => {},
+  notify: () => notices++, stop_propagation: () => {},
 };
 const dependencies = {
   View: class {}, InputState: input, Scrollbar: { vertical: flex },
@@ -129,6 +129,8 @@ try {
   assert.equal(first.content, second.content);
   const isolated = new data.ProfileCache();
   assert.equal(isolated.get("north", true, "all", first).length, 1);
+  assert.equal(isolated.isCurrent("north", true, "all", first), true);
+  assert.equal(isolated.isCurrent("north", true, "all", second), false);
   const oldRows = isolated.visible, oldPositions = isolated.positions;
   assert.equal(Object.isFrozen(oldRows), true);
   assert.equal(isolated.get("north", true, "all", second).length, 0);
@@ -143,6 +145,7 @@ try {
   assert.throws(() => isolated.get("south", true, "all", second), /synthetic interrupted preparation/);
   assert.strictEqual(isolated.visible, beforeRows); assert.strictEqual(isolated.positions, beforePositions);
   assert.equal(isolated.key, beforeKey);
+  assert.equal(isolated.isCurrent("south", true, "all", second), false);
   String.prototype.toLocaleLowerCase = function(...args) {
     if (Object.hasOwn(counts, phase)) counts[phase]++;
     return lower.apply(this, args);
@@ -226,8 +229,60 @@ try {
     [view.search, view.listScroll, view.panelFocus, view.listFocus, view.profileCache]
       .forEach((owner, index) => assert.strictEqual(owner, owners[index]));
   }
+
+  // Actual owning state changes BEFORE preparation. In particular the native
+  // editor has already mutated its value before dispatching the change event.
+  // An atomic cache alone must not turn a later palette/locale/status notify
+  // into a render mixing old rows and new state.
+  for (const locale of ["en", "ru"]) for (const mutation of ["query", "large", "collection", "rename", "remove"]) {
+    resetDescriptions(); view = new Trial();
+    byPhase("init", () => view.init({}, context)); view.locale = locale; render();
+    const handlers = buttons, oldKey = keys[0], oldClick = virtual.click;
+    const retainedRows = view.profileCache.visible, retainedPositions = view.profileCache.positions;
+    const eventGet = data.ProfileCache.prototype.get;
+    const noticesBeforeFailure = notices;
+    data.ProfileCache.prototype.get = function() {
+      assert.equal(phase, "event");
+      throw new Error("synthetic preparation failed");
+    };
+    try {
+      assert.throws(() => byPhase("event", () => {
+        if (mutation === "query") {
+          view.search.text = "UNPUBLISHED_RAW_QUERY_CANARY";
+          view.search.events.get("change")({}, context);
+        } else handlers.get(mutation === "large" ? "large-list" : mutation === "collection"
+          ? "collection-generated" : `metadata-${mutation}`)({}, context);
+      }), /synthetic preparation failed/);
+    } finally { data.ProfileCache.prototype.get = eventGet; }
+    assert.equal(notices, noticesBeforeFailure, "preparation must finish before the owning notify");
+    assert.equal(view.projectionCurrent(), false);
+    assert.strictEqual(view.profileCache.visible, retainedRows);
+    assert.strictEqual(view.profileCache.positions, retainedPositions);
+    const selected = view.selected, highlighted = view.highlighted, scrollCount = view.listScroll.calls.length;
+    for (const notify of ["theme-light", "locale", "update-burst"]) {
+      const beforeNotify = notices;
+      byPhase("event", () => handlers.get(notify)({}, context));
+      assert.ok(notices > beforeNotify, "unrelated actual handler must notify before guarded render");
+      assert.throws(() => render(), (error) => error.message === "g1-profile-projection-unavailable");
+      assert.equal(labels.length, 0, "no new descriptions/metadata should be emitted before the fixed refusal");
+      assert.equal(virtual, null);
+      for (const action of ["down", "enter"]) byPhase("navigation", () => oldKey(key(action), context));
+      byPhase("event", () => oldClick("north", context));
+      assert.equal(view.selected, selected); assert.equal(view.highlighted, highlighted);
+      assert.equal(view.listScroll.calls.length, scrollCount);
+    }
+    view.panelFocus.focused = false;
+    byPhase("navigation", () => oldKey(key("escape"), context));
+    assert.equal(view.panelFocus.focused, true, "stale-projection refusal must not trap focus");
+    // Only a subsequent successful owning input event republishes the whole
+    // current projection. No render/layout fallback or automatic retry.
+    byPhase("event", () => view.search.events.get("change")({}, context));
+    assert.equal(view.projectionCurrent(), true); render(); parity();
+    assert.equal(view.selected, selected);
+    assert.equal(view.updates.state.connected, "south");
+  }
   assert.equal(counts.render, 0); assert.equal(counts.navigation, 0);
-  console.log("PASS: actual EN/RU init/event/render handlers; full10006 legacy parity; one terms table; render/navigation lowercase0; indexed18 keys; source/metadata/selection continuity (native UNRUN)");
+  console.log("PASS: actual EN/RU handlers; full10006 legacy parity; render/navigation scans0; indexed18 keys; injected query/large/collection/metadata failure→unrelated notify render refusal; stale callbacks/focus/continuity (native UNRUN)");
 } finally {
   String.prototype.toLocaleLowerCase = lower;
   data.ProfileCache.prototype.get = get;

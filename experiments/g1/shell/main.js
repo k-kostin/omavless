@@ -99,6 +99,10 @@ export default class G1Trial extends View {
     this.profileCache.get(this.search.value(), this.large, this.collection, this.updates.metadata);
   }
 
+  projectionCurrent() {
+    return this.profileCache.isCurrent(this.search.value(), this.large, this.collection, this.updates.metadata);
+  }
+
   applyPalette(choice, context) {
     manualTheme(this);
     const source = choice === "light" ? LIGHT : choice === "broken" ? BROKEN : DARK;
@@ -140,6 +144,11 @@ export default class G1Trial extends View {
     const scene = this.updates.state;
     const connection = connectionPresentation(scene);
     const metadata = this.updates.metadata;
+    // InputState and other owning state may already have changed before an
+    // interrupted preparation. Never combine it with an older projection on
+    // a later unrelated notify. The SDK retains the last whole valid snapshot
+    // and displays this fixed diagnostic; no query or metadata enters it.
+    if (!this.projectionCurrent()) throw new Error("g1-profile-projection-unavailable");
     this.selected = metadata.selection(this.selected);
     const connected = profileById(connection.id, metadata);
     const connectedName = connected?.name ?? (connection.id === null ? strings.none : `${connection.id} · ${strings.missingProfile}`);
@@ -182,10 +191,15 @@ export default class G1Trial extends View {
 
     const navigateList = (event, context) => {
       const key = plainKey(event);
+      if (key === "escape") {
+        this.panelFocus.focus();
+        context.stop_propagation();
+        return;
+      }
       // A callback from the last drawn snapshot can arrive after a new filter
       // or metadata projection was prepared. Its old index must not scroll or
       // inspect an unrelated row in the new projection.
-      if (this.profileCache.visible !== visible) return;
+      if (!this.projectionCurrent() || this.profileCache.visible !== visible) return;
       if (key === "down" || key === "up") {
         const id = nextIndexedProfile(visible, positions, this.highlighted, key === "down" ? 1 : -1);
         if (id !== null && this.updates.metadata.selection(id) !== null) {
@@ -198,9 +212,6 @@ export default class G1Trial extends View {
         && this.updates.metadata.selection(this.highlighted) !== null) {
         this.selected = this.highlighted;
         context.notify();
-        context.stop_propagation();
-      } else if (key === "escape") {
-        this.panelFocus.focus();
         context.stop_propagation();
       }
     };
@@ -223,7 +234,8 @@ export default class G1Trial extends View {
               row(visible[range.start + offset])))
             .size_full().track_scroll(this.listScroll)
             .on_item_click((id, context) => {
-              if (this.updates.metadata.selection(id) === null || !this.profileCache.ids.has(id)) return;
+              if (!this.projectionCurrent() || this.updates.metadata.selection(id) === null
+                || !this.profileCache.ids.has(id)) return;
               this.highlighted = id; this.selected = id; context.notify();
             }))
           .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0())));
