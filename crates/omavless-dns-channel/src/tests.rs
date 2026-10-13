@@ -238,7 +238,7 @@ fn fixed_refusal_and_recovery_do_not_drop_the_proof() {
 
 #[test]
 fn real_private_listener_accepts_expected_uid_and_cleans_its_socket() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
     let path = directory.path().join("channel");
     let uid = rustix::process::geteuid().as_raw();
     let listener = Listener::bind(&path, uid).unwrap();
@@ -256,7 +256,7 @@ fn real_private_listener_accepts_expected_uid_and_cleans_its_socket() {
 
 #[test]
 fn root_peer_required_by_public_client_and_foreign_uid_refused_by_listener() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
     let path = directory.path().join("channel");
     let uid = rustix::process::geteuid().as_raw();
     let listener = Listener::bind(&path, uid + 1).unwrap();
@@ -281,7 +281,7 @@ fn listener_refuses_unsafe_directory_or_existing_target_without_removal() {
 
 #[test]
 fn replaced_socket_path_is_not_removed_by_listener_drop() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
     let path = directory.path().join("channel");
     let listener = Listener::bind(&path, rustix::process::geteuid().as_raw()).unwrap();
     fs::remove_file(&path).unwrap();

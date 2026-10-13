@@ -457,7 +457,11 @@ mod tests {
             AddressFamily, Backlog, SockFlag, SockType, UnixAddr, bind, listen, socket,
         };
         use std::os::fd::AsRawFd;
-        let root = crate::test_temp::directory("relaunch-backlog").unwrap();
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "relaunch-backlog",
+        )
+        .unwrap();
         let path = root.join("s");
         let fd = socket(
             AddressFamily::Unix,
@@ -491,7 +495,11 @@ mod tests {
             FrameKind, decode_request, encode_response, read_unary_frame, write_unary_frame,
         };
         use std::os::unix::net::UnixListener;
-        let root = crate::test_temp::directory("relaunch-retained").unwrap();
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "relaunch-retained",
+        )
+        .unwrap();
         let path = root.join("s");
         let listener = UnixListener::bind(&path).unwrap();
         let stream = connect_ready(&path).unwrap();

@@ -732,6 +732,16 @@ mod tests {
         (root, uid)
     }
 
+    fn socket_root() -> (PathBuf, u32) {
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "observer-socket",
+        )
+        .unwrap();
+        let uid = fs::metadata(&root).unwrap().uid();
+        (root, uid)
+    }
+
     fn executable(root: &Path, body: &str) -> PathBuf {
         let path = root.join("systemctl");
         let staged = root.join(".systemctl.staged");
@@ -927,7 +937,7 @@ mod tests {
             ("200 OK", r#"{"version":false}"#, false),
             ("200 OK", "malformed-private-error", false),
         ] {
-            let root = crate::test_temp::directory("version-liveness").unwrap();
+            let (root, _) = socket_root();
             let uid = fs::metadata(&root).unwrap().uid();
             let socket = root.join("mihomo.sock");
             let listener = UnixListener::bind(&socket).unwrap();
@@ -1004,7 +1014,7 @@ mod tests {
 
     #[test]
     fn stale_native_control_socket_blocks_legacy_cutover() {
-        let (root, uid) = root("native-present");
+        let (root, uid) = socket_root();
         let systemctl = inactive_systemctl(&root);
         let paths = observer_paths(&root, uid, systemctl);
         let rust_directory = paths.rust_control_socket.parent().unwrap();
@@ -1031,7 +1041,7 @@ mod tests {
 
     #[test]
     fn one_exact_legacy_owner_and_private_config_are_ready_to_adopt() {
-        let (root, uid) = root("legacy");
+        let (root, uid) = socket_root();
         let systemctl = executable(
             &root,
             "#!/bin/sh\ncase \"$3\" in\n  omavless.service) printf 'ActiveState=active\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' ;;\n  omavless-runtime.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ;;\n  *) exit 9 ;;\nesac\n",
@@ -1116,7 +1126,7 @@ mod tests {
 
     #[test]
     fn one_exact_rust_owner_matches_config_against_native_controller() {
-        let (root, uid) = root("rust-owner");
+        let (root, uid) = socket_root();
         let systemctl = executable(
             &root,
             "#!/bin/sh\ncase \"$3\" in\n  omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ;;\n  omavless-runtime.service) printf 'ActiveState=active\\nMainPID=52\\nExecMainStatus=0\\nResult=success\\n' ;;\n  *) exit 9 ;;\nesac\n",
