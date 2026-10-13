@@ -19,6 +19,7 @@ enum NativeMode {
     CutTerminal,
     CutCommittedRetirement,
     CutCommittedTicket,
+    CutCommittedComplete,
 }
 
 pub(crate) struct HeldExecution {
@@ -82,6 +83,23 @@ pub(crate) struct HeldExecutionSlot {
     reservation: Option<Arc<Mutex<HeldExecution>>>,
 }
 impl HeldExecutionSlot {
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_reserve_complete_write_fault(&mut self, panic: bool) {
+        assert!(self.original.is_none() && self.reservation.is_none());
+        let mut held = HeldExecution::reserve();
+        held.engine.test_set_complete_write_fault(panic);
+        self.reservation = Some(Arc::new(Mutex::new(held)));
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_complete_cut_unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .engine
+                .complete_cut_unavailable()
+        })
+    }
     #[cfg(all(test, not(feature = "product-private-backup")))]
     pub(super) fn test_reserve_ticket_write_fault(&mut self, panic: bool) {
         assert!(self.original.is_none() && self.reservation.is_none());
@@ -151,6 +169,66 @@ impl Drop for HeldExecutionSlot {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_complete_cut_callback(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        self.run_committed_publication_cut(
+            source,
+            passphrase,
+            cut,
+            NativeMode::CutCommittedComplete,
+        )
+        .0
+        .map(|_| ())
+    }
+    pub(crate) fn cut_current_committed_complete(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        let mut reached = false;
+        let (result, unwound) = self.run_committed_publication_cut(
+            source,
+            passphrase,
+            |step| {
+                if step == crate::manager_actor_service::NativeStep::DispositionComplete {
+                    reached = true;
+                    Err(FirstError::StillFenced)
+                } else {
+                    Ok(())
+                }
+            },
+            NativeMode::CutCommittedComplete,
+        );
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.ordinary_lock.get().is_none()
+                })
+            });
+        if !unwound
+            && reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            result.and(Err(FirstError::StillFenced))
+        }
+    }
     pub(crate) fn cut_current_committed_ticket(
         &mut self,
         source: &Path,
@@ -196,6 +274,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         passphrase: &[u8],
         cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
     ) -> (Result<FirstOutcome, FirstError>, bool) {
+        self.run_committed_publication_cut(source, passphrase, cut, NativeMode::CutCommittedTicket)
+    }
+    fn run_committed_publication_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+        mode: NativeMode,
+    ) -> (Result<FirstOutcome, FirstError>, bool) {
+        if !matches!(
+            mode,
+            NativeMode::CutCommittedTicket | NativeMode::CutCommittedComplete
+        ) {
+            return (Err(FirstError::Admission), false);
+        }
         if !crate::product_scope::restore_enabled() {
             return (Err(FirstError::Admission), false);
         }
@@ -204,13 +297,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return (Err(FirstError::StillFenced), false);
         }
         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.execute_first_restore_mode(
-                source,
-                passphrase,
-                || Ok(()),
-                cut,
-                NativeMode::CutCommittedTicket,
-            )
+            self.execute_first_restore_mode(source, passphrase, || Ok(()), cut, mode)
         }));
         let (result, unwound) = match caught {
             Ok(result) => (result, false),
@@ -500,6 +587,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 | NativeMode::CutTerminal
                 | NativeMode::CutCommittedRetirement
                 | NativeMode::CutCommittedTicket
+                | NativeMode::CutCommittedComplete
         );
         let owned_admission = complete || pause || loss_cut;
         if self.retained_restore_busy() {
@@ -601,6 +689,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             if mode == NativeMode::CutCommittedTicket {
                 engine.execute_native_committed_ticket_cut(&mut origin, prepared, &mut cut)?;
+                return Err(FirstError::StillFenced);
+            }
+            if mode == NativeMode::CutCommittedComplete {
+                engine.execute_native_committed_complete_cut(&mut origin, prepared, &mut cut)?;
                 return Err(FirstError::StillFenced);
             }
             engine
