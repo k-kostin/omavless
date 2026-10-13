@@ -367,9 +367,7 @@ start_existing_broker() {
   setup_step dns-selection pair_selected
 }
 
-resume_pending_dns() {
-  pending_dns_boundary || return 1
-  local choice
+dns_choice_prompt() {
   say 'Choose how to finish DNS setup:' 'Выберите, как завершить настройку DNS:'
   say '' ''
   say '  FIRST — first-time setup of managed DNS on this computer.' \
@@ -389,6 +387,12 @@ resume_pending_dns() {
   say 'If an earlier attempt had an unknown result, inspect it before choosing either option.' \
     'Если результат прошлой попытки неизвестен, сначала проверьте его, не повторяйте настройку.'
   say 'Type FIRST or START, then press Enter:' 'Введите FIRST или START и нажмите Enter:'
+}
+
+resume_pending_dns() {
+  pending_dns_boundary || return 1
+  local choice
+  dns_choice_prompt
   IFS= read -r choice || return 1
   [[ "$choice" == START || "$choice" == FIRST ]] || return 1
   pending_dns_boundary || return 1
