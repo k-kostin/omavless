@@ -4,7 +4,7 @@
 use super::*;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
 const MEMBERS: [&[u8]; 4] = [b"OLD store", b"OLD template", b"NEW store", b"NEW template"];
@@ -284,7 +284,6 @@ impl Fixture {
         result
     }
     fn finish(&mut self, stop: Option<NativeStep>) -> Result<(), FirstError> {
-        let until = Instant::now() + std::time::Duration::from_secs(10);
         let mut cut = |step| {
             if stop == Some(step) {
                 Err(FirstError::StillFenced)
@@ -292,13 +291,20 @@ impl Fixture {
                 Ok(())
             }
         };
+        self.finish_with(&mut cut)
+    }
+    fn finish_with(
+        &mut self,
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        let until = Instant::now() + std::time::Duration::from_secs(10);
         let result = (|| {
             if self.new_output {
                 self.engine
-                    .qualify_final_new_inner(&mut self.gate, &mut cut, until)?;
+                    .qualify_final_new_inner(&mut self.gate, cut, until)?;
             } else {
                 self.engine
-                    .qualify_final_old_inner(&mut self.gate, &mut cut, until)?;
+                    .qualify_final_old_inner(&mut self.gate, cut, until)?;
             }
             self.engine
                 .check_native_completed_inner(&mut self.gate, until)?;
@@ -307,7 +313,7 @@ impl Fixture {
                 nix::unistd::getuid().as_raw(),
                 2,
                 DESIRED,
-                &mut cut,
+                cut,
                 until,
             )
         })();
@@ -728,5 +734,415 @@ fn native_final_new_rechecks_current_inodes_boundaries_closure_catalogue_and_abs
         );
         assert!(f.engine.lower.io.test_retains_original(Slot::Scratch3));
         f.cleanup();
+    }
+}
+
+// Previous complete records here are independently constructed synthetic DATA.
+// Their generation, Desired, terminal choice and pair differ from current ones;
+// no historical record supplies a qualification, lock, guard or durability fact.
+fn past_audit(index: usize) -> Vec<u8> {
+    let members = [
+        b"past OLD".as_slice(),
+        b"past template",
+        b"past NEW",
+        b"other template",
+    ];
+    let terminal = DecisionRecord::intent(
+        1,
+        None,
+        &planned_stage_identity(members).unwrap(),
+        [index as u8 + 1; 16],
+    )
+    .unwrap()
+    .terminal(if index.is_multiple_of(2) {
+        TerminalChoice::Abort
+    } else {
+        TerminalChoice::Commit
+    })
+    .unwrap();
+    assert!(!terminal.matches_owner_desired(2, Some(DESIRED)));
+    let receipt = if index.is_multiple_of(2) {
+        crate::restore_retirement_candidate::RetirementReceipt::from_retained_terminal(
+            &terminal, members,
+        )
+    } else {
+        crate::restore_retirement_candidate::RetirementReceipt::from_retained_committed(
+            &terminal, members,
+        )
+    }
+    .unwrap();
+    let closure =
+        crate::restore_closure_model::ClosureRecord::from_verified_receipt(&receipt).unwrap();
+    let ticket = crate::restore_disposition_ticket_model::Ticket::from_bound_closure(
+        &closure,
+        nix::unistd::getuid().as_raw(),
+        1,
+        None,
+    )
+    .unwrap();
+    crate::restore_disposition_complete_model::CompleteRecord::from_ticket(&ticket)
+        .unwrap()
+        .encode()
+        .to_vec()
+}
+struct PastAudit {
+    name: &'static str,
+    file: File,
+    metadata: Metadata,
+    bytes: Vec<u8>,
+}
+fn prior_audits(state: &Path, count: usize) -> Vec<PastAudit> {
+    native_history::NAMES[..count]
+        .iter()
+        .enumerate()
+        .map(|(index, &name)| {
+            let bytes = past_audit(index);
+            let file = write(&state.join(name), &bytes);
+            PastAudit {
+                name,
+                metadata: file.metadata().unwrap(),
+                file,
+                bytes,
+            }
+        })
+        .collect()
+}
+fn assert_past_unchanged(state: &Path, past: &[PastAudit]) {
+    for audit in past {
+        let held = audit.file.metadata().unwrap();
+        let named = fs::symlink_metadata(state.join(audit.name)).unwrap();
+        assert!(same_member(&audit.metadata, &held) && same_member(&audit.metadata, &named));
+        assert_eq!(audit.metadata.gid(), held.gid());
+        assert_eq!(audit.metadata.gid(), named.gid());
+        assert_eq!(fs::read(state.join(audit.name)).unwrap(), audit.bytes);
+        let mut bytes = vec![0; audit.bytes.len() + 1];
+        let count = audit.file.read_at(&mut bytes, 0).unwrap();
+        assert_eq!(&bytes[..count], audit.bytes);
+    }
+}
+fn final_fixture(new: bool) -> Fixture {
+    if new {
+        Fixture::new_committed("positive")
+    } else {
+        Fixture::new("positive")
+    }
+}
+
+#[test]
+fn native_final_history_old_and_new_append_after_all_seven_prior_prefixes() {
+    for new in [false, true] {
+        for count in 0..native_history::CAPACITY {
+            let mut f = final_fixture(new);
+            let past = prior_audits(&f.state, count);
+            f.capture("positive").unwrap();
+            assert_eq!(f.gate.calls, 0); // bounded audit/free target BEFORE qualification
+            assert_eq!(
+                f.engine.audit.target().unwrap(),
+                native_history::NAMES[count]
+            );
+            assert!(
+                !f.engine.completed
+                    && !f.engine.final_old_qualified()
+                    && !f.engine.final_new_qualified()
+            );
+            f.finish(None).unwrap();
+            f.retained();
+            assert!(f.engine.disposition_ready());
+            assert_eq!(f.engine.final_new_qualified(), new);
+            assert_eq!(f.engine.final_old_qualified(), !new);
+            let (name, bytes) = f
+                .engine
+                .completed_history_data_inner(
+                    &mut f.gate,
+                    Instant::now() + std::time::Duration::from_secs(10),
+                )
+                .unwrap();
+            assert_eq!(name, native_history::NAMES[count]);
+            assert_eq!(fs::read(f.state.join(name)).unwrap(), bytes);
+            let closure = crate::restore_closure_model::ClosureRecord::decode(&f.closure).unwrap();
+            let ticket = crate::restore_disposition_ticket_model::Ticket::from_bound_closure(
+                &closure,
+                nix::unistd::getuid().as_raw(),
+                2,
+                Some(DESIRED),
+            )
+            .unwrap();
+            assert!(
+                crate::restore_disposition_complete_model::CompleteRecord::decode(&bytes)
+                    .unwrap()
+                    .matches_ticket(&ticket)
+            );
+            assert_past_unchanged(&f.state, &past);
+            assert!(!crate::pending_private_transaction::pending_at(&f.state));
+            // This only releases the positively completed SOURCE fixture graph.
+            // Actual FreshRecovery consuming lease/start remains its unchanged
+            // production gate and separately selected installed acceptance.
+            let Fixture {
+                root,
+                state,
+                engine,
+                gate,
+                live,
+                lock,
+                ..
+            } = f;
+            drop((engine, gate, live));
+            rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+            assert_past_unchanged(&state, &past);
+            drop((past, lock));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[test]
+fn native_final_history_exhausted_sparse_torn_unsafe_and_unknown_refuse_before_quiescence() {
+    for new in [false, true] {
+        for case in [
+            "full",
+            "sparse",
+            "torn",
+            "corrupt",
+            "mode",
+            "symlink",
+            "directory",
+            "hardlink",
+            "xattr",
+            "unknown",
+            "suffix",
+            "dot-prefix",
+        ] {
+            let mut f = final_fixture(new);
+            let count = if case == "full" {
+                native_history::CAPACITY
+            } else {
+                1
+            };
+            let past = if matches!(case, "symlink" | "directory") {
+                vec![]
+            } else {
+                prior_audits(&f.state, count)
+            };
+            let path = f.state.join(native_history::NAMES[0]);
+            match case {
+                "full" => {}
+                "sparse" => {
+                    fs::rename(&path, f.state.join(native_history::NAMES[2])).unwrap();
+                }
+                "torn" => {
+                    OpenOptions::new()
+                        .write(true)
+                        .open(&path)
+                        .unwrap()
+                        .set_len(1)
+                        .unwrap();
+                }
+                "corrupt" => {
+                    OpenOptions::new()
+                        .write(true)
+                        .open(&path)
+                        .unwrap()
+                        .write_all(b"x")
+                        .unwrap();
+                }
+                "mode" => fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap(),
+                "symlink" => symlink("missing", &path).unwrap(),
+                "directory" => fs::DirBuilder::new().mode(0o700).create(&path).unwrap(),
+                "hardlink" => fs::hard_link(&path, f.state.join("prior-alias")).unwrap(),
+                "xattr" => rustix::fs::lsetxattr(
+                    &path,
+                    "user.t4_history_test",
+                    b"public",
+                    rustix::fs::XattrFlags::empty(),
+                )
+                .unwrap(),
+                "unknown" => {
+                    drop(write(&f.state.join("restore-unrelated"), b"public"));
+                }
+                "suffix" => {
+                    drop(write(
+                        &f.state.join("restore-disposition.history.8"),
+                        &past_audit(2),
+                    ));
+                }
+                "dot-prefix" => {
+                    drop(write(
+                        &f.state.join(".restore-disposition.history"),
+                        &past_audit(2),
+                    ));
+                }
+                _ => unreachable!(),
+            }
+            let before: Vec<_> = past
+                .iter()
+                .map(|p| {
+                    (
+                        p.file.metadata().unwrap(),
+                        fs::read(f.state.join(if case == "sparse" {
+                            native_history::NAMES[2]
+                        } else {
+                            p.name
+                        }))
+                        .unwrap(),
+                    )
+                })
+                .collect();
+            assert!(
+                f.capture("positive").is_err(),
+                "public history refusal {new}/{case}"
+            );
+            assert_eq!(f.gate.calls, 0);
+            assert!(
+                f.engine.sealed
+                    && !f.engine.completed
+                    && !f.engine.final_old_qualified()
+                    && !f.engine.final_new_qualified()
+            );
+            assert!(f.engine.lower.io.test_retains_original(Slot::Scratch3));
+            assert!(
+                f.state
+                    .join(crate::restore_closure_model::CLOSURE_MEMBER)
+                    .exists()
+            );
+            for (p, (metadata, bytes)) in past.iter().zip(before) {
+                assert!(same_member(&metadata, &p.file.metadata().unwrap()));
+                assert_eq!(
+                    fs::read(f.state.join(if case == "sparse" {
+                        native_history::NAMES[2]
+                    } else {
+                        p.name
+                    }))
+                    .unwrap(),
+                    bytes
+                );
+            }
+            drop(past);
+            f.cleanup();
+        }
+    }
+}
+
+#[test]
+fn native_final_history_drift_and_target_collision_at_gates_seal_the_original() {
+    for new in [false, true] {
+        for step in [
+            if new {
+                NativeStep::FinalNewSourceSynced(0)
+            } else {
+                NativeStep::FinalOldSourceSynced(0)
+            },
+            NativeStep::DispositionTicket,
+            NativeStep::DispositionComplete,
+            NativeStep::HistoryRenamePrepared,
+            NativeStep::HistorySynced,
+        ] {
+            for case in ["inode", "bytes", "mode", "xattr", "collision"] {
+                let mut f = final_fixture(new);
+                let past = prior_audits(&f.state, 2);
+                f.capture("positive").unwrap();
+                let state = f.state.clone();
+                let path = state.join(native_history::NAMES[0]);
+                let target = state.join(native_history::NAMES[2]);
+                let mut reached = false;
+                let result = f.finish_with(&mut |event| {
+                    if event == step {
+                        reached = true;
+                        match case {
+                            "inode" => {
+                                fs::rename(&path, state.join("displaced-audit")).unwrap();
+                                drop(write(&path, &past_audit(0)));
+                            }
+                            "bytes" => {
+                                OpenOptions::new()
+                                    .write(true)
+                                    .open(&path)
+                                    .unwrap()
+                                    .write_all(b"x")
+                                    .unwrap();
+                            }
+                            "mode" => fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
+                                .unwrap(),
+                            "xattr" => rustix::fs::lsetxattr(
+                                &path,
+                                "user.t4_history_test",
+                                b"public",
+                                rustix::fs::XattrFlags::empty(),
+                            )
+                            .unwrap(),
+                            "collision" => {
+                                // After rename this is a same-byte replacement of
+                                // the published target, never recaptured as past.
+                                if target.exists() {
+                                    fs::rename(&target, state.join("displaced-target")).unwrap();
+                                }
+                                drop(write(&target, &past_audit(3)));
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    Ok(())
+                });
+                assert!(
+                    reached && result.is_err(),
+                    "public drift {new}/{step:?}/{case}"
+                );
+                assert!(f.engine.sealed && !f.engine.disposition_ready());
+                f.retained();
+                assert!(f.finish(None).is_err()); // mutation cannot rearm or recapture
+                assert_eq!(
+                    fs::read(state.join(native_history::NAMES[1])).unwrap(),
+                    past[1].bytes
+                );
+                assert!(same_member(
+                    &past[1].metadata,
+                    &past[1].file.metadata().unwrap()
+                ));
+                drop(past);
+                f.cleanup();
+            }
+        }
+    }
+}
+
+#[test]
+fn native_final_history_all_sync_disposition_cuts_preserve_prior_audits() {
+    for new in [false, true] {
+        let mut steps: Vec<_> = (0..10)
+            .map(|i| {
+                if new {
+                    NativeStep::FinalNewSourceSynced(i)
+                } else {
+                    NativeStep::FinalOldSourceSynced(i)
+                }
+            })
+            .collect();
+        steps.extend([
+            NativeStep::EndpointSynced,
+            NativeStep::EndpointRetired,
+            NativeStep::DispositionTicket,
+            NativeStep::DispositionComplete,
+            NativeStep::DispositionClosureUnlinked,
+            NativeStep::DispositionTicketUnlinked,
+            NativeStep::HistoryRenamePrepared,
+            NativeStep::HistoryRenamed,
+            NativeStep::HistorySynced,
+            NativeStep::History,
+        ]);
+        for step in steps {
+            let mut f = final_fixture(new);
+            let past = prior_audits(&f.state, 7);
+            f.capture("positive").unwrap();
+            assert!(
+                f.finish(Some(step)).is_err(),
+                "public history cut {new}/{step:?}"
+            );
+            assert!(f.engine.sealed && !f.engine.disposition_ready());
+            f.retained();
+            assert_past_unchanged(&f.state, &past);
+            assert!(f.finish(None).is_err());
+            assert_past_unchanged(&f.state, &past);
+            drop(past);
+            f.cleanup();
+        }
     }
 }
