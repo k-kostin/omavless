@@ -21,6 +21,7 @@ const STAGING: &str = ".managed-dns-selection.candidate";
 const TEMPLATE: &str = "route-template.yaml";
 const TEMPLATE_BACKUP: &str = "route-template.pre-managed-dns.yaml";
 const TEMPLATE_STAGING: &str = ".route-template.managed-dns.candidate";
+#[cfg(test)]
 const DEFAULT_TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
 const MAX_TEMPLATE_BYTES: u64 = 1024 * 1024;
 
@@ -38,7 +39,7 @@ impl std::fmt::Display for Error {
                 "DNS pair selection refused; keep the VPN disconnected and inspect setup"
             }
             Self::TemplateRefused => {
-                "DNS template unchanged; only the exact bundled default is upgraded automatically"
+                "DNS template unchanged; only exact bundled default mode variants are upgraded automatically"
             }
             Self::OutcomeUnknown => {
                 "DNS pair selection outcome unknown; inspect status before retrying"
@@ -228,7 +229,8 @@ pub fn select_current() -> Result<Value, Error> {
     )
 }
 
-/// Upgrade only the byte-for-byte bundled default. Custom user routing policy
+/// Upgrade only byte-exact bundled default rule/global/direct variants.
+/// Preserve the saved mode header and Desired state. Custom user routing policy
 /// must be reviewed by the owner; this command never rewrites an unknown YAML
 /// dialect or silently merges a partially managed template.
 pub fn prepare_template_current() -> Result<Value, Error> {
@@ -273,22 +275,17 @@ fn prepare_template_at(directory: &Path, uid: u32) -> Result<bool, Error> {
     if managed_template(directory, uid) {
         return Ok(false);
     }
-    if original != DEFAULT_TEMPLATE
+    let original_text = std::str::from_utf8(&original).map_err(|_| Error::Refused)?;
+    if !crate::managed_template::is_bundled_default_mode_variant(original_text)
         || !absent(&directory.join(TEMPLATE_BACKUP))?
         || !absent(&directory.join(TEMPLATE_STAGING))?
     {
         return Err(Error::Refused);
     }
-    let default = std::str::from_utf8(DEFAULT_TEMPLATE).map_err(|_| Error::Refused)?;
-    let anchor = "  device: Meta\n";
-    if default.matches(anchor).count() != 1 {
-        return Err(Error::Refused);
-    }
-    let candidate = default.replacen(
-        anchor,
-        "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
-        1,
-    );
+    // Reuse the selected-rendering flag policy only after the narrower default
+    // classifier. Its readiness argument checks flags, not the saved YAML mode;
+    // runtime rendering continues to use the independently read actual Desired.
+    let candidate = crate::managed_template::for_host(original_text, true).ok_or(Error::Refused)?;
     if !ConfigReadiness::from_generated_config(RoutingMode::Rule, String::new(), &candidate)
         .is_some_and(|policy| policy.managed_dns())
     {
@@ -440,6 +437,152 @@ mod tests {
         assert!(managed_template(root.path(), uid));
         assert_eq!(prepare_template_at(root.path(), uid), Ok(false));
         assert!(!root.path().join(TEMPLATE_STAGING).exists());
+    }
+
+    #[test]
+    fn default_mode_variants_preserve_header_original_and_desired_bytes() {
+        for mode in [RoutingMode::Rule, RoutingMode::Global, RoutingMode::Direct] {
+            let root = tempfile::tempdir().unwrap();
+            let uid = Uid::current().as_raw();
+            fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+            let original = omavless_domain::routing::template_with_mode(
+                std::str::from_utf8(DEFAULT_TEMPLATE).unwrap(),
+                mode.as_str(),
+            )
+            .unwrap();
+            let template = root.path().join(TEMPLATE);
+            fs::write(&template, &original).unwrap();
+            fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+            let desired = root.path().join("desired.json");
+            // Saved headers are not authoritative connection intent. Use a
+            // different actual Desired mode to catch accidental resetting.
+            let desired_mode = match mode {
+                RoutingMode::Global => RoutingMode::Rule,
+                _ => RoutingMode::Global,
+            };
+            let desired_bytes = format!(
+                "{{\"schemaVersion\":1,\"generation\":7,\"connected\":false,\"profileId\":\"\",\"mode\":\"{}\"}}\n",
+                desired_mode.as_str()
+            );
+            fs::write(&desired, &desired_bytes).unwrap();
+            let before = fs::metadata(&desired).unwrap();
+            assert!(
+                !ConfigReadiness::from_generated_config(mode, String::new(), &original)
+                    .unwrap()
+                    .managed_dns()
+            );
+
+            assert_eq!(prepare_template_at(root.path(), uid), Ok(true));
+            let candidate = fs::read_to_string(&template).unwrap();
+            assert_eq!(
+                candidate,
+                original.replacen(
+                    "  device: Meta\n",
+                    "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
+                    1
+                )
+            );
+            let policy =
+                ConfigReadiness::from_generated_config(mode, String::new(), &candidate).unwrap();
+            assert!(policy.managed_dns());
+            assert_eq!(policy.mode, mode);
+            let generated =
+                omavless_domain::routing::template_with_mode(&candidate, desired_mode.as_str())
+                    .unwrap();
+            let readiness =
+                ConfigReadiness::from_generated_config(desired_mode, String::new(), &generated)
+                    .unwrap();
+            assert!(readiness.managed_dns());
+            assert_eq!(readiness.mode, desired_mode);
+            assert_eq!(
+                fs::read(root.path().join(TEMPLATE_BACKUP)).unwrap(),
+                original.as_bytes()
+            );
+            assert_eq!(prepare_template_at(root.path(), uid), Ok(false));
+            assert_eq!(fs::read_to_string(&template).unwrap(), candidate);
+            assert_eq!(fs::read(&desired).unwrap(), desired_bytes.as_bytes());
+            let after = fs::metadata(&desired).unwrap();
+            assert_eq!(
+                (
+                    before.ino(),
+                    before.len(),
+                    before.mtime(),
+                    before.mtime_nsec()
+                ),
+                (after.ino(), after.len(), after.mtime(), after.mtime_nsec())
+            );
+            assert!(!root.path().join(TEMPLATE_STAGING).exists());
+        }
+    }
+
+    #[test]
+    fn default_mode_variants_refuse_custom_partial_and_occupied_members_before_writes() {
+        let default = std::str::from_utf8(DEFAULT_TEMPLATE).unwrap();
+        for mode in ["rule", "global", "direct"] {
+            let original = omavless_domain::routing::template_with_mode(default, mode).unwrap();
+            let invalid = [
+                format!("{original}# customization\n"),
+                original.replace("allow-lan: false", "allow-lan: true"),
+                original.replace("  device: Meta\n", "  device: other\n"),
+                original.replace(
+                    "  device: Meta\n",
+                    "  device: Meta\n  disable-system-dns: true\n",
+                ),
+                original.replace(
+                    "  device: Meta\n",
+                    "  device: Meta\n  omavless-dns-broker: true\n",
+                ),
+                original.replace(
+                    "  device: Meta\n",
+                    "  device: Meta\n  disable-system-dns: false\n  omavless-dns-broker: true\n",
+                ),
+                original.replace('\n', "\r\n"),
+                omavless_domain::routing::template_with_mode(
+                    include_str!("../../../templates/china.yaml"),
+                    mode,
+                )
+                .unwrap(),
+                omavless_domain::routing::template_with_mode(
+                    include_str!("../../../templates/iran.yaml"),
+                    mode,
+                )
+                .unwrap(),
+            ];
+            for text in invalid {
+                assert_ne!(text, original);
+                let root = tempfile::tempdir().unwrap();
+                let uid = Uid::current().as_raw();
+                fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+                let template = root.path().join(TEMPLATE);
+                fs::write(&template, &text).unwrap();
+                fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+                assert_eq!(prepare_template_at(root.path(), uid), Err(Error::Refused));
+                assert_eq!(fs::read(&template).unwrap(), text.as_bytes());
+                assert!(!root.path().join(TEMPLATE_BACKUP).exists());
+                assert!(!root.path().join(TEMPLATE_STAGING).exists());
+            }
+            for occupied in [TEMPLATE_BACKUP, TEMPLATE_STAGING] {
+                let root = tempfile::tempdir().unwrap();
+                let uid = Uid::current().as_raw();
+                fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+                let template = root.path().join(TEMPLATE);
+                fs::write(&template, &original).unwrap();
+                fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+                fs::write(root.path().join(occupied), b"retained existing member").unwrap();
+                assert_eq!(prepare_template_at(root.path(), uid), Err(Error::Refused));
+                assert_eq!(fs::read(&template).unwrap(), original.as_bytes());
+                assert_eq!(
+                    fs::read(root.path().join(occupied)).unwrap(),
+                    b"retained existing member"
+                );
+                let other = if occupied == TEMPLATE_BACKUP {
+                    TEMPLATE_STAGING
+                } else {
+                    TEMPLATE_BACKUP
+                };
+                assert!(!root.path().join(other).exists());
+            }
+        }
     }
 
     #[test]

@@ -13,6 +13,19 @@ const BUNDLES: [&str; 3] = [
 const ANCHOR: &str = "  device: Meta\n";
 const MANAGED: &str = "  device: Meta\n  disable-system-dns: true\n  omavless-dns-broker: true\n";
 
+fn is_bundled_mode_variant(bundle: &str, template: &str) -> bool {
+    ["rule", "global", "direct"].iter().any(|mode| {
+        omavless_domain::routing::template_with_mode(bundle, mode)
+            .is_ok_and(|candidate| candidate == template)
+    })
+}
+
+/// Only byte-exact default variants qualify for persistent setup preparation.
+/// Rendering also accepts the other presets, but that is a separate boundary.
+pub(crate) fn is_bundled_default_mode_variant(template: &str) -> bool {
+    is_bundled_mode_variant(BUNDLES[0], template)
+}
+
 pub(crate) fn for_host(template: &str, selected: bool) -> Option<Cow<'_, str>> {
     if template.len() > omavless_domain::config::MAX_TEMPLATE_BYTES {
         return None;
@@ -31,12 +44,9 @@ pub(crate) fn for_host(template: &str, selected: bool) -> Option<Cow<'_, str>> {
     }
     // No YAML rewriting of custom/partial policies. Only exact trusted bundles
     // and their existing canonical mode variants earn this local rendering.
-    let known = BUNDLES.iter().any(|bundle| {
-        ["rule", "global", "direct"].iter().any(|mode| {
-            omavless_domain::routing::template_with_mode(bundle, mode)
-                .is_ok_and(|candidate| candidate == template)
-        })
-    });
+    let known = BUNDLES
+        .iter()
+        .any(|bundle| is_bundled_mode_variant(bundle, template));
     if !known || template.matches(ANCHOR).count() != 1 {
         return None;
     }
@@ -56,9 +66,10 @@ mod tests {
 
     #[test]
     fn every_plain_preset_and_mode_gets_local_flags_without_changing_source() {
-        for bundle in BUNDLES {
+        for (index, bundle) in BUNDLES.into_iter().enumerate() {
             for mode in ["rule", "global", "direct"] {
                 let original = omavless_domain::routing::template_with_mode(bundle, mode).unwrap();
+                assert_eq!(is_bundled_default_mode_variant(&original), index == 0);
                 let rendered = for_host(&original, true).unwrap();
                 assert!(matches!(rendered, Cow::Owned(_)));
                 assert_eq!(rendered, original.replacen(ANCHOR, MANAGED, 1));
