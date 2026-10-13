@@ -31,7 +31,7 @@ class MarketplaceVisualStagingTests(unittest.TestCase):
         result = self.stage()
         self.assertEqual(result.returncode, 0, result.stderr)
         capture = Path(result.stdout.strip())
-        self.assertEqual(capture.parent, Path("/tmp"))
+        self.assertEqual(capture.parent, Path.home() / ".cache" / "ovt")
         self.assertTrue(capture.name.startswith("omavless-marketplace."))
         self.assertTrue(capture.is_dir() and not capture.is_symlink())
         self.addCleanup(shutil.rmtree, capture)
