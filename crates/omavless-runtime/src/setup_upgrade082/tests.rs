@@ -77,6 +77,96 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn stopped_post_reboot_owner_acquires_fresh_volatile_exclusions() {
+    let f = Fixture::new();
+    let scope = f.scope();
+    let profiles = fs::read(scope.config.join("profiles.json")).unwrap();
+    let desired = fs::read(scope.cutover.state_directory.join("desired.json")).unwrap();
+    fs::remove_file(&scope.runtime.owner_lock).unwrap();
+    fs::remove_dir(&scope.runtime.directory).unwrap();
+    fs::remove_file(&scope.cutover.operation_lock).unwrap();
+    let mut context = f.acquire().expect("cold stopped owner must be supported");
+    assert!(f.contends(&scope.runtime.owner_lock));
+    assert!(f.contends(&scope.cutover.operation_lock));
+    context.recheck_private().unwrap();
+    assert_eq!(
+        fs::read(scope.config.join("profiles.json")).unwrap(),
+        profiles
+    );
+    assert_eq!(
+        fs::read(scope.cutover.state_directory.join("desired.json")).unwrap(),
+        desired
+    );
+}
+
+#[test]
+fn cold_connected_or_startup_on_refuses_before_volatile_creation() {
+    for connected in [false, true] {
+        let f = Fixture::new();
+        let scope = f.scope();
+        fs::remove_file(&scope.runtime.owner_lock).unwrap();
+        fs::remove_dir(&scope.runtime.directory).unwrap();
+        fs::remove_file(&scope.cutover.operation_lock).unwrap();
+        let path = if connected {
+            scope.cutover.state_directory.join("desired.json")
+        } else {
+            scope.config.join("profiles.json")
+        };
+        let before = fs::read_to_string(&path).unwrap();
+        let mut after = before.replace(
+            if connected {
+                "\"connected\":false"
+            } else {
+                "\"enabled\":false"
+            },
+            if connected {
+                "\"connected\":true"
+            } else {
+                "\"enabled\":true"
+            },
+        );
+        if connected {
+            after = after.replace("\"profileId\":\"\"", "\"profileId\":\"synthetic\"");
+        }
+        f.put(&path, after.as_bytes());
+        assert!(matches!(
+            f.acquire(),
+            Err(Blocker::DesiredConnected | Blocker::StartupRequiresOff)
+        ));
+        assert!(!scope.runtime.directory.exists());
+        assert!(!scope.cutover.operation_lock.exists());
+        assert_eq!(fs::read(&path).unwrap(), after.as_bytes());
+    }
+}
+
+#[test]
+fn existing_unsafe_exclusions_are_never_repaired_or_adopted() {
+    for migration in [false, true] {
+        for kind in ["mode", "symlink", "hardlink"] {
+            let f = Fixture::new();
+            let scope = f.scope();
+            let path = if migration {
+                &scope.cutover.operation_lock
+            } else {
+                &scope.runtime.owner_lock
+            };
+            let alias = f.root.join("alias");
+            match kind {
+                "mode" => fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap(),
+                "symlink" => {
+                    fs::rename(path, &alias).unwrap();
+                    std::os::unix::fs::symlink(&alias, path).unwrap();
+                }
+                _ => fs::hard_link(path, &alias).unwrap(),
+            }
+            let before = fs::symlink_metadata(path).unwrap();
+            assert!(matches!(f.acquire(), Err(Blocker::ExclusionUnavailable)));
+            assert!(same(&before, &fs::symlink_metadata(path).unwrap()));
+        }
+    }
+}
+
+#[test]
 fn original_two_flocks_exclude_another_process_until_context_drop() {
     let f = Fixture::new();
     let scope = f.scope();
@@ -97,7 +187,7 @@ fn original_two_flocks_exclude_another_process_until_context_drop() {
 }
 
 #[test]
-fn busy_absent_and_replaced_original_locks_refuse_without_repair() {
+fn busy_existing_and_replaced_original_locks_refuse_without_repair() {
     for migration in [false, true] {
         let f = Fixture::new();
         let scope = f.scope();
@@ -110,8 +200,11 @@ fn busy_absent_and_replaced_original_locks_refuse_without_repair() {
         assert!(matches!(f.acquire(), Err(Blocker::Busy)));
         drop(held);
         fs::remove_file(path).unwrap();
-        assert!(matches!(f.acquire(), Err(Blocker::ExclusionUnavailable)));
-        assert!(!path.exists());
+        let context = f
+            .acquire()
+            .expect("partial absent volatile lock is created natively");
+        assert!(f.contends(path));
+        drop(context);
     }
     for migration in [false, true] {
         let f = Fixture::new();

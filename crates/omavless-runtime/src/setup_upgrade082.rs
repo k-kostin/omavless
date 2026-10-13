@@ -434,8 +434,10 @@ pub(crate) struct UpgradeContext {
 }
 impl UpgradeContext {
     fn acquire(scope: Scope, uid: u32, observed_units: [String; 2]) -> Result<Self> {
-        let directories = [
-            &scope.runtime.directory,
+        // /run is boot-local. These descriptors exclude this original update,
+        // not prove that a historical daemon once created a lock pathname.
+        // Persistent ownership/configuration is never initialized or repaired.
+        let mut directories = [
             &scope.cutover.runtime_base,
             &scope.cutover.state_directory,
             &scope.config,
@@ -443,33 +445,81 @@ impl UpgradeContext {
         .into_iter()
         .map(|path| Directory::pin(path, uid))
         .collect::<Result<Vec<_>>>()?;
+        precheck_stopped_owner(&scope, uid)?;
+        if scope.runtime.directory != scope.cutover.runtime_base.join("omavless")
+            || scope.runtime.owner_lock != scope.runtime.directory.join(crate::OWNER_LOCK_NAME)
+        {
+            return Err(Blocker::Environment);
+        }
+        if absent(&scope.runtime.directory) {
+            nix::sys::stat::mkdirat(
+                &directories[0].file,
+                "omavless",
+                nix::sys::stat::Mode::from_bits_truncate(0o700),
+            )
+            .map_err(|_| Blocker::StateChanged)?;
+        }
+        directories[0].recheck()?;
+        directories.push(Directory::pin(&scope.runtime.directory, uid)?);
         if !absent(&scope.runtime.socket) || !absent(&scope.runtime.directory.join("mihomo.sock")) {
             return Err(Blocker::RuntimeActive);
         }
         let path = &scope.runtime.owner_lock;
-        let identity = fs::symlink_metadata(path).map_err(|_| Blocker::ExclusionUnavailable)?;
+        let prior = match fs::symlink_metadata(path) {
+            Ok(identity) => Some(identity),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(Blocker::ExclusionUnavailable),
+        };
+        if prior.as_ref().is_some_and(|identity| {
+            !identity.is_file()
+                || identity.uid() != uid
+                || identity.mode() & 0o7777 != 0o600
+                || identity.nlink() != 1
+        }) {
+            return Err(Blocker::ExclusionUnavailable);
+        }
+        let mut flags = nix::fcntl::OFlag::O_RDWR
+            | nix::fcntl::OFlag::O_NOFOLLOW
+            | nix::fcntl::OFlag::O_NONBLOCK
+            | nix::fcntl::OFlag::O_CLOEXEC;
+        if prior.is_none() {
+            flags |= nix::fcntl::OFlag::O_CREAT | nix::fcntl::OFlag::O_EXCL;
+        }
+        let file = File::from(
+            nix::fcntl::openat(
+                &directories[3].file,
+                crate::OWNER_LOCK_NAME,
+                flags,
+                nix::sys::stat::Mode::from_bits_truncate(0o600),
+            )
+            .map_err(|_| Blocker::ExclusionUnavailable)?,
+        );
+        let identity = file.metadata().map_err(|_| Blocker::ExclusionUnavailable)?;
         if !identity.is_file()
             || identity.uid() != uid
             || identity.mode() & 0o7777 != 0o600
             || identity.nlink() != 1
+            || prior
+                .as_ref()
+                .is_some_and(|before| !same(before, &identity))
+            || !same(
+                &identity,
+                &fs::symlink_metadata(path).map_err(|_| Blocker::StateChanged)?,
+            )
         {
             return Err(Blocker::ExclusionUnavailable);
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-            .open(path)
-            .map_err(|_| Blocker::ExclusionUnavailable)?;
-        if !same(
-            &identity,
-            &file.metadata().map_err(|_| Blocker::ExclusionUnavailable)?,
-        ) {
-            return Err(Blocker::StateChanged);
         }
         let held =
             Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_, _)| Blocker::Busy)?;
         let owner = OwnerLock { _file: held };
-        let migration = MigrationLock::acquire_existing(&scope.cutover, uid).map_err(|error| {
+        // Never use the legacy permission-repairing normal acquisition for
+        // an existing inode. Exclusive fresh creation cannot adopt a winner.
+        let migration = if absent(&scope.cutover.operation_lock) {
+            MigrationLock::acquire_absent(&scope.cutover, uid)
+        } else {
+            MigrationLock::acquire_existing(&scope.cutover, uid)
+        }
+        .map_err(|error| {
             if error == crate::cutover::CutoverError::Busy {
                 Blocker::Busy
             } else {
@@ -653,6 +703,51 @@ impl UpgradeContext {
     }
 }
 
+fn precheck_stopped_owner(scope: &Scope, uid: u32) -> Result<()> {
+    // Advisory prerequisite before ephemeral writes. Authority is earned again
+    // from fresh descriptor-backed captures under BOTH original held flocks.
+    let marker = read_marker_existing(&scope.cutover, uid).map_err(|_| Blocker::Ownership)?;
+    if marker.phase() != OwnershipPhase::Rust
+        || crate::frontend_bridge::read_committed_plugin_target(&scope.cutover, uid)
+            .map_err(|_| Blocker::Ownership)?
+            != BridgeTarget::Rust
+    {
+        return Err(Blocker::Ownership);
+    }
+    let desired = Captured::read(
+        &scope.cutover.state_directory.join("desired.json"),
+        uid,
+        0o600,
+        MAX_DESIRED_STATE_BYTES as usize,
+    )
+    .map_err(|_| Blocker::DesiredUnavailable)?;
+    let desired: DesiredState =
+        serde_json::from_slice(&desired.bytes).map_err(|_| Blocker::DesiredUnavailable)?;
+    desired
+        .validate()
+        .map_err(|_| Blocker::DesiredUnavailable)?;
+    if desired.connected {
+        return Err(Blocker::DesiredConnected);
+    }
+    let store = Captured::read(
+        &scope.config.join("profiles.json"),
+        uid,
+        0o600,
+        MAX_PRIVATE_STORE_BYTES,
+    )
+    .map_err(|_| Blocker::PrivateState)?;
+    let raw: serde_json::Value =
+        serde_json::from_slice(&store.bytes).map_err(|_| Blocker::PrivateState)?;
+    if raw["startupConfigured"] != true || raw["startup"]["enabled"] != false {
+        return Err(Blocker::StartupRequiresOff);
+    }
+    validate_existing_store_without_repair(
+        std::str::from_utf8(&store.bytes).map_err(|_| Blocker::PrivateState)?,
+    )
+    .map_err(|_| Blocker::PrivateState)?;
+    Ok(())
+}
+
 /// Internal admission only, never an exported advisory ticket. The concrete
 /// consumer keeps this ORIGINAL value through its entire package-only phase.
 pub(crate) fn acquire_current() -> Result<UpgradeContext> {
@@ -660,9 +755,13 @@ pub(crate) fn acquire_current() -> Result<UpgradeContext> {
         let uid = Uid::current().as_raw();
         let scope = Scope::current(uid)?;
         predecessor()?;
-        let mut context = UpgradeContext::acquire(scope, uid, units()?)?;
+        let observed_units = units()?;
         let observer = crate::production_observation::ProductionOwnershipObserver::current()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;
+        observer
+            .verify_native_empty()
+            .map_err(|_| Blocker::HostAdmissionUnavailable)?;
+        let mut context = UpgradeContext::acquire(scope, uid, observed_units)?;
         observer
             .verify_native_empty()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;
