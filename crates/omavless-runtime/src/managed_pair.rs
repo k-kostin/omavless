@@ -287,6 +287,140 @@ mod tests {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
+
+    fn desktop_fixture(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+        let config = root.join("config");
+        let package = root.join("package");
+        fs::create_dir(&config).unwrap();
+        fs::create_dir(&package).unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+        let selector = config.join(SELECTOR);
+        let core = package.join("managed-core");
+        let broker = package.join("broker");
+        let receipt = package.join("receipt.json");
+        let core_bytes = b"#!/bin/bash\ntest \"$*\" = '-v' || exit 9\n: >\"${0%/*}/managed-probed\"\nprintf 'Mihomo Meta v1.99.1 linux amd64 private-build\\n'\n";
+        write_mode(&selector, SELECTION_BYTES, 0o600);
+        write_mode(&core, core_bytes, 0o755);
+        write_mode(&broker, b"synthetic broker", 0o755);
+        write_mode(
+            &package.join("mihomo"),
+            b"#!/bin/bash\n: >\"${0%/*}/stock-probed\"\nprintf 'Mihomo Meta v1.19.32 linux amd64\\n'\n",
+            0o755,
+        );
+        write_mode(
+            &package.join("getcap"),
+            b"#!/bin/bash\ntest \"$1\" = \"${0%/*}/managed-core\" || exit 9\nprintf '/private/core cap_net_admin,cap_net_raw,cap_net_bind_service=ep\\n'\n",
+            0o755,
+        );
+        let document = json!({
+            "schema": 1, "architecture": std::env::consts::ARCH,
+            "mihomo_commit": MIHOMO_COMMIT, "sing_tun_commit": SING_TUN_COMMIT,
+            "patch_sha256": {"mihomo-dns-broker.patch": CORE_PATCH,
+                             "sing-tun-descriptor.patch": TUN_PATCH},
+            "go_build_tags": "with_gvisor", "go_dependency_mode": "vendor",
+            "package_flavor": "release", "broker_feature": "release-package",
+            "sha256": {"mihomo": format!("{:x}", Sha256::digest(core_bytes)),
+                       "omavless-dns-broker": format!("{:x}", Sha256::digest(b"synthetic broker"))},
+        });
+        write_mode(&receipt, &serde_json::to_vec(&document).unwrap(), 0o644);
+        // Only fixture publication, like the existing desktop executable tests.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        (selector, core, broker, receipt, package)
+    }
+
+    #[test]
+    fn desktop_readiness_uses_validated_selected_core_not_stock_path() {
+        let root = tempfile::tempdir().unwrap();
+        let (selector, core, broker, receipt, package) = desktop_fixture(root.path());
+        let uid = nix::unistd::getuid().as_raw();
+        let selected = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid);
+        let before = fs::read(&selector).unwrap();
+        let local = root.path().join(".local/bin");
+        fs::create_dir_all(&local).unwrap();
+        write_mode(
+            &local.join("mihomo"),
+            b"#!/bin/bash\n: >\"${0%/*}/local-probed\"\nprintf 'Mihomo Meta v1.19.11 linux amd64\\n'\n",
+            0o755,
+        );
+        let helpers = crate::desktop_helpers::DesktopHelpers::from_path(package.as_os_str());
+        let facts = helpers
+            .core_readiness_with_pair(root.path(), &root.path().join("absent-tun"), selected)
+            .unwrap();
+        assert_eq!(facts["version"], "1.99.1");
+        assert_eq!(facts["fileNetworkCapabilities"], "present");
+        assert_eq!(facts["servicePermissionReadiness"], "not_verified");
+        assert_eq!(facts["coverage"]["tunCreationVerified"], false);
+        assert!(!facts.to_string().contains("private"));
+        assert!(package.join("managed-probed").exists());
+        assert!(!package.join("stock-probed").exists());
+        assert!(!local.join("local-probed").exists());
+        assert_eq!(fs::read(&selector).unwrap(), before);
+    }
+
+    #[test]
+    fn desktop_stale_selected_pair_refuses_before_any_probe() {
+        let root = tempfile::tempdir().unwrap();
+        let (selector, core, broker, receipt, package) = desktop_fixture(root.path());
+        let uid = nix::unistd::getuid().as_raw();
+        let selected = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid);
+        assert!(matches!(&selected, Ok(Some(_))));
+        fs::remove_file(&selector).unwrap();
+        let result = crate::desktop_helpers::DesktopHelpers::from_path(package.as_os_str())
+            .core_readiness_with_pair(root.path(), &root.path().join("absent-tun"), selected);
+        assert_eq!(
+            result.unwrap_err(),
+            crate::desktop_helpers::Error::Unavailable
+        );
+        assert!(!package.join("managed-probed").exists());
+        assert!(!package.join("stock-probed").exists());
+    }
+
+    #[test]
+    fn desktop_invalid_selected_pair_never_probes_stock_or_reports_missing_core() {
+        for member in ["selector", "core", "receipt"] {
+            let root = tempfile::tempdir().unwrap();
+            let (selector, core, broker, receipt, package) = desktop_fixture(root.path());
+            match member {
+                "selector" => write_mode(&selector, b"invalid", 0o600),
+                "core" => write_mode(&core, b"changed", 0o755),
+                _ => write_mode(&receipt, b"{}", 0o644),
+            }
+            let uid = nix::unistd::getuid().as_raw();
+            let selected = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid);
+            assert!(selected.is_err());
+            let result = crate::desktop_helpers::DesktopHelpers::from_path(package.as_os_str())
+                .core_readiness_with_pair(root.path(), &root.path().join("absent-tun"), selected);
+            assert_eq!(
+                result.unwrap_err(),
+                crate::desktop_helpers::Error::Unavailable
+            );
+            assert!(!package.join("stock-probed").exists());
+            assert!(!package.join("managed-probed").exists());
+        }
+    }
+
+    #[test]
+    fn desktop_selected_pair_changed_during_probe_discards_sample_without_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let (selector, core, broker, receipt, package) = desktop_fixture(root.path());
+        let uid = nix::unistd::getuid().as_raw();
+        let selected = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid);
+        write_mode(
+            &package.join("getcap"),
+            b"#!/bin/bash\nprintf 'changed' >\"${0%/*}/../config/managed-dns-selection\"\nprintf '/private/core cap_net_admin,cap_net_raw,cap_net_bind_service=ep\\n'\n",
+            0o755,
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let result = crate::desktop_helpers::DesktopHelpers::from_path(package.as_os_str())
+            .core_readiness_with_pair(root.path(), &root.path().join("absent-tun"), selected);
+        assert_eq!(
+            result.unwrap_err(),
+            crate::desktop_helpers::Error::Unavailable
+        );
+        assert!(package.join("managed-probed").exists());
+        assert!(!package.join("stock-probed").exists());
+    }
+
     #[test]
     fn new_qualified_family_can_validate_dns_objects_but_is_not_an_effect_permit() {
         let root = tempfile::tempdir().unwrap();
