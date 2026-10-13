@@ -158,3 +158,15 @@ See [the exact loss-row evidence](../testing/RESTORE_099_PC_LOSS_2026-10-13.md).
 This closes those two controlled rows only, not arbitrary loss or whole Restore.
 The next finite milestone is freshly qualified partial final-output disposition;
 the retained first closure is not automatically a retry or cleanup target.
+
+## Fresh closure-only OLD row
+
+At integrated source `5132305cc34657c688ff255f6a43e473cf3f42d8`, the separately
+prepared fixed 205 account completed real PauseIntent → post-receipt Abort cut
+→ fresh native final-OLD qualification/disposition → ordinary owned-Off, with
+original exit 0 and independent readback. See
+[the exact installed evidence](../testing/RESTORE_099_PC_FINAL_OLD_2026-10-13.md).
+Only the controlled Aborted closure-only row is accepted. Existing
+ticket/complete/history prefixes, NEW closure and torn state remain unsupported;
+the original first failed closure stays untouched. Main/beta and publication
+are unchanged, and the separate full Rust stale-test failure remains pending.
