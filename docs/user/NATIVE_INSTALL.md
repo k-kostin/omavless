@@ -86,6 +86,19 @@ existing broker and revoked enrollment have the separate actions described above
 An unavailable/unknown state needs diagnosis, not repeated DNS enrollment,
 forced activation, ownership edits or deleting a socket/lock to bypass a check.
 
+The partial-setup development successor also offers **Continue DNS setup** when
+the installed pair is valid but unselected and both the application and broker
+are proven stopped with no managed TUN or remaining socket. Its terminal offers
+two explicit choices: `START` uses an existing enrollment without changing it,
+then asks for `SELECT`; `FIRST` requests separate `DNS` consent and requires the
+root broker's first-enrollment empty-state guard. A failed existing-enrollment
+check never automatically falls through to first enrollment. For an already
+Rust-owned application, neither path initializes private settings, activates
+ownership again or enables the user runtime. After the terminal completes,
+close it, acknowledge that its prompts are closed, and use the separate
+**Start OmaVLESS** action. This successor is not yet part of the public 0.9.8
+installer and does not complete its paired-package updater.
+
 `APPLICATION UPDATE REQUIRED` identifies the known prior public native version,
 not a fresh install or package-integrity proof. **Review update requirements**
 opens this guide; it does not install packages, start the application or enroll

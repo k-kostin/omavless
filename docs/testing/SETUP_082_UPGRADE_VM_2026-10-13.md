@@ -114,3 +114,62 @@ projection, the reporter's specific failure stage, and friendly removal at all
 setup states under the separate 0.9.9 contract. Do not call the original issue
 resolved, normalize private templates, repeat unknown enrollment, or substitute
 this manual migration for those product gates.
+
+## Partial DNS continuation successor
+
+Frontend source `32fe70b7b8eefafb980c403bff8b381976f04878` adds the real
+**Continue DNS setup** entry for a stopped, valid but unselected managed pair.
+`54dc275f21c967391c53932ec6f874c341dca33f` additionally fences effects behind
+settled native actions without disabling read-only inventory during uncertainty.
+The installed native pair remains the exact public fix.3 pair listed above;
+the native default-mode correction is not installed by this frontend test.
+
+Two separate agent-operated VM scenarios completed through the actual button
+and terminal, not a mock installer:
+
+- Existing enrollment: source32, explicit `START`, normal guest sudo, then
+  `SELECT`. The terminal reached its components-prepared message and independent
+  inventory became `needs_runtime_start / present`. No new enrollment or
+  repeated Rust activation was requested.
+- First enrollment: source54, explicit `FIRST`, separate `DNS` consent and
+  normal guest sudo. After root empty-state admission, enrollment, broker start
+  and selection completed. The actual terminal again reached components-prepared;
+  independent inventory became `needs_runtime_start / present`.
+
+These were deliberately prepared unselected fixtures, not claims that a prior
+unknown operation had completed. The old selector was retained privately.
+Before the second scenario, the known empty broker was stopped, its independently
+inspected stale fixed socket removed administratively, and its enrollment revoked
+through the shipped root guard. Stop/revoke original invocations exited 0. This
+is fixture administration, not automatic cleanup or product recovery. An ordinary
+idle stop leaves its socket behind under `RuntimeDirectoryPreserve`; no blind
+socket removal was added to the installer.
+
+After each scenario profiles, Desired, ownership and restored selector matched
+their saved bytes. The runtime remained inactive/disabled until the separate
+actual **Start OmaVLESS** button was used after acknowledging the closed setup
+terminal. Final native snapshot was successful with one synthetic profile,
+Desired false, saved startup configured/disabled and last-known Disconnected;
+component inventory was ready, runtime active/disabled, broker FD store empty,
+and links only loopback/Ethernet. No VPN-connectivity acceptance is inferred.
+
+At source54 the normal runner exited 0 with 726 Python tests, two declared
+opt-in skips and JS/QML contracts; installed-import qmllint passed for affected
+QML. Separate network/home/runtime-isolated offscreen rendering inspected the
+real RequiredComponents in EN/RU with effects available/blocked. The controls
+projection confirmed Continue disabled under the effect fence while Check/help
+remained available. This is synthetic component evidence, not an installed
+pending/unknown native-operation scenario. The normal installed EN FIRST path
+does not substitute for the unrun installed legacy-owner or fault matrix.
+
+The post-start fixed-fact waiter from #777 has a synthetic delayed-read regression
+and never repeats enrollment/start. The shipped broker is **Type=notify**, not
+Type=simple, and sends initial READY after its socket/ACL checks. Consequently
+the mock does not establish a public startup race or the reporter's root cause.
+
+For the remaining paired-package updater, the reviewed bounded phase split is:
+UPDATE owns original exclusions through replacement and installed/private-state
+verification, then ends with packages-updated/DNS-required. A later explicitly
+chosen DNS setup is a new operation earning fresh admission; it never inherits
+authority from an UPDATE result. No updater, main release or physical-PC update
+is accepted by the partial-DNS checks above.
