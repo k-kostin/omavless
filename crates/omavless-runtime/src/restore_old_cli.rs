@@ -85,6 +85,7 @@ enum Choice {
     Committed,
     FinalOld,
     FinalNew,
+    NewTicket,
 }
 
 fn choice(arguments: &[OsString]) -> Option<Choice> {
@@ -98,6 +99,8 @@ fn choice(arguments: &[OsString]) -> Option<Choice> {
         Some(Choice::FinalOld)
     } else if arguments == ["restore", "recover-final-new", "--confirm-disposition"] {
         Some(Choice::FinalNew)
+    } else if arguments == ["restore", "recover-ticket-new", "--confirm-disposition"] {
+        Some(Choice::NewTicket)
     } else {
         None
     }
@@ -146,6 +149,14 @@ fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     let mut recovery = FreshRecovery::reserve().map_err(|_| Error::RecoveryRefused)?;
     phase(b"RESTORE_RECOVERY_RESERVED\n");
     let result = match choice {
+        Choice::NewTicket => recovery.recover_new_ticket_output(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
         Choice::FinalNew => recovery.recover_final_new_output(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
@@ -199,6 +210,12 @@ fn recover(input: impl Read, choice: Choice) -> Result<(), Error> {
     })?;
     phase(b"RESTORE_RECOVERY_COMPLETED\n");
     match choice {
+        Choice::NewTicket => {
+            let released = recovery
+                .dispose_and_release_new_ticket()
+                .map_err(|_| Error::RecoveryRefused)?;
+            start_and_verify(|| released.verify_current())
+        }
         Choice::FinalNew => {
             let released = recovery
                 .dispose_and_release_final_new()
@@ -235,6 +252,39 @@ fn start_and_verify<E>(verify: impl FnOnce() -> Result<(), E>) -> Result<(), Err
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_ticket_selector_is_exact_and_disabled_builds_do_not_read_private_input() {
+        use super::*;
+        let valid = ["restore", "recover-ticket-new", "--confirm-disposition"].map(OsString::from);
+        assert!(matches!(choice(&valid), Some(Choice::NewTicket)));
+        for bad in [
+            vec!["restore", "recover-ticket-new", "--confirm-completion"],
+            vec!["restore", "recover-ticket-new", "--confirm-rollback"],
+            vec!["restore", "recover-ticket-old", "--confirm-disposition"],
+            vec![
+                "restore",
+                "recover-ticket-new",
+                "--confirm-disposition",
+                "extra",
+            ],
+        ] {
+            assert!(!arguments_admitted(
+                &bad.into_iter().map(OsString::from).collect::<Vec<_>>()
+            ));
+        }
+        if !crate::product_scope::restore_enabled() {
+            struct NoRead;
+            impl std::io::Read for NoRead {
+                fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                    panic!("must not read");
+                }
+            }
+            assert_eq!(
+                recover_selected_from_private_input(&valid, NoRead),
+                Err(Error::Disabled)
+            );
+        }
+    }
     use super::*;
     #[test]
     fn final_new_is_a_distinct_closed_disposition_selector() {

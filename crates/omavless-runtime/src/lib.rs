@@ -462,6 +462,11 @@ trait NativeRuntimeOwner: Send {
         request: &developer_current_restore::Request,
     ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
     #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_committed_ticket_cut(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError>;
+    #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_abort(
         &mut self,
         request: &developer_current_restore::AbortRequest,
@@ -890,6 +895,13 @@ where
     ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
         self.owner
             .developer_current_committed_retirement_cut(request)
+    }
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn developer_current_committed_ticket_cut(
+        &mut self,
+        request: &developer_current_restore::Request,
+    ) -> std::result::Result<(), production_owner::ProductionOwnerError> {
+        self.owner.developer_current_committed_ticket_cut(request)
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn developer_current_abort(
@@ -1937,6 +1949,8 @@ impl RuntimeServer {
                             owner.developer_current_first_rename_cut(input)
                         } else if method == developer_current_restore::TERMINAL_CUT_METHOD {
                             owner.developer_current_terminal_cut(input)
+                        } else if method == developer_current_restore::COMMITTED_TICKET_CUT_METHOD {
+                            owner.developer_current_committed_ticket_cut(input)
                         } else if method
                             == developer_current_restore::COMMITTED_RETIREMENT_CUT_METHOD
                         {
@@ -2112,6 +2126,8 @@ impl RuntimeServer {
             owner.developer_current_first_rename_cut(&input)
         } else if method == developer_current_restore::TERMINAL_CUT_METHOD {
             owner.developer_current_terminal_cut(&input)
+        } else if method == developer_current_restore::COMMITTED_TICKET_CUT_METHOD {
+            owner.developer_current_committed_ticket_cut(&input)
         } else if method == developer_current_restore::COMMITTED_RETIREMENT_CUT_METHOD {
             owner.developer_current_committed_retirement_cut(&input)
         } else if method == developer_current_restore::BACKUP_METHOD {
@@ -4513,6 +4529,7 @@ mod tests {
             "developer.cut_current_terminal",
             "developer.abort_current_after_retirement_cut",
             "developer.cut_current_committed_retirement",
+            "developer.cut_current_committed_ticket",
         ] {
             let request = make_request("absent", method, json!({})).unwrap();
             assert_eq!(
@@ -4535,6 +4552,7 @@ mod tests {
             developer_current_restore::TERMINAL_CUT_METHOD,
             developer_current_restore::ABORT_RETIREMENT_CUT_METHOD,
             developer_current_restore::COMMITTED_RETIREMENT_CUT_METHOD,
+            developer_current_restore::COMMITTED_TICKET_CUT_METHOD,
         ] {
             let request =
                 make_request("denied", method, json!({"private":"not a valid request"})).unwrap();

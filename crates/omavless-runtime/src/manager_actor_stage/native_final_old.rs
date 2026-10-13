@@ -13,7 +13,7 @@ impl NativeEngine {
     pub(super) fn final_new_observation_captured(&self) -> bool {
         self.final_output_observation_captured(FinalOutputChoice::NewCommitted)
     }
-    fn final_output_observation_captured(&self, choice: FinalOutputChoice) -> bool {
+    pub(super) fn final_output_observation_captured(&self, choice: FinalOutputChoice) -> bool {
         self.recovery
             && self.singleton_locked
             && !self.sealed
@@ -21,6 +21,7 @@ impl NativeEngine {
             && match choice {
                 FinalOutputChoice::OldAborted => self.final_old_captured,
                 FinalOutputChoice::NewCommitted => self.final_new_captured,
+                FinalOutputChoice::NewTicketCommitted => self.new_ticket_captured,
             }
             && self.stage_name.is_none()
             && self.lower.original[Slot::Scratch3 as usize].is_some()
@@ -145,6 +146,7 @@ impl NativeEngine {
             || self.recovery_completion != choice.selection()
             || self.final_old_captured
             || self.final_new_captured
+            || self.new_ticket_captured
             || self.completed
             || self.retirement
         {
@@ -176,7 +178,7 @@ impl NativeEngine {
         let current_template = self.read_original_live(1, until)?;
         let current = [current_store.as_slice(), current_template.as_slice()];
         if closure.receipt().terminal().phase() != choice.phase()
-            || (choice == FinalOutputChoice::NewCommitted && current != new)
+            || (choice != FinalOutputChoice::OldAborted && current != new)
             || !closure
                 .receipt()
                 .terminal()
@@ -188,6 +190,26 @@ impl NativeEngine {
             )
         {
             return Err(FirstError::Admission);
+        }
+        if choice == FinalOutputChoice::NewTicketCommitted {
+            use crate::restore_disposition_ticket_model::{TICKET_BYTES, TICKET_MEMBER, Ticket};
+            let bytes = self.recover_member(
+                Slot::State,
+                Slot::Scratch0,
+                TICKET_MEMBER,
+                TICKET_BYTES,
+                until,
+            )?;
+            let ticket = Ticket::decode(&bytes).ok_or(FirstError::Admission)?;
+            if !ticket.matches(
+                &closure,
+                self.uid.ok_or(FirstError::Admission)?,
+                generation,
+                Some(desired),
+            ) {
+                return Err(FirstError::Admission);
+            }
+            self.ticket_role = NativeTicketRole::ObservedNew(Sha256::digest(&bytes).into());
         }
         self.scan_catalogue(Slot::Config, Some(0), &[], until)
             .map_err(|_| FirstError::Admission)?;
@@ -205,6 +227,8 @@ impl NativeEngine {
                 || native_history::NAMES
                     .iter()
                     .any(|allowed| allowed.as_bytes() == name)
+                || (choice == FinalOutputChoice::NewTicketCommitted
+                    && name == crate::restore_disposition_ticket_model::TICKET_MEMBER.as_bytes())
         }) || !(0..self.catalogues[0].count).all(|index| {
             let config = &self.catalogues[0];
             let name = &config.names[index][..config.lengths[index]];
@@ -221,6 +245,7 @@ impl NativeEngine {
         match choice {
             FinalOutputChoice::OldAborted => self.final_old_captured = true,
             FinalOutputChoice::NewCommitted => self.final_new_captured = true,
+            FinalOutputChoice::NewTicketCommitted => self.new_ticket_captured = true,
         }
         Ok(())
     }
@@ -248,11 +273,17 @@ impl NativeEngine {
         cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
         until: Instant,
     ) -> Result<(), FirstError> {
-        if !self.final_output_observation_captured(choice)
+        let captured = if choice == FinalOutputChoice::NewTicketCommitted {
+            self.new_ticket_observation_captured()
+        } else {
+            self.final_output_observation_captured(choice)
+        };
+        if !captured
             || self.completed
             || self.retirement
             || self.fresh_final_old.is_some()
             || self.fresh_final_new.is_some()
+            || self.fresh_new_ticket.is_some()
             || self.retirement_permission != NativeRetirementPermission::Complete
             || !self.audit.attempted()
         {
@@ -273,8 +304,14 @@ impl NativeEngine {
             Slot::State,
             Slot::Root,
             Slot::Run,
+            Slot::Scratch0,
         ]
         .into_iter()
+        .take(if choice == FinalOutputChoice::NewTicketCommitted {
+            11
+        } else {
+            10
+        })
         .enumerate()
         {
             self.gate(origin, until)?;
@@ -289,6 +326,7 @@ impl NativeEngine {
             cut(match choice {
                 FinalOutputChoice::OldAborted => NativeStep::FinalOldSourceSynced(index),
                 FinalOutputChoice::NewCommitted => NativeStep::FinalNewSourceSynced(index),
+                FinalOutputChoice::NewTicketCommitted => NativeStep::NewTicketSourceSynced(index),
             })?;
             self.gate(origin, until)?;
         }
@@ -308,6 +346,15 @@ impl NativeEngine {
             }
             FinalOutputChoice::NewCommitted => {
                 self.fresh_final_new = Some(FreshFinalNew { closure_digest })
+            }
+            FinalOutputChoice::NewTicketCommitted => {
+                let NativeTicketRole::ObservedNew(ticket_digest) = self.ticket_role else {
+                    return Err(FirstError::StillFenced);
+                };
+                self.fresh_new_ticket = Some(FreshNewTicket {
+                    closure_digest,
+                    ticket_digest,
+                });
             }
         }
         self.retirement = true;
@@ -334,6 +381,22 @@ impl NativeEngine {
             backup,
             quiescence,
             FinalOutputChoice::NewCommitted,
+        )
+    }
+    pub(crate) fn qualify_native_new_ticket(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        backup: &omavless_domain::private_backup::OpenedBackup,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        if !crate::product_scope::restore_enabled() {
+            return Err(FirstError::Admission);
+        }
+        self.qualify_native_final_output(
+            origin,
+            backup,
+            quiescence,
+            FinalOutputChoice::NewTicketCommitted,
         )
     }
     fn qualify_native_final_output(
@@ -398,6 +461,13 @@ impl NativeEngine {
                     origin.desired_bytes(),
                     until,
                 )?,
+                FinalOutputChoice::NewTicketCommitted => self.capture_final_output_data(
+                    [&off, backup.template()],
+                    origin.generation(),
+                    origin.desired_bytes(),
+                    choice,
+                    until,
+                )?,
             }
             origin.check_old_recovery_lease()?;
             self.check_bindings(until)
@@ -416,6 +486,9 @@ impl NativeEngine {
                 }
                 FinalOutputChoice::NewCommitted => {
                     self.qualify_final_new_inner(&mut gate, &mut |_| Ok(()), until)
+                }
+                FinalOutputChoice::NewTicketCommitted => {
+                    self.qualify_final_output_inner(&mut gate, choice, &mut |_| Ok(()), until)
                 }
             }
         })();

@@ -24,6 +24,8 @@ const TERMINAL_CUT_CONFIRM: &str = "cut-current-terminal";
 pub(crate) const COMMITTED_RETIREMENT_CUT_METHOD: &str =
     "developer.cut_current_committed_retirement";
 const COMMITTED_RETIREMENT_CUT_CONFIRM: &str = "cut-current-committed-retirement";
+pub(crate) const COMMITTED_TICKET_CUT_METHOD: &str = "developer.cut_current_committed_ticket";
+const COMMITTED_TICKET_CUT_CONFIRM: &str = "cut-current-committed-ticket";
 pub(crate) fn loss_cut_method(method: &str) -> bool {
     matches!(
         method,
@@ -31,6 +33,7 @@ pub(crate) fn loss_cut_method(method: &str) -> bool {
             | TERMINAL_CUT_METHOD
             | ABORT_RETIREMENT_CUT_METHOD
             | COMMITTED_RETIREMENT_CUT_METHOD
+            | COMMITTED_TICKET_CUT_METHOD
     )
 }
 pub(crate) fn private_method(method: &str) -> bool {
@@ -224,6 +227,7 @@ impl Request {
                     | FIRST_RENAME_CUT_CONFIRM
                     | TERMINAL_CUT_CONFIRM
                     | COMMITTED_RETIREMENT_CUT_CONFIRM
+                    | COMMITTED_TICKET_CUT_CONFIRM
             )
             && !self.instance_id.is_empty()
             && self.instance_id.len() <= 128
@@ -253,6 +257,7 @@ impl Request {
                     COMMITTED_RETIREMENT_CUT_METHOD,
                     COMMITTED_RETIREMENT_CUT_CONFIRM
                 )
+                | (COMMITTED_TICKET_CUT_METHOD, COMMITTED_TICKET_CUT_CONFIRM)
         )
     }
 }
@@ -305,6 +310,12 @@ pub fn arguments_admitted(arguments: &[OsString]) -> bool {
                 "cut-current-committed-retirement",
                 "--confirm-private-committed-retirement-cut",
             ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-committed-ticket",
+                "--confirm-private-committed-ticket-cut",
+            ]
 }
 /// A lost reply is UNKNOWN, never an automatic retry. No request data is echoed.
 pub fn from_private_input(
@@ -344,6 +355,12 @@ pub fn from_private_input(
             TERMINAL_CUT_METHOD,
             TERMINAL_CUT_CONFIRM,
             "t4_current_terminal_cut_reached_still_fenced",
+        )
+    } else if arguments[1] == "cut-current-committed-ticket" {
+        (
+            COMMITTED_TICKET_CUT_METHOD,
+            COMMITTED_TICKET_CUT_CONFIRM,
+            "t4_current_committed_ticket_cut_reached_still_fenced",
         )
     } else if arguments[1] == "cut-current-committed-retirement" {
         (
@@ -432,6 +449,69 @@ pub fn from_private_input(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_ticket_fixed_full_request_and_method_never_accept_retirement_or_arbitrary_cut() {
+        use super::*;
+        let args = [
+            "developer",
+            "cut-current-committed-ticket",
+            "--confirm-private-committed-ticket-cut",
+        ]
+        .map(OsString::from);
+        assert!(arguments_admitted(&args) && loss_cut_method(COMMITTED_TICKET_CUT_METHOD));
+        let mut raw = serde_json::json!({"schema":1,"archive":"/public/synthetic.ovb","passphrase":"source password",
+            "confirmation":COMMITTED_TICKET_CUT_CONFIRM,"instanceId":"source-instance","expectedRevision":0});
+        assert!(
+            Request::parse(&raw)
+                .unwrap()
+                .matches_method(COMMITTED_TICKET_CUT_METHOD)
+        );
+        assert!(
+            !Request::parse(&raw)
+                .unwrap()
+                .matches_method(COMMITTED_RETIREMENT_CUT_METHOD)
+        );
+        raw["step"] = "DispositionTicket".into();
+        assert!(Request::parse(&raw).is_err());
+        for bad in [
+            vec![
+                "developer",
+                "cut-current-committed-ticket",
+                "--confirm-private-committed-retirement-cut",
+            ],
+            vec![
+                "developer",
+                "cut-current-committed-ticket",
+                "--confirm-private-committed-ticket-cut",
+                "extra",
+            ],
+        ] {
+            assert!(!arguments_admitted(
+                &bad.into_iter().map(OsString::from).collect::<Vec<_>>()
+            ));
+        }
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn new_ticket_product_union_denies_before_private_read() {
+        use super::*;
+        struct NoRead;
+        impl std::io::Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("must not read");
+            }
+        }
+        let args = [
+            "developer",
+            "cut-current-committed-ticket",
+            "--confirm-private-committed-ticket-cut",
+        ]
+        .map(OsString::from);
+        assert_eq!(
+            from_private_input(&args, NoRead),
+            Err("developer_restore_disabled")
+        );
+    }
     use super::*;
     #[test]
     fn final_new_committed_retirement_cut_uses_only_exact_full_private_request() {

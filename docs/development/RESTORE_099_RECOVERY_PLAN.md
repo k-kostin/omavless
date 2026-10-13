@@ -519,3 +519,81 @@ Original driver and independent Off/NEW/history/client readback exited0. See
 [exact fresh207 evidence](../testing/RESTORE_099_PC_PRIOR_HISTORY_2026-10-13.md).
 This accepts that controlled row only, not same-process repeated Restore,
 eight-slot VM coverage, current ticket/complete-prefix or whole product gates.
+
+### Distinct Committed NEW existing-ticket route (SOURCE)
+
+The isolated successor starts at
+`565815c1bf73cc3198903dacb0d6587008171f9c`; it is not included in the separate
+fresh207 packet. Fixed consumer `restore recover-ticket-new --confirm-disposition`
+uses the existing bounded archive/passphrase stdin and distinct NewTicket/FreshNewTicket
+selection and typed NEW release. OLD, Complete-present and torn-prefix recovery
+are not fallback branches. The inherited zero-to-seven immutable history policy
+remains; no historical record supplies authority or current Desired/generation.
+
+Before fixed guard Stop, current NEW must match authenticated portable NEW and
+the Committed closure. The existing canonical ticket must match that exact
+closure and current UID/owner generation/Desired, with required Login, original
+locks/boundaries and the same closed catalogues/competing-prefix absences. Its
+Scratch0 descriptor/bytes are captured observation DATA, not this invocation's
+publication and not completed/disposition permission. An explicit observed-ticket
+role permits only this narrow byte/named/pending check; it never sets disposition
+or completed to bypass capture. Eleven same-guard held-source/parent syncs and
+final gates earn the private proof, with genuinely absent never-acquired receipt.
+
+Fresh consuming disposition checks that proof and consumes its one attempt
+before the first Complete effect. It rechecks the SAME observed ticket, creates
+Complete exclusively, and reuses the existing closure/ticket unlink, no-replace
+history rename/sync and final readback tail. It never overwrites, recreates or
+relabels the ticket as its own publication. Pointer preservation and typed NEW
+release still precede ordinary Off startup; substitution/collision/error seals.
+
+Fixed genuine producer
+`developer cut-current-committed-ticket --confirm-private-committed-ticket-cut`
+maps only to `developer.cut_current_committed_ticket`, with the existing full
+schema1 archive request and strong owned revision/migration/vacancy admission.
+NewTicketCutOnly is latched before native Stage. Original retirement/final
+checks construct a non-Clone operation-local RetiredForTicket borrowing the SAME
+engine/session; records or success booleans cannot construct it. Its only
+continuation consumes it to publish/verify one ticket, then seals even if the
+callback is always OK. No Complete/disposition/ordinary handoff branch exists.
+The normal Complete wrapper retains its original final-check/callback/grant order.
+
+Capability Drop only revokes flags, without manager calls, descriptor release,
+diagnostics, allocation or locks. The outer admitted operation catches unwind,
+seals its own retained (including poisoned) holder and blocks that transaction;
+poisoned/unwound state never yields positive CUT DATA. Busy prior Pause and
+authentication/queue refusal before installation are untouched. Exact fully
+verified post-ticket callback plus retained blocked graph alone yields
+`t4_current_committed_ticket_cut_reached_still_fenced`. SAME owner/quit custody
+covers reply publication; lost/broken reply remains UNKNOWN with no retry.
+
+Default/product/direct helper denial precedes private input/acquisition for
+this route, including the strengthened product union. Actual Source controls
+cover authenticated NEW/crossed ticket UID/generation/Desired/closure, unsafe
+and competing shapes/history, all eleven syncs/disposition cuts and gates,
+observed-role substitutions, SAME ticket FD/bytes and no re-publication, genuine
+producer/no-op callback, panic before/after capability, actual partial ticket
+write error/unwind, prior Pause/auth/queue and broken reply. These are synthetic
+private-file Source checks, not installed manager or timed VM acceptance.
+Exact immutable source review/combined gates and a separately reviewed fresh208
+recipe/packet remain pending; no 201–207 account or evidence is reused.
+
+Original focused SOURCE gates passed: whole native engine37, ticket native/
+genuine producer10, previous final-output producers4, ordinary Complete/replay1,
+actual self-reexec FD-capacity1, exact request/selector/self matcher1 each.
+Explicit `product-private-backup,product-image-witness` union passed ticket10,
+recovery CLI10, dispatch denial1 and history ledger5. Strict T4/union all-target
+Clippy, bare/default-TUI non-test checks and normal755 Python controls (2 skipped)
+plus JS/QML passed. Default's real dispatch denied the new method (1), and its
+actual debug CLI refused both fixed commands with stdin held OPEN (2), before
+private input/acquisition. The recovery module itself is intentionally absent
+without T4; a zero-test selector filter is not labeled a denial result.
+
+Earlier original failures are retained: one test wrongly accessed a sealed FD,
+a test-only Slot comparison did not compile, and a default test wrongly called
+the deliberately absent producer API. Narrow test fixes followed; the final
+default-only cfg correction leaves effective T4/union code unchanged. A private
+default CLI harness initially guessed the wrong fixed error category; its
+original failure is preserved and corrected exact-error/read-block controls
+passed. Test ELFs remained unchanged throughout original/self-reexec runs.
+No Source result grants packet, timed VM, product or whole Restore acceptance.

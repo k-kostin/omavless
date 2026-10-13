@@ -440,7 +440,10 @@ fn old_recovery_self(command: &[u8]) -> Result<()> {
     match (args[2], args[3]) {
         (b"recover-old" | b"recover-mixed", b"--confirm-rollback")
         | (b"recover-committed", b"--confirm-completion")
-        | (b"recover-final-old" | b"recover-final-new", b"--confirm-disposition") => Ok(()),
+        | (
+            b"recover-final-old" | b"recover-final-new" | b"recover-ticket-new",
+            b"--confirm-disposition",
+        ) => Ok(()),
         _ => Err(()),
     }
 }
@@ -2067,6 +2070,10 @@ mod tests {
     #[test]
     fn old_recovery_self_is_exact_and_abort_is_unchanged() {
         assert!(
+            old_recovery_self(b"binary\0restore\0recover-ticket-new\0--confirm-disposition\0")
+                .is_ok()
+        );
+        assert!(
             old_recovery_self(b"binary\0restore\0recover-final-new\0--confirm-disposition\0")
                 .is_ok()
         );
@@ -2093,6 +2100,8 @@ mod tests {
             b"binary\0restore\0recover-final-old\0--confirm-disposition\0step\0".as_slice(),
             b"binary\0restore\0recover-final-new\0--confirm-completion\0".as_slice(),
             b"binary\0restore\0recover-final-new\0--confirm-disposition\0step\0".as_slice(),
+            b"binary\0restore\0recover-ticket-new\0--confirm-completion\0".as_slice(),
+            b"binary\0restore\0recover-ticket-new\0--confirm-disposition\0step\0".as_slice(),
         ] {
             assert!(old_recovery_self(command).is_err());
         }
