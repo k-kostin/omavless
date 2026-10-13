@@ -116,6 +116,29 @@ ShellRoot {
         rowWidth:group ? group.parent.width : 0, focused:!!(group && group.activeFocus),
         pointerHovered:!!(group && group.pointerHovered), state:product.nativeView.state})
     }
+    function reviewSubscriptions(locale: string, kind: string, width: int): string {
+      if (["en", "ru"].indexOf(locale) < 0 || [360, 460].indexOf(width) < 0
+          || ["loading", "unavailable", "empty", "populated"].indexOf(kind) < 0)
+        return "refused"
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      if (!service || !service.nativeOwner || (!review.reviewSnapshot && !service.nativeSnapshot))
+        return "not-ready"
+      if (!review.reviewSnapshot) review.reviewSnapshot = JSON.parse(JSON.stringify(service.nativeSnapshot))
+      if (review.reviewSnapshot.desired.connected) return "refused"
+      review.stopFixtureTimers(product)
+      var snapshot = JSON.parse(JSON.stringify(review.reviewSnapshot))
+      if (kind !== "populated") snapshot.subscriptions = []
+      product.settings = {locale:locale, showExitIp:false, showBarThroughput:false}
+      product.open()
+      service.nativeSnapshot = kind === "loading" ? null : snapshot
+      service.nativeSnapshotFailed = kind === "unavailable"
+      product.page = "subscriptions"
+      var popup = review.find(product, function(o) { return "cardOrigin" in o && "contentWidth" in o })
+      if (!popup) return "not-ready"
+      popup.contentWidth = width
+      review.reviewKind = "subscriptions-" + kind
+      return "ready"
+    }
     function reviewImport(locale: string, width: int): string {
       var state = reviewState(locale, "normal", width)
       if (state !== "ready") return state
