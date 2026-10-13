@@ -86,6 +86,13 @@ existing broker and revoked enrollment have the separate actions described above
 An unavailable/unknown state needs diagnosis, not repeated DNS enrollment,
 forced activation, ownership edits or deleting a socket/lock to bypass a check.
 
+`APPLICATION UPDATE REQUIRED` identifies the known prior public native version,
+not a fresh install or package-integrity proof. **Review update requirements**
+opens this guide; it does not install packages, start the application or enroll
+DNS. That navigation must not be mistaken for a completed guided updater.
+The supported paired upgrade needs its separate compatibility and installed
+acceptance; an unknown/modified version remains a diagnostic limitation.
+
 ### Updating is not starting over
 
 Updating the plugin checkout alone does not replace either native package.

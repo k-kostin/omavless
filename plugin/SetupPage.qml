@@ -35,6 +35,7 @@ Item {
   function install(action) {
     var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
+    if (action === "update-help") { guide(); return }
     if (action === "start-app") { startApp.running = true; return }
     launchAction = action
     launching = true

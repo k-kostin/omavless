@@ -51,7 +51,7 @@ ShellRoot {
       // Do not race the panel's initial real read-only inventory process.
       if (loader.item && loader.item.busy) return "busy"
       if (!loader.item || ["en", "ru"].indexOf(locale) < 0
-          || ["checking", "ready", "needs_package", "needs_activation", "needs_attention", "release_unavailable"].indexOf(state) < 0
+          || ["checking", "ready", "needs_package", "needs_update", "needs_activation", "needs_attention", "release_unavailable"].indexOf(state) < 0
           || ["present", "missing", "unknown"].indexOf(core) < 0) return "refused"
       loader.item.locale = locale
       loader.item.facts = {state:state, coreInstalled:core === "unknown" ? null : core === "present"}
@@ -66,7 +66,8 @@ ShellRoot {
         controls:loader.item.focusTargets.map(function(b) { return {text:b.text, visible:b.visible, enabled:b.enabled} })})
     }
     function capture(slug: string): string {
-      if (!/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith("/tmp/omavless-setup-review.")) return "refused"
+      if (!/^[a-z0-9-]{1,48}$/.test(slug)
+          || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/su.")) return "refused"
       review.result = "capturing"
       flick.grabToImage(function(image) { review.result = image.saveToFile(review.output + "/" + slug + ".png") ? "captured" : "failed" })
       return "started"

@@ -16,7 +16,7 @@ ColumnLayout {
   readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   readonly property string action: SetupState.missingAction(facts)
-  readonly property var focusTargets: [installButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]
+  readonly property var focusTargets: [installButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]
   signal installRequested(string action)
   signal checkRequested()
   signal terminalClosed()
@@ -62,8 +62,18 @@ ColumnLayout {
       anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
       anchors.margins: Style.space(10)
       spacing: Style.space(10)
-      PlainText { Layout.fillWidth: true; text: card.tr("prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr(card.facts.state === "needs_update" ? "update_title" : "prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
       PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : card.facts.state); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
+      Button {
+        id: updateHelpButton
+        Layout.fillWidth: true
+        visible: card.facts.state === "needs_update"
+        text: card.tr("update_help")
+        enabled: visible && !card.busy && !card.terminalOpened
+        opacity: enabled ? 1 : 0.45
+        bordered: true; focusable: true
+        onClicked: card.installRequested("update-help")
+      }
       RowLayout {
         Layout.fillWidth: true
         spacing: Style.space(8)

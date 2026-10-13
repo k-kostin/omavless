@@ -171,8 +171,16 @@ release_fields() {
 
 setup_status() {
   if native_present; then
-    local target selected
-    [[ $(package_installed) == "omavless $package_version-1" ]] || { printf 'needs_attention\n'; return; }
+    local target selected installed
+    installed=$(package_installed) || { printf 'needs_attention\n'; return; }
+    if [[ "$installed" != "omavless $package_version-1" ]]; then
+      # Navigation/diagnosis only, NOT updater admission or byte provenance.
+      # The prior public Rust application cannot answer managed-DNS commands.
+      if [[ "$installed" == 'omavless 0.8.2-1' ]] && [[ $(native_target) == rust ]]; then
+        printf 'needs_update\n'
+      else printf 'needs_attention\n'; fi
+      return
+    fi
     target=$(native_target) || { printf 'needs_attention\n'; return; }
     pair_installed || { printf 'needs_companion\n'; return; }
     case "$target" in

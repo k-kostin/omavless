@@ -297,7 +297,7 @@ setup_status
         self.assertEqual(self.run_shell(fixture + 'pair_installed() { return 1; }; setup_status').stdout,
                          "needs_companion\n")
         self.assertEqual(self.run_shell(fixture + 'package_installed() { echo "omavless 0.8.2-1"; }; setup_status').stdout,
-                         "needs_attention\n")
+                         "needs_update\n")
         self.assertEqual(self.run_shell(fixture + 'pair_selection_status() { return 1; }; setup_status').stdout,
                          "needs_attention\n")
 
@@ -380,6 +380,28 @@ setup_components''')
         for answer in ("\n", "ready\n", "DNS extra\n"):
             self.assertNotEqual(self.run_shell("confirm_dns_enrollment", answer).returncode, 0)
         self.assertEqual(self.run_shell("confirm_dns_enrollment", "DNS\n").returncode, 0)
+
+    def test_previous_stable_update_inventory_never_calls_new_dns_or_effects(self):
+        fixture = '''
+native_present() { return 0; }
+package_installed() { echo 'omavless 0.8.2-1'; }
+native_target() { echo rust; }
+pair_selection_status() { echo UNEXPECTED_NEW_API >&2; return 99; }
+setup_components
+'''
+        result = self.run_shell(fixture)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "needs_update\tmissing\n")
+        self.assertEqual(result.stderr, "")
+        for override in (
+            "native_target() { echo legacy; }",
+            "native_target() { return 1; }",
+            "package_installed() { echo 'omavless 0.0.0.dev-1'; }",
+            "package_installed() { echo 'omavless 9.9.9-1'; }",
+        ):
+            result = self.run_shell(fixture.replace("setup_components", override + "; setup_components"))
+            self.assertEqual(result.stdout, "needs_attention\tmissing\n")
+            self.assertEqual(result.stderr, "")
 
     def test_first_run_warns_about_firewall_without_changing_it(self):
         source = SCRIPT.read_text()
