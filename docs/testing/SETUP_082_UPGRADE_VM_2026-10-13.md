@@ -423,3 +423,68 @@ found no blocking finding in the cold-exclusion correction. This is a real
 agent-operated x86_64 cold-upgrade gate, not proof of the physical attempt's
 precise error, the reporter's separate issue772 stage, ARM64 installation,
 public-download behavior or connected/human-attended acceptance.
+
+## Confirmed PC refusal: ancillary state-directory siblings
+
+The next separately attended PC attempt supplied the actual native refusal:
+`private_state_incompatible` immediately after UPGRADE, before sudo/pacman.
+The wrapper retained its fixed phase/exit, and the owner confirmed `settled`.
+Read-only inspection found ordinary retained development directories next to
+the three canonical state files. The updater's blanket directory census
+rejected every unrelated entry; it demonstrably rejects that shape regardless
+of the canonical store's validity. No profiles or ancillary files were deleted
+or moved to force acceptance. The installed native package stayed public0.8.2.
+
+Producer `49f024b32157c0a6fbb3f11501435bb041dd9950` removes only that census.
+This package-only operation never consumes or migrates unrelated siblings;
+authority remains the pinned private directory, exact captured canonical
+members, original exclusions, ownership/receipt checks and repeated absence
+checks for every reserved transaction/candidate name. It does not tolerate
+unsafe canonical files, interpret ancillary contents or infer that pending
+work completed. Independent complete-delta review found no blocking finding.
+
+The ancillary directory/file/late-arrival regression genuinely failed with
+PrivateState before the correction, then passed. A preliminary incorrectly
+qualified `--exact` filter selected zero tests and is not acceptance. All
+27 focused updater tests passed, including the 60 reserved pending-name/type/
+timing combinations (file, directory and dangling symlink; before acquisition
+and under retained locks), canonical-file replacement/unsafe-file refusals,
+child custody, cancellation and post-replacement verification. Normal runner:
+748 Python tests/two declared opt-in skips, JS/QML exit0. Selected-feature
+clippy, fmt, manifest validation and diff checks passed.
+
+New unpublished matched pair: app SHA256
+`0a9e2916bc702ca3a12d5c3400d7fb5a00f0b77a58d1ef1b36e086dc3c237cce`;
+DNS SHA256 `a15414daa9b027e64c22d45537df7f00bd7a7ae1c89dccca0da37e4a6034ef40`.
+Normal source build/tests, package staging and triple inspection passed for
+frontend `6ec644395b3f1f202c5b0210fde91b1c05c8e73b`; selected core/broker ELFs
+are unchanged, but the source receipt is newly bound to producer49f.
+
+Actual installed ancillary-sibling gate then passed in boot
+`547aadda-92cd-42b0-b360-c4c771c23eb9`: public0.8.2, stopped/disabled/PID0,
+runtime/migration lock absent after reboot, and retained synthetic directories
+with a control note alongside canonical state. The actual Update button,
+UPGRADE, guest sudo and pacman transaction returned
+`packages_updated_dns_required`; installed receipts identify producer49f.
+Profiles, Desired, ownership, Global template and the ancillary note all matched
+their before bytes/hash. Runtime stayed inactive/disabled, DNS not enrolled or
+started, no TUN. The original terminal completed and was closed; later DNS and
+Start are separate actions, not part of this new package-only acceptance.
+
+This fixture was reconstructed administratively from the previous disconnected
+gate, not through a claimed product rollback. Original native Quit refused;
+no success was inferred, and a separately authorized guest service Stop was used.
+The empty broker was explicitly stopped, its verified stale fixed socket removed
+and enrollment revoked. An initial DNS package removal correctly refused its
+still-installed application's exact dependency; the separately admitted app
+downgrade followed by ordinary guarded DNS removal completed instead. The known
+synthetic template/selector fixture was restored only after baseline comparisons.
+Those administration outcomes remain distinct from updater acceptance. Boot
+completed before new input; the disk-unlock input was not attributed to the agent.
+
+Workflow follow-up: future updater fixtures must include ordinary retained
+siblings as well as clean directories. Development notes belong in the separate
+retained-work namespace, not the application's state root; nevertheless those
+unconsumed siblings must not invalidate an otherwise admitted package update.
+Do not repair a user's profile store, move private state, or weaken pending
+transaction fences to make an installation demonstration pass.
