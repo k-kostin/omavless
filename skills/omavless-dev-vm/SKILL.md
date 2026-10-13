@@ -77,6 +77,14 @@ the complete matched packages; never swap one component or change frozen test
 pins to make an unrelated bundle fit. Use separate known-Off images when the
 selected scenarios require different bundles.
 
+For setup or compatibility acceptance, use the workflow's
+[installation user-path matrix](../../docs/roadmap/DEVELOPMENT_WORKFLOW.md#installation-user-path-acceptance).
+Prepare the actual previous public stable installation, preserve its data, then
+update only the plugin through the normal Omarchy path. Do not preinstall the
+candidate application/companion before checking the user's offered continuation:
+that can hide the very upgrade gap being tested. Keep clean-first-use and
+partial-setup cases separate. A refused setup is not an accepted update flow.
+
 For a fresh experimental administrative setup, also compare its generated
 enrollment bytes and initial directories with the actual runtime consumers.
 Matching payload hashes does not validate generated configuration: a canonical
