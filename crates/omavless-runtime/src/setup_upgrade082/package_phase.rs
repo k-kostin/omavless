@@ -11,6 +11,65 @@ use std::sync::{
 
 const SOURCE: &str = "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524";
 const VERSION: &str = "0.9.8";
+
+fn guest_identity(vendor: &[u8], product: &[u8]) -> bool {
+    vendor == b"QEMU\n" && product == b"Standard PC (Q35 + ICH9, 2009)\n"
+}
+
+fn development_guest() -> Result<()> {
+    // Fixed kernel DMI attributes of the selected QEMU/q35 development target.
+    // No caller path/env bypass. DMI narrows the target; it neither proves
+    // single-user custody nor replaces package exclusion/helper authenticity.
+    let read = |name: &str| -> Result<Vec<u8>> {
+        let path = Path::new("/sys/devices/virtual/dmi/id").join(name);
+        let before =
+            fs::symlink_metadata(&path).map_err(|_| Blocker::UnsupportedDevelopmentGuest)?;
+        if !before.is_file()
+            || before.uid() != 0
+            || before.mode() & 0o022 != 0
+            || before.nlink() != 1
+        {
+            return Err(Blocker::UnsupportedDevelopmentGuest);
+        }
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+            .open(&path)
+            .map_err(|_| Blocker::UnsupportedDevelopmentGuest)?;
+        if !same(
+            &before,
+            &file
+                .metadata()
+                .map_err(|_| Blocker::UnsupportedDevelopmentGuest)?,
+        ) {
+            return Err(Blocker::UnsupportedDevelopmentGuest);
+        }
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(129)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Blocker::UnsupportedDevelopmentGuest)?;
+        if bytes.len() > 128
+            || !same(
+                &before,
+                &file
+                    .metadata()
+                    .map_err(|_| Blocker::UnsupportedDevelopmentGuest)?,
+            )
+            || !same(
+                &before,
+                &fs::symlink_metadata(path).map_err(|_| Blocker::UnsupportedDevelopmentGuest)?,
+            )
+        {
+            return Err(Blocker::UnsupportedDevelopmentGuest);
+        }
+        Ok(bytes)
+    };
+    if !guest_identity(&read("sys_vendor")?, &read("product_name")?) {
+        return Err(Blocker::UnsupportedDevelopmentGuest);
+    }
+    Ok(())
+}
 struct Archive {
     path: PathBuf,
     file: File,
@@ -453,7 +512,16 @@ fn after_packages(context: &mut UpgradeContext, pair: &Pair) -> Result<()> {
         .map_err(|_| Blocker::PackageOutcomeUnverified)
 }
 
+fn guest_then<T>(guest: Result<()>, continue_operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    guest?;
+    continue_operation()
+}
+
 pub fn run_development_update() -> Result<serde_json::Value> {
+    guest_then(development_guest(), run_qualified_update)
+}
+
+fn run_qualified_update() -> Result<serde_json::Value> {
     let cancel = Arc::new(AtomicBool::new(false));
     if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         return Err(Blocker::Environment);
@@ -516,6 +584,33 @@ pub fn run_development_update() -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_guest_guard_refuses_physical_or_other_virtual_targets_before_continuation() {
+        let expected = b"Standard PC (Q35 + ICH9, 2009)\n";
+        assert!(guest_identity(b"QEMU\n", expected));
+        for (vendor, product) in [
+            (b"ASUSTeK COMPUTER INC.\n".as_slice(), expected.as_slice()),
+            (
+                b"QEMU\n".as_slice(),
+                b"Standard PC (i440FX + PIIX, 1996)\n".as_slice(),
+            ),
+            (b"QEMU\n".as_slice(), b"synthetic mismatch\n".as_slice()),
+            (b"QEMU\nextra\n".as_slice(), expected.as_slice()),
+        ] {
+            let mut continued = false;
+            let guard = if guest_identity(vendor, product) {
+                Ok(())
+            } else {
+                Err(Blocker::UnsupportedDevelopmentGuest)
+            };
+            let result = guest_then(guard, || {
+                continued = true;
+                Ok(())
+            });
+            assert_eq!(result, Err(Blocker::UnsupportedDevelopmentGuest));
+            assert!(!continued);
+        }
+    }
     #[test]
     fn pinned_metadata_is_closed_and_duplicate_refuses() {
         let good = b"pkgname = omavless\npkgver = 0.9.8-1\narch = x86_64\n";

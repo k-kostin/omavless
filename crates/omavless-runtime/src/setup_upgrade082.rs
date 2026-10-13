@@ -40,6 +40,7 @@ pub enum Blocker {
     CancelledBeforeSubmission,
     PackageOutcomeUnverified,
     PackageSubmissionUnavailable,
+    UnsupportedDevelopmentGuest,
 }
 impl std::fmt::Display for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,6 +63,7 @@ impl std::fmt::Display for Blocker {
             Self::CancelledBeforeSubmission => "cancelled_before_submission",
             Self::PackageOutcomeUnverified => "package_outcome_unverified",
             Self::PackageSubmissionUnavailable => "package_submission_unavailable",
+            Self::UnsupportedDevelopmentGuest => "unsupported_development_guest",
         };
         write!(f, "OmaVLESS upgrade082: {reason}")
     }
