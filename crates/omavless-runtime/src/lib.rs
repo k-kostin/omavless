@@ -9806,6 +9806,12 @@ mod tests {
     fn profile_import_commits_once_without_host_work_and_rejects_replay_conflicts() {
         let base = temporary_base("profile-import");
         let (owner, cutover, calls) = native_owner_fixture(&base);
+        let store_path = base.join("config/profiles.json");
+        let before_store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        // This fixture has never connected. Off initialization and metadata-only
+        // import must not manufacture a Last pointer to its first saved row.
+        assert_eq!(before_store["activeId"], "");
+        assert_eq!(before_store["lastId"], "");
         let paths = RuntimePaths::below(&base.join("runtime"));
         let before_calls = calls.load(Ordering::Relaxed);
         let server =
@@ -9820,13 +9826,12 @@ mod tests {
         assert_eq!(first["ok"], true);
         assert_eq!(first["revision"], 1);
         assert_eq!(first["result"], json!({"accepted": true}));
-        let store_path = base.join("config/profiles.json");
         let original = fs::read(&store_path).unwrap();
         let store: Value = serde_json::from_slice(&original).unwrap();
         assert_eq!(store["profiles"].as_array().unwrap().len(), 2);
         assert_eq!(store["profiles"][1]["protocol"], "trojan");
-        assert_eq!(store["activeId"], "");
-        assert_eq!(store["lastId"], PROFILE_ID);
+        assert_eq!(store["activeId"], before_store["activeId"]);
+        assert_eq!(store["lastId"], before_store["lastId"]);
         assert!(omavless_domain::store::valid_record_id(
             store["profiles"][1]["id"].as_str().unwrap()
         ));
