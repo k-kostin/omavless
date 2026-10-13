@@ -277,7 +277,7 @@ impl Bus {
     fn start() -> Self {
         let directory = tempfile::Builder::new()
             .prefix("omavless-private-dbus-")
-            .tempdir()
+            .tempdir_in(crate::test_temp::home_parent().unwrap())
             .unwrap();
         let path = directory.path().join("bus");
         let address = format!("unix:path={}", path.display());

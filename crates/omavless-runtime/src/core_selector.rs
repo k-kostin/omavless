@@ -218,7 +218,11 @@ mod tests {
     }
     impl Controller {
         fn new(mode: &str, target: &str, broken: &str) -> Self {
-            let root = crate::test_temp::directory("selector").unwrap();
+            let root = crate::test_temp::directory_under(
+                &crate::test_temp::home_parent().unwrap(),
+                "selector",
+            )
+            .unwrap();
             let path = root.join("mihomo.sock");
             let listener = UnixListener::bind(&path).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();

@@ -10,7 +10,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
 
 fn configured_core() -> Option<PathBuf> {
     env::var_os("OMAVLESS_TEST_MIHOMO")
@@ -19,17 +22,8 @@ fn configured_core() -> Option<PathBuf> {
 }
 
 fn temporary_root(label: &str) -> PathBuf {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let path = env::temp_dir().join(format!(
-        "omavless-r4-{label}-{}-{unique}",
-        std::process::id()
-    ));
-    fs::create_dir(&path).expect("temporary root");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).expect("private root");
-    path
+    test_temp::directory_under(&test_temp::home_parent().expect("private parent"), label)
+        .expect("private socket root")
 }
 
 fn write_config(root: &Path, socket: &Path) -> PathBuf {

@@ -475,6 +475,15 @@ mod tests {
             // HOME-based TMPDIR; the old descriptive root exceeded SUN_LEN.
             // Exclusive allocation also skips stale files/dirs/symlinks.
             let path = crate::test_temp::directory("k1l").unwrap();
+            Self::under(path)
+        }
+        fn new_socket() -> Self {
+            let path =
+                crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "k1l")
+                    .unwrap();
+            Self::under(path)
+        }
+        fn under(path: PathBuf) -> Self {
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(path.join("omavless-netguard"))

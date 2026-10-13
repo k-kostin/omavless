@@ -179,9 +179,12 @@ mod tests {
     struct Directory(std::path::PathBuf);
     impl Directory {
         fn new() -> Self {
+            // Every caller binds a real private controller socket. Keep the
+            // original exclusive/collision loop; only its checked parent moves.
+            let parent = crate::test_temp::home_parent().unwrap();
             static SEQUENCE: AtomicU64 = AtomicU64::new(0);
             for _ in 0..1024 {
-                let path = std::env::temp_dir().join(format!(
+                let path = parent.join(format!(
                     "ov-route-{}-{}",
                     std::process::id(),
                     SEQUENCE.fetch_add(1, Ordering::Relaxed)

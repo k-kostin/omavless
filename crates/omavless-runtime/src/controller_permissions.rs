@@ -103,7 +103,11 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     fn fixture() -> (std::path::PathBuf, std::path::PathBuf, UnixListener) {
-        let root = crate::test_temp::directory("controller-mode").unwrap();
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "controller-mode",
+        )
+        .unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let path = root.join("mihomo.sock");
         let listener = UnixListener::bind(&path).unwrap();
