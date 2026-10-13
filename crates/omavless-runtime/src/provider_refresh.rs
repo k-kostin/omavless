@@ -551,17 +551,13 @@ mod tests {
     }
 
     fn directory() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "ov-refresh-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&path).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        path
+        // Both synthetic Unix transports and the installed-core opt-in reach
+        // mihomo.sock. Their private parent must not depend on TMPDIR length.
+        crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "provider-controller",
+        )
+        .unwrap()
     }
     fn read_request(stream: &mut UnixStream) -> Vec<u8> {
         stream
