@@ -57,6 +57,12 @@ not clock-based names appended to an arbitrary build TMPDIR. A working default
 the affected socket controls with a long HOME-backed TMPDIR; do not shorten a
 production endpoint, relax a socket deadline or alter the parser to fix tests.
 
+Resolve helper APIs and Rust test namespaces in the selected owning snapshot,
+not a newer main checkout or shared build cache. Source review does not replace
+compilation. For an unfamiliar focused selector, inspect the module mapping or
+the actual test list first; record the selected case count. Exit 0 with zero
+selected tests is UNTESTED, not evidence that the requested behavior passed.
+
 After two unsuccessful diagnostic cycles without narrowing the failure,
 reassess the hypothesis or design with an independent reviewer. This is a
 checkpoint to change method, not a retry allowance or a reason to stop all work.
