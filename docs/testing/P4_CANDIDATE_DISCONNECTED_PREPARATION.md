@@ -230,3 +230,10 @@ cleanup. Only after those source controls and a separately selected finite
 synthetic resource-bearing sandbox row can actual candidate NativeHost/startup
 wiring be proposed. Production v3 and active compensation/adoption fences stay
 closed throughout.
+
+The [capture-only source successor](P4_CANDIDATE_VALIDATION_CAPTURE.md) now
+prepares the same raw candidate/template/core inputs and mandatory cached
+resource bytes together behind the existing opt-in feature. It does not execute
+the validator or wire a host/startup path. Its new controls and authentic DATA
+row remain unrun pending their own source review and resource selection; the
+#756 results above are not credited to this successor by implication.

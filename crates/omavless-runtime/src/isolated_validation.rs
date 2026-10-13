@@ -19,6 +19,9 @@ const BUNDLES: [&str; 3] = [
     include_str!("../../../templates/iran.yaml"),
 ];
 
+#[cfg(any(test, feature = "p4-candidate-preparation"))]
+pub mod candidate_capture;
+
 /// Fixed classifications only: never retain a path, parser fragment or stderr.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidationError {
@@ -109,6 +112,55 @@ fn read_bounded(
     Ok(bytes)
 }
 
+// Shared acquisition only. Names must come from the exact trusted manifest;
+// no public constructor accepts a caller-defined resource list.
+fn capture_resources(
+    data: &Path,
+    uid: u32,
+    names: Vec<String>,
+) -> Result<Vec<(String, Vec<u8>)>, ValidationError> {
+    if !data.is_absolute() || !crate::native_host::private_directory(data, uid) {
+        return Err(ValidationError::UnsafeInput);
+    }
+    let directory = data.join("ruleset");
+    let meta =
+        fs::symlink_metadata(&directory).map_err(|_| ValidationError::ResourceUnavailable)?;
+    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o022 != 0 {
+        return Err(ValidationError::ResourceUnavailable);
+    }
+    // Hold the directory inode and resolve children through that FD. A
+    // concurrent directory replacement cannot redirect resource acquisition.
+    let held = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW)
+        .open(&directory)
+        .map_err(|_| ValidationError::ResourceUnavailable)?;
+    use std::os::fd::AsRawFd;
+    let held_meta = held
+        .metadata()
+        .map_err(|_| ValidationError::ResourceUnavailable)?;
+    if held_meta.dev() != meta.dev() || held_meta.ino() != meta.ino() {
+        return Err(ValidationError::ResourceUnavailable);
+    }
+    let mut resources = Vec::new();
+    let mut total = 0;
+    for name in names {
+        let bytes = read_bounded(
+            &PathBuf::from(format!("/proc/self/fd/{}", held.as_raw_fd())).join(&name),
+            uid,
+            RESOURCE_LIMIT,
+            false,
+        )
+        .map_err(|_| ValidationError::ResourceUnavailable)?;
+        total += bytes.len();
+        if total > TOTAL_LIMIT {
+            return Err(ValidationError::ResourceUnavailable);
+        }
+        resources.push((name, bytes));
+    }
+    Ok(resources)
+}
+
 impl ValidationSnapshot {
     /// Accept exactly a checked-in bundle (including its canonical mode change).
     /// Every named provider cache is required; unknown/custom policy fails closed.
@@ -123,48 +175,10 @@ impl ValidationSnapshot {
         desired
             .validate()
             .map_err(|_| ValidationError::UnsafeInput)?;
-        if !desired.connected
-            || !data.is_absolute()
-            || !crate::native_host::private_directory(data, uid)
-        {
+        if !desired.connected {
             return Err(ValidationError::UnsafeInput);
         }
-        let directory = data.join("ruleset");
-        let meta =
-            fs::symlink_metadata(&directory).map_err(|_| ValidationError::ResourceUnavailable)?;
-        if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o022 != 0 {
-            return Err(ValidationError::ResourceUnavailable);
-        }
-        // Hold the directory inode and resolve children through that FD. A
-        // concurrent directory replacement cannot redirect resource acquisition.
-        let held = OpenOptions::new()
-            .read(true)
-            .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW)
-            .open(&directory)
-            .map_err(|_| ValidationError::ResourceUnavailable)?;
-        use std::os::fd::AsRawFd;
-        let held_meta = held
-            .metadata()
-            .map_err(|_| ValidationError::ResourceUnavailable)?;
-        if held_meta.dev() != meta.dev() || held_meta.ino() != meta.ino() {
-            return Err(ValidationError::ResourceUnavailable);
-        }
-        let mut resources = Vec::new();
-        let mut total = 0;
-        for name in names {
-            let bytes = read_bounded(
-                &PathBuf::from(format!("/proc/self/fd/{}", held.as_raw_fd())).join(&name),
-                uid,
-                RESOURCE_LIMIT,
-                false,
-            )
-            .map_err(|_| ValidationError::ResourceUnavailable)?;
-            total += bytes.len();
-            if total > TOTAL_LIMIT {
-                return Err(ValidationError::ResourceUnavailable);
-            }
-            resources.push((name, bytes));
-        }
+        let resources = capture_resources(data, uid, names)?;
         let config = store
             .prepare_config_mode(
                 &desired.profile_id,
