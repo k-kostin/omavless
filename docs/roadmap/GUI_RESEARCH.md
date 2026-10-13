@@ -201,6 +201,14 @@ and Arch evidence does not establish NixOS packaging.
 
 ### G1a: synthetic native comparison
 
+The [October 13 public-palette native result](../testing/G1_PUBLIC_PALETTE_2026-10-13.md)
+records successful selected Direct EN/RU continuity checks and a failed
+embedding large-list/input sequence. The embedding host retained its previous
+view after a render interruption; its later palette and narrow rows remain
+NOT RUN. A separate event-owned projection-cache successor requires new native
+observation without changing SDK budgets. This checkpoint does not accept G1a
+or select a toolkit.
+
 Use an isolated workspace and identical synthetic fixtures for both candidates.
 Build a small status + searchable profile/subscription list + details screen.
 Include selected A/connected B, filtered connected row, stale/removed selection,
