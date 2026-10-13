@@ -71,6 +71,27 @@ stock Mihomo 1.19.32 / missing capabilities after the managed pair was selected.
 The shared stock core was not granted capabilities to conceal this mismatch.
 The wizard was closed without connecting or changing startup preferences.
 
+## Ordinary remove and add after the paired update
+
+Inspect the exact clean plugin checkout and the installed Omarchy removal
+implementation, then run ordinary `omarchy plugin remove kdk.omavless --yes`
+in the guest. Original invocation exited 0 and removed only the identified
+frontend checkout. The QML destruction handler schedules the existing native
+removal watcher: runtime subsequently exited cleanly with status 0 and remained
+disabled. Thus an immediate post-remove active-PID sample is **not** proof that
+the runtime remains running indefinitely. The app/DNS packages, profiles,
+Desired and ownership remained; the broker stayed active with empty FD store.
+
+Run ordinary `omarchy plugin add https://github.com/k-kostin/omavless.git
+--enable --yes`. Original invocation exited 0 and restored the same main head.
+Component inventory was `needs_runtime_start / present`; the actual panel
+offered **Start OmaVLESS**, not a package-install prompt. After clicking that
+button on the settled panel, the runtime became active with a new PID, the unit
+remained disabled, and inventory returned `ready / present`. Profiles, Desired
+and ownership still matched their saved pre-upgrade bytes. This is agent-operated
+disconnected remove/re-add evidence, not full package/DNS uninstall or connected
+removal acceptance.
+
 ## Source corrections and remaining gates
 
 - Setup successor `c8b86b484593f6a0b00525b57cda456366c91298` adds precise safe
