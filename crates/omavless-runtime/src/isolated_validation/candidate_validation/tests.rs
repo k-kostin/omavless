@@ -6,16 +6,25 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::os::unix::process::ExitStatusExt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
 struct Inputs {
     dropped: Rc<Cell<usize>>,
     resources: Vec<(String, Vec<u8>)>,
+    panic_core: Rc<Cell<bool>>,
+    anchor: Rc<Cell<Option<i32>>>,
+    panic_anchor: bool,
+    panic_file_anchor: bool,
 }
 impl Inputs {
     fn new(dropped: Rc<Cell<usize>>) -> Self {
         Self {
             dropped,
+            panic_core: Rc::new(Cell::new(false)),
+            anchor: Rc::new(Cell::new(None)),
+            panic_anchor: false,
+            panic_file_anchor: false,
             resources: vec![(
                 "synthetic.mrs".into(),
                 b"SYNTHETIC_NON_MRS_PAYLOAD".to_vec(),
@@ -25,6 +34,7 @@ impl Inputs {
 }
 impl CapturedInputs for Inputs {
     fn core(&self) -> &[u8] {
+        assert!(!self.panic_core.get(), "synthetic proof panic");
         b"SYNTHETIC_NONEXECUTABLE_CORE"
     }
     fn config(&self) -> &[u8] {
@@ -32,6 +42,17 @@ impl CapturedInputs for Inputs {
     }
     fn resources(&self) -> &[(String, Vec<u8>)] {
         &self.resources
+    }
+    fn after_staged_anchor(&self, scratch: &Scratch) {
+        self.anchor.set(Some(scratch.files.first().map_or_else(
+            || scratch.directory.as_raw_fd(),
+            |(_, held)| held.as_raw_fd(),
+        )));
+        assert!(!self.panic_anchor, "synthetic staging panic");
+        assert!(
+            !self.panic_file_anchor || scratch.files.is_empty(),
+            "synthetic file-anchor panic"
+        );
     }
 }
 impl Drop for Inputs {
@@ -50,7 +71,7 @@ impl Fixture {
             uid: nix::unistd::Uid::current().as_raw(),
         }
     }
-    fn stage(&self) -> Scope<Inputs> {
+    fn stage(&self) -> Armed<Inputs, FakeChild> {
         stage_owned(Inputs::new(Rc::new(Cell::new(0))), &self.parent, self.uid).unwrap()
     }
 }
@@ -60,9 +81,11 @@ impl Drop for Fixture {
     }
 }
 #[derive(Clone)]
-struct FakeClock(Rc<Cell<Duration>>);
+struct FakeClock(Rc<Cell<Duration>>, Rc<Cell<usize>>, Rc<Cell<Option<usize>>>);
 impl Clock for FakeClock {
     fn elapsed(&self) -> Duration {
+        self.1.set(self.1.get() + 1);
+        assert!(self.2.get() != Some(self.1.get()), "synthetic clock panic");
         self.0.get()
     }
     fn pause(&mut self) {
@@ -83,6 +106,9 @@ struct FakeChild {
     kills: Rc<Cell<usize>>,
     dropped: Rc<Cell<usize>>,
     kill_error: bool,
+    panic_wait: bool,
+    panic_kill: bool,
+    proof_panic_on_wait: Option<Rc<Cell<bool>>>,
 }
 impl FakeChild {
     fn new(clock: FakeClock, observations: impl IntoIterator<Item = Observation>) -> Self {
@@ -94,12 +120,19 @@ impl FakeChild {
             kills: Rc::new(Cell::new(0)),
             dropped: Rc::new(Cell::new(0)),
             kill_error: false,
+            panic_wait: false,
+            panic_kill: false,
+            proof_panic_on_wait: None,
         }
     }
 }
 impl OriginalChild for FakeChild {
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         self.waits.set(self.waits.get() + 1);
+        assert!(!self.panic_wait, "synthetic wait panic");
+        if let Some(flag) = &self.proof_panic_on_wait {
+            flag.set(true);
+        }
         self.clock.0.set(self.clock.0.get() + self.wait_cost);
         match self
             .observations
@@ -114,6 +147,7 @@ impl OriginalChild for FakeChild {
     }
     fn kill(&mut self) -> io::Result<()> {
         self.kills.set(self.kills.get() + 1);
+        assert!(!self.panic_kill, "synthetic kill panic");
         if self.kill_error {
             Err(io::Error::other("synthetic kill refusal"))
         } else {
@@ -127,7 +161,11 @@ impl Drop for FakeChild {
     }
 }
 fn clock() -> FakeClock {
-    FakeClock(Rc::new(Cell::new(Duration::ZERO)))
+    FakeClock(
+        Rc::new(Cell::new(Duration::ZERO)),
+        Rc::new(Cell::new(0)),
+        Rc::new(Cell::new(None)),
+    )
 }
 
 #[test]
@@ -150,6 +188,7 @@ fn candidate_argv_has_only_pid1_prefix_delta_and_no_launch_in_this_control() {
 fn exact_owned_bytes_stage_and_model_completion_cleanup_without_core_execution() {
     let fixture = Fixture::new();
     let scope = fixture.stage();
+    let input_drop = scope.input.dropped.clone();
     let path = scope.scratch.as_ref().unwrap().path.clone();
     let scratch = scope.scratch.as_ref().unwrap();
     assert!(scope.prove().is_ok());
@@ -164,8 +203,11 @@ fn exact_owned_bytes_stage_and_model_completion_cleanup_without_core_execution()
     }
     let timer = clock();
     let child = FakeChild::new(timer.clone(), [Observation::Code(0)]);
+    let child_drop = child.dropped.clone();
     let completed = supervise(scope, timer, |_| Ok(child)).ok().unwrap();
     finish_model(completed).unwrap();
+    assert_eq!(input_drop.get(), 1);
+    assert_eq!(child_drop.get(), 1);
     assert!(!path.exists());
 }
 
@@ -217,22 +259,25 @@ fn proof_refuses_bytes_length_mode_links_membership_and_expected_owner_drift() {
 fn drop_retained_failure_preserves_only_child_input_and_partial_fd_anchors() {
     let fixture = Fixture::new();
     let input_drop = Rc::new(Cell::new(0));
-    let held = open_directory(&fixture.parent).unwrap();
-    let fd = held.as_raw_fd();
-    let partial = PartialScratch {
+    let mut owner = Armed::new(Inputs::new(input_drop.clone()), fixture.uid);
+    owner.partial = Some(PartialScratch {
         path: fixture.parent.clone(),
-        directory: Some(held),
+        directory: None,
         rules: None,
-    };
-    let scope = Scope {
-        input: Inputs::new(input_drop.clone()),
-        uid: fixture.uid,
-        partial: Some(partial),
-        scratch: None,
-    };
+    });
+    owner.partial.as_mut().unwrap().directory = Some(open_directory(&fixture.parent).unwrap());
+    let fd = owner
+        .partial
+        .as_ref()
+        .unwrap()
+        .directory
+        .as_ref()
+        .unwrap()
+        .as_raw_fd();
     let child = FakeChild::new(clock(), []);
     let child_drop = child.dropped.clone();
-    let failure = retain(Refusal::Staging, scope, Some(child));
+    owner.child = Some(child);
+    let failure = retain(Refusal::Staging, owner);
     assert!(!format!("{failure:?}").contains("CANARY"));
     drop(failure);
     assert_eq!(input_drop.get(), 0);
@@ -399,9 +444,125 @@ fn postcompletion_tree_drift_refuses_and_partial_cleanup_retains_remaining_ancho
     fs::write(path.join("ruleset/foreign"), b"foreign").unwrap();
     assert!(scratch.cleanup().is_err());
     let fd = scratch.directory.as_raw_fd();
-    let failure = retain::<_, FakeChild>(Refusal::Cleanup, scope, None);
+    let failure = retain::<_, FakeChild>(Refusal::Cleanup, scope);
     drop(failure);
     assert!(path.exists());
     assert!(fs::metadata(format!("/proc/self/fd/{fd}")).is_ok());
     assert!(path.join("ruleset/foreign").exists());
+}
+
+#[test]
+fn staging_unwind_retains_input_and_first_directory_anchor() {
+    for file_anchor in [false, true] {
+        let fixture = Fixture::new();
+        let dropped = Rc::new(Cell::new(0));
+        let mut input = Inputs::new(dropped.clone());
+        input.panic_anchor = !file_anchor;
+        input.panic_file_anchor = file_anchor;
+        let anchor = input.anchor.clone();
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let _ = stage_owned::<_, FakeChild>(input, &fixture.parent, fixture.uid);
+        }));
+        assert!(outcome.is_err());
+        assert_eq!(dropped.get(), 0);
+        let fd_path = PathBuf::from(format!("/proc/self/fd/{}", anchor.get().unwrap()));
+        if file_anchor {
+            assert!(fs::read(fd_path).unwrap() == b"SYNTHETIC_NONEXECUTABLE_CORE");
+        } else {
+            assert!(fs::metadata(&fd_path).unwrap().is_dir());
+            assert_eq!(fs::read_dir(fd_path).unwrap().count(), 1); // retained ruleset
+        }
+    }
+}
+
+#[test]
+fn launch_child_wait_clock_proof_and_cleanup_unwind_never_drop_owned_resources() {
+    for phase in [
+        "launch",
+        "wait",
+        "clock",
+        "kill",
+        "pre-proof",
+        "post-proof",
+        "cleanup-proof",
+    ] {
+        let fixture = Fixture::new();
+        let dropped = Rc::new(Cell::new(0));
+        let input = Inputs::new(dropped.clone());
+        let proof_panic = input.panic_core.clone();
+        let owner = stage_owned::<_, FakeChild>(input, &fixture.parent, fixture.uid).unwrap();
+        let fd = owner.scratch.as_ref().unwrap().files[0].1.as_raw_fd();
+        let timer = clock();
+        let child_drop = Rc::new(Cell::new(0));
+        if phase == "clock" {
+            timer.2.set(Some(2));
+        } // immediately after launch return
+        if phase == "pre-proof" {
+            proof_panic.set(true);
+        }
+        // No child exists in an owner until launch returns. For launch/pre-proof
+        // panics don't construct a callee-owned fake child whose Drop is outside
+        // that guarantee: these rows assert input/FD retention only.
+        let child = if phase == "launch" || phase == "pre-proof" {
+            None
+        } else {
+            let mut child = FakeChild::new(timer.clone(), [Observation::Code(0)]);
+            child.dropped = child_drop.clone();
+            child.panic_wait = phase == "wait";
+            child.panic_kill = phase == "kill";
+            if phase == "post-proof" {
+                child.proof_panic_on_wait = Some(proof_panic.clone());
+            }
+            Some(child)
+        };
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let completed = supervise(owner, timer.clone(), |_| {
+                assert!(phase != "launch", "synthetic launch panic");
+                if phase == "kill" {
+                    timer.0.set(EXECUTION_BUDGET);
+                }
+                Ok(child.unwrap())
+            })
+            .ok()
+            .unwrap();
+            if phase == "cleanup-proof" {
+                proof_panic.set(true);
+                let _ = finish_model(completed);
+            }
+        }));
+        assert!(outcome.is_err());
+        assert_eq!(dropped.get(), 0);
+        if phase != "launch" && phase != "pre-proof" {
+            assert_eq!(child_drop.get(), 0);
+        }
+        // Reopen the exact original inode through the retained FD, not its
+        // possibly replaceable former pathname; no process/core was executed.
+        assert!(
+            fs::read(format!("/proc/self/fd/{fd}")).unwrap() == b"SYNTHETIC_NONEXECUTABLE_CORE"
+        );
+    }
+}
+
+#[test]
+fn consumer_drop_of_staged_or_completed_owner_remains_armed_until_proved_cleanup() {
+    for completed in [false, true] {
+        let fixture = Fixture::new();
+        let owner = fixture.stage();
+        let input_drop = owner.input.dropped.clone();
+        let fd = owner.scratch.as_ref().unwrap().files[0].1.as_raw_fd();
+        if completed {
+            let timer = clock();
+            let child = FakeChild::new(timer.clone(), [Observation::Code(0)]);
+            let child_drop = child.dropped.clone();
+            let completion = supervise(owner, timer, |_| Ok(child)).ok().unwrap();
+            drop(completion);
+            assert_eq!(child_drop.get(), 0);
+        } else {
+            drop(owner);
+        }
+        assert_eq!(input_drop.get(), 0);
+        assert!(
+            fs::read(format!("/proc/self/fd/{fd}")).unwrap() == b"SYNTHETIC_NONEXECUTABLE_CORE"
+        );
+    }
 }

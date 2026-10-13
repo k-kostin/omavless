@@ -13,6 +13,7 @@ use std::fmt;
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
 use std::mem::ManuallyDrop;
+use std::ops::{Deref, DerefMut};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -29,6 +30,8 @@ trait CapturedInputs {
     fn core(&self) -> &[u8];
     fn config(&self) -> &[u8];
     fn resources(&self) -> &[(String, Vec<u8>)];
+    #[cfg(test)]
+    fn after_staged_anchor(&self, _scratch: &Scratch) {}
 }
 impl CapturedInputs for CandidateValidationSnapshot {
     fn core(&self) -> &[u8] {
@@ -71,12 +74,54 @@ struct Retained<I, C> {
     scope: Scope<I>,
     child: Option<C>,
 }
+// Armed BEFORE any new resource acquisition. Moving this owner between stage,
+// supervision, completed model and failure never disarms it. Unwind and consumer
+// Drop retain the payload; only proved exact cleanup permits explicit disarm.
+struct Armed<I, C>(ManuallyDrop<Box<Retained<I, C>>>);
+impl<I, C> Armed<I, C> {
+    fn new(input: I, uid: u32) -> Self {
+        Self(ManuallyDrop::new(Box::new(Retained {
+            scope: Scope {
+                input,
+                uid,
+                partial: None,
+                scratch: None,
+            },
+            child: None,
+        })))
+    }
+    fn disarm_after_cleanup(self) {
+        drop(ManuallyDrop::into_inner(self.0));
+    }
+}
+impl<I, C> Deref for Armed<I, C> {
+    type Target = Retained<I, C>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<I, C> DerefMut for Armed<I, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<I, C> Deref for Retained<I, C> {
+    type Target = Scope<I>;
+    fn deref(&self) -> &Self::Target {
+        &self.scope
+    }
+}
+impl<I, C> DerefMut for Retained<I, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.scope
+    }
+}
 #[must_use = "retained scope is not cleanup or retry authority"]
 struct Failure<I, C> {
     reason: Refusal,
     // Deliberate bounded-per-attempt retention, including after consumer Drop.
     // No registry, Drop kill/cleanup, automatic retry or live-handle loss.
-    retained: ManuallyDrop<Box<Retained<I, C>>>,
+    retained: Armed<I, C>,
 }
 impl<I, C> fmt::Debug for Failure<I, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -85,11 +130,8 @@ impl<I, C> fmt::Debug for Failure<I, C> {
             .finish()
     }
 }
-fn retain<I, C>(reason: Refusal, scope: Scope<I>, child: Option<C>) -> Failure<I, C> {
-    Failure {
-        reason,
-        retained: ManuallyDrop::new(Box::new(Retained { scope, child })),
-    }
+fn retain<I, C>(reason: Refusal, retained: Armed<I, C>) -> Failure<I, C> {
+    Failure { reason, retained }
 }
 
 // The only real entry consumes the same opaque carrier. No core/config/resource
@@ -98,21 +140,18 @@ fn stage(
     input: CandidateValidationSnapshot,
     parent: &Path,
     uid: u32,
-) -> Result<Scope<CandidateValidationSnapshot>, Failure<CandidateValidationSnapshot, Child>> {
+) -> Result<Armed<CandidateValidationSnapshot, Child>, Failure<CandidateValidationSnapshot, Child>>
+{
     stage_owned(input, parent, uid)
 }
-fn stage_owned<I: CapturedInputs>(
+fn stage_owned<I: CapturedInputs, C>(
     input: I,
     parent: &Path,
     uid: u32,
-) -> Result<Scope<I>, Failure<I, Child>> {
-    let mut scope = Scope {
-        input,
-        uid,
-        partial: None,
-        scratch: None,
-    };
+) -> Result<Armed<I, C>, Failure<I, C>> {
+    let mut owner = Armed::new(input, uid);
     let result = (|| {
+        let scope = &mut owner.scope;
         if !parent.is_absolute() || !crate::native_host::private_directory(parent, uid) {
             return Err(Refusal::Staging);
         }
@@ -122,33 +161,49 @@ fn stage_owned<I: CapturedInputs>(
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        DirBuilder::new()
-            .mode(0o700)
-            .create(&path)
-            .map_err(|_| Refusal::Staging)?;
+        // Record the intended scope before create. A create error/panic grants
+        // no ownership/cleanup authority, but cannot lose its bounded pathname.
         scope.partial = Some(PartialScratch {
             path,
             directory: None,
             rules: None,
         });
         let partial = scope.partial.as_mut().unwrap();
+        DirBuilder::new()
+            .mode(0o700)
+            .create(&partial.path)
+            .map_err(|_| Refusal::Staging)?;
         partial.directory = Some(open_directory(&partial.path)?);
         DirBuilder::new()
             .mode(0o700)
             .create(partial.path.join("ruleset"))
             .map_err(|_| Refusal::Staging)?;
         partial.rules = Some(open_directory(&partial.path.join("ruleset"))?);
-        let partial = scope.partial.take().unwrap();
+        // Clone/validate while all anchors remain in the armed owner. The
+        // following checked Some-to-Scratch moves contain no callbacks or
+        // fallible operations, and ownership never leaves the armed payload.
+        let partial = scope.partial.as_mut().unwrap();
+        let path = partial.path.clone();
+        if partial.directory.is_none() || partial.rules.is_none() {
+            return Err(Refusal::Staging);
+        }
         scope.scratch = Some(Scratch {
-            path: partial.path,
-            directory: partial.directory.unwrap(),
-            rules: partial.rules.unwrap(),
+            path,
+            directory: partial.directory.take().unwrap(),
+            rules: partial.rules.take().unwrap(),
             files: Vec::new(),
         });
+        scope.partial = None;
+        #[cfg(test)]
+        scope
+            .input
+            .after_staged_anchor(scope.scratch.as_ref().unwrap());
         let scratch = scope.scratch.as_mut().unwrap();
         scratch
             .add("core", scope.input.core(), 0o500)
             .map_err(|_| Refusal::Staging)?;
+        #[cfg(test)]
+        scope.input.after_staged_anchor(scratch);
         scratch
             .add("config.yaml", scope.input.config(), 0o400)
             .map_err(|_| Refusal::Staging)?;
@@ -160,8 +215,8 @@ fn stage_owned<I: CapturedInputs>(
         scope.prove()
     })();
     match result {
-        Ok(()) => Ok(scope),
-        Err(reason) => Err(retain(reason, scope, None)),
+        Ok(()) => Ok(owner),
+        Err(reason) => Err(retain(reason, owner)),
     }
 }
 fn open_directory(path: &Path) -> Result<File, Refusal> {
@@ -371,98 +426,98 @@ impl Clock for Monotonic {
 // This is NOT a namespace/validation receipt. Even a private normal-zero model
 // needs installed launcher/kernel qualification before a live success route.
 struct CompletedModel<I, C> {
-    scope: Scope<I>,
-    child: C,
+    retained: Armed<I, C>,
 }
 // Private source-model finalization only, never a live validation grant. There
 // is no production launch caller: installed completion assumptions stay closed.
 fn finish_model<I: CapturedInputs, C>(
     mut completed: CompletedModel<I, C>,
 ) -> Result<(), Failure<I, C>> {
-    if completed.scope.prove().is_err() {
-        return Err(retain(
-            Refusal::TreeProof,
-            completed.scope,
-            Some(completed.child),
-        ));
+    if completed.retained.scope.prove().is_err() {
+        return Err(retain(Refusal::TreeProof, completed.retained));
     }
-    if completed.scope.scratch.as_mut().unwrap().cleanup().is_err() {
-        return Err(retain(
-            Refusal::Cleanup,
-            completed.scope,
-            Some(completed.child),
-        ));
+    if completed
+        .retained
+        .scope
+        .scratch
+        .as_mut()
+        .unwrap()
+        .cleanup()
+        .is_err()
+    {
+        return Err(retain(Refusal::Cleanup, completed.retained));
     }
+    completed.retained.disarm_after_cleanup();
     Ok(())
 }
 fn supervise<I: CapturedInputs, C: OriginalChild, T: Clock>(
-    scope: Scope<I>,
+    mut owner: Armed<I, C>,
     mut clock: T,
     launch: impl FnOnce(&Path) -> io::Result<C>,
 ) -> Result<CompletedModel<I, C>, Failure<I, C>> {
     // Clock origin precedes launch. Staging/spawn/fs calls are not hard-bounded
     // by these polling budgets; no whole-call wall-clock bound is promised.
-    if scope.prove().is_err() {
-        return Err(retain(Refusal::TreeProof, scope, None));
+    if owner.scope.prove().is_err() {
+        return Err(retain(Refusal::TreeProof, owner));
     }
     if clock.elapsed() >= EXECUTION_BUDGET {
-        return Err(retain(Refusal::Timeout, scope, None));
+        return Err(retain(Refusal::Timeout, owner));
     }
-    let mut child = match launch(&scope.scratch.as_ref().unwrap().path) {
-        Ok(child) => child,
-        Err(_) => return Err(retain(Refusal::Spawn, scope, None)),
+    // Store the returned handle immediately, before clock/proof/wait callbacks.
+    owner.child = match launch(&owner.scope.scratch.as_ref().unwrap().path) {
+        Ok(child) => Some(child),
+        Err(_) => return Err(retain(Refusal::Spawn, owner)),
     };
     loop {
         if clock.elapsed() >= EXECUTION_BUDGET {
-            return timeout(scope, child, clock);
+            return timeout(owner, clock);
         }
-        let observed = child.try_wait();
+        let observed = owner.child.as_mut().unwrap().try_wait();
         let late = clock.elapsed() >= EXECUTION_BUDGET;
         match observed {
             Ok(Some(status)) => {
                 if late {
-                    return Err(retain(Refusal::LateCompletion, scope, Some(child)));
+                    return Err(retain(Refusal::LateCompletion, owner));
                 }
                 if !status.success() {
-                    return Err(retain(Refusal::Wait, scope, Some(child)));
+                    return Err(retain(Refusal::Wait, owner));
                 }
-                if scope.prove().is_err() {
-                    return Err(retain(Refusal::TreeProof, scope, Some(child)));
+                if owner.scope.prove().is_err() {
+                    return Err(retain(Refusal::TreeProof, owner));
                 }
                 // Post-tree proof is also charged to the execution budget.
                 if clock.elapsed() >= EXECUTION_BUDGET {
-                    return Err(retain(Refusal::LateCompletion, scope, Some(child)));
+                    return Err(retain(Refusal::LateCompletion, owner));
                 }
-                return Ok(CompletedModel { scope, child });
+                return Ok(CompletedModel { retained: owner });
             }
-            Err(_) => return Err(retain(Refusal::Wait, scope, Some(child))),
-            Ok(None) if late => return timeout(scope, child, clock),
+            Err(_) => return Err(retain(Refusal::Wait, owner)),
+            Ok(None) if late => return timeout(owner, clock),
             Ok(None) => clock.pause(),
         }
     }
 }
 fn timeout<I, C: OriginalChild, T: Clock>(
-    scope: Scope<I>,
-    mut child: C,
+    mut owner: Armed<I, C>,
     mut clock: T,
 ) -> Result<CompletedModel<I, C>, Failure<I, C>> {
     let grace_start = clock.elapsed();
-    if child.kill().is_err() {
-        return Err(retain(Refusal::Kill, scope, Some(child)));
+    if owner.child.as_mut().unwrap().kill().is_err() {
+        return Err(retain(Refusal::Kill, owner));
     }
     while clock.elapsed().saturating_sub(grace_start) < LAUNCHER_GRACE {
-        let observed = child.try_wait();
+        let observed = owner.child.as_mut().unwrap().try_wait();
         let elapsed = clock.elapsed().saturating_sub(grace_start);
         match observed {
             Ok(Some(_)) => break,
-            Err(_) => return Err(retain(Refusal::Wait, scope, Some(child))),
+            Err(_) => return Err(retain(Refusal::Wait, owner)),
             Ok(None) if elapsed >= LAUNCHER_GRACE => break,
             Ok(None) => clock.pause(),
         }
     }
     // Reaping the killed launcher proves no namespace completion. Retain even
     // when this grace observed zero; never manufacture validation or cleanup.
-    Err(retain(Refusal::Timeout, scope, Some(child)))
+    Err(retain(Refusal::Timeout, owner))
 }
 
 #[cfg(test)]

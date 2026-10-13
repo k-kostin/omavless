@@ -78,11 +78,21 @@ owned Child, then polls that same handle for at most one second of grace.
 These are execution/grace polling budgets, **not a hard whole-call deadline**:
 staging, spawn, filesystem calls and signal delivery have separate limitations.
 
+An armed retained owner is constructed before any new resource acquisition.
+It records the intended scratch path before creation and owns each returned
+FD immediately. Staging/supervision/completion/failure move the same armed
+payload, never plain Scope/Child locals across fallible callbacks. The original
+child is stored immediately when launch returns, before clock/wait/proof calls.
+Unwind and consumer Drop retain this payload; only explicitly proved exact
+cleanup disarms it. No production catch-and-retry or broad panic policy is added.
+A callee that has not returned a child handle cannot establish that handle's
+ownership here; installed launch integration remains closed.
+
 Spawn/wait/kill/nonzero/signal/timeout/late completion or tree-proof refusal
 retains the input carrier, every staged/partial FD anchor and any original
 child handle. Even a reaped launcher after timeout does not establish namespace
 closure and cannot authorize cleanup. An opaque fixed/redacted failure owns
-them in `ManuallyDrop`: consumer/result Drop neither kills/cleans nor discards
+them in the armed `ManuallyDrop` owner: consumer/result Drop neither kills/cleans nor discards
 the only live child handle. There is deliberately no recovery/cleanup/retry API.
 This intentionally retains allocations/FDs and private disk scope per failed
 attempt; it is not a global memory/disk budget or crash-survival supervisor.
@@ -96,12 +106,28 @@ zero or preparation eligibility cannot do so.
 
 ## Controls and next selected gate
 
+### Retained source-review refusal
+
+Original source-only checkpoint `a43a74025e1b75480564cb083ccd12b1e85e6300`
+was refused in independent Astra review (P2): `ManuallyDrop` existed only on
+explicit Failure results, while panic in staging/launch/try-wait/clock/proof
+could drop ordinary Scope/Child locals and lose the only child handle/anchors.
+No Cargo/test/engine result existed at that head. The narrow successor arms
+ownership before acquisition and keeps it armed through every phase and result,
+disarming only after proved cleanup. Prepared unwind controls reread retained
+directory/file FDs and check input/child Drop counters after caught **test-only**
+panics and consumer Drop. That failed source checkpoint is preserved, not
+retroactively accepted by the correction; checks/review remain pending.
+
 Prepared normal controls are file/mock only: exact owned staging; byte/length/
 mode/owner/link/membership/replacement drift; sole PID1 argument delta; retained
 child/input/partial anchors after Drop; late zero; deadline before launch and
 slow spawn; finite grace and retained launcher zero; spawn/wait/kill/nonzero
 refusals; post-completion drift and partial-cleanup retention. No test in this
-new module spawns a child or runs a core/bwrap command. The old v3 execution
+new module spawns a child or runs a core/bwrap command. Three additional controls
+cover staging directory/file-anchor unwind, launch/obtained-child/wait/clock/
+kill/pre/post/cleanup-proof unwind and staged/completed consumer Drop. All twelve
+controls remain unrun. The old v3 execution
 tests retain their existing separate effect prerequisites.
 
 Before Cargo, freeze the exact source and obtain Root/Astra scoped review.
