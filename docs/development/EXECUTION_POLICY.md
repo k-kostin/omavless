@@ -42,6 +42,21 @@ cases. Run compilation and environment preflight before privileged execution.
 Synthetic controls complement, but never replace, the real integration gate.
 Do not create prerequisite research unless a concrete scenario needs it.
 
+Dependent commands require a fail-fast admission boundary. Check checkout/head,
+selected directories and permissions before launching a build or test; create
+and verify the HOME-backed TMPDIR first. Keep dependent shell steps in one
+fail-fast script, or explicitly check each tool result's exit code before the
+next call. Printing only output drops the completion status. A running session
+without an exit code is not success: retain and wait for that original command.
+On failure stop dependent steps, classify reached effects and preserve the
+original outcome before selecting a corrected successor.
+
+Unix-socket fixtures must use the existing short, private shared allocator,
+not clock-based names appended to an arbitrary build TMPDIR. A working default
+/tmp path can hide this defect when HOME build paths become longer. Exercise
+the affected socket controls with a long HOME-backed TMPDIR; do not shorten a
+production endpoint, relax a socket deadline or alter the parser to fix tests.
+
 After two unsuccessful diagnostic cycles without narrowing the failure,
 reassess the hypothesis or design with an independent reviewer. This is a
 checkpoint to change method, not a retry allowance or a reason to stop all work.

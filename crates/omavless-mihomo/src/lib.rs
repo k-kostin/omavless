@@ -584,7 +584,6 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::mpsc;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn response(status: &str, body: &[u8]) -> Vec<u8> {
         let mut result = format!(
@@ -597,14 +596,35 @@ mod tests {
     }
 
     fn temporary_root(label: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path =
-            env::temp_dir().join(format!("omavless-{label}-{}-{unique}", std::process::id()));
-        fs::create_dir(&path).expect("temporary root");
-        path
+        // Controller sockets must not inherit a long build TMPDIR. The shared
+        // allocator already owns short, private, create-only HOME fixtures.
+        test_temp::directory_under(&test_temp::home_parent().expect("private parent"), label)
+            .expect("temporary root")
+    }
+
+    #[test]
+    fn controller_fixture_uses_short_shared_private_home_parent() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::MetadataExt;
+        let root = temporary_root("controller");
+        assert_eq!(
+            root.parent(),
+            Some(test_temp::home_parent().unwrap().as_path())
+        );
+        let metadata = fs::symlink_metadata(&root).unwrap();
+        assert!(metadata.is_dir());
+        assert_eq!(
+            metadata.uid(),
+            fs::metadata(test_temp::home_parent().unwrap())
+                .unwrap()
+                .uid()
+        );
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        let socket = root.join("controller.sock");
+        assert!(socket.as_os_str().as_bytes().len() < 108);
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        drop(listener);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
