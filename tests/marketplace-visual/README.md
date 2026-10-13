@@ -14,8 +14,10 @@ node tests/test-marketplace-assets.js
 bash tests/marketplace-visual/prepare.sh /absolute/reviewed/source
 ```
 
-The preparation command prints a fresh `/tmp/omavless-marketplace.XXXXXX`
-directory, records its source commit/tree and stages only committed plugin
+The preparation command prints a fresh `~/.cache/ovt/omavless-marketplace.XXXXXX`
+directory under checked same-UID non-writable, non-symlink parents (the `ovt`
+namespace must be mode0700); it never repairs an unsafe existing parent.
+It records its source commit/tree and stages only committed plugin
 blobs plus the adjacent public `manifest.json` used by the Settings credit.
 Dirty plugin/manifest changes refuse staging. `backend.sh` and
 `plugin/setup-runtime.sh` are replaced with the included
