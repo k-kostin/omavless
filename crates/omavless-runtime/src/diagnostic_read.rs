@@ -169,16 +169,11 @@ mod tests {
     }
 
     fn installed_case(core: &Path, inline_provider: bool) {
-        let directory = std::env::temp_dir().join(format!(
-            "ov-diag-core-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&directory).unwrap();
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let directory = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "diag-core",
+        )
+        .unwrap();
         let socket = directory.join("mihomo.sock");
         let config = directory.join("config.yaml");
         let rules = (0..80)
@@ -311,16 +306,11 @@ mod tests {
 
     #[test]
     fn private_controller_checks_modes_peer_fixed_path_and_global_deadline() {
-        let directory = std::env::temp_dir().join(format!(
-            "ov-diag-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&directory).unwrap();
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let directory = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "diag-controller",
+        )
+        .unwrap();
         let path = directory.join("mihomo.sock");
         let listener = UnixListener::bind(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();

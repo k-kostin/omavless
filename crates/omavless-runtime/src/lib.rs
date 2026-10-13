@@ -3512,11 +3512,15 @@ mod tests {
         }
     }
 
-    fn temporary_base(label: &str) -> PathBuf {
-        // The control socket is nested below this directory. Keep the fixture
-        // short even when TMPDIR lives in a user's home directory.
-        let short_label: String = label.chars().take(12).collect();
-        crate::test_temp::directory(&short_label).unwrap()
+    fn temporary_base(_label: &str) -> PathBuf {
+        // These fixtures bind actual runtime/controller sockets, including
+        // nested runtime/omavless paths. A short basename cannot compensate
+        // for a long TMPDIR; retain the existing private HOME parent policy.
+        crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "runtime-socket",
+        )
+        .unwrap()
     }
 
     #[test]
@@ -5796,7 +5800,8 @@ mod tests {
             assert!(!is_semantic_lifecycle_method(method));
             assert_eq!(semantic_lifecycle_timeout(method), None);
         }
-        let root = temporary_base("semantic-lifecycle-missing");
+        // No pathname socket is bound by this method-classification control.
+        let root = crate::test_temp::directory("semantic-lif").unwrap();
         let missing = RuntimePaths::below(&root);
         assert_eq!(
             call_semantic_lifecycle(&missing, "status.get", json!({})),
@@ -10065,7 +10070,7 @@ mod tests {
             (OwnershipPhase::Legacy, false, json!("staleCandidate")),
         ] {
             let parent = std::env::var_os("OMAVLESS_T4_STATUS_FIXTURE_PARENT")
-                .map_or_else(std::env::temp_dir, PathBuf::from);
+                .map_or_else(|| crate::test_temp::home_parent().unwrap(), PathBuf::from);
             let base = crate::test_temp::directory_under(&parent, "status-first").unwrap();
             let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
             let baseline = calls.load(Ordering::Relaxed);
@@ -10234,7 +10239,7 @@ mod tests {
             return;
         }
         let parent = std::env::var_os("OMAVLESS_T4_STATUS_FIXTURE_PARENT")
-            .map_or_else(std::env::temp_dir, PathBuf::from);
+            .map_or_else(|| crate::test_temp::home_parent().unwrap(), PathBuf::from);
         let base = crate::test_temp::directory_under(&parent, "status-ctime").unwrap();
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .args([

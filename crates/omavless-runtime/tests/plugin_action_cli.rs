@@ -13,6 +13,10 @@ use std::thread;
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;
 
+fn socket_base(label: &str) -> std::path::PathBuf {
+    test_temp::directory_under(&test_temp::home_parent().unwrap(), label).unwrap()
+}
+
 fn private_invoke(
     base: &std::path::Path,
     action: &str,
@@ -35,7 +39,7 @@ fn private_invoke(
 
 #[test]
 fn onboarding_cli_has_fixed_envelope_admission_and_unknown_outcome() {
-    let base = test_temp::directory("onboarding-cli").unwrap();
+    let base = socket_base("onboarding-cli");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -85,7 +89,7 @@ fn onboarding_cli_has_fixed_envelope_admission_and_unknown_outcome() {
 
 #[test]
 fn routing_cli_local_rejection_is_not_submitted_and_private() {
-    let base = test_temp::directory("routing-admission").unwrap();
+    let base = socket_base("routing-admission");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -119,7 +123,7 @@ fn routing_cli_local_rejection_is_not_submitted_and_private() {
 
 #[test]
 fn private_subscription_cli_maps_fixed_actions_without_echo() {
-    let base = test_temp::directory("private-subscription-cli").unwrap();
+    let base = socket_base("private-subscription-cli");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -230,7 +234,7 @@ fn private_subscription_cli_maps_fixed_actions_without_echo() {
 
 #[test]
 fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
-    let base = test_temp::directory("private-replace-cli").unwrap();
+    let base = socket_base("private-replace-cli");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -314,7 +318,7 @@ fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
 
 #[test]
 fn private_import_cli_preserves_input_and_rejects_invalid_requests_locally() {
-    let base = test_temp::directory("private-import-cli").unwrap();
+    let base = socket_base("private-import-cli");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -386,7 +390,7 @@ fn private_import_cli_preserves_input_and_rejects_invalid_requests_locally() {
 
 #[test]
 fn private_profile_cli_only_sends_validated_stdin_and_never_echoes_it() {
-    let base = test_temp::directory("private-action-cli").unwrap();
+    let base = socket_base("private-action-cli");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -481,7 +485,7 @@ fn private_profile_cli_only_sends_validated_stdin_and_never_echoes_it() {
 
 #[test]
 fn fixed_plugin_cli_maps_actions_and_reports_lost_reply_as_unknown() {
-    let base = test_temp::directory("action-cli").unwrap();
+    let base = socket_base("action-cli");
     let directory = base.join("omavless");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
