@@ -452,3 +452,12 @@ controls (2 skipped) with JS/QML passed. Initial private-test visibility and
 product-only unused-test-helper failures remain original Source failures;
 their narrow test fixes do not change runtime authority. Executables were held
 unchanged through original/self-reexec tests. These are not fresh 206 effects.
+
+The distinct controlled NEW row was subsequently installed and completed at
+integrated `d58be727aabea8354b582d38875ee6abaf0460d1`, including the separately
+reviewed fixed206 driver. Original one-shot cut/recovery and independent
+NEW/history/ordinary-Off/reopen readback exited 0. See the
+[exact installed evidence](../testing/RESTORE_099_PC_FINAL_NEW_2026-10-13.md).
+This supersedes the pending fresh206 row only: product Restore integration,
+ticket/complete/history-prefix recovery and other remaining gates are not
+accepted by that result. Original201 and accepted205 evidence are preserved.
