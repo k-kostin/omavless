@@ -30,6 +30,7 @@ node experiments/g1/tests/workload.mjs
 node experiments/g1/tests/metadata.mjs
 node experiments/g1/tests/keyboard.mjs
 node experiments/g1/tests/theme-source.mjs
+node experiments/g1/tests/render-budget.mjs
 ```
 
 The GPUI Shell runtime is a separate, upstream, non-published binary; the
@@ -179,6 +180,40 @@ empty filtering, pointer/keyboard reachability and scroll continuity remain
 #741/c8e13578 source/build evidence and its frozen binary/full Shell resources
 remain separate; its pending native card is not overwritten by this successor.
 No G1a closure, G1b daemon binding, production adoption or native latency claim.
+
+### Shell prepared-projection follow-up
+
+The theme trial at `46905bf5` rendered initially, then displayed the SDK's
+`interrupted` re-render banner after generated-list expansion, typing `example`
+and a batched Tab/18-Down sequence, before public palette polling. The first
+failing event is **unknown**; graceful process exit did not make that logical
+rendering failure PASS. Its frozen source, binaries and captures are preserved.
+
+The pinned SDK admits 50 ms for render/layout and 500 ms for event calls; debug
+builds stay on the interpreter tier. The old changed-query path performed
+20,013 locale-lowercase calls from render on 10,006 rows. The successor prepares
+one four-field search-term table and one row/ID-index projection in init or the
+owning search, list-size, collection and accepted-metadata callbacks, before
+notification. Render only consumes that projection. Arrows use its index without
+scanning rows or dropping/coalescing keys. Publication is atomic; captured lazy
+row arrays are never mutated. Stale navigation is refused after projection
+replacement, and late pointer inspection checks current admitted membership.
+An O(1) raw-filter/row-identity guard refuses render and data navigation after
+failed preparation, including a native InputState already changed before its
+callback. A later unrelated notify cannot mix new state with the old projection;
+the SDK retains its last whole valid snapshot with a fixed safe diagnostic.
+Escape still leaves the list. Render never recomputes a stale projection.
+Filtered inspection, removed selection, independent connection identity and
+the original focus/scroll owners retain their semantics. The exported
+`visibleProfiles` remains the independent legacy behavior oracle.
+
+The actual-handler Node controls cover EN/RU, full results, Unicode and separate
+fields, all collections, independent equal-counter metadata, preparation failure,
+18 ordered arrow events, stale callbacks and status/theme/source continuity.
+They establish cost relocation, not SDK/native timing. Native widget description
+and the SDK's fresh size-table allocation still have a cost. A separately
+authorized exact-head replay with observed expansion, search and individual
+navigation steps remains **UNRUN**; no budget, JIT, ABI or permission is changed.
 
 In both synthetic candidates, `Tab` reaches the profile list, `Up`/`Down` move a
 highlight without changing the inspected or confirmed profile, `Enter`

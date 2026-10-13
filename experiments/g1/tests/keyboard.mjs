@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { plainKey, navigatePage } from "../shell/keyboard.js";
-import { nextHighlightedProfile } from "../shell/data.js";
+import { nextIndexedProfile } from "../shell/data.js";
 
 const cases = JSON.parse(readFileSync(new URL("../keyboard-fixtures.json", import.meta.url), "utf8"));
 const modifiers = ["shift", "control", "alt", "platform", "function"];
@@ -57,14 +57,17 @@ assert.match(source, /const navigateList = \(event, context\) => \{\s*const key 
 // This checks its effects, not a simulated GPUI event-dispatch implementation.
 const start = source.indexOf("const navigateList = ") + "const navigateList = ".length;
 const end = source.indexOf("\n    };", start) + "\n    }".length;
-const bindList = new Function("visible", "nextHighlightedProfile", "plainKey", `return (${source.slice(start, end)});`);
+const bindList = new Function("visible", "positions", "nextIndexedProfile", "plainKey", `return (${source.slice(start, end)});`);
 const listRun = (input, visible = [{ id: "north" }, { id: "south" }], highlighted = "north") => {
   const calls = [];
   const view = { highlighted, selected: "north", confirmed: "south",
+    projectionCurrent: () => true,
+    profileCache: { visible }, updates: { metadata: { selection: (id) => visible.some((row) => row.id === id) ? id : null } },
     listScroll: { scroll_to_item: (index) => calls.push(`scroll:${index}`) },
     panelFocus: { focus: () => calls.push("focus") } };
   const context = { notify: () => calls.push("notify"), stop_propagation: () => calls.push("stop") };
-  bindList.call(view, visible, nextHighlightedProfile, plainKey)(input, context);
+  const positions = new Map(visible.map((profile, index) => [profile.id, index]));
+  bindList.call(view, visible, positions, nextIndexedProfile, plainKey)(input, context);
   assert.equal(view.confirmed, "south");
   return { selected: view.selected, highlighted: view.highlighted, calls };
 };
