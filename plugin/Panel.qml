@@ -724,10 +724,11 @@ Panel {
   function syncNativeOnboarding() {
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
     if (vless.nativeStatusRefreshing) return
-    if (nativeOnboardingPresetPending !== "" && !vless.nativePending) {
-      if (onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
+    if (nativeOnboardingPresetPending !== "" && !vless.nativePending && !vless.nativeOutcomeUnknown) {
+      var presetRejected = vless.nativeActionCode !== "" || (vless.nativeMetadataErrorAction === "routing-preset" && vless.nativeMetadataErrorCode !== "")
+      if (!presetRejected && onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
         onboardingWizard.step = 3
-      if (vless.nativeActionCode !== "" || vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
+      if (presetRejected || vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
         nativeOnboardingPresetPending = ""
     }
     if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
@@ -1654,6 +1655,8 @@ Panel {
       root.syncNativeOnboarding()
     }
     function onNativePendingChanged() { root.syncNativeOnboarding() }
+    function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }
+    function onNativeActionCodeChanged() { root.syncNativeOnboarding() }
     function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) {
@@ -4020,6 +4023,7 @@ Panel {
         nativeCoreFailed: vless.nativeCoreSetupStatus !== ""
         nativeCanContinue: vless.nativeCanAct
         routingSavePending: root.nativeOnboardingPresetPending !== ""
+        routingSaveUnknown: vless.nativeOutcomeUnknown
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
           : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)

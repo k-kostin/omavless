@@ -23,7 +23,7 @@ ColumnLayout {
   readonly property bool pairUpdate: SetupState.canOfferPairUpdate(card.facts) || ["needs_pair_install", "needs_pair_update"].indexOf(card.facts.state) >= 0
   readonly property bool updateReview: SetupState.hasUpdate(card.facts) || ["needs_update", "needs_pair_update_manual"].indexOf(card.facts.state) >= 0 || card.pairUpdate
   readonly property bool operationalStep: ["needs_activation", "needs_selection", "needs_broker_stopped", "needs_runtime_start", "needs_dns_setup"].indexOf(facts.state) >= 0
-  readonly property bool showPreparation: !appMissing && (operationalStep || (!updateReview && (facts.state !== "ready" || facts.coreInstalled === null)))
+  readonly property bool showPreparation: !appMissing && ["needs_update", "needs_pair_update", "needs_pair_update_manual", "needs_pair_install", "needs_pair_mismatch", "needs_companion"].indexOf(facts.state) < 0 && (facts.state !== "ready" || facts.coreInstalled === null)
   readonly property bool optionalUpdate: (SetupState.hasUpdate(facts) && ["needs_update", "needs_pair_install", "needs_pair_mismatch", "needs_companion"].indexOf(facts.state) < 0) || ["needs_pair_update", "needs_pair_update_manual"].indexOf(facts.state) >= 0
   readonly property var focusTargets: [installButton, prepareButton, recoveryToggle, restoreButton, updateButton, pairedUpdateButton, updateHelpButton, retryButton, checkButton, guideButton]
   signal installRequested(string action)

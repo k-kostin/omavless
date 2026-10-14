@@ -23,7 +23,11 @@ test('routing progress blocks forward navigation until confirmed outcome',()=>{
  for(const busy of [false,true])for(const routingSavePending of [false,true])
   assert.equal(vm.runInNewContext(enabled,{wizard:{busy,routingSavePending}}),!busy&&!routingSavePending);
  assert(panel.includes('routingSavePending: root.nativeOnboardingPresetPending !== ""'));
- assert(wizard.includes('visible: wizard.step === 2 && wizard.routingSavePending'));
+ const progress=wizard.slice(wizard.indexOf('objectName: "onboardingRoutingProgress"'));
+ const visible=progress.match(/visible: ([^\n]+)/)[1];
+ for(const step of [1,2,3])for(const routingSavePending of [false,true])for(const routingSaveUnknown of [false,true])
+  assert.equal(vm.runInNewContext(visible,{wizard:{step,routingSavePending,routingSaveUnknown}}),step===2&&routingSavePending&&!routingSaveUnknown);
+ assert(panel.includes('routingSaveUnknown: vless.nativeOutcomeUnknown'));
 });
 test('DNS helper is introduced before setup labels and VPN advice is first-run only',()=>{
  const card=fs.readFileSync(__dirname+'/../plugin/RequiredComponents.qml','utf8');
@@ -53,7 +57,7 @@ test('DNS helper is introduced before setup labels and VPN advice is first-run o
  }
 });
 function functions(source,c,names){for(const name of names){const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;assert(start>=0);vm.runInContext(source.slice(start,end),c)}}
-function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
+function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeMetadataErrorAction:'',nativeMetadataErrorCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
 test('first use opens existing wizard, completed and dismissed states do not loop',()=>{
  const c=context();c.syncNativeOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,1);
  assert.equal(c.vless.helperReads,1);c.syncNativeOnboarding();assert.equal(c.vless.helperReads,1);
@@ -193,6 +197,9 @@ test('preset step advances only after confirmed snapshot, not initial click or r
  c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);c.vless.nativePending=null;c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);
  c.vless.nativeSnapshot.routing.storedPreset='china-cn-direct';c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,3);
  c.openOnboarding(2);c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeActionCode='permission_denied';c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);assert.equal(c.nativeOnboardingPresetPending,'');
+ c.vless.nativeActionCode='';c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeMetadataErrorAction='routing-preset';c.vless.nativeMetadataErrorCode='permission_denied';c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);assert.equal(c.nativeOnboardingPresetPending,'');
+ c.vless.nativeMetadataErrorCode='';c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeOutcomeUnknown=true;c.vless.nativePending={action:'routing-preset'};c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
+ assert(panel.includes('function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }'));
 });
 test('finish submits acknowledgement then uses normal pending/recovery surface',()=>{
  const c=context();c.openOnboarding(3);c.vless.completeOnboarding=()=>false;c.finishOnboarding();assert(c.onboardingWizard.visible);
@@ -244,6 +251,23 @@ test('real Service exit handler clears completion pending and refreshes confirme
  assert.equal(c.nativePending,null);assert.equal(c.nativeOutcomeUnknown,false);assert.equal(c.nativeActionCode,'');
  assert.equal(c.nativeObservation,null);assert.equal(c.refreshes,1);
  const unknown=run('',73);assert(unknown.nativePending);assert.equal(unknown.nativeOutcomeUnknown,true);
+});
+test('real routing rejection clears saving but never advances on the old matching preset',()=>{
+ const process=service.slice(service.indexOf('    id: nativeActionProcess'));
+ const start=process.indexOf('    onExited: function(exitCode) {'),end=process.indexOf('\n    }',start)+6;
+ const handler=process.slice(start,end).replace('    onExited: function(exitCode)', 'function exited(exitCode)');
+ const frame={api:'omavless.control',version:1,id:'request',ok:false,revision:7,error:{code:'permission_denied',message:'Not permitted',retryable:false}};
+ const c=context();c.openOnboarding(2);c.nativeOnboardingPresetPending='iran-ir-direct';
+ const v=c.vless;v.nativeSnapshot.routing.storedPreset='iran-ir-direct';
+ v.nativePending={instanceId:'instance',operationId:'operation',action:'routing-preset',revision:7};
+ Object.assign(v,{NativeSnapshot:parser,nativeActionStdout:{text:JSON.stringify(frame)},nativeOutcomeUnknown:false,
+  nativeMetadataTransitionTimeout:{restart(){},stop(){}},finishNativeEditorAction(){},finishNativeSubscriptionAction(){},finishNativeRoutingAction(){},refreshAfterChange(){}});
+ const action=vm.createContext(v);action.root=action;vm.runInContext(handler,action);action.exited(2);
+ assert.equal(v.nativePending,null);assert.equal(v.nativeActionCode,'');assert.equal(v.nativeMetadataErrorAction,'routing-preset');assert.equal(v.nativeMetadataErrorCode,'permission_denied');
+ c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'');assert.equal(c.onboardingWizard.step,2);
+ // Unknown retains the original request and must not show a still-running save.
+ v.nativeMetadataErrorCode='';v.nativePending={instanceId:'instance',operationId:'operation',action:'routing-preset',revision:7};v.nativeActionStdout.text='';c.nativeOnboardingPresetPending='iran-ir-direct';action.exited(73);
+ assert(v.nativeOutcomeUnknown);assert(v.nativePending);c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
 });
 test('native wizard preserves layout and explicitly avoids legacy grants/readiness claims',()=>{
  assert(wizard.includes('property bool nativeContext: false'));

@@ -38,6 +38,7 @@ Item {
   property string routingPreset: ""
   property bool busy: false
   property bool routingSavePending: false
+  property bool routingSaveUnknown: false
   property string installCommand: ""
   property string capabilityCommand: ""
   property string verifyCommand: ""
@@ -537,7 +538,7 @@ Item {
 
           PlainText {
             objectName: "onboardingRoutingProgress"
-            visible: wizard.step === 2 && wizard.routingSavePending
+            visible: wizard.step === 2 && wizard.routingSavePending && !wizard.routingSaveUnknown
             width: parent.width
             text: wizard.textFor("onboarding.saving_routing")
             color: wizard.foreground

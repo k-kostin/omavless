@@ -24,7 +24,8 @@ test('operational steps precede optional updates across inventory states', () =>
     for(const status of ['needs_activation','needs_selection','needs_dns_setup','needs_broker_stopped','needs_runtime_start']) {
       const c=presentation({state:status,coreInstalled,delivery});assert(c.operationalStep);assert(c.showPreparation);
     }
-    const ready=presentation({state:'ready',coreInstalled,delivery});assert.equal(ready.showPreparation,coreInstalled===null && delivery==='current');
+    const ready=presentation({state:'ready',coreInstalled,delivery});assert.equal(ready.showPreparation,coreInstalled===null);
+    for(const status of ['needs_broker','needs_runtime_stop','needs_attention','checking'])assert(presentation({state:status,coreInstalled,delivery}).showPreparation);
     for(const status of ['needs_update','needs_pair_install','needs_pair_mismatch','needs_companion'])assert(!presentation({state:status,coreInstalled,delivery}).optionalUpdate);
     for(const status of ['needs_pair_update','needs_pair_update_manual'])assert(presentation({state:status,coreInstalled,delivery}).updateReview);
   }
