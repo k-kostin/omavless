@@ -744,3 +744,20 @@ or external requests, including notes/export, links, image enlargement and
 static-server isolation. Old source/canvas snapshots and notes are preserved.
 It is developer review material, not a main/RC screen catalog or user guide.
 Main, release assets, Marketplace and issue772 remain unchanged.
+
+### Update-entry naming delta
+
+Owner-directed source `1551d7d7d56ca5730683285eb48291d5c75e5aae` names the
+paired-update entry Update components… / Обновить компоненты… instead of
+Prepare update. It opens the same staged update flow, not immediate package
+replacement. The shell's return instruction and candidate native-install guide
+name that exact control; PREPARE/UPGRADE and all action fences are unchanged.
+Focused setup24/onboarding28/i18n checks,67 installer tests, shell syntax and
+diff checks pass. Inspected isolated real-QML EN/RU shared-card captures for
+ready+stale, runtime-start+stale, stopped-helper+stale, runtime-stop+stale,
+explicit pair-update and missing-pair at320-high; labels fit, missing-pair keeps
+its distinct installation wording, and actionRequests stayed0. No installer,
+shell restart, native package, VPN or real store mutation was invoked. This
+narrow label review is not new installed update or independent Astra acceptance.
+The local canvas retains prior render identities rather than silently attributing
+old screenshots to the renamed source. Public/main promotion is still separate.
