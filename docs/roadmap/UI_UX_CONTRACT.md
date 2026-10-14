@@ -231,6 +231,11 @@ evidence. Existing main-panel/presentation, action/IPC and localization tests in
 tests which merely freeze exact source wording. Do not weaken an expected
 behavior to accommodate a new layout.
 
+When a transition depends on asynchronous property notifications, model their
+actual publication order, not just a manually invoked settled callback. Include
+a refusal with an already-matching cached value and an unknown result; neither
+may advance the journey as if the new action succeeded.
+
 ### Installed review and safety
 
 - Record source commit, installed frontend identity and relevant viewport/locale.

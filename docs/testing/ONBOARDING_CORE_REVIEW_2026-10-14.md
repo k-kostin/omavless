@@ -685,3 +685,62 @@ native diagnostics stayed Disconnected with no owned core/TUN, no pending or
 unknown action. No VPN toggle, package/DNS authorization, guest reboot, physical
 PC mutation, main/release/Marketplace promotion or issue reply was performed.
 This is editorial/rendered review, not a repeated clean package installation.
+
+### Setup hierarchy and onboarding navigation
+
+Product source `df1b3f28fb825fb0a6c2281fd3078fb117efa73b` makes the required
+remaining setup step precede a compatible optional update. Its explanation
+also survives unavailable-helper, runtime-stop and attention states. Ordinary
+helper Start is primary; Restore access is a secondary disclosed choice with
+the clean-reinstall prerequisite. Unfolding sends no setup request. Existing
+pending/unknown, terminal-closure and fresh-facts admission remain unchanged.
+Primary controls use the existing Omarchy accent; Back/Close are left and the
+forward action right, with responsive stacking for long EN/RU labels. Web-link
+labels consistently end in ↗; local navigation/install/URL-reveal do not.
+Empty-profile completion is named Finish without a profile, and its guidance
+does not claim a successful connection. Routing-save progress distinguishes an
+unknown result from an operation still in progress.
+
+Independent Astra review exposed two real issues: a stale update could still
+hide a non-operational blocker, and routing result publication could advance
+from an old matching preset before a rejection had been published. Both are
+fixed. The routing regression executes the actual Service exit handler with
+the Panel pending-notification handler queued as QML does; rejection wins over
+an old matching snapshot and unknown outcome retains its tracker. Astra's final
+exact-df source/test review found no remaining actionable finding; it is not an
+independent installed or network check.
+
+Normal local checks PASS: 773 Python tests, two existing opt-in skips, ordinary
+JS/QML/plugin checks. Focused results: 28 onboarding and 23 setup contracts,
+i18n and diff checks. Harness-only
+`6995d7f72afa6e767a3334733c5453a842078432` adds deterministic unknown-result
+rendering; its product files are byte-identical to df. Hosted CI belongs to the
+actual final PR head and must be recorded separately.
+
+Inspected EN/RU synthetic real-QML captures cover all fourteen setup states,
+current/stale blocker contrasts, constrained 320/576-high helper/terminal
+returns, disclosed recovery, wizard initial/revisited core and negative core
+states, pending/unknown routing and empty/added-profile completion. Unknown
+routing refuses forward activation and has no false saving message. Clicking
+Finish in both synthetic profile states emitted the fixture's finish signal,
+not a private-store mutation. Shared-card-only recovery captures are labelled
+as such, not represented as a full setup page. Captures stay local/outside Git.
+
+The ordinary development frontend was installed over the unchanged fix.5 pair
+in the sole-operator x86_64 VM. Old cached QML was visibly rejected as evidence;
+the supported guest-only shell refresh loaded the new distinctive layout.
+Actual pointer navigation Core Continue → Routing Skip → VPN profile → Back →
+Back → Close passed without choosing a preset or importing a profile. Tab and
+Shift+Tab showed keyboard-focus styling; no privileged control was activated.
+The native application PID stayed unchanged, desired VPN remained Off,
+onboardingComplete false, profiles empty and stored startup Off. No packages,
+DNS consent, VPN toggle, guest reboot or host desktop/network changed. All
+isolated review windows were closed and VM custody returned to the paused VM
+master. This delta does not repeat clean-install, ARM64 or connection acceptance.
+
+The local reviewer canvas retains existing screen codes and adds six named
+variants; browser QA rendered all113 codes on desktop/mobile with no JS errors
+or external requests, including notes/export, links, image enlargement and
+static-server isolation. Old source/canvas snapshots and notes are preserved.
+It is developer review material, not a main/RC screen catalog or user guide.
+Main, release assets, Marketplace and issue772 remain unchanged.
