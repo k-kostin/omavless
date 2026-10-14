@@ -2285,7 +2285,7 @@ Panel {
             visible: root.page === "settings"
             title: root.textFor("settings.mihomo_core")
             description: root.nativeCoreSetupDescription()
-            actionText: root.textFor("common.refresh")
+            actionText: root.textFor("native.setup.check_facts")
             actionEnabled: !vless.nativeCoreSetupBusy
             onAction: vless.refreshNativeCoreSetup()
           }
@@ -2316,7 +2316,7 @@ Panel {
             visible: root.page === "settings"
             title: root.textFor("native.helpers.title")
             description: root.textFor(vless.nativeDesktopLoading ? "common.loading" : vless.nativeDesktopCapabilities ? "native.helpers.scope" : "native.helpers.unavailable")
-            actionText: root.textFor("common.refresh")
+            actionText: root.textFor("native.setup.check_facts")
             actionEnabled: !vless.nativeDesktopLoading
             onAction: vless.refreshNativeDesktopCapabilities()
           }

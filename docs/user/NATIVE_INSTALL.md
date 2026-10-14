@@ -67,6 +67,9 @@ without importing a profile. Neither starts a VPN.
    An older frozen frontend archive may retain earlier labels; use the widget
    update and shell-load check in [Verify the installation](#verify-the-installation)
    to get the current main controls. Existing release archives are not rewritten.
+   **Check status** beside Mihomo or desktop helpers only reads their current
+   state; it does not update packages. **Update required components**, when
+   offered, is the separate supported paired-package action.
 
 Import your own compatible VPN profile or HTTPS subscription, choose a mode,
 then Connect. Servers/subscriptions are not included. See
