@@ -906,3 +906,24 @@ not these local results; the owning PR records completion separately.
 Publication still requires its separate owner authorization, immutable matching
 assets and a real public-download gate. No release/tag/assets, main merge,
 Marketplace action or issue772 reply is earned by this unpublished VM evidence.
+
+### Hosted timing-fixture isolation
+
+Full native-source Test38622809493 completed successfully on d4d4310b.
+Documentation-head Test38631674230 instead failed at the existing exact-proof
+drain fixture's whole-disconnect250ms assertion, followed by22 secondary
+poisoned-fixture-mutex refusals. That failed run is retained as failed.
+Its measured wall time includes successful disconnect/filesystem/scheduler work,
+not just the production50ms proof-drain policy. Astra independently confirmed
+the distinction; no production budget, poison handling or assertion was changed.
+
+Following the existing inherited-flock fixture pattern, the Rust runner excludes
+this one fully named test from the two mass-parallel runs and executes it once
+separately in each original default/feature-union configuration with `--exact`
+and `--test-threads=1`. All held/released/partial cases remain enabled. An ordinary
+runner guard protects both exclusions and both explicit executions. Each actual
+serial local command reported1 passed,0 failed/ignored, not a zero-test PASS.
+This reduces unrelated process contention; it does not make OS wall-clock timing
+deterministic or hide the original failure. Runtime/package inputs and installed
+product bytes are unchanged, so it neither earns new VM evidence nor requires
+a different native producer. The PR records the fresh hosted result separately.
