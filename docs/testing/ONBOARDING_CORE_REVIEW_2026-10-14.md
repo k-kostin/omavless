@@ -655,3 +655,33 @@ Limits: narrowly known, never-connected partial setup with this account's DNS
 registration; unknown state refuses, concurrent state changes are excluded.
 This is not the planned all-stage 0.9.9 uninstaller, a live-VPN reset, actual ARM64
 installation, main merge, release replacement or permission to post issue772.
+
+### DNS-helper introduction and route-copy follow-up
+
+Source `eaeef7c0e46ec57cdf0a5d80963769e9b20ee05a` adds a short definition before DNS-helper actions in the
+component card, wizard and standalone setup terminal. The companion-package
+label distinguishes its bundled VPN core from the helper service. First-use
+setup/wizard recommends turning off other VPN connections; completed onboarding
+re-entry does not repeat that advice. It never stops foreign VPNs.
+Operational setup explanations now survive an optional delivery-update notice;
+Start and Restore access use separate full-width controls. The profile-import
+step is named VPN profile, not First connection. Consent words and admission
+stay unchanged; no Rust/native-package source or frozen public pins changed.
+
+Independent Astra source/map review found the lost operational reason and the
+misnamed step; both are corrected. Normal checks PASS: 773 Python tests, two
+existing opt-in skips, ordinary JS/QML/plugin checks, diff and shell syntax.
+Real-QML synthetic EN/RU review covered all produced setup statuses, constrained
+stopped-helper/update and terminal-return cards, initial/revisited wizard and
+missing/unknown/update core states. Controls remain reachable without clipped
+labels. Nested import paths are source-mapped, not newly live-import accepted.
+
+The development frontend was installed over the unchanged fix.5 pair in the
+x86_64 VM. Supported guest-only shell refresh was again necessary to discard
+cached QML. The ordinary loaded wizard then showed the new helper definition,
+first-use advice, Core ready and enabled Continue; installed frontend hashes
+matched source. Native application/broker PIDs remained unchanged and cached
+native diagnostics stayed Disconnected with no owned core/TUN, no pending or
+unknown action. No VPN toggle, package/DNS authorization, guest reboot, physical
+PC mutation, main/release/Marketplace promotion or issue reply was performed.
+This is editorial/rendered review, not a repeated clean package installation.
