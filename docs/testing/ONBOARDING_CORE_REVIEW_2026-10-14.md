@@ -392,6 +392,14 @@ core SHA `e4bc011ecad3ce8350b738cee91a98e27e1b1dd1b0fa6eeb79eb7d6427669106`
 and broker SHA `1855ed920a4b064c811ed14134b5ae14e3c5ece0a26695a84afc1ccfd711dc93`.
 No preparation staging directory or sudo/helper/pacman process remained.
 
+Post-update actual Settings → Setup assistant was inspected in EN and RU on
+that same99c/4c installation. Both settled to Core ready/version1.19.31 and an
+enabled Continue. Actual pointer Continue opened Routing step2; Escape returned
+without choosing a preset or completing onboarding. The temporary widget locale
+was restored to System; the seven canonical private members and original
+runtime/broker PIDs still matched afterward. Checking/fresh-ready captures are
+kept distinct; a transient checking frame is not the final verdict.
+
 ### Corrections to the test driver, not product claims
 
 The native-only archive wrapper rejects `--native-only` arguments; its normal
@@ -421,3 +429,7 @@ New immutable publication/pins, anonymous downloads/cache miss and ARM64
 installation remain separate unearned gates. Current-main metadata continues
 to select fix.4 with updatePairfalse. No main merge, tag/assets replacement,
 Marketplace action, physical-PC change or issue772 reply was performed.
+The initial public0.9.8 broker without the serialized access gate is not admitted
+by automatic PREPARE; neither a known package version nor the general published
+pair table proves support for that privileged operation. Its manual-assistance
+boundary must not be represented as the successful fix.4 journey above.
