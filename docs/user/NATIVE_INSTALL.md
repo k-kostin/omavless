@@ -8,13 +8,13 @@ a VPN; you choose a profile and Connect separately.
 
 | What you see | What to do |
 | --- | --- |
-| Required components / missing application or managed DNS companion | [Install the matching components](#guided-first-run). |
+| Required components / missing application or DNS support | [Install the missing components](#guided-first-run). |
 | Packages installed, DNS setup incomplete | [Continue DNS setup](#continue-dns-setup). Do not reinstall just because setup is incomplete. |
-| Start existing DNS broker / Restore DNS enrollment | [Use the existing-installation DNS action](#existing-dns-installations). |
+| Start DNS / Restore DNS access | [Use the existing-installation DNS action](#existing-dns-installations). |
 | Start OmaVLESS | Start the application after any DNS step finishes. It starts disconnected and does not enable login startup. |
 | Application update required | [Update the old application](#updates). Updating the plugin alone does not update native packages. |
-| Prepare component update / Update required components | [Update a supported existing 0.9.8 pair](#already-using-098). Preparation and package installation require separate consent. |
-| Setup terminal and prompts are closed | Finish or cancel the terminal and all OS prompts first; then press this acknowledgement and Check again. |
+| Prepare update / Update OmaVLESS | [Update the installed components](#already-using-098). Preparation and installation ask for separate confirmation. |
+| Terminal and system prompts are closed | Finish or cancel setup and all system prompts, then close the terminal, confirm this and choose Check again. |
 | Setup needs attention / State unverified / Recovery required | [Inspect the current result](#when-setup-stops). Do not repeatedly install or connect to clear a warning. |
 
 **Set up later** closes the panel without changing data or hiding missing
@@ -31,9 +31,8 @@ without importing a profile. Neither starts a VPN.
    omarchy plugin add https://github.com/k-kostin/omavless --enable
    ```
 
-   This follows upstream main. Marketplace review covers a separate exact
-   snapshot. The command installs the widget only: it does not run
-   `install.sh`, install native packages or execute their sudo steps.
+   This installs the current plugin panel. Install the application in the
+   next step.
 
 2. Open OmaVLESS from the bar. Choose **Install required components** (or the
    offered missing-component action). In the terminal, type `INSTALL` when
@@ -41,12 +40,11 @@ without importing a profile. Neither starts a VPN.
    at the system's password prompt.
 
 3. When asked about DNS, type `DNS` to authorize the separate DNS setup.
-   The matching `omavless-dns` package includes the reviewed Mihomo core and
-   DNS broker. You do not need to install an AUR Mihomo or run `setcap` on an
-   unrelated binary for this route.
+   The DNS component includes the Mihomo core OmaVLESS needs. A separately
+   installed Mihomo used by another application is left alone.
 
 4. When the terminal says **OmaVLESS is ready**, close it. Resolve any remaining
-   OS prompts, press **Setup terminal and prompts are closed** if shown, then
+   OS prompts, press **Terminal and system prompts are closed** if shown, then
    **Check again**. If you cancelled a later step, use the remaining action
    below instead of starting over.
 
@@ -55,22 +53,11 @@ without importing a profile. Neither starts a VPN.
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
 
-   The Mihomo step shows **Core ready** and its installed version when the
-   managed core, TUN device and desktop file permissions are present. This is
-   not a connection test. If a component needs attention, choose **Review
-   component installation/setup/update** to open the same component screen;
-   navigation itself does not install or update anything. Use its offered
-   action and terminal confirmation, then **Check again**. The guided update
-   installs the matching application/DNS pair, not an independent Mihomo
-   updater. A missing/incompatible companion beside an existing application
-   may require the guarded package procedure in [Updates](#updates); do not
-   install a stock core or force a reinstall to bypass that check.
-   An older frozen frontend archive may retain earlier labels; use the widget
-   update and shell-load check in [Verify the installation](#verify-the-installation)
-   to get the current main controls. Existing release archives are not rewritten.
-   **Check status** beside Mihomo or desktop helpers only reads their current
-   state; it does not update packages. **Update required components**, when
-   offered, is the separate supported paired-package action.
+   At **Core ready**, choose **Continue**. This means the core is ready for
+   setup, not that a VPN is connected. If something is missing or needs an
+   update, open **Component installation**, **Component setup** or **Updates**
+   as offered. Follow the action on that screen, then choose **Check again**.
+   **Check status** only checks; it does not install or update anything.
 
 Import your own compatible VPN profile or HTTPS subscription, choose a mode,
 then Connect. Servers/subscriptions are not included. See
@@ -84,15 +71,13 @@ safely stopped; an unknown state is not treated as a new installation.
 
 The terminal gives you two choices, on separate lines:
 
-- `FIRST` — **you have not enrolled this account before**. The next `DNS`
-  confirmation authorizes first enrollment. An existing registration or unsafe
-  broker state is refused rather than overwritten.
-- `START` — **this account was already enrolled** and you want to use that
-  enrollment unchanged. The existing-enrollment check must pass. Then `SELECT`
-  explicitly chooses the installed managed pair.
+- `FIRST` — **DNS has not been configured for OmaVLESS yet**. Confirm the
+  separate DNS step when asked.
+- `START` — **DNS was already successfully set up for OmaVLESS** on this
+  computer. Use that setup without changing it; confirm `SELECT` when asked.
 
 Press Enter to cancel. Do not guess `FIRST` merely because `START` failed:
-a failure is not proof that no enrollment exists. If you are unsure which
+a failure does not mean DNS was never configured. If you are unsure which
 step completed, see [When setup stops](#when-setup-stops).
 
 After the DNS terminal finishes, close it and settle its OS prompts. Acknowledge
@@ -105,10 +90,9 @@ repeat first-use activation.
 
 For an already selected managed pair, the panel may offer:
 
-- **Start existing DNS broker** — use enrollment that is still present after a
-  broker stop or a clean package update.
-- **Restore DNS enrollment** — enroll again after a verified clean removal
-  revoked the old registration. This is not profile Restore.
+- **Start DNS** — restart previously configured DNS after an update or a clean stop.
+- **Restore DNS access** — set up access again after a completed clean removal.
+  This is not profile Restore.
 - `SELECT` in the setup terminal — an existing accessible broker is ready,
   but the installed pair has not yet been selected.
 
@@ -160,7 +144,7 @@ an enrollment that may already have succeeded.
 There are **two parts**: the Omarchy widget and the native application/DNS
 packages. `omarchy plugin update kdk.omavless` updates only the widget.
 
-This follow-up selects the validation delivery
+This guide covers the test build
 [`v0.9.8-fix.5`](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.5).
 Its public archives and SHA-256 records identify the matching packages for
 x86_64 and ARM64. Product/package versions remain `0.9.8` / `0.9.8-1`, so
@@ -173,7 +157,7 @@ installed x86_64 results from the still-pending installed ARM64 check.
 
 Set login autoconnect Off, disconnect and fully shut down OmaVLESS first.
 After the widget update, a verified compatible public 0.8.2 installation with
-no DNS companion offers **Update required components**.
+no DNS companion offers **Update OmaVLESS**.
 
 Confirm `UPGRADE` and the normal sudo/pacman prompts. This installs the matched
 application/DNS pair while preserving profiles and the stopped application.
@@ -191,15 +175,14 @@ Update the widget first. For a partial setup, use Check again and finish the
 remaining DNS/application step; do not initialize or activate an existing
 Rust-owned installation again.
 
-Native-package replacement is a separate, guarded operation, not the 0.8.2
-updater. When the panel offers **Prepare component update**:
+When the panel offers **Prepare update**:
 
 1. Turn VPN login autoconnect Off, Disconnect, then confirm Settings →
    **Shut down OmaVLESS**. Do not stop another VPN or force a live connection off
    as part of an update.
 2. Enable the widget again with `omarchy plugin enable kdk.omavless` and open
    it. Reopening the widget does not reconnect the VPN or start the application.
-3. Choose **Prepare component update**. Confirm `PREPARE` and the separate
+3. Choose **Prepare update**. Confirm `PREPARE` and the separate
    system authorization. This checks and prepares a supported idle broker; it
    does not install packages. An unknown or unsupported result needs inspection,
    not repeated confirmation or forced cleanup.
@@ -211,8 +194,8 @@ updater. When the panel offers **Prepare component update**:
    their closure, then **Check again**. Choose the offered preparation/update
    action again: preparation rechecks the now-stopped boundary before asking
    for `UPGRADE`; it does not repeat a completed broker stop.
-5. After closing/acknowledging the completed update terminal, use the offered **Start existing
-   DNS broker**, then separately **Start OmaVLESS**. Do not choose first enrollment
+5. After closing/acknowledging the completed update terminal, use the offered **Start
+   DNS**, then separately **Start OmaVLESS**. Do not choose first enrollment
    for an account that is already enrolled. No VPN starts automatically.
 
 Compatible older pairs remain usable while you postpone an update. The first

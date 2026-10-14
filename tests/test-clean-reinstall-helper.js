@@ -43,6 +43,15 @@ for (const json of ['{}', '{"filesystems":"invalid"}', '{"filesystems":[{"target
   validate('check_private_targets', `findmnt() { printf '%s\\n' '${json}'; }`, false);
 }
 // Disposable, credential-free paths only. The helper performs no deletion.
+// Standalone/CI runs may have no cache yet. Create only missing parents and
+// refuse unsafe existing ones; do not repair another owner's permissions.
+for (const directory of [path.join(os.homedir(), '.cache'), path.join(os.homedir(), '.cache/ovt')]) {
+  if (!fs.existsSync(directory)) fs.mkdirSync(directory, { mode: 0o700 });
+  const metadata = fs.lstatSync(directory);
+  assert(metadata.isDirectory() && !metadata.isSymbolicLink());
+  assert.equal(metadata.uid, process.getuid());
+  assert.equal(metadata.mode & 0o022, 0);
+}
 const scratch = fs.mkdtempSync(path.join(os.homedir(), '.cache/ovt/clean-helper-test.'));
 try {
   const target = path.join(scratch, '.config/omavless');

@@ -332,8 +332,8 @@ confirm_dns_enrollment() {
   local answer uid
   uid=$(id -u)
   [[ "$uid" =~ ^[1-9][0-9]*$ ]] || return 1
-  say 'Set up DNS for this desktop account and start its service. VPN will stay off.' \
-      'Настройка DNS для вашей учётной записи и запуск его службы. VPN останется выключенным.'
+  say 'Set up DNS for OmaVLESS and start its service now and at system startup. VPN stays off.' \
+      'Настроить DNS для OmaVLESS: его служба запустится сейчас и при включении компьютера. VPN останется выключенным.'
   say 'Type DNS to confirm this separate administrator step; Enter cancels.' \
       'Введите DNS для подтверждения этого отдельного шага с правами администратора; Enter — отмена.'
   IFS= read -r answer || return 1
