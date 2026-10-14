@@ -47,6 +47,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   T4/K1/V0 acceptance follows from the release.
 
 - **Planned for 0.9.9:** mandatory consumer Restore/recovery remains #722/#724.
+  Documentation will consolidate into a user-friendly complete lifecycle/FAQ
+  guide and an agent-friendly guide to the same actually published main state.
+  Existing help URLs will lead to their canonical sections, not competing
+  instructions. See the [two-guide scope](../development/SETUP_UPGRADE_UNINSTALL_099.md#two-canonical-product-guides-for-099);
+  this records the direction, not completed manuals or additional release authority.
   Owner-selected [#733](https://github.com/k-kostin/omavless/issues/733) adds a
   private editable VPN-access field in the application/plugin import UI, reusing
   canonical profile/subscription validation and explicit preview/confirmation.

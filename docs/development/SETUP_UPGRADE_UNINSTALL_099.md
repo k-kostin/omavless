@@ -10,6 +10,52 @@ Their exact evidence/remaining ARM64 check belong to #778; this contract is
 not a new acceptance claim or permission to mutate the host. The upgrade
 sections retain the original design, not a second implementation task.
 
+## Two canonical product guides for 0.9.9
+
+Owner-selected documentation direction, 2026-10-14: consolidate the published
+product instructions into **two canonical guides**, not many competing install,
+update, removal and troubleshooting recipes. This is planned 0.9.9 work;
+neither guide is claimed complete or published by this decision.
+
+1. **User-friendly guide** (proposed `docs/user/GUIDE.md`): a short quick start
+   followed by a navigable complete lifecycle. Cover prerequisites, component
+   roles in plain language, initial installation/setup/onboarding, partial setup
+   and cancellation, first profile/connection, everyday controls, updates,
+   reopening after disable/Quit, removal/reinstallation and FAQ/troubleshooting.
+   Give copyable commands and the actual visible buttons, expected results and
+   a useful next step when blocked. Explain the DNS helper at its first mention.
+   Keep developer protocols, acceptance diaries and agent instructions out.
+2. **Agent-friendly product guide** (proposed `docs/AGENT_SETUP.md`): the same
+   released capabilities and lifecycle, structured for an agent installing,
+   diagnosing and maintaining OmaVLESS for its user. Include supported OS/arch
+   and component discovery, fixed supported commands and result interpretation,
+   state-based continuation, consent boundaries, preservation/removal scope,
+   post-action verification, privacy-safe diagnostics and stop/escalation cases.
+   Separate read-only checks from mutations; preserve the user's network state
+   and never treat an unknown result as permission to retry or force cleanup.
+   This is not a replacement for repository `AGENTS.md`, development contracts
+   or the detailed contributor guide, and grants no extra host authority.
+
+Both guides must describe the **actual currently published main snapshot and
+its selected native delivery**, including real limitations, not an unmerged
+feature, the newest tag by assumption or an old release's instructions. Update
+both with each affected main publication; development drafts clearly describe
+the proposed next snapshot without becoming current public help. The formats
+may differ, but commands, component names, capabilities and outcomes must agree.
+
+README, Setup help and onboarding use the user guide; a separate clearly named
+link may offer the agent guide and a short prompt pointing to it. Preserve
+established install/use/uninstall/help URLs and anchors as section links or
+compatibility landing pages, not third independent mutable manuals. Consolidate
+current instructions without deleting useful historical evidence, roadmaps,
+security contracts or developer references merely to reach a two-file count.
+
+Before 0.9.9 promotion, reconcile both guides against the proposed main source,
+selected packages and actual UI/CLI. Check links and use the documented commands
+verbatim for the affected installation/update/removal journeys in the owning
+acceptance matrix. Check state-based alternatives and safe blocked outcomes as
+well as the happy path. Documentation alone does not earn those product gates.
+
 ## Historical triggering gap and owning boundaries
 
 Updating the Omarchy checkout does not update installed Arch packages. A
@@ -273,10 +319,12 @@ Owner requirement, 2026-10-14: ship a public, user-friendly deinstallation guide
 with **actual copyable terminal commands**, including the case where the user
 already ran `omarchy plugin remove kdk.omavless`. Losing the widget/check-out
 must not make cleanup instructions or the supported removal path unavailable.
-Publish it under `docs/user/NATIVE_UNINSTALL.md`, link it from current Setup
-help/usage/removal documentation and the removal review, and keep a stable
-GitHub main URL usable without any installed plugin. This path is a planned
-deliverable, not a claim that such a guide or remover is available today.
+Make this a removal section of the canonical user guide above, with an equivalent
+agent path. Retain the previously proposed `docs/user/NATIVE_UNINSTALL.md` URL
+as a compatibility landing page pointing to that section; link the same section
+from Setup help/usage and the removal review. Its stable GitHub main URL must
+remain usable without any installed plugin. These are planned deliverables,
+not a claim that such a guide or remover is available today.
 
 The guide must distinguish widget-only removal, full component removal and
 retained private data. It must explain that ordinary Omarchy removal does not
@@ -364,7 +412,8 @@ their exact identities; do not restart completed setup work from this older
 design or imply that it established the reporter's exact original cause.
 
 Remaining 0.9.9 results in this contract are the always-reachable removal
-review, guarded UI-independent execution, and the mandatory terminal guide
-after widget removal. Source design and a guide link alone cannot close these
+review, guarded UI-independent execution, and the two canonical product guides,
+including terminal removal after widget deletion. Source design and a guide
+link alone cannot close these
 installed user-path gates. This documentation update executes no removal,
 does not start another VM session, and grants no new main/release permission.

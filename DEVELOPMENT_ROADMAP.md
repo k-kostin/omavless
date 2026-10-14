@@ -2,6 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
+**0.9.9 documentation direction, 2026-10-14:** two canonical product guides:
+one plain-language user lifecycle guide (setup/onboarding/use/update/removal,
+reinstallation and FAQ), one agent-friendly guide to the same published product.
+Both follow actual main and its selected native delivery; preserve old help
+links as section redirects, not competing mutable recipes. This is planned,
+not current guide completion. The [owning scope](docs/development/SETUP_UPGRADE_UNINSTALL_099.md#two-canonical-product-guides-for-099)
+defines coverage and release checks; developer rules/evidence remain separate.
+
 **Owner-selected removal follow-up, updated 2026-10-14:** 0.9.9 must offer
 removal review from every setup/normal/error state and a public terminal
 deinstallation guide usable after ordinary `omarchy plugin remove` has already
