@@ -509,3 +509,90 @@ all-stage uninstaller and untested live network-health cases. Main/stable/latest
 Marketplace and a new issue772 reply were not performed. SSH and selected-guest
 QMP were used; no physical desktop/window focus, shell restart, network/service
 change or VM reboot was needed.
+
+## Complete old-partial removal and reinstall — October 14 follow-up
+
+The previous fixture-admin cleanup did **not** establish a copyable user
+removal path. The owner requested that missing gate explicitly before an issue
+reply draft. [The bounded clean-reinstall guide](../user/CLEAN_REINSTALL_098.md)
+now has seven self-contained Bash blocks usable after the widget checkout is
+removed. It is a **candidate** guide, not a general 0.9.9 uninstaller or a main
+installation claim. Scope is one known desktop account, never-connected normal
+public 0.9.8 partial setup, no concurrent clients/unknown DNS operation, ordinary
+canonical paths. Other accounts, custom paths and recovery states are excluded.
+
+Before this user journey, separate VM fixture administration preserved the
+previous ready fix.5 store and restored the genuine original public pair from
+producer `4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998`. Its original app ELF was
+`219479595f4b59e07a9639d703e939125d464165f7a5f426ec523ce5d952600b`, broker ELF
+`8caba1a57b44b2856b98b0d0213cc545905ba5a031aac144fcce2420957b0d2e`; frontend
+tag `v0.9.8` selected `d6ee207a6d2a42e602e85854cd6b7cba5ea61084`. Native first
+initialization and fixed root enrollment/pair selection admitted packages plus
+DNS while leaving application ownership/activation incomplete. The original
+panel showed Finish application setup. No VPN was connected. This representative
+partial baseline is not reproduction or diagnosis of Aryan's exact initial cause.
+
+Astra reviewed the procedure before execution. Initial review strengthened
+the loaded unit/actual original broker identity, completion checks and canonical
+backup parent checks. The literal seven guide blocks were extracted using
+`tests/test-clean-reinstall-guide.js` and executed unchanged in the selected VM:
+
+1. Ordinary `omarchy plugin remove` with its real confirmation removed the
+   genuine old widget; application startup was disabled and PID0 verified.
+2. The guarded root block checked protected empty journal, FD0, absent app/core/
+   TUN, pinned unit bytes and loaded-unit state; it identified the original root
+   broker, performed ordinary idle stop/disable, proved its disappearance and
+   repeated clean checks. It returned `CLEAN_STOP_CONFIRMED`, exit0. Original
+   systemd fields were Result=success and code0/status0; this is reported as a
+   joined observation, not independently labelled CLD_EXITED.
+3. One ordinary guest reboot ended the already-proven clean volatile epoch.
+   The same QEMU process/window remained running; guest disk unlock used its
+   original prompt. New boot, inactive units and absent socket/runtime/login
+   receipt were verified. There was no host reboot/window-focus change. Unlike
+   the earlier no-reboot setup gate, this newly scoped removal gate includes a
+   deliberate guest reboot. Reboot did not replace pre-reboot emptiness proof.
+4. The installed guard passed, the original fixed `--revoke` succeeded while
+   its broker binary existed, and ordinary pacman removed only `omavless` and
+   `omavless-dns`. Their normal removal guard was not bypassed. Exit0.
+5. Canonical old settings were recoverably archived under the user's protected
+   reinstall-backup directory. The new runtime path and consumed-login receipt
+   were absent; no manual unlink, journal/lock deletion or second reboot occurred.
+6. Ordinary Omarchy add cloned default main without enabling it: Yes to cloning,
+   **No to the separate enable prompt**. Exact tag fix.5 was checked out and its
+   immutable SHA verified before explicit enable. This important prompt is now
+   documented, rather than left implicit in 'without enable'.
+7. The actual panel offered missing app/DNS installation. INSTALL → public pinned
+   cache-miss downloads → original sudo/pacman confirmation → separate DNS →
+   ready completed without administrative intervention. The original terminal
+   printed OmaVLESS is ready. After closing it, Review component setup →
+   terminal-closed acknowledgement → Core ready → Back to panel reached the
+   ordinary Disconnected screen with visible import actions. No shell restart,
+   profile import, country selection or VPN connection was required for this gate.
+
+The copied root block SHA256 was
+`6093cc1307f9067edcb90616510650b51e320372f19944a0a063397aad0c9b96`;
+the private archive block was
+`745e0c305d0e9c1a14f201fec47a193827322b8e04c59c0ba3b2b1daaed294a6`.
+Their extracted guide bytes matched after execution. Guide syntax/order/boundary
+checks passed and are wired into normal `tests/run.sh`; normal local checks
+passed772 Python cases/two declared opt-in skips and JS/QML contracts.
+
+Installed native/DNS remained producer99c, frontend1e. Actual downloaded cache
+archive hashes matched app `5110045e…` and DNS `bfd65f5f…`; actual installed ELF
+hashes matched the previously inspected e1d320…/1855ed… pair. Final native
+ownership was true, actual/desired Disconnected, transition absent, stored startup
+Off, empty profiles, broker FD0 and no managed TUN. The backup was retained and
+guest idle preference restored. No physical PC, other VPN, shared stock core,
+main/tag/assets, Marketplace or issue772 write was performed in this follow-up.
+
+Separate negative: the same root block was explicitly tested against the newly
+running, disconnected application. It refused before stop with exit1; original
+application/broker PIDs and enabled broker remained unchanged, with native
+Disconnected still observable. This is a known no-effect refusal, not an unknown
+effect retry or evidence for connected/retained-DNS negatives.
+
+Frozen RC1e full Test [38563158711](https://github.com/k-kostin/omavless/actions/runs/38563158711)
+has now completed **successfully**. Its separate tag-triggered run was still
+pending at this checkpoint. Installed ARM64 and automatic/general uninstall
+remain unclaimed. Source review and this x86_64 administrative journey do not
+authorize main/Marketplace promotion or establish Aryan's original failure cause.

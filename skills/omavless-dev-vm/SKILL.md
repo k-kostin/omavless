@@ -86,6 +86,16 @@ offline validation separate from an empty-cache public-download run. Explicit
 candidate tag checkout before enabling is fixture selection, not proof of a
 main/Marketplace install.
 
+A fixture-admin removal is not the user's clean-reinstall gate. For a proposed
+terminal guide, execute its actual copyable blocks after ordinary widget removal,
+without relying on that deleted checkout or machine-specific recovery helpers.
+Separate original-partial fixture preparation from the user path. The bounded
+[0.9.8 candidate procedure](../../docs/user/CLEAN_REINSTALL_098.md) uses proven
+clean state **before** an explicit guest reboot rather than manual volatile-file
+deletion. The journal is also volatile: a reboot first would destroy evidence,
+not prove cleanup. Record any separate clone/enable prompt and verify the selected
+candidate before enabling; a command without `--enable` may still ask interactively.
+
 ## Encrypted reboot: successful repeatable sequence
 
 1. Establish that the selected QEMU process belongs to the current user and

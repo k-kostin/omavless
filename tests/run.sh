@@ -68,6 +68,7 @@ python3 -m unittest -v \
   "$here/test_vless_canonical_parity.py"
 if command -v node >/dev/null 2>&1; then
   node "$here/test-documentation-navigation.js"
+  node "$here/test-clean-reinstall-guide.js"
   node "$here/test-i18n.js"
   node "$here/test-safe-text.js"
   node "$here/test-tui-i18n.js"
