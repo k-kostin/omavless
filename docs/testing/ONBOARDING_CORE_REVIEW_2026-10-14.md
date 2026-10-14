@@ -193,3 +193,60 @@ matched frontend pins/capability activation, final CI and affected installed
 delivery scenarios. The repository still selects fix.4 with capabilityfalse;
 the private offline target metadata is not a public release. Main, existing
 release assets and the physical PC were not changed.
+
+### User-journey challenge: not accepted
+
+The owner's request to finish the whole user path exposed a real remaining
+product gap, not just an unrun screenshot. At frontend
+`f988873281e2c4253373324cc4518f796e0c465d`, an enabled paired-update action
+can be offered before the runtime/broker preparation has been completed.
+The native updater correctly refuses a running runtime/broker or retained
+socket. Full Quit also disables the widget. The linked current-main guide
+describes the replacement boundary but does not provide an end-to-end
+preparation-and-return procedure. Independent Astra review confirmed this gap.
+The earlier administrative VM preparation is fixture administration, not
+proof that a normal user can complete that preparation from the product.
+Do not promote this candidate merely by publishing its packages or enabling
+`updatePair`.
+
+Additional installed **GUI continuation** evidence was earned on x86_64 with
+frontend f988, native9d and the previously inspected private offline9d target
+metadata. Only the three target metadata files differed from the frontend
+commit; capability remained false. Supported guest shell reload preceded
+inspection of actual loaded controls. This is candidate integration, not a
+published installation or an anonymous new-release download.
+
+- Actual Settings → Setup assistant displayed Core ready/version; a pointer
+  click on Continue opened Routing step2. Escape returned without choosing
+  a preset or modifying the store.
+- Actual confirmed Quit stopped/disabled the runtime and disabled the widget.
+  Ordinary `omarchy plugin enable kdk.omavless` reopened the stopped screen;
+  its actual Start OmaVLESS button returned to ready without enabling startup
+  or connecting VPN.
+- A separately admitted administrative fixture stop checked the original
+  broker/empty journal/FD0/no-TUN boundary and its same-identity stale socket.
+  This is still NOT product preparation acceptance. An initial SSH Quit
+  lacking the desktop environment refused before shutdown; the subsequently
+  opened administrative sudo prompt was cancelled without entering a password
+  or executing the helper. Only after a new normal Quit with the correct
+  session environment and confirmed shutdown was the administrative fixture
+  preparation invoked.
+- Actual Start broker opened the ordinary terminal and original sudo prompt.
+  It used existing enrollment, completed successfully and left the runtime
+  stopped. Enter closed that terminal. Reopening the panel and clicking Check
+  again retained the explicit terminal/prompts-closed fence; clicking the
+  disabled Start button did not start the runtime. Acknowledging the settled
+  terminal cleared the fence; actual Start OmaVLESS then returned to ready.
+- All seven retained private members still matched their earlier baseline.
+  Final fresh observation was Disconnected/recoveryfalse, Desiredfalse, no
+  TUN/core, brokerFD0, runtimeactive/disabled and widgetenabled. No setup,
+  pacman or sudo process remained. Guest idle preference was restored; no
+  reboot, physical-host shell restart or physical-PC mutation was performed.
+
+Required next gate: define and independently review the separate, explicit
+clean-broker preparation and widget-return user procedure, then pass the actual
+older-pair GUI → preparation → updater → terminal closure → both Start actions
+journey. Keep any administrator-only assistance clearly identified. Preparation
+must not become implicit updater cleanup. New immutable assets and anonymous
+download acceptance remain a distinct delivery gate; a warmed CI cache is not
+that proof. Main promotion and publication remain paused.

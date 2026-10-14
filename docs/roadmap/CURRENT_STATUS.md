@@ -12,7 +12,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   Refresh is a facts read, not a Mihomo updater. Existing app + missing companion
   retains manual guarded guidance. [The UI report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
   separates installed ready navigation from EN/RU synthetic negative-state
-  rendering; the fixing PR records CI and actual main integration. Native
+  rendering; the fixing PR records CI and actual main integration.
   That initial UI-only slice leaves package identities unchanged. The systemic
   follow-up in #783 adds a **not-yet-delivered** stopped-0.9.8 paired updater
   and exact published-byte inventory, so its native changes require new package
@@ -20,6 +20,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   disabled for fix.4; old binaries cannot be relabelled as containing it.
   Freshness is advisory for compatible older pairs, not a Connect/Continue or
   stopped-runtime dead end. Main promotion is paused pending this follow-up.
+  The user-journey challenge found an additional blocker: clean broker
+  preparation and return after Full Quit are not yet a complete supported user
+  procedure. Installed GUI Quit/reopen, broker Start, terminal closure fencing
+  and app Start passed separately on the candidate; manual VM preparation and
+  cached CI packages do not establish end-to-end update/public-download proof.
 
 - **Emergency setup/update correction, #778:** owner-authorized main
   integration carries stage diagnostics, partial DNS continuation, qualified
