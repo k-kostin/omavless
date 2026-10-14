@@ -18,6 +18,13 @@ local stdin. Do not start another authorization in that state: inspect the
 original operation and settle it under the execution policy before a new attempt.
 Non-interactive reads do not require a PTY.
 
+For chained host phases, check the original result schema and required state
+before opening the next authorization or effect. Missing desktop environment,
+refused Quit or a null JSON projection is not an admitted stopped baseline.
+Record fixture administration separately from the product journey; it cannot
+earn the user's preparation step. Use the execution policy's driver admission
+rule rather than a compound command's final exit code.
+
 ## Before using the VM
 
 Identify the designated sole operator, exact VM directory/image, current QEMU

@@ -250,3 +250,34 @@ journey. Keep any administrator-only assistance clearly identified. Preparation
 must not become implicit updater cleanup. New immutable assets and anonymous
 download acceptance remain a distinct delivery gate; a warmed CI cache is not
 that proof. Main promotion and publication remain paused.
+
+## Retrospective of the issue772 correction train
+
+Scope: the October13 reporter issue, #778/fix.4, #782 and this #783 follow-up.
+The reporter's original failed stage is still unknown: no reply with that
+diagnostic has arrived. Reproducing related owner/VM dead ends establishes
+those defects, not the reporter's exact root cause. The older setup report
+retains original failures and exact subsequent successes; this section records
+causes and prevention, not a replacement chronology.
+
+| Miss / workflow cause | Correction and required regression |
+| --- | --- |
+| Generic setup failure implied pending authorization and gave no failed stage; initial acceptance concentrated on completed setup | #778 adds bounded phase diagnostics, explicit partial DNS continuation and separated consent. Keep cancellation after package install/enrollment and re-open/check/continue in the installed setup matrix, not only initial success. |
+| Widget update was mistaken for app update; a fresh/developer fixture hid the owner's authentic0.8.2 package and unsupported APIs | Observe frontend, app/DNS receipts, package ownership and loaded controls independently before a host action. Keep a genuine previously published install as the updater's predecessor; never manufacture it from a current dev build. |
+| Warm stopped fixtures hid absent volatile locks after reboot and ordinary retained private-state siblings | #778 added cold-owner and ancillary-sibling regressions with canonical/pending-state fences retained. Select fixture dimensions from the reached code's assumptions before execution; cold and populated/retained state are not optional substitutes for the clean-home gate. |
+| Correct CLI/files were called a correct panel although the shell retained old QML dependencies | Verify distinctive loaded controls after supported reload. Keep stale-engine failure separate; rescan/hash success does not earn installed UI acceptance. No unattended physical-host shell restart. |
+| Managed core was confused with stock core; accurate version was assumed from receipts | Test actual selected-core discovery and executable version in the normal matched packages. Retain separate stock-core installation without changing its capabilities. Artifact admission and displayed/runtime core facts are separate gates. |
+| Installation help still described0.8.2/AUR, and valid links were treated as current documentation | #782 centralizes the public-guide/main rule. Trace actual help destinations and their action/consent content in the affected journey, including update/remove/reopen; a link-existence assertion only protects navigation. |
+| Onboarding used a shared generic message; update freshness replaced ready Connect/Continue/Start; a terminal fence disappeared when components became ready | #783 covers readiness/freshness separately and keeps explicit terminal closure acknowledgement. Production-function and installed transitions must cover both sides of each action/state, not just catalog/source assertions or an arbitrary synthetic enum. |
+| A screen offered an update that the pinned helper did not contain; receipt self-hash was treated as independent published provenance | Capability stays false on old deliveries; inspect the actual selected helper vocabulary and independently pinned source/architecture/member bytes. Compiled pin/build inputs are included in pairing equivalence, not misclassified as frontend-only. |
+| Direct helper replacement plus manual broker preparation and a warmed CI cache were presented too close to whole-journey readiness | The preparation/return path is now an explicit unresolved product gate. Each external fixture intervention is an unearned user-path edge, not invisible test setup. Original GUI/terminal/postcondition and anonymous-download evidence stay distinct. No new publication request until the prepublication user-path gates actually pass. |
+| Compound commands proceeded after refused Quit; a filter selected zero tests; a safe projection silently mapped unknown JSON shape to null | Effect-bearing phases must be admitted separately after checking the original result/schema and independent state. Require nonzero discovered test count. Wrong environment/schema/filter is a driver failure, not a product success or retry allowance. |
+
+Canonical prevention is added to the existing UI contract, execution policy
+and their discovery skills rather than another parallel checklist. The next
+implementation must exercise the omitted preparation edge early, include a
+concurrent/queued-client refusal or drain test, and only then consume time on
+final package/release assembly. Independent review challenges the execution
+premises as well as source safety; a reviewed helper is not automatically a
+reviewed user flow. The next installed run must show the improvement, not merely
+reference these rules. No claim that all future defects are impossible is made.

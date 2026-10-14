@@ -22,6 +22,12 @@ and the expected visible result. For layout changes, identify what stays fixed
 when selection or content changes. Do not add technical metadata or familiar
 icons without explaining their actual user-facing purpose.
 
+For setup/update, use the contract's user-journey unit: verify the actual entry
+and user-reached prerequisites before assembling final artifacts. Identify each
+fixture-only intervention; do not let an expert-prepared broker/cache or a direct
+helper call silently replace a missing product edge. Challenge the return after
+Quit/terminal closure as well as the happy-path button.
+
 Preserve the owner's current accepted baseline. Make the bounded correction;
 do not start a redesign, backend rewrite or broad audit merely because this
 skill applies. Reuse installed Omarchy controls/tokens and inspect their actual

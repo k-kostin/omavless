@@ -122,6 +122,18 @@ and post-update continuation. Advertise an update only if the exact pinned
 native helper actually supports it. Fixture rendering does not prove that
 delivered packages contain that helper or that their installed path works.
 
+For setup/maintenance, the acceptance unit is the affected **user journey**,
+not a helper phase. Record its actual entry, prerequisites the user must reach,
+button/terminal/consent, original outcome, closure acknowledgement and next
+reachable action. An expert-only fixture stop, socket cleanup, preloaded archive,
+seeded enrollment or manually repaired state is an unearned journey edge unless
+it is itself the documented, reviewed and tested user procedure. Mark offline
+candidate/cache evidence separately from anonymous published downloads.
+Verify the prerequisite edge before final artifact assembly; package-phase PASS
+cannot conceal a missing preparation/return path. Keep an update advisory from
+disabling ordinary Start/Continue, and show an explicit preparation action rather
+than promising immediate replacement when preparation remains necessary.
+
 ## Three independent checks before calling a change ready
 
 1. **Behavior:** does the real handler address the right record/state, honor

@@ -42,6 +42,14 @@ cases. Run compilation and environment preflight before privileged execution.
 Synthetic controls complement, but never replace, the real integration gate.
 Do not create prerequisite research unless a concrete scenario needs it.
 
+For installer/updater work, include user-reached preparation, return after
+Quit/terminal closure and continuation in that early scenario. Record every
+fixture-only intervention and resulting proof limitation in the existing task
+matrix. Do not replace a missing product step with administrator fixture work
+and later call the helper result a complete journey. Before requesting release
+publication, close its prepublication user-path gates; explicitly separate later
+public-asset/download gates which cannot exist before authorized delivery.
+
 After two unsuccessful diagnostic cycles without narrowing the failure,
 reassess the hypothesis or design with an independent reviewer. This is a
 checkpoint to change method, not a retry allowance or a reason to stop all work.
@@ -179,6 +187,11 @@ The primary agent owns integration, scope, VM scheduling and evidence. Assign
 independent writers per feature/worktree, with explicit no-overlap boundaries,
 expected deliverable, acceptance scenario and immutable handoff head.
 
+At a significant integration boundary the independent reviewer must also check
+that the test's initial state/interventions and shipped artifact selection match
+the advertised user scenario. Source safety approval and user-journey approval
+are different conclusions. Do not delegate the primary's evidence classification.
+
 Use a capable implementation model (normally Sol) for feature code and tests.
 Use Astra for bounded difficult architecture/security questions and independent
 review where a second perspective changes the decision. Do not require an
@@ -294,6 +307,14 @@ an otherwise valid VM run. Diagnose harness failure separately from product
 failure, preserve the failed scope, and verify the narrow successor before
 selecting a fresh scope. Do not continue past an unresolved observation merely
 because the underlying command returned success.
+
+Apply the same admission rule to VM/host drivers: after each effect-bearing
+phase inspect its original exit/result schema and independent required state
+before launching the next effect or authorization prompt. A compound command's
+final success, JSON-null projection, keys-sent marker or zero-test filter cannot
+earn an earlier gate. Prefer separate tool calls or an explicit fail-closed
+driver over semicolon-chained mutations. Do not use fixed sleeps as completion
+proof; bound observation against actual state/phase and retain the failure.
 
 Define a negative fixture's trigger at the product's actual observation boundary.
 For example, TCP EOF in one direction does not prove that a bidirectional relay
