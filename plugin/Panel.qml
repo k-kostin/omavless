@@ -4014,7 +4014,7 @@ Panel {
           vless.refresh()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
-        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/INSTALL.md")
+        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md")
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }

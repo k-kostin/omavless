@@ -2,6 +2,16 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
+**Emergency setup correction, October 14:** owner-authorized #778 integration
+fixes partial DNS setup, bounded stage reporting, managed-core readiness/version
+and the qualified stopped public 0.8.2 paired update. New immutable delivery
+`v0.9.8-fix.4` retains version 0.9.8 and producer
+`b65695ee0609c2a971289109975678b8da87c946`. Public download verification and
+installed x86_64 first/partial setup pass; installed ARM64 is still pending.
+The [setup report](docs/testing/SETUP_082_UPGRADE_VM_2026-10-13.md) and #778 own
+exact evidence and actual main integration. This does not finish 0.9.9 Restore,
+friendly all-stage uninstall, frontier features or a Marketplace update.
+
 **0.9.8 subscription security maintenance, October 11:** #736 addresses
 Marketplace #10984's quadratic candidate scan in the shared Rust feed decoder.
 The cursor now advances monotonically for raw and Base64 bodies; existing size,

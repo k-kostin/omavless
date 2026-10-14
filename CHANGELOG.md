@@ -4,6 +4,16 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.9.8 — corrected release snapshot
 
+- Correct partial setup so an installed but unselected managed DNS pair offers
+  a safe continuation, with separate first/existing enrollment and application
+  Start. Preserve profiles and do not repeat activation of an existing owner.
+- Add a guarded update from the verified stopped public 0.8.2 application to
+  the matching 0.9.8 app/DNS pair. Offer an optional shell refresh after success.
+- Report the failed setup stage, wait for broker readiness, and use the managed
+  core's actual version/readiness instead of an unrelated stock executable.
+- Make Setup help and onboarding share the current installation guide; retain
+  historical stock-Mihomo instructions separately.
+
 - Make subscription candidate scanning linear in input size, including raw and
   Base64 feeds, so a bounded provider response cannot trigger repeated suffix
   scanning while the runtime serializes owner operations. Preserve parsing,
@@ -29,11 +39,12 @@ All notable changes to OmaVLESS are documented here.
 - Correct first-use Backup availability without a runtime restart and keep
   the idle DNS broker available without repeatedly polling empty admission.
 
-Corrected packages and matching frontend use `v0.9.8-fix.3`, adding the native
-subscription-parser correction to #735's Qt clipboard fix. Both native packages
-identify source `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`; #736 records
-the inspected architecture pairs, installed checks and actual publication/download
-outcome. Existing 0.9.8 installations need a guarded native package reinstall,
+Corrected packages and matching frontend use `v0.9.8-fix.4`, adding the setup
+and qualified-update corrections to the retained #735/#736 fixes. Both native
+packages identify source `b65695ee0609c2a971289109975678b8da87c946`;
+#778 and the [setup acceptance record](docs/testing/SETUP_082_UPGRADE_VM_2026-10-13.md)
+separate public-download checks, installed x86_64 results and pending installed
+ARM64 validation. Existing 0.9.8 installations need a guarded native package reinstall,
 not only a plugin update; product/package versions remain 0.9.8 / 0.9.8-1. The original
 `v0.9.8` validation assets remain immutable. The owner authorized main/stable
 promotion; its actual merge/release event is recorded in PR #726. Marketplace

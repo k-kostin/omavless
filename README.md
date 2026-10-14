@@ -50,6 +50,11 @@ The installer selects the matching packages for your architecture. When it says
 Only missing components are offered. An installed application may instead need
 **Finish application setup**. You can return later; setup never connects a VPN.
 
+If the packages installed but DNS setup did not finish, use **Continue DNS
+setup**, not another installation. Its terminal explains `FIRST` (first
+enrollment) and `START` (use existing enrollment). After it finishes, close
+the prompts, Check again, then use the separate **Start OmaVLESS** action.
+
 ### 3. Add your VPN access and connect
 
 Follow onboarding to review the core, optionally choose a Routing policy,
@@ -62,7 +67,7 @@ stops it. Clicking a profile name only selects it for management.
 
 For manual downloads, matching packages and optional clipboard/file-picker/QR
 tools, see the [installation guide](docs/user/NATIVE_INSTALL.md) and
-[0.9.8 release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.3).
+[0.9.8 corrected delivery](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.4).
 
 The command above follows upstream main. Marketplace verification covers a
 separate exact snapshot and may lag behind the GitHub release.

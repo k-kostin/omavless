@@ -1,639 +1,261 @@
-# OmaVLESS installation, updates and recovery
+# Set up, update or reopen OmaVLESS
 
-## OmaVLESS 0.9.8: managed-package route
+This guide is for **OmaVLESS 0.9.8 on Omarchy**. Start with the section that
+matches your panel. Installing or starting the application does **not** connect
+a VPN; you choose a profile and Connect separately.
 
-The owner-selected release snapshot uses corrected delivery `v0.9.8-fix.3`,
-with exact app/DNS hashes for both
-architectures. Product/package versions remain `0.9.8` / `0.9.8-1`; the release
-tag distinguishes corrected bytes from the immutable first validation build.
-Do not mix its frontend with the earlier `v0.9.8` packages or compile Rust in a
-marketplace installer. Download/setup acceptance and the actual main/stable
-promotion event are tracked in the
-[candidate ledger](../development/RC_098.md).
+## Find your next step
 
-For first use follow the [README](../../README.md); for manual downloads use
-this matched-package route and the [corrected release](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.3).
-Existing 0.9.8 users must reinstall the corrected native packages through the
-guarded disconnected update route: this subscription-parser correction is not
-delivered by a frontend-only update. The displayed version stays 0.9.8; verify
-the release's source and SHA-256 identities instead of the version label alone.
-The separately reviewed Marketplace snapshot remains 0.8.2 until a new approved
-submission; this release does not update that snapshot.
-
-The selected 0.9 route differs from the released 0.8.2 instructions below:
-
-1. Use one reviewed version/architecture-matched `omavless` application,
-   `omavless-dns` companion and frontend. The companion contains the fixed
-   reviewed Mihomo core and DNS broker; arbitrary stock/AUR core discovery and
-   `setcap` on a different binary do not satisfy managed-pair admission.
-2. Through **Required components**, deliberately install the matching packages
-   using normal pacman/sudo authorization. Then perform the separate explicit
-   DNS-broker enrollment and pair selection offered by setup. Adding/enabling
-   the plugin alone installs nothing and connects no VPN.
-3. For an existing installation, first establish verified disconnected state
-   and settled OS authorization, preserve private data, and follow the guarded
-   package-update procedure. Do not rerun first activation or delete ownership
-   records to turn it into a fresh install. Active or quarantined package
-   changes must be refused by the package guard.
-4. If enrollment exists but the broker is stopped, use **Start existing DNS
-   broker**; **Restore DNS enrollment** is only for revoked enrollment after
-   clean removal. Neither action starts a VPN. Afterwards use **Start OmaVLESS**
-   to launch the application, without enabling login startup or connecting.
-5. Import your own profile and connect explicitly. Verify a native HTTPS test
-   and actual website access, not only the Connected label. A default-deny
-   firewall can block DNS ingress on the owned TUN; follow the narrowly scoped
-   firewall guidance below rather than disabling protection globally.
-
-The 0.9.8 scope decision is closed: encrypted Backup is included, Restore is not.
-Completed Restore/recovery remains mandatory for 0.9.9. See
-[Backup usage and limits](NATIVE_USAGE.md#encrypted-backup-098-candidate).
-The matching frontend verifies both package hashes and source identities before
-normal installation. Earlier validation users must use the guarded update path;
-the unchanged Arch version may show **reinstalling**, not an automatic update.
-
-### When managed setup stops
-
-Successful pacman installation proves that the packages were installed, not that
-DNS enrollment, managed-pair selection or application activation finished.
-Typing `DNS` consents to one administrative step; it is not a completion receipt.
-If you already made another attempt, inspect the **current** state rather than
-assuming the original attempt is still the latest one. Finish or cancel any open
-setup/OS prompts before checking again; do not reset data to recreate an error.
-
-Setup diagnostics may report `Setup stopped at stage: CODE`. The fixed code
-identifies the failed boundary, not its underlying cause or permission to retry:
-
-| Stage | Meaning |
+| What you see | What to do |
 | --- | --- |
-| `runtime-directory`, `setup-lock`, `temporary-directory` | Setup could not safely prepare its local transaction. An existing lock is not automatically disposable. |
-| `private-initialization`, `store-validation` | Private settings could not be prepared or validated. Existing profiles are not reset. |
-| `dns-enrollment`, `dns-broker-start` | The separate administrator action did not report success. Its effects must be inspected before another attempt. |
-| `dns-broker-readiness`, `dns-socket-access` | Required service/socket facts were not established after the preceding action. |
-| `dns-template`, `dns-selection` | The installed pair could not be prepared/selected. A custom template is not silently rewritten. |
-| `application-activation`, `runtime-enablement`, `completion` | Application activation, startup enablement or final readiness was not confirmed. |
+| Required components / missing application or managed DNS companion | [Install the matching components](#guided-first-run). |
+| Packages installed, DNS setup incomplete | [Continue DNS setup](#continue-dns-setup). Do not reinstall just because setup is incomplete. |
+| Start existing DNS broker / Restore DNS enrollment | [Use the existing-installation DNS action](#existing-dns-installations). |
+| Start OmaVLESS | Start the application after any DNS step finishes. It starts disconnected and does not enable login startup. |
+| Application update required | [Update the old application](#updates). Updating the plugin alone does not update native packages. |
+| Setup terminal and prompts are closed | Finish or cancel the terminal and all OS prompts first; then press this acknowledgement and Check again. |
+| Setup needs attention / State unverified / Recovery required | [Inspect the current result](#when-setup-stops). Do not repeatedly install or connect to clear a warning. |
 
-Older setup versions show only a generic failure. That warning by itself does
-not establish that an authorization dialog is pending. Keep the terminal's
-stage/message and inspect package versions, plugin commit, `omavless plugin target`,
-`omavless dns-pair status` and the two services' state. These reads do not enroll
-DNS or connect a VPN; do not publish private files or raw journals.
-
-Use **Check again** to obtain the appropriate remaining action. An installed
-application awaiting activation is not a missing package. If this account is
-already enrolled and the existing broker is idle and accessible, finishing
-selection uses explicit `SELECT` consent without enrolling it again. A stopped
-existing broker and revoked enrollment have the separate actions described above.
-An unavailable/unknown state needs diagnosis, not repeated DNS enrollment,
-forced activation, ownership edits or deleting a socket/lock to bypass a check.
-
-The partial-setup development successor also offers **Continue DNS setup** when
-the installed pair is valid but unselected and both the application and broker
-are proven stopped with no managed TUN or remaining socket. Its terminal offers
-two explicit choices: `START` uses an existing enrollment without changing it,
-then asks for `SELECT`; `FIRST` requests separate `DNS` consent and requires the
-root broker's first-enrollment empty-state guard. A failed existing-enrollment
-check never automatically falls through to first enrollment. For an already
-Rust-owned application, neither path initializes private settings, activates
-ownership again or enables the user runtime. After the terminal completes,
-close it, acknowledge that its prompts are closed, and use the separate
-**Start OmaVLESS** action. This successor is not yet part of the public 0.9.8
-installer. The unpublished x86_64 successor also implements the qualified
-public 0.8.2 package-update phase described below; it does not authorize an
-arbitrary existing-companion replacement.
-
-`APPLICATION UPDATE REQUIRED` identifies the known prior public native version,
-not a fresh install or package-integrity proof. **Review update requirements**
-opens this guide; it does not install packages, start the application or enroll
-DNS. That navigation must not be mistaken for a completed guided updater.
-
-In the unpublished successor, **Update required components** is a separate
-terminal action for the verified public 0.8.2 Rust installation with OmaVLESS
-fully closed, startup Off and no existing DNS companion. It checks the pinned
-destination pair and the original private-state/ownership boundary before the
-normal `UPGRADE` and sudo/pacman confirmations. Profiles and the stopped runtime
-are retained. Afterwards **Check again** offers **Continue DNS setup**, followed
-by a separate **Start OmaVLESS**. No VPN connection is started by updating.
-Modified/unknown predecessors, active owners and custom templates need diagnosis;
-do not delete private ownership records to force this route.
-
-The emergency candidate uses the separate `v0.9.8-fix.4` delivery name.
-Its frontend pins matched app/DNS packages for both x86_64 and ARM64; installed
-acceptance and public-download verification are separate from those build pins.
-Follow [the emergency acceptance record](../testing/SETUP_082_UPGRADE_VM_2026-10-13.md)
-and PR #778 for its delivery/promotion status, rather than treating a candidate
-tag as a stable update. If an already running shell displays old
-controls after a frontend replacement, finish open prompts and deliberately
-use the documented shell-reload guidance below before checking again. Repeated
-DNS enrollment or application installation cannot refresh cached QML.
-The supported paired upgrade needs its separate compatibility and installed
-acceptance; an unknown/modified version remains a diagnostic limitation.
-
-After a successful qualified 0.8.2 package update, the candidate terminal offers
-an optional `RELOAD`. This restarts the entire Omarchy shell: its bar, panels and
-other shell plugins briefly disappear. Finish any setup/OS authorization prompts
-first. Enter skips it. A reload refusal/failure does not undo the package update
-or authorize repeating `UPGRADE`; inspect the current plugin state instead.
-
-### Updating is not starting over
-
-Updating the plugin checkout alone does not replace either native package.
-When native replacement is actually required, preserve private data and use
-the guarded **matching app/DNS pair** update route; the historical one-package
-0.8.2 commands below are not a complete 0.9.8 procedure. The version `0.9.8-1`
-alone cannot distinguish corrected immutable deliveries: check their source and
-archive hashes. Reinstalling the same packages does not repair an unknown
-ownership or enrollment state and must not repeat first-use activation.
-
-Removing the widget with `omarchy plugin remove kdk.omavless` likewise leaves
-`omavless`, `omavless-dns`, the bundled core, broker enrollment and private data
-installed. The removal observer requests native shutdown, but does not disable
-the system DNS-broker service or uninstall packages. Do not infer successful
-shutdown from disappearance of the icon. Full removal is a separate administrator
-procedure: verified native shutdown, clean broker stop/disable and empty-state
-checks, guarded enrollment revocation while the broker binary still exists,
-then package removal. The [managed-DNS lifecycle contract](../development/DNS_RELEASE_DISTRIBUTION.md#replacement-removal-and-firewall)
-retains those safety requirements; plugin removal alone is not full uninstall.
-Keep profiles by default. Never delete unknown broker state or bypass ALPM guards
-to make an update/removal succeed.
-
-## Released 0.8.2 route and historical compatibility
-
-This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-only
-0.9 RC development branches have a different requirement: a version-matched
-`omavless` + `omavless-dns` package pair, separate administrator enrollment
-for the fixed DNS broker, and a stopped/disconnected runtime for managed-pair
-selection before Rust activation. The 0.9 frontend's pinned `v0.9.0-rc.1`
-prerelease assets are for RC validation, not a supported upgrade: the ARM64
-fresh-account GUI path passed, but negative/recovery and release gates remain.
-It treats an already
-registered package, leftover
-user runtime unit or `Meta` TUN as an existing/ambiguous installation, not a
-fresh machine to overwrite; inspect that state separately. Do not
-apply the 0.8.2 stock-Mihomo steps below to a 0.9 candidate; see the
-[managed DNS distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
-for the current development status.
-For the prerelease 0.9 candidate, a clean removal may preserve private
-profiles and the selected pair while revoking the privileged broker
-registration. On reinstall, **Restore DNS enrollment** is a separate attended
-step, not a second package install or a VPN connection. It refuses residual or
-unknown broker state and does not re-enable a previously stopped user runtime.
-After a clean package update or temporary broker stop, the registration may
-instead still be present: choose **Start existing DNS broker**, not Restore.
-That action checks the fixed enrollment file metadata and starts only the
-broker; it does not re-enroll, start the user runtime or connect. If the
-enrollment was revoked during a clean removal, choose Restore instead. A
-failed or uncertain authorization requires inspection before either retry.
-
-New users of the released version can
-install the plugin and follow its guided first-run setup. Existing native and
-legacy users have separate update/migration routes below; do not reset an
-existing store or repeat activation.
-
-The GitHub release is stable; the marketplace's exact 0.8.2 update was reviewed
-and published through [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093).
-That approval does not cover this newer development candidate.
-Ordinary `omarchy plugin add` installs
-the frontend, not the native package or its ownership. The panel offers those
-steps explicitly, with normal user/OS confirmation. OmaVLESS itself is delivered
-as a reviewed release package, not an AUR package announcement.
-
-## Choose your installation route
-
-| Starting point | Route | Do not do |
-| --- | --- | --- |
-| New user, no application/data | Add plugin → Required components → terminal setup → Check again/reopen → onboarding. Matching public 0.8.2 packages are pinned; fresh x86_64 provisioning is checked. | Do not pair the current frontend with an older native package or confuse upstream main with the reviewed marketplace snapshot. |
-| Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
-| Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
-| Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
-| Previously used confirmed Quit | In the selected 0.9.8 candidate, re-enable the plugin and use **Start OmaVLESS** after any separate DNS preparation. Earlier releases use the explicit manual reopen procedure below. | Do not reinstall, reset ownership or assume that re-enabling the frontend connects a VPN. |
+**Set up later** closes the panel without changing data or hiding missing
+components. **Finish later** at the final onboarding step finishes the wizard
+without importing a profile. Neither starts a VPN.
 
 <a id="guided-first-run--release-preparation"></a>
 
 ## Guided first run
 
-For the current upstream release:
+1. Add the plugin through Omarchy:
 
-```sh
-omarchy plugin add https://github.com/k-kostin/omavless --enable
-```
+   ```sh
+   omarchy plugin add https://github.com/k-kostin/omavless --enable
+   ```
 
-This clones mutable upstream HEAD, not an exact marketplace-verified snapshot.
-Review the source before enabling it. The command does not run `install.sh`,
-install Mihomo/the native application, or invoke their privileged setup.
-Those are separate, explicitly confirmed actions in the panel below.
+   This follows upstream main. Marketplace review covers a separate exact
+   snapshot. The command installs the widget only: it does not run
+   `install.sh`, install native packages or execute their sudo steps.
 
-The frontend has a panel shell that works **without** the native application.
-It shows the **Required components** block below the unavailable Profiles area,
-instead of trapping the user in a setup wizard. Adding/enabling or reopening
-the plugin never executes an installer automatically. Missing components stay
-visible even when onboarding is deferred:
+2. Open OmaVLESS from the bar. Choose **Install required components** (or the
+   offered missing-component action). In the terminal, type `INSTALL` when
+   asked. Approve the ordinary package transaction; enter your password only
+   at the system's password prompt.
 
-- Missing OmaVLESS and Mihomo: both rows and one **Install required components**
-  action, installing dependencies sequentially in one terminal.
-- Missing only OmaVLESS: **Install OmaVLESS**, preserving a compatible packaged core.
-- Missing only Mihomo with an activated app: **Install Mihomo** below the real
-  profile list. The app/store/service are not reinstalled or activated again.
-- Both installed: the missing-components block disappears. An unactivated app
-  instead gets a separate **Complete setup** block, not an install offer.
-- Failed/unknown discovery: guidance and recheck, never an invented missing
-  program or a successful setup claim.
+3. When asked about DNS, type `DNS` to authorize the separate DNS setup.
+   The matching `omavless-dns` package includes the reviewed Mihomo core and
+   DNS broker. You do not need to install an AUR Mihomo or run `setcap` on an
+   unrelated binary for this route.
 
-Component presence does not certify permissions, TUN, DNS or live connection
-health. Core setup in the normal onboarding/Settings remains responsible for
-those distinctions. Picker/editor/QR/clipboard tools remain optional helpers.
-When the core is known to be absent, Connect is disabled; Disconnect is not.
+4. When the terminal says **OmaVLESS is ready**, close it. Resolve any remaining
+   OS prompts, press **Setup terminal and prompts are closed** if shown, then
+   **Check again**. If you cancelled a later step, use the remaining action
+   below instead of starting over.
 
-The appropriate install button opens a terminal for explicit confirmation.
-The checked setup path is:
+5. Follow onboarding to review readiness and optionally select Routing/import
+   a profile. **Finish later** is available without a profile. The default VPN
+   autoconnect setting is Off. Fresh setup enables the application service for
+   future logins, but that is not permission to auto-connect.
 
-1. Add the plugin through Omarchy's normal marketplace command.
-2. Open the plugin and use the required-components action. For application
-   setup, type `INSTALL` in its terminal; core-only setup asks for `CORE`.
-3. The helper downloads the version/architecture-specific OmaVLESS package
-   pinned by SHA-256 in the reviewed frontend. No Rust/Cargo build is performed.
-   If the package dependency Mihomo is absent, a separate `CORE` confirmation
-   offers the documented `omarchy pkg aur add mihomo-bin` route. This uses the
-   AUR, not the official Arch repositories; normal host authorization remains.
-   A preinstalled package providing `mihomo` is respected.
-4. Normal `sudo pacman -U` installs the application. Setup prepares a new empty
-   private store **only when absent**, validates existing data, uses canonical
-   native activation and enables the disconnected user service for future logins.
-5. Return to the panel and choose **Check again**. The existing onboarding then
-   covers core/TUN readiness, routing, helpers and profile import. Setup does not
-   grant TUN capabilities, connect a VPN or silently install optional helpers.
+Import your own compatible VPN profile or HTTPS subscription, choose a mode,
+then Connect. Servers/subscriptions are not included. See
+[everyday use](NATIVE_USAGE.md) for controls and Backup.
 
-**0.8.2 release:** `plugin/runtime-release.json` pins the reviewed ARM64
-and x86_64 packages, including their exact runtime source and SHA-256. Setup
-does not follow `latest` or fall back to older 0.8.0/0.8.1 runtimes. Confirm the
-matching assets are present on [GitHub Releases](https://github.com/k-kostin/omavless/releases)
-before provisioning. The complete fresh download/install/activation/onboarding
-path, including initially absent Mihomo, passed on a clean Omarchy x86_64 VM;
-see the [scoped acceptance record](../testing/NATIVE_082_FRESH_VM_2026-09-21.md).
-This is distinct from live VPN/TUN acceptance and does not silently grant
-permissions. Stable promotion does not itself change the marketplace snapshot.
+## Continue DNS setup
 
-Set up later closes the panel without saving a false completion or hiding the
-required-components reminder on reopen. After starting
-setup, finish/cancel it and all authorization dialogs in its terminal. Checking
-status never repeats installation. Before deliberately retrying, confirm
-**Setup terminal and prompts are closed**; never do this while an authorization
-is unresolved. A lock from a killed installer is not cleared automatically.
-Existing active legacy owners, unsafe stores and interrupted migrations require
-the recovery guidance below; this page does not force migration or reset data.
+If the packages are installed but DNS setup is incomplete, choose
+**Continue DNS setup**. It is offered only when the application and broker are
+safely stopped; an unknown state is not treated as a new installation.
 
-**Two different “later” actions:** **Set up later** on the runtime-independent
-panel closes it without installing anything or hiding missing-component reminders.
-**Finish later** at the final profile-import step of the normal onboarding wizard
-records that the wizard is complete without requiring a profile. It does not
-install missing components, certify TUN readiness or connect a VPN. The guide can
-be reopened from Settings; required-component checks remain independent of that
-wizard-completion flag.
+The terminal gives you two choices, on separate lines:
 
-Cancelling the initial `INSTALL` consent occurs before installation effects.
-Cancelling/failing a later core/package/activation step is different: an earlier
-step may already have succeeded. There is no automatic uninstall or rollback.
-Close/resolve all terminal and authorization prompts, inspect the actual state,
-then use **Check again** and the appropriate remaining action. Never retry while
-an authorization is unresolved or delete a stale setup lock/ownership marker to
-force progress. A started terminal is not proof that setup succeeded.
+- `FIRST` — **you have not enrolled this account before**. The next `DNS`
+  confirmation authorizes first enrollment. An existing registration or unsafe
+  broker state is refused rather than overwritten.
+- `START` — **this account was already enrolled** and you want to use that
+  enrollment unchanged. The existing-enrollment check must pass. Then `SELECT`
+  explicitly chooses the installed managed pair.
 
-An already activated native installation bypasses provisioning. Updating it
-still uses the reviewed disconnected package-update procedure, not this
-first-install helper. The manual reviewed-package path below remains an
-alternative to the guided setup.
+Press Enter to cancel. Do not guess `FIRST` merely because `START` failed:
+a failure is not proof that no enrollment exists. If you are unsure which
+step completed, see [When setup stops](#when-setup-stops).
 
-The native runtime/CLI does not require Python, pip, a virtual environment or
-Cargo at runtime. Its Omarchy frontend is still QML. The old Python backend is
-preserved separately in a frozen historical archive; remaining Python files in
-main are developer test/build tools, not source installation or a runtime fallback.
+After the DNS terminal finishes, close it and settle its OS prompts. Acknowledge
+closure in the panel, then Check again. Use the separate **Start OmaVLESS**
+action when offered. It starts the application, not the VPN. Existing profiles,
+ownership and startup preferences are preserved; this continuation does not
+repeat first-use activation.
 
-Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
-selection, subscription refresh, language, diagnostics and Quit.
+## Existing DNS installations
 
-For the published **0.8.2** artifact pair, verify `SHA256SUMS` and the exact
-source/architecture in `release-candidate.json` (single-source assembly) or
-`frontend-pair.json` (a newer frontend paired with an unchanged reviewed runtime)
-before following this guide. A pairing record retains both exact source commits
-and verified runtime/build/package input equality; a matching version alone is
-not compatibility proof. Preserve the original package build/acceptance evidence.
-An unpublished artifact is not a public release; marketplace publication remains
-owner-controlled. Both source and assembled frontend carry the same version;
-the historical 0.7.0 snapshot was superseded by the reviewed 0.8.2 update.
-Earlier `0.8.0-rc.1`
-archives retain their original version and hashes, not the current release's.
+For an already selected managed pair, the panel may offer:
 
-Use the runtime package for your processor (`aarch64` or `x86_64`). The QML
-frontend and supported features are common to both; use the reviewed artifact
-pair and its source/version records. Architecture-specific native binaries are
-not separate plugin products.
+- **Start existing DNS broker** — use enrollment that is still present after a
+  broker stop or a clean package update.
+- **Restore DNS enrollment** — enroll again after a verified clean removal
+  revoked the old registration. This is not profile Restore.
+- `SELECT` in the setup terminal — an existing accessible broker is ready,
+  but the installed pair has not yet been selected.
 
-## Before installation
+Complete the offered DNS step and its OS prompts before **Start OmaVLESS**.
+These actions do not connect, reset profiles or enable application startup.
+Do not use restoration as a fallback for a refused existing-enrollment action.
 
-Use a trusted, reviewed prebuilt `omavless` archive for the host architecture
-(`aarch64` or `x86_64`), together with its exact source commit and SHA-256 record.
-The local archive name alone is not proof of provenance. Keep the current known
-working archive outside temporary directories for recovery. Build instructions
-are separate in the [native package notes](../../packaging/arch/README.md).
+## When setup stops
 
-Preserve a private backup of existing OmaVLESS configuration/state before
-migration. Never put that backup, profile links, subscription URLs or exported
-keys into Git, issue comments or public command output. Do not edit ownership
-markers, login receipts or store records to force acceptance.
+A package transaction can succeed while DNS setup or application activation is
+still unfinished. Typing `DNS` is consent, not proof that the step completed.
 
-The package depends on Mihomo and normal Arch runtime libraries/tools, including
-systemd, libcap, iputils and bubblewrap. It does not grant Mihomo capabilities,
-install privileged policy or enable a service in a package hook. Follow the
-[Mihomo readiness guidance](INSTALL.md#grant-tun-capabilities) and verify the
-actual core path. Complete every normal OS authorization prompt before another
-connection or service action; a cancelled prompt is not successful setup.
+1. Finish or cancel the open terminal and any OS prompts. The failure message
+   does not itself mean a password dialog is pending.
+2. Keep the line **Setup stopped at stage: CODE**, if shown.
+3. Return to the panel, acknowledge terminal closure and choose **Check again**.
+   Follow the current remaining action, not the action from an earlier attempt.
+4. If no safe continuation is offered, ask for help in the
+   [project issues](https://github.com/k-kostin/omavless/issues). Include the
+   panel text and stage code. Never paste VPN links, subscription URLs, private
+   configuration or raw service logs.
 
-### Default-deny firewall and TUN
+Local diagnostic reads include `omavless plugin target`,
+`omavless dns-pair status` and service status. They do not enroll DNS or connect.
+Settings' Copy report/Save report is the bounded support report; private
+status/detail output is not automatically safe to publish.
 
-If your host uses a default-deny inbound firewall such as UFW, check its TUN
-policy before treating a Connected indicator as proof of working traffic.
-On one isolated Omarchy VM, the core and routes were healthy but HTTPS through
-the TUN timed out because UFW blocked packets arriving on that interface.
-OmaVLESS does not change firewall rules automatically. An administrator should
-review the local TUN address, peer, interface and firewall policy, apply only
-the exception appropriate for that host, and verify actual traffic and cleanup.
-The built-in HTTPS check (`omavless runtime test`) is read-only and follows the
-current route; in Direct or selective Routing mode it may not traverse the VPN.
+<details>
+<summary>What the stage code means</summary>
 
-For the **bundled IPv4 template only**, first confirm that the active TUN is
-`Meta` with address `198.18.0.1/30` and that UFW is active with default-deny
-incoming policy (`ip -4 addr show dev Meta` and `sudo ufw status verbose`). If
-those facts match and the administrator accepts the host-specific exception,
-the following reversible rule allows incoming packets from `Meta` only when
-their destination is its local IPv4 address:
+| Stage | Boundary that did not finish |
+| --- | --- |
+| runtime-directory / setup-lock / temporary-directory | Local setup transaction preparation. A leftover lock is not automatically disposable. |
+| private-initialization / store-validation | Private data preparation/validation; existing data were not reset. |
+| dns-enrollment / dns-broker-start | Administrator operation; inspect what completed before trying another action. |
+| dns-broker-readiness / dns-socket-access | Required service/socket facts were not established. |
+| dns-template / dns-selection | Managed template/pair selection; custom templates are not silently rewritten. |
+| application-activation / runtime-enablement / completion | Activation, service enablement or final readiness was not confirmed. |
+| upgrade-operation | The old-version updater refused or did not finish; preserve its reason and inspect the installed result. |
 
-```sh
-sudo ufw allow in on Meta to 198.18.0.1 comment omavless-tun
-```
+</details>
 
-It does **not** restrict remote source addresses, ports or protocols: return
-traffic can have many such values. Review services listening on that local
-address and your firewall threat model before applying it. If this exception
-is too broad for the host, keep the default-deny policy and design a suitable
-host-specific rule instead; do not disable UFW to make a VPN test pass.
+Do not delete a setup lock, ownership record, DNS journal or socket to force
+progress. Reinstalling does not repair unknown ownership or authorize repeating
+an enrollment that may already have succeeded.
 
-Retest traffic in Full VPN mode, then inspect `sudo ufw status numbered` for
-duplicate or unexpected rules. Remove this exact exception when no longer
-needed:
+## Updates
 
-```sh
-sudo ufw delete allow in on Meta to 198.18.0.1 comment omavless-tun
-```
+There are **two parts**: the Omarchy widget and the native application/DNS
+packages. `omarchy plugin update kdk.omavless` updates only the widget.
 
-Do not copy the example for a custom TUN address, another firewall, or IPv6.
-The VM's temporary IPv4 result is not an assurance about every protocol,
-destination or host policy. A firewall check does not replace the normal
-connected, DNS, route and HTTPS verification.
+The corrected delivery is
+[`v0.9.8-fix.4`](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.4).
+Its public archives and SHA-256 records identify the matching packages for
+x86_64 and ARM64. Product/package versions remain `0.9.8` / `0.9.8-1`, so
+the version label alone cannot distinguish earlier deliveries. Do not mix
+packages from different corrections. The release's
+[acceptance record](../testing/SETUP_082_UPGRADE_VM_2026-10-13.md) separates
+installed x86_64 results from the still-pending installed ARM64 check.
 
-Desktop helpers remain optional package dependencies:
+### Updating the public 0.8.2 application
 
-- `wl-clipboard` for clipboard operations;
-- `zenity`, `kdialog` or `yad` for file selection, in that preference order;
-- `zenity` specifically for editing a profile;
-- `qrencode` for QR display.
+Set login autoconnect Off, disconnect and fully shut down OmaVLESS first.
+After the widget update, a verified compatible public 0.8.2 installation with
+no DNS companion offers **Update required components**.
 
-The native helper does **not** use the legacy Python/GTK4 fallback. Onboarding
-and Settings report missing helpers. For example, install the lightweight picker
-explicitly with `omarchy pkg add zenity`; OmaVLESS does not run that command for
-you. Clipboard import does not require a picker.
+Confirm `UPGRADE` and the normal sudo/pacman prompts. This installs the matched
+application/DNS pair while preserving profiles and the stopped application.
+It is followed by separate **Continue DNS setup** and **Start OmaVLESS** steps.
+Unknown/modified predecessors or custom templates may require support; do not
+reset data to make them qualify.
 
-## Install the reviewed archive
+A successful updater offers optional `RELOAD` to refresh the whole Omarchy
+shell; Enter skips it. The bar and other shell plugins briefly disappear.
+A reload failure does not undo the package update or mean you should repeat it.
 
-Do not replace a package underneath an uninspected running tunnel or another
-user's active native runtime. For an existing native installation, follow the
-disconnected update procedure below. For a first installation, install the
-reviewed archive with normal dependency/conflict checks:
+### Already using 0.9.8
 
-```sh
-sudo pacman -U -- /absolute/path/to/reviewed-omavless.pkg.tar.zst
-systemctl --user daemon-reload
-```
+Update the widget first. For a partial setup, use Check again and finish the
+remaining DNS/application step; do not initialize or activate an existing
+Rust-owned installation again.
 
-Replace the example path with the actual archive. Do not use `--nodeps`,
-`--overwrite`, `--noconfirm` or a network download as a shortcut. Installing the
-archive places `/usr/bin/omavless` and its two user units on disk; it does not
-initialize user data, activate ownership or start a tunnel.
+Native-package replacement is a separate, guarded operation, not the 0.8.2
+updater. Before replacing **both** matching packages, verify clean shutdown,
+no other user's active runtime, an idle stopped DNS broker with no lease/TUN,
+and settled authorization. The package guard must pass. Download the matching
+archives and verify their source/architecture and SHA-256 before the ordinary
+pacman transaction. An unchanged package version may show **reinstalling**.
+Do not bypass guards with forced overwrite or dependency/confirmation switches.
 
-Run the following application commands as your ordinary desktop user, not with
-sudo, and with the same HOME/XDG roots as that user's systemd manager. Test-only
-`OMAVLESS_HOME` overrides are not an installed activation path.
-
-## Choose the correct initialization path
-
-### New user with no OmaVLESS data
-
-Prepare the initial private empty store and bundled routing template:
-
-```sh
-/usr/bin/omavless setup initialize
-```
-
-This is create-only preparation, not activation or a reset command. It preserves
-existing data and refuses incompatible/occupied state instead of replacing it.
-Startup is Off and no profile or tunnel is created. Continue to activation below.
-
-### Existing legacy/Python installation
-
-Do **not** run `setup initialize` over existing profiles. In the existing UI,
-set login autoconnect Off, disconnect, and finish every authorization dialog.
-The legacy runtime/autostart units must not remain enabled or active. A loaded
-legacy runtime unit and the new native runtime unit must be disabled before
-activation; the native service must not already be running.
-
-Check compatibility with the installed read-only commands:
-
-```sh
-/usr/bin/omavless store-compatibility
-/usr/bin/omavless cutover-preflight
-```
-
-Resolve refusals through the existing supported UI/recovery guidance. Do not
-delete active pointers, receipts or markers manually, bypass private-file
-permissions, or start a second daemon. These checks alone do not migrate data
-or activate the package.
-
-### Already committed native owner
-
-If `omavless plugin target` returns `rust`, do not initialize or activate again.
-Use the update/reopening procedure. Missing or refused ownership is not an
-instruction to recreate markers or fall back to Python.
-
-## Activate once, then install the matching frontend
-
-With the new or compatible legacy store prepared, startup Off, both runtimes
-stopped and no competing core/TUN, run the exact installed activation command:
-
-```sh
-/usr/bin/omavless cutover activate
-/usr/bin/omavless plugin target
-```
-
-Successful activation commits Rust ownership and starts the native service
-disconnected. The target must report `rust`. It does not enable login startup.
-If the command's output was lost, inspect target/status first: repeating
-activation is not recovery. A refused or interrupted transition must follow the
-[activation/recovery contract](../testing/R5_DISCONNECTED_ACTIVATION.md); there
-is no supported force-activation or marker-deletion shortcut.
-
-From the extracted **matching frontend archive**, run `./install.sh` without
-arguments: its entry point always selects native-only installation. It requires
-the already activated owner and cannot install the legacy payload.
-
-Alternatively, from the reviewed **full source checkout** matching the release:
-
-```sh
-./install.sh
-```
-
-This requires already committed Rust ownership, preserves the plugin's
-enabled state on update, and omits installed `backend.py` and the legacy
-`uninstall.sh`. Plain `./install.sh` is also the native-only update path;
-`--native-only` remains a compatible alias. A missing Rust executable, legacy or
-unknown ownership refuses installation before replacing the existing frontend.
-It never starts Python, activates ownership, or downloads/builds a package.
-
-Omarchy's clone-based `plugin add`/`plugin update` does not run `install.sh` or
-install the package. The independent first-run page above supplies the explicit
-setup entry point, with published 0.8.2 pins and scoped fresh x86_64 acceptance.
-Existing native owners still use the disconnected update path; do not invoke
-first-user initialization again. The backend launcher still refuses absent,
-legacy or unknown native ownership; the setup page does not bypass that guard.
-
-To explicitly enable the runtime for future user sessions after activation:
-
-```sh
-systemctl --user enable omavless-runtime.service
-```
-
-Startup Off means this enabled service starts disconnected. Saving Last/pinned
-preferences and enabling a user unit are distinct actions; neither alone proves
-that an actual fresh-login autoconnect passed. Do not manually run
-`login-prepare` or modify its receipt to simulate a login.
-
-**Current native release:** VPN autoconnect is Off by default. Last/pinned
-autoconnect is optional and its connected fresh-login validation is incomplete;
-leave it Off unless deliberately testing that feature. Saving Off does not
-disconnect a currently running VPN. Existing user preferences are not silently
-reset by this documentation or by declaring the migration complete.
-
-<a id="verify-the-installed-candidate"></a>
+For an installation that has already enrolled DNS, preserve its enrollment and
+use the existing-broker continuation after replacement. Do not rerun first
+enrollment. If shutdown or broker state is unknown, use support rather than
+stopping/removing components blindly. The
+[administrator lifecycle contract](../development/DNS_RELEASE_DISTRIBUTION.md#replacement-removal-and-firewall)
+explains the guarded replacement/removal boundary.
 
 ## Verify the installation
 
-The checks below apply equally to a stable release and a development candidate.
+Ready means the panel can read the native application and its managed
+components; it is not proof that your server or network works. After an explicit
+connection, check actual website access and the native HTTPS test. Routing or
+Direct may send a test directly instead of through the VPN.
 
-Use `omavless plugin target`, `omavless status`, `omavless runtime observation`
-and `systemctl --user status omavless-runtime.service` locally. The native user
-service owns the single runtime; the QML frontend does not own a second core.
-Private status/detail responses are not automatically shareable. Settings'
-Copy report/Save report uses the bounded support projection instead.
+If the runtime is healthy but the panel still displays old controls or stale
+**State unverified** after a widget replacement, finish the terminal/OS prompts
+and deliberately run:
 
-Verify package/binary/frontend identity against the recorded acceptance result.
-Replacing the on-disk executable does not upgrade an already running daemon.
-Support facts also do not prove working DNS, route restoration, internet access
-or successful login activation; those need their own observed checks.
+```sh
+omarchy restart shell
+```
 
-If a paired frontend update still shows **State unverified**, first compare the
-fresh `omavless runtime observation` with the panel. Do not repeatedly toggle
-the VPN or reset private state. A running Quickshell may retain an old JavaScript
-parser even after plugin rescan. When the native runtime is healthy but the
-panel cannot read its observation, a deliberate `omarchy restart shell` reloads
-the graphical frontend; the separate native runtime and tunnel are not restarted
-by that command. The bar/panels briefly disappear. Do not use this as a remedy
-for actual runtime recovery or an unresolved authorization request.
+This refreshes the bar, panels and other shell plugins. It does not restart the
+separate native VPN runtime. Do not use it as recovery for a real runtime error.
+A shell reload is optional, never an automatic consequence of checking status.
 
 ## Updates, close, Quit and removal
 
-Closing the panel or a terminal is not Disconnect. Settings' confirmed
-**Shut down OmaVLESS / Quit** stops the VPN and native runtime, verifies cleanup,
-then disables runtime startup and the Omarchy plugin while preserving private
-profiles/settings. Failure or an unknown outcome must be inspected, not treated
-as a clean shutdown. A shell reload is not this explicit Quit action.
+Closing the panel/TUI is not Disconnect. **Disconnect** stops only the VPN.
+Settings' confirmed **Shut down OmaVLESS** stops and verifies the native
+application, disables its startup/plugin and preserves profiles/settings.
 
-Persistently disabling OmaVLESS through `omarchy plugin disable kdk.omavless`
-or a manager using that command also requests fenced application shutdown after
-a short reload grace. It is not merely hiding the icon. Re-enabling within the
-grace cancels that cleanup; do not rely on this timing as a connection control.
-Use Disconnect to stop only the VPN while retaining the application.
+Persistently disabling/removing the widget also requests fenced native
+shutdown. The disappearing icon is not proof that cleanup succeeded.
+Re-enable the plugin to reopen it; after any required DNS step, the panel
+offers **Start OmaVLESS**, not an automatic VPN connection.
 
-In the selected **0.9.8 candidate**, re-enable the frontend with
-`omarchy plugin enable kdk.omavless`, then open its panel. A verified stopped
-installation offers **Start OmaVLESS**. It starts only the application, without
-Connect or enabling login startup, and preserves saved preferences/profiles.
-If the managed DNS broker is also stopped, its separate preparation comes first;
-resolve that operation's OS authorization before starting the application.
-Unsafe, pending or unverified state is not a reason to repeat Start or reset data.
-After updating the frontend, old cached controls can require the deliberate
-shell reload described above; check what is actually loaded, not just file hashes.
+### Reinstalling the widget is not a clean app installation
 
-After a successful guided 0.8.2 package update, the terminal offers an optional
-shell refresh: type `RELOAD`, or press Enter to skip. Finish all setup/OS
-authorization prompts first. This restarts the whole Omarchy shell, briefly
-hiding its bar/panels and reloading other shell plugins. It is never automatic,
-is not VPN recovery and is skipped if the stopped DNS-setup state has changed.
-A failed shell refresh does not undo the package update or mean you should
-repeat `UPGRADE`; resolve the shell problem and use the explicit reload command
-above. Reopen OmaVLESS afterwards to continue the separate DNS step.
+`omarchy plugin remove kdk.omavless` removes the widget, **not** the
+`omavless`/`omavless-dns` packages, bundled core, system DNS broker enrollment
+or private profiles/settings. Adding it again therefore resumes an existing
+installation. Often the correct fix is finishing the remaining setup step.
 
-For the currently tested update route, set startup Off and disconnect first.
-After verifying clean state and settled authorization, stop the native service,
-install the reviewed replacement archive with ordinary `pacman -U`, reload user
-units and start it again. Perform one action at a time and inspect failures:
+To completely uninstall the application, first verify native shutdown and clean
+DNS restoration. An administrator must stop/disable the clean broker, confirm
+its empty journal/FD/TUN boundary, and revoke the enrolled UID while the broker
+binary still exists; only then remove both native packages and the widget.
+Keep private profiles by default. A blocked guard needs inspection, not deletion
+of unknown state. The administrator contract linked above documents these
+requirements; a one-click all-stage uninstaller is planned, **not available in
+0.9.8**. Ask for help if setup never reached a usable shutdown screen.
 
-```sh
-systemctl --user stop omavless-runtime.service
-sudo pacman -U -- /absolute/path/to/reviewed-omavless.pkg.tar.zst
-systemctl --user daemon-reload
-systemctl --user start omavless-runtime.service
-```
+Do not run the legacy `uninstall.sh --purge` against a native installation.
+It is not the native package remover. A clean reinstall must not silently erase
+profiles or reuse a revoked enrollment; the panel offers its explicit DNS
+restoration step after a clean package reinstall.
 
-Install the matching native-only frontend as above and verify the **running**
-binary. This is not a claim of seamless connected upgrades, rollback across any
-historical schema, or recovery from damaged ownership state.
+## Optional helpers, firewall and older installations
 
-Plugin removal and package removal are different operations:
+The managed DNS companion already supplies the reviewed Mihomo core. A stock
+Mihomo installation or `setcap` on a different binary is not a substitute.
 
-| Action | Scope |
-| --- | --- |
-| `omarchy plugin remove kdk.omavless` | Removes the Omarchy frontend; the native removal observer handles its declared shutdown behavior. Does not uninstall the Arch package. |
-| Confirmed Quit | Stops/disables native runtime and plugin after verified cleanup; preserves installed files and private data. |
-| `sudo pacman -R -- omavless` | Removes the native package. Use only after verified shutdown, no other user's active runtime, and with the recovery archive retained. Does not remove the plugin or deliberately purge private profiles/state. |
+Clipboard uses `wl-clipboard`; file selection uses zenity/kdialog/yad; editing
+uses zenity and QR display uses qrencode. Missing optional helpers are reported
+rather than silently installed. For example, deliberately install a picker
+with `omarchy pkg add zenity`. Clipboard import does not require a picker.
 
-Do not run the legacy `uninstall.sh --purge` against a native owner. It is not a
-native purge or package remover, and the native-only frontend omits it. Removing
-the package leaves the native ownership record intact; the frontend should
-refuse operation while the executable is absent, not silently revive Python.
+A default-deny firewall can block traffic on the TUN even when the panel says
+Connected. Setup never disables or changes firewall rules. See the
+[scoped firewall guidance](NATIVE_INSTALL_082_REFERENCE.md#default-deny-firewall-and-tun);
+review your actual interface/address/policy rather than copying an exception
+for a different host.
 
-For attended package-only recovery, reinstall the retained compatible current
-archive with ordinary `pacman -U`, reload user units, then explicitly reopen:
-
-```sh
-systemctl --user enable --now omavless-runtime.service
-omarchy plugin enable kdk.omavless
-```
-
-Inspect state before reconnecting. If private state changed, ownership is
-ambiguous or manual recovery is required, stop and use the recorded recovery
-contract; do not force a startup. Reinstalling a compatible native archive is
-not an ownership rollback to the legacy Python runtime.
-
-## Acceptance boundary
-
-The stable release retains scoped acceptance rather than claiming every host or
-optional feature is validated. The [local R6 closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md)
-records the accepted native Python-unavailable path and exact candidate identities.
-Enabled fresh-login Last/pinned validation and network/DNS limitations remain
-explicit follow-ups, not passing evidence.
-The [package recovery procedure](../testing/R6_INSTALLED_PACKAGE_RECOVERY_2026-09-12.md)
-must have actual executed results before it is called PASS. Static tests,
-an opened file dialog and archive inspection cannot substitute for host gates.
-
-Try Omarchy ARM64 evidence does not claim bare-metal or NixOS acceptance. V0's
-missing protocol fixtures remain a separate maturity gap. Neither this guide
-nor a local installation changes the marketplace snapshot. Local native migration
-closure is not a marketplace upgrade or a promise that every optional feature
-and every host environment is fully validated.
+The [historical 0.8.2 reference](NATIVE_INSTALL_082_REFERENCE.md) retains older
+stock-Mihomo, manual activation and legacy migration instructions. Those are
+not the current managed-pair installation route. No Python runtime or Rust
+toolchain is required for ordinary use.

@@ -8,7 +8,9 @@ const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
   'docs/development/BETA_098.md', 'docs/development/RC_097.md', 'docs/development/RC_096.md', 'docs/development/RC_095.md',
-  'docs/development/RC_090.md'];
+  'docs/development/RC_090.md', 'docs/user/NATIVE_INSTALL.md',
+  'docs/user/INSTALL.md', 'docs/user/NATIVE_INSTALL_082_REFERENCE.md',
+  'docs/user/INSTALL_082_REFERENCE.md'];
 let links = 0;
 for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -21,6 +23,29 @@ for (const file of files) {
     links++;
   }
 }
+// All current setup entry points must address the same current user task.
+// This protects navigation; it is not installed rendering/OS acceptance.
+const setupGuide = 'https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md';
+const setupPage = fs.readFileSync(path.join(root, 'plugin/SetupPage.qml'), 'utf8');
+const panel = fs.readFileSync(path.join(root, 'plugin/Panel.qml'), 'utf8');
+assert(setupPage.includes('function guide() { Qt.openUrlExternally("' + setupGuide + '") }'));
+assert(panel.includes('onSetupGuideRequested: Qt.openUrlExternally("' + setupGuide + '")'));
+const installGuide = fs.readFileSync(path.join(root, 'docs/user/NATIVE_INSTALL.md'), 'utf8');
+for (const anchor of ['guided-first-run', 'find-your-next-step', 'continue-dns-setup',
+  'existing-dns-installations', 'when-setup-stops', 'updates', 'verify-the-installation',
+  'updates-close-quit-and-removal', 'optional-helpers-firewall-and-older-installations']) {
+  const headings = [...installGuide.matchAll(/^#+ (.+)$/gm)].map(match =>
+    match[1].toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-'));
+  assert(headings.includes(anchor), 'missing current setup destination: ' + anchor);
+}
+assert(installGuide.includes('<a id="guided-first-run--release-preparation"></a>'),
+  'historical first-run links must retain their destination');
+for (const file of ['NATIVE_INSTALL_082_REFERENCE.md', 'INSTALL_082_REFERENCE.md']) {
+  assert(fs.readFileSync(path.join(root, 'docs/user', file), 'utf8').includes('NATIVE_INSTALL.md'),
+    'historical instructions must point back to current setup help');
+}
+assert(!installGuide.includes('omarchy pkg aur add mihomo-bin'),
+  'do not offer stock core installation as the current managed-pair route');
 const entry = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
 assert(entry.split('\n').length <= 80, 'root AGENTS must remain a concise entry point');
 for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md',

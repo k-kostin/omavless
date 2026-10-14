@@ -102,6 +102,18 @@ semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
 
+October 14 emergency setup successor: the owner authorized main integration
+through #778, not another issue #772 reply or Marketplace write. Immutable
+`v0.9.8-fix.4` packages use producer
+`b65695ee0609c2a971289109975678b8da87c946`, with frontend freeze
+`791ac5454f9de3d7e7958c8ea7821e7e676716f2`; main may carry newer documentation
+and the fixed Setup-help navigation. Public hashes and installed x86_64
+fresh/partial/update checks are in
+[the setup report](../testing/SETUP_082_UPGRADE_VM_2026-10-13.md).
+Installed ARM64 remains a separate open gate; do not relabel the earlier
+offline ARM/package inspection as installed acceptance. The PR records actual
+integration and any explicit owner scope decision. Preserve prior tags/assets.
+
 The owner's October 11 continuation through #736 authorizes the subscription
 scanner correction within 0.9.8 and matching `v0.9.8-fix.3` native/frontend
 delivery from producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`.
