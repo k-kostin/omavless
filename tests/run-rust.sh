@@ -63,6 +63,12 @@ cargo test --locked -p omavless-runtime --features product-private-backup --lib 
 cargo test --locked -p omavless-runtime --features product-private-backup --lib normal_pair_promoted_candidate
 cargo test --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_
 cargo clippy --locked -p omavless-runtime --all-targets --features product-private-backup -- -D warnings
+# Released setup helper is a separate executable feature. Backup-only tests
+# alone do not compile or exercise its retained update/preparation boundaries.
+# These are owned inert source fixtures, not installed host/DNS acceptance.
+cargo test --locked -p omavless-runtime --features product-private-backup,setup-upgrade082 --lib setup_upgrade082
+cargo clippy --locked -p omavless-runtime --all-targets --features product-private-backup,setup-upgrade082 -- -D warnings
+cargo test --locked -p omavless-dns-broker --features release-package --lib maintenance_mask -- --test-threads=1
 cargo test --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness product_scope
 cargo test --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness normal_pair_promoted_candidate
 # Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
