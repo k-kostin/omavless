@@ -332,8 +332,10 @@ confirm_dns_enrollment() {
   local answer uid
   uid=$(id -u)
   [[ "$uid" =~ ^[1-9][0-9]*$ ]] || return 1
-  say 'Authorize the OmaVLESS DNS helper and start its service now and at system startup. VPN stays off.' \
-      'Разрешить работу DNS-помощника OmaVLESS и запускать его службу сейчас и при включении компьютера. VPN останется выключенным.'
+  say "Allow the OmaVLESS DNS helper for your account (UID $uid)." \
+      "Разрешить DNS-помощник OmaVLESS для вашей учётной записи (UID $uid)."
+  say 'Start its service now and automatically when the computer boots. The VPN stays off.' \
+      'Запустить его службу сейчас и автоматически при включении компьютера. VPN останется выключенным.'
   say 'Type DNS to confirm this separate administrator step; Enter cancels.' \
       'Введите DNS для подтверждения этого отдельного шага с правами администратора; Enter — отмена.'
   IFS= read -r answer || return 1
@@ -489,8 +491,9 @@ offer_shell_reload() {
     return 0
   fi
   if omarchy restart shell; then
-    say 'Shell reloaded. Close this terminal, reopen OmaVLESS and choose Set up DNS helper.' \
-      'Оболочка перезагружена. Закройте терминал, откройте OmaVLESS и выберите «Настроить DNS-помощник».'
+    say 'Shell reloaded.' 'Оболочка перезагружена.'
+    return_to_panel
+    say 'Then choose "Set up DNS helper".' 'Затем выберите «Настроить DNS-помощник».'
   else
     say 'Shell reload did not complete. Packages remain updated; do not repeat UPGRADE.' \
       'Перезагрузка оболочки не завершилась. Пакеты обновлены; не повторяйте UPGRADE.'
@@ -634,7 +637,7 @@ upgrade_package() {
   metadata=$(jq -cn --arg app "$app_hash" --arg dns "$dns_hash" --arg source "$source" \
     --arg version "$version" --arg arch "$arch" \
     '{schemaVersion:1,appSHA:$app,dnsSHA:$dns,sourceCommit:$source,version:$version,arch:$arch}') || return 1
-  printf '%s\n' "$metadata" | "$setup_temp/upgrade-helper" setup "$operation"
+  printf '%s\n' "$metadata" | OMAVLESS_LOCALE="$setup_locale" "$setup_temp/upgrade-helper" setup "$operation"
 }
 
 prepare_private_store() {
@@ -669,12 +672,22 @@ prepare_application() {
   setup_step runtime-enablement enable_runtime || return 1
 }
 
+return_to_panel() {
+  say 'Finish or cancel any open system prompts, then close this terminal.' \
+      'Завершите или отмените открытые запросы системы, затем закройте этот терминал.'
+  say 'In the panel, confirm "Terminal and system prompts are closed" if shown, then choose "Check again".' \
+      'В панели подтвердите «Терминал и запросы системы закрыты», если эта кнопка показана, затем выберите «Проверить снова».'
+}
+
 setup_completion() {
   local completed
   completed=$(setup_status) || return 1
   case "$completed" in
-    ready) say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».' ;;
-    needs_runtime_start) say 'Components are prepared. Return to the plugin and start OmaVLESS; no VPN connection was started.' 'Компоненты готовы. Вернитесь в плагин и запустите OmaVLESS; VPN не подключался.' ;;
+    ready) say 'OmaVLESS is ready. This setup did not connect a VPN.' 'OmaVLESS готов. Эта настройка не подключала VPN.'; return_to_panel ;;
+    needs_runtime_start)
+      say 'Setup is complete. This setup did not connect a VPN.' 'Настройка завершена. Эта настройка не подключала VPN.'
+      return_to_panel
+      say 'Then choose "Start OmaVLESS".' 'Затем выберите «Запустить OmaVLESS».' ;;
     *) return 1 ;;
   esac
 }
@@ -709,28 +722,28 @@ setup_main() {
   fi
   say 'The OmaVLESS DNS helper sets up website address lookup for VPN connections.' \
       'DNS-помощник OmaVLESS настраивает поиск адресов сайтов для VPN-подключений.'
-  say 'It is not a choice of Google DNS, Cloudflare or another public DNS provider.' \
-      'Это не выбор Google DNS, Cloudflare или другого публичного DNS-провайдера.'
   if [[ "$1" == update-pair ]]; then
     say 'Update OmaVLESS, its VPN core and DNS helper. Your profiles and settings will be kept.' \
       'Обновление OmaVLESS, ядра VPN и DNS-помощника. Профили и настройки сохранятся.'
-    say '1. Set VPN startup Off, Disconnect, then Settings → Shut down OmaVLESS. This closes the widget too.' \
-      '1. Выключите автоподключение VPN, отключитесь, затем Настройки → Выключить OmaVLESS. Виджет тоже закроется.'
-    say '2. To reopen ONLY the widget, run in your desktop terminal:' \
-      '2. Чтобы снова открыть ТОЛЬКО виджет, выполните в обычном терминале:'
-    printf '\n  omarchy plugin enable kdk.omavless\n\n'
-    say '3. Open the panel and choose Update components… again. Keep the application stopped until the update finishes.' \
-      '3. Откройте панель и снова выберите «Обновить компоненты…». До завершения обновления не запускайте приложение.'
-    # Inventory readiness and delivery freshness are independent. Offer the
-    # preparation instructions while ready, but never fetch/authorize effects
-    # until normal Full Quit has earned a genuinely stopped user owner.
     if ! user_runtime_stopped; then
-      say 'OmaVLESS is still running or its shutdown could not be confirmed. Nothing was downloaded or changed. Close this terminal and follow steps 1–3; if that does not help, open Setup help.' \
-        'OmaVLESS работает или его выключение не удалось подтвердить. Ничего не скачано и не изменено. Закройте терминал и выполните шаги 1–3; если не помогло, откройте помощь по настройке.'
+      say '1. Turn off VPN login autoconnect and the VPN connection. In Settings, choose Shut down OmaVLESS. This closes the widget too.' \
+      '1. Выключите автоподключение VPN, отключитесь, затем Настройки → Выключить OmaVLESS. Виджет тоже закроется.'
+      say '2. To reopen ONLY the widget, run in your desktop terminal:' \
+        '2. Чтобы снова открыть ТОЛЬКО виджет, выполните в обычном терминале:'
+      printf '\n  omarchy plugin enable kdk.omavless\n\n'
+      say '3. Open the panel and choose Update components… again. Keep the application stopped until the update finishes.' \
+        '3. Откройте панель и снова выберите «Обновить компоненты…». До завершения обновления не запускайте приложение.'
+      # Never fetch/authorize effects until normal Quit earns a stopped owner.
+      say 'OmaVLESS is still running or its shutdown could not be confirmed. Nothing was downloaded or changed.' \
+        'OmaVLESS работает или его выключение не удалось подтвердить. Ничего не скачано и не изменено.'
+      say 'Close this terminal and follow steps 1–3. If that does not help, open "Setup help" in the panel.' \
+        'Закройте терминал и выполните шаги 1–3. Если не помогло, откройте «Помощь» в панели.'
       return 0
     fi
-    say 'Follow the preparation and installation prompts below. Enter your password only at sudo’s prompt. If a step fails, stop and use Setup help.' \
-      'Следуйте запросам подготовки и установки ниже. Пароль вводите только в sudo. При ошибке остановитесь и откройте помощь по настройке.'
+    say 'Follow the preparation and installation prompts below. Enter your password only at sudo’s prompt.' \
+      'Следуйте запросам подготовки и установки ниже. Пароль вводите только по запросу sudo.'
+    say 'If a step fails, stop and open "Setup help" in the panel.' \
+      'При ошибке остановитесь и откройте «Помощь» в панели.'
     say 'The update will not start OmaVLESS or connect a VPN.' \
       'Обновление не запускает OmaVLESS и не подключает VPN.'
   elif [[ "$1" == upgrade ]]; then
@@ -745,8 +758,8 @@ setup_main() {
     say 'Start the DNS helper after an update or a completed shutdown. Existing access, profiles and startup stay unchanged; VPN stays off.' \
         'Запустить DNS-помощник после обновления или завершённого выключения. Доступ, профили и автозапуск не меняются; VPN остаётся выключенным.'
   elif [[ "$1" == restore-enrollment ]]; then
-    say 'Authorize the DNS helper again only after a completed clean removal. The VPN core, profiles and startup preferences stay unchanged; VPN stays off.' \
-        'Снова разрешить работу DNS-помощника только после завершённого чистого удаления. Ядро VPN, профили и автозапуск не меняются; VPN остаётся выключенным.'
+    say 'Restore helper access only if a clean reinstall removed it. This is not a retry for a failed Start. Profiles and startup preferences stay unchanged; VPN stays off.' \
+        'Восстановить доступ к помощнику можно только если он был удалён при чистой переустановке. Это не повтор неудачного запуска. Профили и автозапуск не меняются; VPN остаётся выключенным.'
   elif [[ "$1" == finish-selection ]]; then
     say 'Finish setting up the installed VPN core and DNS helper. No packages or existing access will be changed; VPN stays off.' \
         'Завершить настройку установленного ядра VPN и DNS-помощника. Пакеты и существующий доступ не меняются; VPN остаётся выключенным.'
@@ -756,10 +769,12 @@ setup_main() {
       'Установка недостающих компонентов OmaVLESS и завершение настройки. VPN останется выключенным.'
     say 'Before setup, turn off other VPN connections to avoid conflicts.' \
       'Перед настройкой отключите другие VPN-подключения, чтобы избежать конфликтов.'
-    say 'Existing profiles are preserved. Existing VPN/startup must be off before migration. Passwords go only to sudo, not this prompt.' \
-      'Существующие профили сохраняются. Перед переносом отключите VPN и автоподключение. Пароль вводите только в sudo, не здесь.'
-    say 'Firewall rules will not change. If you use a restrictive firewall, read Setup help before connecting.' \
-      'Правила межсетевого экрана не меняются. Если он ограничивает трафик, прочитайте помощь по настройке перед подключением.'
+    say 'Profiles are kept. For an existing installation, turn off its VPN and VPN login autoconnect before setup.' \
+        'Профили сохраняются. Для существующей установки сначала отключите её VPN и автоподключение при входе.'
+    say 'Enter your password only when sudo asks for it, not at these confirmation prompts.' \
+        'Вводите пароль только по запросу sudo, не вместо слов подтверждения.'
+    say 'Firewall rules will not change. If you use a restrictive firewall, read "Setup help" before connecting.' \
+      'Правила межсетевого экрана не меняются. Если он ограничивает трафик, прочитайте «Помощь» перед подключением.'
     confirm || { say 'Cancelled. No changes made.' 'Отменено. Ничего не изменено.'; return; }
   fi
   # One transaction per user runtime directory. A stale lock after a killed
@@ -788,11 +803,17 @@ setup_main() {
       [[ "$next" == needs_dns_setup || ( "$1" == update-pair && "$next" == needs_broker_stopped ) ]] \
         || { setup_step completion false; exit 1; }
       if [[ "$next" == needs_broker_stopped ]]; then
-        say 'Packages updated. Close the terminal, then Check again and Start DNS helper. Do not authorize it again. Start OmaVLESS separately; VPN stays off.' \
-          'Пакеты обновлены. Закройте терминал, проверьте снова и запустите DNS-помощник. Повторное разрешение не нужно. OmaVLESS запускается отдельно; VPN остаётся выключенным.'
+        say 'Packages updated. Existing helper access is kept. The update did not start the application or VPN.' \
+          'Пакеты обновлены. Существующий доступ к помощнику сохранён. Обновление не запускало приложение или VPN.'
+        return_to_panel
+        say 'Then choose "Start DNS helper", followed by "Start OmaVLESS". Do not authorize the helper again.' \
+          'Затем выберите «Запустить DNS-помощник», а после него — «Запустить OmaVLESS». Повторно разрешать работу помощника не нужно.'
       else
-        say 'Packages updated. Return to the plugin, press Check again and Set up DNS helper. No application or VPN was started.' \
-          'Пакеты обновлены. Вернитесь в плагин, нажмите «Проверить снова» и «Настроить DNS-помощник». Приложение и VPN не запускались.'
+        say 'Packages updated. The update did not start the application or VPN.' \
+          'Пакеты обновлены. Обновление не запускало приложение или VPN.'
+        return_to_panel
+        say 'Then choose "Set up DNS helper" and follow the next action shown in the panel.' \
+          'Затем выберите «Настроить DNS-помощник» и следуйте следующему действию в панели.'
       fi
       exit 0
     elif [[ "$1" == resume-dns ]]; then
@@ -830,8 +851,9 @@ setup_main() {
   ) || {
     say 'Setup stopped at the step shown above. Some earlier steps may have succeeded; your data was not reset.' \
         'Настройка остановилась на указанном выше этапе. Предыдущие этапы могли завершиться; ваши данные не сбрасывались.'
-    say 'Finish or cancel any open system prompts, close this terminal, then press Check again in the panel. Do not repeat a step with an unknown result.' \
-        'Завершите или отмените открытые запросы системы, закройте терминал и нажмите «Проверить снова» в панели. Не повторяйте этап, если его результат неизвестен.'
+    return_to_panel
+    say 'Do not repeat a step with an unknown result. Open "Setup help" in the panel if the remaining step is unclear.' \
+        'Не повторяйте шаг, если его результат неизвестен. Если следующий шаг непонятен, откройте «Помощь» в панели.'
     return 1
   }
 }

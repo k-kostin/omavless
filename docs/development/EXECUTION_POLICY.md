@@ -273,6 +273,15 @@ them. Local machine paths, secrets and private captures stay outside Git.
 Do not create a new branch for every retrospective: use an existing owned
 scope, or one separate workflow PR when the change is independently useful.
 
+For an editorial journey review, include all text owners (frontend catalog,
+shell and the actually selected native binary). Check names against the shared
+[glossary](../../GLOSSARY.md) and actual controls, not memory. Extract local
+review snippets by owning function/semantic marker, not fixed line offsets;
+fail generation if a marker disappears and retain source hashes. Distinguish
+production-formatter preview from installed effects and public delivery. The
+[UI contract](../roadmap/UI_UX_CONTRACT.md#end-user-editorial-rule) owns this gate;
+do not create a second copy or another standing reviewer to enforce it.
+
 Examples worth fixing are repeated VM unlock rediscovery, an incompatible
 package/bundle discovered only after installation, repeated socket/temp-root
 setup, full unchanged graph re-reviews, and serial VM waits while independent

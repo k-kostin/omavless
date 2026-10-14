@@ -182,7 +182,9 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
         self.assertEqual(status, 0, output)
         self.assertEqual((self.directory / 'trace').read_text().splitlines(),
                          ['metadata', 'start-existing', 'dns-pair prepare-template', 'dns-pair select'])
-        self.assertIn('Components are prepared', output)
+        self.assertIn('Setup is complete', output)
+        self.assertIn('"Terminal and system prompts are closed"', output)
+        self.assertIn('"Start OmaVLESS"', output)
         self.assertEqual((self.directory / '.config/omavless/profiles.json').read_text(),
                          'synthetic existing profile data')
 
@@ -572,7 +574,10 @@ setup_status
             result = self.run_shell(f'setup_status() {{ echo {state}; }}; setup_completion')
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stderr, "")
-            self.assertIn("Return to the plugin", result.stdout)
+            self.assertIn('In the panel, confirm "Terminal and system prompts are closed"', result.stdout)
+            self.assertIn('This setup did not connect a VPN.', result.stdout)
+            self.assertNotIn('VPN is off', result.stdout)
+            self.assertNotIn('VPN stays off', result.stdout)
         for state in ["needs_broker", "needs_attention", "needs_selection", "unknown"]:
             result = self.run_shell(f'setup_status() {{ echo {state}; }}; setup_completion')
             self.assertNotEqual(result.returncode, 0)
@@ -641,8 +646,8 @@ setup_components
         for phrase in (
             "Firewall rules will not change",
             "Правила межсетевого экрана не меняются",
-            "read Setup help before connecting",
-            "прочитайте помощь по настройке перед подключением",
+            'read "Setup help" before connecting',
+            'прочитайте «Помощь» перед подключением',
         ):
             self.assertIn(phrase, source)
         self.assertNotIn("/usr/bin/ufw", source)
@@ -1385,7 +1390,7 @@ system_broker_available() { system_broker_idle && broker_access_for_user; }
                 install_prompt = 'Type INSTALL' if locale == 'en' else 'Введите INSTALL'
                 self.assertLess(output.index(intro), output.index(install_prompt))
                 self.assertLess(output.index(advice), output.index(install_prompt))
-                self.assertIn('Google DNS, Cloudflare', output)
+                self.assertNotIn('Google DNS, Cloudflare', output)
                 self.assertFalse((self.directory / "trace").exists())
 
     def test_terminal_post_dns_socket_timeout_retains_enrollment_without_activation(self):

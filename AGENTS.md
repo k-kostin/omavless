@@ -20,6 +20,7 @@ not replaced by this short entry point.
    [execution policy](docs/development/EXECUTION_POLICY.md).
 5. For UI work, use the [UI review skill](skills/omavless-ui-review/SKILL.md).
    For localization, use the [localization skill](skills/omavless-localization/SKILL.md).
+   For user-facing wording, also read the shared [glossary](GLOSSARY.md).
 
 ## Non-negotiable boundaries
 

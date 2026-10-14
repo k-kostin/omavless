@@ -915,6 +915,7 @@ fn run_qualified_update(
 ) -> Result<serde_json::Value> {
     let cancel = Arc::new(AtomicBool::new(false));
     let mut tty = open_tty()?;
+    let locale = super::terminal_copy::Locale::current();
     let mut pair = Pair::current(metadata)?;
     if delivered {
         qualify_helper(&pair.app_digest)?;
@@ -923,11 +924,10 @@ fn run_qualified_update(
         // Read-only preflight BEFORE consent or volatile exclusion creation.
         // An active runtime must use normal Full Quit, not be stopped here.
         units()?;
-        writeln!(&mut tty, "Prepare the matching component update. OmaVLESS must be fully shut down. With separate sudo consent, close access to the verified idle-gate DNS broker and wait for its own clean exit. Never kill it or clear its socket/journal. Profiles and enrollment are kept; no VPN starts. Type PREPARE:")
+        super::terminal_copy::prepare_prompt(&mut tty, locale)
             .map_err(|_| Blocker::TtyUnavailable)?;
     } else {
-        writeln!(&mut tty, "Update the system OmaVLESS app and DNS packages to {}. Profiles and settings are kept. DNS setup and Start are separate. Type {}:",
-            pair.metadata.version, if delivered { "UPGRADE" } else { "UPGRADE SINGLE-USER VM" })
+        super::terminal_copy::upgrade_prompt(&mut tty, locale, &pair.metadata.version, delivered)
             .map_err(|_| Blocker::TtyUnavailable)?;
     }
     tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
@@ -989,7 +989,7 @@ fn run_qualified_update(
         }
         context.recheck()?;
         pair.recheck()?;
-        writeln!(&mut tty, "Preparation is complete; no packages, enrollment or profiles were changed. Type UPGRADE to install the matching app/DNS packages; Enter cancels and leaves the broker prepared. Start existing DNS broker and Start OmaVLESS are separate next actions:")
+        super::terminal_copy::prepared_prompt(&mut tty, locale)
             .map_err(|_| Blocker::TtyUnavailable)?;
         tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
         consent_from_tty(&mut tty, b"UPGRADE\n")?;

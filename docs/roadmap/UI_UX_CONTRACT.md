@@ -139,6 +139,11 @@ Update components…; the ellipsis indicates subsequent steps and confirmations.
 
 ### End-user editorial rule
 
+The shared [glossary](../../GLOSSARY.md) owns component names and action
+terminology across QML, shell, native prompts, user guides and support copy.
+Read it before changing user-facing wording. It does not replace runtime
+contracts, exact delivery checks or rendered review.
+
 Owner correction, October 14: onboarding, ordinary status cards, public guides
 and support replies are for the person using the product, not its implementing
 agent. Start with the user's goal, the current state and one reachable next
@@ -197,6 +202,22 @@ Before handoff, read each surface as a first-time user. Remove agent-directed
 policy, repeated caveats and redundant explanations; verify the shortened
 EN/RU rendering and the next action on the exact installed candidate. Function
 or wording-length tests are guardrails, not editorial/visual acceptance.
+
+Treat the widget, its setup shell and native helper as one editorial journey.
+Follow every referenced button through terminal consent, cancellation/failure,
+closure acknowledgement and the offered next action. Compare references to the
+actual catalog, not remembered labels. Tests check these cross-surface names
+and the controller-selected locale; the glossary is checked against the catalog.
+Return text describes the completed operation, not unobserved global VPN state.
+
+Record where each reviewed string actually comes from. In particular, the
+setup shell extracts its native helper from the pinned application archive;
+editing Rust source or installing only the widget does not update those prompts.
+An inert preview compiled from the production formatter can earn text/rendering
+review, but not privileged update, public download or installed-delivery
+acceptance. A changed native formatter requires new matching packages and pins
+before claiming that the shipped journey contains the change. Preserve system
+password/package prompts and exact consent words when simplifying prose.
 
 1. **Behavior:** does the real handler address the right record/state, honor
    admission and existing confirmation, and reject unavailable/stale inputs?

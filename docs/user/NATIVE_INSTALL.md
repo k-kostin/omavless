@@ -27,7 +27,7 @@ OmaVLESS does not turn them off for you.
 | Setup needs attention / State unverified / Recovery required | [Inspect the current result](#when-setup-stops). Do not repeatedly install or connect to clear a warning. |
 
 **Set up later** closes the panel without changing data or hiding missing
-components. **Finish later** at the final onboarding step finishes the wizard
+components. **Finish without a profile** at the final onboarding step finishes the wizard
 without importing a profile. Neither starts a VPN.
 
 <a id="guided-first-run--release-preparation"></a>
@@ -58,7 +58,7 @@ without importing a profile. Neither starts a VPN.
    below instead of starting over.
 
 5. Follow onboarding to review readiness and optionally select Routing/import
-   a profile. **Finish later** is available without a profile. The default VPN
+   a profile. **Finish without a profile** is available without a profile. The default VPN
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
 
@@ -102,14 +102,15 @@ repeat first-use activation.
 For an already selected managed pair, the panel may offer:
 
 - **Start DNS helper** — restart the previously configured helper after an update or a clean stop.
-- **Restore helper access** — set up access again after a completed clean removal.
-  This is not profile Restore.
-- `SELECT` in the setup terminal — an existing accessible broker is ready,
-  but the installed pair has not yet been selected.
+- **Other options → Restore helper access** — use only if a clean reinstall
+  removed this account's helper access. This is neither profile Restore nor a
+  retry for a failed Start. It asks for separate DNS authorization.
+- `SELECT` in the setup terminal — the existing DNS helper is ready and accessible,
+  but the installed VPN core/helper package has not yet been selected.
 
 Complete the offered DNS step and its OS prompts before **Start OmaVLESS**.
 These actions do not connect, reset profiles or enable application startup.
-Do not use restoration as a fallback for a refused existing-enrollment action.
+Do not restore access just because starting the existing helper failed.
 
 ## When setup stops
 
@@ -194,20 +195,20 @@ When the panel offers **Update components…**:
 2. Enable the widget again with `omarchy plugin enable kdk.omavless` and open
    it. Reopening the widget does not reconnect the VPN or start the application.
 3. Choose **Update components…**. Confirm `PREPARE` and the separate
-   system authorization. This checks and prepares a supported idle broker; it
+   system authorization. This checks the DNS helper and safely stops it if needed; it
    does not install packages. An unknown or unsupported result needs inspection,
    not repeated confirmation or forced cleanup.
 4. After preparation succeeds, the **same terminal** asks for `UPGRADE`.
    Confirm it and the normal sudo/pacman transaction. Both packages are replaced
    together. You may instead press Enter to cancel before package installation;
-   this leaves the old packages unchanged and does not restart the broker.
+   this leaves the old packages unchanged and does not restart the DNS helper.
    To return later, close the terminal and resolve all OS prompts, acknowledge
    their closure, then **Check again**. Choose the offered preparation/update
    action again: preparation rechecks the now-stopped boundary before asking
-   for `UPGRADE`; it does not repeat a completed broker stop.
+   for `UPGRADE`; it does not repeat a completed helper stop.
 5. After closing/acknowledging the completed update terminal, use the offered **Start
-   DNS helper**, then separately **Start OmaVLESS**. Do not choose first enrollment
-   for an account that is already enrolled. No VPN starts automatically.
+   DNS helper**, then separately **Start OmaVLESS**. Do not choose first-time setup
+   if the helper is already authorized for your account. No VPN starts automatically.
 
 Compatible older pairs remain usable while you postpone an update. The first
 original `v0.9.8` broker is not supported by automatic preparation; ask for help

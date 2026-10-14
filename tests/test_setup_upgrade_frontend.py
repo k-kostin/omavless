@@ -102,8 +102,8 @@ start_broker() {{ echo UNEXPECTED_BROKER_EFFECT >> "$TEST_DIR/trace"; return 99;
 setup_completion() {{ echo UNEXPECTED_COMPLETION_EFFECT >> "$TEST_DIR/trace"; return 99; }}
 '''
 
-    def run_script(self, extra="", response="UPGRADE\n", tty=True, action="upgrade"):
-        code = 'source "$1"\n' + self.fixture() + extra + f'\nsetup_main {action} en\n'
+    def run_script(self, extra="", response="UPGRADE\n", tty=True, action="upgrade", locale="en"):
+        code = 'source "$1"\n' + self.fixture() + extra + f'\nsetup_main {action} {locale}\n'
         if not tty:
             result = subprocess.run(["/bin/bash", "-c", code, "test", str(self.script)],
                                     env=self.env, input=response, text=True, capture_output=True, timeout=5)
@@ -166,6 +166,7 @@ setup_status() {{ if [[ -f "$TEST_DIR/upgraded" || -f "$TEST_DIR/prepared" ]]; t
         self.helper.write_text('''#!/bin/bash
 set -eu
 [[ "$*" == 'setup update-pair' ]] || exit 90
+printf '%s\\n' "$OMAVLESS_LOCALE" > "$TEST_DIR/helper-locale"
 IFS= read -r metadata
 printf '%s\\n' "$metadata" > "$TEST_DIR/metadata"
 printf 'Type PREPARE: '
@@ -198,7 +199,21 @@ touch "$TEST_DIR/upgraded"
         self.assertEqual(self.trace(), ["preparation", "package", "reload"])
         self.assertEqual(self.store.read_bytes(), b"synthetic private-store sentinel")
         self.assertIn("Start DNS helper", output)
+        self.assertIn('"Terminal and system prompts are closed"', output)
+        self.assertNotIn('omarchy plugin enable kdk.omavless', output)
         self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+
+    def test_controller_language_reaches_the_pinned_helper_and_return_labels(self):
+        self.pair_helper()
+        self.env['OMAVLESS_LOCALE'] = 'unrelated-ambient-locale'
+        status, output = self.run_script(extra=self.pair_fixture(), action='update-pair',
+                                        response='PREPARE\nUPGRADE\n', locale='ru')
+        self.assertEqual(status, 0, output)
+        self.assertEqual((self.directory / 'helper-locale').read_text(), 'ru\n')
+        self.assertIn('Терминал и запросы системы закрыты', output)
+        self.assertIn('Запустить DNS-помощник', output)
+        self.assertNotIn('omarchy plugin enable kdk.omavless', output)
+        self.assertEqual(self.trace(), ['preparation', 'package', 'reload'])
 
     def test_cancel_after_preparation_leaves_no_package_action_or_implicit_start(self):
         self.pair_helper()

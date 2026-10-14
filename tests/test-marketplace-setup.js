@@ -10,6 +10,24 @@ assert(card.includes('card.facts.state === "needs_pair_install" ? "prepare_title
   'A missing component needs setup, not an UPDATE AVAILABLE heading');
 let count = 0;
 function test(name, run) { try { run(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
+test('glossary action names match the catalog and terminal return controls', () => {
+  const glossary=fs.readFileSync(__dirname+'/../GLOSSARY.md','utf8');
+  const terminal=fs.readFileSync(__dirname+'/../plugin/setup-runtime.sh','utf8');
+  const rows=[...glossary.matchAll(/^\| `([^`]+)` \| ([^|]+) \| ([^|]+) \|$/gm)]
+    .filter(m=>m[1].includes('.'));
+  assert(rows.length>=11,'The shared setup action vocabulary must remain discoverable');
+  for(const row of rows)for(const [index,locale] of [[2,'en'],[3,'ru']]) {
+    assert.equal(row[index].trim(),i18n.translate(row[1],locale,{}),row[1]+' '+locale);
+  }
+  for(const key of ['setup.prepare_update','setup.start_broker','setup.start_app',
+                    'setup.resume_dns','setup.terminal_closed','setup.check','setup.guide_short']) {
+    for(const locale of ['en','ru']) {
+      const label=i18n.translate(key,locale,{}).replace(/ ↗$/,'');
+      assert(terminal.includes(label),'Terminal names a real visible action: '+key+' '+locale);
+    }
+  }
+  assert(terminal.includes('OMAVLESS_LOCALE="$setup_locale"'));
+});
 test('update flow entry and return instructions use the same user-facing label', () => {
   const terminal=fs.readFileSync(__dirname+'/../plugin/setup-runtime.sh','utf8');
   const guide=fs.readFileSync(__dirname+'/../docs/user/NATIVE_INSTALL.md','utf8');

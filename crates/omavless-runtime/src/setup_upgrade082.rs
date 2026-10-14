@@ -903,6 +903,10 @@ mod delivery_metadata;
 #[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
 #[path = "setup_upgrade082/package_phase.rs"]
 mod package_phase;
+
+#[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
+#[path = "setup_upgrade082/terminal_copy.rs"]
+mod terminal_copy;
 #[cfg(feature = "setup-upgrade082")]
 pub use package_phase::run_delivery_update;
 #[cfg(feature = "developer-upgrade082")]
