@@ -190,8 +190,11 @@ Open OmaVLESS from the bar, choose **Install required components**, enter
 `INSTALL`, and approve the two matching packages in the normal sudo/pacman
 prompts. Approve the separate DNS step with `DNS`. This does not connect a VPN.
 When the terminal finishes, close it and use the panel's terminal-closed
-acknowledgement and **Check again** if shown. You should reach the ordinary
-disconnected panel with profile-import controls. Complete onboarding, then
+acknowledgement and **Check again** if shown. If onboarding says **Finish the
+setup terminal first**, choose **Review component setup**, confirm **Setup
+terminal and prompts are closed**, then use **Back to panel** after **Core ready**.
+You should reach the ordinary disconnected panel with profile-import controls.
+Complete onboarding (including your country preset if you want Routing), then
 import your own profile and connect separately.
 
 Until the successor is integrated into main, the single default-branch
