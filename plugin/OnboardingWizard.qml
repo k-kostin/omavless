@@ -6,6 +6,7 @@ import QtQuick.Controls
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "SetupState.js" as SetupState
 
 // A deliberately short first-run path: make the external core usable, pick
 // an optional Routing policy, then hand the existing private import flow its
@@ -22,6 +23,10 @@ Item {
   readonly property bool pickerReady: nativeContext ? nativeDesktopFacts !== null && !!nativeDesktopFacts.filePicker : filePicker.available
   readonly property bool commandCopyReady: !nativeContext || (nativeDesktopFacts !== null && nativeDesktopFacts.clipboardWriteAvailable === true)
   property string nativeCoreDescription: ""
+  property var nativeSetupFacts: ({state:"checking", coreInstalled:null})
+  property bool nativeSetupBusy: false
+  property bool nativeCoreFailed: false
+  readonly property string nativeCoreState: SetupState.coreReview(nativeCoreFacts, nativeSetupFacts, busy || nativeSetupBusy, nativeCoreFailed)
   property string nativeStatus: ""
   property bool nativeCanContinue: true
   property var filePicker: ({ available: false, provider: "" })
@@ -42,6 +47,7 @@ Item {
   signal copyCommand(string command)
   signal refreshRequested()
   signal setupGuideRequested()
+  signal componentSetupRequested()
   signal presetChosen(string preset)
   signal pasteRequested()
   signal fileRequested()
@@ -219,6 +225,17 @@ Item {
             visible: wizard.step === 1
 
             PlainText {
+              objectName: "onboardingCoreState"
+              width: parent.width
+              visible: wizard.nativeContext
+              text: wizard.textFor("native.onboarding.core_" + wizard.nativeCoreState)
+              color: wizard.nativeCoreState === "ready" ? wizard.foreground : wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            PlainText {
               width: parent.width
               text: wizard.nativeContext ? wizard.nativeCoreDescription : wizard.textFor(!wizard.coreSetup.installed
                 ? "onboarding.core.missing" : (wizard.coreSetup.tunReady
@@ -257,7 +274,7 @@ Item {
               elide: Text.ElideMiddle
             }
             PlainText {
-              visible: wizard.nativeContext
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
               width: parent.width
               text: (wizard.nativeCoreFacts === null ? "" : wizard.textFor("native.core.tun." + wizard.nativeCoreFacts.tunDevice)
                 + "\n" + wizard.textFor("native.core.capabilities." + wizard.nativeCoreFacts.fileNetworkCapabilities) + "\n")
@@ -270,11 +287,23 @@ Item {
             PlainText {
               visible: wizard.nativeContext
               width: parent.width
-              text: wizard.textFor("native.onboarding.setup_help")
+              text: wizard.textFor(wizard.nativeCoreState === "ready" ? "native.onboarding.core_ready_scope"
+                : wizard.nativeCoreState === "update" ? "setup.needs_update" : "native.onboarding.setup_help")
               color: wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
+            }
+            WizardButton {
+              objectName: "onboardingComponentSetup"
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
+              text: wizard.textFor(wizard.nativeCoreState === "update" ? "native.onboarding.review_update"
+                : wizard.nativeCoreState === "missing" ? "native.onboarding.review_install" : "native.onboarding.review_setup")
+              enabled: !wizard.busy && !wizard.nativeSetupBusy
+              bordered: true
+              foreground: enabled ? wizard.foreground : wizard.dim
+              fontFamily: wizard.fontFamily
+              onClicked: wizard.componentSetupRequested()
             }
             WizardButton {
               objectName: "onboardingSetupGuide"
@@ -501,8 +530,9 @@ Item {
               WizardButton {
                 visible: wizard.step === 1
                 text: wizard.textFor("common.continue")
+                objectName: "onboardingCoreContinue"
                 bordered: true
-                enabled: (wizard.nativeContext || wizard.coreSetup.tunReady) && !wizard.busy
+                enabled: (wizard.nativeContext ? wizard.nativeCoreState === "ready" && wizard.nativeCanContinue : wizard.coreSetup.tunReady) && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.step = 2

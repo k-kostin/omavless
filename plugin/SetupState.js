@@ -29,10 +29,20 @@ function canRunAction(facts, action) {
     || (facts.state === "needs_broker_stopped" && facts.coreInstalled === true && action === "restore-enrollment"))
 }
 function needsAttention(facts) { return facts.state !== "ready" || facts.coreInstalled !== true }
+// Presentation only: desktop permissions are not service/TUN/network health.
+function coreReview(core, facts, busy, failed) {
+  if (busy) return "checking"
+  if (facts.state === "needs_update") return "update"
+  if (appMissing(facts) || facts.coreInstalled === false || (core && core.installed === false)) return "missing"
+  if (!failed && facts.state === "ready" && facts.coreInstalled === true && core
+      && core.installed === true && typeof core.version === "string" && core.version !== ""
+      && core.tunDevice === "present" && core.fileNetworkCapabilities === "present") return "ready"
+  return "attention"
+}
 function bootstrapRequired(facts, nativeOwner, hasSnapshot, actionRunning, pending, outcomeUnknown) {
   if (facts.state === "ready") return false
   var stopped = (facts.state === "needs_runtime_start" || facts.state === "needs_broker_stopped" || facts.state === "needs_dns_setup")
     && !actionRunning && !pending && !outcomeUnknown
   return appMissing(facts) || !nativeOwner || !hasSnapshot || stopped
 }
-if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, appMissing:appMissing, missingAction:missingAction, canRunAction:canRunAction, needsAttention:needsAttention, bootstrapRequired:bootstrapRequired}
+if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, appMissing:appMissing, missingAction:missingAction, canRunAction:canRunAction, needsAttention:needsAttention, coreReview:coreReview, bootstrapRequired:bootstrapRequired}

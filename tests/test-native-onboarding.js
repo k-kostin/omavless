@@ -6,13 +6,51 @@ const wizard=fs.readFileSync(__dirname+'/../plugin/OnboardingWizard.qml','utf8')
 const parser=vm.createContext({});vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativeSnapshot.js','utf8'),parser);
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
 function functions(source,c,names){for(const name of names){const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;assert(start>=0);vm.runInContext(source.slice(start,end),c)}}
-function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding']);return c}
+function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
 test('first use opens existing wizard, completed and dismissed states do not loop',()=>{
  const c=context();c.syncNativeOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,1);
  assert.equal(c.vless.helperReads,1);c.syncNativeOnboarding();assert.equal(c.vless.helperReads,1);
  c.dismissOnboarding();c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
  c.onboardingDismissed=false;c.vless.nativeSnapshot.onboardingComplete=true;c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
  assert(c.openOnboarding(3));assert.equal(c.onboardingWizard.step,3); // Explicit Settings re-entry.
+});
+test('component review is navigation with fresh inventory, no install or connection effect',()=>{
+ const c=context();c.openOnboarding(1);const before=c.setupPage.checks;
+ c.setupPage.install=()=>{throw new Error('navigation must not install')};
+ c.vless.completeOnboarding=()=>{throw new Error('navigation must not complete onboarding')};
+ c.reviewComponentSetup();assert(c.componentSetupReview);assert.equal(c.page,'main');
+ assert(!c.onboardingWizard.visible);assert(c.onboardingDismissed);assert.equal(c.setupFlick.contentY,0);
+ assert.equal(c.setupPage.checks,before+1);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ assert(panel.includes('onComponentSetupRequested: root.reviewComponentSetup()'));
+ assert(panel.includes('nativeSetupFacts: setupPage.facts'));
+});
+test('ready, missing, update and unknown core states do not borrow each other actions',()=>{
+ const state=require('../plugin/SetupState.js');
+ const ready={installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
+ const packageFacts={state:'ready',coreInstalled:true};
+ assert.equal(state.coreReview(ready,packageFacts,false,false),'ready');
+ for(const core of [null,{...ready,installed:false},{...ready,version:null},{...ready,tunDevice:'missing'},{...ready,fileNetworkCapabilities:'missing'}]) {
+  assert.notEqual(state.coreReview(core,packageFacts,false,false),'ready');
+ }
+ assert.equal(state.coreReview(ready,packageFacts,true,false),'checking');
+ assert.equal(state.coreReview(ready,packageFacts,false,true),'attention');
+ for(const facts of [{state:'checking',coreInstalled:null},{state:'needs_attention',coreInstalled:true},{state:'needs_dns_setup',coreInstalled:true}])
+  assert.equal(state.coreReview(ready,facts,false,false),'attention');
+ assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false),'update');
+ assert.equal(state.coreReview(null,{state:'needs_package',coreInstalled:false},false,false),'missing');
+ assert.equal(state.coreReview(null,{state:'needs_companion',coreInstalled:false},false,false),'missing');
+ // A missing companion beside an existing app still has no admitted automatic install.
+ assert.equal(state.missingAction({state:'needs_companion',coreInstalled:false}),'');
+ const button=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
+ const enabled=button.match(/enabled: ([^\n]+)/)[1];
+ for(const nativeCoreState of ['ready','missing','update','checking','attention']) {
+  const c=vm.createContext({wizard:{nativeContext:true,nativeCoreState,nativeCanContinue:true,busy:false}});
+  assert.equal(vm.runInContext(enabled,c),nativeCoreState==='ready');
+  c.wizard.busy=true;assert(!vm.runInContext(enabled,c));
+  c.wizard.busy=false;c.wizard.nativeCanContinue=false;assert(!vm.runInContext(enabled,c));
+ }
+ const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','review_install','review_update','review_setup'])
+  assert(!i18n.translate('native.onboarding.'+key,locale,{}).includes('Missing translation'));
 });
 test('native helper bindings keep read, write and picker capabilities independent',()=>{
  const c=vm.createContext({nativeContext:true,nativeDesktopFacts:null,filePicker:{available:true},nativeCanContinue:true,busy:false});c.wizard=c;
@@ -132,12 +170,12 @@ test('real Service exit handler clears completion pending and refreshes confirme
 test('native wizard preserves layout and explicitly avoids legacy grants/readiness claims',()=>{
  assert(wizard.includes('property bool nativeContext: false'));
  assert(wizard.includes('visible: !wizard.nativeContext && wizard.coreSetup.installed && !wizard.coreSetup.tunReady'));
- assert(wizard.includes('enabled: (wizard.nativeContext || wizard.coreSetup.tunReady) && !wizard.busy'));
+ assert(wizard.includes('enabled: (wizard.nativeContext ? wizard.nativeCoreState === "ready" && wizard.nativeCanContinue : wizard.coreSetup.tunReady) && !wizard.busy'));
  assert(wizard.includes('wizard.textFor("native.core.scope")'));
  assert(wizard.includes('wizard.textFor("native.onboarding.scope")'));
  assert(wizard.includes('"native.onboarding.profiles"'));
  assert(panel.includes('vless.startNativeImport("clipboard")'));assert(panel.includes('vless.startNativeImport("file")'));
- assert(panel.includes('(root.page === "settings" || onboardingWizard.visible)'));
+ assert(panel.includes('(root.page === "settings" || onboardingWizard.visible || root.componentSetupReview)'));
  assert(panel.includes('nativeOnboardingSetting.focusTarget'));
  assert(!wizard.includes('nativeCoreFacts.tunReady'));
 });
@@ -163,7 +201,7 @@ test('wizard buttons share native keyboard activation without changing callbacks
  assert(wizard.includes('component WizardButton: Button {'));
  assert(wizard.includes('    focusable: true'));
  assert.equal((wizard.match(/\bButton \{/g)||[]).length,1);
- assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,11);
+ assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,12);
  assert(wizard.includes('onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)'));
  assert(wizard.includes('Keys.onEscapePressed: canceled()'));
 });

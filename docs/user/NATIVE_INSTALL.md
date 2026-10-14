@@ -54,6 +54,17 @@ without importing a profile. Neither starts a VPN.
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
 
+   The Mihomo step shows **Core ready** and its installed version when the
+   managed core, TUN device and desktop file permissions are present. This is
+   not a connection test. If a component needs attention, choose **Review
+   component installation/setup/update** to open the same component screen;
+   navigation itself does not install or update anything. Use its offered
+   action and terminal confirmation, then **Check again**. The guided update
+   is for the qualified public 0.8.2 predecessor, not an independent Mihomo
+   updater. A missing/incompatible companion beside an existing application
+   may require the guarded package procedure in [Updates](#updates); do not
+   install a stock core or force a reinstall to bypass that check.
+
 Import your own compatible VPN profile or HTTPS subscription, choose a mode,
 then Connect. Servers/subscriptions are not included. See
 [everyday use](NATIVE_USAGE.md) for controls and Backup.

@@ -46,7 +46,7 @@ test('page never uses missing backend, never installs on load or check', () => {
   assert(page.includes('terminalOpened = false; check()'));
 });
 test('setup has separate navigation and cannot expose legacy mutation shortcuts', () => {
-  assert(panel.includes('readonly property bool bootstrapRequired: SetupState.bootstrapRequired('));
+  assert(panel.includes('readonly property bool bootstrapRequired: componentSetupReview || SetupState.bootstrapRequired('));
   assert(panel.includes('vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown'));
   assert(page.includes('readonly property bool appMissing: SetupState.appMissing(facts)'));
   assert(panel.includes('if (root.bootstrapRequired) return setupPage.focusTargets'));

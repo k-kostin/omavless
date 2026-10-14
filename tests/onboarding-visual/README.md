@@ -10,7 +10,8 @@ On an installed Omarchy/Quickshell display, create a private scratch directory
 outside Git and make the shell imports available there:
 
 ```bash
-review_dir=$(mktemp -d /tmp/omavless-onboarding-review.XXXXXX)
+mkdir -p "$HOME/.cache/ovt"
+review_dir=$(mktemp -d "$HOME/.cache/ovt/onboarding.XXXXXX")
 cp tests/onboarding-visual/shell.qml "$review_dir/shell.qml"
 ln -s /usr/share/omarchy/shell/Commons "$review_dir/Commons"
 ln -s /usr/share/omarchy/shell/Ui "$review_dir/Ui"
@@ -38,10 +39,15 @@ real enabled Button's clicked signal; it is not a hardware input test.
 
 Matrix: locales `en`/`ru`; steps 1/core, 2/routing, 3/import;
 helpers `ready`/`missing`/`clipboard`/`picker`/`unknown`; core
-`ready`/`missing`/`permissions`/`unknown`. Review top/bottom scrolling with
+`ready`/`missing`/`permissions`/`unknown`/`update`. Review top/bottom scrolling with
 `viewport 480` and `scroll top` / `scroll bottom`; ordinary viewport is 720.
 Button inspection and disabled-action rejection supplement, but never replace,
 visual review and separate installed Service/CLI/runtime acceptance.
 
-Stop this particular `qs` invocation with Ctrl-C in its launching terminal.
+Use `press components` for the real navigation signal (no installer), and
+`press next` for the core Continue button. Missing/unknown/update states must
+refuse Continue; ready permits it. The harness captures the actual component,
+not live provisioning or a complete installed Panel route.
+
+Stop this particular `qs` invocation with `call onboardingReview finish` or Ctrl-C in its launching terminal.
 Do not kill the real Omarchy shell or reset a user's store to exercise a fixture.

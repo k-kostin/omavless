@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.9.8 — corrected release snapshot
 
+- Distinguish ready, missing, update and unverified core setup in onboarding.
+  Show the installed version and Continue only for confirmed setup facts;
+  route other states to the existing component review and confirmed setup
+  actions, without a separate stock-core installer or silent package update.
+
 - Correct partial setup so an installed but unselected managed DNS pair offers
   a safe continuation, with separate first/existing enrollment and application
   Start. Preserve profiles and do not repeat activation of an existing owner.
