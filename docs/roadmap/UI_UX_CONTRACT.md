@@ -136,6 +136,41 @@ than promising immediate replacement when preparation remains necessary.
 
 ## Three independent checks before calling a change ready
 
+### End-user editorial rule
+
+Owner correction, October 14: onboarding, ordinary status cards, public guides
+and support replies are for the person using the product, not its implementing
+agent. Start with the user's goal, the current state and one reachable next
+action. Normally use one or two short sentences and an explicit button label.
+Keep optional updates clearly optional; preserve real failures and necessary
+warnings, but do not explain an internal authority protocol in the main panel.
+
+Words such as broker, enrollment, matched pair, ownership, joined observation,
+delivery provenance and acceptance gates belong in diagnostics/development
+records unless the user needs that exact term to act. Necessary confirmation
+tokens such as INSTALL/PREPARE/UPGRADE belong at the actual terminal prompt,
+not in a paragraph describing every future step before a button is clicked.
+Explain consequences when relevant (profiles kept/deleted, VPN disconnect,
+password request, reboot), not every action which is *not* performed.
+
+A readiness label names its scope (core installed/ready versus VPN connected)
+without an essay about test coverage. Keep version information useful, and
+move low-level TUN/capability facts to explicit diagnostics/help. Unknown state
+still blocks unsafe actions; shortening copy never changes admission or hides
+an actual error. Avoid claiming internet health from installation metadata.
+
+Support replies include a short ordered sequence of **actual commands and
+visible actions**, then an optional link to more detail. If checks are complex,
+use a reviewed bounded helper; do not make the user assemble an engineer's
+runbook. Respect the chosen reset scope: an expressly requested fresh reset
+deletes only that application's settings after clear notice, without adding an
+unrequested backup ceremony. Normal updates still preserve user data.
+
+Before handoff, read each surface as a first-time user. Remove agent-directed
+policy, repeated caveats and redundant explanations; verify the shortened
+EN/RU rendering and the next action on the exact installed candidate. Function
+or wording-length tests are guardrails, not editorial/visual acceptance.
+
 1. **Behavior:** does the real handler address the right record/state, honor
    admission and existing confirmation, and reject unavailable/stale inputs?
 2. **Meaning:** can a user predict the target and effect from the visible label,

@@ -202,7 +202,9 @@ test('native wizard preserves layout and explicitly avoids legacy grants/readine
  assert(wizard.includes('property bool nativeContext: false'));
  assert(wizard.includes('visible: !wizard.nativeContext && wizard.coreSetup.installed && !wizard.coreSetup.tunReady'));
  assert(wizard.includes('enabled: (wizard.nativeContext ? wizard.nativeCoreState === "ready" && wizard.nativeCanContinue : wizard.coreSetup.tunReady) && !wizard.busy'));
- assert(wizard.includes('wizard.textFor("native.core.scope")'));
+ assert(!wizard.includes('wizard.textFor("native.core.scope")'));
+ assert(!wizard.includes('wizard.textFor("native.core.tun."'));
+ assert(wizard.includes('wizard.textFor("native.core.version", {version:'));
  assert(wizard.includes('wizard.textFor("native.onboarding.scope")'));
  assert(wizard.includes('"native.onboarding.profiles"'));
  assert(panel.includes('vless.startNativeImport("clipboard")'));assert(panel.includes('vless.startNativeImport("file")'));

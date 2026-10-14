@@ -196,9 +196,9 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
     def test_dns_choices_are_separate_readable_lines_in_both_locales(self):
         for locale, title, first, existing in [
             ('en', 'Choose how to finish DNS setup:', 'FIRST — first-time setup',
-             'START — you already completed DNS registration'),
+             'START — DNS was already set up successfully'),
             ('ru', 'Выберите, как завершить настройку DNS:', 'FIRST — первая настройка',
-             'START — регистрация DNS на этом компьютере уже была завершена'),
+             'START — DNS для OmaVLESS на этом компьютере уже успешно настроен'),
         ]:
             with self.subTest(locale=locale):
                 code = self.pending_dns_fixture() + f'\nsetup_main resume-dns {locale}\n'
@@ -639,14 +639,10 @@ setup_components
     def test_first_run_warns_about_firewall_without_changing_it(self):
         source = SCRIPT.read_text()
         for phrase in (
-            "firewall denies incoming traffic by default",
-            "межсетевой экран по умолчанию блокирует входящий трафик",
-            "Setup never changes firewall rules",
-            "Установка не меняет правила экрана",
-            "omavless runtime test checks HTTPS on the current route",
-            "omavless runtime test проверяет HTTPS на текущем маршруте",
-            "It is not a VPN leak test",
-            "Это не проверка утечки VPN",
+            "Firewall rules will not change",
+            "Правила межсетевого экрана не меняются",
+            "read Setup help before connecting",
+            "прочитайте помощь по настройке перед подключением",
         ):
             self.assertIn(phrase, source)
         self.assertNotIn("/usr/bin/ufw", source)
@@ -1246,8 +1242,9 @@ finish_pair_selection
 
     def test_failure_guidance_does_not_claim_pending_authorization(self):
         source = SCRIPT.read_text()
-        self.assertIn("Earlier steps may have completed", source)
-        self.assertIn("this message does not imply pending authorization", source)
+        self.assertIn("Some earlier steps may have succeeded", source)
+        self.assertIn("Finish or cancel any open system prompts", source)
+        self.assertIn("Do not repeat a step with an unknown result", source)
         self.assertNotIn("Do not repeat an unresolved authorization", source)
         # Reporting must not change either read-only projection to include stages.
         for command in ("status", "components"):

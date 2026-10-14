@@ -89,6 +89,12 @@ Before an owner-authorized main update:
 
 Development-branch drafts may describe the intended next snapshot only when
 clearly labelled; they are not current public help before main integration.
+User pages contain instructions for the user, never reminders to an agent about
+merging, reconciling main, evidence gates or how to describe a candidate. Keep
+those notes here, in a release ledger or in the owning PR. A candidate guide needs
+only a short truthful availability note and a runnable next step. Support replies
+lead with a short command/action sequence and link to the fuller explanation.
+Follow the [end-user editorial rule](../roadmap/UI_UX_CONTRACT.md#end-user-editorial-rule).
 Immutable release/tag documentation retains its original version and evidence:
 do not overwrite old artifacts to make them look current. Keep main's current
 guide and release notes explicit about that distinction and unrun acceptance.

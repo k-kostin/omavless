@@ -238,7 +238,8 @@ Item {
 
             PlainText {
               width: parent.width
-              text: wizard.nativeContext ? wizard.nativeCoreDescription : wizard.textFor(!wizard.coreSetup.installed
+              visible: !wizard.nativeContext || (wizard.nativeCoreFacts !== null && wizard.nativeCoreFacts.installed && wizard.nativeCoreFacts.version)
+              text: wizard.nativeContext ? wizard.textFor("native.core.version", {version:wizard.nativeCoreFacts ? wizard.nativeCoreFacts.version : ""}) : wizard.textFor(!wizard.coreSetup.installed
                 ? "onboarding.core.missing" : (wizard.coreSetup.tunReady
                   ? "onboarding.core.ready" : "onboarding.core.tun_missing"))
               color: wizard.dim
@@ -273,17 +274,6 @@ Item {
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideMiddle
-            }
-            PlainText {
-              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
-              width: parent.width
-              text: (wizard.nativeCoreFacts === null ? "" : wizard.textFor("native.core.tun." + wizard.nativeCoreFacts.tunDevice)
-                + "\n" + wizard.textFor("native.core.capabilities." + wizard.nativeCoreFacts.fileNetworkCapabilities) + "\n")
-                + wizard.textFor("native.core.scope")
-              color: wizard.dim
-              font.family: wizard.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap
             }
             PlainText {
               visible: wizard.nativeContext

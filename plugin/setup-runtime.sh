@@ -418,17 +418,15 @@ start_existing_broker() {
 dns_choice_prompt() {
   say 'Choose how to finish DNS setup:' 'Выберите, как завершить настройку DNS:'
   say '' ''
-  say '  FIRST — first-time setup of managed DNS on this computer.' \
-    '  FIRST — первая настройка управляемого DNS на этом компьютере.'
-  say '          Choose this after installing the DNS component for the first time.' \
-    '          Выберите после первой установки DNS-компонента.'
-  say '          The next prompt asks for separate DNS consent and may ask for sudo.' \
-    '          Далее нужно отдельное подтверждение DNS; может потребоваться sudo.'
+  say '  FIRST — first-time setup: DNS has not been configured for OmaVLESS yet.' \
+    '  FIRST — первая настройка: DNS для OmaVLESS ещё не настраивали.'
+  say '          You will confirm the DNS step separately. A sudo password may be needed.' \
+    '          Настройку DNS нужно будет подтвердить отдельно. Может потребоваться пароль sudo.'
   say '' ''
-  say '  START — you already completed DNS registration on this computer.' \
-    '  START — регистрация DNS на этом компьютере уже была завершена.'
-  say '          Use the existing registration; do not create a new one.' \
-    '          Использовать существующую регистрацию, не создавать новую.'
+  say '  START — DNS was already set up successfully for OmaVLESS on this computer.' \
+    '  START — DNS для OmaVLESS на этом компьютере уже успешно настроен.'
+  say '          Reuse that setup without changing it.' \
+    '          Использовать эту настройку без изменений.'
   say '' ''
   say 'Press Enter to cancel. No VPN will connect; saved profiles are kept.' \
     'Enter — отмена. VPN не подключится; сохранённые профили не изменятся.'
@@ -706,25 +704,27 @@ setup_main() {
     return 1
   fi
   if [[ "$1" == update-pair ]]; then
-    say 'Prepare the matching application/DNS update. Profiles, settings and enrollment are preserved.' \
-      'Подготовка обновления согласованных пакетов приложения и DNS. Профили, настройки и регистрация сохраняются.'
+    say 'Update OmaVLESS and its DNS component. Your profiles and settings will be kept.' \
+      'Обновление OmaVLESS и DNS-компонента. Профили и настройки сохранятся.'
     say '1. Set VPN startup Off, Disconnect, then Settings → Shut down OmaVLESS. This closes the widget too.' \
       '1. Выключите автоподключение VPN, отключитесь, затем Настройки → Выключить OmaVLESS. Виджет тоже закроется.'
     say '2. To reopen ONLY the widget, run in your desktop terminal:' \
       '2. Чтобы снова открыть ТОЛЬКО виджет, выполните в обычном терминале:'
     printf '\n  omarchy plugin enable kdk.omavless\n\n'
-    say '3. Open the panel and choose Prepare component update again. Do not start the application or another setup operation first.' \
-      '3. Откройте панель и снова выберите «Подготовить обновление компонентов». До этого не запускайте приложение или другую настройку.'
+    say '3. Open the panel and choose Prepare update again. Keep the application stopped until the update finishes.' \
+      '3. Откройте панель и снова выберите «Подготовить обновление». До завершения обновления не запускайте приложение.'
     # Inventory readiness and delivery freshness are independent. Offer the
     # preparation instructions while ready, but never fetch/authorize effects
     # until normal Full Quit has earned a genuinely stopped user owner.
     if ! user_runtime_stopped; then
-      say 'OmaVLESS is not confirmed fully shut down. No packages were downloaded or changed and no administrator action was requested. Close this terminal, then follow steps 1–3. If shutdown cannot be confirmed, use Setup help.' \
-        'Полное выключение OmaVLESS не подтверждено. Пакеты не скачивались и не изменялись; запрос администратора не выполнялся. Закройте терминал и выполните шаги 1–3. Если подтвердить выключение не удаётся, откройте помощь по настройке.'
+      say 'OmaVLESS is still running or its shutdown could not be confirmed. Nothing was downloaded or changed. Close this terminal and follow steps 1–3; if that does not help, open Setup help.' \
+        'OmaVLESS работает или его выключение не удалось подтвердить. Ничего не скачано и не изменено. Закройте терминал и выполните шаги 1–3; если не помогло, откройте помощь по настройке.'
       return 0
     fi
-    say 'The verified helper separately asks PREPARE for clean DNS-broker preparation, then UPGRADE for the packages and normal sudo/pacman confirmation. It never kills a live broker or deletes socket/journal state. An unsupported or uncertain broker requires assistance. DNS enrollment, application Start and VPN Connect remain separate.' \
-      'Проверенный помощник отдельно запросит PREPARE для чистой подготовки DNS-брокера, затем UPGRADE для пакетов и обычные подтверждения sudo/pacman. Он не убивает работающий брокер и не удаляет сокет или журнал. Неподдерживаемое или неизвестное состояние требует помощи. Регистрация DNS, запуск приложения и подключение VPN выполняются отдельно.'
+    say 'Follow the preparation and installation prompts below. Enter your password only at sudo’s prompt. If a step fails, stop and use Setup help.' \
+      'Следуйте запросам подготовки и установки ниже. Пароль вводите только в sudo. При ошибке остановитесь и откройте помощь по настройке.'
+    say 'The update will not start OmaVLESS or connect a VPN.' \
+      'Обновление не запускает OmaVLESS и не подключает VPN.'
   elif [[ "$1" == upgrade ]]; then
     say 'Update the public 0.8.2 application and add managed DNS. Profiles and the stopped application remain unchanged. The native updater will check the boundary and ask for UPGRADE; DNS setup is a separate next step.' \
       'Обновить публичное приложение 0.8.2 и добавить управляемый DNS. Профили и остановленное приложение сохраняются. Приложение проверит условия и запросит UPGRADE; настройка DNS выполняется отдельно.'
@@ -742,12 +742,12 @@ setup_main() {
         'Завершить выбор управляемого DNS без подключения. Пакеты и регистрация пользователя не изменятся.'
   else
     say 'Set up OmaVLESS' 'Настройка OmaVLESS'
-    say 'Install the matching application and managed DNS packages if missing, then prepare the private settings and services. No VPN connection will be started.' \
-      'Установить недостающие пакеты приложения и управляемого DNS, затем подготовить приватные настройки и службы. VPN подключаться не будет.'
+    say 'Install missing OmaVLESS components and complete setup. VPN will stay off.' \
+      'Установка недостающих компонентов OmaVLESS и завершение настройки. VPN останется выключенным.'
     say 'Existing profiles are preserved. Existing VPN/startup must be off before migration. Passwords go only to sudo, not this prompt.' \
       'Существующие профили сохраняются. Перед переносом отключите VPN и автоподключение. Пароль вводите только в sudo, не здесь.'
-    say 'If your firewall denies incoming traffic by default, TUN may need a reviewed Meta-interface exception. Setup never changes firewall rules; read the setup guide before connecting.' \
-      'Если межсетевой экран по умолчанию блокирует входящий трафик, для TUN может потребоваться проверенное исключение интерфейса Meta. Установка не меняет правила экрана; прочитайте руководство перед подключением.'
+    say 'Firewall rules will not change. If you use a restrictive firewall, read Setup help before connecting.' \
+      'Правила межсетевого экрана не меняются. Если он ограничивает трафик, прочитайте помощь по настройке перед подключением.'
     confirm || { say 'Cancelled. No changes made.' 'Отменено. Ничего не изменено.'; return; }
   fi
   # One transaction per user runtime directory. A stale lock after a killed
@@ -815,11 +815,11 @@ setup_main() {
       setup_step application-preconditions prepare_application || exit 1
     fi
     setup_step completion setup_completion || exit 1
-    say 'After connecting, omavless runtime test checks HTTPS on the current route. It is not a VPN leak test.' \
-        'После подключения omavless runtime test проверяет HTTPS на текущем маршруте. Это не проверка утечки VPN.'
   ) || {
-    say 'Setup did not finish. Earlier steps may have completed; this message does not imply pending authorization. Resolve any open setup or OS prompts, then use Check again to inspect the remaining step. Existing data was not reset.' \
-        'Настройка не завершена. Предыдущие этапы могли завершиться; это сообщение не означает, что остался запрос авторизации. Завершите открытые запросы установки или ОС, затем нажмите «Проверить снова». Данные не сбрасывались.'
+    say 'Setup stopped at the step shown above. Some earlier steps may have succeeded; your data was not reset.' \
+        'Настройка остановилась на указанном выше этапе. Предыдущие этапы могли завершиться; ваши данные не сбрасывались.'
+    say 'Finish or cancel any open system prompts, close this terminal, then press Check again in the panel. Do not repeat a step with an unknown result.' \
+        'Завершите или отмените открытые запросы системы, закройте терминал и нажмите «Проверить снова» в панели. Не повторяйте этап, если его результат неизвестен.'
     return 1
   }
 }
