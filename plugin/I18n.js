@@ -124,6 +124,7 @@ var CATALOG = {
   "native.onboarding.review_setup": {"en":"Review component setup","ru":"Открыть настройку компонентов"},
   "setup.review_components": {"en":"Review installed components and the offered next step. Opening this page does not install, update or connect anything.","ru":"Проверьте установленные компоненты и предлагаемый следующий шаг. Открытие страницы ничего не устанавливает, не обновляет и не подключает."},
   "setup.back_to_panel": {"en":"Back to panel","ru":"Вернуться в панель"},
+  "setup.review_core_attention": {"en":"The packages are present, but core setup has not been confirmed. Follow Setup help, then Check again. An automatic reinstall is not offered.","ru":"Пакеты присутствуют, но готовность ядра не подтверждена. Следуйте инструкции в помощи, затем проверьте снова. Автоматическая переустановка не предлагается."},
   "native.onboarding.setup_guide": {"en":"Installation guide ↗","ru":"Инструкция по установке ↗"},
   "native.onboarding.import_help": {"en":"Paste a profile or subscription link, or choose a file containing one. You will review it before adding; private links stay in OmaVLESS storage.","ru":"Вставьте ссылку на профиль или подписку либо выберите файл с такой ссылкой. Перед добавлением появится подтверждение; приватные ссылки хранятся в OmaVLESS."},
   "native.onboarding.picker_missing": {"en":"File import unavailable — no supported file picker was found.","ru":"Импорт из файла недоступен — средство выбора файлов не найдено."},

@@ -65,6 +65,12 @@ ShellRoot {
       return JSON.stringify({state:loader.item.facts.state, visible:loader.item.visible, height:loader.item.implicitHeight,
         controls:loader.item.focusTargets.map(function(b) { return {text:b.text, visible:b.visible, enabled:b.enabled} })})
     }
+    function review(core: string): string {
+      if (!loader.item || !("componentReview" in loader.item) || ["ready", "checking", "attention"].indexOf(core) < 0) return "refused"
+      loader.item.componentReview = true
+      loader.item.reviewCoreState = core
+      return "ready"
+    }
     function capture(slug: string): string {
       if (!/^[a-z0-9-]{1,48}$/.test(slug)
           || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/su.")) return "refused"

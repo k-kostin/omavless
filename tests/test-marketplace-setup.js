@@ -56,6 +56,15 @@ test('setup has separate navigation and cannot expose legacy mutation shortcuts'
   assert(panel.includes('onTextKey: function(t) {\n        if (root.bootstrapRequired) return'));
   assert(panel.includes('width: Math.max(0, setupFlick.width - root.scrollGutter)'));
 });
+test('explicit component review retains check/help/back even with ready package inventory', () => {
+  assert(page.includes('property bool componentReview: false'));
+  assert(page.includes('visible: !setup.componentReview'));
+  for(const name of ['reviewCheckButton','reviewGuideButton','closeButton']) assert(page.includes(name));
+  assert(page.includes('onClicked: { setup.check(); setup.factsRefreshRequested() }'));
+  assert(page.includes('setup.componentReview ? "back_to_panel" : "later"'));
+  for(const locale of ['en','ru'])for(const key of ['review_components','review_core_attention','back_to_panel'])
+    assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
+});
 test('missing app or unactivated account keeps setup shell after read-only launcher failure', () => {
   for (const nativeOwner of [true, false]) for (const nativeSnapshot of [null, {instanceId:'synthetic'}]) for (const value of ['checking', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_broker_stopped', 'needs_runtime_stop', 'needs_runtime_start', 'needs_attention', 'release_unavailable', 'ready']) {
     const appMissing = state.appMissing({state:value});
