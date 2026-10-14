@@ -289,7 +289,7 @@ Item {
               visible: wizard.nativeContext
               width: parent.width
               text: wizard.textFor(wizard.nativeCoreState === "ready" ? "native.onboarding.core_ready_scope"
-                : wizard.nativeCoreState === "terminal" ? "setup.terminal"
+                : wizard.nativeCoreState === "terminal" ? "native.onboarding.terminal_help"
                 : wizard.nativeCoreState === "update" ? "setup.needs_update" : "native.onboarding.setup_help")
               color: wizard.dim
               font.family: wizard.fontFamily

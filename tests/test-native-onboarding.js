@@ -60,7 +60,7 @@ test('ready, missing, update and unknown core states do not borrow each other ac
   c.wizard.busy=true;assert(!vm.runInContext(enabled,c));
   c.wizard.busy=false;c.wizard.nativeCanContinue=false;assert(!vm.runInContext(enabled,c));
  }
- const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','core_terminal','review_install','review_update','review_setup'])
+ const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','core_terminal','terminal_help','review_install','review_update','review_setup'])
   assert(!i18n.translate('native.onboarding.'+key,locale,{}).includes('Missing translation'));
 });
 test('native helper bindings keep read, write and picker capabilities independent',()=>{

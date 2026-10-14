@@ -112,7 +112,7 @@ Item {
     PlainText {
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention
-      text: I18n.translate("native.onboarding.core_" + setup.reviewCoreState, setup.locale, {})
+      text: I18n.translate("native.onboarding.core_" + (setup.terminalOpened ? "terminal" : setup.reviewCoreState), setup.locale, {})
       font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap
     }
     PlainText {
