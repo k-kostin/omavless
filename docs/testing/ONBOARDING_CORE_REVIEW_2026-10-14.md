@@ -80,3 +80,50 @@ scenario instead of silently reusing its previous state.
 The owning PR records final guest state/restoration, full source identities,
 actual main merge and publication exclusions. Do not infer main or Marketplace
 publication from this report alone.
+
+## Systemic paired-update follow-up (not delivered)
+
+After `3bec096d63d43459a39d884488a73cba5f9a6e8f`, owner review correctly
+identified that the UI-only slice did not implement updates for previous
+0.9.8 deliveries sharing version `0.9.8-1`. The subsequent source checkpoint
+adds `omavless setup update-pair` inside the original retained upgrade context,
+not a second daemon/privileged IPC owner. Unlike the initial slice, this changes
+native executable inputs. Previous fix.4 acceptance does not cover this code.
+
+| Scope | Source behavior | Remaining installed/delivery gate |
+| --- | --- | --- |
+| Current public pair | Normal setup/readiness, no redundant update | Keep existing fresh/partial setup checks separate |
+| Compatible older 0.9.8 pair | Independent freshness enum; retain ready Connect/Continue and both stopped Start paths | Actual package replacement and post-update continuation |
+| Qualified 0.8.2 | Original admitted paired upgrade remains | Regression on final new delivery |
+| Known public app, genuinely absent companion | Explicit matched-pair installation, not generic repair | Installed missing-companion scenario |
+| Mixed/modified/unknown/developer pair | Refuse implicit replacement | Negative installed cases where proportionate |
+| Live broker/residual socket/held state | Refuse; no automatic stop, socket unlink, journal cleanup or enrollment | Separate clean administrative preparation before positive update |
+
+Public predecessor admission binds app, core, broker and the complete DNS
+receipt to compiled `plugin/published-pairs.json`. Eight unique architecture
+pairs were independently extracted from `v0.9.8` and fix.1/2/3/4; fix.1 and
+fix.2 share native bytes. Archive hashes matched both GitHub's asset digests
+and anonymously downloaded SHA256SUMS; packaged source/architecture and
+static ELF hashes were checked without executing the binaries. Checksums are
+not signatures. Same-target admission matches the authenticated running helper
+and target companion receipt, not an installed self-reported hash.
+
+The original owner/migration exclusions remain through the package child and
+post-verification. Selector, pre-managed-template backup and their absence are
+retained; no enrollment, application start or connection is bundled into update.
+The unchanged ALPM root guard still owns its private-journal/FD admission.
+
+Local checkpoint checks: 766 Python tests/two declared opt-in skips plus normal
+JS/QML; 33 focused Rust updater tests; Clippy with warnings denied; focused
+20 setup and 24 onboarding controls; shell syntax and affected QML lint pass.
+The original coreReview precedence tests caught an intermediate regression
+where update hid missing core guidance; it was corrected and rerun. Independent
+review caught advisory freshness masking ready/Start, then ready Continue;
+production-function tests now cover both. Final exact CI and rendered/installed
+gates belong to the owning PR, not these source results.
+
+`component-updates.json` intentionally has `updatePair:false` for fix.4, whose
+helper lacks the new command. Activation needs new immutable matched packages,
+their actual download verification and installed acceptance. No new main merge,
+release/tag replacement, issue772 reply or Marketplace action is established
+by this source checkpoint. The physical PC remains untouched.

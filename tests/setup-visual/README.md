@@ -31,6 +31,12 @@ Wait for `captured` and inspect the PNG. Matrix: EN/RU × `needs_package`, `need
 itself, then `scenario en ready missing false` for core-only installation and
 `scenario en ready present false` to verify it disappears. `surface panel`
 returns to the first-run panel. The component-only surface performs no status
+probe. For same-version update contrasts, use `scenario en ready present false`
+then `delivery stale` or `delivery stale_manual`; also compare
+`needs_runtime_start` and `needs_broker_stopped`. Freshness must not replace
+the operational state or its continuation. `delivery current` clears the
+advisory update without changing setup facts. These are synthetic states, not
+installed update acceptance. The component-only surface performs no status
 probe. Use `viewport 320` / `viewport 576` to check constrained height and
 `scroll top` / `scroll bottom` for overlapping captures. The card surface
 cannot launch an installer. `later` on the panel invokes the actual

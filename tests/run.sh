@@ -24,6 +24,7 @@ python3 -m unittest -v \
   "$here/test_marketplace_setup.py" \
   "$here/test_setup_upgrade_frontend.py" \
   "$here/test_setup_predecessor.py" \
+  "$here/test_setup_pair_inventory.py" \
   "$here/test_marketplace_visual.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \

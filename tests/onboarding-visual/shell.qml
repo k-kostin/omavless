@@ -88,6 +88,13 @@ ShellRoot {
             return review.scenario(language, stage, helpers, core)
         }
         function terminal(open: bool) { loader.item.nativeSetupTerminalOpened = open }
+        function delivery(value: string): string {
+            if (!loader.item || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"
+            var facts = loader.item.nativeSetupFacts
+            loader.item.nativeSetupFacts = {state:facts.state, coreInstalled:facts.coreInstalled, delivery:value}
+            review.result = "ready"
+            return "ready"
+        }
         function capture(slug: string): string {
             if (["ready", "captured"].indexOf(review.result) < 0 || !/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/onboarding.")) return "refused"
             review.result = "capturing"

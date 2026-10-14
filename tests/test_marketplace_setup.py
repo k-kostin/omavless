@@ -50,6 +50,7 @@ package_install() { echo UNEXPECTED_PACKAGE_EFFECT >&2; return 99; }
 package_installed() { return 1; }
 dns_package_registered() { return 1; }
 pair_installed() { return 1; }
+installed_pair_delivery() { echo current; }
 fresh_user_runtime_absent() { return 0; }
 pair_selection_status() { return 1; }
 user_runtime_stopped() { return 0; }
@@ -468,6 +469,66 @@ setup_status
                          "needs_update\n")
         self.assertEqual(self.run_shell(fixture + 'pair_selection_status() { return 1; }; setup_status').stdout,
                          "needs_attention\n")
+
+    def test_same_version_delivery_state_is_not_hidden_by_ready_or_unpublished_updater(self):
+        fixture = '''
+native_present() { return 0; }
+package_installed() { echo "omavless $package_version-1"; }
+native_target() { echo rust; }
+pair_installed() { return 0; }
+'''
+        for delivery, available, expected in [
+                ('missing', False, 'needs_companion'),
+                ('missing', True, 'needs_pair_install'),
+                ('mismatch', True, 'needs_pair_mismatch'),
+                ('unknown', True, 'needs_attention')]:
+            with self.subTest(delivery=delivery, available=available):
+                code = fixture + f'installed_pair_delivery() {{ echo {delivery}; }}; pair_update_available() {{ return {0 if available else 1}; }}; setup_status'
+                result = self.run_shell(code)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected + '\n')
+
+    def test_stale_pair_freshness_preserves_ready_and_both_start_continuations(self):
+        fixture = '''
+native_present() { return 0; }
+package_installed() { echo "omavless $package_version-1"; }
+native_target() { echo rust; }
+pair_installed() { return 0; }
+installed_pair_delivery() { echo stale; }
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; }
+runtime_start_available() { return 0; }
+system_broker_stopped() { return 0; }
+no_broker_socket() { return 0; }
+'''
+        for stopped, broker, state in [(False, True, 'ready'),
+                                       (True, True, 'needs_runtime_start'),
+                                       (True, False, 'needs_broker_stopped')]:
+            for available in (False, True):
+                code = fixture + f'''
+user_runtime_stopped() {{ return {0 if stopped else 1}; }}
+system_broker_available() {{ return {0 if broker else 1}; }}
+pair_update_available() {{ return {0 if available else 1}; }}
+setup_status
+setup_components
+'''
+                result = self.run_shell(code)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                delivery = 'stale' if available else 'stale_manual'
+                self.assertEqual(result.stdout, f'{state}\n{state}\tpresent\t{delivery}\n')
+                self.assertEqual(result.stderr, '')
+
+    def test_target_capability_requires_matching_closed_delivery_metadata(self):
+        metadata = self.directory / 'component-updates.json'
+        source = 'b' * 40
+        good = {'schemaVersion': 1, 'sourceCommit': source, 'updatePair': True}
+        fixture = f'release_fields() {{ printf "0.9.8\\tx86_64\\t%s\\t%s\\t%s\\n" "{source}" "{source}" "{source}"; }}; pair_update_available'
+        metadata.write_text(json.dumps(good))
+        self.assertEqual(self.run_shell(fixture).returncode, 0)
+        for wrong in [{**good, 'updatePair': False}, {**good, 'updatePair': 'true'},
+                      {**good, 'sourceCommit': 'c' * 40}, {**good, 'command': 'ignored'},
+                      {**good, 'schemaVersion': 2}]:
+            metadata.write_text(json.dumps(wrong))
+            self.assertNotEqual(self.run_shell(fixture).returncode, 0)
 
     def test_stopped_runtime_is_not_installation_or_optimistic_ready(self):
         fixture = '''
@@ -1267,6 +1328,7 @@ setup_main install en
 native_present() { return 0; }
 package_installed() { echo "omavless $package_version-1"; }
 runtime_start_available() { return 1; }
+installed_pair_delivery() { echo current; }
 user_runtime_stopped() { [[ ! -f "$TEST_DIR/activated" ]]; }
 enroll_uid() { echo enroll >> "$TEST_DIR/trace"; touch "$TEST_DIR/enrolled"; }
 start_broker() { echo start >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker-started"; }

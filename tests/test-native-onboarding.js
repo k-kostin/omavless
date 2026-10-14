@@ -51,7 +51,10 @@ test('ready, missing, update and unknown core states do not borrow each other ac
  assert.equal(state.coreReview(null,{state:'needs_package',coreInstalled:false},false,false),'missing');
  assert.equal(state.coreReview(null,{state:'needs_companion',coreInstalled:false},false,false),'missing');
  // A missing companion beside an existing app still has no admitted automatic install.
- assert.equal(state.missingAction({state:'needs_companion',coreInstalled:false}),'');
+ assert.equal(state.missingAction({state:'needs_companion',coreInstalled:false}),'update-help');
+ assert(!state.canRunAction({state:'needs_companion',coreInstalled:false},'update-pair'));
+ for(const name of ['needs_pair_update','needs_pair_update_manual'])
+  assert.equal(state.coreReview(ready,{state:name,coreInstalled:true},false,false),'update');
  const button=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
  const enabled=button.match(/enabled: ([^\n]+)/)[1];
  for(const nativeCoreState of ['ready','missing','update','checking','attention','terminal']) {
@@ -62,6 +65,23 @@ test('ready, missing, update and unknown core states do not borrow each other ac
  }
  const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','core_terminal','terminal_help','review_install','review_update','review_setup'])
   assert(!i18n.translate('native.onboarding.'+key,locale,{}).includes('Missing translation'));
+});
+test('compatible stale delivery keeps real onboarding Continue and optional review',()=>{
+ const state=require('../plugin/SetupState.js');
+ const core={installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
+ const continueBlock=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
+ const enabled=continueBlock.match(/enabled: ([^\n]+)/)[1];
+ const reviewBlock=wizard.slice(wizard.indexOf('objectName: "onboardingComponentSetup"'));
+ const visible=reviewBlock.match(/visible: ([^\n]+)/)[1];
+ for(const delivery of ['stale','stale_manual']) {
+  const nativeSetupFacts={state:'ready',coreInstalled:true,delivery};
+  const nativeCoreState=state.coreReview(core,nativeSetupFacts,false,false,false);
+  const c=vm.createContext({SetupState:state,wizard:{nativeContext:true,nativeSetupFacts,nativeCoreState,nativeCanContinue:true,busy:false}});
+  assert(vm.runInContext(enabled,c));
+  assert(vm.runInContext(visible,c));
+  c.wizard.nativeCoreState=state.coreReview(core,nativeSetupFacts,false,false,true);
+  assert(!vm.runInContext(enabled,c));
+ }
 });
 test('native helper bindings keep read, write and picker capabilities independent',()=>{
  const c=vm.createContext({nativeContext:true,nativeDesktopFacts:null,filePicker:{available:true},nativeCanContinue:true,busy:false});c.wizard=c;

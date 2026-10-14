@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "pairs": [
+    {
+      "sourceCommit": "4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998",
+      "architecture": "x86_64",
+      "appSha": "219479595f4b59e07a9639d703e939125d464165f7a5f426ec523ce5d952600b",
+      "coreSha": "30416d770acd577f99031e21a0d8cb188ecba01504a30ad6ae2db3a3b9571149",
+      "brokerSha": "8caba1a57b44b2856b98b0d0213cc545905ba5a031aac144fcce2420957b0d2e",
+      "dnsReceiptSha": "8770fd67179c0b45287d7f47aeff7d62a5f44f0e08273bdcc6f619857af7896f"
+    },
+    {
+      "sourceCommit": "4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998",
+      "architecture": "aarch64",
+      "appSha": "42a0f2550567c21cf8201a13d8797124237edfb71f1ee67a93d33fb6852753ee",
+      "coreSha": "769fdb66d53de11706372e6c8eb57f92f6f8a075a2f23ef5a786875f272ea897",
+      "brokerSha": "33121a6f4c4eb7b644da034fc521e221d7f292d61bdaffb837ed82c015dbe755",
+      "dnsReceiptSha": "cca495a9855af98e98b6de18101e7de32376a296f031be994794f3675ea58386"
+    },
+    {
+      "sourceCommit": "e3d2245966c725ee11b505899b22a20721ff2ddd",
+      "architecture": "x86_64",
+      "appSha": "3e5e8a5aca3d48d1bada328471b5078eb96a5796a1c44a6ba03a289def050141",
+      "coreSha": "30416d770acd577f99031e21a0d8cb188ecba01504a30ad6ae2db3a3b9571149",
+      "brokerSha": "ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5",
+      "dnsReceiptSha": "3cb0a8f74bd08b2a1900677dfda01ab47257f46a4b04283906705b9d4ef00026"
+    },
+    {
+      "sourceCommit": "e3d2245966c725ee11b505899b22a20721ff2ddd",
+      "architecture": "aarch64",
+      "appSha": "5930244698e7fb1c6fe7518af2b093e7c2f5dcb5c4400dd845588553e0c7e2fd",
+      "coreSha": "769fdb66d53de11706372e6c8eb57f92f6f8a075a2f23ef5a786875f272ea897",
+      "brokerSha": "8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26",
+      "dnsReceiptSha": "99c2f7eef34c6ddd474346e97592f61ac51af805492bce7e851211c44c0a9c1e"
+    },
+    {
+      "sourceCommit": "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524",
+      "architecture": "x86_64",
+      "appSha": "118a12989f737e7c5f7ee167d10f6487ab6ca16ba4ed34f8dae71e813a384bd4",
+      "coreSha": "30416d770acd577f99031e21a0d8cb188ecba01504a30ad6ae2db3a3b9571149",
+      "brokerSha": "ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5",
+      "dnsReceiptSha": "ea3449eab4e40f106bad551ace390d0ddb0f0d5e76506cde854dc3e961dcde87"
+    },
+    {
+      "sourceCommit": "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524",
+      "architecture": "aarch64",
+      "appSha": "bf7787ee90bdbb0e2de03ecdd8bebb4b01810ad9607eaaecbfbf5ff7eeeaa2b4",
+      "coreSha": "d4fb2cdd73694aa9c0179a1c79dbb2c32efee081fb236aaef697d106959144c2",
+      "brokerSha": "8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26",
+      "dnsReceiptSha": "3203e0031534424feb0da574118202e65a79079d379ea21bdc364a5110c75ebc"
+    },
+    {
+      "sourceCommit": "b65695ee0609c2a971289109975678b8da87c946",
+      "architecture": "x86_64",
+      "appSha": "b8cc106248953abcc3b3475efa7cec362778b5ae918b6866c1e8febdd3c44ff9",
+      "coreSha": "e4bc011ecad3ce8350b738cee91a98e27e1b1dd1b0fa6eeb79eb7d6427669106",
+      "brokerSha": "ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5",
+      "dnsReceiptSha": "4e6e819d64d6c181ed5de8cd4de6e2cd0f920210b956f529a4ad2be54c285eb2"
+    },
+    {
+      "sourceCommit": "b65695ee0609c2a971289109975678b8da87c946",
+      "architecture": "aarch64",
+      "appSha": "897710505a8fae9783bb8130c0e0d98133144e2b8e9ae68d169ad7a413999990",
+      "coreSha": "75f8adfd4e9a86d0c09d156c24c800f167d8750737e4b4b7a6cd8f5e47f2e38d",
+      "brokerSha": "8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26",
+      "dnsReceiptSha": "d15d54ee2364cd116c6c897e91d54ba237b180ed92b88fcdb09a45c881ce730c"
+    }
+  ]
+}

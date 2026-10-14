@@ -381,6 +381,10 @@ fn run() -> Result<(), CliError> {
         println!(
             "  setup upgrade082                 first migration; stdin delivery metadata, tty consent"
         );
+        #[cfg(feature = "setup-upgrade082")]
+        println!(
+            "  setup update-pair                stopped public 0.9.8 pair; stdin metadata, tty consent"
+        );
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );
@@ -560,6 +564,13 @@ fn run() -> Result<(), CliError> {
         #[cfg(feature = "setup-upgrade082")]
         if arguments == ["setup", "upgrade082"] {
             let result = omavless_runtime::setup_upgrade082::run_delivery_update()
+                .map_err(|error| error.to_string())?;
+            println!("{result}");
+            return Ok(());
+        }
+        #[cfg(feature = "setup-upgrade082")]
+        if arguments == ["setup", "update-pair"] {
+            let result = omavless_runtime::setup_upgrade082::run_pair_update()
                 .map_err(|error| error.to_string())?;
             println!("{result}");
             return Ok(());

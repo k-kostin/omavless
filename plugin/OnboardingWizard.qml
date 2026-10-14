@@ -290,7 +290,7 @@ Item {
               width: parent.width
               text: wizard.textFor(wizard.nativeCoreState === "ready" ? "native.onboarding.core_ready_scope"
                 : wizard.nativeCoreState === "terminal" ? "native.onboarding.terminal_help"
-                : wizard.nativeCoreState === "update" ? "setup.needs_update" : "native.onboarding.setup_help")
+                : wizard.nativeCoreState === "update" ? "setup." + SetupState.updateMessage(wizard.nativeSetupFacts) : "native.onboarding.setup_help")
               color: wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -298,8 +298,8 @@ Item {
             }
             WizardButton {
               objectName: "onboardingComponentSetup"
-              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
-              text: wizard.textFor(wizard.nativeCoreState === "update" ? "native.onboarding.review_update"
+              visible: wizard.nativeContext && (wizard.nativeCoreState !== "ready" || SetupState.hasUpdate(wizard.nativeSetupFacts))
+              text: wizard.textFor(wizard.nativeCoreState === "update" || SetupState.hasUpdate(wizard.nativeSetupFacts) ? "native.onboarding.review_update"
                 : wizard.nativeCoreState === "missing" ? "native.onboarding.review_install" : "native.onboarding.review_setup")
               enabled: !wizard.busy && !wizard.nativeSetupBusy
               bordered: true

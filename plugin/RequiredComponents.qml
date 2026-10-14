@@ -18,7 +18,9 @@ ColumnLayout {
   readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   readonly property string action: SetupState.missingAction(facts)
-  readonly property var focusTargets: [installButton, updateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]
+  readonly property bool pairUpdate: SetupState.canOfferPairUpdate(card.facts) || card.facts.state === "needs_pair_install"
+  readonly property bool updateReview: SetupState.hasUpdate(card.facts) || card.facts.state === "needs_update" || card.pairUpdate
+  readonly property var focusTargets: [installButton, updateButton, pairedUpdateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]
   signal installRequested(string action)
   signal checkRequested()
   signal terminalClosed()
@@ -56,7 +58,7 @@ ColumnLayout {
   BorderSurface {
     Layout.fillWidth: true
     implicitHeight: preparation.implicitHeight + Style.space(20)
-    visible: !card.appMissing && (card.facts.state !== "ready" || card.facts.coreInstalled === null)
+    visible: !card.appMissing && (card.updateReview || card.facts.state !== "ready" || card.facts.coreInstalled === null)
     color: "transparent"; radius: 0
     borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
@@ -64,8 +66,8 @@ ColumnLayout {
       anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
       anchors.margins: Style.space(10)
       spacing: Style.space(10)
-      PlainText { Layout.fillWidth: true; text: card.tr(card.facts.state === "needs_update" ? "update_title" : "prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
-      PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : card.facts.state); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr(card.updateReview ? "update_title" : "prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : SetupState.updateMessage(card.facts)); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
       Button {
         id: updateButton
         Layout.fillWidth: true
@@ -77,9 +79,19 @@ ColumnLayout {
         onClicked: card.installRequested("upgrade")
       }
       Button {
+        id: pairedUpdateButton
+        Layout.fillWidth: true
+        visible: card.pairUpdate
+        text: card.tr(card.facts.state === "needs_pair_install" ? "complete_pair" : "update_components")
+        enabled: visible && !card.effectBusy && !card.terminalOpened
+        opacity: enabled ? 1 : 0.45
+        bordered: true; focusable: true
+        onClicked: card.installRequested("update-pair")
+      }
+      Button {
         id: updateHelpButton
         Layout.fillWidth: true
-        visible: card.facts.state === "needs_update"
+        visible: card.updateReview || card.facts.state === "needs_pair_mismatch" || card.facts.state === "needs_companion"
         text: card.tr("update_help")
         enabled: visible && !card.busy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45

@@ -51,7 +51,7 @@ ShellRoot {
       // Do not race the panel's initial real read-only inventory process.
       if (loader.item && loader.item.busy) return "busy"
       if (!loader.item || ["en", "ru"].indexOf(locale) < 0
-          || ["checking", "ready", "needs_package", "needs_update", "needs_activation", "needs_companion", "needs_attention", "release_unavailable"].indexOf(state) < 0
+          || ["checking", "ready", "needs_package", "needs_update", "needs_pair_update", "needs_pair_update_manual", "needs_pair_install", "needs_pair_mismatch", "needs_activation", "needs_companion", "needs_attention", "needs_runtime_start", "needs_broker_stopped", "release_unavailable"].indexOf(state) < 0
           || ["present", "missing", "unknown"].indexOf(core) < 0) { review.result = "refused"; return "refused" }
       loader.item.locale = locale
       loader.item.facts = {state:state, coreInstalled:core === "unknown" ? null : core === "present"}
@@ -65,6 +65,13 @@ ShellRoot {
       if (!loader.item) return "loading"
       return JSON.stringify({state:loader.item.facts.state, visible:loader.item.visible, height:loader.item.implicitHeight,
         controls:loader.item.focusTargets.map(function(b) { return {text:b.text, visible:b.visible, enabled:b.enabled} })})
+    }
+    function delivery(value: string): string {
+      if (!loader.item || loader.item.busy || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"
+      var facts = loader.item.facts
+      loader.item.facts = {state:facts.state, coreInstalled:facts.coreInstalled, delivery:value}
+      review.result = "ready"
+      return "ready"
     }
     function review(core: string): string {
       if (!loader.item || !("componentReview" in loader.item) || ["ready", "checking", "attention"].indexOf(core) < 0) return "refused"

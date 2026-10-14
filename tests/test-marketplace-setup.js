@@ -125,18 +125,62 @@ test('all component combinations select one correct install target or no action'
     assert.equal(state.canRunAction(stopped,'restore-enrollment'),coreInstalled);
     assert.equal(state.canRunAction(stopped,'start-broker'),coreInstalled);
     assert(!state.canRunAction(stopped,'install'));
-    assert.equal(state.missingAction({state:'needs_companion',coreInstalled}),'');
+    assert.equal(state.missingAction({state:'needs_companion',coreInstalled}),'update-help');
     assert.equal(state.missingAction({state:'needs_broker',coreInstalled}),'');
     assert.equal(state.missingAction({state:'needs_runtime_stop',coreInstalled}),'');
   }
   assert.equal(state.missingAction({state:'needs_attention',coreInstalled:false}),'');
+});
+test('same-version updates, partial pairs and manual-only deliveries select honest actions', () => {
+  for (const coreInstalled of [true,false]) {
+    for(const name of ['needs_pair_update','needs_pair_install']) {
+      const facts={state:name,coreInstalled};
+      assert.equal(state.parse(name+'\n',0),name);
+      assert.deepEqual(state.inventory(name+'\t'+(coreInstalled?'present':'missing')+'\n',0),facts);
+      assert.equal(state.missingAction(facts),'update-pair');
+      assert(state.canRunAction(facts,'update-pair'));
+      assert(!state.canRunAction(facts,'upgrade'));
+      assert(!state.canRunAction(facts,'install'));
+    }
+    for(const name of ['needs_pair_update_manual','needs_pair_mismatch']) {
+      const facts={state:name,coreInstalled};
+      assert.equal(state.missingAction(facts),'update-help');
+      assert(state.canRunAction(facts,'update-help'));
+      assert(!state.canRunAction(facts,'update-pair'));
+      assert(!state.canInstall(name));
+    }
+  }
+  for(const locale of ['en','ru']) for(const key of ['needs_pair_update','needs_pair_install','needs_pair_update_manual','needs_pair_mismatch','complete_pair'])
+    assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
+});
+test('freshness is advisory and preserves connection admission and stopped actions', () => {
+  for (const delivery of ['stale', 'stale_manual']) {
+    for (const [status, action] of [['ready',''], ['needs_runtime_start','start-app'], ['needs_broker_stopped','start-broker']]) {
+      const facts = state.inventory(status+'\tpresent\t'+delivery+'\n',0);
+      assert.equal(facts.state,status);
+      assert.equal(state.missingAction(facts),action);
+      assert(state.needsAttention(facts));
+      assert.equal(state.canRunAction(facts,'update-pair'),delivery==='stale');
+      assert(state.canRunAction(facts,'update-help'));
+      if(action) assert(state.canRunAction(facts,action));
+      // Panel admits Connect by operational state, never delivery freshness.
+      assert.equal(facts.state !== 'ready', status !== 'ready');
+      assert.equal(state.bootstrapRequired(facts,true,true,false,false,false), status !== 'ready');
+      const core = {installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
+      if(status==='ready') assert.equal(state.coreReview(core,facts,false,false,false),'ready');
+    }
+  }
+  for (const suffix of ['unknown','stale\textra','stale\nready'])
+    assert.equal(state.inventory('ready\tpresent\t'+suffix+'\n',0).state,'needs_attention');
+  for(const status of ['needs_attention','needs_pair_mismatch','needs_broker','checking'])
+    assert(!state.canRunAction({state:status,coreInstalled:true,delivery:'stale'},'update-pair'));
 });
 test('installed programs disappear from the required-components card; readiness is separate', () => {
   assert(card.includes('visible: card.appMissing || card.coreMissing'));
   assert(card.includes('visible: card.appMissing; text: card.tr("app_missing")'));
   assert(card.includes('visible: card.coreMissing; text: card.tr("core_missing")'));
   assert(card.includes('visible: SetupState.needsAttention(facts)'));
-  assert(card.includes('[installButton, updateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
+  assert(card.includes('[installButton, updateButton, pairedUpdateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
   assert(card.includes('visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"'));
   assert(card.includes('RowLayout {\n        Layout.fillWidth: true\n        spacing: Style.space(8)\n        visible: card.facts.state'));
   assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));

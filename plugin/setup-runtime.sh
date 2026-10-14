@@ -218,6 +218,21 @@ setup_status() {
       return
     fi
     target=$(native_target) || { printf 'needs_attention\n'; return; }
+    if [[ "$target" == rust ]]; then
+      local delivery
+      delivery=$(installed_pair_delivery)
+      case "$delivery" in
+        # Delivery freshness is advisory. Keep connection and stopped-runtime
+        # continuation available for a verified compatible older pair.
+        stale) ;;
+        missing)
+          if pair_update_available; then printf 'needs_pair_install\n'; else printf 'needs_companion\n'; fi
+          return ;;
+        mismatch) printf 'needs_pair_mismatch\n'; return ;;
+        current) ;;
+        *) printf 'needs_attention\n'; return ;;
+      esac
+    fi
     pair_installed || { printf 'needs_companion\n'; return; }
     case "$target" in
       rust)
@@ -265,12 +280,38 @@ setup_status() {
   fi
 }
 
-# Two fixed fields, no paths, versions, native snapshots or health claims.
+installed_pair_delivery() {
+  local version arch app_hash dns_hash source delivery
+  IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
+  [[ "$version" == "$release_version" && "$source" =~ ^[0-9a-f]{40}$ ]] \
+    || { printf 'unknown\n'; return; }
+  source "$setup_dir/setup-predecessor.sh"
+  delivery=$(omavless_pair_delivery_status "$source")
+  # Absence of payloads is not absence of a package registration.
+  if [[ "$delivery" == missing ]] && dns_package_registered; then delivery=unknown; fi
+  printf '%s\n' "$delivery"
+}
+
+pair_update_available() {
+  local version arch app_hash dns_hash source metadata="$setup_dir/component-updates.json"
+  [[ -f "$metadata" && ! -L "$metadata" && $(stat -c %s -- "$metadata") -le 2048 ]] || return 1
+  IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
+  [[ "$source" =~ ^[0-9a-f]{40}$ ]] || return 1
+  jq -e --arg source "$source" 'keys == ["schemaVersion", "sourceCommit", "updatePair"]
+    and .schemaVersion == 1 and .sourceCommit == $source and .updatePair == true' "$metadata" >/dev/null 2>&1
+}
+
+# Fixed enums only. Freshness is independent of operational readiness.
 setup_components() {
-  local state core=missing
+  local state core=missing delivery=current
   state=$(setup_status)
   if pair_installed; then core=present; fi
-  printf '%s\t%s\n' "$state" "$core"
+  if [[ $(package_installed) == "omavless $package_version-1" ]] && [[ $(native_target) == rust ]] \
+      && [[ $(installed_pair_delivery) == stale ]]; then
+    if pair_update_available; then delivery=stale; else delivery=stale_manual; fi
+  fi
+  if [[ "$delivery" == current ]]; then printf '%s\t%s\n' "$state" "$core"
+  else printf '%s\t%s\t%s\n' "$state" "$core" "$delivery"; fi
 }
 
 confirm() {
@@ -546,11 +587,18 @@ setup_release_cache() {
 }
 upgrade_package() {
   local version arch app_hash dns_hash source app_name dns_name cache receipt binary_hash actual predecessor metadata
+  local operation=${1:-upgrade082}
+  [[ "$operation" == upgrade082 || "$operation" == update-pair ]] || return 2
   # Advisory public-byte inspection earns no private or replacement authority.
   source "$setup_dir/setup-predecessor.sh"
-  predecessor=$(omavless_predecessor_status) || return 1
-  jq -e '.schemaVersion == 1 and .status == "qualified" and .reason == "public_0_8_2"' \
-    >/dev/null <<< "$predecessor" || return 1
+  if [[ "$operation" == upgrade082 ]]; then
+    predecessor=$(omavless_predecessor_status) || return 1
+    jq -e '.schemaVersion == 1 and .status == "qualified" and .reason == "public_0_8_2"' \
+      >/dev/null <<< "$predecessor" || return 1
+  else
+    pair_update_available || return 1
+    case "$(installed_pair_delivery)" in stale|missing) ;; *) return 1 ;; esac
+  fi
   IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
   [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
   cache=$(setup_release_cache "$app_hash" "$dns_hash") || return 1
@@ -577,7 +625,7 @@ upgrade_package() {
   metadata=$(jq -cn --arg app "$app_hash" --arg dns "$dns_hash" --arg source "$source" \
     --arg version "$version" --arg arch "$arch" \
     '{schemaVersion:1,appSHA:$app,dnsSHA:$dns,sourceCommit:$source,version:$version,arch:$arch}') || return 1
-  printf '%s\n' "$metadata" | "$setup_temp/upgrade-helper" setup upgrade082
+  printf '%s\n' "$metadata" | "$setup_temp/upgrade-helper" setup "$operation"
 }
 
 prepare_private_store() {
@@ -628,7 +676,7 @@ setup_main() {
   case "$1" in
     status) [[ $# == 1 ]] || return 2; setup_status; return ;;
     components) [[ $# == 1 ]] || return 2; setup_components; return ;;
-    install|upgrade|finish-selection|start-broker|restore-enrollment|resume-dns) ;;
+    install|upgrade|update-pair|finish-selection|start-broker|restore-enrollment|resume-dns) ;;
     *) return 2 ;;
   esac
   [[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2
@@ -641,6 +689,7 @@ setup_main() {
     return
   fi
   if [[ "$1" == upgrade && "$state" != needs_update ]] \
+      || [[ "$1" == update-pair && "$state" != needs_pair_install && ! ( "$state" =~ ^(ready|needs_broker_stopped|needs_runtime_start|needs_selection|needs_dns_setup|needs_runtime_stop)$ && $(installed_pair_delivery) == stale ) ]] \
       || [[ "$1" == finish-selection && "$state" != needs_selection ]] \
       || [[ "$1" == start-broker && "$state" != needs_broker_stopped ]] \
       || [[ "$1" == restore-enrollment && "$state" != needs_broker_stopped ]] \
@@ -649,7 +698,14 @@ setup_main() {
     say 'Setup is unavailable. No changes made. Check the setup guide.' 'Установка недоступна. Ничего не изменено. Откройте руководство.'
     return 1
   fi
-  if [[ "$1" == upgrade ]]; then
+  if [[ "$1" == update-pair ]]; then
+    say 'Update the matching application, managed DNS and its bundled Mihomo. Profiles, settings and existing enrollment are preserved.' \
+      'Обновить согласованную пару: приложение, управляемый DNS и его ядро Mihomo. Профили, настройки и существующая регистрация сохраняются.'
+    say 'First fully shut down OmaVLESS and complete the clean DNS-broker maintenance step in Setup help. A running broker, retained socket or unknown state blocks replacement; this operation never stops or cleans it for you.' \
+      'Сначала полностью завершите OmaVLESS и выполните чистую остановку DNS-брокера по инструкции в помощи. Работающий брокер, оставшийся сокет или неизвестное состояние блокируют замену; обновлятор не останавливает и не очищает их автоматически.'
+    say 'The verified updater will ask for UPGRADE and normal sudo/pacman confirmation. No DNS enrollment, application start or VPN connection is performed.' \
+      'Проверенный обновлятор запросит UPGRADE и обычные подтверждения sudo/pacman. Регистрация DNS, запуск приложения и подключение VPN не выполняются.'
+  elif [[ "$1" == upgrade ]]; then
     say 'Update the public 0.8.2 application and add managed DNS. Profiles and the stopped application remain unchanged. The native updater will check the boundary and ask for UPGRADE; DNS setup is a separate next step.' \
       'Обновить публичное приложение 0.8.2 и добавить управляемый DNS. Профили и остановленное приложение сохраняются. Приложение проверит условия и запросит UPGRADE; настройка DNS выполняется отдельно.'
   elif [[ "$1" == resume-dns ]]; then
@@ -690,12 +746,22 @@ setup_main() {
     # while the user was reading the prompt, or activate a now-unknown owner.
     setup_state_unchanged() { [[ $(setup_status) == "$state" ]]; }
     setup_step setup-state setup_state_unchanged || exit 1
-    if [[ "$1" == upgrade ]]; then
-      setup_step upgrade-operation upgrade_package || exit 1
+    if [[ "$1" == upgrade || "$1" == update-pair ]]; then
+      local operation=upgrade082
+      [[ "$1" != update-pair ]] || operation=update-pair
+      setup_step upgrade-operation upgrade_package "$operation" || exit 1
       setup_step unit-reload reload_units || exit 1
-      [[ $(setup_status) == needs_dns_setup ]] || { setup_step completion false; exit 1; }
-      say 'Packages updated. Return to the plugin, press Check again and Continue DNS setup. No application or VPN was started.' \
-        'Пакеты обновлены. Вернитесь в плагин, нажмите «Проверить снова» и «Продолжить настройку DNS». Приложение и VPN не запускались.'
+      local next
+      next=$(setup_status)
+      [[ "$next" == needs_dns_setup || ( "$1" == update-pair && "$next" == needs_broker_stopped ) ]] \
+        || { setup_step completion false; exit 1; }
+      if [[ "$next" == needs_broker_stopped ]]; then
+        say 'Packages updated. Check again, then Start existing DNS broker. Do not enroll again. Start OmaVLESS separately; no VPN was started.' \
+          'Пакеты обновлены. Проверьте снова и запустите существующий DNS-брокер. Повторная регистрация не нужна. OmaVLESS запускается отдельно; VPN не запускался.'
+      else
+        say 'Packages updated. Return to the plugin, press Check again and Continue DNS setup. No application or VPN was started.' \
+          'Пакеты обновлены. Вернитесь в плагин, нажмите «Проверить снова» и «Продолжить настройку DNS». Приложение и VPN не запускались.'
+      fi
       exit 0
     elif [[ "$1" == resume-dns ]]; then
       setup_step dns-preconditions resume_pending_dns || exit 1
@@ -744,7 +810,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   if [[ "${1:-}" == upgrade && "$result" == 0 && -t 0 ]]; then
     offer_shell_reload
   fi
-  if [[ ( "${1:-}" == install || "${1:-}" == upgrade || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment || "${1:-}" == resume-dns ) && -t 0 ]]; then
+  if [[ ( "${1:-}" == install || "${1:-}" == upgrade || "${1:-}" == update-pair || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment || "${1:-}" == resume-dns ) && -t 0 ]]; then
     say 'Press Enter to close.' 'Нажмите Enter, чтобы закрыть.'
     IFS= read -r _ || true
   fi

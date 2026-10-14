@@ -13,7 +13,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   retains manual guarded guidance. [The UI report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
   separates installed ready navigation from EN/RU synthetic negative-state
   rendering; the fixing PR records CI and actual main integration. Native
-  package identities, 0.9.8 version and publication boundaries are unchanged.
+  That initial UI-only slice leaves package identities unchanged. The systemic
+  follow-up in #783 adds a **not-yet-delivered** stopped-0.9.8 paired updater
+  and exact published-byte inventory, so its native changes require new package
+  delivery and installed acceptance. `component-updates.json` keeps that action
+  disabled for fix.4; old binaries cannot be relabelled as containing it.
+  Freshness is advisory for compatible older pairs, not a Connect/Continue or
+  stopped-runtime dead end. Main promotion is paused pending this follow-up.
 
 - **Emergency setup/update correction, #778:** owner-authorized main
   integration carries stage diagnostics, partial DNS continuation, qualified

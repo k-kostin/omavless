@@ -106,6 +106,22 @@ present. Review must retain the explicit terminal/prompts-closed acknowledgement
 when the ordinary missing-components block disappears; navigation/recheck alone
 does not settle authorization or authorize another effect.
 
+Component delivery freshness is independent of operational readiness. A
+verified compatible older pair keeps Connect, ready Continue and the ordinary
+Start application / Start existing DNS broker continuations; an optional update
+notice cannot replace those facts. Missing, mixed, modified or unknown members
+remain blockers. A shared package version is not delivery identity: compare
+published bytes/source per architecture, not only `pacman -Q` or a receipt's
+self-declared hash. Managed Mihomo belongs to the app/DNS pair; do not offer an
+independent update of an unrelated stock core.
+
+For a component-update change, cover current, same-version older, qualified
+0.8.2, missing companion, mixed/modified delivery and stopped broker/runtime.
+Separate inventory reads, navigation, download, consent, package transaction
+and post-update continuation. Advertise an update only if the exact pinned
+native helper actually supports it. Fixture rendering does not prove that
+delivered packages contain that helper or that their installed path works.
+
 ## Three independent checks before calling a change ready
 
 1. **Behavior:** does the real handler address the right record/state, honor
