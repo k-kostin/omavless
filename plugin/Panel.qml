@@ -4010,6 +4010,7 @@ Panel {
         anchors.fill: parent
         nativeContext: vless.nativeOwner
         nativeCoreFacts: vless.nativeCoreSetupFacts
+        firstRun: vless.nativeOwner && vless.nativeSnapshot !== null && !vless.nativeSnapshot.onboardingComplete
         nativeDesktopFacts: vless.nativeDesktopCapabilities
         nativeDesktopLoading: vless.nativeDesktopLoading
         nativeCoreDescription: root.nativeCoreSetupDescription()

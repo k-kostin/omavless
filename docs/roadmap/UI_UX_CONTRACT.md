@@ -153,6 +153,15 @@ not in a paragraph describing every future step before a button is clicked.
 Explain consequences when relevant (profiles kept/deleted, VPN disconnect,
 password request, reboot), not every action which is *not* performed.
 
+Introduce a required helper at its first user-facing mention with its short
+purpose, then use the same name in statuses, buttons and standalone terminals.
+The DNS helper manages OmaVLESS connection DNS; it is not a public DNS provider
+choice or the Mihomo VPN core, even though the same package contains both.
+Initial setup may recommend turning off other VPN connections, without stopping
+them automatically or repeating the warning during ordinary ready-state review.
+An optional update notice must not hide the operational reason for a separate
+Start/setup/recovery action, including the limits of Restore access.
+
 A readiness label names its scope (core installed/ready versus VPN connected)
 without an essay about test coverage. Keep version information useful, and
 move low-level TUN/capability facts to explicit diagnostics/help. Unknown state

@@ -197,7 +197,7 @@ touch "$TEST_DIR/upgraded"
         self.assertEqual(status, 0, output)
         self.assertEqual(self.trace(), ["preparation", "package", "reload"])
         self.assertEqual(self.store.read_bytes(), b"synthetic private-store sentinel")
-        self.assertIn("Start existing DNS broker", output)
+        self.assertIn("Start DNS helper", output)
         self.assertFalse((self.directory / "omavless-first-run.lock").exists())
 
     def test_cancel_after_preparation_leaves_no_package_action_or_implicit_start(self):
@@ -223,7 +223,7 @@ touch "$TEST_DIR/upgraded"
         status, output = self.run_script()
         self.assertEqual(status, 0, output)
         self.assertEqual(self.trace(), ["helper", "reload"])
-        self.assertIn("Continue DNS setup", output)
+        self.assertIn("Set up DNS helper", output)
         self.assertEqual(json.loads((self.directory / "metadata").read_text()), {
             "schemaVersion": 1, "appSHA": self.hashes[0], "dnsSHA": self.hashes[1],
             "sourceCommit": SOURCE, "version": VERSION, "arch": "x86_64"})

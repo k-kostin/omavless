@@ -5,6 +5,32 @@ const service=fs.readFileSync(__dirname+'/../plugin/Service.qml','utf8');
 const wizard=fs.readFileSync(__dirname+'/../plugin/OnboardingWizard.qml','utf8');
 const parser=vm.createContext({});vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativeSnapshot.js','utf8'),parser);
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
+test('DNS helper is introduced before setup labels and VPN advice is first-run only',()=>{
+ const card=fs.readFileSync(__dirname+'/../plugin/RequiredComponents.qml','utf8');
+ const page=fs.readFileSync(__dirname+'/../plugin/SetupPage.qml','utf8');
+ assert(card.indexOf('objectName: "setupDnsHelperIntro"') < card.indexOf('text: card.tr("core_missing")'));
+ const reason=card.slice(card.indexOf('objectName: "setupOperationalReason"'));
+ const reasonVisible=reason.match(/visible: ([\s\S]*?)\n        text:/)[1];
+ const state=require('../plugin/SetupState.js');
+ for(const delivery of ['current','stale','stale_manual']) for(const operational of ['ready','needs_broker_stopped','needs_dns_setup','needs_runtime_start','needs_selection']) {
+  assert.equal(vm.runInNewContext(reasonVisible,{SetupState:state,card:{facts:{delivery,state:operational}}}),
+   delivery!=='current' && operational!=='ready');
+ }
+ assert(wizard.indexOf('objectName: "onboardingDnsHelperIntro"') < wizard.indexOf('objectName: "onboardingCoreState"'));
+ const warning=wizard.slice(wizard.indexOf('objectName: "onboardingOtherVpnAdvice"'));
+ const visible=warning.match(/visible: ([^\n]+)/)[1];
+ for(const firstRun of [true,false]) for(const nativeContext of [true,false])
+  assert.equal(vm.runInNewContext(visible,{wizard:{firstRun,nativeContext}}),firstRun && nativeContext);
+ assert(panel.includes('firstRun: vless.nativeOwner && vless.nativeSnapshot !== null && !vless.nativeSnapshot.onboardingComplete'));
+ assert(page.includes('(setup.state === "needs_package" || setup.state === "needs_activation")'));
+ const i18n=require('../plugin/I18n.js');
+ assert.equal(i18n.translate('onboarding.step.connection','en'),'VPN profile');
+ assert.equal(i18n.translate('onboarding.step.connection','ru'),'VPN-профиль');
+ for(const locale of ['en','ru']) for(const key of ['dns_helper_intro','other_vpn_advice']) {
+  const text=i18n.translate('setup.'+key,locale);assert(text.length < 180);
+  assert(!/Missing translation|broker|enrollment|брокер|регистраци/.test(text));
+ }
+});
 function functions(source,c,names){for(const name of names){const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;assert(start>=0);vm.runInContext(source.slice(start,end),c)}}
 function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
 test('first use opens existing wizard, completed and dismissed states do not loop',()=>{

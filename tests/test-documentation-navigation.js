@@ -36,8 +36,10 @@ for (const anchor of ['guided-first-run', 'find-your-next-step', 'continue-dns-s
   'updates-close-quit-and-removal', 'optional-helpers-firewall-and-older-installations']) {
   const headings = [...installGuide.matchAll(/^#+ (.+)$/gm)].map(match =>
     match[1].toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-'));
-  assert(headings.includes(anchor), 'missing current setup destination: ' + anchor);
+  const explicit = [...installGuide.matchAll(/<a id="([a-z0-9-]+)"><\/a>/g)].map(match => match[1]);
+  assert(headings.includes(anchor) || explicit.includes(anchor), 'missing current setup destination: ' + anchor);
 }
+assert(/^## Set up DNS helper$/m.test(installGuide));
 assert(installGuide.includes('<a id="guided-first-run--release-preparation"></a>'),
   'historical first-run links must retain their destination');
 for (const file of ['NATIVE_INSTALL_082_REFERENCE.md', 'INSTALL_082_REFERENCE.md']) {

@@ -195,10 +195,10 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
 
     def test_dns_choices_are_separate_readable_lines_in_both_locales(self):
         for locale, title, first, existing in [
-            ('en', 'Choose how to finish DNS setup:', 'FIRST — first-time setup',
-             'START — DNS was already set up successfully'),
-            ('ru', 'Выберите, как завершить настройку DNS:', 'FIRST — первая настройка',
-             'START — DNS для OmaVLESS на этом компьютере уже успешно настроен'),
+            ('en', 'Choose how to finish setting up the DNS helper:', 'FIRST — first-time setup',
+             'START — the DNS helper was already set up successfully for your account'),
+            ('ru', 'Выберите, как завершить настройку DNS-помощника:', 'FIRST — первая настройка',
+             'START — DNS-помощник на этом компьютере уже успешно настроен для вашей учётной записи'),
         ]:
             with self.subTest(locale=locale):
                 code = self.pending_dns_fixture() + f'\nsetup_main resume-dns {locale}\n'
@@ -1369,6 +1369,24 @@ system_broker_available() { system_broker_idle && broker_access_for_user; }
                          "synthetic existing profile data")
         self.assertFalse((self.directory / "omavless-first-run.lock").exists())
         self.assertEqual(list(self.directory.glob("omavless-first-run.*")), [])
+
+    def test_first_setup_explains_helper_and_other_vpns_before_consent(self):
+        for locale, intro, advice in [
+            ('en', 'The OmaVLESS DNS helper sets up website address lookup',
+             'Before setup, turn off other VPN connections'),
+            ('ru', 'DNS-помощник OmaVLESS настраивает поиск адресов сайтов',
+             'Перед настройкой отключите другие VPN-подключения'),
+        ]:
+            with self.subTest(locale=locale):
+                code, output = self.run_terminal(
+                    self.post_dns_terminal_fixture() + f"\nsetup_main install {locale}", "\n"
+                )
+                self.assertEqual(code, 0, output)
+                install_prompt = 'Type INSTALL' if locale == 'en' else 'Введите INSTALL'
+                self.assertLess(output.index(intro), output.index(install_prompt))
+                self.assertLess(output.index(advice), output.index(install_prompt))
+                self.assertIn('Google DNS, Cloudflare', output)
+                self.assertFalse((self.directory / "trace").exists())
 
     def test_terminal_post_dns_socket_timeout_retains_enrollment_without_activation(self):
         code, output = self.run_terminal(self.post_dns_terminal_fixture() + '''

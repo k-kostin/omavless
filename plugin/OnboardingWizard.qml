@@ -16,6 +16,7 @@ Item {
 
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
   property bool nativeContext: false
+  property bool firstRun: false
   property var nativeCoreFacts: null
   property var nativeDesktopFacts: null
   property bool nativeDesktopLoading: false
@@ -224,6 +225,28 @@ Item {
             width: parent.width
             spacing: Style.space(9)
             visible: wizard.step === 1
+
+            PlainText {
+              objectName: "onboardingOtherVpnAdvice"
+              visible: wizard.nativeContext && wizard.firstRun
+              width: parent.width
+              text: wizard.textFor("setup.other_vpn_advice")
+              color: wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            PlainText {
+              objectName: "onboardingDnsHelperIntro"
+              visible: wizard.nativeContext
+              width: parent.width
+              text: wizard.textFor("setup.dns_helper_intro")
+              color: wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
 
             PlainText {
               objectName: "onboardingCoreState"

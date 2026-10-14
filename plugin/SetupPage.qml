@@ -85,6 +85,15 @@ Item {
     spacing: Style.space(12)
     PlainText { Layout.fillWidth: true; text: "OmaVLESS"; font.family: Style.font.family; font.pixelSize: Style.font.title; color: Color.foreground }
     PlainText { Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "review_components" : "panel_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+    PlainText {
+      objectName: "setupOtherVpnAdvice"
+      Layout.fillWidth: true
+      visible: !setup.componentReview && !setup.terminalOpened
+        && (setup.state === "needs_package" || setup.state === "needs_activation")
+      text: setup.tr("other_vpn_advice")
+      font.family: Style.font.family; font.pixelSize: Style.font.caption
+      color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap
+    }
     BorderSurface {
       Layout.fillWidth: true
       implicitHeight: profilesPlaceholder.implicitHeight + Style.space(20)

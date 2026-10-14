@@ -34,6 +34,7 @@ ShellRoot {
         w.nativeCoreDescription = core === "unknown" ? w.textFor("native.core.notChecked") : w.textFor(core === "missing" ? "native.core.missing" : "native.core.version", {version:"1.19.31"})
         w.nativeSetupFacts = {state:core === "update" ? "needs_update" : core === "missing" ? "needs_package" : "ready", coreInstalled:core !== "missing" && core !== "update"}
         w.nativeSetupTerminalOpened = false
+        if ("firstRun" in w) w.firstRun = true
         // Supports inspecting the unchanged installed baseline before the new property exists.
         if ("nativeDesktopFacts" in w) w.nativeDesktopFacts = helpers === "unknown" ? null : {
             filePicker:helpers === "ready" || helpers === "picker" ? "zenity" : null,
@@ -88,6 +89,7 @@ ShellRoot {
             return review.scenario(language, stage, helpers, core)
         }
         function terminal(open: bool) { loader.item.nativeSetupTerminalOpened = open }
+        function firstRun(value: bool) { loader.item.firstRun = value }
         function delivery(value: string): string {
             if (!loader.item || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"
             var facts = loader.item.nativeSetupFacts

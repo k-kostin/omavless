@@ -28,6 +28,14 @@ ColumnLayout {
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   visible: SetupState.needsAttention(facts)
   spacing: Style.space(12)
+  PlainText {
+    objectName: "setupDnsHelperIntro"
+    Layout.fillWidth: true
+    visible: card.facts.state !== "checking" && !card.terminalOpened
+    text: card.tr("dns_helper_intro")
+    font.family: Style.font.family; font.pixelSize: Style.font.caption
+    color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap
+  }
   BorderSurface {
     Layout.fillWidth: true
     implicitHeight: missingContent.implicitHeight + Style.space(20)
@@ -68,6 +76,15 @@ ColumnLayout {
       spacing: Style.space(10)
       PlainText { Layout.fillWidth: true; text: card.tr(card.updateReview && card.facts.state !== "needs_pair_install" ? "update_title" : "prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
       PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : SetupState.updateMessage(card.facts)); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText {
+        objectName: "setupOperationalReason"
+        Layout.fillWidth: true
+        visible: SetupState.hasUpdate(card.facts)
+          && ["ready", "needs_pair_update", "needs_pair_update_manual"].indexOf(card.facts.state) < 0
+        text: card.tr(card.facts.state)
+        font.family: Style.font.family; font.pixelSize: Style.font.caption
+        color: Color.foreground; wrapMode: Text.Wrap
+      }
       Button {
         id: updateButton
         Layout.fillWidth: true
@@ -98,7 +115,7 @@ ColumnLayout {
         bordered: true; focusable: true
         onClicked: card.installRequested("update-help")
       }
-      RowLayout {
+      ColumnLayout {
         Layout.fillWidth: true
         spacing: Style.space(8)
         visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped" || card.facts.state === "needs_runtime_start" || card.facts.state === "needs_dns_setup"

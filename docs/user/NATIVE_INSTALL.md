@@ -4,13 +4,22 @@ This guide is for **OmaVLESS 0.9.8 on Omarchy**. Start with the section that
 matches your panel. Installing or starting the application does **not** connect
 a VPN; you choose a profile and Connect separately.
 
+OmaVLESS uses a **DNS helper** to set up website address lookup for its VPN
+connections. On a normal disconnect it removes only OmaVLESS's DNS settings.
+This is not a choice between Google DNS, Cloudflare or another public DNS
+provider. The `omavless-dns` package contains both this helper and the matching
+Mihomo VPN core; a separately installed Mihomo is left alone.
+
+Before initial setup, turn off other VPN connections to avoid conflicts.
+OmaVLESS does not turn them off for you.
+
 ## Find your next step
 
 | What you see | What to do |
 | --- | --- |
-| Required components / missing application or DNS support | [Install the missing components](#guided-first-run). |
-| Packages installed, DNS setup incomplete | [Continue DNS setup](#continue-dns-setup). Do not reinstall just because setup is incomplete. |
-| Start DNS / Restore DNS access | [Use the existing-installation DNS action](#existing-dns-installations). |
+| Required components / missing application, VPN core or DNS helper | [Install the missing components](#guided-first-run). |
+| Packages installed, helper setup incomplete | [Set up DNS helper](#continue-dns-setup). Do not reinstall just because setup is incomplete. |
+| Start DNS helper / Restore helper access | [Use the existing-installation helper action](#existing-dns-installations). |
 | Start OmaVLESS | Start the application after any DNS step finishes. It starts disconnected and does not enable login startup. |
 | Application update required | [Update the old application](#updates). Updating the plugin alone does not update native packages. |
 | Prepare update / Update OmaVLESS | [Update the installed components](#already-using-098). Preparation and installation ask for separate confirmation. |
@@ -39,9 +48,9 @@ without importing a profile. Neither starts a VPN.
    asked. Approve the ordinary package transaction; enter your password only
    at the system's password prompt.
 
-3. When asked about DNS, type `DNS` to authorize the separate DNS setup.
-   The DNS component includes the Mihomo core OmaVLESS needs. A separately
-   installed Mihomo used by another application is left alone.
+3. Type `DNS` when asked to authorize the DNS helper. This separate
+   administrator step permits the helper for your account and starts its
+   service now and at system startup. The VPN stays off.
 
 4. When the terminal says **OmaVLESS is ready**, close it. Resolve any remaining
    OS prompts, press **Terminal and system prompts are closed** if shown, then
@@ -63,18 +72,20 @@ Import your own compatible VPN profile or HTTPS subscription, choose a mode,
 then Connect. Servers/subscriptions are not included. See
 [everyday use](NATIVE_USAGE.md) for controls and Backup.
 
-## Continue DNS setup
+<a id="continue-dns-setup"></a>
+
+## Set up DNS helper
 
 If the packages are installed but DNS setup is incomplete, choose
-**Continue DNS setup**. It is offered only when the application and broker are
+**Set up DNS helper**. It is offered only when the application and helper are
 safely stopped; an unknown state is not treated as a new installation.
 
 The terminal gives you two choices, on separate lines:
 
-- `FIRST` — **DNS has not been configured for OmaVLESS yet**. Confirm the
-  separate DNS step when asked.
-- `START` — **DNS was already successfully set up for OmaVLESS** on this
-  computer. Use that setup without changing it; confirm `SELECT` when asked.
+- `FIRST` — **you have not authorized the OmaVLESS DNS helper yet**. Confirm
+  the separate administrator step when asked.
+- `START` — **the DNS helper was already successfully set up for your account**
+  on this computer. Use that setup without changing it; confirm `SELECT` when asked.
 
 Press Enter to cancel. Do not guess `FIRST` merely because `START` failed:
 a failure does not mean DNS was never configured. If you are unsure which
@@ -90,8 +101,8 @@ repeat first-use activation.
 
 For an already selected managed pair, the panel may offer:
 
-- **Start DNS** — restart previously configured DNS after an update or a clean stop.
-- **Restore DNS access** — set up access again after a completed clean removal.
+- **Start DNS helper** — restart the previously configured helper after an update or a clean stop.
+- **Restore helper access** — set up access again after a completed clean removal.
   This is not profile Restore.
 - `SELECT` in the setup terminal — an existing accessible broker is ready,
   but the installed pair has not yet been selected.
@@ -161,7 +172,7 @@ no DNS companion offers **Update OmaVLESS**.
 
 Confirm `UPGRADE` and the normal sudo/pacman prompts. This installs the matched
 application/DNS pair while preserving profiles and the stopped application.
-It is followed by separate **Continue DNS setup** and **Start OmaVLESS** steps.
+It is followed by separate **Set up DNS helper** and **Start OmaVLESS** steps.
 Unknown/modified predecessors or custom templates may require support; do not
 reset data to make them qualify.
 
@@ -195,7 +206,7 @@ When the panel offers **Prepare update**:
    action again: preparation rechecks the now-stopped boundary before asking
    for `UPGRADE`; it does not repeat a completed broker stop.
 5. After closing/acknowledging the completed update terminal, use the offered **Start
-   DNS**, then separately **Start OmaVLESS**. Do not choose first enrollment
+   DNS helper**, then separately **Start OmaVLESS**. Do not choose first enrollment
    for an account that is already enrolled. No VPN starts automatically.
 
 Compatible older pairs remain usable while you postpone an update. The first
