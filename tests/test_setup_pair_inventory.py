@@ -66,11 +66,15 @@ class PairInventoryTests(unittest.TestCase):
 
     def test_known_public_source_does_not_admit_a_self_consistent_local_rebuild(self):
         self.assertEqual(self.inspect(published=True), 'unknown')
+        self.delivery('99c556e5c966e1e1dae04f2d8babd2ca2dec9375')
+        self.assertEqual(self.inspect(published=True), 'unknown')
 
     def test_real_public_pin_lookup_is_closed_and_shared_with_native_updater(self):
         data = json.loads((ROOT / 'plugin/published-pairs.json').read_text())
         self.assertEqual(data['schemaVersion'], 1)
-        self.assertEqual(len(data['pairs']), 8)
+        self.assertEqual(len(data['pairs']), 10)
+        self.assertEqual(len({(pair['sourceCommit'], pair['architecture'])
+                              for pair in data['pairs']}), 10)
         for pair in data['pairs']:
             result = subprocess.run(['/bin/bash', '-c', 'source "$1"; _omavless_pair_pins "$2" "$3"',
                                      'fixture', str(INSPECTOR), pair['sourceCommit'], pair['architecture']],

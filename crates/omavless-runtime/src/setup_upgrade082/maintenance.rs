@@ -141,14 +141,35 @@ fn original_dead(pidfd: &OwnedFd) -> Result<bool> {
     Ok(events.contains(PollFlags::IN))
 }
 fn pin_broker() -> Result<super::package_phase::Archive> {
+    pin_broker_at(Path::new(BROKER), 0, std::env::consts::ARCH)
+}
+fn idle_broker_pins(arch: &str) -> Result<&'static [&'static str]> {
     // These released binaries have next_session's serialized Idle access gate.
     // Original v0.9.8 lacks it and MUST NOT use this preparation.
-    let digest = match std::env::consts::ARCH {
-        "x86_64" => "ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5",
-        "aarch64" => "8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26",
-        _ => return refused(),
-    };
-    super::package_phase::Archive::open(BROKER.into(), 0, digest, 0o755)
+    // fix.5 keeps production broker/access/channel inputs unchanged; these
+    // exact architecture-specific payloads were re-inspected against its
+    // immutable public archives. Never trust arbitrary installed receipt pins.
+    match arch {
+        "x86_64" => Ok(&[
+            "ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5",
+            "1855ed920a4b064c811ed14134b5ae14e3c5ece0a26695a84afc1ccfd711dc93",
+        ]),
+        "aarch64" => Ok(&[
+            "8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26",
+            "c764c30ba24844f6972e2b19c600c068c92682d9fe1e1bd94de5896356f93c5e",
+        ]),
+        _ => refused(),
+    }
+}
+// Private inert test seam; production always supplies the fixed root path/UID.
+fn pin_broker_at(path: &Path, owner: u32, arch: &str) -> Result<super::package_phase::Archive> {
+    for digest in idle_broker_pins(arch)? {
+        if let Ok(captured) = super::package_phase::Archive::open(path.into(), owner, digest, 0o755)
+        {
+            return Ok(captured);
+        }
+    }
+    refused()
 }
 fn exact_acl(uid: u32) -> [u8; 44] {
     let mut output = [0; 44];
@@ -475,6 +496,41 @@ pub fn run_root(raw_uid: &std::ffi::OsStr) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn idle_pins_are_exact_architecture_specific_and_exclude_original_brokers() {
+        let original = [
+            "8caba1a57b44b2856b98b0d0213cc545905ba5a031aac144fcce2420957b0d2e",
+            "33121a6f4c4eb7b644da034fc521e221d7f292d61bdaffb837ed82c015dbe755",
+        ];
+        for (arch, other) in [("x86_64", "aarch64"), ("aarch64", "x86_64")] {
+            let pins = idle_broker_pins(arch).unwrap();
+            assert_eq!(pins.len(), 2);
+            let pair = super::super::published098("99c556e5c966e1e1dae04f2d8babd2ca2dec9375", arch)
+                .unwrap();
+            assert!(pins.contains(&pair.broker_sha.as_str()));
+            for denied in idle_broker_pins(other)
+                .unwrap()
+                .iter()
+                .chain(original.iter())
+            {
+                assert!(!pins.contains(denied));
+            }
+        }
+        assert!(idle_broker_pins("unknown").is_err());
+    }
+    #[test]
+    fn self_consistent_or_modified_unknown_binary_never_earns_preparation() {
+        let directory = crate::test_temp::directory("idlepin").unwrap();
+        let path = directory.join("b");
+        fs::write(&path, b"inert locally rebuilt broker; never execute").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        for arch in ["x86_64", "aarch64", "unknown"] {
+            assert!(pin_broker_at(&path, Uid::current().as_raw(), arch).is_err());
+        }
+        fs::write(&path, b"modified inert broker").unwrap();
+        assert!(pin_broker_at(&path, Uid::current().as_raw(), "x86_64").is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
     struct Fixture {
         trace: Vec<&'static str>,
         fail: Option<&'static str>,
