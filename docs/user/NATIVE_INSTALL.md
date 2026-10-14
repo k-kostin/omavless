@@ -13,6 +13,7 @@ a VPN; you choose a profile and Connect separately.
 | Start existing DNS broker / Restore DNS enrollment | [Use the existing-installation DNS action](#existing-dns-installations). |
 | Start OmaVLESS | Start the application after any DNS step finishes. It starts disconnected and does not enable login startup. |
 | Application update required | [Update the old application](#updates). Updating the plugin alone does not update native packages. |
+| Prepare component update / Update required components | [Update a supported existing 0.9.8 pair](#already-using-098). Preparation and package installation require separate consent. |
 | Setup terminal and prompts are closed | Finish or cancel the terminal and all OS prompts first; then press this acknowledgement and Check again. |
 | Setup needs attention / State unverified / Recovery required | [Inspect the current result](#when-setup-stops). Do not repeatedly install or connect to clear a warning. |
 
@@ -54,13 +55,13 @@ without importing a profile. Neither starts a VPN.
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
 
-   The current main widget's Mihomo step shows **Core ready** and its installed version when the
+   The Mihomo step shows **Core ready** and its installed version when the
    managed core, TUN device and desktop file permissions are present. This is
    not a connection test. If a component needs attention, choose **Review
    component installation/setup/update** to open the same component screen;
    navigation itself does not install or update anything. Use its offered
    action and terminal confirmation, then **Check again**. The guided update
-   is for the qualified public 0.8.2 predecessor, not an independent Mihomo
+   installs the matching application/DNS pair, not an independent Mihomo
    updater. A missing/incompatible companion beside an existing application
    may require the guarded package procedure in [Updates](#updates); do not
    install a stock core or force a reinstall to bypass that check.
@@ -159,13 +160,13 @@ an enrollment that may already have succeeded.
 There are **two parts**: the Omarchy widget and the native application/DNS
 packages. `omarchy plugin update kdk.omavless` updates only the widget.
 
-The corrected delivery is
-[`v0.9.8-fix.4`](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.4).
+This follow-up selects the validation delivery
+[`v0.9.8-fix.5`](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.5).
 Its public archives and SHA-256 records identify the matching packages for
 x86_64 and ARM64. Product/package versions remain `0.9.8` / `0.9.8-1`, so
 the version label alone cannot distinguish earlier deliveries. Do not mix
 packages from different corrections. The release's
-[acceptance record](../testing/SETUP_082_UPGRADE_VM_2026-10-13.md) separates
+[acceptance record](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md) separates
 installed x86_64 results from the still-pending installed ARM64 check.
 
 ### Updating the public 0.8.2 application
@@ -191,7 +192,31 @@ remaining DNS/application step; do not initialize or activate an existing
 Rust-owned installation again.
 
 Native-package replacement is a separate, guarded operation, not the 0.8.2
-updater. Before replacing **both** matching packages, verify clean shutdown,
+updater. When the panel offers **Prepare component update**:
+
+1. Turn VPN login autoconnect Off, Disconnect, then confirm Settings →
+   **Shut down OmaVLESS**. Do not stop another VPN or force a live connection off
+   as part of an update.
+2. Enable the widget again with `omarchy plugin enable kdk.omavless` and open
+   it. Reopening the widget does not reconnect the VPN or start the application.
+3. Choose **Prepare component update**. Confirm `PREPARE` and the separate
+   system authorization. This checks and prepares a supported idle broker; it
+   does not install packages. An unknown or unsupported result needs inspection,
+   not repeated confirmation or forced cleanup.
+4. Finish/cancel that terminal and all OS prompts. Close it, acknowledge their
+   closure in the panel, and use **Check again**.
+5. Choose **Update required components**, confirm `UPGRADE` and the normal
+   sudo/pacman transaction. Both packages are replaced together. Cancelling here
+   leaves the old packages unchanged; it does not restart the broker.
+6. After closing/acknowledging the terminal, use the offered **Start existing
+   DNS broker**, then separately **Start OmaVLESS**. Do not choose first enrollment
+   for an account that is already enrolled. No VPN starts automatically.
+
+Compatible older pairs remain usable while you postpone an update. The first
+original `v0.9.8` broker is not supported by automatic preparation; ask for help
+with its guarded removal/replacement instead of trying to force it through.
+
+Before a separately reviewed administrator replacement of **both** matching packages, verify clean shutdown,
 no other user's active runtime, an idle stopped DNS broker with no lease/TUN,
 and settled authorization. The package guard must pass. Download the matching
 archives and verify their source/architecture and SHA-256 before the ordinary

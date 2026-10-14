@@ -15,7 +15,7 @@ A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-The corrected `v0.9.8-fix.4` delivery has exact package pins for both architectures.
+The `v0.9.8-fix.5` validation delivery has exact package pins for both architectures.
 Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
 and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
 correction, not the version label. Existing validation users may see an explicit
@@ -33,6 +33,11 @@ It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.
 3. For an existing installation, follow the documented disconnected update or
    recovery procedure. Do not replace a package under a connected VPN, reset
    a private store or repeat activation. The DNS broker has its own enrollment.
+   A supported pair offers separate **Prepare component update** (`PREPARE`)
+   and **Update required components** (`UPGRADE`) actions. Full shutdown,
+   terminal closure and the later broker/application starts remain explicit.
+   The original v0.9.8 broker without the idle gate needs guarded administrator
+   removal/replacement, not forced automatic preparation.
 4. To install this extracted frontend over a reviewed compatible pair, run
    `./install.sh` as the desktop user after confirming Rust ownership. This
    frontend-only command does not install packages or activate the runtime.

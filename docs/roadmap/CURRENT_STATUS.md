@@ -20,11 +20,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
   disabled for fix.4; old binaries cannot be relabelled as containing it.
   Freshness is advisory for compatible older pairs, not a Connect/Continue or
   stopped-runtime dead end. Main promotion is paused pending this follow-up.
-  The user-journey challenge found an additional blocker: clean broker
-  preparation and return after Full Quit are not yet a complete supported user
-  procedure. Installed GUI Quit/reopen, broker Start, terminal closure fencing
-  and app Start passed separately on the candidate; manual VM preparation and
-  cached CI packages do not establish end-to-end update/public-download proof.
+  The user-journey challenge's preparation/return blocker is implemented by
+  native producer `99c556e5c966e1e1dae04f2d8babd2ca2dec9375` and tested through
+  actual GUI Quit/reopen → PREPARE → UPGRADE → broker Start → app Start, including
+  cancellations and terminal-closure fencing. `rc/0.9.8-fix.5` selects its
+  independently inspected matched pair for both architectures and enables the
+  public action only for that delivered capability. Clean reinstall, anonymous
+  download/cache-miss and exact final CI are separate pending delivery gates;
+  installed ARM64 is not claimed. Original v0.9.8 lacks the required Idle gate
+  and still needs guarded administrator removal/replacement.
 
 - **Emergency setup/update correction, #778:** owner-authorized main
   integration carries stage diagnostics, partial DNS continuation, qualified
