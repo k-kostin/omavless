@@ -6,6 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Core onboarding follow-up:** distinguish Core ready/version/Continue from
+  missing, supported-update and unverified facts. Other states navigate to the
+  same guarded component setup; opening review performs no install/update.
+  Refresh is a facts read, not a Mihomo updater. Existing app + missing companion
+  retains manual guarded guidance. [The UI report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
+  separates installed ready navigation from EN/RU synthetic negative-state
+  rendering; the fixing PR records CI and actual main integration. Native
+  package identities, 0.9.8 version and publication boundaries are unchanged.
+
 - **Emergency setup/update correction, #778:** owner-authorized main
   integration carries stage diagnostics, partial DNS continuation, qualified
   public 0.8.2 paired update, broker readiness and managed-core version checks.

@@ -52,12 +52,13 @@ ShellRoot {
       if (loader.item && loader.item.busy) return "busy"
       if (!loader.item || ["en", "ru"].indexOf(locale) < 0
           || ["checking", "ready", "needs_package", "needs_update", "needs_activation", "needs_companion", "needs_attention", "release_unavailable"].indexOf(state) < 0
-          || ["present", "missing", "unknown"].indexOf(core) < 0) return "refused"
+          || ["present", "missing", "unknown"].indexOf(core) < 0) { review.result = "refused"; return "refused" }
       loader.item.locale = locale
       loader.item.facts = {state:state, coreInstalled:core === "unknown" ? null : core === "present"}
       loader.item.terminalOpened = terminal
       flick.contentY = 0
       window.visible = true
+      review.result = "ready"
       return "ready"
     }
     function inspect(): string {
@@ -72,7 +73,7 @@ ShellRoot {
       return "ready"
     }
     function capture(slug: string): string {
-      if (!/^[a-z0-9-]{1,48}$/.test(slug)
+      if (["ready", "captured"].indexOf(review.result) < 0 || !/^[a-z0-9-]{1,48}$/.test(slug)
           || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/su.")) return "refused"
       review.result = "capturing"
       flick.grabToImage(function(image) { review.result = image.saveToFile(review.output + "/" + slug + ".png") ? "captured" : "failed" })

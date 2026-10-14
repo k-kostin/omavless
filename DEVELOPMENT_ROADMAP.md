@@ -2,6 +2,12 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
+**October 14 core onboarding follow-up:** ready/version/Continue and explicit
+navigation to existing component setup replace ambiguous readiness guidance.
+The [bounded UI evidence](docs/testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
+distinguishes installed behavior from synthetic EN/RU unavailable/update states.
+This adds no independent core updater, package repair authority or native release.
+
 **Emergency setup correction, October 14:** owner-authorized #778 integration
 fixes partial DNS setup, bounded stage reporting, managed-core readiness/version
 and the qualified stopped public 0.8.2 paired update. New immutable delivery

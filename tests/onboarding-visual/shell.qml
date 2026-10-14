@@ -24,7 +24,7 @@ ShellRoot {
     function scenario(language, stage, helpers, core) {
         if (!loader.item || ["en", "ru"].indexOf(language) < 0
             || stage < 1 || stage > 3 || ["ready", "missing", "clipboard", "picker", "unknown"].indexOf(helpers) < 0
-            || ["ready", "missing", "permissions", "unknown", "update"].indexOf(core) < 0) return "refused"
+            || ["ready", "missing", "permissions", "unknown", "update"].indexOf(core) < 0) { result = "refused"; return "refused" }
         var w = loader.item
         w.locale = language
         w.nativeCoreFacts = core === "unknown" ? null : {
@@ -87,7 +87,7 @@ ShellRoot {
             return review.scenario(language, stage, helpers, core)
         }
         function capture(slug: string): string {
-            if (!/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/onboarding.")) return "refused"
+            if (["ready", "captured"].indexOf(review.result) < 0 || !/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/onboarding.")) return "refused"
             review.result = "capturing"
             loader.grabToImage(function(image) {
                 review.result = image.saveToFile(review.output + "/" + slug + ".png") ? "captured" : "failed"

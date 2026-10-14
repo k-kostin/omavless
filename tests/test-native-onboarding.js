@@ -24,6 +24,14 @@ test('component review is navigation with fresh inventory, no install or connect
  assert(panel.includes('onComponentSetupRequested: root.reviewComponentSetup()'));
  assert(panel.includes('nativeSetupFacts: setupPage.facts'));
 });
+test('render fixtures refuse stale captures after an unadmitted scenario',()=>{
+ for(const file of ['onboarding-visual/shell.qml','setup-visual/shell.qml']) {
+  const source=fs.readFileSync(__dirname+'/'+file,'utf8');
+  const capture=source.slice(source.indexOf('function capture('),source.indexOf('function result()'));
+  assert(capture.includes('["ready", "captured"].indexOf(review.result) < 0'));
+  assert(/result = "refused"; return "refused"/.test(source));
+ }
+});
 test('ready, missing, update and unknown core states do not borrow each other actions',()=>{
  const state=require('../plugin/SetupState.js');
  const ready={installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};

@@ -90,6 +90,18 @@ facts. Presence is not permission/TUN/live-health evidence. A known missing core
 blocks Connect but never prevents Disconnect. Preserve the accepted main and
 Settings layout when the installation is ready.
 
+The native onboarding core step distinguishes confirmed desktop core setup,
+missing components, a supported package update and unverified/failed facts.
+Confirmed setup shows Core ready, the installed version and Continue without
+suggesting reinstall; this is not service/TUN-creation/network-health evidence.
+Other states navigate to the existing guarded component controller, not a new
+installer. Missing/unknown facts never masquerade as ready Continue. Component
+review always retains Check again, Setup help and return navigation, including
+when package presence is known but core permissions are not confirmed. Refresh
+means refreshing facts; it must not imply a package update. Only an actually
+supported update state offers the admitted app/DNS paired update. A missing
+companion beside an existing app is not automatic repair authority.
+
 ## Three independent checks before calling a change ready
 
 1. **Behavior:** does the real handler address the right record/state, honor
