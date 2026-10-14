@@ -9,7 +9,7 @@ installation procedure or evidence that a candidate has been released.
 
 | English | Russian | Meaning |
 | --- | --- | --- |
-| Omarchy plugin / widget | Плагин / виджет Omarchy | The bar icon and panel. Installing, updating or disabling the widget is not installing, updating or stopping the native application. |
+| Omarchy plugin / widget | Плагин / виджет Omarchy | The bar icon and panel. Installing/updating it does not install/update native packages. Closing its panel does not stop the application; persistent plugin disable/remove requests application shutdown. |
 | OmaVLESS application | Приложение OmaVLESS | The native program that manages settings and VPN connections. Starting it and connecting a VPN are separate actions. |
 | VPN core / Mihomo | Ядро VPN / Mihomo | The program that carries VPN traffic. OmaVLESS uses its bundled core; an unrelated existing Mihomo installation is not silently replaced or removed. |
 | DNS helper | DNS-помощник | Sets up website address lookup for OmaVLESS VPN connections. Normal disconnect removes only OmaVLESS's DNS settings. It is not the VPN core or a choice of public DNS provider. |

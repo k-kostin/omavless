@@ -761,3 +761,71 @@ shell restart, native package, VPN or real store mutation was invoked. This
 narrow label review is not new installed update or independent Astra acceptance.
 The local canvas retains prior render identities rather than silently attributing
 old screenshots to the renamed source. Public/main promotion is still separate.
+
+### Terminal journey, vocabulary and editorial checkpoint
+
+Implementation source `c034f9eceb53ff9e94c61b00150047a1e6cc6205` follows the
+owner's requested order: terminal review/correction, shared glossary, then a
+bounded retrospective. The subsequent documentation-only glossary correction
+distinguishes panel close from sustained plugin disable/remove, which requests
+fenced native shutdown; it does not claim that disappearance proves cleanup.
+
+- Native PREPARE, first UPGRADE and post-preparation UPGRADE use a pure EN/RU
+  formatter. Consequences, exact consent words and Enter cancellation remain
+  explicit. Preparation may safely stop the helper; later cancellation keeps
+  old packages and does not restart it. UID permission and service startup now
+  and at computer boot remain explicit in the shell's separate DNS consent.
+  The controller passes its bounded selected locale to the extracted helper.
+  Privileged operations, package admission, structured results, diagnostic
+  codes and system/pacman/password prompts are not simplified or suppressed.
+- The stopped-update path proceeds in the same terminal, without another
+  reopen/update loop. Success/failure instructions name closure acknowledgement,
+  Check again and the applicable helper/app action. Setup completion describes
+  what this setup did, not an unobserved global VPN-Off state. Restore access is
+  not a fallback after failed Start. First-time DNS and existing access remain
+  distinct; no new retry or reset authority follows from the copy change.
+- `GLOSSARY.md` is the shared component/action vocabulary, discovered through
+  AGENTS and the UI/localization policies. A cross-surface test compares its
+  action table and terminal references to the real EN/RU catalog. It is not a
+  duplicate installer or a requirement to rename machine/protocol identifiers.
+
+Local normal checks PASS: 774 Python tests with two existing opt-in skips,
+ordinary JS/QML/plugin checks including25 setup contracts; owning updater Rust
+checks48 actual tests, zero failures/ignores. Product Backup+setup-upgrade082
+all-target strict clippy, formatter, shell syntax and diff checks PASS. These
+are source/inert fixture gates, not another clean-install or ARM64 execution.
+Hosted full Rust/parity CI belongs to the final PR head and remains separate.
+
+Primary-agent visual review in the sole-operator x86_64 guest inspected all
+three compiled native prompts in EN/RU, plus shell DNS choice, DNS consent,
+runtime-start return and initial cancellation. The preview reused production
+formatting/functions, visibly identified itself as read-only and never entered
+a package/service operation. The native PID and desiredOff, incomplete
+onboarding, empty profiles and stored startupOff remained unchanged. Preview
+windows closed and VM custody released; no sudo, DNS/VPN change, reboot or
+physical-host UI/network mutation. Captures remain private/local. The canvas
+keeps stable codes and original QML image identities; terminal extraction now
+uses owning functions/markers rather than brittle line offsets.
+
+Independent Astra source review closed the false global-Off claim and found
+the mistaken EN Help reference and glossary disable statement; both are
+corrected. Remaining reviewed helper/core, Start/Connect, access/Restore and
+consent distinctions have no actionable finding. This is independent source
+review, not independent installed/visual acceptance.
+
+Retrospective cause/change/check: catalog-only review missed a separately
+delivered native sink, remembered labels drifted, and local line-number excerpts
+could silently attach the wrong prose to a phase. The existing UI contract and
+execution policy now require one cross-owner editorial journey, actual-label
+checks, operation-scoped outcomes and hash-bound function/marker extraction.
+The new glossary/catalog/terminal guard and production-formatter preview
+demonstrate those controls on this change. No new permanent reviewer or skill
+duplicates the existing procedure.
+
+**Delivery boundary:** the public fix.5 archives do not contain these new Rust
+prompt bytes. Source review and compiled preview cannot earn their delivery.
+Before promotion, build/pin the new matching native packages, select the helper
+from that archive and verify the affected installed terminal path. Existing
+fix.5 installation evidence is retained history, not acceptance for new bytes.
+No main merge, release/asset publication, Marketplace submission or issue772
+reply is performed or authorized by this checkpoint.
