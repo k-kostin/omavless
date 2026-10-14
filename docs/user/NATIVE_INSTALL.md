@@ -203,12 +203,15 @@ updater. When the panel offers **Prepare component update**:
    system authorization. This checks and prepares a supported idle broker; it
    does not install packages. An unknown or unsupported result needs inspection,
    not repeated confirmation or forced cleanup.
-4. Finish/cancel that terminal and all OS prompts. Close it, acknowledge their
-   closure in the panel, and use **Check again**.
-5. Choose **Update required components**, confirm `UPGRADE` and the normal
-   sudo/pacman transaction. Both packages are replaced together. Cancelling here
-   leaves the old packages unchanged; it does not restart the broker.
-6. After closing/acknowledging the terminal, use the offered **Start existing
+4. After preparation succeeds, the **same terminal** asks for `UPGRADE`.
+   Confirm it and the normal sudo/pacman transaction. Both packages are replaced
+   together. You may instead press Enter to cancel before package installation;
+   this leaves the old packages unchanged and does not restart the broker.
+   To return later, close the terminal and resolve all OS prompts, acknowledge
+   their closure, then **Check again**. Choose the offered preparation/update
+   action again: preparation rechecks the now-stopped boundary before asking
+   for `UPGRADE`; it does not repeat a completed broker stop.
+5. After closing/acknowledging the completed update terminal, use the offered **Start existing
    DNS broker**, then separately **Start OmaVLESS**. Do not choose first enrollment
    for an account that is already enrolled. No VPN starts automatically.
 

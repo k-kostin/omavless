@@ -33,8 +33,8 @@ It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.
 3. For an existing installation, follow the documented disconnected update or
    recovery procedure. Do not replace a package under a connected VPN, reset
    a private store or repeat activation. The DNS broker has its own enrollment.
-   A supported pair offers separate **Prepare component update** (`PREPARE`)
-   and **Update required components** (`UPGRADE`) actions. Full shutdown,
+   A supported pair's update has separate `PREPARE` and `UPGRADE` confirmations
+   in the same terminal. Full shutdown,
    terminal closure and the later broker/application starts remain explicit.
    The original v0.9.8 broker without the idle gate needs guarded administrator
    removal/replacement, not forced automatic preparation.
