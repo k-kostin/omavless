@@ -6,10 +6,51 @@ const i18n = require('../plugin/I18n.js');
 const page = fs.readFileSync(__dirname + '/../plugin/SetupPage.qml', 'utf8');
 const panel = fs.readFileSync(__dirname + '/../plugin/Panel.qml', 'utf8');
 const card = fs.readFileSync(__dirname + '/../plugin/RequiredComponents.qml', 'utf8');
-assert(card.includes('card.updateReview && card.facts.state !== "needs_pair_install"'),
+assert(card.includes('card.facts.state === "needs_pair_install" ? "prepare_title"'),
   'A missing component needs setup, not an UPDATE AVAILABLE heading');
 let count = 0;
 function test(name, run) { try { run(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
+test('operational steps precede optional updates across inventory states', () => {
+  const vm=require('node:vm');
+  function presentation(facts) {
+    const c={SetupState:state,facts};c.card=c;
+    for(const name of ['appMissing','pairUpdate','updateReview','operationalStep','showPreparation','optionalUpdate']) {
+      const expression=card.match(new RegExp('readonly property bool '+name+': ([^\\n]+)'))[1];
+      c[name]=vm.runInNewContext(expression,c);
+    }
+    return c;
+  }
+  for(const delivery of ['current','stale','stale_manual'])for(const coreInstalled of [true,false,null]) {
+    for(const status of ['needs_activation','needs_selection','needs_dns_setup','needs_broker_stopped','needs_runtime_start']) {
+      const c=presentation({state:status,coreInstalled,delivery});assert(c.operationalStep);assert(c.showPreparation);
+    }
+    const ready=presentation({state:'ready',coreInstalled,delivery});assert.equal(ready.showPreparation,coreInstalled===null && delivery==='current');
+    for(const status of ['needs_update','needs_pair_install','needs_pair_mismatch','needs_companion'])assert(!presentation({state:status,coreInstalled,delivery}).optionalUpdate);
+    for(const status of ['needs_pair_update','needs_pair_update_manual'])assert(presentation({state:status,coreInstalled,delivery}).updateReview);
+  }
+  assert(card.indexOf('id: preparation') < card.indexOf('id: updates'));
+  assert(card.indexOf('id: prepareButton') < card.indexOf('id: pairedUpdateButton'));
+});
+test('recovery disclosure is navigation, and restore retains all existing barriers', () => {
+  const vm=require('node:vm');
+  const toggle=card.slice(card.indexOf('id: recoveryToggle'),card.indexOf('\n      }',card.indexOf('id: recoveryToggle')));
+  assert(toggle.includes('onClicked: card.recoveryExpanded = !card.recoveryExpanded'));
+  assert(!toggle.includes('installRequested'));
+  const restore=card.slice(card.indexOf('id: restoreButton'),card.indexOf('\n      }',card.indexOf('id: restoreButton')));
+  const visible=restore.match(/visible: ([^\n]+)/)[1],enabled=restore.match(/enabled: ([^\n]+)/)[1];
+  for(const shown of [false,true])for(const recoveryExpanded of [false,true])for(const coreInstalled of [true,false,null])for(const effectBusy of [false,true])for(const terminalOpened of [false,true]) {
+    const c={card:{recoveryExpanded,facts:{coreInstalled},effectBusy,terminalOpened},recoveryToggle:{visible:shown}};
+    c.visible=vm.runInNewContext(visible,c);
+    assert.equal(c.visible,shown&&recoveryExpanded);
+    assert.equal(vm.runInNewContext(enabled,c),shown&&recoveryExpanded&&coreInstalled===true&&!effectBusy&&!terminalOpened);
+  }
+});
+test('every web-link label has the same trailing marker, local URL reveal does not', () => {
+  for(const locale of ['en','ru'])for(const key of ['setup.guide_short','setup.update_help','setup.guide','native.onboarding.setup_guide','settings.source']) {
+    const value=i18n.translate(key,locale,{source:'Synthetic source'});assert(value.endsWith(' ↗'));assert.equal(value.split('↗').length,2);
+  }
+  for(const key of ['common.show_url','common.hide_url','setup.install_all','setup.prepare_update'])assert(!i18n.translate(key,'ru',{}).includes('↗'));
+});
 test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
   const facts={state:'needs_runtime_start',coreInstalled:true};
   assert.equal(state.parse('needs_runtime_start\n',0),'needs_runtime_start');
@@ -182,11 +223,14 @@ test('installed programs disappear from the required-components card; readiness 
   assert(card.includes('visible: card.appMissing; text: card.tr("app_missing")'));
   assert(card.includes('visible: card.coreMissing; text: card.tr("core_missing")'));
   assert(card.includes('visible: SetupState.needsAttention(facts)'));
-  assert(card.includes('[installButton, updateButton, pairedUpdateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
-  assert(card.includes('visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"'));
+  assert(card.includes('[installButton, prepareButton, recoveryToggle, restoreButton, updateButton, pairedUpdateButton, updateHelpButton, retryButton, checkButton, guideButton]'));
+  assert(card.includes('visible: card.operationalStep'));
   // Longer helper labels need independent full-width targets, not two
   // competing half-width buttons on a narrow setup panel.
-  assert(card.includes('ColumnLayout {\n        Layout.fillWidth: true\n        spacing: Style.space(8)\n        visible: card.facts.state'));
+  for(const id of ['prepareButton','restoreButton']) {
+    const control=card.slice(card.indexOf('id: '+id),card.indexOf('\n      }',card.indexOf('id: '+id)));
+    assert(control.includes('Layout.fillWidth: true'));
+  }
   assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));
   assert(card.includes('card.facts.coreInstalled === true && !card.effectBusy'));
   assert(panel.includes('panelOpen: root.opened'));

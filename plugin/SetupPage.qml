@@ -113,6 +113,7 @@ Item {
       id: requirements
       Layout.fillWidth: true
       locale: setup.locale; facts: setup.facts; busy: setup.busy; effectBlocked: setup.nativeEffectBlocked; terminalOpened: setup.terminalOpened
+      busyMessage: startApp.running ? "starting_app" : setup.launching ? "opening_terminal" : "checking"
       onInstallRequested: function(action) { setup.install(action) }
       onCheckRequested: { setup.check(); setup.factsRefreshRequested() }
       onTerminalClosed: setup.acknowledgeTerminalClosed()
@@ -149,9 +150,9 @@ Item {
       id: reviewGuideButton
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention
-      text: setup.tr("guide_short"); bordered: true; focusable: true
+      text: setup.tr("guide_short"); bordered: false; focusable: true
       onClicked: setup.guide()
     }
-    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); bordered: true; focusable: true; onClicked: setup.closeRequested() }
+    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && !setup.needsAttention && setup.reviewCoreState === "ready" && !setup.terminalOpened ? Color.accent : Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
   }
 }

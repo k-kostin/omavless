@@ -12,6 +12,8 @@ ShellRoot {
   property string result: "loading"
   property string output: Quickshell.env("OMAVLESS_SETUP_REVIEW_DIR")
   property int viewportHeight: 576
+  property int actionRequests: 0
+  property string lastAction: ""
   FloatingWindow {
     id: window
     title: "OmaVLESS setup review — synthetic"
@@ -34,6 +36,7 @@ ShellRoot {
         source: Quickshell.env("OMAVLESS_SETUP_REVIEW_ENTRY")
         onLoaded: {
           if (item.closeRequested) item.closeRequested.connect(function() { window.visible = false; review.result = "closed" })
+          if (item.installRequested) item.installRequested.connect(function(action) { review.actionRequests++; review.lastAction = action })
           review.result = "loaded"
         }
       }
@@ -64,7 +67,18 @@ ShellRoot {
     function inspect(): string {
       if (!loader.item) return "loading"
       return JSON.stringify({state:loader.item.facts.state, visible:loader.item.visible, height:loader.item.implicitHeight,
-        controls:loader.item.focusTargets.map(function(b) { return {text:b.text, visible:b.visible, enabled:b.enabled} })})
+        actionRequests:review.actionRequests, lastAction:review.lastAction,
+        controls:loader.item.focusTargets.map(function(b) { return {name:b.objectName,text:b.text,visible:b.visible,enabled:b.enabled,primary:b.primary === true} })})
+    }
+    function recovery(): string {
+      // Only a presentation toggle on the component-only fixture. Never call
+      // SetupPage.install or a real system operation to test disclosure.
+      if (!loader.item || !("recoveryExpanded" in loader.item) || loader.item.facts.state !== "needs_broker_stopped") return "refused"
+      var button = loader.item.focusTargets.filter(function(b) { return b.objectName === "setupRecoveryOptions" })[0]
+      if (!button || !button.visible || !button.enabled) return "unavailable"
+      button.clicked()
+      review.result = "ready"
+      return "ready"
     }
     function delivery(value: string): string {
       if (!loader.item || loader.item.busy || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"

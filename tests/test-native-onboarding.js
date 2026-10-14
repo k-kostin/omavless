@@ -5,17 +5,38 @@ const service=fs.readFileSync(__dirname+'/../plugin/Service.qml','utf8');
 const wizard=fs.readFileSync(__dirname+'/../plugin/OnboardingWizard.qml','utf8');
 const parser=vm.createContext({});vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativeSnapshot.js','utf8'),parser);
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
+test('footer separates back from forward and names completion without a profile',()=>{
+ const footer=wizard.slice(wizard.indexOf('id: navigation'));
+ assert(footer.indexOf('id: backButton') < footer.indexOf('id: forward'));
+ assert(footer.includes('Qt.AlignLeft'));assert(footer.includes('Qt.AlignRight'));
+ assert(footer.includes('columns: width >= backButton.implicitWidth + forward.implicitWidth'));
+ assert(!footer.includes('text: wizard.textFor("common.check_again")'));
+ const i18n=require('../plugin/I18n.js');
+ assert.equal(i18n.translate('onboarding.finish_later','en'),'Finish without a profile');
+ assert.equal(i18n.translate('onboarding.finish_later','ru'),'Завершить без профиля');
+ for(const locale of ['en','ru'])for(const key of ['native.onboarding.empty_next','native.onboarding.ready_next','onboarding.saving_routing'])assert(!i18n.translate(key,locale).includes('Missing translation'));
+ assert(!i18n.translate('native.onboarding.ready_next','en').includes('connected'));
+});
+test('routing progress blocks forward navigation until confirmed outcome',()=>{
+ const control=wizard.slice(wizard.indexOf('objectName: "onboardingRoutingContinue"'));
+ const enabled=control.match(/enabled: ([^\n]+)/)[1];
+ for(const busy of [false,true])for(const routingSavePending of [false,true])
+  assert.equal(vm.runInNewContext(enabled,{wizard:{busy,routingSavePending}}),!busy&&!routingSavePending);
+ assert(panel.includes('routingSavePending: root.nativeOnboardingPresetPending !== ""'));
+ assert(wizard.includes('visible: wizard.step === 2 && wizard.routingSavePending'));
+});
 test('DNS helper is introduced before setup labels and VPN advice is first-run only',()=>{
  const card=fs.readFileSync(__dirname+'/../plugin/RequiredComponents.qml','utf8');
  const page=fs.readFileSync(__dirname+'/../plugin/SetupPage.qml','utf8');
  assert(card.indexOf('objectName: "setupDnsHelperIntro"') < card.indexOf('text: card.tr("core_missing")'));
- const reason=card.slice(card.indexOf('objectName: "setupOperationalReason"'));
- const reasonVisible=reason.match(/visible: ([\s\S]*?)\n        text:/)[1];
+ const properties=card.match(/readonly property (?:bool|string) (?:appMissing|pairUpdate|updateReview|operationalStep|showPreparation|optionalUpdate): [^\n]+/g);
  const state=require('../plugin/SetupState.js');
  for(const delivery of ['current','stale','stale_manual']) for(const operational of ['ready','needs_broker_stopped','needs_dns_setup','needs_runtime_start','needs_selection']) {
-  assert.equal(vm.runInNewContext(reasonVisible,{SetupState:state,card:{facts:{delivery,state:operational}}}),
-   delivery!=='current' && operational!=='ready');
+  const c={SetupState:state,facts:{delivery,state:operational,coreInstalled:true}};c.card=c;
+  for(const property of properties){const [,name,expression]=property.match(/property (?:bool|string) ([^:]+): (.*)/);c[name]=vm.runInNewContext(expression,c);}
+  assert.equal(c.showPreparation,operational!=='ready');
  }
+ assert(card.indexOf('id: prepareButton') < card.indexOf('id: pairedUpdateButton'));
  assert(wizard.indexOf('objectName: "onboardingDnsHelperIntro"') < wizard.indexOf('objectName: "onboardingCoreState"'));
  const warning=wizard.slice(wizard.indexOf('objectName: "onboardingOtherVpnAdvice"'));
  const visible=warning.match(/visible: ([^\n]+)/)[1];
@@ -231,7 +252,7 @@ test('native wizard preserves layout and explicitly avoids legacy grants/readine
  assert(!wizard.includes('wizard.textFor("native.core.scope")'));
  assert(!wizard.includes('wizard.textFor("native.core.tun."'));
  assert(wizard.includes('wizard.textFor("native.core.version", {version:'));
- assert(wizard.includes('wizard.textFor("native.onboarding.scope")'));
+ assert(wizard.includes('wizard.profiles.length > 0 ? "native.onboarding.ready_next" : "native.onboarding.empty_next"'));
  assert(wizard.includes('"native.onboarding.profiles"'));
  assert(panel.includes('vless.startNativeImport("clipboard")'));assert(panel.includes('vless.startNativeImport("file")'));
  assert(panel.includes('(root.page === "settings" || onboardingWizard.visible || root.componentSetupReview)'));

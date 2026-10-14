@@ -34,6 +34,9 @@ ShellRoot {
         w.nativeCoreDescription = core === "unknown" ? w.textFor("native.core.notChecked") : w.textFor(core === "missing" ? "native.core.missing" : "native.core.version", {version:"1.19.31"})
         w.nativeSetupFacts = {state:core === "update" ? "needs_update" : core === "missing" ? "needs_package" : "ready", coreInstalled:core !== "missing" && core !== "update"}
         w.nativeSetupTerminalOpened = false
+        w.profiles = []
+        w.busy = false
+        w.routingSavePending = false
         if ("firstRun" in w) w.firstRun = true
         // Supports inspecting the unchanged installed baseline before the new property exists.
         if ("nativeDesktopFacts" in w) w.nativeDesktopFacts = helpers === "unknown" ? null : {
@@ -90,6 +93,19 @@ ShellRoot {
         }
         function terminal(open: bool) { loader.item.nativeSetupTerminalOpened = open }
         function firstRun(value: bool) { loader.item.firstRun = value }
+        function profiles(count: int): string {
+            if (count !== 0 && count !== 1) return "refused"
+            loader.item.profiles = count === 1 ? [{id:"synthetic-profile",name:"UI fixture"}] : []
+            review.result = "ready"
+            return "ready"
+        }
+        function pending(value: bool): string {
+            if (loader.item.step !== 2) return "refused"
+            loader.item.routingSavePending = value
+            loader.item.busy = value
+            review.result = "ready"
+            return "ready"
+        }
         function delivery(value: string): string {
             if (!loader.item || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"
             var facts = loader.item.nativeSetupFacts
@@ -120,7 +136,7 @@ ShellRoot {
             return "ready"
         }
         function press(action: string): string {
-            var names = {paste:"onboardingPaste", file:"onboardingFile", finish:"onboardingFinish", copy:"onboardingCopyCommand", refresh:"onboardingHelpersRefresh", components:"onboardingComponentSetup", next:"onboardingCoreContinue"}
+            var names = {paste:"onboardingPaste", file:"onboardingFile", finish:"onboardingFinish", copy:"onboardingCopyCommand", refresh:"onboardingHelpersRefresh", components:"onboardingComponentSetup", next:"onboardingCoreContinue",back:"onboardingBack",routingNext:"onboardingRoutingContinue"}
             if (!Object.prototype.hasOwnProperty.call(names, action)) return "refused"
             var button = review.control(names[action], loader.item)
             if (!button || !button.visible || !button.enabled) return "unavailable"
@@ -129,9 +145,9 @@ ShellRoot {
         }
         function inspect(): string {
             var result = {visible:loader.item.visible,step:loader.item.step,coreState:loader.item.nativeCoreState,lastAction:review.lastAction}
-            for (var name of ["onboardingPaste", "onboardingFile", "onboardingFinish", "onboardingHelpersRefresh", "onboardingComponentSetup", "onboardingCoreContinue"]) {
+            for (var name of ["onboardingPaste", "onboardingFile", "onboardingFinish", "onboardingHelpersRefresh", "onboardingComponentSetup", "onboardingCoreContinue", "onboardingBack", "onboardingRoutingContinue"]) {
                 var button = review.control(name, loader.item)
-                result[name] = button ? {visible:button.visible,enabled:button.enabled} : null
+                result[name] = button ? {text:button.text,visible:button.visible,enabled:button.enabled,primary:button.primary === true} : null
             }
             return JSON.stringify(result)
         }

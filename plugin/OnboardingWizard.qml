@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
@@ -36,6 +37,7 @@ Item {
   property var profiles: []
   property string routingPreset: ""
   property bool busy: false
+  property bool routingSavePending: false
   property string installCommand: ""
   property string capabilityCommand: ""
   property string verifyCommand: ""
@@ -82,8 +84,10 @@ Item {
   }
 
   component WizardButton: Button {
+    property bool primary: false
     readonly property bool onboardingControl: true
     focusable: true
+    background: enabled && primary ? Util.alpha(Color.accent, 0.08) : "transparent"
     onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)
     Keys.onPressed: function(event) { wizard.handleNavigation(event) }
   }
@@ -315,17 +319,27 @@ Item {
               text: wizard.textFor(wizard.nativeCoreState === "update" || SetupState.hasUpdate(wizard.nativeSetupFacts) ? "native.onboarding.review_update"
                 : wizard.nativeCoreState === "missing" ? "native.onboarding.review_install" : "native.onboarding.review_setup")
               enabled: !wizard.busy && !wizard.nativeSetupBusy
+              primary: wizard.nativeCoreState !== "ready"
               bordered: true
-              foreground: enabled ? wizard.foreground : wizard.dim
+              foreground: enabled && primary ? Color.accent : wizard.dim
               fontFamily: wizard.fontFamily
               onClicked: wizard.componentSetupRequested()
+            }
+            WizardButton {
+              objectName: "onboardingCoreRefresh"
+              text: wizard.textFor("common.check_again")
+              bordered: false
+              enabled: !wizard.busy && !wizard.nativeSetupBusy
+              foreground: wizard.dim
+              fontFamily: wizard.fontFamily
+              onClicked: wizard.refreshRequested()
             }
             WizardButton {
               objectName: "onboardingSetupGuide"
               visible: wizard.nativeContext
               text: wizard.textFor("native.onboarding.setup_guide")
-              bordered: true
-              foreground: wizard.foreground
+              bordered: false
+              foreground: wizard.dim
               fontFamily: wizard.fontFamily
               onClicked: wizard.setupGuideRequested()
             }
@@ -479,23 +493,32 @@ Item {
               onClicked: wizard.refreshRequested()
             }
 
-            Row {
-              spacing: Style.space(8)
+            GridLayout {
+              width: parent.width
+              columns: width >= pasteButton.implicitWidth + fileButton.implicitWidth + columnSpacing ? 2 : 1
+              columnSpacing: Style.space(8)
+              rowSpacing: Style.space(8)
               WizardButton {
+                id: pasteButton
                 objectName: "onboardingPaste"
+                Layout.fillWidth: true
+                primary: wizard.profiles.length === 0
                 text: wizard.textFor("onboarding.paste_link")
                 bordered: true
                 enabled: wizard.clipboardReady && !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
-                foreground: enabled ? wizard.foreground : wizard.dim
+                foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.pasteRequested()
               }
               WizardButton {
+                id: fileButton
                 objectName: "onboardingFile"
+                Layout.fillWidth: true
+                primary: wizard.profiles.length === 0 && !wizard.clipboardReady
                 text: wizard.textFor("onboarding.choose_file")
                 bordered: true
                 enabled: wizard.pickerReady && (!wizard.nativeContext || wizard.nativeCanContinue) && !wizard.busy
-                foreground: enabled ? wizard.foreground : wizard.dim
+                foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.fileRequested()
               }
@@ -505,8 +528,19 @@ Item {
           PlainText {
             visible: wizard.nativeContext && wizard.step === 3
             width: parent.width
-            text: wizard.textFor("native.onboarding.scope")
+            text: wizard.textFor(wizard.profiles.length > 0 ? "native.onboarding.ready_next" : "native.onboarding.empty_next")
             color: wizard.dim
+            font.family: wizard.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          PlainText {
+            objectName: "onboardingRoutingProgress"
+            visible: wizard.step === 2 && wizard.routingSavePending
+            width: parent.width
+            text: wizard.textFor("onboarding.saving_routing")
+            color: wizard.foreground
             font.family: wizard.fontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
@@ -515,12 +549,18 @@ Item {
           Item {
             width: parent.width
             implicitHeight: navigation.implicitHeight
-            Row {
+            GridLayout {
               id: navigation
-              anchors.right: parent.right
-              spacing: Style.space(8)
+              width: parent.width
+              columns: width >= backButton.implicitWidth + forward.implicitWidth + columnSpacing ? 2 : 1
+              columnSpacing: Style.space(8)
+              rowSpacing: Style.space(8)
 
               WizardButton {
+                id: backButton
+                objectName: "onboardingBack"
+                Layout.fillWidth: navigation.columns === 1
+                Layout.alignment: Qt.AlignLeft
                 text: wizard.step === 1
                   ? wizard.textFor("common.close") : wizard.textFor("common.back")
                 bordered: true
@@ -532,34 +572,35 @@ Item {
                 }
               }
 
+              ColumnLayout {
+                id: forward
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignRight
               WizardButton {
                 visible: wizard.step === 1
-                text: wizard.textFor("common.check_again")
-                bordered: true
-                enabled: !wizard.busy
-                foreground: enabled ? wizard.foreground : wizard.dim
-                fontFamily: wizard.fontFamily
-                onClicked: wizard.refreshRequested()
-              }
-
-              WizardButton {
-                visible: wizard.step === 1
+                Layout.fillWidth: navigation.columns === 1
+                Layout.alignment: Qt.AlignRight
                 text: wizard.textFor("common.continue")
                 objectName: "onboardingCoreContinue"
+                primary: true
                 bordered: true
                 enabled: (wizard.nativeContext ? wizard.nativeCoreState === "ready" && wizard.nativeCanContinue : wizard.coreSetup.tunReady) && !wizard.busy
-                foreground: enabled ? wizard.foreground : wizard.dim
+                foreground: enabled ? Color.accent : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.step = 2
               }
 
               WizardButton {
                 visible: wizard.step === 2
+                objectName: "onboardingRoutingContinue"
+                Layout.fillWidth: navigation.columns === 1
+                Layout.alignment: Qt.AlignRight
+                primary: true
                 text: wizard.routingPreset === ""
                   ? wizard.textFor("onboarding.skip_for_now") : wizard.textFor("common.continue")
                 bordered: true
-                enabled: !wizard.busy
-                foreground: enabled ? wizard.foreground : wizard.dim
+                enabled: !wizard.busy && !wizard.routingSavePending
+                foreground: enabled ? Color.accent : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.step = 3
               }
@@ -567,13 +608,17 @@ Item {
               WizardButton {
                 objectName: "onboardingFinish"
                 visible: wizard.step === 3
+                Layout.fillWidth: navigation.columns === 1
+                Layout.alignment: Qt.AlignRight
+                primary: wizard.profiles.length > 0
                 text: wizard.profiles.length > 0
                   ? wizard.textFor("onboarding.finish") : wizard.textFor("onboarding.finish_later")
                 bordered: true
                 enabled: !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
-                foreground: enabled ? wizard.foreground : wizard.dim
+                foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.finishRequested()
+              }
               }
             }
           }

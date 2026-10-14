@@ -162,6 +162,23 @@ them automatically or repeating the warning during ordinary ready-state review.
 An optional update notice must not hide the operational reason for a separate
 Start/setup/recovery action, including the limits of Restore access.
 
+For setup/onboarding actions, show current state, short explanation and the
+reachable next action in that order. Required operational setup comes before
+an optional-update card; optional freshness does not acquire primary styling.
+Keep ordinary DNS-helper Start primary and place Restore access behind an
+explicit secondary disclosure with its clean-reinstall prerequisite. Disclosure
+is navigation only and never grants the restore effect. Preserve all existing
+busy, terminal-closure, pending and unknown-outcome barriers.
+
+Wizard navigation places Back/Close on the left and Continue/Finish on the
+right, stacking rather than clipping long localized labels. Refresh and web
+help are secondary controls separate from forward navigation. All web-link
+labels end with the same `↗` marker; local URL reveal, package installation and
+in-product navigation do not. Completion without a profile names that outcome,
+not an ambiguous "later" promise. Progress prose names only the observed phase
+(opening a terminal, starting the app, saving routing), never a fabricated
+package transaction or successful connection.
+
 A readiness label names its scope (core installed/ready versus VPN connected)
 without an essay about test coverage. Keep version information useful, and
 move low-level TUN/capability facts to explicit diagnostics/help. Unknown state

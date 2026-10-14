@@ -4019,6 +4019,7 @@ Panel {
         nativeSetupTerminalOpened: setupPage.terminalOpened
         nativeCoreFailed: vless.nativeCoreSetupStatus !== ""
         nativeCanContinue: vless.nativeCanAct
+        routingSavePending: root.nativeOnboardingPresetPending !== ""
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
           : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)
