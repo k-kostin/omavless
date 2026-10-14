@@ -596,3 +596,62 @@ has now completed **successfully**. Its separate tag-triggered run was still
 pending at this checkpoint. Installed ARM64 and automatic/general uninstall
 remain unclaimed. Source review and this x86_64 administrative journey do not
 authorize main/Marketplace promotion or establish Aryan's original failure cause.
+
+## User-copy and short reset follow-up (#787)
+
+Implementation source `a3d9c5d976ac85b6e275c7116ad76d6e22ae9ba4` keeps runtime,
+action admission and the frozen fix.5 native packages unchanged. Ordinary EN/RU
+setup, onboarding and update cards now describe state and the next action;
+technical ownership/broker/enrollment explanations belong in diagnostic help.
+Missing-component installation is not labelled an available update. DNS consent
+still states service startup at boot; terminal guidance says finish/cancel all
+operations and OS prompts before closing. The editorial rule lives in the UI
+contract and development documentation policy, with bounded catalog regressions.
+
+Normal source checks: 772 Python tests, two existing opt-in skips, normal JS/QML
+contracts, 25 pure reset-validator cases, four guide-block syntax/order/hash
+checks, shell syntax and diff checks PASS. Independent Astra source review
+found two lost consent/order details; both were corrected and reviewed again.
+Hosted full CI belongs to the final PR head, not this local result.
+
+EN/RU synthetic rendering of real QML covered setup install/update/activation/
+attention/Start/DNS-stop/missing-pair/mismatched-pair and optional-update cards,
+ready component review and terminal acknowledgement; onboarding ready/missing/
+permissions/unknown/update cases retained their Continue admission. Later exact
+a3 captures rechecked changed navigation labels, the missing-component heading
+and both wizard terminal states. Captures were inspected and remain private.
+These fixtures do not install packages or establish live connection health.
+
+The new terminal-only reset helper is frozen at
+`e30162acd24d91c85462b83dc37bc0209525a6ea`, SHA256
+`7366d6f46adc545208f6ebe4d6fbe0db7225ab9c5bf04ddb6bd6748e29e38854`.
+It was anonymously downloaded and verified. The previous seven-block guide at
+1aae remains historical evidence; it is not the current four-block recipe.
+The new helper earned its own x86_64 sole-operator VM run, first on the known
+fix.5 stopped fixture, then on original public 0.9.8 bytes (4915 producer,
+app2194/broker8cab). The original partial fixture was separately seeded with
+initial settings, completed DNS registration/selection, app inactive and no TUN;
+this is not proof of Aryan's exact initial failure.
+
+Observed user path: helper prepare/ordinary widget confirmation → confirmed
+idle broker stop → one guest reboot → guard/revoke/pacman removal → deletion of
+only the three canonical OmaVLESS data directories, **without a backup** →
+ordinary repository add (Yes clone, No immediate enable) → exact fix.5 checkout
+and enable → actual panel Install → public cache-miss download of both pinned
+archives → INSTALL/sudo/pacman → separate DNS consent → ready → terminal close,
+component review/closure acknowledgement/Core ready → normal Disconnected panel
+with import controls. No admin intervention, socket unlink or guard bypass was
+inserted inside this path. Historical private fixtures elsewhere were retained.
+
+Separately, a3 development frontend was installed over the completed public
+fix.5 installation. File hashes matched but the existing shell initially showed
+old QML; a supported **guest-only** shell refresh was required. The newly loaded
+real wizard showed short Core ready/version/Continue copy; a pointer Continue
+advanced to Routing without selecting a preset or changing runtime PID. Source
+hashes alone are therefore not installed-screen evidence. This subsequent dev
+frontend review is not a new immutable public fix.5 artifact.
+
+Limits: narrowly known, never-connected partial setup with this account's DNS
+registration; unknown state refuses, concurrent state changes are excluded.
+This is not the planned all-stage 0.9.9 uninstaller, a live-VPN reset, actual ARM64
+installation, main merge, release replacement or permission to post issue772.
