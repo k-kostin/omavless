@@ -116,6 +116,7 @@ var CATALOG = {
   "native.onboarding.core_ready": {"en":"Core ready","ru":"Ядро готово"},
   "native.onboarding.core_ready_scope": {"en":"The managed Mihomo core and desktop permissions are present. Continue setup; a VPN connection has not been tested here.","ru":"Управляемое ядро Mihomo и необходимые права на рабочем столе присутствуют. Продолжите настройку; VPN-соединение здесь не проверялось."},
   "native.onboarding.core_checking": {"en":"Checking core setup…","ru":"Проверка настройки ядра…"},
+  "native.onboarding.core_terminal": {"en":"Finish the setup terminal first","ru":"Сначала завершите работу в терминале настройки"},
   "native.onboarding.core_missing": {"en":"Required component missing","ru":"Отсутствует необходимый компонент"},
   "native.onboarding.core_update": {"en":"Component update required","ru":"Требуется обновление компонентов"},
   "native.onboarding.core_attention": {"en":"Core setup needs attention","ru":"Настройка ядра требует внимания"},

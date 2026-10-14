@@ -59,7 +59,8 @@ test('setup has separate navigation and cannot expose legacy mutation shortcuts'
 test('explicit component review retains check/help/back even with ready package inventory', () => {
   assert(page.includes('property bool componentReview: false'));
   assert(page.includes('visible: !setup.componentReview'));
-  for(const name of ['reviewCheckButton','reviewGuideButton','closeButton']) assert(page.includes(name));
+  for(const name of ['reviewTerminalButton','reviewCheckButton','reviewGuideButton','closeButton']) assert(page.includes(name));
+  assert(page.includes('onClicked: { setup.acknowledgeTerminalClosed(); setup.factsRefreshRequested() }'));
   assert(page.includes('onClicked: { setup.check(); setup.factsRefreshRequested() }'));
   assert(page.includes('setup.componentReview ? "back_to_panel" : "later"'));
   for(const locale of ['en','ru'])for(const key of ['review_components','review_core_attention','back_to_panel'])

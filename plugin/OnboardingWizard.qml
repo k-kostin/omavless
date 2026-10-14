@@ -26,7 +26,8 @@ Item {
   property var nativeSetupFacts: ({state:"checking", coreInstalled:null})
   property bool nativeSetupBusy: false
   property bool nativeCoreFailed: false
-  readonly property string nativeCoreState: SetupState.coreReview(nativeCoreFacts, nativeSetupFacts, busy || nativeSetupBusy, nativeCoreFailed)
+  property bool nativeSetupTerminalOpened: false
+  readonly property string nativeCoreState: SetupState.coreReview(nativeCoreFacts, nativeSetupFacts, busy || nativeSetupBusy, nativeCoreFailed, nativeSetupTerminalOpened)
   property string nativeStatus: ""
   property bool nativeCanContinue: true
   property var filePicker: ({ available: false, provider: "" })
@@ -288,6 +289,7 @@ Item {
               visible: wizard.nativeContext
               width: parent.width
               text: wizard.textFor(wizard.nativeCoreState === "ready" ? "native.onboarding.core_ready_scope"
+                : wizard.nativeCoreState === "terminal" ? "setup.terminal"
                 : wizard.nativeCoreState === "update" ? "setup.needs_update" : "native.onboarding.setup_help")
               color: wizard.dim
               font.family: wizard.fontFamily

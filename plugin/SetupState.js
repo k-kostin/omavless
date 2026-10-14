@@ -30,7 +30,8 @@ function canRunAction(facts, action) {
 }
 function needsAttention(facts) { return facts.state !== "ready" || facts.coreInstalled !== true }
 // Presentation only: desktop permissions are not service/TUN/network health.
-function coreReview(core, facts, busy, failed) {
+function coreReview(core, facts, busy, failed, terminalOpened) {
+  if (terminalOpened) return "terminal"
   if (busy) return "checking"
   if (facts.state === "needs_update") return "update"
   if (appMissing(facts) || facts.coreInstalled === false || (core && core.installed === false)) return "missing"

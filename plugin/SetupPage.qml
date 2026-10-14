@@ -27,7 +27,7 @@ Item {
   property bool nativeEffectBlocked: false
   readonly property bool busy: probe.running || launching || startApp.running
   readonly property string script: String(Qt.resolvedUrl("setup-runtime.sh")).replace(/^file:\/\//, "")
-  readonly property var focusTargets: requirements.focusTargets.concat([reviewCheckButton, reviewGuideButton, closeButton])
+  readonly property var focusTargets: requirements.focusTargets.concat([reviewTerminalButton, reviewCheckButton, reviewGuideButton, closeButton])
   implicitHeight: content.implicitHeight
   signal ready()
   signal closeRequested()
@@ -118,8 +118,15 @@ Item {
     PlainText {
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention && setup.reviewCoreState !== "ready"
-      text: setup.tr("review_core_attention")
+      text: setup.tr(setup.terminalOpened ? "terminal" : "review_core_attention")
       font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap
+    }
+    Button {
+      id: reviewTerminalButton
+      Layout.fillWidth: true
+      visible: setup.componentReview && !setup.needsAttention && setup.terminalOpened
+      text: setup.tr("terminal_closed"); bordered: true; focusable: true
+      onClicked: { setup.acknowledgeTerminalClosed(); setup.factsRefreshRequested() }
     }
     Button {
       id: reviewCheckButton

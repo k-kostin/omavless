@@ -33,6 +33,7 @@ ShellRoot {
         }
         w.nativeCoreDescription = core === "unknown" ? w.textFor("native.core.notChecked") : w.textFor(core === "missing" ? "native.core.missing" : "native.core.version", {version:"1.19.31"})
         w.nativeSetupFacts = {state:core === "update" ? "needs_update" : core === "missing" ? "needs_package" : "ready", coreInstalled:core !== "missing" && core !== "update"}
+        w.nativeSetupTerminalOpened = false
         // Supports inspecting the unchanged installed baseline before the new property exists.
         if ("nativeDesktopFacts" in w) w.nativeDesktopFacts = helpers === "unknown" ? null : {
             filePicker:helpers === "ready" || helpers === "picker" ? "zenity" : null,
@@ -86,6 +87,7 @@ ShellRoot {
         function state(language: string, stage: int, helpers: string, core: string): string {
             return review.scenario(language, stage, helpers, core)
         }
+        function terminal(open: bool) { loader.item.nativeSetupTerminalOpened = open }
         function capture(slug: string): string {
             if (["ready", "captured"].indexOf(review.result) < 0 || !/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/onboarding.")) return "refused"
             review.result = "capturing"

@@ -42,6 +42,9 @@ test('ready, missing, update and unknown core states do not borrow each other ac
  }
  assert.equal(state.coreReview(ready,packageFacts,true,false),'checking');
  assert.equal(state.coreReview(ready,packageFacts,false,true),'attention');
+ assert.equal(state.coreReview(ready,packageFacts,false,false,true),'terminal');
+ assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false,true),'terminal');
+ assert(panel.includes('nativeSetupTerminalOpened: setupPage.terminalOpened'));
  for(const facts of [{state:'checking',coreInstalled:null},{state:'needs_attention',coreInstalled:true},{state:'needs_dns_setup',coreInstalled:true}])
   assert.equal(state.coreReview(ready,facts,false,false),'attention');
  assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false),'update');
@@ -51,13 +54,13 @@ test('ready, missing, update and unknown core states do not borrow each other ac
  assert.equal(state.missingAction({state:'needs_companion',coreInstalled:false}),'');
  const button=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
  const enabled=button.match(/enabled: ([^\n]+)/)[1];
- for(const nativeCoreState of ['ready','missing','update','checking','attention']) {
+ for(const nativeCoreState of ['ready','missing','update','checking','attention','terminal']) {
   const c=vm.createContext({wizard:{nativeContext:true,nativeCoreState,nativeCanContinue:true,busy:false}});
   assert.equal(vm.runInContext(enabled,c),nativeCoreState==='ready');
   c.wizard.busy=true;assert(!vm.runInContext(enabled,c));
   c.wizard.busy=false;c.wizard.nativeCanContinue=false;assert(!vm.runInContext(enabled,c));
  }
- const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','review_install','review_update','review_setup'])
+ const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','core_terminal','review_install','review_update','review_setup'])
   assert(!i18n.translate('native.onboarding.'+key,locale,{}).includes('Missing translation'));
 });
 test('native helper bindings keep read, write and picker capabilities independent',()=>{

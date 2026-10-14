@@ -4015,6 +4015,7 @@ Panel {
         nativeCoreDescription: root.nativeCoreSetupDescription()
         nativeSetupFacts: setupPage.facts
         nativeSetupBusy: setupPage.busy
+        nativeSetupTerminalOpened: setupPage.terminalOpened
         nativeCoreFailed: vless.nativeCoreSetupStatus !== ""
         nativeCanContinue: vless.nativeCanAct
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")

@@ -101,6 +101,10 @@ when package presence is known but core permissions are not confirmed. Refresh
 means refreshing facts; it must not imply a package update. Only an actually
 supported update state offers the admitted app/DNS paired update. A missing
 companion beside an existing app is not automatic repair authority.
+An opened setup terminal blocks ready Continue even after programs become
+present. Review must retain the explicit terminal/prompts-closed acknowledgement
+when the ordinary missing-components block disappears; navigation/recheck alone
+does not settle authorization or authorize another effect.
 
 ## Three independent checks before calling a change ready
 
