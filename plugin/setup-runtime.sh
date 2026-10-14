@@ -332,8 +332,10 @@ confirm_dns_enrollment() {
   local answer uid
   uid=$(id -u)
   [[ "$uid" =~ ^[1-9][0-9]*$ ]] || return 1
-  say "The managed DNS broker will enroll desktop UID $uid, then its system service will be enabled and started. This does not connect a VPN. Type DNS to authorize this separate administrator step; Enter cancels." \
-      "DNS-брокер зарегистрирует пользователя с UID $uid, затем его системная служба будет включена и запущена. VPN не подключается. Для отдельного разрешения администратора введите DNS; Enter отменяет."
+  say 'Set up DNS for this desktop account and start its service. VPN will stay off.' \
+      'Настройка DNS для вашей учётной записи и запуск его службы. VPN останется выключенным.'
+  say 'Type DNS to confirm this separate administrator step; Enter cancels.' \
+      'Введите DNS для подтверждения этого отдельного шага с правами администратора; Enter — отмена.'
   IFS= read -r answer || return 1
   [[ "$answer" == DNS ]]
 }
@@ -360,8 +362,10 @@ finish_pair_selection() {
   user_runtime_stopped || return 1
   no_managed_tun || return 1
   local answer
-  say 'Only the exact bundled default DNS template can be prepared. Type SELECT to choose the installed managed pair; Enter cancels.' \
-      'Можно подготовить только стандартный DNS-шаблон без изменений. Введите SELECT, чтобы выбрать установленную управляемую пару; Enter отменяет.'
+  say 'Use the installed DNS component with the default settings. Custom DNS settings will not be overwritten.' \
+      'Использовать установленный DNS-компонент со стандартными настройками. Ваши собственные настройки DNS не перезаписываются.'
+  say 'Type SELECT to confirm; Enter cancels.' \
+      'Введите SELECT для подтверждения; Enter — отмена.'
   IFS= read -r answer || return 1
   [[ "$answer" == SELECT ]] || return 1
   setup_step dns-template native_quiet dns-pair prepare-template || return 1

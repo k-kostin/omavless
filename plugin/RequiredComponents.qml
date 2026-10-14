@@ -66,7 +66,7 @@ ColumnLayout {
       anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
       anchors.margins: Style.space(10)
       spacing: Style.space(10)
-      PlainText { Layout.fillWidth: true; text: card.tr(card.updateReview ? "update_title" : "prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr(card.updateReview && card.facts.state !== "needs_pair_install" ? "update_title" : "prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
       PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : SetupState.updateMessage(card.facts)); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
       Button {
         id: updateButton

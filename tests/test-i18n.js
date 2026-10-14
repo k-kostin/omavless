@@ -1,5 +1,17 @@
 const assert = require("assert")
 const I18n = require("../plugin/I18n.js")
+// Normal setup is user copy, not a protocol/acceptance report. These budget
+// checks supplement actual EN/RU rendering; they do not certify usability.
+for (const locale of ["en", "ru"]) {
+  for (const key of ["setup.needs_pair_update", "setup.needs_pair_install",
+      "setup.needs_pair_update_manual", "setup.needs_pair_mismatch",
+      "setup.needs_update", "setup.needs_dns_setup", "setup.needs_runtime_stop",
+      "setup.review_intro", "native.onboarding.core_ready_scope"]) {
+    const value = I18n.translate(key, locale)
+    assert(value !== key && value.length <= 220, key + ": short user copy")
+    assert(!/\b(?:broker|enrollment|PREPARE|UPGRADE|delivery|ownership|acceptance)\b|брокер|регистраци|приёмк/i.test(value), key)
+  }
+}
 assert.strictEqual(I18n.translate("profiles.search", "en"), "Search profiles by name…  (/)")
 assert.strictEqual(I18n.translate("profiles.search", "ru"), "Поиск профилей по имени…  (/)")
 assert.strictEqual(I18n.translate("native.probe.dns_failed", "en"), "Server address unresolved")

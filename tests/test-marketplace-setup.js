@@ -6,6 +6,8 @@ const i18n = require('../plugin/I18n.js');
 const page = fs.readFileSync(__dirname + '/../plugin/SetupPage.qml', 'utf8');
 const panel = fs.readFileSync(__dirname + '/../plugin/Panel.qml', 'utf8');
 const card = fs.readFileSync(__dirname + '/../plugin/RequiredComponents.qml', 'utf8');
+assert(card.includes('card.updateReview && card.facts.state !== "needs_pair_install"'),
+  'A missing component needs setup, not an UPDATE AVAILABLE heading');
 let count = 0;
 function test(name, run) { try { run(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
 test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
