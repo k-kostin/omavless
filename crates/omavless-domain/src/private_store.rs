@@ -1103,6 +1103,16 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
     Ok(store)
 }
 
+/// Existing schema-3 snapshot admission without duplicate collapse, extension
+/// interpretation, default insertion or stale-pointer/startup repair. Reuses
+/// the portable backup's strict shape and semantic equality validator.
+pub fn validate_existing_store_without_repair(
+    input: &str,
+) -> Result<PrivateStore, PrivateStoreError> {
+    backup_candidate::validate(input.as_bytes()).map_err(|_| PrivateStoreError::InvalidShape)?;
+    parse_private_store(input)
+}
+
 impl PrivateStore {
     /// Canonical private profile probe snapshot. Missing records are never
     /// executed, and selecting a removed/missing ID cannot fall back to all.

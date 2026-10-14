@@ -2031,6 +2031,8 @@ Panel {
           width: Math.max(0, setupFlick.width - root.scrollGutter)
           locale: root.uiLocale
           panelOpen: root.opened
+          nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null
+            || vless.nativeOutcomeUnknown || vless.nativeQuitting
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
           onCloseRequested: root.close()
         }
@@ -2673,7 +2675,7 @@ Panel {
             id: nativeRequiredComponents
             Layout.fillWidth: true
             visible: root.page === "main" && setupPage.needsAttention
-            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; terminalOpened: setupPage.terminalOpened
+            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
             onInstallRequested: function(action) { setupPage.install(action) }
             onCheckRequested: setupPage.check()
             onTerminalClosed: setupPage.acknowledgeTerminalClosed()
@@ -4012,7 +4014,7 @@ Panel {
           vless.refresh()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
-        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/INSTALL.md")
+        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md")
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }

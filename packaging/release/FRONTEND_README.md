@@ -2,7 +2,7 @@
 
 This is a **validation candidate**, not a latest/stable or marketplace update. It contains the
 Omarchy QML frontend for the matching Rust package; Python is not included.
-Use the accompanying `release-provenance.json` and `SHA256SUMS`
+Use the accompanying `managed-dns-delivery.json` and `SHA256SUMS`
 (or the offline `managed-dns-pair.json`) to verify source identities,
 version, architecture and archive integrity. Checksums
 detect a changed download; they are not signatures or independent trust proof.
@@ -15,12 +15,12 @@ A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-The corrected `v0.9.8-fix.3` delivery has exact package pins for both architectures.
+The corrected `v0.9.8-fix.4` delivery has exact package pins for both architectures.
 Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
 and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
 correction, not the version label. Existing validation users may see an explicit
 pacman reinstall. It is not an automatic stable upgrade. The subscription-parser
-correction requires the corrected native packages, not only this frontend.
+correction and native setup fixes require the corrected native packages, not only this frontend.
 After the public download/setup gate, the panel offers guided fresh installation after explicit consent; an existing
 or ambiguous installation requires the separate reviewed update/recovery path.
 It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.

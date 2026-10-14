@@ -1,10 +1,22 @@
 # Current delivery status
 
-Updated 2026-10-11. This is the compact current-state entry point; the detailed
+Updated 2026-10-14. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **Emergency setup/update correction, #778:** owner-authorized main
+  integration carries stage diagnostics, partial DNS continuation, qualified
+  public 0.8.2 paired update, broker readiness and managed-core version checks.
+  Immutable `v0.9.8-fix.4` packages use producer
+  `b65695ee0609c2a971289109975678b8da87c946`; published assets pass anonymous
+  download/hash checks. Installed x86_64 fresh and existing-0.9.8 paths pass;
+  the earlier qualified 0.8.2 gate retains its exact identity. Installed ARM64
+  remains pending, not PASS. The [setup report](../testing/SETUP_082_UPGRADE_VM_2026-10-13.md)
+  and PR record actual merge/gate outcomes. Setup help now owns the current
+  user-facing route; old 0.8.2 instructions are historical references.
+  No new #772 reply, Marketplace submission or 0.9.9 scope is authorized here.
 
 - **0.9.8 subscription security correction, #736:** the shared Rust feed
   scanner no longer repeats failed scheme suffixes. Raw/Base64 semantics and
@@ -36,6 +48,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   T4/K1/V0 acceptance follows from the release.
 
 - **Planned for 0.9.9:** mandatory consumer Restore/recovery remains #722/#724.
+  Owner-selected all-stage friendly removal is specified separately in #774:
+  reach the removal review before, during and after setup without treating
+  unknown ownership or pending authorization as permission to delete. It is
+  not implemented by this emergency 0.9.8 setup correction.
   Owner-selected [#733](https://github.com/k-kostin/omavless/issues/733) adds a
   private editable VPN-access field in the application/plugin import UI, reusing
   canonical profile/subscription validation and explicit preview/confirmation.

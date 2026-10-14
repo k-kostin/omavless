@@ -20,6 +20,9 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [Prior-public 0.8.2 upgrade reproduction](SETUP_082_UPGRADE_VM_2026-10-13.md):
+  actual frontend-only update dead end and manually completed disconnected
+  public 0.9.8 pair migration; not guided-updater or issue-author root-cause closure.
 - [0.9.8 RC1 installed x86_64](RC_098_VM_2026-10-08.md): exact artifact identities,
   ordinary entry/navigation and preserved-Off warm/cold relaunch; retained
   failures and explicit ARM-installed, fault, human and public-release limits.

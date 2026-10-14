@@ -373,6 +373,14 @@ fn run() -> Result<(), CliError> {
         println!(
             "  setup initialize                 create initial private config only; no activation"
         );
+        #[cfg(feature = "developer-upgrade082")]
+        println!(
+            "  setup upgrade082-vm              attended QEMU VM UPDATE only; DNS is separate"
+        );
+        #[cfg(feature = "setup-upgrade082")]
+        println!(
+            "  setup upgrade082                 first migration; stdin delivery metadata, tty consent"
+        );
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );
@@ -435,7 +443,7 @@ fn run() -> Result<(), CliError> {
                 return Ok(());
             }
             Some("core-readiness") => {
-                println!("{}", helpers.core_readiness());
+                println!("{}", helpers.core_readiness().map_err(|e| e.to_string())?);
                 return Ok(());
             }
             Some("clipboard-read") => helpers.clipboard_read(),
@@ -542,6 +550,20 @@ fn run() -> Result<(), CliError> {
         return Ok(());
     }
     if arguments.first().is_some_and(|arg| arg == "setup") {
+        #[cfg(feature = "developer-upgrade082")]
+        if arguments == ["setup", "upgrade082-vm"] {
+            let result = omavless_runtime::setup_upgrade082::run_development_update()
+                .map_err(|error| error.to_string())?;
+            println!("{result}");
+            return Ok(());
+        }
+        #[cfg(feature = "setup-upgrade082")]
+        if arguments == ["setup", "upgrade082"] {
+            let result = omavless_runtime::setup_upgrade082::run_delivery_update()
+                .map_err(|error| error.to_string())?;
+            println!("{result}");
+            return Ok(());
+        }
         if arguments != ["setup", "initialize"] {
             return Err("Invalid native setup command".into());
         }

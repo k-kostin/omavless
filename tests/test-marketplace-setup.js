@@ -19,7 +19,7 @@ test('stopped app offers only explicit native start, never reinstall or terminal
   for(const locale of ['en','ru']) for(const key of ['start_app','needs_runtime_start']) assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
   const vm=require('node:vm');
   const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
-  const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,startApp:{running:false},launch:{running:false}});
+  const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,startApp:{running:false},launch:{running:false}});
   vm.runInContext(page.slice(start,end),c);
   c.install('start-app');assert(c.startApp.running);assert(!c.launch.running);assert(!c.launching);
   c.startApp.running=false;c.busy=true;c.install('start-app');assert(!c.startApp.running);
@@ -126,11 +126,11 @@ test('installed programs disappear from the required-components card; readiness 
   assert(card.includes('visible: card.appMissing; text: card.tr("app_missing")'));
   assert(card.includes('visible: card.coreMissing; text: card.tr("core_missing")'));
   assert(card.includes('visible: SetupState.needsAttention(facts)'));
-  assert(card.includes('[installButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
+  assert(card.includes('[installButton, updateButton, updateHelpButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
   assert(card.includes('visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"'));
   assert(card.includes('RowLayout {\n        Layout.fillWidth: true\n        spacing: Style.space(8)\n        visible: card.facts.state'));
   assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));
-  assert(card.includes('card.facts.coreInstalled === true && !card.busy'));
+  assert(card.includes('card.facts.coreInstalled === true && !card.effectBusy'));
   assert(panel.includes('panelOpen: root.opened'));
   assert(panel.includes('id: nativeRequiredComponents'));
   assert(panel.indexOf('id: nativeRequiredComponents')>panel.indexOf('} // nativeProfilesFrame'));
@@ -138,7 +138,7 @@ test('installed programs disappear from the required-components card; readiness 
 test('real install handler rejects stale target, arbitrary action and repeated launch', () => {
   const vm=require('node:vm');
   const start=page.indexOf('  function install(action)'), end=page.indexOf('\n  }',start)+4;
-  const c=vm.createContext({SetupState:state,facts:{state:'needs_companion',coreInstalled:false},busy:false,launching:false,terminalOpened:false,launch:{running:false}});
+  const c=vm.createContext({SetupState:state,facts:{state:'needs_companion',coreInstalled:false},busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,launch:{running:false}});
   vm.runInContext(page.slice(start,end),c);
   c.install('install');assert(!c.launch.running);
   c.install('shell');assert(!c.launch.running);
@@ -150,8 +150,86 @@ test('real install handler rejects stale target, arbitrary action and repeated l
   c.launching=false;c.launch.running=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
   c.launching=false;c.launch.running=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
 });
+test('setup effect handler blocks unresolved native work across both card locations', () => {
+  const vm=require('node:vm');
+  const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+  for(const action of ['resume-dns','start-app']) {
+    const c=vm.createContext({SetupState:state,facts:{state:action==='resume-dns'?'needs_dns_setup':'needs_runtime_start',coreInstalled:true},
+      busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:true,
+      launch:{running:false},startApp:{running:false}});
+    vm.runInContext(page.slice(start,end),c);
+    c.install(action); assert(!c.launch.running); assert(!c.startApp.running);
+    c.nativeEffectBlocked=false; c.install(action);
+    assert.equal(action==='resume-dns'?c.launch.running:c.startApp.running,true);
+  }
+  assert(panel.includes('nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null'));
+  assert(panel.includes('|| vless.nativeOutcomeUnknown || vless.nativeQuitting'));
+  assert(panel.includes('busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked'));
+  assert(page.includes('busy: setup.busy; effectBlocked: setup.nativeEffectBlocked'));
+  for (const busy of [false,true]) for (const effectBlocked of [false,true]) {
+    const context={card:{busy,effectBlocked}};
+    context.card.effectBusy=busy||effectBlocked;
+    const check=card.match(/id: checkButton;[^\n]*enabled: ([^;]+);/)[1];
+    assert.equal(require('node:vm').runInNewContext(check,context),!busy);
+    const install=card.slice(card.indexOf('id: installButton'));
+    const enabled=install.match(/enabled: ([^\n]+)/)[1];
+    context.visible=true;context.card.terminalOpened=false;
+    assert.equal(require('node:vm').runInNewContext(enabled,context),!busy&&!effectBlocked);
+  }
+});
+test('partial DNS entry is explicit and never substitutes for generic broker recovery', () => {
+  for (const present of [false,true]) {
+    const facts=state.inventory('needs_dns_setup\t'+(present?'present':'missing')+'\n',0);
+    assert.equal(state.missingAction(facts),present?'resume-dns':'');
+    assert.equal(state.canRunAction(facts,'resume-dns'),present);
+    assert(!state.canRunAction(facts,'install'));
+    assert(!state.canRunAction({state:'needs_broker',coreInstalled:present},'resume-dns'));
+    assert(state.bootstrapRequired(facts,true,true,false,false,false));
+  }
+  assert(card.includes('"resume_dns"'));
+  assert(card.includes('card.facts.state === "needs_dns_setup"'));
+});
 test('Later closes only the panel and never marks onboarding complete or hides reminders persistently', () => {
   assert(page.includes('onClicked: setup.closeRequested()'));
   assert(!/completeOnboarding|onboardingComplete|settings\.[\w]+\s*=/.test(page));
+});
+test('prior stable upgrade is explicit and help remains navigational', () => {
+  const vm=require('node:vm');
+  for(const present of [false,true]) {
+    const facts=state.inventory('needs_update\t'+(present?'present':'missing')+'\n',0);
+    assert.equal(facts.state,'needs_update');
+    assert(!state.appMissing(facts));assert(state.canInstall(facts.state));
+    assert.equal(state.missingAction(facts),'upgrade');
+    assert(state.canRunAction(facts,'upgrade'));
+    assert(state.canRunAction(facts,'update-help'));
+    for(const action of ['install','shell','start-app','restore-enrollment']) assert(!state.canRunAction(facts,action));
+    const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+    let guides=0;
+    const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,
+      nativeEffectBlocked:false,launch:{running:false},startApp:{running:false},guide(){guides++}});
+    vm.runInContext(page.slice(start,end),c);c.install('update-help');
+    assert.equal(guides,1);assert(!c.launch.running);assert(!c.startApp.running);
+    c.nativeEffectBlocked=true;c.install('upgrade');assert(!c.launch.running);
+    c.install('update-help');assert.equal(guides,2);
+    c.nativeEffectBlocked=false;c.install('upgrade');assert(c.launch.running);
+    assert.equal(c.launchAction,'upgrade');assert(!c.startApp.running);
+    c.launch.running=false;c.install('upgrade');assert(!c.launch.running);
+  }
+  for(const locale of ['en','ru'])for(const key of ['update_title','update_help','update_components','needs_update']) {
+    const text=i18n.translate('setup.'+key,locale,{});
+    assert(text.length>0&&text.length<=512&&!text.includes('Missing translation'));
+  }
+  assert(card.includes('id: updateHelpButton'));
+  assert(card.includes('onClicked: card.installRequested("update-help")'));
+  assert(card.includes('onClicked: card.installRequested("upgrade")'));
+  for(const busy of [false,true])for(const effectBlocked of [false,true])for(const terminalOpened of [false,true]) {
+    const context={visible:true,card:{busy,effectBlocked,effectBusy:busy||effectBlocked,terminalOpened}};
+    const update=card.slice(card.indexOf('id: updateButton')).match(/enabled: ([^\n]+)/)[1];
+    const help=card.slice(card.indexOf('id: updateHelpButton')).match(/enabled: ([^\n]+)/)[1];
+    assert.equal(vm.runInNewContext(update,context),!busy&&!effectBlocked&&!terminalOpened);
+    assert.equal(vm.runInNewContext(help,context),!busy&&!terminalOpened);
+  }
+  for(const value of ['ready','needs_package','needs_activation','needs_dns_setup','needs_attention'])
+    assert(!state.canRunAction({state:value,coreInstalled:true},'upgrade'));
 });
 console.log(`${count} marketplace setup contracts passed`);

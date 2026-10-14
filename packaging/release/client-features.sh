@@ -8,6 +8,8 @@ bash "$(dirname "$0")/version-mode.sh" "$1" >/dev/null
 # Other future versions and stable packages need their own explicit selection.
 if [[ $1 == 0.9.8-beta.4 ]]; then
   printf '%s\n' t4-manager-actor-service
-elif [[ $1 == 0.9.8-rc.1 || $1 == 0.9.8 ]]; then
+elif [[ $1 == 0.9.8 ]]; then
+  printf '%s\n' product-private-backup,setup-upgrade082
+elif [[ $1 == 0.9.8-rc.1 ]]; then
   printf '%s\n' product-private-backup
 fi

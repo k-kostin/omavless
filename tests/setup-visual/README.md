@@ -5,7 +5,7 @@ Its initial status process only reads the installed ownership target; the
 harness never calls Install. Do not use this as proof of package installation,
 activation or marketplace availability. Status scenarios are synthetic.
 
-Create a private `/tmp/omavless-setup-review.XXXXXX` directory with `mktemp -d`,
+Create a private HOME-backed `~/.cache/ovt/su.XXXXXX` directory with `mktemp -d`,
 copy `shell.qml` there, and symlink `Commons`, `Ui`, `services` from
 `/usr/share/omarchy/shell` into it. Launch this separate Quickshell instance:
 
@@ -24,7 +24,7 @@ qs ipc -p "$review_dir" call setupReview capture ru-package
 qs ipc -p "$review_dir" call setupReview result
 ```
 
-Wait for `captured` and inspect the PNG. Matrix: EN/RU × `needs_package`,
+Wait for `captured` and inspect the PNG. Matrix: EN/RU × `needs_package`, `needs_update`,
 `needs_activation`, `needs_attention`, `release_unavailable`; core `present`,
 `missing`, `unknown`; also open-terminal state (`true`) with `scroll top` /
 `scroll bottom`. Use `surface card` to render the exact shared component by
