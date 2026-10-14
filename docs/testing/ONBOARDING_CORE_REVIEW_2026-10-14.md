@@ -272,6 +272,7 @@ causes and prevention, not a replacement chronology.
 | A screen offered an update that the pinned helper did not contain; receipt self-hash was treated as independent published provenance | Capability stays false on old deliveries; inspect the actual selected helper vocabulary and independently pinned source/architecture/member bytes. Compiled pin/build inputs are included in pairing equivalence, not misclassified as frontend-only. |
 | Direct helper replacement plus manual broker preparation and a warmed CI cache were presented too close to whole-journey readiness | The preparation/return path is now an explicit unresolved product gate. Each external fixture intervention is an unearned user-path edge, not invisible test setup. Original GUI/terminal/postcondition and anonymous-download evidence stay distinct. No new publication request until the prepublication user-path gates actually pass. |
 | Compound commands proceeded after refused Quit; a filter selected zero tests; a safe projection silently mapped unknown JSON shape to null | Effect-bearing phases must be admitted separately after checking the original result/schema and independent state. Require nonzero discovered test count. Wrong environment/schema/filter is a driver failure, not a product success or retry allowance. |
+| Default runtime tests did not compile the released updater feature combination | The normal Rust runner now explicitly tests and lints `product-private-backup,setup-upgrade082`, and runs the release-broker queued/preaccepted access-mask regressions. A default-feature green result cannot replace the package's actual selected feature gate. |
 
 Canonical prevention is added to the existing UI contract, execution policy
 and their discovery skills rather than another parallel checklist. The next
@@ -281,3 +282,142 @@ final package/release assembly. Independent review challenges the execution
 premises as well as source safety; a reviewed helper is not automatically a
 reviewed user flow. The next installed run must show the improvement, not merely
 reference these rules. No claim that all future defects are impossible is made.
+
+## Explicit preparation closes the challenged installed journey
+
+This section supersedes the **preparation/return blocker**, not the old failed
+results or the remaining public-delivery gates. Native producer:
+`99c556e5c966e1e1dae04f2d8babd2ca2dec9375`. Installed frontend:
+`4c33cf411e33f910586795bec0d8d4c440125db2`; the later commit changes the
+normal Rust runner, not native/package or frontend implementation inputs.
+The prospective behavior is not yet selected by current-main release metadata.
+
+### Early boundary and independent review
+
+Before final candidate installation, the reviewed fixed root preparation was
+exercised administratively in the sole-operator development guest. It masked
+new UID access to the exact original Idle-gated public broker socket, waited
+for the original pidfd's natural exit and checked the unchanged empty-journal,
+FD0/no-socket/no-TUN boundary. It sent no signal and deleted no broker socket or
+journal. The verified staged helper was removed only after known success.
+This early administrative gate is not the later product journey's preparation.
+
+Review removed a separate unsafe implementation premise: selecting a root
+executable through an unprivileged parent's `/proc/PID/exe` after sudo could
+follow an exec/PID-reuse change. The final code transfers a held, independently
+qualified ELF into a fresh root-only staging directory, verifies its actual
+root file identity and SHA256, then executes only that protected file. Each
+original sudo child settles before the next action. Any post-root uncertainty
+remains blocked and retains staging; cleanup is not a Drop/recursive effect.
+Seven maintenance and five staging tests cover the boundary, including Linux
+ACL/pidfd behavior and every production staging phase's failure. Two actual
+release-broker Linux tests cover queued and already-admitted SCM_RIGHTS clients;
+new access is denied without revoking the original admitted session. These
+tests do not constitute an installed crash/timeout or live admitted-client test.
+
+Independent Astra source review found no blocker for this exact preparation;
+subsequent review of the root's installed evidence found no remaining blocker
+for the described journey. That second assessment is evidence review, not a
+second agent observing/controlling the VM or publication authorization.
+
+### Frozen artifacts and actual path
+
+Both native architecture builds and strict offline inspection passed for
+producer99c: application CI
+[38548293284](https://github.com/k-kostin/omavless/actions/runs/38548293284)
+and companion CI
+[38548293006](https://github.com/k-kostin/omavless/actions/runs/38548293006).
+Packaged source/architecture/dependencies and actual ELF/receipt hashes match
+the inspected candidate. The PR merge SHA in an artifact's filename is not
+substituted for its inspected source receipt.
+
+| Architecture | Application archive SHA256 | DNS archive SHA256 |
+| --- | --- | --- |
+| x86_64 | `5110045e1fc6aab520367d8b3d8d38feca7a91371b79bc2f79177cee01ea23d4` | `bfd65f5f410cf09d436cb1c8d5d5872ee9266c73f7bdc145c617a078fa6bab9b` |
+| aarch64 | `cd6cb8ecbe55f97e50cac59bab98321d4f34bdd2ff43bcedccb825899afcbd9c` | `8e56778d15d16c550d8434498212550cbb1f1b6175cc46821990d9367f97fd40` |
+
+The guest was returned to the genuine anonymously downloaded public fix.4
+app/DNS pair, producer `b65695ee0609c2a971289109975678b8da87c946`.
+Its app SHA was `b8cc106248953abcc3b3475efa7cec362778b5ae918b6866c1e8febdd3c44ff9`;
+complete DNS receipt SHA was
+`4e6e819d64d6c181ed5de8cd4de6e2cd0f920210b956f529a4ad2be54c285eb2`.
+Normal existing-broker Start followed by separate app Start established the
+running/disconnected predecessor. Original broker PID73397 and runtimePID74927
+were observed independently before the update attempt.
+
+The allowlisted frontend archive was installed through its ordinary native-only
+wrapper. Only three **private offline candidate metadata** files then selected
+the independently inspected99c pair/capability; the exact candidate archives
+were preseeded and rehashed in the bounded private cache. This earns no anonymous
+new-release download, cache-miss or public capability activation evidence.
+
+Actual pointer/terminal sequence, without administrative broker preparation:
+
+1. Prepare component update while the app was active opened instruction-only
+   guidance. No updater/root prompt, package/broker change or app restart occurred.
+2. Confirmed normal Settings Full Quit stopped/disabled the app and closed the
+   widget. Ordinary widget enable did **not** start the app. The reopened stopped
+   panel offered optional Prepare and the independent Start continuation.
+3. Enter at PREPARE cancelled before root submission. Original broker73397 and
+   public packages stayed unchanged; Check again made Prepare reachable again.
+4. New explicit PREPARE and the original sudo prompt ran the actual qualified
+   helper/staging chain. It reported `broker_prepared`; original broker73397
+   exited naturally, FD0/no socket/no TUN remained, and the app stayed stopped.
+   The production chain verified staged ELF identity/hash before root execution;
+   no separate observation of the already-cleaned staging file is claimed.
+5. Enter at the separate UPGRADE consent cancelled only package installation.
+   App/DNS public fix.4 bytes remained unchanged. Check again offered both
+   optional update and Start existing broker, not a dead end or re-enrollment.
+6. A new admitted Prepare observed the already-clean boundary without another
+   broker mutation. UPGRADE, original sudo and normal pacman Y installed both
+   exact99c packages in one transaction; the unchanged ALPM guard passed.
+   Original outcome was `packages_updated_broker_start_required`, with DNS
+   setup not required and app Start not yet allowed. No app/VPN auto-start occurred.
+7. Enter closed the original terminal. Explicit terminal/prompts-closed
+   acknowledgement and Check again exposed Start existing broker. That actual
+   button/original sudo completed successfully using the unchanged enrollment.
+8. After its separate terminal close/acknowledgement/Check, actual Start OmaVLESS
+   reached the normal Disconnected screen. Inventory was `ready/present`, with
+   no obsolete optional update card; actual managed-core version was1.19.31.
+
+Final independent read-only checks asserted the original control response
+schema, observedDisconnected/recoveryfalse/Desiredfalse, no visible or owned
+core/TUN, brokerPID91716 active/FD0 and runtimePID93214 active but disabled.
+All seven canonical private members and separately root-checked enrollment bytes
+matched the pre-journey baseline. This is an empty-profile fixture retention
+proof, not populated subscription or VPN/network acceptance. Installed app ELF
+SHA was `e1d320dc3347e2bdb4f45a576c34c42098a73e54e00f698010e5424cf97808b6`,
+DNSreceipt SHA `5693dac3536ccff77e4863aa48b37a7a43c32a4b1d496939da9b6cba21dd1798`,
+core SHA `e4bc011ecad3ce8350b738cee91a98e27e1b1dd1b0fa6eeb79eb7d6427669106`
+and broker SHA `1855ed920a4b064c811ed14134b5ae14e3c5ece0a26695a84afc1ccfd711dc93`.
+No preparation staging directory or sudo/helper/pacman process remained.
+
+### Corrections to the test driver, not product claims
+
+The native-only archive wrapper rejects `--native-only` arguments; its normal
+no-argument invocation supplies that flag internally. The refused call made no
+installation effect and was not counted. A widget enable without OMARCHY_PATH
+also refused; only the subsequent normal desktop-context command counts.
+An apparent missing native-panel acknowledgement was below the scrollable
+content fold: the controller had clicked the fixed footer instead of the actual
+scrollbar. Fresh correct scrolling and independent frontend review confirmed
+the visible acknowledgement/Check/help controls; no flag reset or source patch
+was used to manufacture success. Full-frame captures retain terminal outcomes
+that cropped captures omitted. Each pointer effect uses the newly observed
+layout, not stale coordinates after an acknowledgement changes panel height.
+The first final read-only projection targeted an unwrapped result and selected
+no observation; only the corrected original-envelope/schema assertion above
+counts. Screenshots and private diagnostics remain outside Git.
+
+### Gate status
+
+Normal source suite passes772 Python tests with two declared opt-in skips and
+JS/QML checks; focused setup20/onboarding24 and actual PTY shell regressions pass.
+The45 focused updater tests pass under both the updater-only and actual released
+feature combination. Full Rust CI for frontend4c is still pending at the report
+checkpoint; package build success is not substituted for it. No fresh082 or
+genuinely-absent-companion installed scenario is claimed on this final99c pair.
+New immutable publication/pins, anonymous downloads/cache miss and ARM64
+installation remain separate unearned gates. Current-main metadata continues
+to select fix.4 with updatePairfalse. No main merge, tag/assets replacement,
+Marketplace action, physical-PC change or issue772 reply was performed.
