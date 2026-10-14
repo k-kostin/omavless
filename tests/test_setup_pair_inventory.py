@@ -110,6 +110,16 @@ class PairInventoryTests(unittest.TestCase):
         self.delivery(TARGET)
         self.assertEqual(self.inspect(), "current")
 
+    def test_every_recorded_public_producer_reaches_the_full_advisory_inspector(self):
+        records = json.loads((ROOT / 'plugin/published-pairs.json').read_text())['pairs']
+        for source in sorted({record['sourceCommit'] for record in records}):
+            with self.subTest(source=source):
+                self.delivery(source)
+                self.assertEqual(self.inspect(), 'current' if source == TARGET else 'stale')
+                self.app.write_bytes(b'modified inert fixture')
+                self.assertEqual(self.inspect(), 'unknown')
+                self.app.write_bytes(b'inert fixture executable; never execute')
+
     def test_mixed_receipts_are_not_an_ordinary_update(self):
         self.delivery(TARGET, OLD)
         self.assertEqual(self.inspect(), "mismatch")
