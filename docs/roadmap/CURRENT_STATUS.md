@@ -1,19 +1,21 @@
 # Current delivery status
 
-Updated 2026-10-13. This is the compact current-state entry point; the detailed
+Updated 2026-10-14. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Setup/removal follow-up, October 13:** frontend-only update over committed
-  Rust 0.8.2 currently has no guided paired-package upgrade. Preserve fresh-only
-  guards and existing ownership; a distinct explicit update path is required.
-  Owner-selected 0.9.9 removal review must be reachable from all setup/normal/
-  error states, while busy or unknown operations block execution. The
-  [owning contract](../development/SETUP_UPGRADE_UNINSTALL_099.md) is SOURCE design;
-  implementation and installed user-path gates are pending. This local finding
-  does not establish the root cause of the separate setup report #772.
+- **Removal follow-up, October 14:** owner-selected 0.9.9 removal review must
+  be reachable from all setup/normal/error states. A mandatory public terminal
+  deinstallation guide must also work after ordinary Omarchy widget removal:
+  actual reviewed commands, guarded app/DNS cleanup without the checkout,
+  profiles retained by default and unrelated VPNs/shared cores unchanged.
+  Busy/unknown operations block execution, not review/help. The
+  [owning contract](../development/SETUP_UPGRADE_UNINSTALL_099.md) retains pending
+  implementation and installed guide/removal gates. Related setup/qualified
+  update/core-readiness corrections landed through #778; its deferred ARM64
+  acceptance and the reporter's unknown original cause remain separate.
 
 - **0.9.8 subscription security correction, #736:** the shared Rust feed
   scanner no longer repeats failed scheme suffixes. Raw/Base64 semantics and

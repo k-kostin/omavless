@@ -1,20 +1,24 @@
 # Existing-install upgrade and accessible removal
 
-Status: owner-requested 0.9.9 SOURCE design, 2026-10-13. Not implemented,
-installed acceptance, an updater release or permission to mutate the host.
-Source baseline: `b4ef783e14676099b9d6429304c57542ff948804`.
-The current setup failure-stage correction is separate work; this contract
-does not replace its writer or change its runtime behavior.
+Status: owner-requested 0.9.9 removal SOURCE design, updated 2026-10-14.
+Removal UI/terminal guide and their installed acceptance are not implemented.
+Original upgrade-design baseline: `b4ef783e14676099b9d6429304c57542ff948804`.
+Current main: `a7db27bde88118504c14fc1a631a56a4ab0f9077`, through #778.
+Its qualified public 0.8.2 updater, partial DNS continuation and managed-core
+readiness corrections supersede the corresponding implementation gaps below.
+Their exact evidence/remaining ARM64 check belong to #778; this contract is
+not a new acceptance claim or permission to mutate the host. The upgrade
+sections retain the original design, not a second implementation task.
 
-## Observed gap and owning boundaries
+## Historical triggering gap and owning boundaries
 
 Updating the Omarchy checkout does not update installed Arch packages. A
 committed Rust 0.8.2 application with the 0.9.8 frontend and no DNS companion
-currently reaches `needs_attention`, with no guided upgrade action. This is a
+at the original baseline reached `needs_attention`, with no guided upgrade action. This was a
 real existing-user dead end, not proof that package replacement is unsafe in
 every such installation.
 
-`setup_status` requires the exact current app package before inspecting its
+At that baseline, `setup_status` required the exact current app package before inspecting its
 owner. `install_package` and `install` intentionally require the fresh boundary.
 `SetupState.missingAction` also refuses a missing companion. Preserve those
 fresh-install protections; implement a distinct, explicit update action.
@@ -46,10 +50,12 @@ selected predecessor, compatible private state and committed Rust ownership.
 Do not infer that the owner's currently installed binary has passed these
 checks from the source package pins above.
 
-The current proposed destination is the reviewed `v0.9.8-fix.3` app/DNS pair,
+The original proposed destination was the reviewed `v0.9.8-fix.3` app/DNS pair,
 producer `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`; use the frontend's
 actual architecture-specific `runtime-release.json` and `dns-release.json` pins.
-A later 0.9.9 destination must select its own inspected, immutable pair.
+Main now selects `v0.9.8-fix.4` through #778; do not use the old design's
+destination as a current installer instruction. A later 0.9.9 destination
+must select its own inspected, immutable pair.
 Do not copy these destination pins into a future installer by assumption.
 Other versions, development builds, experimental enrollments and modified
 receipts require a separately defined compatibility route, not this offer.
@@ -112,10 +118,11 @@ Never claim “no changes” after a successful package phase or resend a submit
 enrollment/selection after a lost reply. A current refusal still needs a useful
 next step; safe refusal alone does not close the user workflow.
 
-Implementation gaps remain: runtime-independent upgrade inventory/action,
+Original implementation gaps were: runtime-independent upgrade inventory/action,
 bounded predecessor qualification and pre-replacement compatibility checks,
 single-writer admission, partial-result handling, and installed upgrade evidence.
-This document grants none of the effect authority those implementations need.
+The current #778 checkpoint above supersedes this old work list. This document
+grants none of the effect authority a future implementation needs.
 
 ### Minimal native upgrade-readiness boundary (design only)
 
@@ -260,6 +267,66 @@ active workflow. Plugin removal may trigger the existing unload observer, so
 package removal must not race its shutdown request. Verify each actual outcome
 and report the remaining component/data inventory instead of a blanket success.
 
+### Mandatory 0.9.9 terminal deinstallation guide
+
+Owner requirement, 2026-10-14: ship a public, user-friendly deinstallation guide
+with **actual copyable terminal commands**, including the case where the user
+already ran `omarchy plugin remove kdk.omavless`. Losing the widget/check-out
+must not make cleanup instructions or the supported removal path unavailable.
+Publish it under `docs/user/NATIVE_UNINSTALL.md`, link it from current Setup
+help/usage/removal documentation and the removal review, and keep a stable
+GitHub main URL usable without any installed plugin. This path is a planned
+deliverable, not a claim that such a guide or remover is available today.
+
+The guide must distinguish widget-only removal, full component removal and
+retained private data. It must explain that ordinary Omarchy removal does not
+uninstall native packages, the bundled core or system DNS enrollment. A missing
+icon/executable is not verified shutdown. Cover fresh/no setup, partial setup,
+ready installation and native executable missing/unknown state separately.
+
+Its supported terminal sequence must:
+
+1. Inventory the remaining application/DNS packages, runtime/login services and
+   enrollment with bounded supported reads, without exposing private profiles
+   or logs. Settle any previous setup/OS prompts before admitting new effects.
+2. Use the reviewed native shutdown/cleanup consumer independently of the QML
+   widget. Prove actual stopped/disconnected state and DNS restoration; do not
+   merely stop a unit and call its tunnel clean. Missing binaries need a named
+   reviewed administrative continuation, not a demand to reinstall the widget
+   or an assumption that the running process has disappeared.
+3. Guard the privileged broker's empty lease/journal/FD/TUN boundary, revoke
+   only the intended enrolled UID while the helper still exists, and stop/
+   disable the clean broker before guarded package removal. Another account's
+   runtime/enrollment can block global package removal and must not be erased.
+4. Remove only the selected remaining `omavless`/`omavless-dns` packages through
+   ordinary pacman guards. Do not remove shared stock/AUR Mihomo, Tailscale,
+   V2RayN, unrelated dependencies or firewall rules. The core bundled inside
+   the DNS package is part of that package, unlike a separate shared core.
+5. Remove the widget last if it still exists, check for remaining owned services/
+   packages, and clearly report what was removed and what data were retained.
+   Already absent components are explained, not treated as permission to force
+   subsequent steps. Profiles/settings remain by default; purge, if offered,
+   is a separate reviewed and explicitly confirmed operation.
+
+Each command block must say when to run it, the expected result, and when to
+stop. Avoid opaque chained scripts, development-checkout dependencies, forced
+pacman switches, arbitrary root commands or deleting ownership/journal/socket
+files to bypass a refusal. Commands must match the actual released 0.9.9 CLI
+and packages, not speculative command names or legacy `uninstall.sh --purge`.
+Unknown effects require a useful diagnosis/recovery next step, not repeated
+enrollment, blanket `rm -rf` or a claim of successful uninstall.
+
+Release acceptance must execute the documented commands verbatim in an
+isolated VM after **ordinary Omarchy plugin removal**, not only test a remover
+while its widget/check-out is still installed. Exercise partial setup and an
+enrolled ready installation, plus no-op/absent-component and blocked/unknown
+cases. Verify private data preservation, intended package/service removal,
+original DNS restoration/no owned TUN, no deletion of other accounts' state
+and no changes to unrelated VPNs/core packages. Also check that the public
+guide remains reachable and the stated safe reinstall route works after clean
+removal. Record exact frontend/native identities and applicable architecture
+evidence; these new guide/removal gates remain pending.
+
 ## Required user-path gates
 
 Clean first-use does not stand in for an upgrade. The owning release's workflow
@@ -275,37 +342,29 @@ matrix must include these distinct gates with exact frontend/package identities:
   cancellation and partial package/enrollment/selection results.
 - Removal/re-add before setup, after partial setup, normal stopped/running and
   unknown/pending authorization; reachable review and no blind cleanup.
+- Widget already removed through ordinary `omarchy plugin remove`: finish
+  component cleanup using the public guide's exact terminal commands without
+  relying on deleted QML/helper files; preserve profiles and unrelated software.
 
 Programmatic tests exercise production inventory/action admission and negative
 routes, not mocks which redefine a previous stable install as fresh. Installed
 tests cover actual panel/TUI meaning, consent, settled state, retained private
 data, no unsolicited VPN/startup and the declared next action after refusal.
 Keep x86_64/ARM64 evidence scoped; historical clean-install PASS remains valid
-only for its original path. All gates above are pending in this SOURCE design.
+only for its original path. The original upgrade gates now follow #778's exact
+recorded scope/results; removal and the post-widget terminal guide gates remain
+pending in this SOURCE design.
 
 ### Current follow-up queue
 
-The separately recorded [manual predecessor upgrade and removal/re-add](https://github.com/k-kostin/omavless/pull/775)
-are scoped VM evidence, not completion of this guided updater. The
-[default-template canonical-mode correction](https://github.com/k-kostin/omavless/pull/776)
-is a separate source successor; until integrated and installed-checked, the
-current public preparation behavior described above is unchanged.
+The setup/qualified-update/default-mode/core-readiness successors are included
+in main through [#778](https://github.com/k-kostin/omavless/pull/778).
+Its x86_64 installed results and explicitly deferred installed ARM64 gate keep
+their exact identities; do not restart completed setup work from this older
+design or imply that it established the reporter's exact original cause.
 
-The next bounded user results are:
-
-1. A qualified guided paired-package upgrade, rather than guide-only navigation
-   or a fresh-install bypass. Keep explicit consent and partial/unknown results.
-2. An existing-Rust partial-setup continuation for broker enrollment/start and
-   pair selection. Distinguish first enrollment, preserved enrollment and revoked
-   enrollment; do not repeat application activation or selector creation.
-3. Correct onboarding/core-readiness facts for a selected managed core.
-   `desktop_helpers` currently discovers stock HOME/PATH Mihomo while the normal
-   `native_host` selects `ManagedPair` first. Use the verified selected-core
-   projection; an invalid selected pair is unavailable, never stock fallback or
-   a request to grant capabilities to the unrelated stock executable.
-4. The always-reachable removal review and guarded execution specified above.
-
-These are pending implementation/affected-acceptance results, not additional
-frontier scope or permission to resume VM tests. The setup reporter's failure
-stage remains independently investigated; a local successful migration does not
-establish their root cause.
+Remaining 0.9.9 results in this contract are the always-reachable removal
+review, guarded UI-independent execution, and the mandatory terminal guide
+after widget removal. Source design and a guide link alone cannot close these
+installed user-path gates. This documentation update executes no removal,
+does not start another VM session, and grants no new main/release permission.

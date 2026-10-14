@@ -2,16 +2,17 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
-**Owner-selected setup/removal follow-up, 2026-10-13:** the existing-user path
-must handle an already committed public Rust 0.8.2 application after a
-frontend-only update, without weakening fresh-install guards or repeating
-activation. Separately, 0.9.9 must offer removal review from every setup,
-normal and error state; removal execution remains blocked by busy/unknown
-operations. The [upgrade/removal contract](docs/development/SETUP_UPGRADE_UNINSTALL_099.md)
-records the supported predecessor, guarded paired update, preserved private
-data and required user-path gates. This is SOURCE design, not implemented or
-installed acceptance. Setup issue #772 remains independently investigated;
-the observed local upgrade gap does not establish that reporter's root cause.
+**Owner-selected removal follow-up, updated 2026-10-14:** 0.9.9 must offer
+removal review from every setup/normal/error state and a public terminal
+deinstallation guide usable after ordinary `omarchy plugin remove` has already
+deleted the widget. Document and VM-test actual commands for guarded native/DNS
+component removal without the checkout, retaining profiles by default and
+leaving unrelated VPNs/shared cores untouched. Busy/unknown operations block
+execution, not access to review/help. The
+[upgrade/removal contract](docs/development/SETUP_UPGRADE_UNINSTALL_099.md)
+retains those pending removal gates and the original upgrade design. Related
+qualified update/partial DNS/core corrections landed through #778; do not call
+that completion of the 0.9.9 remover or its terminal guide.
 
 **0.9.8 subscription security maintenance, October 11:** #736 addresses
 Marketplace #10984's quadratic candidate scan in the shared Rust feed decoder.
