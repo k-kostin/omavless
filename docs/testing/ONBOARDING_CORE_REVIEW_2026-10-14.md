@@ -433,3 +433,79 @@ The initial public0.9.8 broker without the serialized access gate is not admitte
 by automatic PREPARE; neither a known package version nor the general published
 pair table proves support for that privileged operation. Its manual-assistance
 boundary must not be represented as the successful fix.4 journey above.
+
+## Immutable fix.5 delivery and clean-reinstall gates
+
+The owner requested general CI, a clean-reinstall check and matched public
+packages/download/installation, without interrupting the physical desktops.
+Frozen validation frontend: `1e25a79796e1b7a2d9ba341f26b093c74c3c3b84`;
+native/DNS producer remains `99c556e5c966e1e1dae04f2d8babd2ca2dec9375`.
+`rc/0.9.8-fix.5` / [#784](https://github.com/k-kostin/omavless/pull/784) owns
+delivery; #783 preserves the implementation branch. The following is agent-run
+x86_64 development-VM evidence, not owner-attended or installed ARM64 acceptance.
+
+- The genuine original public v0.9.8 pair was used as a packages-plus-DNS,
+  application-stopped partial fixture. Its broker has no Idle gate. Separate
+  administrator removal used known original normal stop, PID0/FD0, empty
+  private journal, absent TUN and unchanged original stale socket identity;
+  revocation preceded binary removal and ordinary pacman guards passed.
+  The original clean exit was code0/status0, not the newer broker's SIGTERM15.
+  No force removal, journal deletion or product-PREPARE claim followed.
+- Previous private config/state/cache/widget were recoverably archived, not
+  erased or published. The first attempted fresh fixture still contained unused
+  runtime locks and an old consumed login receipt. The canonical guards refused
+  initialization and then activation respectively. Their original failures are
+  retained. Each residual was separately inspected/preserved under sole-operator
+  VM administration; continuation eventually reached ready without reinstalling
+  packages or repeating completed DNS enrollment. This is **partial continuation**,
+  not a continuous fresh-install result or proof of Aryan's unknown original cause.
+- A separately admitted clean baseline, including absence of runtime directory
+  and login receipt, then passed the uninterrupted offline GUI journey:
+  Install required components → INSTALL → original sudo/pacman → DNS → ready.
+  No administrative intervention occurred inside this product path. Preseeded
+  reviewed packages were used only here; this is not public-download evidence.
+- Immutable [v0.9.8-fix.5](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.5)
+  was published as **prerelease/not latest**, with seven assets. Tag target is
+  the frozen frontend above; latest remained fix.3 and main was unchanged.
+  App/DNS maps and updatePairtrue select producer99c on both architectures.
+  Both offline pair assemblies passed with equivalent runtime input-tree hash
+  `4bb537ace9d2a46c3fd7591e1921ad86ab543aff2b49926b65a52a40af78afd0`.
+- All seven assets were downloaded anonymously over bounded HTTPS; local hashes,
+  uploaded GitHub asset digests and SHA256SUMS matched. Downloaded app/DNS packages
+  were independently re-inspected/re-paired for x86_64 and aarch64. Common frontend
+  SHA256: `00282a858ef835d230bfc7542d78b029f32946b84eb19f14175d01bd39a09005`.
+  Prepared immutable metadata keeps prepublication booleans false; postpublication
+  results belong to this report/PR, not rewritten published files.
+- A new ordinary Omarchy add without enable, followed by explicit candidate-tag
+  checkout **before enabling**, admitted the exact frozen frontend. Packages,
+  config, state, runtime directory, login receipt and download cache were absent.
+  The actual GUI INSTALL fetched both fixed public endpoints with a cache miss;
+  ordinary sudo/pacman → separate DNS → ready passed without intervention.
+  This explicit candidate selection is not a main/Marketplace install claim.
+- Installed app/broker/receipt hashes matched the inspected99c pair. Actual and
+  desired state were Disconnected, transition absent, native ownership true,
+  startup preference Off, profiles empty, broker active/FD0 and managed TUN/core
+  absent. The application service was enabled by ordinary fresh setup, separately
+  from VPN autoconnect. No sudo/pacman authorization remained pending.
+- The anonymously downloaded frontend wrapper's normal `./install.sh` passed
+  over that activated pair and retained the original application PID. Its loaded
+  wizard showed Core ready/version1.19.31 and Continue reached Routing2/3. No
+  profile import, preset change or VPN connection was needed for this gate.
+
+Full Test on equivalent-code frontend4c
+[38548694245](https://github.com/k-kostin/omavless/actions/runs/38548694245)
+completed successfully. Frozen RC1e full Test
+[38563158711](https://github.com/k-kostin/omavless/actions/runs/38563158711)
+and report-head55ff full Test remained in progress at this checkpoint; neither
+is labelled PASS here. Local normal checks passed772 Python cases/two declared
+opt-in skips and JS/QML. Frozen RC native/package jobs passed on both architectures;
+the inspected producer99c archives, not new document-head builds, remain selected.
+The PR records subsequent exact CI conclusions.
+
+Astra's source/evidence review found no additional scoped practical blocker;
+that review did not independently operate the VM or download the assets. Known
+limits remain original-v0.9.8 manual assistance, installed ARM64, a final099
+all-stage uninstaller and untested live network-health cases. Main/stable/latest,
+Marketplace and a new issue772 reply were not performed. SSH and selected-guest
+QMP were used; no physical desktop/window focus, shell restart, network/service
+change or VM reboot was needed.

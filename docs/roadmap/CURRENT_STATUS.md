@@ -25,9 +25,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   actual GUI Quit/reopen → PREPARE → UPGRADE → broker Start → app Start, including
   cancellations and terminal-closure fencing. `rc/0.9.8-fix.5` selects its
   independently inspected matched pair for both architectures and enables the
-  public action only for that delivered capability. Clean reinstall, anonymous
-  download/cache-miss and exact final CI are separate pending delivery gates;
-  installed ARM64 is not claimed. Original v0.9.8 lacks the required Idle gate
+  public action only for that delivered capability. Immutable validation
+  fix.5/frontend `1e25a79796e1b7a2d9ba341f26b093c74c3c3b84` now has seven verified
+  anonymous downloads and an actual continuous clean x86_64 GUI/cache-miss setup.
+  Exact final CI remains a separate gate tracked in #784; installed ARM64 is
+  not claimed. Original v0.9.8 lacks the required Idle gate
   and still needs guarded administrator removal/replacement.
 
 - **Emergency setup/update correction, #778:** owner-authorized main

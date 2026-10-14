@@ -69,6 +69,23 @@ state. Provision only the explicitly selected initially absent empty directory,
 with its exact owner/mode, never synthetic protection records. Run an inert
 canonical-byte check and establish actual empty-state admission before Arm.
 
+For a clean **reinstall** fixture, package/config absence is not sufficient:
+inventory the selected account's runtime owner/socket/lock directory and login
+receipt too. A consumed receipt from the previous ownership generation can
+correctly block a new activation, even after packages and persistent state were
+removed. Preserve that initial refusal; do not call the resumed installation an
+uninterrupted fresh-install PASS. Only separately authorized, sole-operator VM
+administration may archive precisely identified unused residuals after stopped
+owner, safe-path and original-state checks. A lock acquisition alone does not
+exclude a concurrent new start. Never turn this fixture procedure into a generic
+user cleanup command, delete unknown receipts, or weaken create-only guards.
+
+Once the whole initially absent baseline is admitted, complete a new continuous
+GUI/terminal setup with no administrative interventions inside it. Keep cached
+offline validation separate from an empty-cache public-download run. Explicit
+candidate tag checkout before enabling is fixture selection, not proof of a
+main/Marketplace install.
+
 ## Encrypted reboot: successful repeatable sequence
 
 1. Establish that the selected QEMU process belongs to the current user and
