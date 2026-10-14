@@ -131,8 +131,9 @@ it is itself the documented, reviewed and tested user procedure. Mark offline
 candidate/cache evidence separately from anonymous published downloads.
 Verify the prerequisite edge before final artifact assembly; package-phase PASS
 cannot conceal a missing preparation/return path. Keep an update advisory from
-disabling ordinary Start/Continue, and show an explicit preparation action rather
-than promising immediate replacement when preparation remains necessary.
+disabling ordinary Start/Continue, and make preparation explicit inside the
+update flow rather than promising immediate replacement. Its entry is named
+Update components…; the ellipsis indicates subsequent steps and confirmations.
 
 ## Three independent checks before calling a change ready
 

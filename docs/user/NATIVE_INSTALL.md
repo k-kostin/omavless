@@ -22,7 +22,7 @@ OmaVLESS does not turn them off for you.
 | Start DNS helper / Restore helper access | [Use the existing-installation helper action](#existing-dns-installations). |
 | Start OmaVLESS | Start the application after any DNS step finishes. It starts disconnected and does not enable login startup. |
 | Application update required | [Update the old application](#updates). Updating the plugin alone does not update native packages. |
-| Prepare update / Update OmaVLESS | [Update the installed components](#already-using-098). Preparation and installation ask for separate confirmation. |
+| Update components… / Update OmaVLESS | [Update the installed components](#already-using-098). Preparation and installation ask for separate confirmation. |
 | Terminal and system prompts are closed | Finish or cancel setup and all system prompts, then close the terminal, confirm this and choose Check again. |
 | Setup needs attention / State unverified / Recovery required | [Inspect the current result](#when-setup-stops). Do not repeatedly install or connect to clear a warning. |
 
@@ -186,14 +186,14 @@ Update the widget first. For a partial setup, use Check again and finish the
 remaining DNS/application step; do not initialize or activate an existing
 Rust-owned installation again.
 
-When the panel offers **Prepare update**:
+When the panel offers **Update components…**:
 
 1. Turn VPN login autoconnect Off, Disconnect, then confirm Settings →
    **Shut down OmaVLESS**. Do not stop another VPN or force a live connection off
    as part of an update.
 2. Enable the widget again with `omarchy plugin enable kdk.omavless` and open
    it. Reopening the widget does not reconnect the VPN or start the application.
-3. Choose **Prepare update**. Confirm `PREPARE` and the separate
+3. Choose **Update components…**. Confirm `PREPARE` and the separate
    system authorization. This checks and prepares a supported idle broker; it
    does not install packages. An unknown or unsupported result needs inspection,
    not repeated confirmation or forced cleanup.

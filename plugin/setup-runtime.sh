@@ -719,8 +719,8 @@ setup_main() {
     say '2. To reopen ONLY the widget, run in your desktop terminal:' \
       '2. Чтобы снова открыть ТОЛЬКО виджет, выполните в обычном терминале:'
     printf '\n  omarchy plugin enable kdk.omavless\n\n'
-    say '3. Open the panel and choose Prepare update again. Keep the application stopped until the update finishes.' \
-      '3. Откройте панель и снова выберите «Подготовить обновление». До завершения обновления не запускайте приложение.'
+    say '3. Open the panel and choose Update components… again. Keep the application stopped until the update finishes.' \
+      '3. Откройте панель и снова выберите «Обновить компоненты…». До завершения обновления не запускайте приложение.'
     # Inventory readiness and delivery freshness are independent. Offer the
     # preparation instructions while ready, but never fetch/authorize effects
     # until normal Full Quit has earned a genuinely stopped user owner.

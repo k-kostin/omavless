@@ -42,7 +42,7 @@ var CATALOG = {
   "setup.starting_app": {"en":"Starting OmaVLESS…","ru":"Запускаем OmaVLESS…"},
   "setup.action_blocked": {"en":"Check the current state before starting another action.","ru":"Перед новым действием нажмите «Проверить снова»."},
   "setup.update_components": {"en":"Update OmaVLESS","ru":"Обновить OmaVLESS"},
-  "setup.prepare_update": {"en":"Prepare update","ru":"Подготовить обновление"},
+  "setup.prepare_update": {"en":"Update components…","ru":"Обновить компоненты…"},
   "setup.complete_pair": {"en":"Install missing components","ru":"Установить недостающие компоненты"},
   "setup.needs_pair_update": {"en":"An optional update is available. You can keep using the current version; profiles will be kept.","ru":"Доступно необязательное обновление. Можно пользоваться текущей версией; профили сохранятся."},
   "setup.needs_pair_install": {"en":"The VPN core and DNS helper package is missing. Close OmaVLESS before installing it; profiles will be kept.","ru":"Нет пакета с ядром VPN и DNS-помощником. Перед установкой закройте OmaVLESS; профили сохранятся."},

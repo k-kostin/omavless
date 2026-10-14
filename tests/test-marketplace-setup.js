@@ -10,6 +10,19 @@ assert(card.includes('card.facts.state === "needs_pair_install" ? "prepare_title
   'A missing component needs setup, not an UPDATE AVAILABLE heading');
 let count = 0;
 function test(name, run) { try { run(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
+test('update flow entry and return instructions use the same user-facing label', () => {
+  const terminal=fs.readFileSync(__dirname+'/../plugin/setup-runtime.sh','utf8');
+  const guide=fs.readFileSync(__dirname+'/../docs/user/NATIVE_INSTALL.md','utf8');
+  for(const locale of ['en','ru']) {
+    const label=i18n.translate('setup.prepare_update',locale,{});
+    assert(label.endsWith('…'));
+    assert(terminal.includes(label),'Return guidance must name the actual visible control');
+    if(locale==='en')assert(guide.includes('**'+label+'**'));
+  }
+  assert(card.includes('onClicked: card.installRequested("update-pair")'));
+  assert(guide.includes('`PREPARE`')&&guide.includes('`UPGRADE`'));
+  assert(terminal.includes('setup_step upgrade-operation upgrade_package "$operation"'));
+});
 test('operational steps precede optional updates across inventory states', () => {
   const vm=require('node:vm');
   function presentation(facts) {
