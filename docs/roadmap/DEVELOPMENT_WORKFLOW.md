@@ -505,6 +505,10 @@ The RC PR body must record these items before proposing an update to main:
 - Reconcile `DEVELOPMENT_ROADMAP.md`, `docs/roadmap/CURRENT_STATUS.md`, affected
   feature contracts, agent rules and user guides with the actual candidate.
   Explicitly review pending `dev/docs/*` PRs and accepted issue decisions.
+- Apply [public guides follow main](../development/README.md#public-guides-follow-main):
+  trace affected in-app help destinations and review their actual instructions
+  against the proposed main/native delivery. Separate historical and draft
+  guidance; update the affected public guides together with the implementation.
 - Preserve historical exact-head evidence and failed/unrun gates. Label new
   work RC-integrated, not released/complete, until the applicable event occurs.
 - Record resolved doc conflicts and remaining decisions; do not cherry-pick
