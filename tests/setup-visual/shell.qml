@@ -51,7 +51,7 @@ ShellRoot {
       // Do not race the panel's initial real read-only inventory process.
       if (loader.item && loader.item.busy) return "busy"
       if (!loader.item || ["en", "ru"].indexOf(locale) < 0
-          || ["checking", "ready", "needs_package", "needs_update", "needs_activation", "needs_attention", "release_unavailable"].indexOf(state) < 0
+          || ["checking", "ready", "needs_package", "needs_update", "needs_activation", "needs_companion", "needs_attention", "release_unavailable"].indexOf(state) < 0
           || ["present", "missing", "unknown"].indexOf(core) < 0) return "refused"
       loader.item.locale = locale
       loader.item.facts = {state:state, coreInstalled:core === "unknown" ? null : core === "present"}
