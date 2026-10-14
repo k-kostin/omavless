@@ -260,14 +260,19 @@ test('real routing rejection clears saving but never advances on the old matchin
  const c=context();c.openOnboarding(2);c.nativeOnboardingPresetPending='iran-ir-direct';
  const v=c.vless;v.nativeSnapshot.routing.storedPreset='iran-ir-direct';
  v.nativePending={instanceId:'instance',operationId:'operation',action:'routing-preset',revision:7};
+ const notifications=[];
+ const notifyBody=panel.match(/function onNativePendingChanged\(\) \{ ([^\n]+) \}/)[1];
+ let pendingValue=v.nativePending;
+ Object.defineProperty(v,'nativePending',{configurable:true,get(){return pendingValue},set(value){pendingValue=value;vm.runInNewContext(notifyBody,{root:c,Qt:{callLater:f=>notifications.push(f)}});}});
  Object.assign(v,{NativeSnapshot:parser,nativeActionStdout:{text:JSON.stringify(frame)},nativeOutcomeUnknown:false,
   nativeMetadataTransitionTimeout:{restart(){},stop(){}},finishNativeEditorAction(){},finishNativeSubscriptionAction(){},finishNativeRoutingAction(){},refreshAfterChange(){}});
  const action=vm.createContext(v);action.root=action;vm.runInContext(handler,action);action.exited(2);
  assert.equal(v.nativePending,null);assert.equal(v.nativeActionCode,'');assert.equal(v.nativeMetadataErrorAction,'routing-preset');assert.equal(v.nativeMetadataErrorCode,'permission_denied');
+ while(notifications.length)notifications.shift()();
  c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'');assert.equal(c.onboardingWizard.step,2);
  // Unknown retains the original request and must not show a still-running save.
  v.nativeMetadataErrorCode='';v.nativePending={instanceId:'instance',operationId:'operation',action:'routing-preset',revision:7};v.nativeActionStdout.text='';c.nativeOnboardingPresetPending='iran-ir-direct';action.exited(73);
- assert(v.nativeOutcomeUnknown);assert(v.nativePending);c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
+ assert(v.nativeOutcomeUnknown);assert(v.nativePending);while(notifications.length)notifications.shift()();c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
 });
 test('native wizard preserves layout and explicitly avoids legacy grants/readiness claims',()=>{
  assert(wizard.includes('property bool nativeContext: false'));

@@ -1654,7 +1654,9 @@ Panel {
         root.nativeSelectedProfile = vless.nativeSnapshot.desired.connected ? vless.nativeSnapshot.desired.profileId : vless.nativeSnapshot.lastProfileId
       root.syncNativeOnboarding()
     }
-    function onNativePendingChanged() { root.syncNativeOnboarding() }
+    // The exit handler publishes error fields after releasing nativePending.
+    // Observe its completed publication, not an intermediate success-shaped state.
+    function onNativePendingChanged() { Qt.callLater(root.syncNativeOnboarding) }
     function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }
     function onNativeActionCodeChanged() { root.syncNativeOnboarding() }
     function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
