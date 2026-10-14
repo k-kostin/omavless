@@ -58,6 +58,45 @@ cannot fabricate Connected/health or claim fixture rendering is live evidence.
 Only owner-selected, inspected assets belong in a product gallery. Raw captures
 remain outside Git. Preserve attribution and useful limitations during editing.
 
+## Public guides follow main
+
+Owner requirement, 2026-10-14: **public user guides must describe what is
+actually supported by current main**, not an older release, an unmerged
+candidate or a planned feature. This covers README, user installation/update/
+removal guides, Setup help, onboarding help and every public page reached from
+the shipped interfaces. A valid URL to outdated instructions is still a defect.
+
+Before an owner-authorized main update:
+
+1. Trace the affected help buttons/links to their actual destination pages.
+   Review the contents, not only HTTP success or file existence. Equivalent
+   entry points must give the same current instructions or clearly lead to the
+   same canonical guide.
+2. Compare component names, supported versions, package pins, commands, consent
+   choices and visible actions with the proposed main snapshot and its selected
+   native delivery. Do not infer installed compatibility from a version label,
+   a newer GitHub tag, or source-only feature code.
+3. Reconcile the affected first-use, existing-user update, partial-setup and
+   removal/reopen instructions in the same update as their implementation.
+   Describe reachable next steps and genuine limitations; never advertise a
+   planned remover/updater as available or suggest resetting private data to
+   bypass a refusal. Use the owning risk-based acceptance rules, not a new
+   blanket VM rerun for every documentation edit.
+4. Keep older instructions as clearly labelled historical/version-specific
+   references with a prominent link to the current guide. Preserve established
+   help URLs/anchors through a current landing page where needed. An old
+   stock-core recipe must not become the current managed-pair instruction.
+
+Development-branch drafts may describe the intended next snapshot only when
+clearly labelled; they are not current public help before main integration.
+Immutable release/tag documentation retains its original version and evidence:
+do not overwrite old artifacts to make them look current. Keep main's current
+guide and release notes explicit about that distinction and unrun acceptance.
+Documentation/navigation tests protect links and rule discovery; they do not
+prove that the installed user flow works. Record affected content/behavior
+review in the PR. Main, release and issue/Marketplace-write authorization remain
+separate; this rule grants none of them automatically.
+
 ## Retention by purpose
 
 | Material | Destination / rule |

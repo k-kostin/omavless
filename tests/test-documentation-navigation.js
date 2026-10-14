@@ -48,6 +48,17 @@ assert(!installGuide.includes('omarchy pkg aur add mihomo-bin'),
   'do not offer stock core installation as the current managed-pair route');
 const entry = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
 assert(entry.split('\n').length <= 80, 'root AGENTS must remain a concise entry point');
+const publicGuidePolicy = path.join(root, 'docs/development/README.md');
+assert(fs.readFileSync(publicGuidePolicy, 'utf8').includes('## Public guides follow main'));
+for (const file of ['AGENTS.md', 'docs/development/AGENT_GUIDE.md',
+  'docs/roadmap/DEVELOPMENT_WORKFLOW.md']) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  assert([...text.matchAll(/\]\(([^\s)]+)\)/g)].some(match => {
+    const [target, anchor] = match[1].split('#');
+    return anchor === 'public-guides-follow-main' &&
+      path.resolve(root, path.dirname(file), target) === publicGuidePolicy;
+  }), 'current public-guide contract must be discoverable: ' + file);
+}
 for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md',
   'docs/roadmap/CURRENT_STATUS.md', 'docs/roadmap/DEVELOPMENT_WORKFLOW.md',
   'docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md', 'docs/roadmap/RUST_MIGRATION.md',

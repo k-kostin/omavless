@@ -318,6 +318,11 @@ leaving the result only in chat history.
 
 ## UI interaction and presentation work
 
+Public Setup help, onboarding links and user guides must describe current main,
+including its actual selected package/installation path. Apply the
+[public-guide rule](README.md#public-guides-follow-main) when changing a user
+flow or proposing a main update; checking that a help URL exists is insufficient.
+
 Before changing plugin layout, controls, labels, selection, focus or scrolling,
 read [`skills/omavless-ui-review/SKILL.md`](../../skills/omavless-ui-review/SKILL.md)
 and follow the linked [`UI/UX contract`](../roadmap/UI_UX_CONTRACT.md).
