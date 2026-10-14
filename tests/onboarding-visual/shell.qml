@@ -37,6 +37,9 @@ ShellRoot {
         w.profiles = []
         w.busy = false
         w.routingSavePending = false
+        w.routingSaveUnknown = false
+        w.nativeStatus = ""
+        w.nativeCanContinue = true
         if ("firstRun" in w) w.firstRun = true
         // Supports inspecting the unchanged installed baseline before the new property exists.
         if ("nativeDesktopFacts" in w) w.nativeDesktopFacts = helpers === "unknown" ? null : {
@@ -103,6 +106,15 @@ ShellRoot {
             if (loader.item.step !== 2) return "refused"
             loader.item.routingSavePending = value
             loader.item.busy = value
+            review.result = "ready"
+            return "ready"
+        }
+        function unknown(value: bool): string {
+            if (loader.item.step !== 2) return "refused"
+            loader.item.routingSaveUnknown = value
+            loader.item.nativeStatus = value ? loader.item.textFor("native.unknownOutcome") : ""
+            loader.item.nativeCanContinue = !value
+            loader.item.busy = false
             review.result = "ready"
             return "ready"
         }
