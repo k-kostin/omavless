@@ -116,14 +116,23 @@ by a separate **Start OmaVLESS**. No VPN connection is started by updating.
 Modified/unknown predecessors, active owners and custom templates need diagnosis;
 do not delete private ownership records to force this route.
 
-The candidate's `v0.9.8-fix.4` delivery name is reserved, **not published**.
-Only x86_64 candidate package pins exist; ARM64 build and public-download
-verification remain separate gates. If an already running shell displays old
+The emergency candidate uses the separate `v0.9.8-fix.4` delivery name.
+Its frontend pins matched app/DNS packages for both x86_64 and ARM64; installed
+acceptance and public-download verification are separate from those build pins.
+Follow [the emergency acceptance record](../testing/SETUP_082_UPGRADE_VM_2026-10-13.md)
+and PR #778 for its delivery/promotion status, rather than treating a candidate
+tag as a stable update. If an already running shell displays old
 controls after a frontend replacement, finish open prompts and deliberately
 use the documented shell-reload guidance below before checking again. Repeated
 DNS enrollment or application installation cannot refresh cached QML.
 The supported paired upgrade needs its separate compatibility and installed
 acceptance; an unknown/modified version remains a diagnostic limitation.
+
+After a successful qualified 0.8.2 package update, the candidate terminal offers
+an optional `RELOAD`. This restarts the entire Omarchy shell: its bar, panels and
+other shell plugins briefly disappear. Finish any setup/OS authorization prompts
+first. Enter skips it. A reload refusal/failure does not undo the package update
+or authorize repeating `UPGRADE`; inspect the current plugin state instead.
 
 ### Updating is not starting over
 

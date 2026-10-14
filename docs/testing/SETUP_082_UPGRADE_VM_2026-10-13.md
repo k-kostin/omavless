@@ -528,3 +528,81 @@ busy/unsafe state, failed reload, no retry and direct-entry action selection.
 The new successful explicit RELOAD branch still needs its own installed gate
 before final delivery. No physical frontend or main replacement accompanied
 these presentation changes.
+
+## Both-architecture emergency packages and installed 0.9.8 continuation
+
+October 14 candidate: common app/DNS producer
+`b65695ee0609c2a971289109975678b8da87c946`, frontend pins at
+`c9ace6ffda45ac7f47005dd5a1443a93a6d601d6`.
+All five producer CI checks passed. Independent strict offline inspection
+checked all four archives, package metadata, paths/modes, payload/ELF hashes,
+privileged scriptlets/units, fixed upstream/patches, corresponding source and
+receipts. Protected runtime inputs equal the previously installed producer49f,
+tree SHA256 `a7913b324cd805a9a1b0bc2ff9558fe9dc84b2b4dda224ec0fc6fe20bfff6fcf`.
+This equivalence is not a claim that binaries built by different toolchains
+have identical bytes or installed behavior.
+
+| Architecture | App archive SHA256 | DNS archive SHA256 |
+| --- | --- | --- |
+| x86_64 | `56072c7bd870b082882d61a4e8bc5d99ef93b954b8cf2e7634230149d1568dea` | `2514cdd7e25856cf0823377eeaa509802ce5dd9c2f9253f5f7360cbcbd8e478c` |
+| ARM64 | `903fa863a5648341670224965c9da226e3eb9a47e35e80a61b68e4e51dcade59` | `fc51c20e5c1fbe58fc17d3266ddca5ab20b560c2653843d8512fe1050d2ab26e` |
+
+Boot `d3db783e-4679-4050-81d7-4bd500baa722` is the same isolated x86_64
+guest, not the physical PC. Original inactive state and canonical files were
+preserved before an explicitly administrative reboot. The earlier empty volatile
+setup lock disappeared with `/run`; no product lock-removal/recovery PASS is
+claimed. Initial unprivileged SSH reboot refused before effect; the separately
+authorized guest sudo reboot completed and normal encrypted unlock/boot was
+verified before continuing.
+
+The actual production `offer_shell_reload` helper from frontendc9 was invoked
+in a real terminal with real stopped/DNS-pending facts and no mocked effects.
+Exact RELOAD restarted the guest shell (old process exited, new process answered
+and actual bar/panel returned); native setup remained needs_dns_setup/present.
+This is an installed helper gate, not a second full updater invocation. Earlier
+guided updater evidence plus deterministic direct-entry/cleanup/consent tests
+cover its call placement. Enter closed the original terminal; no pending
+authorization remained.
+
+For existing-public-0.9.8 coverage, both genuine fix.3 x86_64 packages were freshly
+downloaded anonymously over HTTPS and matched the published archive hashes
+`bf27584874c7e75d40f856739783f66fdf6af5652e37ba638232a2bc5a3c7750` /
+`3309fb54ab92c5f1f30f6ba3c925ddc153619841dc4ae5640f4f279383f6b464`.
+They were installed together with ordinary guarded pacman on the proven
+inactive/empty fixture; receipts identify producer8d02f9d7. The known synthetic
+template was administratively set to the ordinary bundled Rule default;
+the prior Global fixture remains preserved. This is deliberately not a claim
+that a user's custom/Global policy can be silently reset to make old packages
+work. Profiles, Desired and ownership were unchanged.
+
+The actual c9-loaded panel then offered Continue DNS setup, not a reinstall
+dead end. FIRST, separate DNS/sudo, original terminal completion/close, explicit
+prompts-closed acknowledgement and separate Start all completed. Final native
+observation was observed/Disconnected/manualRecoveryRequired=false, Desired
+false, runtime active but disabled, broker FD0 and no managed TUN. Profile,
+Desired and ownership bytes matched the baseline; the managed template backup
+matched the exact synthetic Rule original. The old package's wizard still
+reported its old stock-core discovery; this is not relabelled as the new
+native inventory correction passing.
+
+The new exact producerb656 x86_64 pair was subsequently installed together after
+a separately recorded administrative clean stop on that observed disconnected
+fixture. Broker PID0/FD0 and empty private directory were independently checked;
+only its inspected root-owned, single-link fixed stale socket was removed before
+the unchanged package guard and normal pacman transaction. Enrollment and user
+selection were preserved, not revoked or manufactured. This administration is
+not a product update/rollback receipt. Actual Start existing DNS broker, terminal
+completion/close, prompts-closed acknowledgement and separate Start passed.
+Final ready/present, observed/Disconnected/recoveryfalse, Desiredfalse,
+runtime active/disabled, no TUN; canonical profile/Desired/ownership/template
+backup unchanged. The actual wizard reports the selected bundled core1.19.31
+and capabilities present, matching direct version/capability reads.
+
+The pin-only frontend delta passed 63 marketplace-setup and 10 updater-frontend
+tests, manifest validation, shell syntax and diff checks. Its full CI remains
+separate from the already green producer workflow. ARM64 archives/builds are
+verified; **installed ARM64 acceptance is still pending**. Public fix.4 download,
+clean public provisioning and main promotion are separate remaining gates until
+their actual receipts are recorded. No new VPN/network-health, reporter-cause,
+whole issue772-resolution or marketplace-approval claim follows. The physical
+PC was not modified during this candidate pass.
