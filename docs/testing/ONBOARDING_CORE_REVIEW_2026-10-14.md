@@ -53,6 +53,20 @@ missing-companion repair, ARM64 installed validation or complete VPN acceptance.
 Existing guarded installer/updater executable inputs are unchanged; their prior
 exact-head live evidence is retained separately. No host VPN was touched.
 
+The terminal-fence follow-up uses frontend source
+`a691fcd2af5b6fc813eda27b4083301f7c77af78`: even with ready package inventory,
+an opened setup terminal has its own waiting status and blocks Continue.
+EN/RU synthetic captures and actual component inspection confirm the explicit
+terminal/prompts-closed button remains visible on review. A pointer click on
+that button cleared its synthetic terminal flag and refreshed only inventory;
+no installer or authorization was opened. Clearing the wizard's synthetic flag
+then permitted Continue. Independent Astra review found no source blocker in
+the terminal fence; final instructions name component review as the actual
+acknowledgement destination, rather than implying a button on the wizard.
+Final focused tests are 23 onboarding and 18 setup; the owning PR records final
+combined normal checks and final exact CI. These are agent-operated fixture
+checks, not a claim that an agent can attest an unknown user's OS prompts.
+
 ## Workflow correction
 
 Confirming that an installer exists did not close a user journey whose adjacent

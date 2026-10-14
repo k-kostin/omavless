@@ -58,6 +58,10 @@ exact-snapshot Marketplace update, with its findings addressed in #735/#736.
 Login autoconnect is Off by default; experimental protocol limitations remain.
 Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
 
+The core-onboarding refinement above is a later main frontend-only follow-up.
+It does not rebuild the app/DNS packages or overwrite the frozen fix.4 frontend
+archive; update the repository-installed widget to receive the current controls.
+
 ## 0.9.8-rc.1 — internal scope freeze, not a public release
 
 - Offer encrypted private-pair Backup through normal Open app/TUI, without

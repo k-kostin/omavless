@@ -54,7 +54,7 @@ without importing a profile. Neither starts a VPN.
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
 
-   The Mihomo step shows **Core ready** and its installed version when the
+   The current main widget's Mihomo step shows **Core ready** and its installed version when the
    managed core, TUN device and desktop file permissions are present. This is
    not a connection test. If a component needs attention, choose **Review
    component installation/setup/update** to open the same component screen;
@@ -64,6 +64,9 @@ without importing a profile. Neither starts a VPN.
    updater. A missing/incompatible companion beside an existing application
    may require the guarded package procedure in [Updates](#updates); do not
    install a stock core or force a reinstall to bypass that check.
+   An older frozen frontend archive may retain earlier labels; use the widget
+   update and shell-load check in [Verify the installation](#verify-the-installation)
+   to get the current main controls. Existing release archives are not rewritten.
 
 Import your own compatible VPN profile or HTTPS subscription, choose a mode,
 then Connect. Servers/subscriptions are not included. See
