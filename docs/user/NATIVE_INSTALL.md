@@ -156,10 +156,11 @@ an enrollment that may already have succeeded.
 There are **two parts**: the Omarchy widget and the native application/DNS
 packages. `omarchy plugin update kdk.omavless` updates only the widget.
 
-This guide covers the test build
-[`v0.9.8-fix.5`](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.5).
-Its public archives and SHA-256 records identify the matching packages for
-x86_64 and ARM64. Product/package versions remain `0.9.8` / `0.9.8-1`, so
+This development guide describes the candidate for `v0.9.8-fix.6`, which is
+**not published yet**. For the currently available installation, use the
+[main guide](https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md).
+The candidate uses matching packages for x86_64 and ARM64.
+Product/package versions remain `0.9.8` / `0.9.8-1`, so
 the version label alone cannot distinguish earlier deliveries. Do not mix
 packages from different corrections. The release's
 [acceptance record](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md) separates

@@ -60,7 +60,7 @@ Open OmaVLESS from the bar:
 
 1. Choose **Install required components**. Enter `INSTALL`, then approve package installation.
 2. Enter `DNS` when asked to finish DNS setup.
-3. Close the finished terminal. Confirm **Setup terminal and prompts are closed**
+3. Close the finished terminal. Confirm **Terminal and system prompts are closed**
    and choose **Check again** if shown. In onboarding, use **Review component setup**
    to reach that confirmation; after **Core ready**, choose **Back to panel**.
 
