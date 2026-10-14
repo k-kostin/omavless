@@ -117,6 +117,52 @@ does not close deferred AUTO-1 or interrupted-Restore recovery.
 
 ## Replacement, removal and firewall
 
+### Proposed explicit preparation for same-version updates
+
+The #783 candidate, **not the published fix.4 helper**, adds a separately
+consented `PREPARE` stage before `UPGRADE`. This is not an automatic stop from
+refresh, plugin enable or package inventory. The user first earns normal full
+Quit with startup Off and a confirmed disconnected owner, re-enables only the
+widget and returns to **Prepare component update**. An active or unknown owner
+receives instructions only, before download, exclusion creation or sudo.
+
+Preparation is narrowly admitted for independently pinned released brokers
+whose serialized Idle gate rechecks socket access. It verifies the installed
+root package/unit, enrolled UID, original pidfd and socket identity/ACL, empty
+private journal, zero FD store and absent TUN. It masks new socket access, then
+waits for the original broker to finish admitted sessions and exit itself.
+It never signals that broker or unlinks a socket/journal. Queued/already accepted
+channels are not revoked by the mask and must settle under their original owner.
+An unsupported broker, held lease, changed identity or uncertain exit refuses;
+timeout never escalates into forced cleanup or automatic retry. Only a verified
+original dead process with the required clean boundary may have its failed
+systemd status normalized. The unchanged ALPM guard still earns replacement.
+
+The unprivileged updater retains its original owner/migration exclusions through
+each original child. Root execution selects a newly created root-owned 0700
+directory under protected `/run`, never `/proc/<unprivileged PID>/exe` or a
+user-writable executable. Fixed internal sudo utility calls copy the original
+held authenticated ELF descriptor, verify the root-staged regular 0500 single-
+link file's bytes, size and identity, then execute only the fixed preparation
+operation with the numeric enrolled UID. Binary stdin is not a password channel;
+sudo uses the original controlling terminal. No caller-selected shell/path IPC,
+sudoers change or extra package is introduced. Unknown outcomes retain staging;
+settled success permits only exact verified-file unlink and empty-dir rmdir.
+
+`UPGRADE` is a new explicit consent after preparation; cancellation there does
+not install packages or automatically restart the broker. Existing enrollment,
+profiles and the stopped app remain unchanged. **Start existing DNS broker**
+and **Start OmaVLESS** are separate later choices behind terminal-closure
+acknowledgement. Original v0.9.8 brokers without the Idle gate remain unsupported
+for this preparation; their upgrade is not silently declared complete.
+
+Source/fault tests and architecture review are separate from the still-required
+installed user journey and immutable public delivery. Until those gates are
+earned, this proposal does not authorize enabling its public action, promoting
+main or replacing immutable assets.
+
+### Published lifecycle boundary
+
 The companion's fail-closed ALPM PreTransaction guard must remain effective
 for both Upgrade and Remove. An active, quarantined or unknown lease, live
 broker, preserved socket, journal entry or FD store refuses replacement.

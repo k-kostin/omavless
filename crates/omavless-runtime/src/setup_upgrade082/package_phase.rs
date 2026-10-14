@@ -106,7 +106,7 @@ impl Archive {
         archive.recheck()?;
         Ok(archive)
     }
-    fn recheck(&mut self) -> Result<()> {
+    pub(super) fn recheck(&mut self) -> Result<()> {
         if !same(
             &self.identity,
             &fs::symlink_metadata(&self.path).map_err(|_| Blocker::StagingUnavailable)?,
@@ -458,9 +458,10 @@ struct Previous098 {
     members: Vec<Captured>,
     binaries: Vec<Archive>,
     dns_present: bool,
+    require_prepared: bool,
 }
 impl Previous098 {
-    fn capture(pair: &Pair) -> Result<Self> {
+    fn capture(pair: &Pair, require_prepared: bool) -> Result<Self> {
         let receipt = Captured::read(
             Path::new("/usr/share/doc/omavless/build-identity.txt"),
             0,
@@ -494,6 +495,7 @@ impl Previous098 {
             members: Vec::new(),
             binaries: vec![app],
             dns_present: false,
+            require_prepared,
         };
         let source = source.to_owned();
         previous.members.push(receipt);
@@ -578,7 +580,7 @@ impl Previous098 {
         Ok(previous)
     }
     fn recheck(&mut self) -> Result<()> {
-        package_owner098_before(self.dns_present)?;
+        package_owner098_before(self.dns_present, self.require_prepared)?;
         for member in &mut self.members {
             member.recheck()?;
         }
@@ -589,7 +591,7 @@ impl Previous098 {
     }
 }
 
-fn package_owner098_before(dns_present: bool) -> Result<()> {
+fn package_owner098_before(dns_present: bool, require_prepared: bool) -> Result<()> {
     let mut query = Command::new("/usr/bin/pacman");
     query.env("LC_ALL", "C").arg("-Qq");
     let inventory =
@@ -659,6 +661,12 @@ fn package_owner098_before(dns_present: bool) -> Result<()> {
     {
         return Err(Blocker::Predecessor);
     }
+    if !require_prepared {
+        return Ok(());
+    }
+    require_broker_prepared()
+}
+pub(super) fn require_broker_prepared() -> Result<()> {
     let mut query = Command::new("/usr/bin/systemctl");
     query
         .env_clear()
@@ -911,13 +919,23 @@ fn run_qualified_update(
     if delivered {
         qualify_helper(&pair.app_digest)?;
     }
-    writeln!(&mut tty, "Update the system OmaVLESS app and DNS packages to {}. Profiles and settings are kept. DNS setup and Start are separate. Type {}:",
-        pair.metadata.version, if delivered { "UPGRADE" } else { "UPGRADE SINGLE-USER VM" })
-        .map_err(|_| Blocker::TtyUnavailable)?;
+    if managed098 {
+        // Read-only preflight BEFORE consent or volatile exclusion creation.
+        // An active runtime must use normal Full Quit, not be stopped here.
+        units()?;
+        writeln!(&mut tty, "Prepare the matching component update. OmaVLESS must be fully shut down. With separate sudo consent, close access to the verified idle-gate DNS broker and wait for its own clean exit. Never kill it or clear its socket/journal. Profiles and enrollment are kept; no VPN starts. Type PREPARE:")
+            .map_err(|_| Blocker::TtyUnavailable)?;
+    } else {
+        writeln!(&mut tty, "Update the system OmaVLESS app and DNS packages to {}. Profiles and settings are kept. DNS setup and Start are separate. Type {}:",
+            pair.metadata.version, if delivered { "UPGRADE" } else { "UPGRADE SINGLE-USER VM" })
+            .map_err(|_| Blocker::TtyUnavailable)?;
+    }
     tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
     consent_from_tty(
         &mut tty,
-        if delivered {
+        if managed098 {
+            b"PREPARE\n"
+        } else if delivered {
             b"UPGRADE\n"
         } else {
             b"UPGRADE SINGLE-USER VM\n"
@@ -931,7 +949,7 @@ fn run_qualified_update(
     };
     let mut unit_files = predecessor_units()?;
     let mut previous = if managed098 {
-        Some(Previous098::capture(&pair)?)
+        Some(Previous098::capture(&pair, false)?)
     } else {
         package_owner_before()?;
         None
@@ -957,6 +975,33 @@ fn run_qualified_update(
         previous.recheck()?;
     } else {
         package_owner_before()?;
+    }
+    if managed098 {
+        if previous.as_ref().is_some_and(|p| p.dns_present) && require_broker_prepared().is_err() {
+            #[cfg(feature = "setup-upgrade082")]
+            super::root_stage::prepare(&mut context, &cancel, &tty, &pair.app_digest)?;
+            #[cfg(not(feature = "setup-upgrade082"))]
+            return Err(Blocker::BrokerPreparationRequired);
+        }
+        if let Some(previous) = &mut previous {
+            previous.require_prepared = true;
+            previous.recheck()?;
+        }
+        context.recheck()?;
+        pair.recheck()?;
+        writeln!(&mut tty, "Preparation is complete; no packages, enrollment or profiles were changed. Type UPGRADE to install the matching app/DNS packages; Enter cancels and leaves the broker prepared. Start existing DNS broker and Start OmaVLESS are separate next actions:")
+            .map_err(|_| Blocker::TtyUnavailable)?;
+        tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
+        consent_from_tty(&mut tty, b"UPGRADE\n")?;
+        context.recheck()?;
+        pair.recheck()?;
+        other_owners()?;
+        for unit in &mut unit_files {
+            unit.recheck()?;
+        }
+        if let Some(previous) = &mut previous {
+            previous.recheck()?;
+        }
     }
     let mut command = Command::new("/usr/bin/sudo");
     command.stdin(Stdio::from(

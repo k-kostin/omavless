@@ -46,6 +46,7 @@ pub enum Blocker {
     TtyUnavailable,
     ForeignOwnerObserved,
     BrokerPreparationRequired,
+    MaintenanceOutcomeUnknown,
 }
 impl std::fmt::Display for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -74,6 +75,7 @@ impl std::fmt::Display for Blocker {
             Self::TtyUnavailable => "tty_unavailable",
             Self::ForeignOwnerObserved => "foreign_owner_observed",
             Self::BrokerPreparationRequired => "dns_clean_stop_required",
+            Self::MaintenanceOutcomeUnknown => "dns_preparation_incomplete_inspect_before_retry",
         };
         write!(f, "OmaVLESS upgrade082: {reason}")
     }
@@ -907,6 +909,14 @@ pub use package_phase::run_delivery_update;
 pub use package_phase::run_development_update;
 #[cfg(feature = "setup-upgrade082")]
 pub use package_phase::run_pair_update;
+#[cfg(feature = "setup-upgrade082")]
+#[path = "setup_upgrade082/maintenance.rs"]
+mod maintenance;
+#[cfg(feature = "setup-upgrade082")]
+#[path = "setup_upgrade082/root_stage.rs"]
+mod root_stage;
+#[cfg(feature = "setup-upgrade082")]
+pub use maintenance::run_root as prepare_pair_root;
 
 #[cfg(test)]
 mod tests;

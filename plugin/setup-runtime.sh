@@ -706,12 +706,25 @@ setup_main() {
     return 1
   fi
   if [[ "$1" == update-pair ]]; then
-    say 'Update the matching application, managed DNS and its bundled Mihomo. Profiles, settings and existing enrollment are preserved.' \
-      'Обновить согласованную пару: приложение, управляемый DNS и его ядро Mihomo. Профили, настройки и существующая регистрация сохраняются.'
-    say 'First fully shut down OmaVLESS and complete the clean DNS-broker maintenance step in Setup help. A running broker, retained socket or unknown state blocks replacement; this operation never stops or cleans it for you.' \
-      'Сначала полностью завершите OmaVLESS и выполните чистую остановку DNS-брокера по инструкции в помощи. Работающий брокер, оставшийся сокет или неизвестное состояние блокируют замену; обновлятор не останавливает и не очищает их автоматически.'
-    say 'The verified updater will ask for UPGRADE and normal sudo/pacman confirmation. No DNS enrollment, application start or VPN connection is performed.' \
-      'Проверенный обновлятор запросит UPGRADE и обычные подтверждения sudo/pacman. Регистрация DNS, запуск приложения и подключение VPN не выполняются.'
+    say 'Prepare the matching application/DNS update. Profiles, settings and enrollment are preserved.' \
+      'Подготовка обновления согласованных пакетов приложения и DNS. Профили, настройки и регистрация сохраняются.'
+    say '1. Set VPN startup Off, Disconnect, then Settings → Shut down OmaVLESS. This closes the widget too.' \
+      '1. Выключите автоподключение VPN, отключитесь, затем Настройки → Выключить OmaVLESS. Виджет тоже закроется.'
+    say '2. To reopen ONLY the widget, run in your desktop terminal:' \
+      '2. Чтобы снова открыть ТОЛЬКО виджет, выполните в обычном терминале:'
+    printf '\n  omarchy plugin enable kdk.omavless\n\n'
+    say '3. Open the panel and choose Prepare component update again. Do not start the application or another setup operation first.' \
+      '3. Откройте панель и снова выберите «Подготовить обновление компонентов». До этого не запускайте приложение или другую настройку.'
+    # Inventory readiness and delivery freshness are independent. Offer the
+    # preparation instructions while ready, but never fetch/authorize effects
+    # until normal Full Quit has earned a genuinely stopped user owner.
+    if ! user_runtime_stopped; then
+      say 'OmaVLESS is not confirmed fully shut down. No packages were downloaded or changed and no administrator action was requested. Close this terminal, then follow steps 1–3. If shutdown cannot be confirmed, use Setup help.' \
+        'Полное выключение OmaVLESS не подтверждено. Пакеты не скачивались и не изменялись; запрос администратора не выполнялся. Закройте терминал и выполните шаги 1–3. Если подтвердить выключение не удаётся, откройте помощь по настройке.'
+      return 0
+    fi
+    say 'The verified helper separately asks PREPARE for clean DNS-broker preparation, then UPGRADE for the packages and normal sudo/pacman confirmation. It never kills a live broker or deletes socket/journal state. An unsupported or uncertain broker requires assistance. DNS enrollment, application Start and VPN Connect remain separate.' \
+      'Проверенный помощник отдельно запросит PREPARE для чистой подготовки DNS-брокера, затем UPGRADE для пакетов и обычные подтверждения sudo/pacman. Он не убивает работающий брокер и не удаляет сокет или журнал. Неподдерживаемое или неизвестное состояние требует помощи. Регистрация DNS, запуск приложения и подключение VPN выполняются отдельно.'
   elif [[ "$1" == upgrade ]]; then
     say 'Update the public 0.8.2 application and add managed DNS. Profiles and the stopped application remain unchanged. The native updater will check the boundary and ask for UPGRADE; DNS setup is a separate next step.' \
       'Обновить публичное приложение 0.8.2 и добавить управляемый DNS. Профили и остановленное приложение сохраняются. Приложение проверит условия и запросит UPGRADE; настройка DNS выполняется отдельно.'

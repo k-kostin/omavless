@@ -154,6 +154,71 @@ setup_completion() {{ echo UNEXPECTED_COMPLETION_EFFECT >> "$TEST_DIR/trace"; re
         path = self.directory / "trace"
         return path.read_text().splitlines() if path.exists() else []
 
+    def pair_fixture(self, stopped=True):
+        return f'''
+user_runtime_stopped() {{ return {0 if stopped else 1}; }}
+pair_update_available() {{ return 0; }}
+installed_pair_delivery() {{ echo stale; }}
+setup_status() {{ if [[ -f "$TEST_DIR/upgraded" || -f "$TEST_DIR/prepared" ]]; then echo needs_broker_stopped; else echo ready; fi; }}
+'''
+
+    def pair_helper(self, preparation_fails=False):
+        self.helper.write_text('''#!/bin/bash
+set -eu
+[[ "$*" == 'setup update-pair' ]] || exit 90
+IFS= read -r metadata
+printf '%s\\n' "$metadata" > "$TEST_DIR/metadata"
+printf 'Type PREPARE: '
+IFS= read -r answer < /dev/tty
+[[ "$answer" == PREPARE ]] || exit 1
+echo preparation >> "$TEST_DIR/trace"
+''' + ('exit 1\n' if preparation_fails else '''touch "$TEST_DIR/prepared"
+printf 'Type UPGRADE: '
+IFS= read -r answer < /dev/tty
+[[ "$answer" == UPGRADE ]] || exit 1
+echo package >> "$TEST_DIR/trace"
+touch "$TEST_DIR/upgraded"
+'''))
+        self.helper_hash = hashlib.sha256(self.helper.read_bytes()).hexdigest()
+
+    def test_running_owner_gets_return_instructions_without_download_or_authorization(self):
+        self.pair_helper()
+        status, output = self.run_script(extra=self.pair_fixture(False), action="update-pair", response="\n")
+        self.assertEqual(status, 0, output)
+        self.assertEqual(self.trace(), [])
+        self.assertFalse((self.directory / "metadata").exists())
+        self.assertFalse((self.directory / "prepared").exists())
+        self.assertIn("omarchy plugin enable kdk.omavless", output)
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+
+    def test_stopped_pair_uses_real_controller_helper_frame_and_separate_consents(self):
+        self.pair_helper()
+        status, output = self.run_script(extra=self.pair_fixture(), action="update-pair", response="PREPARE\nUPGRADE\n")
+        self.assertEqual(status, 0, output)
+        self.assertEqual(self.trace(), ["preparation", "package", "reload"])
+        self.assertEqual(self.store.read_bytes(), b"synthetic private-store sentinel")
+        self.assertIn("Start existing DNS broker", output)
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+
+    def test_cancel_after_preparation_leaves_no_package_action_or_implicit_start(self):
+        self.pair_helper()
+        status, output = self.run_script(extra=self.pair_fixture(), action="update-pair", response="PREPARE\n\n")
+        self.assertEqual(status, 1, output)
+        self.assertEqual(self.trace(), ["preparation"])
+        self.assertTrue((self.directory / "prepared").exists())
+        self.assertFalse((self.directory / "upgraded").exists())
+        self.assertEqual(self.store.read_bytes(), b"synthetic private-store sentinel")
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+
+    def test_preparation_failure_never_submits_packages_or_other_effects(self):
+        self.pair_helper(preparation_fails=True)
+        status, output = self.run_script(extra=self.pair_fixture(), action="update-pair", response="PREPARE\nUPGRADE\n")
+        self.assertEqual(status, 1, output)
+        self.assertEqual(self.trace(), ["preparation"])
+        self.assertFalse((self.directory / "prepared").exists())
+        self.assertFalse((self.directory / "upgraded").exists())
+        self.assertFalse((self.directory / "omavless-first-run.lock").exists())
+
     def test_real_pty_upgrade_fixed_pair_metadata_and_separate_dns_next_step(self):
         status, output = self.run_script()
         self.assertEqual(status, 0, output)

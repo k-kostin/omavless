@@ -88,6 +88,7 @@ class FrontendPairTests(unittest.TestCase):
 
     def test_compiled_admission_data_is_not_frontend_only(self):
         for path in ('plugin/published-pairs.json', 'tests/dns_broker_host/package/package-guard',
+                     'tests/dns_broker_host/omavless-dns-broker.service',
                      'packaging/release/client-features.sh'):
             with self.subTest(path=path):
                 self.write(path, 'compiled admission bytes')

@@ -82,7 +82,7 @@ ColumnLayout {
         id: pairedUpdateButton
         Layout.fillWidth: true
         visible: card.pairUpdate
-        text: card.tr(card.facts.state === "needs_pair_install" ? "complete_pair" : "update_components")
+        text: card.tr(card.facts.state === "needs_pair_install" ? "complete_pair" : "prepare_update")
         enabled: visible && !card.effectBusy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45
         bordered: true; focusable: true

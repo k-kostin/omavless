@@ -412,6 +412,80 @@ fn server_socket_access_failure_prevents_accept_and_authority_calls() {
     assert_eq!(fixture.state.lock().unwrap().reads, 0);
 }
 
+#[test]
+fn maintenance_mask_blocks_actual_queued_rights_before_idle_accept() {
+    let fixture = Fixture::new();
+    let context = fixture.context().unwrap();
+    let (listener, _client, file) = queued_acquire(&fixture);
+    let path = fixture.bus.root.path().join("channel");
+    let owner = rustix::process::geteuid().as_raw();
+    let access = crate::access::SocketAccess::grant_fixture(&path, owner, 42424).unwrap();
+    access.recheck_fixture(&path, owner).unwrap();
+    stdfs::set_permissions(&path, stdfs::Permissions::from_mode(0o600)).unwrap();
+    fixture.state.lock().unwrap().reads = 0;
+    let result = crate::server::next_session(
+        &context,
+        || {
+            access
+                .recheck_fixture(&path, owner)
+                .map_err(|_| crate::server::Error::AdmissionRefused)
+        },
+        || panic!("revoked Idle gate consumed already queued rights"),
+    );
+    assert!(matches!(
+        result,
+        Err(crate::server::Error::AdmissionRefused)
+    ));
+    assert_eq!(fixture.state.lock().unwrap().reads, 0);
+    assert_eq!(userspace_copies(&file), 1);
+    drop(listener);
+    assert!(
+        !path.exists(),
+        "original Listener Drop must unlink its own fixture node"
+    );
+}
+
+#[test]
+fn maintenance_mask_does_not_revoke_an_already_accepted_session_or_skip_next_gate() {
+    let fixture = Fixture::new();
+    let context = fixture.context().unwrap();
+    let (listener, _client, file) = queued_acquire(&fixture);
+    let path = fixture.bus.root.path().join("channel");
+    let owner = rustix::process::geteuid().as_raw();
+    let access = crate::access::SocketAccess::grant_fixture(&path, owner, 42424).unwrap();
+    let mut session = crate::server::next_session(
+        &context,
+        || {
+            access
+                .recheck_fixture(&path, owner)
+                .map_err(|_| crate::server::Error::AdmissionRefused)
+        },
+        || listener.accept(),
+    )
+    .unwrap();
+    stdfs::set_permissions(&path, stdfs::Permissions::from_mode(0o600)).unwrap();
+    // This already admitted channel remains the original owner's channel.
+    // Regular synthetic proof is never submitted to kernel/DNS admission here.
+    assert!(session.receive_acquire().is_ok());
+    assert!(session.proof().is_some());
+    assert_eq!(userspace_copies(&file), 2);
+    drop(session);
+    assert_eq!(userspace_copies(&file), 1);
+    let result = crate::server::next_session(
+        &context,
+        || {
+            access
+                .recheck_fixture(&path, owner)
+                .map_err(|_| crate::server::Error::AdmissionRefused)
+        },
+        || panic!("next original Idle gate resumed after maintenance revocation"),
+    );
+    assert!(matches!(
+        result,
+        Err(crate::server::Error::AdmissionRefused)
+    ));
+}
+
 fn enrollment(root: &TempDir, value: &[u8]) -> std::path::PathBuf {
     let path = root.path().join("enrollment.json");
     stdfs::write(&path, value).unwrap();

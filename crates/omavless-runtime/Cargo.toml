@@ -23,7 +23,7 @@ product-image-witness = ["developer-image-witness", "omavless-image-witness/prod
 # Source-built single-user development VM only; never a shipped updater gate.
 developer-upgrade082 = []
 # Exact public 0.8.2 first migration, via frontend-qualified destination helper.
-setup-upgrade082 = []
+setup-upgrade082 = ["dep:rustix"]
 
 [dependencies]
 base64 = "0.22"

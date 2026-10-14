@@ -40,6 +40,7 @@ FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
 # frontend/test classification must not hide changes in compiled admission.
 RUNTIME_DATA_FILES = frozenset(('plugin/published-pairs.json',
                                 'tests/dns_broker_host/package/package-guard',
+                                'tests/dns_broker_host/omavless-dns-broker.service',
                                 'packaging/release/client-features.sh'))
 
 
