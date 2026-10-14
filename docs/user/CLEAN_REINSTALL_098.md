@@ -1,7 +1,10 @@
 # Start again after an incomplete 0.9.8 installation
 
 For an installation that stopped during setup and **never connected a VPN**.
-The commands below install `v0.9.8-fix.5`, a test build with the setup fix.
+The commands below select the test build with the setup fix for `v0.9.8-fix.6`.
+**Its packages are not published yet; do not use these commands for a public
+installation.** For the available version, use the
+[main guide](https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md).
 
 This removes the old OmaVLESS widget, application, DNS component and **its own
 profiles and settings**, without a backup. Other VPNs and a separately installed
@@ -51,8 +54,8 @@ before enabling it:
 
 ```bash
 omarchy plugin add https://github.com/k-kostin/omavless.git &&
-git -C "$HOME/.config/omarchy/plugins/kdk.omavless" checkout --detach v0.9.8-fix.5 &&
-test "$(git -C "$HOME/.config/omarchy/plugins/kdk.omavless" rev-parse HEAD)" = 1e25a79796e1b7a2d9ba341f26b093c74c3c3b84 &&
+git -C "$HOME/.config/omarchy/plugins/kdk.omavless" checkout --detach 503a24c2a9abfba260eed0ff4e681f2ccb4f6016 &&
+test "$(git -C "$HOME/.config/omarchy/plugins/kdk.omavless" rev-parse HEAD)" = 503a24c2a9abfba260eed0ff4e681f2ccb4f6016 &&
 omarchy plugin enable kdk.omavless right
 ```
 
@@ -61,7 +64,7 @@ Open OmaVLESS from the bar:
 1. Choose **Install required components**. Enter `INSTALL`, then approve package installation.
 2. Enter `DNS` when asked to finish DNS setup.
 3. Close the finished terminal. Confirm **Terminal and system prompts are closed**
-   and choose **Check again** if shown. In onboarding, use **Review component setup**
+   and choose **Check again** if shown. In onboarding, use **Component setup**
    to reach that confirmation; after **Core ready**, choose **Back to panel**.
 
 You should now see **Disconnected** and the profile-import buttons. Add your VPN

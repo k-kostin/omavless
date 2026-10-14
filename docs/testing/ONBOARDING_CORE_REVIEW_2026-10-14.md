@@ -829,3 +829,80 @@ from that archive and verify the affected installed terminal path. Existing
 fix.5 installation evidence is retained history, not acceptance for new bytes.
 No main merge, release/asset publication, Marketplace submission or issue772
 reply is performed or authorized by this checkpoint.
+
+### Matched prompt packages and installed continuation
+
+Native package source: `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`.
+Installed frontend: `503a24c2a9abfba260eed0ff4e681f2ccb4f6016`.
+The later guide/report edits do not change these product bytes. The proposed
+delivery is fix.6, **unpublished**; main and issue772 are unchanged.
+
+Both architecture app archives were built by Native packages run38622809462;
+both production DNS archives by run38622800411. Their receipts name the same
+native source. Strict offline inspection checked archive members, architecture,
+every DNS payload hash and committed guard/unit/hook/scriptlet inputs; it never
+executed ARM64. The frontend pins both exact archives and the app/core/broker/
+receipt tuple in the existing maps. Offline assembly verifies unchanged protected
+runtime inputs between package and frontend sources. Checksums are not signatures.
+
+| Architecture | App archive SHA-256 | DNS archive SHA-256 |
+| --- | --- | --- |
+| x86_64 | `5ee20258ab9eaabd572f37c0261b30ab12dd01371471c048ed0f866aec15adff` | `4f88dfb8c20a3b2b620f9270afb22dba58828bcfb597a923d5c98389b0f6dd62` |
+| aarch64 | `29e2c1a73e8a44f424b8d920603e236d493ae421cbd6fcbb982d4dcdc5c9ea2d` | `b63a12125d3c6517ab1e82b02d4046b1159c898287d941f2ff94d0bf04cf8598` |
+
+The latest public fix.5 producer was missing from the old predecessor inventory.
+Independently checked public archives/GitHub asset digests earn the exact99c
+architecture tuples, not arbitrary installed receipt hashes. Production broker
+inputs between fix.4 and fix.5 are unchanged; additions there are test-only.
+The fixed preparation gate admits the exact fix.5 Idle-gate broker bytes while
+still refusing original brokers without that gate, wrong architecture and local
+rebuilds. Astra reviewed the bounded native delta without an actionable finding.
+
+The first actual frontend update entry then exposed a second omission: its
+advisory source case still excluded99c although table lookup passed. No package
+effect occurred. The full-inspector positive test for every recorded producer
+failed on99c before correction, passes afterwards and also refuses modified
+payloads. Its real public-pin negative control remains. Astra reviewed that
+narrow advisory delta; root/ownership/effect admission is unchanged.
+
+Sole-operator installed x86_64 Omarchy guest, owner-authorized agent input:
+
+| Journey | Actual entry, result and return |
+| --- | --- |
+| Public fix.5 update | Settings Quit stopped the native owner and disabled the widget. After candidate frontend selection/re-enable and supported guest-only shell refresh, Update components… opened the archive's actual helper. PREPARE cleanly stopped the original idle broker. Cancelling UPGRADE preserved old packages and exposed Start DNS helper/update again. A separately admitted new update completed normal sudo/pacman replacement. Stored profiles/settings/template/selector and desired-state bytes stayed identical. After terminal closure acknowledgement, Start DNS helper and Start OmaVLESS returned to a healthy disconnected panel; the redundant update offer disappeared. |
+| Fresh setup | Reviewed normal never-connected removal preparation confirmed a clean stop before guest reboot; revocation/package removal and deletion of only the three application directories followed. Ordinary plugin add was confirmed, enable declined, exact candidate selected, then enabled. Install required components → INSTALL → normal sudo/pacman → separate DNS consent completed continuously to OmaVLESS is ready. No administrative intervention occurred inside this admitted attempt. The wizard refused Continue until component setup acknowledged terminal closure, then Core ready → Back to panel reached usable profile controls. |
+| Partial setup | A second admitted empty guest baseline followed the same ordinary entry and package transaction. Enter cancelled DNS consent before enrollment/start; packages remained, app/helper PID0, and Set up DNS helper was offered rather than reinstall. That action showed separate FIRST/START explanations. FIRST → separate DNS/sudo completed activation, then component-setup closure acknowledgement and Back to panel returned to Disconnected. No package replay, private reset or lock/receipt deletion occurred inside continuation. |
+
+Candidate checkout and checked offline-cache seeding are fixture preparation,
+not a main/Marketplace or empty-cache public-download PASS. The first fresh
+attempt refused before sudo because the operator had seeded a cache parent
+with0755 rather than0700. No packages/private activation occurred; the original
+refusal is retained. Only those operator-created cache directories were corrected
+before the new continuous attempt. An SSH reboot request separately refused
+interactive authorization; an attended guest-only sudo reboot then succeeded.
+Actual encryption prompts and fresh boot IDs were observed; QEMU/window identity
+was retained. Neither event earns product recovery.
+
+Observed EN prompts include PREPARE, post-preparation UPGRADE, initial INSTALL,
+DNS consent with account UID/service startup, FIRST/START choice, cancellation
+and helper/app return instructions. Existing EN/RU production-formatter previews
+remain separate: this run does not claim a new installed public0.8.2 upgrade,
+installed ARM64, every START/custom-template branch or a live VPN/network test.
+
+Final guest: selected managed pair, active native application and DNS helper,
+FD-store0, VPN desiredOff, no Meta TUN, empty profiles, stored VPN autoconnectOff,
+incomplete optional onboarding. Normal idle mode restored; owned setup terminals
+closed and panel closed. Physical-host desktop, packages and VPNs were untouched.
+Private captures and complete matched archives stay outside Git. Formal human-
+attended acceptance is not inferred from agent-entered VM acknowledgements.
+
+Local normal checks:775 Python tests/two existing opt-in skips plus ordinary
+JS/QML PASS; focused inventory/updater/frontend94 PASS; native updater50 PASS,
+strict product+setup feature Clippy/fmt PASS. Initial fixed-URL test expectations
+still named fix.5 and failed twice after new pins; corrected expectations and the
+full normal rerun pass. Hosted full Rust/parity belongs to its actual run/head,
+not these local results; the owning PR records completion separately.
+
+Publication still requires its separate owner authorization, immutable matching
+assets and a real public-download gate. No release/tag/assets, main merge,
+Marketplace action or issue772 reply is earned by this unpublished VM evidence.

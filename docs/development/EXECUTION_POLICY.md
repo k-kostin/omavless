@@ -50,6 +50,12 @@ and later call the helper result a complete journey. Before requesting release
 publication, close its prepublication user-path gates; explicitly separate later
 public-asset/download gates which cannot exist before authorized delivery.
 
+When changing package pins, exercise the latest actual published predecessor
+through the complete advisory inventory and native update entry. A registry
+lookup or local-rebuild refusal alone does not prove that the positive update
+path is reachable. Preserve the old admission fences; use explicit tested
+producer/payload identities rather than making an unknown installation qualify.
+
 After two unsuccessful diagnostic cycles without narrowing the failure,
 reassess the hypothesis or design with an independent reviewer. This is a
 checkpoint to change method, not a retry allowance or a reason to stop all work.
