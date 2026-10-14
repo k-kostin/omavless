@@ -294,11 +294,18 @@ installed_pair_delivery() {
 
 pair_update_available() {
   local version arch app_hash dns_hash source metadata="$setup_dir/component-updates.json"
-  [[ -f "$metadata" && ! -L "$metadata" && $(stat -c %s -- "$metadata") -le 2048 ]] || return 1
+  [[ -f "$metadata" && ! -L "$metadata" && $(stat -c %s -- "$metadata") -le 8192 ]] || return 1
   IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
   [[ "$source" =~ ^[0-9a-f]{40}$ ]] || return 1
-  jq -e --arg source "$source" 'keys == ["schemaVersion", "sourceCommit", "updatePair"]
-    and .schemaVersion == 1 and .sourceCommit == $source and .updatePair == true' "$metadata" >/dev/null 2>&1
+  jq -e --arg source "$source" --arg arch "$arch" '
+    select(keys == ["identities", "schemaVersion", "sourceCommit", "updatePair"]
+      and .schemaVersion == 2 and .sourceCommit == $source and .updatePair == true)
+    | .identities | select(keys == ["aarch64", "x86_64"])
+    | select(all(.[]; keys == ["appSha", "brokerSha", "coreSha", "dnsReceiptSha"]
+        and all(.[]; type == "string" and test("^[0-9a-f]{64}$")))) | .[$arch]
+    | select(keys == ["appSha", "brokerSha", "coreSha", "dnsReceiptSha"])
+    | [.appSha, .coreSha, .brokerSha, .dnsReceiptSha]
+    | all(.[]; type == "string" and test("^[0-9a-f]{64}$"))' "$metadata" >/dev/null 2>&1
 }
 
 # Fixed enums only. Freshness is independent of operational readiness.

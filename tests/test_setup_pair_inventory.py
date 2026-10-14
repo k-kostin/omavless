@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import unittest
 
@@ -77,6 +78,28 @@ class PairInventoryTests(unittest.TestCase):
             expected = '\t'.join(pair[key] for key in ['appSha','coreSha','brokerSha','dnsReceiptSha']) + '\n'
             self.assertEqual(result.stdout, expected)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_target_frontend_identity_is_separate_from_compiled_predecessors(self):
+        inspector = self.directory / 'setup-predecessor.sh'
+        shutil.copyfile(INSPECTOR, inspector)
+        shutil.copyfile(ROOT / 'plugin/published-pairs.json', self.directory / 'published-pairs.json')
+        target = 'c' * 40
+        keys = ['appSha','coreSha','brokerSha','dnsReceiptSha']
+        identity = dict(zip(keys, self.fixture_pins.split('\t')))
+        metadata = {'schemaVersion': 2, 'sourceCommit': target, 'updatePair': False,
+                    'identities': {'x86_64': identity, 'aarch64': identity}}
+        path = self.directory / 'component-updates.json'
+        def query():
+            return subprocess.run(['/bin/bash','-c','source "$1"; _omavless_pair_pins "$2" x86_64',
+                                   'fixture', str(inspector), target], capture_output=True, text=True, timeout=5)
+        path.write_text(json.dumps(metadata))
+        self.assertEqual(query().stdout, self.fixture_pins + '\n')
+        # A receipt's source/hash cannot select another target or a permissive
+        # runtime registry; only the fixed reviewed frontend metadata can.
+        for invalid in [{**metadata,'sourceCommit':'d'*40}, {**metadata,'command':'ignored'},
+                        {**metadata,'identities':{}}, {**metadata,'updatePair':'true'}]:
+            path.write_text(json.dumps(invalid))
+            self.assertNotEqual(query().returncode,0)
 
     def test_same_package_version_does_not_hide_a_previous_delivery(self):
         self.assertEqual(self.inspect(), "stale")

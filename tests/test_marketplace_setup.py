@@ -520,13 +520,17 @@ setup_components
     def test_target_capability_requires_matching_closed_delivery_metadata(self):
         metadata = self.directory / 'component-updates.json'
         source = 'b' * 40
-        good = {'schemaVersion': 1, 'sourceCommit': source, 'updatePair': True}
+        identity = {key: 'a' * 64 for key in ['appSha','coreSha','brokerSha','dnsReceiptSha']}
+        good = {'schemaVersion': 2, 'sourceCommit': source, 'updatePair': True,
+                'identities': {'x86_64': identity, 'aarch64': identity}}
         fixture = f'release_fields() {{ printf "0.9.8\\tx86_64\\t%s\\t%s\\t%s\\n" "{source}" "{source}" "{source}"; }}; pair_update_available'
         metadata.write_text(json.dumps(good))
         self.assertEqual(self.run_shell(fixture).returncode, 0)
         for wrong in [{**good, 'updatePair': False}, {**good, 'updatePair': 'true'},
                       {**good, 'sourceCommit': 'c' * 40}, {**good, 'command': 'ignored'},
-                      {**good, 'schemaVersion': 2}]:
+                      {**good, 'schemaVersion': 3}, {**good, 'identities': {}},
+                      {**good, 'identities': {'x86_64': identity, 'aarch64': {}}},
+                      {**good, 'identities': {'x86_64': {**identity, 'appSha': 'short'}, 'aarch64': identity}}]:
             metadata.write_text(json.dumps(wrong))
             self.assertNotEqual(self.run_shell(fixture).returncode, 0)
 

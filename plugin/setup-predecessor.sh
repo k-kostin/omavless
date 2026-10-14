@@ -95,11 +95,24 @@ _omavless_pair_pins() {
   local pins
   pins="$(dirname -- "${BASH_SOURCE[0]}")/published-pairs.json"
   [[ -f $pins && ! -L $pins && $(stat -c %s -- "$pins") -le 16384 ]] || return 1
-  /usr/bin/jq -er --arg source "$1" --arg arch "$2" '
+  if /usr/bin/jq -er --arg source "$1" --arg arch "$2" '
     select(keys == ["pairs", "schemaVersion"] and .schemaVersion == 1)
     | [.pairs[] | select(.sourceCommit == $source and .architecture == $arch)]
     | select(length == 1) | .[0]
     | select(keys == ["appSha", "architecture", "brokerSha", "coreSha", "dnsReceiptSha", "sourceCommit"])
+    | [.appSha, .coreSha, .brokerSha, .dnsReceiptSha]
+    | select(all(.[]; type == "string" and test("^[0-9a-f]{64}$"))) | @tsv' "$pins"; then return; fi
+  # Target delivery pins are frontend-only. Do not put a future binary's own
+  # digest into its compiled predecessor table (a circular build identity).
+  pins="$(dirname -- "${BASH_SOURCE[0]}")/component-updates.json"
+  [[ -f $pins && ! -L $pins && $(stat -c %s -- "$pins") -le 8192 ]] || return 1
+  /usr/bin/jq -er --arg source "$1" --arg arch "$2" '
+    select(keys == ["identities", "schemaVersion", "sourceCommit", "updatePair"]
+      and .schemaVersion == 2 and .sourceCommit == $source and (.updatePair | type) == "boolean")
+    | .identities | select(keys == ["aarch64", "x86_64"])
+    | select(all(.[]; keys == ["appSha", "brokerSha", "coreSha", "dnsReceiptSha"]
+        and all(.[]; type == "string" and test("^[0-9a-f]{64}$")))) | .[$arch]
+    | select(keys == ["appSha", "brokerSha", "coreSha", "dnsReceiptSha"])
     | [.appSha, .coreSha, .brokerSha, .dnsReceiptSha]
     | select(all(.[]; type == "string" and test("^[0-9a-f]{64}$"))) | @tsv' "$pins"
 }

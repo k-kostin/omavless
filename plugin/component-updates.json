@@ -1,5 +1,19 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sourceCommit": "b65695ee0609c2a971289109975678b8da87c946",
-  "updatePair": false
+  "updatePair": false,
+  "identities": {
+    "x86_64": {
+      "appSha": "b8cc106248953abcc3b3475efa7cec362778b5ae918b6866c1e8febdd3c44ff9",
+      "coreSha": "e4bc011ecad3ce8350b738cee91a98e27e1b1dd1b0fa6eeb79eb7d6427669106",
+      "brokerSha": "ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5",
+      "dnsReceiptSha": "4e6e819d64d6c181ed5de8cd4de6e2cd0f920210b956f529a4ad2be54c285eb2"
+    },
+    "aarch64": {
+      "appSha": "897710505a8fae9783bb8130c0e0d98133144e2b8e9ae68d169ad7a413999990",
+      "coreSha": "75f8adfd4e9a86d0c09d156c24c800f167d8750737e4b4b7a6cd8f5e47f2e38d",
+      "brokerSha": "8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26",
+      "dnsReceiptSha": "d15d54ee2364cd116c6c897e91d54ba237b180ed92b88fcdb09a45c881ce730c"
+    }
+  }
 }

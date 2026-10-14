@@ -36,6 +36,11 @@ FRONTEND_FILES = frozenset(('README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'DEVELO
                             'manifest.json', 'preview.png', 'backend.sh', 'install.sh',
                             '.github/workflows/native-package.yml'))
 FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
+# Production include_str/include_bytes inputs outside crates. Folder-level
+# frontend/test classification must not hide changes in compiled admission.
+RUNTIME_DATA_FILES = frozenset(('plugin/published-pairs.json',
+                                'tests/dns_broker_host/package/package-guard',
+                                'packaging/release/client-features.sh'))
 
 
 def runtime_tree(root, commit):
@@ -49,7 +54,7 @@ def runtime_tree(root, commit):
         path = raw_path.decode('utf-8', 'strict')
         if path == 'CHANGELOG.md' and meta.split()[:2] != [b'100644', b'blob']:
             raise ValueError('release notes must be a regular non-executable blob')
-        if path in FRONTEND_FILES or path.startswith(FRONTEND_DIRS):
+        if path not in RUNTIME_DATA_FILES and (path in FRONTEND_FILES or path.startswith(FRONTEND_DIRS)):
             continue
         entries.append(record)
     return b'\0'.join(entries)

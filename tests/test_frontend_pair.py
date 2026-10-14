@@ -86,6 +86,16 @@ class FrontendPairTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PAIR.equivalent_inputs(self.repo, self.old, self.commit())
 
+    def test_compiled_admission_data_is_not_frontend_only(self):
+        for path in ('plugin/published-pairs.json', 'tests/dns_broker_host/package/package-guard',
+                     'packaging/release/client-features.sh'):
+            with self.subTest(path=path):
+                self.write(path, 'compiled admission bytes')
+                with self.assertRaises(ValueError):
+                    PAIR.equivalent_inputs(self.repo, self.old, self.commit())
+                self.git('revert', '--no-edit', 'HEAD')
+        self.write('plugin/component-updates.json', 'frontend-only target delivery identity')
+        self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, self.commit()), r'^[0-9a-f]{64}$')
     def test_runtime_changes_new_files_deletions_and_modes_refuse(self):
         for path in ['Cargo.lock', 'crates/runtime.rs', 'templates/default.yaml',
                      'packaging/arch/README.md', 'packaging/systemd/omavless-runtime.service',

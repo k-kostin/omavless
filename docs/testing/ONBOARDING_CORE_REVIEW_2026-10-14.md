@@ -127,3 +127,69 @@ helper lacks the new command. Activation needs new immutable matched packages,
 their actual download verification and installed acceptance. No new main merge,
 release/tag replacement, issue772 reply or Marketplace action is established
 by this source checkpoint. The physical PC remains untouched.
+
+### Frozen native candidate and installed package phase
+
+Native producer `9d2df8281373715a0d9eb91b615b7a4aa02dcecd` has successful
+application CI [38528207212](https://github.com/k-kostin/omavless/actions/runs/38528207212)
+and companion CI [38528311116](https://github.com/k-kostin/omavless/actions/runs/38528311116)
+on both architectures. Both app/DNS archives pass the strict offline inspectors,
+source/version/architecture/dependency checks and actual member hashes. Native
+builder output on each architecture advertises `setup update-pair` and records
+the selected `product-private-backup,setup-upgrade082` features. Full workspace
+CI remains distinct/pending, not inferred from package success.
+
+| Architecture | Application archive SHA256 | DNS archive SHA256 |
+| --- | --- | --- |
+| x86_64 | `ae341880bf073bfae8990fabacd5249ff0389eca6992d41591507a8e380450c7` | `60fd1326719e004367c32244dd4c3fc0cfc7945b7297a016f8aa8f18efdde99e` |
+| aarch64 | `b418ddebbc61a93037990e8b0481f14c670e3e1b9d628357e1e4112001c4b5f3` | `c9eb7b8e06e76b17a6adf19bcf9f1cc008c3e8a78143fc28a3fab5caf7a7cbe4` |
+
+The sole-operator x86_64 development guest replaced the installed publicb656
+pair with these exact9d CI archives. Baseline fresh local observation was
+Disconnected/recoveryfalse, Desiredfalse, no owned core/TUN/auxiliary processes;
+enrollment already existed. Ordinary installed Full Quit succeeded and left
+runtime inactive/disabled and the widget disabled. Separately reviewed, explicitly
+authorized **administrative VM preparation** checked the original root broker,
+empty private journal/FD0, safe parents and no TUN, then normally stopped it.
+Only its inspected same-identity root660 single-link stale socket was removed;
+the unchanged ALPM guard passed. This is not an automatic product preparation,
+rollback receipt or permission to clean unknown user state.
+
+The verified extracted9d helper consumed its bounded metadata and original
+TTY consent; UPGRADE and ordinary sudo/pacman completed one two-package
+transaction with no guard bypass. Result was
+`packages_updated_broker_start_required`, DNSsetupRequiredfalse,
+startAllowedfalse. The runtime and broker remained stopped; seven canonical
+private members matched their post-Quit baseline exactly, including the empty
+profile store, Desired, ownership, target, selector, managed template and backup.
+This proves retention of this fixture, not populated live-provider acceptance.
+Root enrollment bytes also matched their separately captured baseline.
+
+An isolated frontend copy with independently inspected **offline target pins**
+for9d then reported Start existing DNS broker. That ordinary existing-enrollment
+action passed without re-enrollment and offered separate Start OmaVLESS. The
+normal native Start passed: final components ready/present, fresh observed
+Disconnected/recoveryfalse, Desiredfalse, no TUN/core, broker FD0, runtime active
+but disabled. The seven private members and enrollment remained unchanged.
+No VPN/network-health cycle, public download or installed ARM64 gate is claimed.
+
+Fresh9d production-QML fixtures on the guest show optional update beside both
+Start continuations in EN/RU. A compatible ready+stale_manual wizard displays
+Core ready/version and enabled Continue; invoking its real synthetic Continue
+handler advances to Routing without a preset/store effect. Captures remain
+private. These isolated presentations do not claim GUI-driven package download.
+
+The frontend-only target identity is intentionally separate from compiled
+published predecessor data, avoiding circular self-hash builds. Pairing's runtime
+equivalence check now explicitly includes compiled predecessor pins, embedded
+package guard and the build feature selector, despite their location outside
+crates. Target metadata remains frontend-only. Latest local normal checks pass
+768 Python tests/two declared opt-in skips; focused pairing has16, setup66,
+inventory11, frontend20 and onboarding24 controls. Exact final frontend/CI and
+publication gates are recorded in #783, not borrowed from native9d.
+
+Remaining public work: new immutable delivery, actual anonymous downloads,
+matched frontend pins/capability activation, final CI and affected installed
+delivery scenarios. The repository still selects fix.4 with capabilityfalse;
+the private offline target metadata is not a public release. Main, existing
+release assets and the physical PC were not changed.
