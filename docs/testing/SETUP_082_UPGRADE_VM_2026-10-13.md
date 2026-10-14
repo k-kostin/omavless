@@ -606,3 +606,61 @@ clean public provisioning and main promotion are separate remaining gates until
 their actual receipts are recorded. No new VPN/network-health, reporter-cause,
 whole issue772-resolution or marketplace-approval claim follows. The physical
 PC was not modified during this candidate pass.
+
+## Immutable fix.4 public downloads and empty x86_64 setup
+
+Validation prerelease `v0.9.8-fix.4` was published at frontend/tag
+`791ac5454f9de3d7e7958c8ea7821e7e676716f2`, with the four producerb656
+archives above, common frontend, prepublication delivery JSON and SHA256SUMS.
+All seven assets were downloaded again anonymously through their fixed GitHub
+HTTPS URLs and matched local inspected bytes. Frontend SHA256:
+`6f442000945497b93225a33c5c422adfc92ee8bf7793a989ccd26a20e12091dd`;
+delivery JSON `685a2ab84c1ffad047cf2ed169b8e88d82150dd4b6264c75c35ef495e32dbb33`;
+SHA256SUMS `22d41aa8c1fd7ab674759a824c9779661ff2a6d0bd64c44a32acd8c48e5344ac`.
+The immutable JSON is the prepublication record: its false download/ARM-installed
+fields are retained, not edited into a subsequent result. This paragraph and
+PR #778 record the independently observed download outcome. Latest/stable
+remains fix.3; main, old tags/assets and Marketplace were not changed.
+
+After proven clean guest poweroff/QEMU exit with no disk writer, its previous
+installed overlay and matching NVRAM were retained. A new overlay of the
+original read-only clean baseline booted normally with encrypted unlock. No
+snapshot/reset is attributed to product recovery. Sole-operator custody was
+retained; the existing host VM rule kept its window on workspace2, without
+fullscreen/focus takeover or a host rule change.
+
+New x86_64 boot `7c81b9a9-17d1-40b4-942a-fd3d24a821a0` had no application,
+DNS or stock-Mihomo package, executable, private config/state, plugin or package
+cache. The ordinary `omarchy plugin add` cloned the public repository without
+enabling it. The candidate tag was deliberately selected and verified before
+the separate enable; this is exact-candidate provisioning, not a claim that
+main/Marketplace already points to it.
+
+Actual Install required components, INSTALL, public production downloads,
+normal guest sudo and pacman installed both pinned packages. No package cache
+was preloaded or a download function replaced. Deliberate Enter cancellation
+at the separate DNS consent produced `dns-consent` and the truthful partial
+completion message, with legacy target, stopped broker/PID0/FD0 and no TUN.
+The original terminal then closed; no pending sudo/pacman/terminal or setup lock
+remained. Actual Continue DNS/FIRST, separate DNS/sudo, first normal activation
+and setup completion passed without another package transaction. Final ownership
+was Rust, components ready/present, native observation observed/Disconnected/
+manualRecoveryRequired=false, Desired false, broker FD0, no TUN and empty
+profiles. The user runtime was enabled by ordinary first activation; login
+VPN autoconnect stayed Off. This is distinct from the preserved disabled-runtime
+existing-user gates above.
+
+The actual wizard showed bundled core1.19.31 and capabilities present; optional
+file-picker absence remained visible and was not silently installed. Skip for
+now/Finish later completed onboarding with the original routing default. The
+settled actual panel displayed Disconnected and empty profiles, not the transient
+post-mutation unverified projection. Installed app/core/broker hashes exactly
+matched the inspected x86_64 delivery record. No VPN connection was attempted.
+
+Final791 normal runner passed 753 Python tests/two declared opt-in skips plus
+JS/QML. Published/tag binaries are still producerb656; later evidence-only
+changes neither replace them nor move the tag. Required remaining promotion
+checks are installed ARM64 and final candidate CI. Their absence is not a
+request to repeat already completed x86_64 provisioning or physical-PC setup.
+Issue772 stays open pending the reporter's diagnostics; no new reply or claim
+of its exact root cause was posted.
