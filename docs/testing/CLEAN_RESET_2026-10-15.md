@@ -314,6 +314,7 @@ bounded new installed publication/reboot/cleanup gate, not unrun ARM acceptance.
 | 5a0d996f; above post-restart removal, normal pacman N, then same-command continuation | PASS: first removal returned 1 after normal cancellation; both packages remained and enrollment was already revoked. No receipt edit or fixture repair. The next invocation accepted that partial state, removed both packages normally and returned 0. Own widget/data/units/enablement/masks/witnesses/progress/exclusion absent; exact DNS, separate Mihomo/config/units and unrelated-package baselines unchanged. |
 | 5a0d996f; public 0.8.2 `f4427143` frontend / app ELF `3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1`, no DNS companion; activated/imported fixture, then normal Full Quit | PASS with qualification: actual legacy Connect returned `transition_failed_restored`; this is not successfully connected-ever 0.8.2 acceptance. No legacy core/permissions repair was used. Original DNS/no-TUN/disconnected state was independently confirmed. Anonymous guide download/checksum, REMOVE/sudo, actual reboot, same cached command and ordinary widget/pacman removal completed with original exit 0; own resources absent and DNS/stock/unrelated baselines unchanged. |
 | 5a0d996f; public 0.9.8 partial setup, widget already removed through Omarchy, first removal sudo cancelled with Ctrl-C | PASS: original cancellation returned 1, retained `preparing` with no masks/setup lock and unchanged packages/data. Same-command REMOVE/sudo continued preparation without repeating an uncertain Quit; actual reboot and normal pacman removal completed with original exit 0. Own resources absent, root absence observation passed and DNS/stock/unrelated baselines unchanged. No receipt or system-file repair inside the path. |
+| After completed 5a removal; literal public main `ed0346c5` ordinary plugin add and first-use setup | PASS: clean clone/add original 0, actual panel Install required components → INSTALL/sudo/pacman Y/DNS, product terminal ready, Enter/closure, explicit panel acknowledgment/Check again, Core ready 1.19.31 → Continue → Routing/Skip → profiles step/Finish without a profile → usable disconnected panel. `onboardingComplete=true`, startup Off, zero profiles/subscriptions, broker FD 0; exact public fix.7 pair, DNS/stock/unrelated baselines unchanged. Profile-file import and live-server health are not claimed by this row. No administrator fixture repair inside the advertised path. |
 
 The primary personally inspected actual REMOVE/preparation and coded-recovery
 completion pixels, separately from the exact helper exits and independent state
@@ -332,7 +333,35 @@ execution, and retains bounded anonymous download for older/removed widgets.
 Inert execution tests cover both branches and reject a modified installed file;
 independent review found no blockers. Actual anonymous transport passed on the
 disconnected 0.8.2 fixture (54,787 bytes, exact pinned hash); installed offline
-entry remains a separate installed gate.
+capable entry passed separately on clean `ac1cbe24`: the literal guide block
+selected the installed local helper, checked the same hash and reached REMOVE.
+Enter cancelled with original exit 0, no sudo/preparation/progress/setup lock;
+profile/desired-state hashes and runtime identity stayed unchanged. This proves
+the installed-local branch, not a separate network-disabled outage test.
+
+Only after the completed ordinary main-install proof, the guest selected clean
+candidate `ac1cbe24d6358dc785945124f23f052c6c37683e` from a verified Git bundle
+and ran the normal guest shell reload (original 0). This is a review fixture,
+not a claim that candidate code is on public main. Final actual ready pixels
+again showed state/version/one next step and Close/Continue only. The installed
+QML SHA matches the earlier EN/RU UI656 gate. The primary personally inspected
+the final candidate ready, installed-local cancellation and actual 0.8.2/0.9.8
+completion captures, separately from process exits and independent state checks.
+
+At handoff the guest is disconnected, startup Off, locale System, original idle
+behavior restored, and the ready dialog is visible for owner review. Public
+fix.7 native packages remain installed with broker FD 0, no owned TUN, exact
+original DNS/stock-core/unrelated-package baselines and no removal session,
+progress or setup exclusion. VM custody was explicitly released. No physical
+host network/packages/shell/workspace was changed.
+
+Latest combined source run passed 777 Python tests (two existing skips) and all
+JS/QML suites, including 102 successor and 30 onboarding cases. No Rust/native
+package source changed. Full hosted Rust/parity CI remains a separate exact-head
+PR check, not inferred from the isolated run. Independent reconciliation review
+found no blocker for this Draft's bounded x86_64 handoff. Installed ARM64 removal,
+quarantined-state fault injection, successful legacy 0.8.2 Connect and real
+profile-file import/server health remain unrun. They are not inherited PASSes.
 
 ### CI workload correction
 

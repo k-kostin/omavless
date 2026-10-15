@@ -19,7 +19,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
   with a failed-restored Connect qualification. Anonymous download passed;
   separate stock Mihomo, unrelated packages and original DNS stayed unchanged.
   Earlier `dd131de5` also earned closed-used 0.9.8 and coded legacy-receipt recovery.
-  Final normal main reinstall and installed offline entry remain pending.
+  Normal main reinstall through actual INSTALL/pacman/DNS, terminal closure,
+  panel acknowledgment and all onboarding steps reached the usable disconnected
+  panel; profile import/server health are not claimed. Final clean candidate
+  `ac1cbe24` loaded the short ready screen after normal guest shell reload;
+  installed-local helper entry/checksum and cancellation passed without product
+  changes. This is not a network-disabled outage test or public-main delivery.
+  VM custody is released, VPN/startup Off and original locale/idle behavior kept.
+  Installed ARM64 removal and quarantined-state injection remain unrun; full
+  hosted CI is tracked by the actual PR check, separately from local suites.
   Ready-wizard action cleanup at `656be065` has actual EN/RU installed review:
   state/version/next step and Close/Continue only, with non-ready actions retained.
   Practical retrospective changes are in execution policy, UI contract and
