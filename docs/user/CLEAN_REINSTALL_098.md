@@ -25,10 +25,10 @@ if [[ -f "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" ]]; the
     "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 else
   curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/k-kostin/omavless/7f54d532df20a87f0c1c07abc0123dba97121f5d/tools/uninstall.sh \
+    https://raw.githubusercontent.com/k-kostin/omavless/4345f28936f22e604db4a7ed0da25c7ed3edbfd7/tools/uninstall.sh \
     -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 fi &&
-printf '%s  %s\n' 8d07906635be9c06e54bb18819ebf7343a5ca02e88c1cfeb87cef08b3a4de0fd \
+printf '%s  %s\n' a6067299fad774eef33fe06821e5aa18245fc16dc861f775ee9b96ebc9a5cd29 \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
   "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh" &&
@@ -40,8 +40,8 @@ bash "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh"
 2. When preparation finishes, save your other work. Enter `REBOOT` to restart,
    or press Enter to restart later from your desktop.
 3. After logging back in, run the same helper command below. It continues at
-   removal, not preparation. Confirm `REMOVE`, Omarchy's widget-removal prompt
-   if shown, and the normal package-removal prompt.
+   removal, not preparation. Confirm `REMOVE`, then follow the package-removal
+   and widget-removal prompts that remain.
 
 Do not reopen or reinstall OmaVLESS between preparation and completing removal.
 
