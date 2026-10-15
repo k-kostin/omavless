@@ -73,6 +73,15 @@ compilation. For an unfamiliar focused selector, inspect the module mapping or
 the actual test list first; record the selected case count. Exit 0 with zero
 selected tests is UNTESTED, not evidence that the requested behavior passed.
 
+For socket-response fixtures, accepting the last peer is not completion of its
+request. Keep fixture teardown separate from the behavior under assertion:
+signal server shutdown only after the final reply is checked, with unwind-safe
+cleanup. A teardown which takes the same mutex as the tested nonblocking read
+can manufacture `busy` before its intended ownership check. Preserve exact
+response assertions; do not accept `busy`, add sleeps/retries or weaken runtime
+admission to hide that race. A controlled contention test proves precedence,
+not the unobserved thread interleaving of an earlier CI failure.
+
 For installer/updater work, include user-reached preparation, return after
 Quit/terminal closure and continuation in that early scenario. Record every
 fixture-only intervention and resulting proof limitation in the existing task
