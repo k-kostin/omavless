@@ -114,13 +114,14 @@ user plugin converted into a development worktree.
 - Both SetupPage and Panel link to docs/user/NATIVE_INSTALL.md on main. Keep
   that destination current, or preserve a clear current landing page; do not
   break it as part of a cosmetic guide rename.
-- install.sh currently stages selected root files, plugin/, templates/ and
-  docs/user/, **not tools/uninstall.sh**. This is an alternate-install payload
-  gap to resolve/test before claiming one unified distribution. The #790 guide
-  has an anonymous pinned-download fallback; this observation does not turn
-  its earlier ordinary Omarchy-add acceptance into a failed result.
-  Transition gate: deliver the same reviewed helper/help payload through both
-  supported routes, or stop advertising the alternate route as equivalent.
+- Historical public main ed0346c5 stages selected root files, plugin/,
+  templates/ and docs/user/, but not tools/uninstall.sh. Included #792 closes
+  that gap in this source candidate: both the source installer and the exported
+  archive retain only the reviewed helper, with missing/redirected-input
+  refusals before live replacement. Actual x64 fresh/existing alternate
+  installs and installed-helper offline cancellation passed on the #792 archive;
+  the earlier ordinary Omarchy-add acceptance remains distinct. Further
+  distribution changes must preserve that helper/help payload equivalence.
 - packaging/arch/stage-payload.sh installs packaging/arch/README.md into the
   native package's /usr/share/doc/omavless/README.md. That file is developer
   oriented. A frontend/docs change does not update already published package
