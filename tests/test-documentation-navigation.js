@@ -68,6 +68,13 @@ for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md
   assert(entry.includes('](' + target + ')'), 'agent discovery must retain ' + target);
 }
 const guide = fs.readFileSync(path.join(root, 'docs/development/AGENT_GUIDE.md'), 'utf8');
+// Discovery only: assertions cannot prove that an agent followed the procedure.
+const closurePolicy = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
+assert(guide.includes('](EXECUTION_POLICY.md#delivery-closure-check)'),
+  'the whole-task closure check must be discoverable from the mandatory guide');
+assert(closurePolicy.includes('### Delivery closure check'));
+assert(closurePolicy.includes('](#delivery-closure-check)'),
+  'retro closure must check the next real outcome against the closure procedure');
 for (const section of ['Mandatory freshness', 'Acceptance environments',
   'Exact-head discipline', 'Git discipline', 'Cross-agent handoff',
   'UI interaction', 'Localization work', 'Historical continuity checkpoint'])

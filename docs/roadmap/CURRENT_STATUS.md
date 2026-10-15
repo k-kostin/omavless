@@ -609,7 +609,12 @@ the package or run this installer. The old Python implementation is archived;
 remaining Python is independent developer/test/build tooling and frozen-reference
 replay, not a supported fallback or second native lifecycle owner.
 
-## Next work, in order
+## Historical next-work order — superseded
+
+This retained queue belongs to the older0.8.2/publication checkpoint. It is not
+the current assignment; use Main and open work above and its owning current PR.
+Keep these original decisions as history without resubmitting old publication
+requests or restarting accepted migration work.
 
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged

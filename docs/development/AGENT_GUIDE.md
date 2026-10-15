@@ -30,7 +30,10 @@ diagnostic work. It distinguishes ordinary build failures from uncertain effects
 and retains risk-proportionate review and explicit single-operator VM custody.
 For installed development-VM work use the
 [VM operations skill](../../skills/omavless-dev-vm/SKILL.md), including graphical
-preflight, actual installed interface discovery and encrypted reboot. At meaningful
+preflight, actual installed interface discovery and encrypted reboot. Before
+reporting a task outcome, apply the
+[delivery closure check](EXECUTION_POLICY.md#delivery-closure-check) to the whole
+owner request, not only the most recent subtask. At meaningful
 checkpoints use [lightweight retrospectives](EXECUTION_POLICY.md#9-lightweight-orchestration-retrospectives)
 instead of duplicating unchanged audits or adding another permanent agent.
 Apply their [closure and distribution gate](EXECUTION_POLICY.md#retrospective-closure-and-distribution):

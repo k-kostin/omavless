@@ -323,6 +323,21 @@ prevents remaining in-scope work; save an exact-head handoff. Do not stop merely
 because several steps ran, and do not fabricate closure to avoid a blocker.
 New scope needs its own applicable owner direction.
 
+### Delivery closure check
+
+Before an outcome-reporting final answer, compare each owner-requested outcome
+with the current task matrix, not just the last completed subtask. Keep that
+operational summary above detailed receipts: outcome, done/actionable/external,
+next action and responsible operator. Bind evidence to the selected input below;
+prepared source, installed behavior and public delivery are separate outcomes.
+
+Continue any authorized actionable step. For an external hold, name the missing
+access, running operation or owner decision and the specific outcome it blocks;
+do not let one unavailable environment stop independent work. A terminal CI
+failure changes waiting into actionable diagnosis, not another unchanged wait.
+Reconcile the summary before reporting; do not announce whole-task completion
+from a passing subtask. An answer to an inline question does not close the task.
+
 ## 9. Lightweight orchestration retrospectives
 
 For delayed lifecycle actions, read the actual grace/deadline and hold the
@@ -379,6 +394,12 @@ while unchanged; this does not require repeated full audits or blanket rebases.
 Close a reusable finding with a check of the changed behavior or discovery, not
 only the presence of a paragraph. Main/release/marketplace authorization remains
 separate; a request for retrospective work is not an automatic merge permission.
+
+For a repeated session-closure failure, check the next real outcome report
+against the [delivery closure check](#delivery-closure-check): all requested
+outcomes have a disposition, terminal results are current, and no authorized
+actionable step was silently dropped. A navigation test can protect discovery
+of this rule; it cannot prove that the primary agent actually followed it.
 
 For an editorial journey review, include all text owners (frontend catalog,
 shell and the actually selected native binary). Check names against the shared
