@@ -80,5 +80,71 @@ for (const field of ['NFileDescriptorStore', 'NeedDaemonReload', 'FragmentPath',
   assert(source.includes(field), field);
 }
 assert(source.indexOf('/usr/lib/omavless-dns/package-guard') < source.indexOf('/usr/lib/omavless-dns/omavless-dns-broker --revoke'));
-assert(source.indexOf('--revoke') < source.indexOf('sudo pacman -R -- omavless omavless-dns'));
+assert(source.indexOf('--revoke') < source.indexOf('sudo pacman -R -- "${packages[@]}"'));
+assert(source.includes('packages+=(omavless)') && source.includes('packages+=(omavless-dns)'));
+// Exercise the actual shutdown coordinator with inert commands. Never execute
+// the top-level helper, a native program, systemctl or a root shell on this host.
+const coordinator = source.slice(source.indexOf('runtime_pid()'), source.indexOf('check_supported_installation()'));
+function shutdown(overrides, input, pass, expected) {
+  const stateDirectory = fs.mkdtempSync(path.join(os.homedir(), '.cache/ovt/shutdown-fixture.'));
+  const stateFile = path.join(stateDirectory, 'pid');
+  fs.writeFileSync(stateFile, '0\n');
+  const fixture = `set -euo pipefail
+STATE=${JSON.stringify(stateFile)}
+fail() { printf 'REFUSED:%s\\n' "$*"; exit 1; }
+${coordinator}
+runtime_pid() { /usr/bin/cat "$STATE"; }
+plugin_state() { printf 'enabled\\n'; }
+hello_fence() { printf 'synthetic-instance\\t7\\n'; }
+systemctl() { printf 'inactive\\n'; }
+function /usr/bin/omavless {
+  printf 'CALL:%s\\n' "$*" >&2
+  printf '0\\n' > "$STATE"
+  case "$2" in
+    quit) printf '%s\\n' '{"schemaVersion":1,"shutdown":true,"pluginDisabled":true}' ;;
+    watch-removal) printf '%s\\n' '{"schemaVersion":1,"runtimeStopped":true}' ;;
+    *) exit 9 ;;
+  esac
+}
+${overrides}
+shutdown_running_app
+`;
+  let result;
+  try {
+    result = spawnSync('bash', ['--noprofile', '--norc', '-c', fixture], { input, encoding:'utf8', timeout:5000 });
+  } finally {
+    fs.rmSync(stateDirectory, {recursive:true});
+  }
+  assert.equal(result.status === 0, pass, result.stdout + result.stderr);
+  for (const fragment of expected) assert((result.stdout + result.stderr).includes(fragment), fragment);
+  cases++;
+  return result;
+}
+shutdown('', '', true, ['already stopped']);
+shutdown("printf '123\\n' > \"$STATE\"", 'STOP\n', true, ['CALL:plugin quit synthetic-instance 7', 'OmaVLESS closed']);
+shutdown("printf '123\\n' > \"$STATE\"; plugin_state() { printf 'absent\\n'; }", 'STOP\n', true, ['CALL:plugin watch-removal', 'OmaVLESS closed']);
+shutdown("printf '123\\n' > \"$STATE\"; plugin_state() { printf 'disabled\\n'; }", 'STOP\n', true, ['CALL:plugin watch-removal', 'OmaVLESS closed']);
+shutdown("runtime_pid() { printf '123\\n'; }", '\n', false, ['Cancelled']);
+shutdown("runtime_pid() { printf '123\\n'; }; plugin_state() { return 1; }", 'STOP\n', false, ['Cannot check the plugin']);
+shutdown("runtime_pid() { printf '123\\n'; }; hello_fence() { return 1; }", 'STOP\n', false, ['Cannot safely close']);
+// A failed submitted Quit never falls back to watcher/removal or retries.
+const uncertain = shutdown("runtime_pid() { printf '123\\n'; }; function /usr/bin/omavless { printf 'CALL:%s\\n' \"$*\" >&2; return 73; }", 'STOP\n', false, ['did not confirm shutdown']);
+assert.equal((uncertain.stderr.match(/CALL:plugin quit/g) || []).length, 1);
+assert(!uncertain.stderr.includes('watch-removal'));
+// Use the real parser functions independently, with timeout replaced by a
+// bounded fixture producer; malformed input must not acquire a shutdown fence.
+function parseFunction(name, json, pass) {
+  const fixture = `set -euo pipefail\n${coordinator}\ntimeout() { printf '%s' '${json}'; }\n${name}\n`;
+  const result = spawnSync('bash', ['--noprofile', '--norc'], { input:fixture, encoding:'utf8' });
+  assert.equal(result.status === 0, pass, result.stdout + result.stderr);
+  cases++;
+}
+parseFunction('hello_fence', '{"ok":true,"revision":7,"result":{"instanceId":"synthetic","version":1,"runtimeOwnership":true}}', true);
+for (const json of ['{}', '{"ok":false}', '{"ok":true,"revision":7,"result":{"instanceId":"synthetic","version":1,"runtimeOwnership":false}}', '{"ok":true,"revision":7.5,"result":{"instanceId":"synthetic","version":1,"runtimeOwnership":true}}', '{"ok":true,"revision":9007199254740992,"result":{"instanceId":"synthetic","version":1,"runtimeOwnership":true}}']) {
+  parseFunction('hello_fence', json, false);
+}
+parseFunction('plugin_state', '[]', true);
+parseFunction('plugin_state', '[{"id":"kdk.omavless","enabled":false}]', true);
+parseFunction('plugin_state', '[{"id":"kdk.omavless","enabled":true}]', true);
+for (const json of ['{}', '[{"id":"kdk.omavless"}]', '[{"id":"kdk.omavless","enabled":true},{"id":"kdk.omavless","enabled":false}]']) parseFunction('plugin_state', json, false);
 console.log(`Clean-reinstall helper: ${cases} pure validator cases and source boundaries PASS; no host effects.`);
