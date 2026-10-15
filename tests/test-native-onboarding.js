@@ -5,6 +5,24 @@ const service=fs.readFileSync(__dirname+'/../plugin/Service.qml','utf8');
 const wizard=fs.readFileSync(__dirname+'/../plugin/OnboardingWizard.qml','utf8');
 const parser=vm.createContext({});vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativeSnapshot.js','utf8'),parser);
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
+test('successful core step contains no recheck, installation help or repair navigation',()=>{
+ const state=require('../plugin/SetupState.js');
+ const controls=['onboardingCoreRefresh','onboardingSetupGuide','onboardingComponentSetup','onboardingDnsHelperIntro','onboardingOtherVpnAdvice'];
+ for(const nativeCoreState of ['ready','missing','update','checking','attention','terminal'])
+  for(const delivery of ['current','stale','stale_manual'])for(const firstRun of [false,true]) {
+   const facts={state:'ready',coreInstalled:true,delivery};
+   const c={SetupState:state,wizard:{nativeContext:true,nativeCoreState,nativeSetupFacts:facts,firstRun}};
+   for(const name of controls){
+    const block=wizard.slice(wizard.indexOf('objectName: "'+name+'"'));
+    assert(block.startsWith('objectName:'),name+' must name the actual control');
+    const binding=block.slice(0,block.indexOf('\n            }')).match(/visible: ([^\n]+)/);
+    assert(binding,name+' requires an explicit visibility decision');
+    const shown=vm.runInNewContext(binding[1],c);
+    const expected=nativeCoreState!=='ready'&&(name!=='onboardingOtherVpnAdvice'||firstRun);
+    assert.equal(shown,expected,name+' in '+nativeCoreState+'/'+delivery);
+   }
+  }
+});
 test('footer separates back from forward and names completion without a profile',()=>{
  const footer=wizard.slice(wizard.indexOf('id: navigation'));
  assert(footer.indexOf('id: backButton') < footer.indexOf('id: forward'));
@@ -44,8 +62,8 @@ test('DNS helper is introduced before setup labels and VPN advice is first-run o
  assert(wizard.indexOf('objectName: "onboardingDnsHelperIntro"') < wizard.indexOf('objectName: "onboardingCoreState"'));
  const warning=wizard.slice(wizard.indexOf('objectName: "onboardingOtherVpnAdvice"'));
  const visible=warning.match(/visible: ([^\n]+)/)[1];
- for(const firstRun of [true,false]) for(const nativeContext of [true,false])
-  assert.equal(vm.runInNewContext(visible,{wizard:{firstRun,nativeContext}}),firstRun && nativeContext);
+ for(const firstRun of [true,false]) for(const nativeContext of [true,false])for(const nativeCoreState of ['ready','missing','attention'])
+  assert.equal(vm.runInNewContext(visible,{wizard:{firstRun,nativeContext,nativeCoreState}}),firstRun && nativeContext && nativeCoreState!=='ready');
  assert(panel.includes('firstRun: vless.nativeOwner && vless.nativeSnapshot !== null && !vless.nativeSnapshot.onboardingComplete'));
  assert(page.includes('(setup.state === "needs_package" || setup.state === "needs_activation")'));
  const i18n=require('../plugin/I18n.js');
@@ -139,7 +157,7 @@ test('ready, missing, update and unknown core states do not borrow each other ac
  const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','core_terminal','terminal_help','review_install','review_update','review_setup'])
   assert(!i18n.translate('native.onboarding.'+key,locale,{}).includes('Missing translation'));
 });
-test('compatible stale delivery keeps real onboarding Continue and optional review',()=>{
+test('compatible stale delivery keeps ready Continue without update distractions',()=>{
  const state=require('../plugin/SetupState.js');
  const core={installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
  const continueBlock=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
@@ -151,7 +169,7 @@ test('compatible stale delivery keeps real onboarding Continue and optional revi
   const nativeCoreState=state.coreReview(core,nativeSetupFacts,false,false,false);
   const c=vm.createContext({SetupState:state,wizard:{nativeContext:true,nativeSetupFacts,nativeCoreState,nativeCanContinue:true,busy:false}});
   assert(vm.runInContext(enabled,c));
-  assert(vm.runInContext(visible,c));
+  assert(!vm.runInContext(visible,c));
   c.wizard.nativeCoreState=state.coreReview(core,nativeSetupFacts,false,false,true);
   assert(!vm.runInContext(enabled,c));
  }

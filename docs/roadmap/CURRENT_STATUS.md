@@ -7,6 +7,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
 ## Main and open work
 
 - **Guided reset follow-up #790:** source and user-guide/README reconciliation
+  is being reworked after owner rejection of the restricted reset as a full
+  deinstaller. Required used/stopped and interrupted-removal continuations are
+  not complete; earlier scoped PASS results below do not close them. The same
+  follow-up removes repair/recheck/help distractions from the ready core wizard.
+  The prior implementation and user-guide reconciliation
   add a zero-argument terminal entry, concise REMOVE consent, existing native
   shutdown, ASCII waiting and durable same-command continuation after reboot,
   independent of the setup UI. The [reset matrix](../testing/CLEAN_RESET_2026-10-15.md)

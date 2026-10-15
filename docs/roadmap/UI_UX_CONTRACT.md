@@ -94,6 +94,11 @@ The native onboarding core step distinguishes confirmed desktop core setup,
 missing components, a supported package update and unverified/failed facts.
 Confirmed setup shows Core ready, the installed version and Continue without
 suggesting reinstall; this is not service/TUN-creation/network-health evidence.
+In the ready wizard step, show only that state/version, one short next-step
+sentence and Close/Continue. Hide Check again, Installation guide, component
+review/update navigation and setup prerequisite prose. Optional delivery updates
+remain accessible outside this completed wizard step. The separate component
+review/error surfaces retain their relevant recheck/help controls.
 Other states navigate to the existing guarded component controller, not a new
 installer. Missing/unknown facts never masquerade as ready Continue. Component
 review always retains Check again, Setup help and return navigation, including
@@ -229,6 +234,12 @@ password/package prompts and exact consent words when simplifying prose.
 
 No check substitutes for another. A screenshot proves only its captured state;
 controller liveness or a Connected label does not prove internet/DNS health.
+
+For state-dependent screens, list the allowed visible actions and the controls
+which must disappear in success, loading, missing and failure states. Test both
+presence and absence against production visibility expressions; then inspect
+the installed ready screen and an adjacent non-ready state. A working callback
+or legible button does not establish that the action belongs on that screen.
 
 ### Pick affected states, not a ceremonial full-product rerun
 

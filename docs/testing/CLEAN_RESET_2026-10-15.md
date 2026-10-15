@@ -138,6 +138,25 @@ actual screenshots remain outside Git; no private logs or profiles are attached.
 
 ## Practical retrospective
 
+### Owner rejection: incomplete product scope and redundant success controls
+
+The owner rejected the scoped remover as completion of a full deinstaller.
+Its old installed PASS rows remain valid only for their named fixtures, not
+for the requested normal already-used/stopped and interrupted-removal journeys.
+The primary let implementation limits redefine the goal, then counted safe
+refusals as an acceptable product boundary. Correction: execution policy now
+requires actual used/running/stopped, widget-absent and interrupted-phase
+continuations before declaring a full remover ready. User history attestation
+and generic support referral cannot substitute for those implementations.
+
+The same review missed Check again/Installation guide on the successful Core
+ready screen: callbacks and rendering were tested, not action relevance.
+Correction: the UI contract requires explicit allowed/absent actions per state,
+production-expression regression tests and installed ready/non-ready review.
+These are changes to the existing policy/tests, not a new ceremonial audit.
+Successor implementation and affected installed results must be recorded
+separately below; earlier source/helper identities are not silently promoted.
+
 ### Guided terminal decisions
 
 Goal: remove the selected supported old installation, not the OS or another VPN.

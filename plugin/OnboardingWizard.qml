@@ -233,7 +233,7 @@ Item {
 
             PlainText {
               objectName: "onboardingOtherVpnAdvice"
-              visible: wizard.nativeContext && wizard.firstRun
+              visible: wizard.nativeContext && wizard.firstRun && wizard.nativeCoreState !== "ready"
               width: parent.width
               text: wizard.textFor("setup.other_vpn_advice")
               color: wizard.dim
@@ -244,7 +244,7 @@ Item {
 
             PlainText {
               objectName: "onboardingDnsHelperIntro"
-              visible: wizard.nativeContext
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
               width: parent.width
               text: wizard.textFor("setup.dns_helper_intro")
               color: wizard.dim
@@ -316,7 +316,7 @@ Item {
             }
             WizardButton {
               objectName: "onboardingComponentSetup"
-              visible: wizard.nativeContext && (wizard.nativeCoreState !== "ready" || SetupState.hasUpdate(wizard.nativeSetupFacts))
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
               text: wizard.textFor(wizard.nativeCoreState === "update" || SetupState.hasUpdate(wizard.nativeSetupFacts) ? "native.onboarding.review_update"
                 : wizard.nativeCoreState === "missing" ? "native.onboarding.review_install" : "native.onboarding.review_setup")
               enabled: !wizard.busy && !wizard.nativeSetupBusy
@@ -328,6 +328,7 @@ Item {
             }
             WizardButton {
               objectName: "onboardingCoreRefresh"
+              visible: !wizard.nativeContext || wizard.nativeCoreState !== "ready"
               text: wizard.textFor("common.check_again")
               bordered: false
               enabled: !wizard.busy && !wizard.nativeSetupBusy
@@ -337,7 +338,7 @@ Item {
             }
             WizardButton {
               objectName: "onboardingSetupGuide"
-              visible: wizard.nativeContext
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
               text: wizard.textFor("native.onboarding.setup_guide")
               bordered: false
               foreground: wizard.dim

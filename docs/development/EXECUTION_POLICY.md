@@ -59,6 +59,17 @@ Put executable prerequisites inside the guided tool where possible, and retain
 an explicit unsupported/unknown boundary rather than publishing a prerequisite
 which the reporter's broken UI cannot reach.
 
+For a full deinstaller, its completion matrix must include a previously used
+installation, both running and normally stopped, widget already absent, and
+continuation after each persistent removal phase is interrupted. Do not replace
+these ordinary entries with a never-connected fixture or ask the user to attest
+connection history. Infer the next operation from actual supported state and
+retain tested recovery for partial effects. A safe refusal is a negative test,
+not completion of that user path. If a required path remains unavailable,
+report the remover as incomplete rather than narrowing its product goal after
+implementation. Network ownership checks remain mandatory; missing recovery
+must be implemented, not bypassed or hidden behind a generic support referral.
+
 When changing package pins, exercise the latest actual published predecessor
 through the complete advisory inventory and native update entry. A registry
 lookup or local-rebuild refusal alone does not prove that the positive update
