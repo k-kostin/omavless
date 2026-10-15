@@ -50,6 +50,15 @@ and later call the helper result a complete journey. Before requesting release
 publication, close its prepublication user-path gates; explicitly separate later
 public-asset/download gates which cannot exist before authorized delivery.
 
+For a user-facing reset/remover, start at the advertised installed state,
+including a running application and a widget already removed through Omarchy.
+An expert's earlier Quit does not earn the remover's shutdown prompt/consumer.
+Exercise cancellation before removal and at the shutdown offer; compare the
+actual packages, service/startup state, data and network, not only its exit code.
+Put executable prerequisites inside the guided tool where possible, and retain
+an explicit unsupported/unknown boundary rather than publishing a prerequisite
+which the reporter's broken UI cannot reach.
+
 When changing package pins, exercise the latest actual published predecessor
 through the complete advisory inventory and native update entry. A registry
 lookup or local-rebuild refusal alone does not prove that the positive update

@@ -20,6 +20,9 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [Guided clean reset](CLEAN_RESET_2026-10-15.md): exact helper, separate
+  shutdown/cancellation/root-branch tests and installed never-connected removal
+  matrix. This is not the future all-state 0.9.9 uninstaller.
 - [Prior-public 0.8.2 upgrade reproduction](SETUP_082_UPGRADE_VM_2026-10-13.md):
   actual frontend-only update dead end and manually completed disconnected
   public 0.9.8 pair migration; not guided-updater or issue-author root-cause closure.

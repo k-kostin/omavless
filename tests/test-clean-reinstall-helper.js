@@ -159,4 +159,26 @@ parseFunction('plugin_state', '[]', true);
 parseFunction('plugin_state', '[{"id":"kdk.omavless","enabled":false}]', true);
 parseFunction('plugin_state', '[{"id":"kdk.omavless","enabled":true}]', true);
 for (const json of ['{}', '[{"id":"kdk.omavless"}]', '[{"id":"kdk.omavless","enabled":true},{"id":"kdk.omavless","enabled":false}]']) parseFunction('plugin_state', json, false);
+const classification = source.slice(source.indexOf('check_supported_installation()'), source.indexOf('[[ $# == 1'));
+for (const [app, dns, digest, expected] of [
+  ['omavless 0.8.2-1', 'absent', '3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1', true],
+  ['omavless 0.9.8-1', 'omavless-dns 0.9.8-1', '7c7b0f0c350b8903353d2fed3c8effb693aaaca0c271279b85efa51dfebb8881', true],
+  ['omavless 0.9.8-1', 'omavless-dns 0.9.8-1', '0'.repeat(64), false],
+  ['omavless 0.0.0.r123.gtest-1', 'omavless-dns 0.9.8-1', '7c7b0f0c350b8903353d2fed3c8effb693aaaca0c271279b85efa51dfebb8881', false],
+  ['omavless 0.8.2-1', 'omavless-dns 0.9.8-1', '3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1', false]
+]) {
+  const directory = fs.mkdtempSync(path.join(os.homedir(), '.cache/ovt/removal-app-fixture.'));
+  const binary = path.join(directory, 'omavless');
+  fs.writeFileSync(binary, 'synthetic');
+  const fixture = `set -euo pipefail\nfail() { exit 1; }\n${classification.replaceAll('/usr/bin/omavless', binary)}
+pacman() { case "$2" in omavless) printf '%s\\n' '${app}' ;; omavless-dns) ${dns === 'absent' ? 'return 1' : `printf '%s\\n' '${dns}'`} ;; *) exit 9 ;; esac; }
+stat() { printf '0:755\\n'; }
+sha256sum() { printf '%s  %s\\n' '${digest}' "$1"; }
+check_supported_installation\n`;
+  try {
+    const result = spawnSync('bash', ['--noprofile', '--norc'], {input:fixture, encoding:'utf8'});
+    assert.equal(result.status === 0, expected, result.stdout + result.stderr);
+    cases++;
+  } finally { fs.rmSync(directory, {recursive:true}); }
+}
 console.log(`Clean-reinstall helper: ${cases} pure validator cases and source boundaries PASS; no host effects.`);
