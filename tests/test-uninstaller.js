@@ -90,7 +90,8 @@ userTest('mask inode recorded before interrupted publish',{},[
 ].join('\n'),false,dir=>{
  const progress=JSON.parse(fs.readFileSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/progress.json'));
  assert.equal(progress.masks.length,1);
- const stat=fs.lstatSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/mask-'+progress.masks[0].witness+'-omavless-runtime.service');
+ assert.match(progress.masks[0].witness,/^u[a-f0-9]{32}$/);
+ const stat=fs.lstatSync(dir+'/home/user/.config/systemd/user/.omavless-uninstall-'+progress.masks[0].witness.slice(1)+'-omavless-runtime.service.link');
  assert.equal(progress.masks[0].identity,stat.dev+':'+stat.ino);
  assert(!fs.existsSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service'));
 });
@@ -103,19 +104,28 @@ userTest('resume a recorded mask before publication',{},[
 ].join('\n'),true);
 userTest('replaced mask is never unlinked',{},'read_progress; save_progress preparing; mask_future_start; unlink "$HOME/.config/systemd/user/omavless-runtime.service"; printf replacement > "$HOME/.config/systemd/user/omavless-runtime.service"; clear_created_masks',false,dir=>assert.equal(fs.readFileSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service','utf8'),'replacement'));
 userTest('partial completed mask cleanup resumes',{},'read_progress; save_progress preparing; mask_future_start; unlink "$HOME/.config/systemd/user/omavless-runtime.service"; clear_created_masks; [[ ! -L "$HOME/.config/systemd/user/omavless-login-prepare.service" ]]',true);
-userTest('new witness is retained as the exact second hardlink',{},'read_progress; save_progress preparing; mask_future_start; witness="$folder/mask-'+nextToken+'-omavless-runtime.service"; [[ $(stat -c %h "$witness") == 2 && $(stat -c %d:%i "$witness") == $(stat -c %d:%i "$HOME/.config/systemd/user/omavless-runtime.service") ]]',true);
-const deviceDrift='stat() { if [[ "$2" == "%d:%i" ]]; then printf "999:%s\\n" "$(/usr/bin/stat -c %i "${@: -1}")"; else /usr/bin/stat "$@"; fi; }';
-userTest('new witnessed masks survive changed device id across reboot',{},'read_progress; save_progress preparing; mask_future_start; boot_id='+newer+'; '+deviceDrift+'; mask_future_start; clear_created_masks; [[ ! -L "$HOME/.config/systemd/user/omavless-runtime.service" && ! -L "$folder/mask-'+nextToken+'-omavless-runtime.service" ]]',true);
-userTest('new witness replacement refuses before either unlink',{},'read_progress; save_progress preparing; mask_future_start; witness="$folder/mask-'+nextToken+'-omavless-runtime.service"; unlink "$witness"; ln -s /dev/null "$witness"; clear_created_masks',false,dir=>assert(fs.lstatSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service').isSymbolicLink()));
-userTest('missing new witness never downgrades into legacy cleanup',{},'read_progress; save_progress preparing; mask_future_start; unlink "$folder/mask-'+nextToken+'-omavless-runtime.service"; phase=removing; prepared_boot='+boot+'; boot_id='+newer+'; mask_cleanup_admitted=true; clear_created_masks',false,dir=>assert(fs.lstatSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service').isSymbolicLink()));
-userTest('interruption after destination unlink preserves remaining witness',{},'read_progress; save_progress preparing; mask_future_start; unlink() { if [[ "${@: -1}" == "$folder"/mask-* ]]; then return 7; else /usr/bin/unlink "$@"; fi; }; clear_created_masks',false,dir=>{
+const adjacentWitness='"$HOME/.config/systemd/user/.omavless-uninstall-'+nextToken+'-omavless-runtime.service.link"';
+userTest('new witness is retained as the exact second hardlink',{},'read_progress; save_progress preparing; mask_future_start; witness='+adjacentWitness+'; [[ $(stat -c %h "$witness") == 2 && $(stat -c %d:%i "$witness") == $(stat -c %d:%i "$HOME/.config/systemd/user/omavless-runtime.service") ]]',true);
+const deviceDrift='stat() { if [[ "$2" == "%d:%i" ]]; then printf "%s:%s\\n" "$(( $(/usr/bin/stat -c %d "${@: -1}") + 1 ))" "$(/usr/bin/stat -c %i "${@: -1}")"; else /usr/bin/stat "$@"; fi; }';
+userTest('new witnessed masks survive changed device id across reboot',{},'read_progress; save_progress preparing; mask_future_start; boot_id='+newer+'; '+deviceDrift+'; mask_future_start; clear_created_masks; [[ ! -L "$HOME/.config/systemd/user/omavless-runtime.service" && ! -L '+adjacentWitness+' ]]',true);
+userTest('new witness replacement refuses before either unlink',{},'read_progress; save_progress preparing; mask_future_start; witness='+adjacentWitness+'; unlink "$witness"; ln -s /dev/null "$witness"; clear_created_masks',false,dir=>assert(fs.lstatSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service').isSymbolicLink()));
+userTest('missing new witness never downgrades into legacy cleanup',{},'read_progress; save_progress preparing; mask_future_start; unlink '+adjacentWitness+'; phase=removing; prepared_boot='+boot+'; boot_id='+newer+'; mask_cleanup_admitted=true; clear_created_masks',false,dir=>assert(fs.lstatSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service').isSymbolicLink()));
+userTest('interruption after destination unlink preserves remaining witness',{},'read_progress; save_progress preparing; mask_future_start; unlink() { if [[ "${@: -1}" == *".omavless-uninstall-"* ]]; then return 7; else /usr/bin/unlink "$@"; fi; }; clear_created_masks',false,dir=>{
  assert(!fs.existsSync(dir+'/home/user/.config/systemd/user/omavless-runtime.service'));
- assert.equal(fs.lstatSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/mask-'+nextToken+'-omavless-runtime.service').nlink,1);
+ assert.equal(fs.lstatSync(dir+'/home/user/.config/systemd/user/.omavless-uninstall-'+nextToken+'-omavless-runtime.service.link').nlink,1);
 });
-userTest('unrecorded prepublication private witness never blocks next attempt',{},'ln -s /dev/null "$folder/mask-'+token+'-omavless-runtime.service"; read_progress; save_progress preparing; mask_future_start; [[ -L "$folder/mask-'+token+'-omavless-runtime.service" ]]; clear_created_masks',true);
+userTest('unrecorded prepublication private witness never blocks next attempt',{},'orphan=$(mask_witness_path u'+token+' omavless-runtime.service); ln -s /dev/null "$orphan"; read_progress; save_progress preparing; mask_future_start; [[ -L "$orphan" ]]; clear_created_masks; [[ -L "$orphan" ]]',true);
+userTest('separate cache filesystem does not require a cross-device hardlink',{},'ln() { if [[ "$1" == -P && "$*" == *"$folder"* ]]; then printf EXDEV >&2; return 18; else /usr/bin/ln "$@"; fi; }; read_progress; save_progress preparing; mask_future_start; clear_created_masks',true);
+userTest('old dd cache witness remains supported',{},[
+ 'read_progress; save_progress preparing; temporary="$folder/mask-'+token+'-omavless-runtime.service"; ln -s /dev/null "$temporary"',
+ 'identity=$(stat -c %d:%i "$temporary"); masks=$(jq -cn --arg identity "$identity" --arg witness '+token+' \'[{unit:"omavless-runtime.service",identity:$identity,witness:$witness}]\'); save_progress preparing',
+ 'mask_future_start; clear_created_masks; [[ ! -L "$temporary" ]]'
+].join('\n'),true);
+userTest('mask cleanup sync failure keeps progress after unlink',{},'read_progress; save_progress preparing; mask_future_start; sync() { if [[ "$*" == *".config/systemd/user"* ]]; then return 7; else /usr/bin/sync "$@"; fi; }; clear_created_masks; unlink "$record"',false,dir=>assert(fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/progress.json')));
+userTest('existing-pair retry must earn unit-filesystem durability',{},'read_progress; save_progress preparing; mask_future_start; sync() { if [[ "$*" == *".config/systemd/user"* ]]; then return 7; else /usr/bin/sync "$@"; fi; }; mask_future_start; touch "$folder/FORBIDDEN"',false,dir=>assert(!fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/FORBIDDEN')));
 const legacyMask=[
  'destination="$HOME/.config/systemd/user/omavless-runtime.service"; ln -s /dev/null "$destination"',
- 'identity="999:$(stat -c %i "$destination")"',
+ 'identity="$(( $(stat -c %d "$destination") + 1 )):$(stat -c %i "$destination")"',
  'read_progress; masks=$(jq -cn --arg identity "$identity" \'[{unit:"omavless-runtime.service",identity:$identity}]\'); save_progress preparing'
 ].join('\n');
 for(const [label,admitted,phase,changedBoot,success] of [

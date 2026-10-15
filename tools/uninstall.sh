@@ -125,7 +125,7 @@ read_progress() {
     (.phase == "preparing" or .phase == "prepared" or .phase == "removing") and
     (.masks | type == "array" and length <= 2 and
       all(.[]; (keys == ["identity","unit"] or
-          (keys == ["identity","unit","witness"] and (.witness | test("^[a-f0-9]{32}$")))) and
+          (keys == ["identity","unit","witness"] and (.witness | test("^u?[a-f0-9]{32}$")))) and
         (.unit == "omavless-runtime.service" or .unit == "omavless-login-prepare.service") and
         (.identity | test("^[0-9]+:[0-9]+$"))) and
       ([.[].unit] | unique | length) == length)
@@ -222,6 +222,15 @@ mask_link_matches() {
   [[ -L "$1" && $(readlink -- "$1") == /dev/null &&
      $(stat -c '%u:%i:%h' -- "$1") == "$(id -u):$2:$3" ]]
 }
+mask_witness_path() {
+  # Fixed locations only. New adjacent witnesses work even when .cache is on
+  # a separate filesystem; the old unprefixed token retains dd compatibility.
+  if [[ "$1" == u* ]]; then
+    printf '%s/.omavless-uninstall-%s-%s.link\n' "$HOME/.config/systemd/user" "${1#u}" "$2"
+  else
+    printf '%s/mask-%s%s\n' "$folder" "${1:+$1-}" "$2"
+  fi
+}
 mask_future_start() {
   local unit destination temporary identity expected witness
   for directory in "$HOME/.config/systemd" "$HOME/.config/systemd/user"; do
@@ -235,7 +244,7 @@ mask_future_start() {
     destination="$HOME/.config/systemd/user/$unit"
     expected=$(jq -r --arg unit "$unit" '.[] | select(.unit == $unit) | .identity' <<< "$masks")
     witness=$(jq -r --arg unit "$unit" '.[] | select(.unit == $unit) | .witness // ""' <<< "$masks")
-    temporary="$folder/mask-${witness:+$witness-}$unit"
+    temporary=$(mask_witness_path "$witness" "$unit")
     if [[ -e "$destination" || -L "$destination" ]]; then
       [[ -L "$destination" && $(readlink -- "$destination") == /dev/null ]] \
         || fail "A custom $unit override blocks removal. Move that override out of the user-service folder, then run this command again."
@@ -255,11 +264,12 @@ mask_future_start() {
       [[ -n "$witness" || $(stat -c '%d:%i' -- "$temporary") == "$expected" ]] \
         || fail 'The older saved service mask changed. No new mask was created.'
     else
-      witness=$attempt
-      temporary="$folder/mask-$witness-$unit"
+      witness=u$attempt
+      temporary=$(mask_witness_path "$witness" "$unit")
       [[ ! -e "$temporary" && ! -L "$temporary" ]] || fail 'An unrecognized temporary service mask exists. It was left unchanged.'
       ln -s -- /dev/null "$temporary"
       identity=$(stat -c '%d:%i' -- "$temporary")
+      sync -f -- "${temporary%/*}" || fail 'The saved service mask could not be made durable. Free space before continuing.'
       masks=$(jq -c --arg unit "$unit" --arg identity "$identity" --arg witness "$witness" '. + [{unit:$unit,identity:$identity,witness:$witness}]' <<< "$masks")
       save_progress "$phase"
     fi
@@ -267,7 +277,11 @@ mask_future_start() {
     ln -P -T -- "$temporary" "$destination"
     # Keep a private hardlink witness across reboot. st_dev alone is not a
     # persistent identity (Btrfs may assign another device number next boot).
+    sync -f -- "${destination%/*}" || fail 'Startup changes could not be saved. Free space before continuing; removal progress is kept.'
   done
+  # Existing-pair retries must earn durability too, including a previous
+  # publication whose sync failed with .cache on another filesystem.
+  sync -f -- "$HOME/.config/systemd/user" || fail 'Startup changes could not be saved. Free space before continuing; removal progress is kept.'
   systemctl --user daemon-reload
   for unit in omavless-runtime.service omavless-login-prepare.service; do
     [[ $(systemctl --user show "$unit" --property=LoadState --value) == masked ]] \
@@ -344,7 +358,7 @@ clear_created_masks() {
   local unit destination expected temporary witness links destination_present temporary_present
   while IFS=$'\t' read -r unit expected witness; do
     destination="$HOME/.config/systemd/user/$unit"
-    temporary="$folder/mask-${witness:+$witness-}$unit"
+    temporary=$(mask_witness_path "$witness" "$unit")
     destination_present=false; temporary_present=false; links=0
     if [[ -e "$destination" || -L "$destination" ]]; then destination_present=true; ((links+=1)); fi
     if [[ -e "$temporary" || -L "$temporary" ]]; then temporary_present=true; ((links+=1)); fi
@@ -376,6 +390,9 @@ clear_created_masks() {
       unlink -- "$temporary"
     fi
   done < <(jq -r '.[] | [.unit,.identity,(.witness // "")] | @tsv' <<< "$masks")
+  if [[ -d "$HOME/.config/systemd/user" ]]; then
+    sync -f -- "$HOME/.config/systemd/user" || fail 'Service-mask cleanup could not be saved. Free space, then run the same command to finish.'
+  fi
   systemctl --user daemon-reload
 }
 clear_runtime_enablement() {
