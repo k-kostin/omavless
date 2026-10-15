@@ -7,7 +7,9 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const source = fs.readFileSync(path.join(__dirname, '../tools/clean-reinstall-098.sh'), 'utf8');
 assert.equal(spawnSync('bash', ['-n'], { input: source }).status, 0);
-const functions = source.slice(source.indexOf('fail()'), source.indexOf('[[ $# == 1'));
+const entry = source.indexOf('\n# CLI entry point\n');
+assert(entry > source.indexOf('check_supported_installation()'));
+const functions = source.slice(source.indexOf('fail()'), entry);
 assert(!/\bsudo\b|\brm\b/.test(functions));
 let cases = 0;
 function validate(command, overrides, pass) {
@@ -124,6 +126,11 @@ shutdown('', '', true, ['already stopped']);
 shutdown("printf '123\\n' > \"$STATE\"", 'STOP\n', true, ['CALL:plugin quit synthetic-instance 7', 'OmaVLESS closed']);
 shutdown("printf '123\\n' > \"$STATE\"; plugin_state() { printf 'absent\\n'; }", 'STOP\n', true, ['CALL:plugin watch-removal', 'OmaVLESS closed']);
 shutdown("printf '123\\n' > \"$STATE\"; plugin_state() { printf 'disabled\\n'; }", 'STOP\n', true, ['CALL:plugin watch-removal', 'OmaVLESS closed']);
+const guidedQuit = shutdown("guided=true; lane=live_managed098; printf '123\\n' > \"$STATE\"", '', true, ['CALL:plugin quit synthetic-instance 7', 'OmaVLESS closed']);
+assert(!guidedQuit.stdout.includes('Type STOP'));
+shutdown("guided=true; lane=live_managed098; printf '123\\n' > \"$STATE\"; plugin_state() { printf 'absent\\n'; }", '', true, ['CALL:plugin watch-removal', 'OmaVLESS closed']);
+shutdown("guided=true; lane=live_managed098; printf '123\\n' > \"$STATE\"; plugin_state() { printf 'absent\\n'; }; function /usr/bin/omavless { printf '0\\n' > \"$STATE\"; printf '%s\\n' '{\"schemaVersion\":1,\"runtimeStopped\":false}'; }", '', false, ['did not confirm its own clean shutdown']);
+shutdown('guided=true; lane=live_managed098', '', false, ['changed before shutdown']);
 shutdown("runtime_pid() { printf '123\\n'; }", '\n', false, ['Cancelled']);
 shutdown("runtime_pid() { printf '123\\n'; }; plugin_state() { return 1; }", 'STOP\n', false, ['Cannot check the plugin']);
 shutdown("runtime_pid() { printf '123\\n'; }; hello_fence() { return 1; }", 'STOP\n', false, ['Cannot safely close']);
@@ -159,7 +166,7 @@ parseFunction('plugin_state', '[]', true);
 parseFunction('plugin_state', '[{"id":"kdk.omavless","enabled":false}]', true);
 parseFunction('plugin_state', '[{"id":"kdk.omavless","enabled":true}]', true);
 for (const json of ['{}', '[{"id":"kdk.omavless"}]', '[{"id":"kdk.omavless","enabled":true},{"id":"kdk.omavless","enabled":false}]']) parseFunction('plugin_state', json, false);
-const classification = source.slice(source.indexOf('check_supported_installation()'), source.indexOf('[[ $# == 1'));
+const classification = source.slice(source.indexOf('check_supported_installation()'), entry);
 for (const [app, dns, digest, expected] of [
   ['omavless 0.8.2-1', 'absent', '3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1', true],
   ['omavless 0.9.8-1', 'omavless-dns 0.9.8-1', '7c7b0f0c350b8903353d2fed3c8effb693aaaca0c271279b85efa51dfebb8881', true],

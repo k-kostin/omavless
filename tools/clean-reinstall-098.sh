@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Explicit clean reset for never-connected public 0.8.2 / 0.9.8 installations.
+# Guided removal of supported public 0.8.2 / 0.9.8 installations.
 # Manual terminal administration, NOT a runtime API or all-state uninstaller.
 set -euo pipefail
 umask 077
@@ -30,6 +30,22 @@ check_private_targets() {
   done
 }
 confirm_reset() {
+  if [[ ${guided:-false} == true ]]; then
+    printf '%s\n' '' 'Remove OmaVLESS' '' \
+      'This removes OmaVLESS and its saved profiles and settings. No backup is made.' \
+      'Other VPN clients and a separately installed Mihomo stay installed.'
+    if [[ "$lane" == never_connected ]]; then
+      printf '%s\n' '' 'Use this path only if OmaVLESS has never connected on this installation.' \
+        'If you have used it before, press Enter and ask for help instead.'
+    elif [[ ${1:-prepare} == prepare ]]; then
+      printf '%s\n' 'Its current VPN connection will be disconnected and the application closed.'
+    fi
+    printf '%s\n' '' 'Type REMOVE to continue, or press Enter to cancel:'
+    local answer
+    IFS= read -r answer || return 1
+    [[ "$answer" == REMOVE ]]
+    return
+  fi
   printf '%s\n' 'Remove OmaVLESS and start again' '' \
     'Use this reset only if this installation has never connected a VPN.' \
     'This removes the OmaVLESS plugin, application, bundled VPN core and DNS helper.' \
@@ -39,6 +55,89 @@ confirm_reset() {
   local answer
   IFS= read -r answer || return 1
   [[ "$answer" == REMOVE ]]
+}
+guided_operation() {
+  case "$stage" in
+    none) printf '%s\n' prepare ;;
+    prepared)
+      if [[ "$prepared_boot" == "$boot_id" ]]; then printf '%s\n' restart; else printf '%s\n' remove; fi ;;
+    *) fail 'A previous removal stopped before completion. Send its error to support; do not repeat it.' ;;
+  esac
+}
+guided_storage() {
+  stage_directory="$HOME/.cache/omavless-maintenance/reinstall-098"
+  for directory in "$HOME/.cache/omavless-maintenance" "$stage_directory"; do
+    if [[ ! -e "$directory" && ! -L "$directory" ]]; then mkdir -- "$directory" || fail 'Cannot create the removal folder.'; fi
+    [[ -d "$directory" && ! -L "$directory" ]] || fail 'The removal folder is unusual. Ask for help.'
+    read -r owner mode < <(stat -c '%u %a' -- "$directory")
+    [[ "$owner" == "$(id -u)" && "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0022) == 0 )) \
+      || fail 'The removal folder is writable by another account. Ask for help.'
+  done
+  stage_file="$stage_directory/session.json"
+  helper_path=$(realpath -e -- "${BASH_SOURCE[0]}") || fail 'Cannot identify the removal helper.'
+  helper_hash=$(sha256sum -- "$helper_path") || fail 'Cannot check the removal helper.'
+  helper_hash=${helper_hash%% *}
+  boot_id=$(</proc/sys/kernel/random/boot_id)
+  [[ "$boot_id" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]] || fail 'Cannot check this computer restart.'
+}
+read_stage() {
+  stage=none
+  if [[ ! -e "$stage_file" && ! -L "$stage_file" ]]; then return; fi
+  [[ -f "$stage_file" && ! -L "$stage_file" && $(stat -c '%u:%a:%h' -- "$stage_file") == "$(id -u):600:1" &&
+     $(stat -c '%s' -- "$stage_file") -le 512 ]] || fail 'A previous removal record needs inspection. Do not repeat removal.'
+  stage_bytes=$(<"$stage_file")
+  [[ $(printf '%s' "$stage_bytes" | jq -c .) == "$stage_bytes" ]] \
+    || fail 'A previous removal record is damaged. Ask for help; do not repeat removal.'
+  printf '%s' "$stage_bytes" | jq -e --argjson uid "$(id -u)" --arg helper "$helper_hash" '
+    keys == ["boot", "helper", "lane", "phase", "schema", "uid"] and .schema == 1 and .uid == $uid and
+    .helper == $helper and (.lane == "never_connected" or .lane == "live_managed098") and
+    (.phase == "preparing" or .phase == "prepared" or .phase == "removing") and
+    (.boot | type == "string" and test("^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"))
+  ' >/dev/null || fail 'A previous removal record does not match this helper. Ask for help; do not repeat removal.'
+  stage=$(printf '%s' "$stage_bytes" | jq -r .phase)
+  prepared_boot=$(printf '%s' "$stage_bytes" | jq -r .boot)
+  lane=$(printf '%s' "$stage_bytes" | jq -r .lane)
+}
+write_stage() {
+  local next=$1 temporary
+  case "$stage:$next" in
+    none:preparing|preparing:prepared|prepared:removing) ;;
+    *) fail 'The removal phase is not valid. Stop here and ask for help.' ;;
+  esac
+  # This same-account record selects a screen only. It never bypasses the fresh
+  # package, service, enrollment, root guard or original shutdown checks.
+  if [[ "$stage" == none ]]; then
+    [[ "$next" == preparing && ! -e "$stage_file" && ! -L "$stage_file" ]] \
+      || fail 'The removal record changed. Stop here and ask for help.'
+  else
+    [[ -f "$stage_file" && ! -L "$stage_file" && $(stat -c '%u:%a:%h' -- "$stage_file") == "$(id -u):600:1" &&
+       $(<"$stage_file") == "$stage_bytes" ]] || fail 'The removal record changed. Stop here and ask for help.'
+  fi
+  temporary=$(mktemp "$stage_directory/.session.XXXXXXXX") || fail 'Cannot save removal progress. Stop here and ask for help.'
+  jq -cn --argjson uid "$(id -u)" --arg helper "$helper_hash" --arg boot "$boot_id" --arg lane "$lane" --arg phase "$next" \
+    '{schema:1,uid:$uid,helper:$helper,boot:$boot,lane:$lane,phase:$phase}' > "$temporary" \
+    || fail 'Cannot save removal progress. Stop here and ask for help.'
+  if [[ "$stage" == none ]]; then
+    ln -- "$temporary" "$stage_file" || fail 'Cannot save removal progress. Stop here and ask for help.'
+    unlink -- "$temporary"
+  else
+    mv -T -- "$temporary" "$stage_file" || fail 'Cannot save removal progress. Stop here and ask for help.'
+  fi
+  sync -f -- "$stage_directory" || fail 'Cannot safely save removal progress. Stop here and ask for help.'
+  read_stage
+}
+offer_restart() {
+  printf '%s\n' '' 'Preparation is complete. One restart is needed before deleting the old components.' \
+    'Save your other work. After logging back in, run this same command:' \
+    "bash \"$helper_path\"" '' \
+    'Type REBOOT to restart now, or press Enter to restart later:'
+  local answer
+  IFS= read -r answer || answer=
+  if [[ "$answer" == REBOOT ]]; then
+    systemctl reboot || fail 'The restart was not confirmed. Use the desktop restart menu, then run the command above.'
+  else
+    printf '%s\n' 'Nothing else will run now. Restart from your desktop when ready, then use the same command.'
+  fi
 }
 runtime_pid() {
   local pid
@@ -82,40 +181,73 @@ hello_fence() {
       and (.revision | type == "number" and floor == . and . >= 0 and . <= 9007199254740991))
     | [.result.instanceId, (.revision | tostring)] | @tsv'
 }
+native_shutdown() {
+  if [[ ${guided:-false} != true || ! -t 2 ]]; then /usr/bin/omavless "$@"; return; fi
+  local output child result frame=0
+  output=$(mktemp "$stage_directory/.shutdown.XXXXXXXX") || return 1
+  /usr/bin/omavless "$@" </dev/null > "$output" &
+  child=$!
+  # Observe this shell's original job, not a reusable process ID. No timeout,
+  # signal, retry or success follows from the animation.
+  while jobs -pr | grep -qx -- "$child"; do
+    printf '\r[%s] Closing OmaVLESS...' "${spinner:frame++%4:1}" >&2
+    sleep 0.15
+  done
+  if wait "$child"; then result=0; else result=$?; fi
+  printf '\r                                      \r' >&2
+  if [[ $(stat -c '%s' -- "$output") -le 65536 ]]; then
+    head -c 65536 -- "$output"
+  else
+    result=1
+  fi
+  unlink -- "$output"
+  return "$result"
+}
 shutdown_running_app() {
   local pid answer state fence instance revision outcome deadline
   pid=$(runtime_pid) || fail 'Cannot check whether OmaVLESS is running. Nothing was removed.'
   if [[ "$pid" == 0 ]]; then
+    [[ ${lane:-never_connected} != live_managed098 ]] \
+      || fail 'The running application changed before shutdown. Stop here and ask for help.'
     printf '%s\n' 'OmaVLESS is already stopped.'
     return
   fi
-  printf '%s\n' 'OmaVLESS is running. To remove it, first close the application.' \
+  if [[ ${guided:-false} == true ]]; then
+    printf '%s\n' '[1/3] Closing OmaVLESS...'
+  else
+    printf '%s\n' 'OmaVLESS is running. To remove it, first close the application.' \
     'This will disconnect its VPN if connected. Other VPN clients are not stopped.' \
     'Type STOP to close OmaVLESS, or press Enter to cancel:'
   IFS= read -r answer || fail 'Cancelled. Nothing was removed.'
   [[ "$answer" == STOP ]] || fail 'Cancelled. Nothing was removed.'
+  fi
   state=$(plugin_state) || fail 'Cannot check the plugin. Nothing was removed.'
   case "$state" in
     enabled)
       fence=$(hello_fence) || fail 'Cannot safely close OmaVLESS. Nothing was removed; send this message to support.'
       IFS=$'\t' read -r instance revision <<< "$fence"
       release_lock=false
-      outcome=$(/usr/bin/omavless plugin quit "$instance" "$revision" "clean-reinstall-$$") \
+      outcome=$(native_shutdown plugin quit "$instance" "$revision" "clean-reinstall-$$") \
         || fail 'OmaVLESS did not confirm shutdown. Stop here; do not repeat or force-close it.'
       printf '%s' "$outcome" | jq -e '.schemaVersion == 1 and .shutdown == true and .pluginDisabled == true' >/dev/null \
         || fail 'Shutdown could not be confirmed. Stop here and send this message to support.'
+      earned_live_shutdown=true
       ;;
     disabled|absent)
       # Existing fixed consumer captures/authenticates its own original fence.
       # Never use this as a fallback after an uncertain Quit result.
       release_lock=false
-      outcome=$(/usr/bin/omavless plugin watch-removal) \
+      outcome=$(native_shutdown plugin watch-removal) \
         || fail 'OmaVLESS did not confirm shutdown. Stop here; do not repeat or force-close it.'
       printf '%s' "$outcome" | jq -e '.schemaVersion == 1 and (.runtimeStopped | type) == "boolean"' >/dev/null \
         || fail 'Shutdown could not be confirmed. Stop here and send this message to support.'
+      if printf '%s' "$outcome" | jq -e '.runtimeStopped == true' >/dev/null; then earned_live_shutdown=true; fi
       ;;
     *) fail 'Cannot safely close OmaVLESS. Nothing was removed.' ;;
   esac
+  if [[ ${lane:-never_connected} == live_managed098 && ${earned_live_shutdown:-false} != true ]]; then
+    fail 'The application did not confirm its own clean shutdown. Nothing else will be removed; ask for help.'
+  fi
   # A watcher may coalesce with the original QML unload consumer. Its successful
   # no-op is not proof of shutdown: wait only for independent fixed unit facts.
   deadline=$((SECONDS + 65))
@@ -137,6 +269,8 @@ check_supported_installation() {
     'omavless 0.8.2-1:absent'|'omavless 0.9.8-1:omavless-dns 0.9.8-1'|'omavless 0.9.8-1:absent'|'absent:omavless-dns 0.9.8-1'|'absent:absent') ;;
     *) fail 'This installation is not a supported public release. Nothing was removed; ask for help.' ;;
   esac
+  installed_public_app=$app
+  installed_public_dns=$dns
   if [[ "$app" != absent ]]; then
     [[ -f /usr/bin/omavless && ! -L /usr/bin/omavless && $(stat -c '%u:%a' /usr/bin/omavless) == 0:755 ]] \
       || fail 'The application file is missing or unusual. Nothing was removed; ask for help.'
@@ -153,7 +287,11 @@ check_supported_installation() {
   fi
   printf '%s\n' "Application: $app" "DNS helper and bundled core: $dns"
 }
-[[ $# == 1 && ( $1 == prepare || $1 == remove ) ]] || fail 'Use: bash clean-reinstall-098.sh prepare|remove'
+# CLI entry point
+guided=false
+spinner='|/-\'
+[[ $# == 0 || ( $# == 1 && ( $1 == prepare || $1 == remove ) ) ]] || fail 'Run this helper without arguments to remove OmaVLESS.'
+[[ $# != 0 ]] || guided=true
 [[ $EUID != 0 ]] || fail 'Run as your desktop user, not as root.'
 check_account
 [[ ${XDG_CONFIG_HOME:-$HOME/.config} == "$HOME/.config" &&
@@ -168,6 +306,13 @@ done
 runtime="/run/user/$(id -u)"
 [[ -d "$runtime" && ! -L "$runtime" && $(stat -c '%u:%a' "$runtime") == "$(id -u):700" ]] \
   || fail 'Cannot verify the desktop session. Nothing was removed.'
+if [[ "$guided" == true ]]; then
+  guided_storage
+  read_stage
+  operation=$(guided_operation) || exit 1
+  if [[ "$operation" == restart ]]; then offer_restart; exit 0; fi
+  set -- "$operation"
+fi
 setup_lock="$runtime/omavless-first-run.lock"
 mkdir -- "$setup_lock" 2>/dev/null \
   || fail 'A setup or removal operation may still be open. Finish it first; nothing was removed.'
@@ -258,8 +403,19 @@ ROOT_CHECKS
 if [[ $1 == prepare ]]; then
   check_private_targets
   check_supported_installation
-  confirm_reset || fail 'Cancelled. Nothing was removed.'
+  if [[ "$guided" == true ]]; then
+    lane=never_connected
+    initial_pid=$(runtime_pid) || fail 'Cannot check the running application. Nothing was removed.'
+    if [[ "$installed_public_app" == 'omavless 0.9.8-1' && "$installed_public_dns" == 'omavless-dns 0.9.8-1' && "$initial_pid" != 0 ]]; then
+      lane=live_managed098
+    fi
+  fi
+  confirm_reset prepare || fail 'Cancelled. Nothing was removed.'
+  if [[ "$guided" == true ]]; then write_stage preparing; fi
   shutdown_running_app
+  if [[ ${lane:-never_connected} == live_managed098 && ${earned_live_shutdown:-false} != true ]]; then
+    fail 'The running application changed before shutdown. Stop here and ask for help.'
+  fi
   plugin="$HOME/.config/omarchy/plugins/kdk.omavless"
   if [[ -e "$plugin" || -L "$plugin" ]]; then
     [[ -d "$plugin" && ! -L "$plugin" ]] || fail 'Unusual plugin installation; ask for help.'
@@ -344,21 +500,31 @@ printf '%s\n' 'CLEAN_STOP_CONFIRMED: save your work, then reboot once.'
 ROOT_PREPARE
   root_prepare="$root_checks"$'\n'"$root_prepare"
   release_lock=false
+  if [[ "$guided" == true ]]; then printf '%s\n' '[2/3] Preparing the DNS helper for removal...'; fi
   sudo /usr/bin/bash -c "$root_prepare" || fail 'DNS preparation did not finish. Do not reboot or repeat; send the error to the maintainer.'
+  if [[ "$guided" == true ]]; then write_stage prepared; fi
   release_lock=true
+  if [[ "$guided" == true ]]; then
+    cleanup_lock
+    trap - EXIT
+    offer_restart
+    exit 0
+  fi
   printf '%s\n' 'Preparation finished.' \
     'Save your other work, then restart your computer once: systemctl reboot' \
     'After logging back in, finish removal with:' \
     "bash \"$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh\" remove"
 else
-  printf '%s\n' 'Remove the old OmaVLESS packages and delete ONLY its profiles and settings. No backup is created.'
+  if [[ "$guided" != true ]]; then
+    printf '%s\n' 'Remove the old OmaVLESS packages and delete ONLY its profiles and settings. No backup is created.'
+  fi
   check_private_targets
   check_supported_installation
   plugin="$HOME/.config/omarchy/plugins/kdk.omavless"
   [[ ! -e "$plugin" && ! -L "$plugin" ]] || fail 'First run the prepare command to remove the plugin, then restart once.'
   runtime_disabled \
     || fail 'OmaVLESS startup is still enabled. First run the prepare command.'
-  confirm_reset || fail 'Cancelled. Nothing was removed.'
+  confirm_reset remove || fail 'Cancelled. Nothing was removed.'
   [[ "$(systemctl --user show omavless-runtime.service --property=MainPID --value)" == 0 ]] || fail 'OmaVLESS is still running.'
   runtime="/run/user/$(id -u)"
   [[ ! -e "$runtime/omavless" && ! -L "$runtime/omavless" &&
@@ -380,6 +546,7 @@ remove_empty_enrollment_directory
 ROOT_REMOVE
   root_remove="$root_checks"$'\n'"$root_remove"
   release_lock=false
+  if [[ "$guided" == true ]]; then write_stage removing; printf '%s\n' '[3/3] Removing OmaVLESS components and settings...'; fi
   sudo /usr/bin/bash -c "$root_remove" || fail 'DNS removal did not finish. Stop here and send the error; do not retry or delete files.'
   packages=()
   if pacman -Q omavless >/dev/null 2>&1; then packages+=(omavless); fi
@@ -398,6 +565,16 @@ ROOT_REMOVE
     [[ ! -e "$directory" ]] || rm -r --one-file-system -- "$directory" \
       || fail 'Settings removal did not finish. Stop here and ask for help.'
   done
+  if [[ "$guided" == true ]]; then
+    [[ -f "$stage_file" && ! -L "$stage_file" && $(stat -c '%u:%a:%h' -- "$stage_file") == "$(id -u):600:1" &&
+       $(<"$stage_file") == "$stage_bytes" ]] || fail 'Components were removed, but the progress record changed. Ask for help.'
+    unlink -- "$stage_file" || fail 'Components were removed, but the progress record could not be cleared. Ask for help.'
+    sync -f -- "$stage_directory" || fail 'Components were removed, but progress cleanup was not confirmed. Ask for help.'
+  fi
   release_lock=true
   printf '%s\n' 'Old OmaVLESS components and settings removed. You can now install the fixed version.'
+  if [[ "$guided" == true ]]; then
+    printf '%s\n' '' 'To install OmaVLESS again:' \
+      'omarchy plugin add https://github.com/k-kostin/omavless.git --enable'
+  fi
 fi
