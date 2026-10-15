@@ -217,12 +217,25 @@ check_dns_programs() {
 }
 dns_absent() {
   if pacman -Q omavless-dns >/dev/null 2>&1; then return 1; fi
-  for path in /usr/lib/omavless-dns /etc/omavless-dns /run/omavless-dns /usr/lib/systemd/system/omavless-dns-broker.service; do
+  for path in /usr/lib/omavless-dns /run/omavless-dns /usr/lib/systemd/system/omavless-dns-broker.service; do
     [[ ! -e "$path" && ! -L "$path" ]] || refuse
   done
   [[ $(systemctl show omavless-dns-broker.service --property=LoadState --value) == not-found &&
      $(systemctl show omavless-dns-broker.service --property=MainPID --value) == 0 ]] || refuse
+  empty_enrollment_directory
   empty_host
+}
+empty_enrollment_directory() {
+  if [[ -e /etc/omavless-dns || -L /etc/omavless-dns ]]; then
+    [[ -d /etc/omavless-dns && ! -L /etc/omavless-dns && $(stat -c '%u:%a' /etc/omavless-dns) == 0:700 ]] || refuse
+    shopt -s nullglob dotglob
+    entries=(/etc/omavless-dns/*)
+    [[ ${#entries[@]} == 0 ]] || refuse
+  fi
+}
+remove_empty_enrollment_directory() {
+  empty_enrollment_directory
+  if [[ -d /etc/omavless-dns ]]; then rmdir -- /etc/omavless-dns || refuse; fi
 }
 check_enrollment() {
   [[ "${SUDO_UID:-}" =~ ^[1-9][0-9]*$ ]] || refuse
@@ -353,7 +366,7 @@ else
     || fail 'Old session files remain. Follow the prepare/reboot steps; do not delete them manually.'
   # Check the intended account again before the existing fixed revocation.
   read -r -d '' root_remove <<'ROOT_REMOVE' || true
-if dns_absent; then exit 0; fi
+if dns_absent; then remove_empty_enrollment_directory; exit 0; fi
 check_dns_programs
 /usr/lib/omavless-dns/package-guard
 empty_host
@@ -363,6 +376,7 @@ if [[ "$enrolled" == true ]]; then
 else
   printf '%s\n' 'DNS helper was not configured for an account; no access needs removal.'
 fi
+remove_empty_enrollment_directory
 ROOT_REMOVE
   root_remove="$root_checks"$'\n'"$root_remove"
   release_lock=false

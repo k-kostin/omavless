@@ -35,6 +35,12 @@ function test(label, options, body, expected, forbidden = []) {
   } else if (options.residual) {
     write(options.residual, 'synthetic');
   }
+  if (options.emptyDirectory) fs.mkdirSync(directory + '/etc/omavless-dns', {recursive:true});
+  if (options.directorySymlink) {
+    fs.mkdirSync(directory + '/etc', {recursive:true});
+    fs.mkdirSync(directory + '/synthetic-target');
+    fs.symlinkSync(directory + '/synthetic-target', directory + '/etc/omavless-dns');
+  }
   // Rewrite data paths only; production shell decisions remain unchanged.
   const rewrite = text => text.replace(/\/(usr|etc|run|proc|sys)(?=\/|\b)/g, (_, component) => directory + '/' + component);
   const prelude = `
@@ -58,7 +64,7 @@ systemctl() {
 stat() {
   case "$2" in
     '%u %a') printf '0 755\\n' ;;
-    '%u:%a') printf '0:700\\n' ;;
+    '%u:%a') printf '%s\\n' '${options.badDirectoryMetadata ? '1234:755' : '0:700'}' ;;
     '%u:%a:%h') if [[ "$3" == *release-enrollment.json ]]; then printf '0:600:1\\n'; else printf '0:755:1\\n'; fi ;;
     '%s') /usr/bin/stat "$@" ;;
     *) printf 'UNEXPECTED STAT\\n' >&2; return 2 ;;
@@ -73,7 +79,8 @@ sha256sum() {
   esac
 }
 function ${directory}/usr/lib/omavless-dns/package-guard { printf 'GUARD\\n'; ${options.guardFailure ? 'return 1' : 'return 0'}; }
-function ${directory}/usr/lib/omavless-dns/omavless-dns-broker { [[ "$*" == --revoke ]] || exit 9; printf 'REVOKE\\n'; }
+function ${directory}/usr/lib/omavless-dns/omavless-dns-broker { [[ "$*" == --revoke ]] || exit 9; printf 'REVOKE\\n'; /usr/bin/unlink "$ROOT/etc/omavless-dns/release-enrollment.json"; }
+rmdir() { ${options.rmdirFailure ? 'return 1' : '/usr/bin/rmdir "$@"'}; }
 `;
   let result;
   try {
@@ -111,4 +118,17 @@ assert(test('own enrollment revocation', {}, remove, true).includes('REVOKE'));
 test('foreign enrollment refuses removal', {foreign:true}, remove, false, ['REVOKE']);
 test('absent DNS preparation', {noDns:true}, prepare, true, ['REVOKE', 'GUARD']);
 test('absent DNS removal', {noDns:true}, remove, true, ['REVOKE', 'GUARD']);
+const directoryGone = '\n[[ ! -e /etc/omavless-dns && ! -L /etc/omavless-dns ]]';
+test('absent DNS with empty root directory', {noDns:true, emptyDirectory:true}, 'dns_absent', true);
+test('absent DNS removes empty root directory', {noDns:true, emptyDirectory:true}, '(\n' + remove + '\n)' + directoryGone, true);
+test('enrolled DNS removes empty root directory after revocation', {}, remove + directoryGone, true);
+test('pre-enrollment removes empty root directory', {enrollment:'absent', emptyDirectory:true}, remove + directoryGone, true, ['REVOKE']);
+for (const residual of ['/etc/omavless-dns/.hidden', '/etc/omavless-dns/.enrollment.pending']) {
+  test('absent DNS refuses hidden residual ' + residual, {noDns:true, residual}, remove, false, ['REVOKE']);
+}
+test('absent DNS refuses directory symlink', {noDns:true, directorySymlink:true}, remove, false);
+test('absent DNS refuses unsafe directory metadata', {noDns:true, emptyDirectory:true, badDirectoryMetadata:true}, remove, false);
+test('present DNS refuses unsafe directory metadata', {badDirectoryMetadata:true}, remove, false, ['REVOKE']);
+test('absent DNS rmdir failure stops removal', {noDns:true, emptyDirectory:true, rmdirFailure:true}, remove, false);
+test('enrolled DNS rmdir failure stops removal', {rmdirFailure:true}, remove, false);
 console.log(`Clean-reinstall root branches: ${count} isolated cases PASS; no privileged/host effects.`);
