@@ -97,6 +97,49 @@ The historical marketplace snapshot is unchanged.
 
 ## Offline artifact assembly
 
+### Stable user-tree preparation
+
+`export-distribution.py` prepares the proposed user-facing tree without changing
+any branch, installation or release. Its complete source and reviewed templates
+must already be committed at the selected full SHA. The output must be a new,
+empty, owned directory outside the checkout and live Omarchy configuration,
+with root/own, non-writable-by-others ancestors. Shared writable `/tmp` is not
+an accepted output parent; use the project's HOME-backed storage policy.
+
+```sh
+python3 packaging/release/export-distribution.py export /absolute/empty/output FULL_SOURCE_SHA
+python3 packaging/release/export-distribution.py verify /absolute/output
+python3 packaging/release/export-distribution.py verify /absolute/output --source-ci
+```
+
+Offline verification proves committed-file selection, native-input equivalence,
+the paired architecture/hash metadata, helper pin, link closure and exact tree
+bytes/modes. It is not a package download/installation or ARM acceptance.
+`--source-ci` additionally requires GitHub's completed successful full-source
+push workflow for the exact head, including both isolated and Rust steps. PR
+runs are not accepted as proof of the actual workflow-definition identity. The reviewed
+workflow blob and explicit head checkout are enforced; a display name or a
+caller-written success receipt is insufficient. API failures refuse.
+
+The generated stable workflow fetches that immutable full source, then a fixed
+bootstrap verifies every executable/imported validator member against the
+reviewed distribution trust table BEFORE running it in isolated Python mode.
+It does not execute a validator authorized only by its own candidate record,
+nor run Cargo in the stripped user tree. Source history is fetched to
+retain the existing native-producer ancestry check; a shallow single commit is
+not enough. Source workflow changes require an explicit update/review of the
+validator's workflow-blob policy; validator changes require an explicitly
+reviewed trust-table update. The selected integration branch also receives a
+push Test run for this gate. Cancel its redundant same-head PR run only after
+the full push run is identified; cancelled is not PASS. Batch source pushes.
+Draft metadata remains unpublished even after
+technical verification; this tool never grants main/publication authorization.
+
+The existing native projection is unchanged. Even a `cfg(test)` edit inside a
+Rust blob refuses reuse of old package inputs. Do not weaken that boundary to
+combine a newer test-only source with older artifacts. A newly selected native
+producer/artifact pair must go through its ordinary build and acceptance path.
+
 ### Native architecture builds without a personal Omarchy host
 
 The `Native packages` workflow builds its exact checked-out Git HEAD

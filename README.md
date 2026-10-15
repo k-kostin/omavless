@@ -143,4 +143,4 @@ The interface builds on [Omarchy VPN](https://github.com/jkoestinger/omarchy-vpn
 by Justin Köstinger. Routing data comes from RoscomVPN, MetaCubeX and
 Chocolate4U. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
-[MIT License](LICENSE) · [Contributing](docs/README.md#developing-and-reviewing)
+[MIT License](LICENSE) · [Contributing](CONTRIBUTING.md)

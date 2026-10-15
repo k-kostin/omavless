@@ -16,6 +16,8 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertIn("run: ./tests/run.sh", source)
         self.assertIn("./tests/run-rust.sh", source)
         self.assertNotIn("paths-ignore:", source)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", source)
+        self.assertIn("persist-credentials: false", source)
 
     def test_exact_proof_drain_is_isolated_not_disabled(self):
         source = (ROOT / "tests/run-rust.sh").read_text()
