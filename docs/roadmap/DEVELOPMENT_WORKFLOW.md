@@ -222,6 +222,13 @@ workflow: open the Draft PR at the first meaningful checkpoint to obtain cloud
 evidence. Until then, run the same `./tests/run.sh` and `./tests/run-rust.sh`
 gates locally. Every later PR synchronization runs both gates again.
 
+PR concurrency cancels superseded runs of the same PR, retaining the full
+latest-head gates. Main and tag checks remain independent. Before a manual
+rerun/cancellation, inspect exact heads and status; never cancel another active
+scope or describe a cancelled run as successful. Batch report-only updates
+while a heavy run is active instead of repeatedly replacing it with identical
+build work. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
+
 No path filters or Draft skips are used, so documentation and workflow changes
 retain the same checks. Keep the existing `test` job name and read-only token
 permissions; do not replace `pull_request` with privileged

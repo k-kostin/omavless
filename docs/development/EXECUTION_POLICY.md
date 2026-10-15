@@ -158,6 +158,15 @@ changed boundary. Focused gates run during iteration; full combined and
 installed gates run on meaningful integration checkpoints and the final exact
 candidate. An unchanged gate need not be rerun for unrelated prose.
 
+Before starting or retrying expensive CI, inspect this PR's existing runs and
+their exact heads. Keep the latest full check; cancel only confirmed superseded
+PR runs, not another agent's work or independent main/tag checks. Cancelled is
+not PASS. Batch report-only pushes at meaningful checkpoints rather than
+restarting a heavy unchanged matrix for each receipt edit. Transfer an immutable
+review candidate without a new push when practical. Never remove tests or
+borrow an old head's green status to compensate for queue time; the final
+remote candidate still needs its own required checks.
+
 ## 5. Development VM and cleanup
 
 One explicitly designated operator owns the only development VM at a time.
