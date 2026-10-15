@@ -47,14 +47,16 @@ or changed records refuse. No automatic login execution/reconnect is added.
 The ASCII spinner observes the original child job and cannot replace its exit
 status. Legacy explicit phase commands retain their never-connected restriction.
 
-The ordinary entry downloads the exact helper into a newly created
+The original two-phase entry downloads its exact helper into a newly created
 `.cache/omavless-maintenance/reinstall-098` subdirectory and verifies its hash.
 It does not depend on a development checkout or an existing download directory.
-After REMOVE consent it detects the running application, asks STOP separately
+After REMOVE consent that original phase CLI detects a running app and asks STOP separately
 and uses existing authenticated/fenced native shutdown. Enabled widgets use
 the original hello fence plus full Quit; removed/disabled widgets use the fixed
 removal consumer. A watcher no-op never earns shutdown by itself. Uncertain
 outcomes stop once and retain the original setup exclusion.
+The new guided entry uses REMOVE to confirm closing the application as well;
+it does not ask STOP. Its reboot/continuation stays inside the one entry flow.
 
 Both phases hold the existing exclusive setup directory. The root operations
 check trusted helper/unit bytes, the intended enrollment, no owned TUN/native
@@ -82,8 +84,13 @@ VPNs/accounts, unrelated dependencies and firewall rules are not reset.
 - Anonymous HTTPS helper bytes match the pinned SHA-256: PASS.
 - README addition and support-draft command blocks must match the final branch
   documentation; the reply remains local and unsent.
-- Local combined `tests/run.sh`: 776 Python tests PASS, two existing skips,
+- Local combined `tests/run.sh` at guided checkpoint `44cc208f`: 776 Python tests PASS, two existing skips,
   all JS/QML suites PASS. This is not a Rust rebuild or installed removal.
+- Final combined source run used checkout `fe355a4ade1087757c914ea82862bea47a378469`
+  (helper `73c41cf4`, tests 61/39/32), plus the reviewed README/guide/evidence
+  wording delta: the same 776 Python tests/two skips and all JS/QML suites PASS.
+  Final committed-head and hosted Rust status are recorded in #790, not inferred
+  from this source-only run.
 - Hosted first implementation checkpoint `0baf317f` failed the expected old
   guide/hash consistency check; retain FAILURE. Documentation was corrected in
   `570ffe2e`; later hosted CI is independently recorded in #790.
@@ -94,7 +101,8 @@ VPNs/accounts, unrelated dependencies and firewall rules are not reset.
 
 ## Installed acceptance matrix
 
-Sole operator: VM master. Only the dedicated PC x86_64 development guest is in
+One VM operator at a time: initially VM master, then the explicitly delegated
+acceptance operator. Only the dedicated PC x86_64 development guest is in
 scope; no physical-PC or Mac/ARM mutation is authorized by this VM handoff.
 Preserve development/private material before fixture administration. Initial
 fixture construction is separate from the actual user helper journey; no
@@ -113,15 +121,48 @@ manual repair or pre-shutdown may replace a missing edge inside that journey.
 | Guided 7c658471; 0.8.2 cancel REMOVE | PASS in actual guest terminal: exit 1, no progress record/setup lock, packages/data unchanged. |
 | Guided 7c658471; 0.8.2 restart-later/same-boot resume | PASS: prepare exit 0; same invocation cancelled reboot; same-command resume showed only restart with unchanged record identity/bytes. Actual graphical REBOOT worked without administrator substitution. |
 | Guided 7c658471; 0.8.2 same-command removal after reboot | PASS: original exit 0, progress record cleared, packages/private state/runtime absent; stock core and unrelated packages/network unchanged. |
-| Zero-argument guided successor; live connected 0.9.8 and same-command reboot continuation | Pending; no earlier never-connected result earns this new lane. |
-| Final 73c41cf4; actual root metadata admission and guided removal | Pending affected gate; unit metadata fixtures do not substitute for installed acceptance. |
-| Reinstall through ordinary main add after reset | Pending; no tag/candidate substitution or fixture repair inside the user journey. |
-| Connected-ever, lost ownership or experimental Restore build | Excluded; not an accepted generic uninstall. |
+| Guided 7c658471; original public 0.9.8 actually connected | PASS: real owned core/TUN and broker FD store 1, DNS differs from pre-Connect baseline. Full Quit inside the helper removed runtime/core/TUN and released FD store to 0; exact DNS comparison matched the original baseline before root stop or reboot. Actual spinner frames inspected; no VPN Internet-health claim. |
+| Guided 7c658471; same connected fixture through reboot/remove | PASS: original prepare/remove exits 0, real GUI REBOOT; DNS remained at baseline, intended app/DNS/private/runtime/receipt/lock/session state absent and unrelated packages unchanged. |
+| Final 73c41cf4; actual root metadata admission and guided removal | PASS on a separate current fix.7 running/disconnected fixture: literal checked bootstrap, actual Full Quit and root metadata admission, original prepare/remove exits 0, genuine GUI REBOOT, same-command removal and independent absence of intended packages/private roots/enrollment/units/session. DNS, stock core and unrelated packages unchanged. |
+| Reinstall through ordinary main add after reset | Installation/setup PASS: ordinary add exit 0, exact main ed0346c5, actual INSTALL/pacman/DNS, terminal completion and closure acknowledgment, Core ready, onboarding completed without a profile. No preseed, tag/candidate substitution, shell reload or fixture repair inside the journey. Actual GUI setup exit was not separately captured; visible completion and postconditions are the evidence. Import is not accepted: no supported guest file picker; empty/unreadable clipboard produced an explicit refusal. |
+| Connected-ever 0.8.2, already stopped used installation, lost ownership or experimental Restore build | Excluded; not an accepted generic uninstall. |
 
 Installed ARM64 acceptance of this changed remover is not claimed. The owner's
 Mac first-use result and shell-reload result concern main/fix.7, not this helper.
+The final installed native producer was `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`;
+the installed app/broker payloads matched the public fix.7 pair. Final independent
+state was disconnected, startup Off, zero profiles/subscriptions, onboarding
+complete, broker FD store 0 and no owned TUN. The original guest idle preference
+was restored and exclusive VM custody released. Private original receipts and
+actual screenshots remain outside Git; no private logs or profiles are attached.
 
 ## Practical retrospective
+
+### Guided terminal decisions
+
+Goal: remove the selected supported old installation, not the OS or another VPN.
+REMOVE confirms permanent own-data deletion and the required graceful shutdown;
+REBOOT is a separate computer restart with a save-work warning. A same-boot
+record selects only the restart screen. Waiting frames observe the original
+job; original completion plus independent state checks decide success.
+
+The primary inspected actual private English guest-terminal captures for REMOVE,
+preparation and same-boot restart-only continuation at 1890×2080, plus connected
+shutdown spinner and completion at 1890×1333. The warning,
+empty-line grouping and next input are readable; no dense authority/enrollment
+essay is shown. The final delta replaces misleading DNS-preparation wording
+when no DNS package exists and introduces the helper purpose at first mention.
+This standalone maintenance terminal remains English; QML/Russian catalog and
+native package prompts are unchanged, not newly claimed localized here.
+The primary also inspected the final actual preparation/restart offer and literal
+main Core ready captures. Their text matches the advertised path; final removal
+completion is original PTY output with exit 0, not a claimed GUI screenshot.
+
+The first live-connected design was unnecessarily excluded while the original
+protocol had not been re-examined. Distinguish missing installed evidence from
+an intrinsic product limit: review the actual original release/restore contract,
+then earn a positive gate. Do not infer that deleting saved profiles supplies
+missing DNS restoration proof in unsupported legacy or stopped-used states.
 
 The earlier reset was exercised from an expert-prepared stopped baseline, then
 advertised with an external Quit prerequisite. That did not earn a useful

@@ -1,7 +1,8 @@
 # Remove OmaVLESS and start again
 
 The terminal helper removes the OmaVLESS widget, application, bundled VPN core
-and DNS helper. **Its saved profiles and settings are deleted, without a backup.**
+and DNS helper, which manages website address lookup for its VPN connections.
+**Its saved profiles and settings are deleted, without a backup.**
 Other VPN clients and a separately installed Mihomo stay installed.
 This is a terminal tool; the 0.9.8 plugin has no full-removal button.
 
