@@ -127,7 +127,8 @@ Item {
     }
     PlainText {
       Layout.fillWidth: true
-      visible: setup.componentReview && !setup.needsAttention && setup.reviewCoreState !== "ready"
+      visible: setup.componentReview && !setup.needsAttention
+        && (setup.terminalOpened || (setup.reviewCoreState !== "ready" && setup.reviewCoreState !== "checking"))
       text: setup.tr(setup.terminalOpened ? "terminal" : "review_core_attention")
       font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap
     }
