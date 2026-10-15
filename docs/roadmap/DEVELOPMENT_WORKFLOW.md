@@ -515,12 +515,38 @@ The RC PR body must record these items before proposing an update to main:
   implementation while forgetting its acceptance or roadmap changes.
 - Run combined checks; repeat host gates only where integration materially
   changes tested behavior. Record the exact RC head and remaining release gates.
+- Apply the [installation user-path matrix](#installation-user-path-acceptance)
+  when setup, native requirements or the frontend/runtime compatibility changes.
+  Clean first-use acceptance cannot substitute for an existing-user update.
 - Obtain explicit owner authorization for the main update. Afterwards fetch,
   verify remote main, reconcile source PRs/issues and clean up only safely
   included branches. Retain independent evidence PRs and the Python archive.
 - Keep tag/assets and marketplace authorization separate. When authorized,
   submit the final main SHA and record the actual request/outcome in its PR or
   issue without another ceremonial main commit that immediately changes SHA.
+
+### Installation user-path acceptance
+
+Select these scenarios for changes to setup, supported native packages or the
+frontend/runtime boundary. Record actual starting package/source identities,
+the normal entry action, visible continuation and final outcome. Use installed
+user paths, not preinstalled developer bundles or manual state repair:
+
+| Starting state | Required outcome |
+| --- | --- |
+| Clean user, application and companion absent | Normal plugin add and guided first-use reaches ready without hidden prerequisites. |
+| Previous public stable application and preserved data; plugin alone updated through Omarchy | A clearly offered supported update route, or an explicit actionable compatibility limitation. Do not treat this as fresh activation. |
+| Packages installed; enrollment, selection or activation incomplete | Check again exposes the correct remaining action, without blind re-enrollment or profile reset. Exercise the relevant interruption boundaries separately. |
+| Current release components stopped after Quit, disable or remove/re-add | Supported reopening keeps data and distinguishes stopped components from missing ones. |
+| Unsafe, busy or outcome-unknown state | Mutations refuse with useful diagnosis and a reachable safe exit/recovery explanation; never force cleanup to make the test pass. |
+
+A test which expects `needs_attention` proves a safe refusal, not a usable
+upgrade or setup flow. Review the actual offered action and its implemented
+target; a help link alone must not be described as an automated updater.
+Likewise, matching displayed versions do not prove matching immutable package
+bytes. Missing installed rows stay unrun and block readiness of that affected
+user path, rather than inheriting a clean-install PASS. Preserve earlier
+reports' scope and negative evidence; do not retrofit acceptance into history.
 
 The marketplace plugin never silently builds Cargo sources or installs the
 standalone package.
