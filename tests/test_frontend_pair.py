@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -29,6 +30,7 @@ class FrontendPairTests(unittest.TestCase):
             'LICENSE':'MIT', 'THIRD_PARTY_NOTICES.md':'notices', 'README.md':'intro',
             'manifest.json':'{"version":"0.8.0"}', 'backend.sh':'exit 0', 'install.sh':'exit 0',
             'plugin/Panel.qml':'accepted UI', 'packaging/release/install-frontend.sh':'exit 0',
+            'tools/uninstall.sh':'reviewed standalone removal helper',
             'packaging/release/FRONTEND_README.md':'candidate', 'packaging/arch/README.md':'payload docs',
             'packaging/systemd/omavless-runtime.service':'unit',
         }.items():
@@ -86,6 +88,36 @@ class FrontendPairTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PAIR.equivalent_inputs(self.repo, self.old, self.commit())
 
+    def test_only_reviewed_standalone_remover_is_frontend_not_compiled_input(self):
+        self.write('tools/uninstall.sh', 'updated standalone remover')
+        self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, self.commit()), r'^[0-9a-f]{64}$')
+        self.write('tools/new-build-step.sh', 'unclassified input')
+        with self.assertRaises(ValueError):
+            PAIR.equivalent_inputs(self.repo, self.old, self.commit())
+
+    def test_remover_symlink_is_not_ignored_by_runtime_projection(self):
+        (self.repo / 'tools/uninstall.sh').unlink()
+        (self.repo / 'tools/uninstall.sh').symlink_to('../crates/runtime.rs')
+        with self.assertRaises(ValueError):
+            PAIR.equivalent_inputs(self.repo, self.old, self.commit())
+
+    def test_exact_metadata_and_historical_helper_are_not_native_inputs(self):
+        for path in ('GLOSSARY.md', '.github/workflows/test.yml', 'tools/clean-reinstall-098.sh'):
+            with self.subTest(path=path):
+                self.write(path, 'reviewed nonnative change')
+                self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, self.commit()), r'^[0-9a-f]{64}$')
+                self.git('revert', '--no-edit', 'HEAD')
+
+    def test_new_metadata_and_historical_helper_reject_nonregular_blobs(self):
+        for path in ('GLOSSARY.md', '.github/workflows/test.yml', 'tools/clean-reinstall-098.sh'):
+            with self.subTest(path=path):
+                file = self.repo / path
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.symlink_to('/synthetic/unavailable')
+                with self.assertRaises(ValueError):
+                    PAIR.equivalent_inputs(self.repo, self.old, self.commit())
+                self.git('revert', '--no-edit', 'HEAD')
+
     def test_compiled_admission_data_is_not_frontend_only(self):
         for path in ('plugin/published-pairs.json', 'tests/dns_broker_host/package/package-guard',
                      'tests/dns_broker_host/omavless-dns-broker.service',
@@ -100,7 +132,8 @@ class FrontendPairTests(unittest.TestCase):
     def test_runtime_changes_new_files_deletions_and_modes_refuse(self):
         for path in ['Cargo.lock', 'crates/runtime.rs', 'templates/default.yaml',
                      'packaging/arch/README.md', 'packaging/systemd/omavless-runtime.service',
-                     'LICENSE', 'THIRD_PARTY_NOTICES.md', '.cargo/config.toml', 'new-build-input']:
+                     'LICENSE', 'THIRD_PARTY_NOTICES.md', '.cargo/config.toml', 'new-build-input',
+                     '.github/workflows/unclassified-build.yml']:
             with self.subTest(path=path):
                 self.write(path, 'changed')
                 with self.assertRaises(ValueError):
@@ -170,6 +203,17 @@ class FrontendPairTests(unittest.TestCase):
         self.assertEqual(result['publication'], 'unpublished-candidate')
         self.assertEqual(next(self.output.glob('*.zst')).read_bytes(), self.package.read_bytes())
         self.assertTrue((self.output / 'SHA256SUMS').is_file())
+
+    def test_remover_update_changes_frontend_not_reused_native_bytes(self):
+        self.write('tools/uninstall.sh', 'reviewed new standalone remover')
+        new = self.commit()
+        result = self.assembly(new)
+        self.assertEqual(result['runtimeSourceCommit'], self.old)
+        self.assertEqual(result['frontendSourceCommit'], new)
+        self.assertEqual(next(self.output.glob('*.zst')).read_bytes(), self.package.read_bytes())
+        with tarfile.open(next(self.output.glob('*-frontend.tar.xz'))) as archive:
+            self.assertEqual(archive.extractfile('omavless-frontend/tools/uninstall.sh').read(),
+                             b'reviewed new standalone remover')
 
     def test_hash_mismatch_refuses_before_archive_parsing_or_output(self):
         with patch.object(PAIR.inspection, 'fingerprint', return_value=(self.sha, 0o600, os.getuid())), \

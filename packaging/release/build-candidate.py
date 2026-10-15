@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FILES = (
     "backend.sh", "manifest.json", "preview.png", "LICENSE",
     "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "install.sh",
-    "plugin/", "templates/", "docs/user/",
+    "plugin/", "templates/", "docs/user/", "tools/uninstall.sh",
     "packaging/release/install-frontend.sh", "packaging/release/FRONTEND_README.md",
 )
 
@@ -94,7 +94,8 @@ def frontend(root, destination, expected, release_version, epoch):
         if path in entries:
             raise ValueError("duplicate member")
         entries[path] = (data, 0o755 if path.endswith(".sh") else int(mode, 8) & 0o777)
-    for required in ("README.md", "install.sh", "install-frontend.sh", "backend.sh", "manifest.json", "plugin/Panel.qml"):
+    for required in ("README.md", "install.sh", "install-frontend.sh", "backend.sh",
+                     "manifest.json", "plugin/Panel.qml", "tools/uninstall.sh"):
         if required not in entries:
             raise ValueError("incomplete frontend")
     with tarfile.open(destination, "w:xz") as archive:

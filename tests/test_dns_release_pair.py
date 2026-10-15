@@ -29,6 +29,7 @@ class DnsReleasePairTests(unittest.TestCase):
             'LICENSE': 'MIT', 'THIRD_PARTY_NOTICES.md': 'notices',
             'manifest.json': '{"version":"0.9.0-rc.1"}',
             'backend.sh': 'exit 0', 'install.sh': 'exit 0',
+            'tools/uninstall.sh': 'reviewed standalone remover',
             'plugin/Panel.qml': 'Panel', 'plugin/runtime-release.json': self.pins(),
             'plugin/dns-release.json': self.pins(),
             'packaging/release/install-frontend.sh': 'exit 0',

@@ -32,9 +32,14 @@ inspection = module('pair_inspection', ROOT / 'tests/installed_native_package.py
 # for every other path, including new root files, templates, .cargo, crates,
 # Cargo.lock, toolchain, systemd, Arch packaging and payload licenses/notices.
 FRONTEND_FILES = frozenset(('README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'DEVELOPMENT_ROADMAP.md',
-                            'CHANGELOG.md',
+                            'CHANGELOG.md', 'GLOSSARY.md',
                             'manifest.json', 'preview.png', 'backend.sh', 'install.sh',
-                            '.github/workflows/native-package.yml'))
+                            'tools/uninstall.sh', 'tools/clean-reinstall-098.sh',
+                            '.github/workflows/native-package.yml', '.github/workflows/test.yml'))
+# These exact metadata/standalone paths are not compiled inputs. This does NOT
+# waive the selected frontend source's own CI or export the historical helper.
+REGULAR_METADATA = frozenset(('CHANGELOG.md', 'GLOSSARY.md', '.github/workflows/test.yml'))
+STANDALONE_HELPERS = frozenset(('tools/uninstall.sh', 'tools/clean-reinstall-098.sh'))
 FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
 # Production include_str/include_bytes inputs outside crates. Folder-level
 # frontend/test classification must not hide changes in compiled admission.
@@ -53,8 +58,11 @@ def runtime_tree(root, commit):
             continue
         meta, raw_path = record.split(b'\t', 1)
         path = raw_path.decode('utf-8', 'strict')
-        if path == 'CHANGELOG.md' and meta.split()[:2] != [b'100644', b'blob']:
-            raise ValueError('release notes must be a regular non-executable blob')
+        if path in REGULAR_METADATA and meta.split()[:2] != [b'100644', b'blob']:
+            raise ValueError('metadata must be a regular non-executable blob')
+        if path in STANDALONE_HELPERS and tuple(meta.split()[:2]) not in (
+                (b'100644', b'blob'), (b'100755', b'blob')):
+            raise ValueError('removal helper must be a regular blob')
         if path not in RUNTIME_DATA_FILES and (path in FRONTEND_FILES or path.startswith(FRONTEND_DIRS)):
             continue
         entries.append(record)

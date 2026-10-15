@@ -6,6 +6,7 @@ are harmless stubs; no real user store, shell, service, network or auth command
 can be reached. Source and artifact installs are native-only; no GTK fallback.
 """
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -51,6 +52,8 @@ exit "$TEST_GTK_EXIT"
 
     def stub(self, name, body):
         path = self.bin / name
+        if path.is_symlink():
+            path.unlink()
         path.write_text("#!/bin/sh\n" + body)
         path.chmod(0o700)
 
@@ -75,6 +78,9 @@ exit "$TEST_OWNER_EXIT"
         self.assertTrue((self.target / "manifest.json").is_file())
         self.assertFalse((self.target / "backend.py").exists())
         self.assertFalse((self.target / "uninstall.sh").exists())
+        self.assertEqual((self.target / "tools/uninstall.sh").read_bytes(),
+                         (INSTALLER.parent / "tools/uninstall.sh").read_bytes())
+        self.assertEqual([p.name for p in (self.target / "tools").iterdir()], ["uninstall.sh"])
         self.assertNotIn("synthetic-private", result.stdout)
         self.assertIn("no tunnel was started", result.stdout)
         return result.stdout, self.trace.read_text().splitlines()
@@ -97,6 +103,63 @@ exit "$TEST_OWNER_EXIT"
         self.assert_missing(output)
         self.assertEqual(calls, ["native:plugin:target", "omarchy:plugin:validate", "native:plugin:target"])
         self.assertEqual(list(self.target.rglob("*.py")), [])
+
+    def test_install_preserves_exact_helper_and_excludes_development_roots(self):
+        self.run_install()
+        self.assertEqual({p.name for p in self.target.iterdir()}, {
+            "backend.sh", "manifest.json", "preview.png", "LICENSE",
+            "THIRD_PARTY_NOTICES.md", "README.md", "CHANGELOG.md",
+            "plugin", "templates", "docs", "tools",
+        })
+
+    def test_missing_helper_copy_fails_before_replacing_existing_widget(self):
+        sentinel = self.target / "sentinel"
+        sentinel.write_text("preserved")
+        self.stub("cp", '''
+for arg do
+  case "$arg" in */tools/uninstall.sh) exit 7;; esac
+done
+exec /usr/bin/cp "$@"
+''')
+        result = subprocess.run(["/bin/bash", str(INSTALLER)], env=self.env,
+                                capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(self.target.iterdir()), [sentinel])
+        self.assertEqual(list(self.target.parent.glob(".kdk.omavless.install.*")), [])
+
+    def test_redirected_helper_or_tools_refuses_before_live_tree_changes(self):
+        sentinel = self.target / "sentinel"
+        sentinel.write_text("preserved")
+        for kind in ("helper", "tools"):
+            with self.subTest(kind=kind):
+                source = self.root / ("source-" + kind)
+                source.mkdir()
+                shutil.copyfile(INSTALLER, source / "install.sh")
+                outside = self.root / ("outside-" + kind)
+                outside.mkdir()
+                (outside / "uninstall.sh").write_text("private canary must remain")
+                if kind == "tools":
+                    (source / "tools").symlink_to(outside, target_is_directory=True)
+                else:
+                    (source / "tools").mkdir()
+                    (source / "tools/uninstall.sh").symlink_to(outside / "uninstall.sh")
+                self.trace.unlink(missing_ok=True)
+                result = subprocess.run(["/bin/bash", str(source / "install.sh")],
+                                        env=self.env, capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("removal helper is missing or redirected", result.stderr)
+                self.assertEqual(self.trace.read_text().splitlines(), ["native:plugin:target"])
+                self.assertEqual(list(self.target.iterdir()), [sentinel])
+                self.assertEqual((outside / "uninstall.sh").read_text(), "private canary must remain")
+
+    def test_update_omarchy_child_is_utf8_even_when_caller_is_C(self):
+        self.env["LC_ALL"] = "C"
+        self.stub("omarchy", '''
+[ "$LC_ALL" = C.UTF-8 ] || exit 98
+printf 'omarchy:%s:%s\\n' "$1" "$2" >> "$TEST_TRACE"
+[ "$1" = plugin ] && [ "$2" = validate ] && [ "$#" = 3 ] || exit 99
+''')
+        self.run_install()
 
     def test_native_only_refuses_unknown_failed_legacy_and_missing_owner_before_writes(self):
         sentinel = self.target / "sentinel"

@@ -79,7 +79,12 @@ class ReleaseCandidateTests(unittest.TestCase):
             names = archive.getnames()
             self.assertTrue(all(m.isfile() and m.uid == m.gid == 0 and m.mtime == 1 for m in archive))
             self.assertFalse(any(name.endswith('.py') or '/skills/' in name or '/tests/' in name
-                                 or 'private-local' in name or name.endswith('/uninstall.sh') for name in names))
+                                 or 'private-local' in name
+                                 or name == 'omavless-frontend/uninstall.sh' for name in names))
+            self.assertEqual([n for n in names if n.startswith('omavless-frontend/tools/')],
+                             ['omavless-frontend/tools/uninstall.sh'])
+            self.assertEqual(archive.extractfile('omavless-frontend/tools/uninstall.sh').read(),
+                             (ROOT / 'tools/uninstall.sh').read_bytes())
             manifest = json.load(archive.extractfile('omavless-frontend/manifest.json'))
             self.assertEqual(manifest['version'], RELEASE.version(self.repo))
             for name in ('install.sh', 'install-frontend.sh', 'backend.sh'):
@@ -151,6 +156,30 @@ class ReleaseCandidateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.archive()
 
+    def test_missing_helper_rejects_incomplete_frontend(self):
+        (self.repo / 'tools/uninstall.sh').unlink()
+        self.commit()
+        with self.assertRaises(ValueError):
+            self.archive()
+
+    def test_helper_symlink_rejected_and_other_tools_not_exported(self):
+        self.write_tool_canary()
+        self.commit()
+        with tarfile.open(self.archive()) as archive:
+            self.assertFalse(any('developer-canary' in n for n in archive.getnames()))
+            self.assertFalse(any('clean-reinstall-098.sh' in n or n.endswith('/GLOSSARY.md')
+                                 for n in archive.getnames()))
+        (self.repo / 'tools/uninstall.sh').unlink()
+        (self.repo / 'tools/uninstall.sh').symlink_to('../backend.sh')
+        self.commit()
+        with self.assertRaises(ValueError):
+            self.archive('symlink.tar.xz')
+
+    def write_tool_canary(self):
+        (self.repo / 'tools/developer-canary.sh').write_text('never export this developer tool')
+        (self.repo / 'tools/clean-reinstall-098.sh').write_text('historical remover, not the product helper')
+        (self.repo / 'GLOSSARY.md').write_text('developer editorial authority, not shipped')
+
     def test_exact_source_dirty_and_output_refusals_before_packaging(self):
         RELEASE.checked_source(self.repo, self.sha)
         for wrong in ('0' * 40, ';false', ''):
@@ -181,7 +210,7 @@ class ReleaseCandidateTests(unittest.TestCase):
         self.home.mkdir()
         self.trace = self.base / 'trace'
         env = {'HOME': str(self.home), 'PATH': str(self.bin), 'TEST_TRACE': str(self.trace),
-               'TEST_OWNER': 'rust', 'LC_ALL': 'C.UTF-8'}
+               'TEST_OWNER': 'rust', 'LC_ALL': 'C'}
         for tool in ('dirname', 'mkdir', 'mktemp', 'cp', 'chmod', 'mv', 'rm', 'sleep', 'jq'):
             (self.bin / tool).symlink_to('/usr/bin/' + tool)
         self.stub('omavless', '''
@@ -190,6 +219,7 @@ printf 'owner-read\n' >> "$TEST_TRACE"
 printf '%s\n' "$TEST_OWNER"
 ''')
         self.stub('omarchy', '''
+[ "$LC_ALL" = C.UTF-8 ] || exit 98
 printf '%s:%s\n' "$1" "$2" >> "$TEST_TRACE"
 case "$1:$2" in
  plugin:validate) exit 0 ;;
@@ -202,6 +232,8 @@ esac
 
     def stub(self, name, code):
         path = self.bin / name
+        if path.is_symlink():
+            path.unlink()
         path.write_text('#!/bin/sh\n' + code)
         path.chmod(0o700)
 
@@ -229,6 +261,8 @@ esac
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(list(target.rglob('*.py')), [])
             self.assertFalse((target / 'uninstall.sh').exists())
+            self.assertEqual((target / 'tools/uninstall.sh').read_bytes(),
+                             (ROOT / 'tools/uninstall.sh').read_bytes())
             self.assertEqual(json.loads((target / 'manifest.json').read_text())['version'], RELEASE.version(self.repo, stable))
             calls = self.trace.read_text().splitlines()
             self.assertEqual(calls.count('owner-read'), 2)
@@ -249,6 +283,37 @@ esac
         for args in [('--legacy',), ('--native-only',), (';false',)]:
             self.assertEqual(self.invoke_installer(env, *args).returncode, 2)
             self.assertFalse(target.exists())
+
+    def test_fresh_discovery_fallback_preserves_utf8_for_rescan_and_enable(self):
+        env = self.installer_env()
+        self.stub('sleep', 'exit 0\n')
+        self.stub('omarchy', '''
+[ "$LC_ALL" = C.UTF-8 ] || exit 98
+printf '%s:%s\n' "$1" "$2" >> "$TEST_TRACE"
+case "$1:$2" in
+ plugin:validate) exit 0 ;;
+ plugin:list)
+   if [ -f "$TEST_TRACE.rescanned" ]; then
+     printf '[{"id":"kdk.omavless"}]\n'
+   else printf '[]\n'; fi ;;
+ plugin:enable) [ "$3" = kdk.omavless ] && [ "$4" = right ] ;;
+ *) exit 99 ;;
+esac
+''')
+        self.stub('omarchy-shell', '''
+[ "$LC_ALL" = C.UTF-8 ] && [ "$*" = 'shell rescanPlugins' ] || exit 98
+printf 'shell:rescan\n' >> "$TEST_TRACE"
+: > "$TEST_TRACE.rescanned"
+''')
+        result = self.invoke_installer(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.trace.read_text().splitlines()
+        self.assertEqual(calls.count('plugin:list'), 31)
+        self.assertEqual(calls.count('shell:rescan'), 1)
+        self.assertEqual(calls.count('plugin:enable'), 1)
+        target = self.home / '.config/omarchy/plugins/kdk.omavless'
+        self.assertEqual((target / 'tools/uninstall.sh').read_bytes(),
+                         (ROOT / 'tools/uninstall.sh').read_bytes())
 
     def test_real_offline_pair_integrity_and_provenance(self):
         self.check_offline_pair(stable=False)

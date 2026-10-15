@@ -67,3 +67,9 @@ Closing the panel does not disconnect. Settings' confirmed Shut down OmaVLESS
 performs the verified shutdown sequence and disables runtime/plugin startup;
 it preserves installation and private profiles. Follow the guide for package
 updates/removal/recovery, and keep a known-good compatible package privately.
+
+For full removal, follow [Remove OmaVLESS](docs/user/CLEAN_REINSTALL_098.md).
+It deletes OmaVLESS profiles and settings, but keeps other VPN clients and a
+separately installed Mihomo. This archive includes the reviewed terminal
+helper in `tools/uninstall.sh`; updating only the widget does not remove the
+installed application or DNS packages.

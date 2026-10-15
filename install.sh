@@ -23,12 +23,17 @@ require_native_owner() {
 require_native_owner
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -d "$plugin_dir/tools" && ! -L "$plugin_dir/tools" &&
+   -f "$plugin_dir/tools/uninstall.sh" && ! -L "$plugin_dir/tools/uninstall.sh" ]] || {
+  echo 'The removal helper is missing or redirected. Download a complete OmaVLESS frontend; nothing was installed.' >&2
+  exit 1
+}
 plugins_dir="$HOME/.config/omarchy/plugins"
 target="$plugins_dir/kdk.omavless"
 fresh_install=false
 [[ -e "$target" ]] || fresh_install=true
 
-omarchy plugin validate "$plugin_dir"
+LC_ALL=C.UTF-8 omarchy plugin validate "$plugin_dir"
 mkdir -p "$plugins_dir"
 
 # Build the complete tree away from the live plugin directory. Quickshell
@@ -61,6 +66,10 @@ mkdir -p "$stage/templates"
 cp -a "$plugin_dir/templates/." "$stage/templates/"
 mkdir -p "$stage/docs"
 cp -a "$plugin_dir/docs/user" "$stage/docs/user"
+# The full remover is a product helper, not the obsolete root uninstall.sh or
+# the developer tools tree. Keep it available offline after either install route.
+mkdir -p "$stage/tools"
+cp -a "$plugin_dir/tools/uninstall.sh" "$stage/tools/uninstall.sh"
 chmod 755 "$stage/backend.sh"
 
 # Refuse a revoked owner before replacing the installed tree. This does not
@@ -82,7 +91,7 @@ mv -- "$stage" "$target"
 if [[ "$fresh_install" == true ]]; then
   discovered=false
   for _ in {1..30}; do
-    if omarchy plugin list --json 2>/dev/null | jq -e \
+    if LC_ALL=C.UTF-8 omarchy plugin list --json 2>/dev/null | jq -e \
       'any(.[]; .id == "kdk.omavless")' >/dev/null; then
       discovered=true
       break
@@ -91,9 +100,9 @@ if [[ "$fresh_install" == true ]]; then
   done
 
   if [[ "$discovered" == false ]]; then
-    omarchy-shell shell rescanPlugins
+    LC_ALL=C.UTF-8 omarchy-shell shell rescanPlugins
     for _ in {1..30}; do
-      if omarchy plugin list --json 2>/dev/null | jq -e \
+      if LC_ALL=C.UTF-8 omarchy plugin list --json 2>/dev/null | jq -e \
         'any(.[]; .id == "kdk.omavless")' >/dev/null; then
         discovered=true
         break
@@ -106,7 +115,7 @@ if [[ "$fresh_install" == true ]]; then
     echo "OmaVLESS was copied but the running shell did not discover it." >&2
     exit 1
   }
-  omarchy plugin enable kdk.omavless right
+  LC_ALL=C.UTF-8 omarchy plugin enable kdk.omavless right
 fi
 
 if [[ -n "$backup" && -d "$backup" ]]; then
