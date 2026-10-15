@@ -14,14 +14,20 @@ For an update that keeps settings, use the [update guide](NATIVE_INSTALL.md#upda
 
 ## Run the removal helper
 
-Copy this whole block into your normal Omarchy terminal. It creates a small
-download folder, downloads the pinned helper, checks it and starts removal.
+Copy this whole block into your normal Omarchy terminal. It uses the helper
+from an updated widget offline, or downloads it for older/removed widgets.
+It checks the helper before starting removal.
 
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
-curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/k-kostin/omavless/5a0d996f46d27c8bc5ca29c1b03d6dfcb1ad273c/tools/uninstall.sh \
-  -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download" &&
+if [[ -f "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" ]]; then
+  cp -- "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" \
+    "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
+else
+  curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
+    https://raw.githubusercontent.com/k-kostin/omavless/5a0d996f46d27c8bc5ca29c1b03d6dfcb1ad273c/tools/uninstall.sh \
+    -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
+fi &&
 printf '%s  %s\n' a15e0e79163bdac8e9b24edf5dc794ceece8a68275510c51f79529a00a23c7cd \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \

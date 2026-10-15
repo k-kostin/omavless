@@ -548,6 +548,15 @@ bytes. Missing installed rows stay unrun and block readiness of that affected
 user path, rather than inheriting a clean-install PASS. Preserve earlier
 reports' scope and negative evidence; do not retrofit acceptance into history.
 
+Development fixtures must use the existing SHA-qualified snapshot packaging
+mode, or an explicitly named beta/RC version. Do not assemble a feature branch
+with the public stable package label merely because its Cargo version has not
+changed. `--stable` is reserved for the selected release assembly, not ordinary
+feature testing. Before handing a VM back for public installation acceptance,
+record widget SHA plus installed application/companion producer and payload
+identities; restore the matching public pair through the supported package path
+if needed. Widget remove/add alone does not replace native development packages.
+
 The marketplace plugin never silently builds Cargo sources or installs the
 standalone package.
 

@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+const os = require('node:os');
 const guide = fs.readFileSync(path.join(__dirname, '../docs/user/CLEAN_REINSTALL_098.md'), 'utf8');
 const helper = fs.readFileSync(path.join(__dirname, '../tools/uninstall.sh'));
 const blocks = Array.from(guide.matchAll(/```bash\n([\s\S]*?)\n```/g), match => match[1] + '\n');
@@ -28,6 +29,8 @@ assert(blocks[0].indexOf('sha256sum --check') < blocks[0].indexOf('bash "$HOME/'
 assert(blocks[0].indexOf('sha256sum --check') < blocks[0].indexOf('mv -T --'));
 assert.match(blocks[0], /--connect-timeout 10 --max-time 60/);
 assert.match(blocks[0], /-o "\$HOME\/\.cache\/omavless-maintenance\/reinstall-098\/\.download"/);
+assert(blocks[0].includes('if [[ -f "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" ]]'));
+assert(blocks[0].includes('cp -- "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh"'));
 assert.equal(blocks[1].trim(), 'bash "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh"');
 assert.equal(blocks[2].trim(), 'omarchy plugin add https://github.com/k-kostin/omavless.git --enable');
 assert(!blocks.some(block => /\.sh" (prepare|remove)/.test(block)));
@@ -38,6 +41,36 @@ assert(!guide.includes('Shut down OmaVLESS'), 'Shutdown must be offered inside t
 assert(!guide.includes('.cache/ovt/'));
 for (const forbidden of ['sudo bash', 'curl |', 'rm -', '--nodeps', '--overwrite', '--noconfirm']) {
   assert(!blocks.some(block => block.includes(forbidden)), forbidden);
+}
+// Execute the real bootstrap with inert download/entry leaves. The helper's
+// actual body is never executed here; all files live in a private HOME fixture.
+for (const kind of ['offline-installed', 'download-missing-widget', 'modified-local']) {
+  const parent = path.join(os.homedir(), '.cache/ovt');
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const home = fs.mkdtempSync(path.join(parent, 'uninstall-bootstrap.'));
+  try {
+    const local = path.join(home, '.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh');
+    fs.writeFileSync(path.join(home, 'approved-download'), helper, { mode: 0o600 });
+    if (kind !== 'download-missing-widget') {
+      fs.mkdirSync(path.dirname(local), { recursive: true });
+      fs.writeFileSync(local, kind === 'modified-local' ? 'modified local helper' : helper);
+    }
+    const download = kind === 'download-missing-widget'
+      ? 'printf DOWNLOAD_ADMITTED; cp -- "$HOME/approved-download" "${@: -1}";'
+      : 'printf FORBIDDEN_NETWORK; return 9;';
+    const script = 'set -euo pipefail\nbash() { printf HELPER_ADMITTED; }\n'
+      + 'curl() { ' + download + ' }\n' + blocks[0];
+    const result = spawnSync('bash', ['--noprofile', '--norc'], {
+      input: script, env: { ...process.env, HOME: home }, encoding: 'utf8', timeout: 5000,
+    });
+    assert(!result.error, kind + ': ' + result.error);
+    assert.equal(result.status === 0, kind !== 'modified-local', kind + ': ' + result.stderr);
+    assert(!result.stdout.includes('FORBIDDEN_NETWORK'));
+    assert.equal(result.stdout.includes('HELPER_ADMITTED'), kind !== 'modified-local');
+    assert.equal(result.stdout.includes('DOWNLOAD_ADMITTED'), kind === 'download-missing-widget');
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
 }
 if (process.argv.length === 4 && process.argv[2] === '--extract' && /^[0-2]$/.test(process.argv[3])) {
   process.stdout.write(blocks[Number(process.argv[3])]);

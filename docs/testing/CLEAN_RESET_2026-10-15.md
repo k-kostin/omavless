@@ -192,9 +192,14 @@ execution policy now explicitly requires this acceptance unit.
 The same session also exposed a separate identity/workflow problem: a private
 Restore development package on the Mac carried the public `0.9.8-1` label.
 Widget remove/add preserved it. This helper rejects unrecognized app bytes
-before any removal instead of trusting that label. Distinct experimental
-package versions remain a producer-workflow follow-up, not something this
-shell change or the existing immutable packages already fixed.
+before any removal instead of trusting that label. The workflow now requires
+the existing SHA-qualified development snapshot mode (or an explicit beta/RC),
+reserves stable assembly for the selected release and requires installed
+widget/producer/payload reconciliation before public-acceptance handoff.
+The packaging path already generates distinct snapshot labels by default;
+this correction makes its use mandatory for feature fixtures. It does not
+retroactively relabel an existing immutable package or claim that arbitrary
+hand-built packages can be prevented by the remover.
 
 Finally, matching files on disk did not establish loaded QML: the owner saw the
 old verbose onboarding until a normal shell restart. Preserve the existing
@@ -305,12 +310,29 @@ bounded new installed publication/reboot/cleanup gate, not unrun ARM acceptance.
 | --- | --- |
 | dd131de5; actual b4 partial removal, both packages/data already absent, old masks/receipt/exclusion retained | PASS: original exit 0, fresh root absence checks, exact old masks and receipt/exclusion removed by code; no record edit, manual unlink, reboot or reinstall inside recovery. DNS, stock core and unrelated packages unchanged. This is recovery, not a fresh happy path. |
 | dd131de5; new public fix.7 fixture, actual Connect/Disconnect, then normal Full Quit and actual runtime PID 0 **before** entry | PASS: original preparation 0, actual GUI reboot, same cached command, REMOVE/sudo/ordinary widget and package prompts, original completion 0. Both witness pairs survived reboot and were removed. Intended widget/packages/data/enrollment/runtime/enablement/masks/receipt/exclusion absent; DNS/stock/unrelated baseline unchanged. No administrative intervention inside the journey. |
+| 5a0d996f; public fix.7, actual running/connected VPN, then restart-later and same-boot retry | PASS: the helper itself earned native Full Quit, removed the owned core/TUN, returned broker FD 1→0 and restored the exact pre-Connect DNS baseline before restart. Preparation returned 0. Same-command retry offered only restart, without REMOVE, sudo or repeated preparation, and left progress unchanged. Actual reboot preserved the adjacent witness pairs. |
+| 5a0d996f; above post-restart removal, normal pacman N, then same-command continuation | PASS: first removal returned 1 after normal cancellation; both packages remained and enrollment was already revoked. No receipt edit or fixture repair. The next invocation accepted that partial state, removed both packages normally and returned 0. Own widget/data/units/enablement/masks/witnesses/progress/exclusion absent; exact DNS, separate Mihomo/config/units and unrelated-package baselines unchanged. |
+| 5a0d996f; public 0.8.2 `f4427143` frontend / app ELF `3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1`, no DNS companion; activated/imported fixture, then normal Full Quit | PASS with qualification: actual legacy Connect returned `transition_failed_restored`; this is not successfully connected-ever 0.8.2 acceptance. No legacy core/permissions repair was used. Original DNS/no-TUN/disconnected state was independently confirmed. Anonymous guide download/checksum, REMOVE/sudo, actual reboot, same cached command and ordinary widget/pacman removal completed with original exit 0; own resources absent and DNS/stock/unrelated baselines unchanged. |
+| 5a0d996f; public 0.9.8 partial setup, widget already removed through Omarchy, first removal sudo cancelled with Ctrl-C | PASS: original cancellation returned 1, retained `preparing` with no masks/setup lock and unchanged packages/data. Same-command REMOVE/sudo continued preparation without repeating an uncertain Quit; actual reboot and normal pacman removal completed with original exit 0. Own resources absent, root absence observation passed and DNS/stock/unrelated baselines unchanged. No receipt or system-file repair inside the path. |
 
 The primary personally inspected actual REMOVE/preparation and coded-recovery
 completion pixels, separately from the exact helper exits and independent state
 checks. A fixture's earlier normal Quit earns the already-closed entry, not a
-claim that the helper closed a running app. The active-connected and 0.8.2
-replacement gates remain separate from these rows.
+claim that the helper closed a running app. The 5a running-connected gate earns
+that separate claim. Successful legacy 0.8.2 Connect is explicitly unearned.
+Each cancellation remains a separate original nonzero result; only its later
+successful continuation earns recovery.
+
+The first literal download attempt while the controlled synthetic VPN was
+connected returned curl 28 before the helper started: that fixture intentionally
+provides no Internet. It is retained as a bootstrap transport failure, not a
+removal failure or an Internet-health PASS. The guide now uses an installed
+helper offline when present, with the same immutable hash check before any
+execution, and retains bounded anonymous download for older/removed widgets.
+Inert execution tests cover both branches and reject a modified installed file;
+independent review found no blockers. Actual anonymous transport passed on the
+disconnected 0.8.2 fixture (54,787 bytes, exact pinned hash); installed offline
+entry remains a separate installed gate.
 
 ### CI workload correction
 

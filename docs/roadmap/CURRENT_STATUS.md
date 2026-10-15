@@ -13,6 +13,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   actions and resumable removal; earlier narrow PASS rows do not close its
   installed gates. Independent source review admitted bounded VM acceptance;
   actual successor results belong to the [reset matrix](../testing/CLEAN_RESET_2026-10-15.md).
+  Exact helper `5a0d996f` passed installed running/connected 0.9.8 cleanup,
+  restart-later/same-boot handling, cancelled-pacman continuation, partial setup
+  with widget absent and cancelled-sudo continuation, plus stopped 0.8.2 removal
+  with a failed-restored Connect qualification. Anonymous download passed;
+  separate stock Mihomo, unrelated packages and original DNS stayed unchanged.
+  Earlier `dd131de5` also earned closed-used 0.9.8 and coded legacy-receipt recovery.
+  Final normal main reinstall and installed offline entry remain pending.
   Ready-wizard action cleanup at `656be065` has actual EN/RU installed review:
   state/version/next step and Close/Continue only, with non-ready actions retained.
   Practical retrospective changes are in execution policy, UI contract and
