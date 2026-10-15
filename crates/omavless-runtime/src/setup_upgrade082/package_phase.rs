@@ -74,14 +74,14 @@ fn development_guest() -> Result<()> {
     }
     Ok(())
 }
-struct Archive {
+pub(super) struct Archive {
     path: PathBuf,
     file: File,
     identity: fs::Metadata,
     digest: String,
 }
 impl Archive {
-    fn open(path: PathBuf, uid: u32, digest: &str, mode: u32) -> Result<Self> {
+    pub(super) fn open(path: PathBuf, uid: u32, digest: &str, mode: u32) -> Result<Self> {
         let identity = fs::symlink_metadata(&path).map_err(|_| Blocker::StagingUnavailable)?;
         if !identity.is_file()
             || identity.uid() != uid
@@ -106,7 +106,7 @@ impl Archive {
         archive.recheck()?;
         Ok(archive)
     }
-    fn recheck(&mut self) -> Result<()> {
+    pub(super) fn recheck(&mut self) -> Result<()> {
         if !same(
             &self.identity,
             &fs::symlink_metadata(&self.path).map_err(|_| Blocker::StagingUnavailable)?,
@@ -206,7 +206,12 @@ fn package_metadata(bytes: &[u8], name: &str, arch: &str, version: &str) -> Resu
     }
     Ok(())
 }
-fn app_identity(bytes: &[u8], arch: &str, source: &str, version: &str) -> Result<String> {
+pub(super) fn app_identity(
+    bytes: &[u8],
+    arch: &str,
+    source: &str,
+    version: &str,
+) -> Result<String> {
     let text = std::str::from_utf8(bytes).map_err(|_| Blocker::StagingUnavailable)?;
     let mut fields = std::collections::BTreeMap::new();
     for line in text.lines() {
@@ -448,6 +453,254 @@ fn package_owner_before() -> Result<()> {
     }
     Ok(())
 }
+
+struct Previous098 {
+    members: Vec<Captured>,
+    binaries: Vec<Archive>,
+    dns_present: bool,
+    require_prepared: bool,
+}
+impl Previous098 {
+    fn capture(pair: &Pair, require_prepared: bool) -> Result<Self> {
+        let receipt = Captured::read(
+            Path::new("/usr/share/doc/omavless/build-identity.txt"),
+            0,
+            0o644,
+            4096,
+        )
+        .map_err(|_| Blocker::Predecessor)?;
+        let text = std::str::from_utf8(&receipt.bytes).map_err(|_| Blocker::Predecessor)?;
+        let source = text
+            .lines()
+            .find_map(|line| line.strip_prefix("sourceCommit="))
+            .filter(|source| PUBLIC_098_SOURCES.contains(source) || *source == pair.metadata.source)
+            .ok_or(Blocker::Predecessor)?;
+        let app_sha = app_identity(&receipt.bytes, std::env::consts::ARCH, source, "0.9.8")?;
+        if source == pair.metadata.source && app_sha != pair.app_digest {
+            return Err(Blocker::Predecessor);
+        }
+        let published = if source == pair.metadata.source {
+            None
+        } else {
+            Some(published098(source, std::env::consts::ARCH)?)
+        };
+        if published
+            .as_ref()
+            .is_some_and(|pins| pins.app_sha != app_sha)
+        {
+            return Err(Blocker::Predecessor);
+        }
+        let app = Archive::open(PathBuf::from("/usr/bin/omavless"), 0, &app_sha, 0o755)?;
+        let mut previous = Self {
+            members: Vec::new(),
+            binaries: vec![app],
+            dns_present: false,
+            require_prepared,
+        };
+        let source = source.to_owned();
+        previous.members.push(receipt);
+        let mut query = Command::new("/usr/bin/pacman");
+        query.env("LC_ALL", "C").arg("-Qq");
+        let packages =
+            crate::production_observation::bounded_fixed_query(query, Duration::from_secs(3))
+                .map_err(|_| Blocker::Predecessor)?;
+        if packages
+            .lines()
+            .any(|name| name == "omavless-dns-experimental")
+        {
+            return Err(Blocker::Predecessor);
+        }
+        previous.dns_present = packages.lines().any(|name| name == "omavless-dns");
+        if previous.dns_present {
+            crate::managed_pair::ManagedPair::validate_package()
+                .map_err(|_| Blocker::Predecessor)?;
+            let dns = Captured::read(
+                Path::new(crate::managed_pair::RELEASE_RECEIPT),
+                0,
+                0o644,
+                8192,
+            )
+            .map_err(|_| Blocker::Predecessor)?;
+            let value: serde_json::Value =
+                serde_json::from_slice(&dns.bytes).map_err(|_| Blocker::Predecessor)?;
+            if value["omavless_commit"] != source {
+                return Err(Blocker::Predecessor);
+            }
+            if let Some(pins) = &published {
+                if format!("{:x}", Sha256::digest(&dns.bytes)) != pins.dns_receipt_sha
+                    || value["sha256"]["mihomo"] != pins.core_sha
+                    || value["sha256"]["omavless-dns-broker"] != pins.broker_sha
+                {
+                    return Err(Blocker::Predecessor);
+                }
+            } else if dns.bytes != pair.dns_receipt {
+                // Same-target repair must match the authenticated delivery,
+                // not a self-declared installed companion hash.
+                return Err(Blocker::Predecessor);
+            }
+            for (name, path) in [
+                ("mihomo", crate::managed_pair::RELEASE_CORE),
+                ("omavless-dns-broker", crate::managed_pair::RELEASE_BROKER),
+            ] {
+                let digest = value["sha256"][name].as_str().ok_or(Blocker::Predecessor)?;
+                previous
+                    .binaries
+                    .push(Archive::open(PathBuf::from(path), 0, digest, 0o755)?);
+            }
+            previous.members.push(dns);
+            for (path, expected) in [
+                (
+                    "/usr/lib/omavless-dns/package-guard",
+                    include_bytes!("../../../../tests/dns_broker_host/package/package-guard")
+                        .as_slice(),
+                ),
+                (
+                    "/usr/share/libalpm/hooks/omavless-dns.hook",
+                    include_bytes!("../../../../packaging/dns/omavless-dns.hook").as_slice(),
+                ),
+            ] {
+                let member = Captured::read(
+                    Path::new(path),
+                    0,
+                    if path.ends_with("package-guard") {
+                        0o755
+                    } else {
+                        0o644
+                    },
+                    16384,
+                )
+                .map_err(|_| Blocker::Predecessor)?;
+                if member.bytes != expected {
+                    return Err(Blocker::Predecessor);
+                }
+                previous.members.push(member);
+            }
+        }
+        previous.recheck()?;
+        Ok(previous)
+    }
+    fn recheck(&mut self) -> Result<()> {
+        package_owner098_before(self.dns_present, self.require_prepared)?;
+        for member in &mut self.members {
+            member.recheck()?;
+        }
+        for binary in &mut self.binaries {
+            binary.recheck()?;
+        }
+        Ok(())
+    }
+}
+
+fn package_owner098_before(dns_present: bool, require_prepared: bool) -> Result<()> {
+    let mut query = Command::new("/usr/bin/pacman");
+    query.env("LC_ALL", "C").arg("-Qq");
+    let inventory =
+        crate::production_observation::bounded_fixed_query(query, Duration::from_secs(3))
+            .map_err(|_| Blocker::Predecessor)?;
+    if inventory
+        .lines()
+        .any(|name| name == "omavless-dns-experimental")
+        || inventory.lines().any(|name| name == "omavless-dns") != dns_present
+    {
+        return Err(Blocker::Predecessor);
+    }
+    let mut query = Command::new("/usr/bin/pacman");
+    query.env("LC_ALL", "C").args(["-Q", "omavless"]);
+    if crate::production_observation::bounded_fixed_query(query, Duration::from_secs(3))
+        .map_err(|_| Blocker::Predecessor)?
+        != "omavless 0.9.8-1\n"
+    {
+        return Err(Blocker::Predecessor);
+    }
+    let mut ownership = Command::new("/usr/bin/pacman");
+    ownership.env("LC_ALL", "C").args([
+        "-Qoq",
+        "/usr/bin/omavless",
+        "/usr/share/doc/omavless/build-identity.txt",
+    ]);
+    if crate::production_observation::bounded_fixed_query(ownership, Duration::from_secs(3))
+        .map_err(|_| Blocker::Predecessor)?
+        != "omavless\nomavless\n"
+    {
+        return Err(Blocker::Predecessor);
+    }
+    if !dns_present {
+        for path in [
+            "/usr/lib/omavless-dns",
+            "/usr/share/omavless-dns",
+            "/usr/lib/systemd/system/omavless-dns-broker.service",
+            "/run/omavless-dns",
+        ] {
+            if !absent(Path::new(path)) {
+                return Err(Blocker::Predecessor);
+            }
+        }
+        return Ok(());
+    }
+    let mut query = Command::new("/usr/bin/pacman");
+    query.env("LC_ALL", "C").args(["-Q", "omavless-dns"]);
+    if crate::production_observation::bounded_fixed_query(query, Duration::from_secs(3))
+        .map_err(|_| Blocker::Predecessor)?
+        != "omavless-dns 0.9.8-1\n"
+    {
+        return Err(Blocker::Predecessor);
+    }
+    let mut ownership = Command::new("/usr/bin/pacman");
+    ownership.env("LC_ALL", "C").args([
+        "-Qoq",
+        crate::managed_pair::RELEASE_RECEIPT,
+        crate::managed_pair::RELEASE_CORE,
+        crate::managed_pair::RELEASE_BROKER,
+        "/usr/lib/omavless-dns/package-guard",
+        "/usr/share/libalpm/hooks/omavless-dns.hook",
+        "/usr/lib/systemd/system/omavless-dns-broker.service",
+    ]);
+    if crate::production_observation::bounded_fixed_query(ownership, Duration::from_secs(3))
+        .map_err(|_| Blocker::Predecessor)?
+        != "omavless-dns\n".repeat(6)
+    {
+        return Err(Blocker::Predecessor);
+    }
+    if !require_prepared {
+        return Ok(());
+    }
+    require_broker_prepared()
+}
+pub(super) fn require_broker_prepared() -> Result<()> {
+    let mut query = Command::new("/usr/bin/systemctl");
+    query
+        .env_clear()
+        .env("PATH", "/usr/bin")
+        .env("LC_ALL", "C")
+        .args([
+            "--system",
+            "show",
+            "omavless-dns-broker.service",
+            "--no-pager",
+            "--property=LoadState,ActiveState,SubState,MainPID,NFileDescriptorStore",
+        ]);
+    let state = crate::production_observation::bounded_fixed_query(query, Duration::from_secs(3))
+        .map_err(|_| Blocker::BrokerPreparationRequired)?;
+    if !broker_prepared_status(&state, absent(Path::new("/run/omavless-dns/control.sock"))) {
+        return Err(Blocker::BrokerPreparationRequired);
+    }
+    Ok(())
+}
+
+fn broker_prepared_status(state: &str, socket_absent: bool) -> bool {
+    let expected = [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "NFileDescriptorStore=0",
+    ];
+    let mut actual = state.lines().collect::<Vec<_>>();
+    actual.sort_unstable();
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    actual == expected && socket_absent
+}
 fn predecessor_units() -> Result<Vec<Captured>> {
     let mut captured = Vec::new();
     for (name, expected) in [
@@ -531,7 +784,7 @@ fn guest_then<T>(guest: Result<()>, continue_operation: impl FnOnce() -> Result<
 #[cfg(feature = "developer-upgrade082")]
 pub fn run_development_update() -> Result<serde_json::Value> {
     guest_then(development_guest(), || {
-        run_qualified_update(Metadata::developer()?, false)
+        run_qualified_update(Metadata::developer()?, false, false)
     })
 }
 
@@ -543,7 +796,16 @@ pub fn run_delivery_update() -> Result<serde_json::Value> {
     // Must consume the whole bounded frame and EOF before opening the tty or
     // considering consent. The metadata pipe is NEVER child stdin.
     let metadata = Metadata::read(&mut std::io::stdin().lock())?;
-    run_qualified_update(metadata, true)
+    run_qualified_update(metadata, true, false)
+}
+
+#[cfg(feature = "setup-upgrade082")]
+pub fn run_pair_update() -> Result<serde_json::Value> {
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Err(Blocker::DeliveryMetadataInvalid);
+    }
+    let metadata = Metadata::read(&mut std::io::stdin().lock())?;
+    run_qualified_update(metadata, true, true)
 }
 
 fn open_tty() -> Result<File> {
@@ -581,7 +843,7 @@ fn consent_from_tty(tty: &mut File, expected: &[u8]) -> Result<()> {
     }
     Ok(())
 }
-fn running_digest() -> Result<String> {
+pub(super) fn running_digest() -> Result<String> {
     // /proc/self/exe is the fixed kernel reference, deliberately not a caller
     // path or an assertion that this helper is already the installed app.
     let mut file = File::open("/proc/self/exe").map_err(|_| Blocker::HelperIdentityUnverified)?;
@@ -646,33 +908,58 @@ fn other_owners() -> Result<()> {
     Ok(())
 }
 
-fn run_qualified_update(metadata: Metadata, delivered: bool) -> Result<serde_json::Value> {
+fn run_qualified_update(
+    metadata: Metadata,
+    delivered: bool,
+    managed098: bool,
+) -> Result<serde_json::Value> {
     let cancel = Arc::new(AtomicBool::new(false));
     let mut tty = open_tty()?;
+    let locale = super::terminal_copy::Locale::current();
     let mut pair = Pair::current(metadata)?;
     if delivered {
         qualify_helper(&pair.app_digest)?;
     }
-    writeln!(&mut tty, "Update the system OmaVLESS app and DNS packages to {}. Profiles and settings are kept. DNS setup and Start are separate. Type {}:",
-        pair.metadata.version, if delivered { "UPGRADE" } else { "UPGRADE SINGLE-USER VM" })
-        .map_err(|_| Blocker::TtyUnavailable)?;
+    if managed098 {
+        // Read-only preflight BEFORE consent or volatile exclusion creation.
+        // An active runtime must use normal Full Quit, not be stopped here.
+        units()?;
+        super::terminal_copy::prepare_prompt(&mut tty, locale)
+            .map_err(|_| Blocker::TtyUnavailable)?;
+    } else {
+        super::terminal_copy::upgrade_prompt(&mut tty, locale, &pair.metadata.version, delivered)
+            .map_err(|_| Blocker::TtyUnavailable)?;
+    }
     tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
     consent_from_tty(
         &mut tty,
-        if delivered {
+        if managed098 {
+            b"PREPARE\n"
+        } else if delivered {
             b"UPGRADE\n"
         } else {
             b"UPGRADE SINGLE-USER VM\n"
         },
     )?;
     let _signals = Signals::capture(&cancel)?;
-    let mut context = acquire_current()?;
+    let mut context = if managed098 {
+        acquire_current_for(Some(&pair.metadata.source))?
+    } else {
+        acquire_current()?
+    };
     let mut unit_files = predecessor_units()?;
-    package_owner_before()?;
+    let mut previous = if managed098 {
+        Some(Previous098::capture(&pair, false)?)
+    } else {
+        package_owner_before()?;
+        None
+    };
     other_owners()?;
-    for name in ["managed-dns-selection", ".managed-dns-selection.candidate"] {
-        if !absent(&context.scope.config.join(name)) {
-            return Err(Blocker::Predecessor);
+    if !managed098 {
+        for name in ["managed-dns-selection", ".managed-dns-selection.candidate"] {
+            if !absent(&context.scope.config.join(name)) {
+                return Err(Blocker::Predecessor);
+            }
         }
     }
     context.recheck()?;
@@ -684,6 +971,38 @@ fn run_qualified_update(metadata: Metadata, delivered: bool) -> Result<serde_jso
         return Err(Blocker::CancelledBeforeSubmission);
     }
     other_owners()?;
+    if let Some(previous) = &mut previous {
+        previous.recheck()?;
+    } else {
+        package_owner_before()?;
+    }
+    if managed098 {
+        if previous.as_ref().is_some_and(|p| p.dns_present) && require_broker_prepared().is_err() {
+            #[cfg(feature = "setup-upgrade082")]
+            super::root_stage::prepare(&mut context, &cancel, &tty, &pair.app_digest)?;
+            #[cfg(not(feature = "setup-upgrade082"))]
+            return Err(Blocker::BrokerPreparationRequired);
+        }
+        if let Some(previous) = &mut previous {
+            previous.require_prepared = true;
+            previous.recheck()?;
+        }
+        context.recheck()?;
+        pair.recheck()?;
+        super::terminal_copy::prepared_prompt(&mut tty, locale)
+            .map_err(|_| Blocker::TtyUnavailable)?;
+        tty.flush().map_err(|_| Blocker::TtyUnavailable)?;
+        consent_from_tty(&mut tty, b"UPGRADE\n")?;
+        context.recheck()?;
+        pair.recheck()?;
+        other_owners()?;
+        for unit in &mut unit_files {
+            unit.recheck()?;
+        }
+        if let Some(previous) = &mut previous {
+            previous.recheck()?;
+        }
+    }
     let mut command = Command::new("/usr/bin/sudo");
     command.stdin(Stdio::from(
         tty.try_clone().map_err(|_| Blocker::TtyUnavailable)?,
@@ -704,10 +1023,16 @@ fn run_qualified_update(metadata: Metadata, delivered: bool) -> Result<serde_jso
     )?;
     // Original exclusions end only here, after known exit and independent
     // verification. The result is DATA; NEW DNS setup must re-earn admission.
+    let selected = managed098
+        && context
+            .captured
+            .iter()
+            .any(|member| member.path == context.scope.config.join(crate::managed_pair::SELECTOR));
     drop(context);
     Ok(
-        serde_json::json!({"schemaVersion":1,"scope":if delivered {"first_082_package_phase"} else {"single_user_development_vm"},
-        "outcome":"packages_updated_dns_required","dnsSetupRequired":true,"startAllowed":false,
+        serde_json::json!({"schemaVersion":1,"scope":if managed098 {"stopped_098_pair_package_phase"} else if delivered {"first_082_package_phase"} else {"single_user_development_vm"},
+        "outcome":if selected {"packages_updated_broker_start_required"} else {"packages_updated_dns_required"},
+        "dnsSetupRequired":!selected,"startAllowed":false,
         "cancellationRequested":cancel.load(Ordering::Acquire)}),
     )
 }
@@ -715,6 +1040,23 @@ fn run_qualified_update(metadata: Metadata, delivered: bool) -> Result<serde_jso
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn maintenance_admission_never_equates_idle_running_or_residual_socket_with_prepared() {
+        let good = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFileDescriptorStore=0\n";
+        assert!(broker_prepared_status(good, true));
+        assert!(!broker_prepared_status(good, false));
+        for bad in [
+            good.replace("inactive", "active")
+                .replace("dead", "running"),
+            good.replace("MainPID=0", "MainPID=123"),
+            good.replace("NFileDescriptorStore=0", "NFileDescriptorStore=1"),
+            good.replace("LoadState=loaded", "LoadState=not-found"),
+            format!("{good}NFileDescriptorStore=0\n"),
+            good.replace("SubState=dead\n", ""),
+        ] {
+            assert!(!broker_prepared_status(&bad, true));
+        }
+    }
     #[test]
     fn running_helper_digest_is_separate_from_installed_predecessor_and_mismatch_refuses() {
         let digest = running_digest().unwrap();

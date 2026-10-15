@@ -45,6 +45,8 @@ pub enum Blocker {
     HelperIdentityUnverified,
     TtyUnavailable,
     ForeignOwnerObserved,
+    BrokerPreparationRequired,
+    MaintenanceOutcomeUnknown,
 }
 impl std::fmt::Display for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,6 +74,8 @@ impl std::fmt::Display for Blocker {
             Self::HelperIdentityUnverified => "helper_identity_unverified",
             Self::TtyUnavailable => "tty_unavailable",
             Self::ForeignOwnerObserved => "foreign_owner_observed",
+            Self::BrokerPreparationRequired => "dns_clean_stop_required",
+            Self::MaintenanceOutcomeUnknown => "dns_preparation_incomplete_inspect_before_retry",
         };
         write!(f, "OmaVLESS upgrade082: {reason}")
     }
@@ -343,6 +347,91 @@ fn predecessor() -> Result<()> {
     )
 }
 
+// Published 0.9.8 producers only. Package-version equality cannot distinguish
+// maintenance deliveries; modified/developer receipts do not earn admission.
+const PUBLIC_098_SOURCES: [&str; 5] = [
+    "e3d2245966c725ee11b505899b22a20721ff2ddd",
+    "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524",
+    "b65695ee0609c2a971289109975678b8da87c946",
+    "4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998",
+    "99c556e5c966e1e1dae04f2d8babd2ca2dec9375",
+];
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublishedPair {
+    source_commit: String,
+    architecture: String,
+    app_sha: String,
+    core_sha: String,
+    broker_sha: String,
+    dns_receipt_sha: String,
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublishedPairs {
+    schema_version: u32,
+    pairs: Vec<PublishedPair>,
+}
+fn published098(source: &str, arch: &str) -> Result<PublishedPair> {
+    // Compiled public bytes, never a caller-selected receipt/manifest.
+    let table: PublishedPairs =
+        serde_json::from_str(include_str!("../../../plugin/published-pairs.json"))
+            .map_err(|_| Blocker::Predecessor)?;
+    if table.schema_version != 1 {
+        return Err(Blocker::Predecessor);
+    }
+    let mut matches = table
+        .pairs
+        .into_iter()
+        .filter(|pair| pair.source_commit == source && pair.architecture == arch);
+    let pair = matches.next().ok_or(Blocker::Predecessor)?;
+    if matches.next().is_some() {
+        return Err(Blocker::Predecessor);
+    }
+    Ok(pair)
+}
+
+fn predecessor098_at(
+    receipt: &Path,
+    binary: &Path,
+    owner: u32,
+    arch: &str,
+    target: Option<&str>,
+) -> Result<()> {
+    let mut captured =
+        Captured::read(receipt, owner, 0o644, 4096).map_err(|_| Blocker::Predecessor)?;
+    let text = std::str::from_utf8(&captured.bytes).map_err(|_| Blocker::Predecessor)?;
+    let source = text
+        .lines()
+        .find_map(|line| line.strip_prefix("sourceCommit="))
+        .filter(|source| PUBLIC_098_SOURCES.contains(source) || Some(*source) == target)
+        .ok_or(Blocker::Predecessor)?;
+    let digest = package_phase::app_identity(&captured.bytes, arch, source, "0.9.8")
+        .map_err(|_| Blocker::Predecessor)?;
+    let expected = if Some(source) == target {
+        package_phase::running_digest()?
+    } else {
+        published098(source, arch)?.app_sha
+    };
+    if expected != digest {
+        return Err(Blocker::Predecessor);
+    }
+    package_phase::Archive::open(binary.to_owned(), owner, &digest, 0o755)
+        .map_err(|_| Blocker::Predecessor)?;
+    captured.recheck().map_err(|_| Blocker::Predecessor)
+}
+
+fn predecessor098(target: &str) -> Result<()> {
+    predecessor098_at(
+        Path::new("/usr/share/doc/omavless/build-identity.txt"),
+        Path::new("/usr/bin/omavless"),
+        0,
+        std::env::consts::ARCH,
+        Some(target),
+    )
+}
+
 fn units() -> Result<[String; 2]> {
     let mut observations = Vec::new();
     for name in ["omavless-runtime.service", "omavless-login-prepare.service"] {
@@ -431,6 +520,7 @@ pub(crate) struct UpgradeContext {
     captured: Vec<Captured>,
     units: [String; 2],
     login_receipt_absent: bool,
+    absent_members: Vec<PathBuf>,
 }
 impl UpgradeContext {
     fn acquire(scope: Scope, uid: u32, observed_units: [String; 2]) -> Result<Self> {
@@ -629,6 +719,7 @@ impl UpgradeContext {
             captured,
             units: observed_units,
             login_receipt_absent,
+            absent_members: Vec::new(),
         };
         context.recheck_private()?;
         Ok(context)
@@ -683,7 +774,36 @@ impl UpgradeContext {
         for capture in &mut self.captured {
             capture.recheck()?;
         }
+        if self.absent_members.iter().any(|path| !absent(path)) {
+            return Err(Blocker::StateChanged);
+        }
         Ok(())
+    }
+
+    fn capture_managed_members(&mut self) -> Result<()> {
+        for (name, maximum) in [
+            (crate::managed_pair::SELECTOR, 64),
+            ("route-template.pre-managed-dns.yaml", 1024 * 1024),
+        ] {
+            let path = self.scope.config.join(name);
+            if absent(&path) {
+                self.absent_members.push(path);
+            } else {
+                let capture = Captured::read(&path, self.uid, 0o600, maximum)?;
+                if name == crate::managed_pair::SELECTOR
+                    && capture.bytes != crate::managed_pair::SELECTION_BYTES
+                {
+                    return Err(Blocker::PrivateState);
+                }
+                self.captured.push(capture);
+            }
+        }
+        let candidate = self.scope.config.join(".managed-dns-selection.candidate");
+        if !absent(&candidate) {
+            return Err(Blocker::PendingRecovery);
+        }
+        self.absent_members.push(candidate);
+        self.recheck_private()
     }
     pub(crate) fn recheck(&mut self) -> Result<()> {
         self.recheck_private()?;
@@ -742,10 +862,18 @@ fn precheck_stopped_owner(scope: &Scope, uid: u32) -> Result<()> {
 /// Internal admission only, never an exported advisory ticket. The concrete
 /// consumer keeps this ORIGINAL value through its entire package-only phase.
 pub(crate) fn acquire_current() -> Result<UpgradeContext> {
+    acquire_current_for(None)
+}
+
+fn acquire_current_for(target098: Option<&str>) -> Result<UpgradeContext> {
     crate::cutover_activation::environment::with_current(|| {
         let uid = Uid::current().as_raw();
         let scope = Scope::current(uid)?;
-        predecessor()?;
+        if let Some(target) = target098 {
+            predecessor098(target)?;
+        } else {
+            predecessor()?;
+        }
         let observed_units = units()?;
         let observer = crate::production_observation::ProductionOwnershipObserver::current()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;
@@ -753,11 +881,18 @@ pub(crate) fn acquire_current() -> Result<UpgradeContext> {
             .verify_native_empty()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;
         let mut context = UpgradeContext::acquire(scope, uid, observed_units)?;
+        if target098.is_some() {
+            context.capture_managed_members()?;
+        }
         observer
             .verify_native_empty()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;
         context.recheck()?;
-        predecessor()?;
+        if let Some(target) = target098 {
+            predecessor098(target)?;
+        } else {
+            predecessor()?;
+        }
         Ok(context)
     })
     .map_err(|_| Blocker::Environment)?
@@ -769,10 +904,24 @@ mod delivery_metadata;
 #[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
 #[path = "setup_upgrade082/package_phase.rs"]
 mod package_phase;
+
+#[cfg(any(test, feature = "developer-upgrade082", feature = "setup-upgrade082"))]
+#[path = "setup_upgrade082/terminal_copy.rs"]
+mod terminal_copy;
 #[cfg(feature = "setup-upgrade082")]
 pub use package_phase::run_delivery_update;
 #[cfg(feature = "developer-upgrade082")]
 pub use package_phase::run_development_update;
+#[cfg(feature = "setup-upgrade082")]
+pub use package_phase::run_pair_update;
+#[cfg(feature = "setup-upgrade082")]
+#[path = "setup_upgrade082/maintenance.rs"]
+mod maintenance;
+#[cfg(feature = "setup-upgrade082")]
+#[path = "setup_upgrade082/root_stage.rs"]
+mod root_stage;
+#[cfg(feature = "setup-upgrade082")]
+pub use maintenance::run_root as prepare_pair_root;
 
 #[cfg(test)]
 mod tests;

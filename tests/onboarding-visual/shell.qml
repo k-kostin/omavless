@@ -24,14 +24,23 @@ ShellRoot {
     function scenario(language, stage, helpers, core) {
         if (!loader.item || ["en", "ru"].indexOf(language) < 0
             || stage < 1 || stage > 3 || ["ready", "missing", "clipboard", "picker", "unknown"].indexOf(helpers) < 0
-            || ["ready", "missing", "permissions", "unknown"].indexOf(core) < 0) return "refused"
+            || ["ready", "missing", "permissions", "unknown", "update"].indexOf(core) < 0) { result = "refused"; return "refused" }
         var w = loader.item
         w.locale = language
         w.nativeCoreFacts = core === "unknown" ? null : {
-            installed:core !== "missing", version:core === "missing" ? null : "1.19.30",
+            installed:core !== "missing", version:core === "missing" ? null : "1.19.31",
             tunDevice:"present", fileNetworkCapabilities:core === "missing" ? "not_applicable" : core === "permissions" ? "missing" : "present"
         }
-        w.nativeCoreDescription = core === "unknown" ? "" : w.textFor(core === "missing" ? "native.core.missing" : "native.core.version", {version:"1.19.30"})
+        w.nativeCoreDescription = core === "unknown" ? w.textFor("native.core.notChecked") : w.textFor(core === "missing" ? "native.core.missing" : "native.core.version", {version:"1.19.31"})
+        w.nativeSetupFacts = {state:core === "update" ? "needs_update" : core === "missing" ? "needs_package" : "ready", coreInstalled:core !== "missing" && core !== "update"}
+        w.nativeSetupTerminalOpened = false
+        w.profiles = []
+        w.busy = false
+        w.routingSavePending = false
+        w.routingSaveUnknown = false
+        w.nativeStatus = ""
+        w.nativeCanContinue = true
+        if ("firstRun" in w) w.firstRun = true
         // Supports inspecting the unchanged installed baseline before the new property exists.
         if ("nativeDesktopFacts" in w) w.nativeDesktopFacts = helpers === "unknown" ? null : {
             filePicker:helpers === "ready" || helpers === "picker" ? "zenity" : null,
@@ -67,6 +76,7 @@ ShellRoot {
                 item.fileRequested.connect(function() { review.lastAction = "file" })
                 item.finishRequested.connect(function() { review.lastAction = "finish"; item.dismiss() })
                 item.canceled.connect(function() { review.lastAction = "cancel"; item.dismiss() })
+                item.componentSetupRequested.connect(function() { review.lastAction = "component-review"; item.dismiss() })
                 review.scenario("en", 3, "missing", "ready")
             }
         }
@@ -84,8 +94,39 @@ ShellRoot {
         function state(language: string, stage: int, helpers: string, core: string): string {
             return review.scenario(language, stage, helpers, core)
         }
+        function terminal(open: bool) { loader.item.nativeSetupTerminalOpened = open }
+        function firstRun(value: bool) { loader.item.firstRun = value }
+        function profiles(count: int): string {
+            if (count !== 0 && count !== 1) return "refused"
+            loader.item.profiles = count === 1 ? [{id:"synthetic-profile",name:"UI fixture"}] : []
+            review.result = "ready"
+            return "ready"
+        }
+        function pending(value: bool): string {
+            if (loader.item.step !== 2) return "refused"
+            loader.item.routingSavePending = value
+            loader.item.busy = value
+            review.result = "ready"
+            return "ready"
+        }
+        function unknown(value: bool): string {
+            if (loader.item.step !== 2) return "refused"
+            loader.item.routingSaveUnknown = value
+            loader.item.nativeStatus = value ? loader.item.textFor("native.unknownOutcome") : ""
+            loader.item.nativeCanContinue = !value
+            loader.item.busy = false
+            review.result = "ready"
+            return "ready"
+        }
+        function delivery(value: string): string {
+            if (!loader.item || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"
+            var facts = loader.item.nativeSetupFacts
+            loader.item.nativeSetupFacts = {state:facts.state, coreInstalled:facts.coreInstalled, delivery:value}
+            review.result = "ready"
+            return "ready"
+        }
         function capture(slug: string): string {
-            if (!/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith("/tmp/omavless-onboarding-review.")) return "refused"
+            if (["ready", "captured"].indexOf(review.result) < 0 || !/^[a-z0-9-]{1,48}$/.test(slug) || !review.output.startsWith(Quickshell.env("HOME") + "/.cache/ovt/onboarding.")) return "refused"
             review.result = "capturing"
             loader.grabToImage(function(image) {
                 review.result = image.saveToFile(review.output + "/" + slug + ".png") ? "captured" : "failed"
@@ -107,7 +148,7 @@ ShellRoot {
             return "ready"
         }
         function press(action: string): string {
-            var names = {paste:"onboardingPaste", file:"onboardingFile", finish:"onboardingFinish", copy:"onboardingCopyCommand", refresh:"onboardingHelpersRefresh"}
+            var names = {paste:"onboardingPaste", file:"onboardingFile", finish:"onboardingFinish", copy:"onboardingCopyCommand", refresh:"onboardingHelpersRefresh", components:"onboardingComponentSetup", next:"onboardingCoreContinue",back:"onboardingBack",routingNext:"onboardingRoutingContinue"}
             if (!Object.prototype.hasOwnProperty.call(names, action)) return "refused"
             var button = review.control(names[action], loader.item)
             if (!button || !button.visible || !button.enabled) return "unavailable"
@@ -115,12 +156,13 @@ ShellRoot {
             return "pressed"
         }
         function inspect(): string {
-            var result = {visible:loader.item.visible,step:loader.item.step,lastAction:review.lastAction}
-            for (var name of ["onboardingPaste", "onboardingFile", "onboardingFinish", "onboardingHelpersRefresh"]) {
+            var result = {visible:loader.item.visible,step:loader.item.step,coreState:loader.item.nativeCoreState,lastAction:review.lastAction}
+            for (var name of ["onboardingPaste", "onboardingFile", "onboardingFinish", "onboardingHelpersRefresh", "onboardingComponentSetup", "onboardingCoreContinue", "onboardingBack", "onboardingRoutingContinue"]) {
                 var button = review.control(name, loader.item)
-                result[name] = button ? {visible:button.visible,enabled:button.enabled} : null
+                result[name] = button ? {text:button.text,visible:button.visible,enabled:button.enabled,primary:button.primary === true} : null
             }
             return JSON.stringify(result)
         }
+        function finish() { Qt.quit() }
     }
 }

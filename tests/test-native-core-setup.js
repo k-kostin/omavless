@@ -22,4 +22,16 @@ test('fixed read command and disposable result',()=>{const c=context();assert(c.
 test('close and ownership changes discard late replies',()=>{for(const key of ['nativeOwner','nativeCoreSetupVisible']){const c=context();c.refreshNativeCoreSetup();const p=c._nativeCoreSetupRead;c[key]=false;c.finishNativeCoreSetup(p,0,JSON.stringify(facts()));assert.equal(c.nativeCoreSetupFacts,null);assert(p.destroyed)}});
 test('reopen generation obtains a fresh sample',()=>{const c=context();c.refreshNativeCoreSetup();const p=c._nativeCoreSetupRead;c._nativeCoreSetupGeneration++;c.finishNativeCoreSetup(p,0,JSON.stringify(facts()));assert.equal(c.nativeCoreSetupFacts,null);assert.equal(c._nativeCoreSetupRead.generation,4);assert(p.destroyed)});
 test('public fixed failure and QML watchdog',()=>{const c=context();c.refreshNativeCoreSetup();c.finishNativeCoreSetup(c._nativeCoreSetupRead,1,'private-token');assert.equal(c.nativeCoreSetupStatus,'failed');assert.equal(c.nativeCoreSetupFacts,null);const component=source.slice(source.indexOf('id: nativeCoreSetupComponent'),source.indexOf('id: nativeQrRenderComponent'));assert(component.includes('property Timer watchdog: Timer'));assert(!component.includes('console.'));const panel=fs.readFileSync(__dirname+'/../plugin/Panel.qml','utf8');assert(panel.includes('nativeCoreSetupRow.focusTarget'));assert(panel.includes('nativeSetupSummary: vless.nativeOwner'));assert(!panel.includes('vless.nativeCoreSetupFacts.tunReady'))});
+test('component fact reads are not mislabeled as package updates',()=>{
+ const panel=fs.readFileSync(__dirname+'/../plugin/Panel.qml','utf8');
+ for(const [id,handler] of [['nativeCoreSetupRow','vless.refreshNativeCoreSetup()'],['nativeHelpersRefresh','vless.refreshNativeDesktopCapabilities()']]) {
+  const start=panel.indexOf('id: '+id),end=panel.indexOf('\n          }',start);
+  const row=panel.slice(start,end);
+  assert(row.includes('actionText: root.textFor("native.setup.check_facts")'));
+  assert(row.includes('onAction: '+handler));assert(!row.includes('setupPage.install'));
+ }
+ const i18n=require('../plugin/I18n.js');
+ assert.equal(i18n.translate('native.setup.check_facts','en',{}),'Check status');
+ assert.equal(i18n.translate('native.setup.check_facts','ru',{}),'Проверить');
+});
 console.log(`${count} native core setup tests passed`);

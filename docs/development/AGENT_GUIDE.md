@@ -102,6 +102,20 @@ semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
 
+October 15 owner-authorized successor: prepare immutable `v0.9.8-fix.7`
+and main integration of the reviewed setup stack #783–787/#782. Common native
+app/DNS source is `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`; product/package
+versions remain 0.9.8 / 0.9.8-1. Exact installed x86_64 update/fresh/partial
+and CI results are in the [onboarding report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md).
+The release PR owns final source/frontend identity, anonymous downloads,
+ordinary main installation and actual publication/merge outcomes. ARM64 archives
+are inspected but not installed, as explicitly permitted by the owner.
+Aryan's reply and README additions are drafts only; do not post them or alter
+Marketplace without separate authorization. Retain old immutable assets,
+unmerged frontier and 0.9.9 Restore/removal scopes during cleanup.
+Fix.6 remains an immutable prerelease; fix.7 removes a short false failure
+explanation while core facts load, without changing the native package bytes.
+
 October 14 emergency setup successor: the owner authorized main integration
 through #778, not another issue #772 reply or Marketplace write. Immutable
 `v0.9.8-fix.4` packages use producer
@@ -317,6 +331,11 @@ credential-safe report or update canonical documentation in Git rather than
 leaving the result only in chat history.
 
 ## UI interaction and presentation work
+
+Public Setup help, onboarding links and user guides must describe current main,
+including its actual selected package/installation path. Apply the
+[public-guide rule](README.md#public-guides-follow-main) when changing a user
+flow or proposing a main update; checking that a help URL exists is insufficient.
 
 Before changing plugin layout, controls, labels, selection, focus or scrolling,
 read [`skills/omavless-ui-review/SKILL.md`](../../skills/omavless-ui-review/SKILL.md)

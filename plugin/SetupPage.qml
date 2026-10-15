@@ -19,16 +19,19 @@ Item {
   readonly property bool needsAttention: SetupState.needsAttention(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   property bool panelOpen: false
+  property bool componentReview: false
+  property string reviewCoreState: "attention"
   property bool launching: false
   property bool terminalOpened: false
   property string launchAction: "install"
   property bool nativeEffectBlocked: false
   readonly property bool busy: probe.running || launching || startApp.running
   readonly property string script: String(Qt.resolvedUrl("setup-runtime.sh")).replace(/^file:\/\//, "")
-  readonly property var focusTargets: requirements.focusTargets.concat([closeButton])
+  readonly property var focusTargets: requirements.focusTargets.concat([reviewTerminalButton, reviewCheckButton, reviewGuideButton, closeButton])
   implicitHeight: content.implicitHeight
   signal ready()
   signal closeRequested()
+  signal factsRefreshRequested()
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   function check() { if (!probe.running && !launch.running) probe.running = true }
   function acknowledgeTerminalClosed() { terminalOpened = false; check() }
@@ -81,10 +84,20 @@ Item {
     width: parent.width
     spacing: Style.space(12)
     PlainText { Layout.fillWidth: true; text: "OmaVLESS"; font.family: Style.font.family; font.pixelSize: Style.font.title; color: Color.foreground }
-    PlainText { Layout.fillWidth: true; text: setup.tr("panel_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+    PlainText { Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "review_components" : "panel_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+    PlainText {
+      objectName: "setupOtherVpnAdvice"
+      Layout.fillWidth: true
+      visible: !setup.componentReview && !setup.terminalOpened
+        && (setup.state === "needs_package" || setup.state === "needs_activation")
+      text: setup.tr("other_vpn_advice")
+      font.family: Style.font.family; font.pixelSize: Style.font.caption
+      color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap
+    }
     BorderSurface {
       Layout.fillWidth: true
       implicitHeight: profilesPlaceholder.implicitHeight + Style.space(20)
+      visible: !setup.componentReview
       color: "transparent"; radius: 0
       borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
       ColumnLayout {
@@ -100,11 +113,47 @@ Item {
       id: requirements
       Layout.fillWidth: true
       locale: setup.locale; facts: setup.facts; busy: setup.busy; effectBlocked: setup.nativeEffectBlocked; terminalOpened: setup.terminalOpened
+      busyMessage: startApp.running ? "starting_app" : setup.launching ? "opening_terminal" : "checking"
       onInstallRequested: function(action) { setup.install(action) }
-      onCheckRequested: setup.check()
+      onCheckRequested: { setup.check(); setup.factsRefreshRequested() }
       onTerminalClosed: setup.acknowledgeTerminalClosed()
       onGuideRequested: setup.guide()
     }
-    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr("later"); bordered: true; focusable: true; onClicked: setup.closeRequested() }
+    PlainText {
+      Layout.fillWidth: true
+      visible: setup.componentReview && !setup.needsAttention
+      text: I18n.translate("native.onboarding.core_" + (setup.terminalOpened ? "terminal" : setup.reviewCoreState), setup.locale, {})
+      font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap
+    }
+    PlainText {
+      Layout.fillWidth: true
+      visible: setup.componentReview && !setup.needsAttention
+        && (setup.terminalOpened || (setup.reviewCoreState !== "ready" && setup.reviewCoreState !== "checking"))
+      text: setup.tr(setup.terminalOpened ? "terminal" : "review_core_attention")
+      font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap
+    }
+    Button {
+      id: reviewTerminalButton
+      Layout.fillWidth: true
+      visible: setup.componentReview && !setup.needsAttention && setup.terminalOpened
+      text: setup.tr("terminal_closed"); bordered: true; focusable: true
+      onClicked: { setup.acknowledgeTerminalClosed(); setup.factsRefreshRequested() }
+    }
+    Button {
+      id: reviewCheckButton
+      Layout.fillWidth: true
+      visible: setup.componentReview && !setup.needsAttention
+      enabled: !setup.busy
+      text: setup.tr("check"); bordered: true; focusable: true
+      onClicked: { setup.check(); setup.factsRefreshRequested() }
+    }
+    Button {
+      id: reviewGuideButton
+      Layout.fillWidth: true
+      visible: setup.componentReview && !setup.needsAttention
+      text: setup.tr("guide_short"); bordered: false; focusable: true
+      onClicked: setup.guide()
+    }
+    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && !setup.needsAttention && setup.reviewCoreState === "ready" && !setup.terminalOpened ? Color.accent : Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
   }
 }

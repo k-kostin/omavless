@@ -1,10 +1,55 @@
 # Current delivery status
 
-Updated 2026-10-14. This is the compact current-state entry point; the detailed
+Updated 2026-10-15. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **Selected fix.7 main successor:** the owner authorizes immutable
+  `v0.9.8-fix.7` and main integration of the setup stack #783–787 plus the
+  public-guide contract from #782. Native app/DNS source is
+  `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`, with inspected pins for both
+  architectures and unchanged product/package versions 0.9.8 / 0.9.8-1.
+  Actual x86_64 fresh, partial-DNS continuation and public-fix.5 update
+  journeys pass. Full Test/native builds pass on the reviewed source heads;
+  the [onboarding report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
+  preserves identities, failures and limits. The release PR records final
+  public download/main-clone gates and actual publication/merge, not inferred
+  from warmed caches. Installed ARM64 remains unrun under the owner's explicit
+  publication allowance. Original 0.9.8 still needs guarded administrator
+  removal/replacement; compatible older pairs use the offered update/remaining
+  setup actions. Aryan's reply and README additions remain drafts; no
+  Marketplace action or future 0.9.9 feature is authorized here.
+  The final fix.6 VM journey exposed a brief false failure explanation during
+  core checking. Fix.7 corrects this presentation; the fix.6 tag/assets remain
+  unchanged, and the same native packages are reused.
+
+- **Historical core onboarding/fix.5 validation:** distinguish Core ready/version/Continue from
+  missing, supported-update and unverified facts. Other states navigate to the
+  same guarded component setup; opening review performs no install/update.
+  Refresh is a facts read, not a Mihomo updater. Existing app + missing companion
+  retains manual guarded guidance. [The UI report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
+  separates installed ready navigation from EN/RU synthetic negative-state
+  rendering; the fixing PR records CI and actual main integration.
+  That initial UI-only slice leaves package identities unchanged. The systemic
+  follow-up in #783 adds a **not-yet-delivered** stopped-0.9.8 paired updater
+  and exact published-byte inventory, so its native changes require new package
+  delivery and installed acceptance. `component-updates.json` keeps that action
+  disabled for fix.4; old binaries cannot be relabelled as containing it.
+  Freshness is advisory for compatible older pairs, not a Connect/Continue or
+  stopped-runtime dead end. Main promotion is paused pending this follow-up.
+  The user-journey challenge's preparation/return blocker is implemented by
+  native producer `99c556e5c966e1e1dae04f2d8babd2ca2dec9375` and tested through
+  actual GUI Quit/reopen → PREPARE → UPGRADE → broker Start → app Start, including
+  cancellations and terminal-closure fencing. `rc/0.9.8-fix.5` selects its
+  independently inspected matched pair for both architectures and enables the
+  public action only for that delivered capability. Immutable validation
+  fix.5/frontend `1e25a79796e1b7a2d9ba341f26b093c74c3c3b84` now has seven verified
+  anonymous downloads and an actual continuous clean x86_64 GUI/cache-miss setup.
+  Exact final CI remains a separate gate tracked in #784; installed ARM64 is
+  not claimed. Original v0.9.8 lacks the required Idle gate
+  and still needs guarded administrator removal/replacement.
 
 - **Emergency setup/update correction, #778:** owner-authorized main
   integration carries stage diagnostics, partial DNS continuation, qualified

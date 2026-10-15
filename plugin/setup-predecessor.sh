@@ -88,3 +88,107 @@ omavless_predecessor_status() {
   esac
   _omavless_predecessor_inspect /usr/share/doc/omavless/build-identity.txt /usr/bin/omavless "$arch" "$digest" 0
 }
+
+# Advisory 0.9.8 delivery inventory only. Root receipts and actual payloads are
+# checked without executing either app/core. This never authorizes replacement.
+_omavless_pair_pins() {
+  local pins
+  pins="$(dirname -- "${BASH_SOURCE[0]}")/published-pairs.json"
+  [[ -f $pins && ! -L $pins && $(stat -c %s -- "$pins") -le 16384 ]] || return 1
+  if /usr/bin/jq -er --arg source "$1" --arg arch "$2" '
+    select(keys == ["pairs", "schemaVersion"] and .schemaVersion == 1)
+    | [.pairs[] | select(.sourceCommit == $source and .architecture == $arch)]
+    | select(length == 1) | .[0]
+    | select(keys == ["appSha", "architecture", "brokerSha", "coreSha", "dnsReceiptSha", "sourceCommit"])
+    | [.appSha, .coreSha, .brokerSha, .dnsReceiptSha]
+    | select(all(.[]; type == "string" and test("^[0-9a-f]{64}$"))) | @tsv' "$pins"; then return; fi
+  # Target delivery pins are frontend-only. Do not put a future binary's own
+  # digest into its compiled predecessor table (a circular build identity).
+  pins="$(dirname -- "${BASH_SOURCE[0]}")/component-updates.json"
+  [[ -f $pins && ! -L $pins && $(stat -c %s -- "$pins") -le 8192 ]] || return 1
+  /usr/bin/jq -er --arg source "$1" --arg arch "$2" '
+    select(keys == ["identities", "schemaVersion", "sourceCommit", "updatePair"]
+      and .schemaVersion == 2 and .sourceCommit == $source and (.updatePair | type) == "boolean")
+    | .identities | select(keys == ["aarch64", "x86_64"])
+    | select(all(.[]; keys == ["appSha", "brokerSha", "coreSha", "dnsReceiptSha"]
+        and all(.[]; type == "string" and test("^[0-9a-f]{64}$")))) | .[$arch]
+    | select(keys == ["appSha", "brokerSha", "coreSha", "dnsReceiptSha"])
+    | [.appSha, .coreSha, .brokerSha, .dnsReceiptSha]
+    | select(all(.[]; type == "string" and test("^[0-9a-f]{64}$"))) | @tsv' "$pins"
+}
+_omavless_pair_delivery_inspect() (
+  export LC_ALL=C
+  local app_receipt=$1 app=$2 dns_receipt=$3 core=$4 broker=$5 arch=$6 target=$7 owner=$8
+  local app_id binary_id dns_id core_id broker_id source digest actual dns_source core_sha broker_sha
+  local pinned_app pinned_core pinned_broker pinned_receipt
+  app_id=$(_omavless_predecessor_file_identity "$app_receipt" "$owner" 644 4096) \
+    && binary_id=$(_omavless_predecessor_file_identity "$app" "$owner" 755 268435456) \
+    || { printf 'unknown\n'; return; }
+  source=$(/usr/bin/sed -n 's/^sourceCommit=//p' "$app_receipt")
+  digest=$(/usr/bin/sed -n 's/^binarySha256=//p' "$app_receipt")
+  [[ $source =~ ^[0-9a-f]{40}$ && $digest =~ ^[0-9a-f]{64}$ ]] \
+    || { printf 'unknown\n'; return; }
+  case "$source" in
+    "$target"|4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998|e3d2245966c725ee11b505899b22a20721ff2ddd|8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524|b65695ee0609c2a971289109975678b8da87c946|99c556e5c966e1e1dae04f2d8babd2ca2dec9375) ;;
+    *) printf 'unknown\n'; return ;;
+  esac
+  IFS=$'\t' read -r pinned_app pinned_core pinned_broker pinned_receipt < <(_omavless_pair_pins "$source" "$arch") \
+    || { printf 'unknown\n'; return; }
+  [[ "$digest" == "$pinned_app" ]] || { printf 'unknown\n'; return; }
+  printf 'schemaVersion=3\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\nproductVersion=0.9.8\n' \
+    "$source" "$digest" "$arch" | /usr/bin/cmp -s -- - "$app_receipt" \
+    || { printf 'unknown\n'; return; }
+  actual=$(/usr/bin/timeout 8 /usr/bin/sha256sum -- "$app") \
+    || { printf 'unknown\n'; return; }
+  [[ ${actual%% *} == "$digest" \
+     && $app_id == "$(_omavless_predecessor_file_identity "$app_receipt" "$owner" 644 4096)" \
+     && $binary_id == "$(_omavless_predecessor_file_identity "$app" "$owner" 755 268435456)" ]] \
+    || { printf 'unknown\n'; return; }
+  if [[ ! -e $dns_receipt && ! -L $dns_receipt && ! -e $core && ! -L $core && ! -e $broker && ! -L $broker ]]; then
+    printf 'missing\n'; return
+  fi
+  dns_id=$(_omavless_predecessor_file_identity "$dns_receipt" "$owner" 644 8192) \
+    && core_id=$(_omavless_predecessor_file_identity "$core" "$owner" 755 134217728) \
+    && broker_id=$(_omavless_predecessor_file_identity "$broker" "$owner" 755 33554432) \
+    || { printf 'unknown\n'; return; }
+  IFS=$'\t' read -r dns_source core_sha broker_sha < <(/usr/bin/jq -er --arg arch "$arch" '
+    select(.schema == 1 and .architecture == $arch and .package_flavor == "release" and .broker_feature == "release-package")
+    | [.omavless_commit, .sha256.mihomo, .sha256["omavless-dns-broker"]]
+    | select(all(.[]; type == "string")) | @tsv' "$dns_receipt") \
+    || { printf 'unknown\n'; return; }
+  [[ $dns_source =~ ^[0-9a-f]{40}$ && $core_sha =~ ^[0-9a-f]{64}$ && $broker_sha =~ ^[0-9a-f]{64}$ ]] \
+    || { printf 'unknown\n'; return; }
+  # Mixed producers are diagnosis only. A same-source companion must match
+  # independently recorded public bytes, not just its own mutable receipt.
+  if [[ "$dns_source" == "$source" ]]; then
+    actual=$(/usr/bin/timeout 8 /usr/bin/sha256sum -- "$dns_receipt") \
+      || { printf 'unknown\n'; return; }
+    [[ "$core_sha" == "$pinned_core" && "$broker_sha" == "$pinned_broker" && "${actual%% *}" == "$pinned_receipt" ]] \
+      || { printf 'unknown\n'; return; }
+  fi
+  actual=$(/usr/bin/timeout 8 /usr/bin/sha256sum -- "$core") \
+    || { printf 'unknown\n'; return; }
+  [[ ${actual%% *} == "$core_sha" ]] || { printf 'unknown\n'; return; }
+  actual=$(/usr/bin/timeout 8 /usr/bin/sha256sum -- "$broker") \
+    || { printf 'unknown\n'; return; }
+  [[ ${actual%% *} == "$broker_sha" \
+     && $dns_id == "$(_omavless_predecessor_file_identity "$dns_receipt" "$owner" 644 8192)" \
+     && $core_id == "$(_omavless_predecessor_file_identity "$core" "$owner" 755 134217728)" \
+     && $broker_id == "$(_omavless_predecessor_file_identity "$broker" "$owner" 755 33554432)" \
+     && $app_id == "$(_omavless_predecessor_file_identity "$app_receipt" "$owner" 644 4096)" \
+     && $binary_id == "$(_omavless_predecessor_file_identity "$app" "$owner" 755 268435456)" ]] \
+    || { printf 'unknown\n'; return; }
+  if [[ $dns_source != "$source" ]]; then printf 'mismatch\n'
+  elif [[ $source == "$target" ]]; then printf 'current\n'
+  else printf 'stale\n'; fi
+)
+
+omavless_pair_delivery_status() {
+  [[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || { printf 'unknown\n'; return; }
+  local arch
+  arch=$(/usr/bin/uname -m) || { printf 'unknown\n'; return; }
+  [[ $arch == x86_64 || $arch == aarch64 ]] || { printf 'unknown\n'; return; }
+  _omavless_pair_delivery_inspect /usr/share/doc/omavless/build-identity.txt /usr/bin/omavless \
+    /usr/share/omavless-dns/source-receipt.json /usr/lib/omavless-dns/mihomo \
+    /usr/lib/omavless-dns/omavless-dns-broker "$arch" "$1" 0
+}

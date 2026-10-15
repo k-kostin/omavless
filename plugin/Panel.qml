@@ -59,7 +59,8 @@ Panel {
   // when a companion or selection needs attention.
   // A prior parsed snapshot is historical DATA after an independently proved
   // stopped state. Do not leave its failed poll looking like a broken VPN.
-  readonly property bool bootstrapRequired: SetupState.bootstrapRequired(
+  property bool componentSetupReview: false
+  readonly property bool bootstrapRequired: componentSetupReview || SetupState.bootstrapRequired(
     setupPage.facts, vless.nativeOwner, vless.nativeSnapshot !== null,
     vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown)
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
@@ -703,17 +704,31 @@ Panel {
     if (vless.nativeOwner && (!vless.nativeSnapshot || vless.nativeSnapshotFailed || vless.nativePending)) return false
     onboardingDismissed = false
     onboardingWizard.openAt(step || 1)
-    if (vless.nativeOwner) vless.refreshNativeDesktopCapabilities()
+    if (vless.nativeOwner) {
+      vless.refreshNativeDesktopCapabilities()
+      setupPage.check()
+    }
     return true
+  }
+
+  function reviewComponentSetup() {
+    // Navigation only. The existing controller rechecks and confirms effects.
+    dismissOnboarding()
+    page = "main"
+    componentSetupReview = true
+    setupFlick.contentY = 0
+    setupPage.check()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function syncNativeOnboarding() {
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
     if (vless.nativeStatusRefreshing) return
-    if (nativeOnboardingPresetPending !== "" && !vless.nativePending) {
-      if (onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
+    if (nativeOnboardingPresetPending !== "" && !vless.nativePending && !vless.nativeOutcomeUnknown) {
+      var presetRejected = vless.nativeActionCode !== "" || (vless.nativeMetadataErrorAction === "routing-preset" && vless.nativeMetadataErrorCode !== "")
+      if (!presetRejected && onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
         onboardingWizard.step = 3
-      if (vless.nativeActionCode !== "" || vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
+      if (presetRejected || vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
         nativeOnboardingPresetPending = ""
     }
     if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
@@ -1545,6 +1560,7 @@ Panel {
   // or a `pickConfigFile` landing) would be invisible, unclickable and
   // unfocused until it went away.
   onOpenedChanged: {
+    componentSetupReview = false
     quitConfirmation = false
     nativeExpandedDetailsId = ""
     if (!opened && vless.nativeOwner) vless.cancelNativeSubscription()
@@ -1601,7 +1617,7 @@ Panel {
     settings: root.settings
     panelVisible: root.opened
     nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
-    nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible) && vless.nativeOwner
+    nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible || root.componentSetupReview) && vless.nativeOwner
     nativeStartupSettingsVisible: root.opened && (root.page === "settings" || startupPrompt.visible) && vless.nativeOwner
     nativeDetailsProfileId: root.opened && nativeOwner && nativeCanAct && root.nativeExpandedDetailsId === root.nativeSelectedProfile
       && (root.page === "main" || root.page === "subscription") ? root.nativeExpandedDetailsId : ""
@@ -1638,7 +1654,11 @@ Panel {
         root.nativeSelectedProfile = vless.nativeSnapshot.desired.connected ? vless.nativeSnapshot.desired.profileId : vless.nativeSnapshot.lastProfileId
       root.syncNativeOnboarding()
     }
-    function onNativePendingChanged() { root.syncNativeOnboarding() }
+    // The exit handler publishes error fields after releasing nativePending.
+    // Observe its completed publication, not an intermediate success-shaped state.
+    function onNativePendingChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }
+    function onNativeActionCodeChanged() { root.syncNativeOnboarding() }
     function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) {
@@ -2030,11 +2050,19 @@ Panel {
           id: setupPage
           width: Math.max(0, setupFlick.width - root.scrollGutter)
           locale: root.uiLocale
+          componentReview: root.componentSetupReview
+          reviewCoreState: onboardingWizard.nativeCoreState
           panelOpen: root.opened
           nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null
             || vless.nativeOutcomeUnknown || vless.nativeQuitting
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
-          onCloseRequested: root.close()
+          onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
+          onCloseRequested: {
+            if (root.componentSetupReview) {
+              root.componentSetupReview = false
+              Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+            } else root.close()
+          }
         }
       }
 
@@ -2262,7 +2290,7 @@ Panel {
             visible: root.page === "settings"
             title: root.textFor("settings.mihomo_core")
             description: root.nativeCoreSetupDescription()
-            actionText: root.textFor("common.refresh")
+            actionText: root.textFor("native.setup.check_facts")
             actionEnabled: !vless.nativeCoreSetupBusy
             onAction: vless.refreshNativeCoreSetup()
           }
@@ -2293,7 +2321,7 @@ Panel {
             visible: root.page === "settings"
             title: root.textFor("native.helpers.title")
             description: root.textFor(vless.nativeDesktopLoading ? "common.loading" : vless.nativeDesktopCapabilities ? "native.helpers.scope" : "native.helpers.unavailable")
-            actionText: root.textFor("common.refresh")
+            actionText: root.textFor("native.setup.check_facts")
             actionEnabled: !vless.nativeDesktopLoading
             onAction: vless.refreshNativeDesktopCapabilities()
           }
@@ -3987,10 +4015,17 @@ Panel {
         anchors.fill: parent
         nativeContext: vless.nativeOwner
         nativeCoreFacts: vless.nativeCoreSetupFacts
+        firstRun: vless.nativeOwner && vless.nativeSnapshot !== null && !vless.nativeSnapshot.onboardingComplete
         nativeDesktopFacts: vless.nativeDesktopCapabilities
         nativeDesktopLoading: vless.nativeDesktopLoading
         nativeCoreDescription: root.nativeCoreSetupDescription()
+        nativeSetupFacts: setupPage.facts
+        nativeSetupBusy: setupPage.busy
+        nativeSetupTerminalOpened: setupPage.terminalOpened
+        nativeCoreFailed: vless.nativeCoreSetupStatus !== ""
         nativeCanContinue: vless.nativeCanAct
+        routingSavePending: root.nativeOnboardingPresetPending !== ""
+        routingSaveUnknown: vless.nativeOutcomeUnknown
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
           : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)
@@ -4012,9 +4047,11 @@ Panel {
         onCopyCommand: function(command) { vless.copyText(command) }
         onRefreshRequested: {
           vless.refresh()
+          setupPage.check()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
         onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md")
+        onComponentSetupRequested: root.reviewComponentSetup()
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }

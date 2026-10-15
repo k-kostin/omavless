@@ -20,6 +20,7 @@ not replaced by this short entry point.
    [execution policy](docs/development/EXECUTION_POLICY.md).
 5. For UI work, use the [UI review skill](skills/omavless-ui-review/SKILL.md).
    For localization, use the [localization skill](skills/omavless-localization/SKILL.md).
+   For user-facing wording, also read the shared [glossary](GLOSSARY.md).
 
 ## Non-negotiable boundaries
 
@@ -71,5 +72,7 @@ not replaced by this short entry point.
 - README is a product page, not an agent diary. Follow the
   [documentation and retention policy](docs/development/README.md). Preserve
   useful roadmaps, contracts and evidence; keep disposable session files outside Git.
+- Public guides and in-app help must match current main; apply the
+  [public-guide rule](docs/development/README.md#public-guides-follow-main).
 
 For developer commands and navigation, see [CONTRIBUTING.md](CONTRIBUTING.md).

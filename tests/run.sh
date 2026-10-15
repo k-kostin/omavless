@@ -3,6 +3,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_rust_ci_isolation.py" \
   "$here/test_actor_state_export.py" \
   "$here/test_terminal_envelope_export.py" \
   "$here/test_prepared_local_reply_export.py" \
@@ -24,6 +25,7 @@ python3 -m unittest -v \
   "$here/test_marketplace_setup.py" \
   "$here/test_setup_upgrade_frontend.py" \
   "$here/test_setup_predecessor.py" \
+  "$here/test_setup_pair_inventory.py" \
   "$here/test_marketplace_visual.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
@@ -67,6 +69,8 @@ python3 -m unittest -v \
   "$here/test_vless_canonical_parity.py"
 if command -v node >/dev/null 2>&1; then
   node "$here/test-documentation-navigation.js"
+  node "$here/test-clean-reinstall-guide.js"
+  node "$here/test-clean-reinstall-helper.js"
   node "$here/test-i18n.js"
   node "$here/test-safe-text.js"
   node "$here/test-tui-i18n.js"

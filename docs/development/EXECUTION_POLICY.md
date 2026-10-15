@@ -42,6 +42,20 @@ cases. Run compilation and environment preflight before privileged execution.
 Synthetic controls complement, but never replace, the real integration gate.
 Do not create prerequisite research unless a concrete scenario needs it.
 
+For installer/updater work, include user-reached preparation, return after
+Quit/terminal closure and continuation in that early scenario. Record every
+fixture-only intervention and resulting proof limitation in the existing task
+matrix. Do not replace a missing product step with administrator fixture work
+and later call the helper result a complete journey. Before requesting release
+publication, close its prepublication user-path gates; explicitly separate later
+public-asset/download gates which cannot exist before authorized delivery.
+
+When changing package pins, exercise the latest actual published predecessor
+through the complete advisory inventory and native update entry. A registry
+lookup or local-rebuild refusal alone does not prove that the positive update
+path is reachable. Preserve the old admission fences; use explicit tested
+producer/payload identities rather than making an unknown installation qualify.
+
 After two unsuccessful diagnostic cycles without narrowing the failure,
 reassess the hypothesis or design with an independent reviewer. This is a
 checkpoint to change method, not a retry allowance or a reason to stop all work.
@@ -179,6 +193,11 @@ The primary agent owns integration, scope, VM scheduling and evidence. Assign
 independent writers per feature/worktree, with explicit no-overlap boundaries,
 expected deliverable, acceptance scenario and immutable handoff head.
 
+At a significant integration boundary the independent reviewer must also check
+that the test's initial state/interventions and shipped artifact selection match
+the advertised user scenario. Source safety approval and user-journey approval
+are different conclusions. Do not delegate the primary's evidence classification.
+
 Use a capable implementation model (normally Sol) for feature code and tests.
 Use Astra for bounded difficult architecture/security questions and independent
 review where a second perspective changes the decision. Do not require an
@@ -260,6 +279,15 @@ them. Local machine paths, secrets and private captures stay outside Git.
 Do not create a new branch for every retrospective: use an existing owned
 scope, or one separate workflow PR when the change is independently useful.
 
+For an editorial journey review, include all text owners (frontend catalog,
+shell and the actually selected native binary). Check names against the shared
+[glossary](../../GLOSSARY.md) and actual controls, not memory. Extract local
+review snippets by owning function/semantic marker, not fixed line offsets;
+fail generation if a marker disappears and retain source hashes. Distinguish
+production-formatter preview from installed effects and public delivery. The
+[UI contract](../roadmap/UI_UX_CONTRACT.md#end-user-editorial-rule) owns this gate;
+do not create a second copy or another standing reviewer to enforce it.
+
 Examples worth fixing are repeated VM unlock rediscovery, an incompatible
 package/bundle discovered only after installation, repeated socket/temp-root
 setup, full unchanged graph re-reviews, and serial VM waits while independent
@@ -294,6 +322,14 @@ an otherwise valid VM run. Diagnose harness failure separately from product
 failure, preserve the failed scope, and verify the narrow successor before
 selecting a fresh scope. Do not continue past an unresolved observation merely
 because the underlying command returned success.
+
+Apply the same admission rule to VM/host drivers: after each effect-bearing
+phase inspect its original exit/result schema and independent required state
+before launching the next effect or authorization prompt. A compound command's
+final success, JSON-null projection, keys-sent marker or zero-test filter cannot
+earn an earlier gate. Prefer separate tool calls or an explicit fail-closed
+driver over semicolon-chained mutations. Do not use fixed sleeps as completion
+proof; bound observation against actual state/phase and retain the failure.
 
 Define a negative fixture's trigger at the product's actual observation boundary.
 For example, TCP EOF in one direction does not prove that a bidirectional relay

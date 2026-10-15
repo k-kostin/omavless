@@ -14,11 +14,17 @@ cargo fmt --all -- --check
 # cleanup budget. Running it beside unrelated process-heavy tests can spend
 # that budget on scheduler contention, not the owned-group cleanup under test.
 # Keep every assertion and run this one case separately, once, below.
+# The exact-proof drain fixture likewise checks short owner/lease deadlines;
+# its private controller/process work must not compete with unrelated forks.
+# Keep its three held/released/partial cases and all assertions unchanged.
+close_drain_test='native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy'
 cargo test --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
-  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
+  --skip "$close_drain_test"
 cargo test --locked -p omavless-runtime --lib \
   core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
   --exact --test-threads=1
+cargo test --locked -p omavless-runtime --lib "$close_drain_test" -- --exact --test-threads=1
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
 # before CLOEXEC closes it, turning a malformed-journal test into an unrelated
@@ -63,6 +69,12 @@ cargo test --locked -p omavless-runtime --features product-private-backup --lib 
 cargo test --locked -p omavless-runtime --features product-private-backup --lib normal_pair_promoted_candidate
 cargo test --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_
 cargo clippy --locked -p omavless-runtime --all-targets --features product-private-backup -- -D warnings
+# Released setup helper is a separate executable feature. Backup-only tests
+# alone do not compile or exercise its retained update/preparation boundaries.
+# These are owned inert source fixtures, not installed host/DNS acceptance.
+cargo test --locked -p omavless-runtime --features product-private-backup,setup-upgrade082 --lib setup_upgrade082
+cargo clippy --locked -p omavless-runtime --all-targets --features product-private-backup,setup-upgrade082 -- -D warnings
+cargo test --locked -p omavless-dns-broker --features release-package --lib maintenance_mask -- --test-threads=1
 cargo test --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness product_scope
 cargo test --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness normal_pair_promoted_candidate
 # Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
@@ -70,6 +82,9 @@ cargo test --locked -p omavless-runtime --lib --features product-private-backup,
 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service
 cargo clippy --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service -- -D warnings
 cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
-  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
+  --skip "$close_drain_test"
+cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+  "$close_drain_test" -- --exact --test-threads=1
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json

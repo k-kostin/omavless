@@ -28,6 +28,14 @@ pub(crate) struct SocketAccess {
     uid: u32,
 }
 impl SocketAccess {
+    #[cfg(test)]
+    pub(crate) fn grant_fixture(path: &Path, owner: u32, uid: u32) -> Result<Self, Error> {
+        grant(path, owner, uid)
+    }
+    #[cfg(test)]
+    pub(crate) fn recheck_fixture(&self, path: &Path, owner: u32) -> Result<(), Error> {
+        verify(path, owner, self.uid, self.identity)
+    }
     pub(crate) fn grant(context: &RootContext) -> Result<Self, Error> {
         fixed_ancestors()?;
         grant(Path::new(SOCKET), 0, context.enrolled_uid())

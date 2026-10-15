@@ -5,14 +5,156 @@ const service=fs.readFileSync(__dirname+'/../plugin/Service.qml','utf8');
 const wizard=fs.readFileSync(__dirname+'/../plugin/OnboardingWizard.qml','utf8');
 const parser=vm.createContext({});vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativeSnapshot.js','utf8'),parser);
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
+test('footer separates back from forward and names completion without a profile',()=>{
+ const footer=wizard.slice(wizard.indexOf('id: navigation'));
+ assert(footer.indexOf('id: backButton') < footer.indexOf('id: forward'));
+ assert(footer.includes('Qt.AlignLeft'));assert(footer.includes('Qt.AlignRight'));
+ assert(footer.includes('columns: width >= backButton.implicitWidth + forward.implicitWidth'));
+ assert(!footer.includes('text: wizard.textFor("common.check_again")'));
+ const i18n=require('../plugin/I18n.js');
+ assert.equal(i18n.translate('onboarding.finish_later','en'),'Finish without a profile');
+ assert.equal(i18n.translate('onboarding.finish_later','ru'),'Завершить без профиля');
+ for(const locale of ['en','ru'])for(const key of ['native.onboarding.empty_next','native.onboarding.ready_next','onboarding.saving_routing'])assert(!i18n.translate(key,locale).includes('Missing translation'));
+ assert(!i18n.translate('native.onboarding.ready_next','en').includes('connected'));
+});
+test('routing progress blocks forward navigation until confirmed outcome',()=>{
+ const control=wizard.slice(wizard.indexOf('objectName: "onboardingRoutingContinue"'));
+ const enabled=control.match(/enabled: ([^\n]+)/)[1];
+ for(const busy of [false,true])for(const routingSavePending of [false,true])
+  assert.equal(vm.runInNewContext(enabled,{wizard:{busy,routingSavePending}}),!busy&&!routingSavePending);
+ assert(panel.includes('routingSavePending: root.nativeOnboardingPresetPending !== ""'));
+ const progress=wizard.slice(wizard.indexOf('objectName: "onboardingRoutingProgress"'));
+ const visible=progress.match(/visible: ([^\n]+)/)[1];
+ for(const step of [1,2,3])for(const routingSavePending of [false,true])for(const routingSaveUnknown of [false,true])
+  assert.equal(vm.runInNewContext(visible,{wizard:{step,routingSavePending,routingSaveUnknown}}),step===2&&routingSavePending&&!routingSaveUnknown);
+ assert(panel.includes('routingSaveUnknown: vless.nativeOutcomeUnknown'));
+});
+test('DNS helper is introduced before setup labels and VPN advice is first-run only',()=>{
+ const card=fs.readFileSync(__dirname+'/../plugin/RequiredComponents.qml','utf8');
+ const page=fs.readFileSync(__dirname+'/../plugin/SetupPage.qml','utf8');
+ assert(card.indexOf('objectName: "setupDnsHelperIntro"') < card.indexOf('text: card.tr("core_missing")'));
+ const properties=card.match(/readonly property (?:bool|string) (?:appMissing|pairUpdate|updateReview|operationalStep|showPreparation|optionalUpdate): [^\n]+/g);
+ const state=require('../plugin/SetupState.js');
+ for(const delivery of ['current','stale','stale_manual']) for(const operational of ['ready','needs_broker_stopped','needs_dns_setup','needs_runtime_start','needs_selection']) {
+  const c={SetupState:state,facts:{delivery,state:operational,coreInstalled:true}};c.card=c;
+  for(const property of properties){const [,name,expression]=property.match(/property (?:bool|string) ([^:]+): (.*)/);c[name]=vm.runInNewContext(expression,c);}
+  assert.equal(c.showPreparation,operational!=='ready');
+ }
+ assert(card.indexOf('id: prepareButton') < card.indexOf('id: pairedUpdateButton'));
+ assert(wizard.indexOf('objectName: "onboardingDnsHelperIntro"') < wizard.indexOf('objectName: "onboardingCoreState"'));
+ const warning=wizard.slice(wizard.indexOf('objectName: "onboardingOtherVpnAdvice"'));
+ const visible=warning.match(/visible: ([^\n]+)/)[1];
+ for(const firstRun of [true,false]) for(const nativeContext of [true,false])
+  assert.equal(vm.runInNewContext(visible,{wizard:{firstRun,nativeContext}}),firstRun && nativeContext);
+ assert(panel.includes('firstRun: vless.nativeOwner && vless.nativeSnapshot !== null && !vless.nativeSnapshot.onboardingComplete'));
+ assert(page.includes('(setup.state === "needs_package" || setup.state === "needs_activation")'));
+ const i18n=require('../plugin/I18n.js');
+ assert.equal(i18n.translate('onboarding.step.connection','en'),'VPN profile');
+ assert.equal(i18n.translate('onboarding.step.connection','ru'),'VPN-профиль');
+ for(const locale of ['en','ru']) for(const key of ['dns_helper_intro','other_vpn_advice']) {
+  const text=i18n.translate('setup.'+key,locale);assert(text.length < 180);
+  assert(!/Missing translation|broker|enrollment|брокер|регистраци/.test(text));
+ }
+});
 function functions(source,c,names){for(const name of names){const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;assert(start>=0);vm.runInContext(source.slice(start,end),c)}}
-function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding']);return c}
+test('component review never calls an in-flight core check a failure',()=>{
+ const page=fs.readFileSync(__dirname+'/../plugin/SetupPage.qml','utf8');
+ const start=page.lastIndexOf('    PlainText {',page.indexOf('"review_core_attention"'));
+ const block=page.slice(start,page.indexOf('\n    }',start));
+ const visible=block.match(/visible: ([\s\S]*?)\n      text:/)[1].trim();
+ const text=block.match(/text: ([^\n]+)/)[1];
+ for(const componentReview of [false,true])for(const needsAttention of [false,true])
+  for(const terminalOpened of [false,true])for(const reviewCoreState of ['checking','ready','attention','terminal','missing','update']) {
+   const setup={componentReview,needsAttention,terminalOpened,reviewCoreState,tr:key=>key};
+   const shown=vm.runInNewContext(visible,{setup});
+   const key=vm.runInNewContext(text,{setup});
+   assert.equal(shown,componentReview&&!needsAttention&&(terminalOpened||!['ready','checking'].includes(reviewCoreState)));
+   if(shown&&terminalOpened)assert.equal(key,'terminal');
+   if(shown&&key==='review_core_attention')assert.notEqual(reviewCoreState,'checking');
+  }
+ const sequence=['terminal','checking','ready','checking','attention'];
+ const seen=sequence.map(reviewCoreState=>{
+  const setup={componentReview:true,needsAttention:false,terminalOpened:reviewCoreState==='terminal',reviewCoreState,tr:key=>key};
+  return vm.runInNewContext(visible,{setup})?vm.runInNewContext(text,{setup}):null;
+ });
+ assert.deepEqual(seen,['terminal',null,null,null,'review_core_attention']);
+});
+function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeMetadataErrorAction:'',nativeMetadataErrorCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
 test('first use opens existing wizard, completed and dismissed states do not loop',()=>{
  const c=context();c.syncNativeOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,1);
  assert.equal(c.vless.helperReads,1);c.syncNativeOnboarding();assert.equal(c.vless.helperReads,1);
  c.dismissOnboarding();c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
  c.onboardingDismissed=false;c.vless.nativeSnapshot.onboardingComplete=true;c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
  assert(c.openOnboarding(3));assert.equal(c.onboardingWizard.step,3); // Explicit Settings re-entry.
+});
+test('component review is navigation with fresh inventory, no install or connection effect',()=>{
+ const c=context();c.openOnboarding(1);const before=c.setupPage.checks;
+ c.setupPage.install=()=>{throw new Error('navigation must not install')};
+ c.vless.completeOnboarding=()=>{throw new Error('navigation must not complete onboarding')};
+ c.reviewComponentSetup();assert(c.componentSetupReview);assert.equal(c.page,'main');
+ assert(!c.onboardingWizard.visible);assert(c.onboardingDismissed);assert.equal(c.setupFlick.contentY,0);
+ assert.equal(c.setupPage.checks,before+1);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ assert(panel.includes('onComponentSetupRequested: root.reviewComponentSetup()'));
+ assert(panel.includes('nativeSetupFacts: setupPage.facts'));
+});
+test('render fixtures refuse stale captures after an unadmitted scenario',()=>{
+ for(const file of ['onboarding-visual/shell.qml','setup-visual/shell.qml']) {
+  const source=fs.readFileSync(__dirname+'/'+file,'utf8');
+  const capture=source.slice(source.indexOf('function capture('),source.indexOf('function result()'));
+  assert(capture.includes('["ready", "captured"].indexOf(review.result) < 0'));
+  assert(/result = "refused"; return "refused"/.test(source));
+ }
+});
+test('ready, missing, update and unknown core states do not borrow each other actions',()=>{
+ const state=require('../plugin/SetupState.js');
+ const ready={installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
+ const packageFacts={state:'ready',coreInstalled:true};
+ assert.equal(state.coreReview(ready,packageFacts,false,false),'ready');
+ for(const core of [null,{...ready,installed:false},{...ready,version:null},{...ready,tunDevice:'missing'},{...ready,fileNetworkCapabilities:'missing'}]) {
+  assert.notEqual(state.coreReview(core,packageFacts,false,false),'ready');
+ }
+ assert.equal(state.coreReview(ready,packageFacts,true,false),'checking');
+ assert.equal(state.coreReview(ready,packageFacts,false,true),'attention');
+ assert.equal(state.coreReview(ready,packageFacts,false,false,true),'terminal');
+ assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false,true),'terminal');
+ assert(panel.includes('nativeSetupTerminalOpened: setupPage.terminalOpened'));
+ for(const facts of [{state:'checking',coreInstalled:null},{state:'needs_attention',coreInstalled:true},{state:'needs_dns_setup',coreInstalled:true}])
+  assert.equal(state.coreReview(ready,facts,false,false),'attention');
+ assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false),'update');
+ assert.equal(state.coreReview(null,{state:'needs_package',coreInstalled:false},false,false),'missing');
+ assert.equal(state.coreReview(null,{state:'needs_companion',coreInstalled:false},false,false),'missing');
+ // A missing companion beside an existing app still has no admitted automatic install.
+ assert.equal(state.missingAction({state:'needs_companion',coreInstalled:false}),'update-help');
+ assert(!state.canRunAction({state:'needs_companion',coreInstalled:false},'update-pair'));
+ for(const name of ['needs_pair_update','needs_pair_update_manual'])
+  assert.equal(state.coreReview(ready,{state:name,coreInstalled:true},false,false),'update');
+ const button=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
+ const enabled=button.match(/enabled: ([^\n]+)/)[1];
+ for(const nativeCoreState of ['ready','missing','update','checking','attention','terminal']) {
+  const c=vm.createContext({wizard:{nativeContext:true,nativeCoreState,nativeCanContinue:true,busy:false}});
+  assert.equal(vm.runInContext(enabled,c),nativeCoreState==='ready');
+  c.wizard.busy=true;assert(!vm.runInContext(enabled,c));
+  c.wizard.busy=false;c.wizard.nativeCanContinue=false;assert(!vm.runInContext(enabled,c));
+ }
+ const i18n=require('../plugin/I18n.js');for(const locale of ['en','ru'])for(const key of ['core_ready','core_ready_scope','core_checking','core_missing','core_update','core_attention','core_terminal','terminal_help','review_install','review_update','review_setup'])
+  assert(!i18n.translate('native.onboarding.'+key,locale,{}).includes('Missing translation'));
+});
+test('compatible stale delivery keeps real onboarding Continue and optional review',()=>{
+ const state=require('../plugin/SetupState.js');
+ const core={installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
+ const continueBlock=wizard.slice(wizard.indexOf('objectName: "onboardingCoreContinue"'));
+ const enabled=continueBlock.match(/enabled: ([^\n]+)/)[1];
+ const reviewBlock=wizard.slice(wizard.indexOf('objectName: "onboardingComponentSetup"'));
+ const visible=reviewBlock.match(/visible: ([^\n]+)/)[1];
+ for(const delivery of ['stale','stale_manual']) {
+  const nativeSetupFacts={state:'ready',coreInstalled:true,delivery};
+  const nativeCoreState=state.coreReview(core,nativeSetupFacts,false,false,false);
+  const c=vm.createContext({SetupState:state,wizard:{nativeContext:true,nativeSetupFacts,nativeCoreState,nativeCanContinue:true,busy:false}});
+  assert(vm.runInContext(enabled,c));
+  assert(vm.runInContext(visible,c));
+  c.wizard.nativeCoreState=state.coreReview(core,nativeSetupFacts,false,false,true);
+  assert(!vm.runInContext(enabled,c));
+ }
 });
 test('native helper bindings keep read, write and picker capabilities independent',()=>{
  const c=vm.createContext({nativeContext:true,nativeDesktopFacts:null,filePicker:{available:true},nativeCanContinue:true,busy:false});c.wizard=c;
@@ -77,6 +219,9 @@ test('preset step advances only after confirmed snapshot, not initial click or r
  c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);c.vless.nativePending=null;c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);
  c.vless.nativeSnapshot.routing.storedPreset='china-cn-direct';c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,3);
  c.openOnboarding(2);c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeActionCode='permission_denied';c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);assert.equal(c.nativeOnboardingPresetPending,'');
+ c.vless.nativeActionCode='';c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeMetadataErrorAction='routing-preset';c.vless.nativeMetadataErrorCode='permission_denied';c.syncNativeOnboarding();assert.equal(c.onboardingWizard.step,2);assert.equal(c.nativeOnboardingPresetPending,'');
+ c.vless.nativeMetadataErrorCode='';c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeOutcomeUnknown=true;c.vless.nativePending={action:'routing-preset'};c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
+ assert(panel.includes('function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }'));
 });
 test('finish submits acknowledgement then uses normal pending/recovery surface',()=>{
  const c=context();c.openOnboarding(3);c.vless.completeOnboarding=()=>false;c.finishOnboarding();assert(c.onboardingWizard.visible);
@@ -129,15 +274,39 @@ test('real Service exit handler clears completion pending and refreshes confirme
  assert.equal(c.nativeObservation,null);assert.equal(c.refreshes,1);
  const unknown=run('',73);assert(unknown.nativePending);assert.equal(unknown.nativeOutcomeUnknown,true);
 });
+test('real routing rejection clears saving but never advances on the old matching preset',()=>{
+ const process=service.slice(service.indexOf('    id: nativeActionProcess'));
+ const start=process.indexOf('    onExited: function(exitCode) {'),end=process.indexOf('\n    }',start)+6;
+ const handler=process.slice(start,end).replace('    onExited: function(exitCode)', 'function exited(exitCode)');
+ const frame={api:'omavless.control',version:1,id:'request',ok:false,revision:7,error:{code:'permission_denied',message:'Not permitted',retryable:false}};
+ const c=context();c.openOnboarding(2);c.nativeOnboardingPresetPending='iran-ir-direct';
+ const v=c.vless;v.nativeSnapshot.routing.storedPreset='iran-ir-direct';
+ v.nativePending={instanceId:'instance',operationId:'operation',action:'routing-preset',revision:7};
+ const notifications=[];
+ const notifyBody=panel.match(/function onNativePendingChanged\(\) \{ ([^\n]+) \}/)[1];
+ let pendingValue=v.nativePending;
+ Object.defineProperty(v,'nativePending',{configurable:true,get(){return pendingValue},set(value){pendingValue=value;vm.runInNewContext(notifyBody,{root:c,Qt:{callLater:f=>notifications.push(f)}});}});
+ Object.assign(v,{NativeSnapshot:parser,nativeActionStdout:{text:JSON.stringify(frame)},nativeOutcomeUnknown:false,
+  nativeMetadataTransitionTimeout:{restart(){},stop(){}},finishNativeEditorAction(){},finishNativeSubscriptionAction(){},finishNativeRoutingAction(){},refreshAfterChange(){}});
+ const action=vm.createContext(v);action.root=action;vm.runInContext(handler,action);action.exited(2);
+ assert.equal(v.nativePending,null);assert.equal(v.nativeActionCode,'');assert.equal(v.nativeMetadataErrorAction,'routing-preset');assert.equal(v.nativeMetadataErrorCode,'permission_denied');
+ while(notifications.length)notifications.shift()();
+ c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'');assert.equal(c.onboardingWizard.step,2);
+ // Unknown retains the original request and must not show a still-running save.
+ v.nativeMetadataErrorCode='';v.nativePending={instanceId:'instance',operationId:'operation',action:'routing-preset',revision:7};v.nativeActionStdout.text='';c.nativeOnboardingPresetPending='iran-ir-direct';action.exited(73);
+ assert(v.nativeOutcomeUnknown);assert(v.nativePending);while(notifications.length)notifications.shift()();c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
+});
 test('native wizard preserves layout and explicitly avoids legacy grants/readiness claims',()=>{
  assert(wizard.includes('property bool nativeContext: false'));
  assert(wizard.includes('visible: !wizard.nativeContext && wizard.coreSetup.installed && !wizard.coreSetup.tunReady'));
- assert(wizard.includes('enabled: (wizard.nativeContext || wizard.coreSetup.tunReady) && !wizard.busy'));
- assert(wizard.includes('wizard.textFor("native.core.scope")'));
- assert(wizard.includes('wizard.textFor("native.onboarding.scope")'));
+ assert(wizard.includes('enabled: (wizard.nativeContext ? wizard.nativeCoreState === "ready" && wizard.nativeCanContinue : wizard.coreSetup.tunReady) && !wizard.busy'));
+ assert(!wizard.includes('wizard.textFor("native.core.scope")'));
+ assert(!wizard.includes('wizard.textFor("native.core.tun."'));
+ assert(wizard.includes('wizard.textFor("native.core.version", {version:'));
+ assert(wizard.includes('wizard.profiles.length > 0 ? "native.onboarding.ready_next" : "native.onboarding.empty_next"'));
  assert(wizard.includes('"native.onboarding.profiles"'));
  assert(panel.includes('vless.startNativeImport("clipboard")'));assert(panel.includes('vless.startNativeImport("file")'));
- assert(panel.includes('(root.page === "settings" || onboardingWizard.visible)'));
+ assert(panel.includes('(root.page === "settings" || onboardingWizard.visible || root.componentSetupReview)'));
  assert(panel.includes('nativeOnboardingSetting.focusTarget'));
  assert(!wizard.includes('nativeCoreFacts.tunReady'));
 });
@@ -163,7 +332,7 @@ test('wizard buttons share native keyboard activation without changing callbacks
  assert(wizard.includes('component WizardButton: Button {'));
  assert(wizard.includes('    focusable: true'));
  assert.equal((wizard.match(/\bButton \{/g)||[]).length,1);
- assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,11);
+ assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,12);
  assert(wizard.includes('onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)'));
  assert(wizard.includes('Keys.onEscapePressed: canceled()'));
 });

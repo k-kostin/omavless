@@ -24,7 +24,7 @@ PKGVER = subprocess.check_output(
     ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
 ).split()[1]
 SOURCE = "b" * 40
-RELEASE_TAG = "v0.9.8-fix.4"
+RELEASE_TAG = "v0.9.8-fix.7"
 
 
 class MarketplaceSetupTests(unittest.TestCase):
@@ -50,6 +50,7 @@ package_install() { echo UNEXPECTED_PACKAGE_EFFECT >&2; return 99; }
 package_installed() { return 1; }
 dns_package_registered() { return 1; }
 pair_installed() { return 1; }
+installed_pair_delivery() { echo current; }
 fresh_user_runtime_absent() { return 0; }
 pair_selection_status() { return 1; }
 user_runtime_stopped() { return 0; }
@@ -181,7 +182,9 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
         self.assertEqual(status, 0, output)
         self.assertEqual((self.directory / 'trace').read_text().splitlines(),
                          ['metadata', 'start-existing', 'dns-pair prepare-template', 'dns-pair select'])
-        self.assertIn('Components are prepared', output)
+        self.assertIn('Setup is complete', output)
+        self.assertIn('"Terminal and system prompts are closed"', output)
+        self.assertIn('"Start OmaVLESS"', output)
         self.assertEqual((self.directory / '.config/omavless/profiles.json').read_text(),
                          'synthetic existing profile data')
 
@@ -194,10 +197,10 @@ await_broker_ready() { system_broker_idle && broker_access_for_user; }
 
     def test_dns_choices_are_separate_readable_lines_in_both_locales(self):
         for locale, title, first, existing in [
-            ('en', 'Choose how to finish DNS setup:', 'FIRST — first-time setup',
-             'START — you already completed DNS registration'),
-            ('ru', 'Выберите, как завершить настройку DNS:', 'FIRST — первая настройка',
-             'START — регистрация DNS на этом компьютере уже была завершена'),
+            ('en', 'Choose how to finish setting up the DNS helper:', 'FIRST — first-time setup',
+             'START — the DNS helper was already set up successfully for your account'),
+            ('ru', 'Выберите, как завершить настройку DNS-помощника:', 'FIRST — первая настройка',
+             'START — DNS-помощник на этом компьютере уже успешно настроен для вашей учётной записи'),
         ]:
             with self.subTest(locale=locale):
                 code = self.pending_dns_fixture() + f'\nsetup_main resume-dns {locale}\n'
@@ -469,6 +472,70 @@ setup_status
         self.assertEqual(self.run_shell(fixture + 'pair_selection_status() { return 1; }; setup_status').stdout,
                          "needs_attention\n")
 
+    def test_same_version_delivery_state_is_not_hidden_by_ready_or_unpublished_updater(self):
+        fixture = '''
+native_present() { return 0; }
+package_installed() { echo "omavless $package_version-1"; }
+native_target() { echo rust; }
+pair_installed() { return 0; }
+'''
+        for delivery, available, expected in [
+                ('missing', False, 'needs_companion'),
+                ('missing', True, 'needs_pair_install'),
+                ('mismatch', True, 'needs_pair_mismatch'),
+                ('unknown', True, 'needs_attention')]:
+            with self.subTest(delivery=delivery, available=available):
+                code = fixture + f'installed_pair_delivery() {{ echo {delivery}; }}; pair_update_available() {{ return {0 if available else 1}; }}; setup_status'
+                result = self.run_shell(code)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected + '\n')
+
+    def test_stale_pair_freshness_preserves_ready_and_both_start_continuations(self):
+        fixture = '''
+native_present() { return 0; }
+package_installed() { echo "omavless $package_version-1"; }
+native_target() { echo rust; }
+pair_installed() { return 0; }
+installed_pair_delivery() { echo stale; }
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; }
+runtime_start_available() { return 0; }
+system_broker_stopped() { return 0; }
+no_broker_socket() { return 0; }
+'''
+        for stopped, broker, state in [(False, True, 'ready'),
+                                       (True, True, 'needs_runtime_start'),
+                                       (True, False, 'needs_broker_stopped')]:
+            for available in (False, True):
+                code = fixture + f'''
+user_runtime_stopped() {{ return {0 if stopped else 1}; }}
+system_broker_available() {{ return {0 if broker else 1}; }}
+pair_update_available() {{ return {0 if available else 1}; }}
+setup_status
+setup_components
+'''
+                result = self.run_shell(code)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                delivery = 'stale' if available else 'stale_manual'
+                self.assertEqual(result.stdout, f'{state}\n{state}\tpresent\t{delivery}\n')
+                self.assertEqual(result.stderr, '')
+
+    def test_target_capability_requires_matching_closed_delivery_metadata(self):
+        metadata = self.directory / 'component-updates.json'
+        source = 'b' * 40
+        identity = {key: 'a' * 64 for key in ['appSha','coreSha','brokerSha','dnsReceiptSha']}
+        good = {'schemaVersion': 2, 'sourceCommit': source, 'updatePair': True,
+                'identities': {'x86_64': identity, 'aarch64': identity}}
+        fixture = f'release_fields() {{ printf "0.9.8\\tx86_64\\t%s\\t%s\\t%s\\n" "{source}" "{source}" "{source}"; }}; pair_update_available'
+        metadata.write_text(json.dumps(good))
+        self.assertEqual(self.run_shell(fixture).returncode, 0)
+        for wrong in [{**good, 'updatePair': False}, {**good, 'updatePair': 'true'},
+                      {**good, 'sourceCommit': 'c' * 40}, {**good, 'command': 'ignored'},
+                      {**good, 'schemaVersion': 3}, {**good, 'identities': {}},
+                      {**good, 'identities': {'x86_64': identity, 'aarch64': {}}},
+                      {**good, 'identities': {'x86_64': {**identity, 'appSha': 'short'}, 'aarch64': identity}}]:
+            metadata.write_text(json.dumps(wrong))
+            self.assertNotEqual(self.run_shell(fixture).returncode, 0)
+
     def test_stopped_runtime_is_not_installation_or_optimistic_ready(self):
         fixture = '''
 native_present() { return 0; }
@@ -507,7 +574,10 @@ setup_status
             result = self.run_shell(f'setup_status() {{ echo {state}; }}; setup_completion')
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stderr, "")
-            self.assertIn("Return to the plugin", result.stdout)
+            self.assertIn('In the panel, confirm "Terminal and system prompts are closed"', result.stdout)
+            self.assertIn('This setup did not connect a VPN.', result.stdout)
+            self.assertNotIn('VPN is off', result.stdout)
+            self.assertNotIn('VPN stays off', result.stdout)
         for state in ["needs_broker", "needs_attention", "needs_selection", "unknown"]:
             result = self.run_shell(f'setup_status() {{ echo {state}; }}; setup_completion')
             self.assertNotEqual(result.returncode, 0)
@@ -574,14 +644,10 @@ setup_components
     def test_first_run_warns_about_firewall_without_changing_it(self):
         source = SCRIPT.read_text()
         for phrase in (
-            "firewall denies incoming traffic by default",
-            "межсетевой экран по умолчанию блокирует входящий трафик",
-            "Setup never changes firewall rules",
-            "Установка не меняет правила экрана",
-            "omavless runtime test checks HTTPS on the current route",
-            "omavless runtime test проверяет HTTPS на текущем маршруте",
-            "It is not a VPN leak test",
-            "Это не проверка утечки VPN",
+            "Firewall rules will not change",
+            "Правила межсетевого экрана не меняются",
+            'read "Setup help" before connecting',
+            'прочитайте «Помощь» перед подключением',
         ):
             self.assertIn(phrase, source)
         self.assertNotIn("/usr/bin/ufw", source)
@@ -1181,8 +1247,9 @@ finish_pair_selection
 
     def test_failure_guidance_does_not_claim_pending_authorization(self):
         source = SCRIPT.read_text()
-        self.assertIn("Earlier steps may have completed", source)
-        self.assertIn("this message does not imply pending authorization", source)
+        self.assertIn("Some earlier steps may have succeeded", source)
+        self.assertIn("Finish or cancel any open system prompts", source)
+        self.assertIn("Do not repeat a step with an unknown result", source)
         self.assertNotIn("Do not repeat an unresolved authorization", source)
         # Reporting must not change either read-only projection to include stages.
         for command in ("status", "components"):
@@ -1267,6 +1334,7 @@ setup_main install en
 native_present() { return 0; }
 package_installed() { echo "omavless $package_version-1"; }
 runtime_start_available() { return 1; }
+installed_pair_delivery() { echo current; }
 user_runtime_stopped() { [[ ! -f "$TEST_DIR/activated" ]]; }
 enroll_uid() { echo enroll >> "$TEST_DIR/trace"; touch "$TEST_DIR/enrolled"; }
 start_broker() { echo start >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker-started"; }
@@ -1306,6 +1374,24 @@ system_broker_available() { system_broker_idle && broker_access_for_user; }
                          "synthetic existing profile data")
         self.assertFalse((self.directory / "omavless-first-run.lock").exists())
         self.assertEqual(list(self.directory.glob("omavless-first-run.*")), [])
+
+    def test_first_setup_explains_helper_and_other_vpns_before_consent(self):
+        for locale, intro, advice in [
+            ('en', 'The OmaVLESS DNS helper sets up website address lookup',
+             'Before setup, turn off other VPN connections'),
+            ('ru', 'DNS-помощник OmaVLESS настраивает поиск адресов сайтов',
+             'Перед настройкой отключите другие VPN-подключения'),
+        ]:
+            with self.subTest(locale=locale):
+                code, output = self.run_terminal(
+                    self.post_dns_terminal_fixture() + f"\nsetup_main install {locale}", "\n"
+                )
+                self.assertEqual(code, 0, output)
+                install_prompt = 'Type INSTALL' if locale == 'en' else 'Введите INSTALL'
+                self.assertLess(output.index(intro), output.index(install_prompt))
+                self.assertLess(output.index(advice), output.index(install_prompt))
+                self.assertNotIn('Google DNS, Cloudflare', output)
+                self.assertFalse((self.directory / "trace").exists())
 
     def test_terminal_post_dns_socket_timeout_retains_enrollment_without_activation(self):
         code, output = self.run_terminal(self.post_dns_terminal_fixture() + '''

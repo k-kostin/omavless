@@ -1,6 +1,18 @@
 # Native release, beta and RC preparation
 
-Current preparation source version: **0.9.8**, with corrected validation
+Current selected correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
+producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b` and inspected matching pins
+for x86_64 and ARM64. Source version/package version remain 0.9.8 / 0.9.8-1.
+The selected client features are `product-private-backup,setup-upgrade082`;
+Restore and frontier features remain excluded. The owner authorizes main and
+immutable release publication; its exact frontend, public/download/installed
+gates and completed events belong to the release PR. Installed ARM64 remains
+unrun under the owner's explicit publication allowance. Marketplace and support
+posting remain separate. Do not overwrite fix.1–fix.6 tags/assets. The fix.7
+frontend removes fix.6's brief false failure during core checking; native
+package bytes, readiness classification and operation guards are unchanged.
+
+Historical fix.1 preparation source version: **0.9.8**, with corrected validation
 packages published at immutable `v0.9.8-fix.1`. Main/stable promotion is now
 owner-authorized through #726; read GitHub for the actual completed event.
 The owner subsequently approved the README and Marketplace update (#10984).

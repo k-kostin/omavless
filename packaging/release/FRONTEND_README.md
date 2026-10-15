@@ -1,11 +1,9 @@
-# OmaVLESS 0.9.8 — corrected validation frontend
+# OmaVLESS 0.9.8 — fix.7 frontend
 
-This is a **validation candidate**, not a latest/stable or marketplace update. It contains the
-Omarchy QML frontend for the matching Rust package; Python is not included.
-Use the accompanying `managed-dns-delivery.json` and `SHA256SUMS`
-(or the offline `managed-dns-pair.json`) to verify source identities,
-version, architecture and archive integrity. Checksums
-detect a changed download; they are not signatures or independent trust proof.
+These are the Omarchy panel files for the matching **v0.9.8-fix.7** application
+and DNS packages. Use the accompanying `managed-dns-delivery.json` and
+`SHA256SUMS` to check source identities, architecture and archive integrity.
+Checksums detect changed files; they are not signatures.
 
 This QML frontend is common to ARM64 and x86_64. Install the native package
 for your architecture from the recorded reviewed runtime source/version. A paired
@@ -15,31 +13,40 @@ A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-The corrected `v0.9.8-fix.4` delivery has exact package pins for both architectures.
+The `v0.9.8-fix.7` delivery has exact package pins for both architectures.
 Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
 and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
-correction, not the version label. Existing validation users may see an explicit
-pacman reinstall. It is not an automatic stable upgrade. The subscription-parser
+correction, not the version label. Existing users may see an explicit
+pacman reinstall. It is not an automatic package update. The subscription-parser
 correction and native setup fixes require the corrected native packages, not only this frontend.
-After the public download/setup gate, the panel offers guided fresh installation after explicit consent; an existing
+The panel offers guided fresh installation after explicit consent; an existing
 or ambiguous installation requires the separate reviewed update/recovery path.
 It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.
 
 1. Read [native installation and recovery](docs/user/NATIVE_INSTALL.md).
-2. For a fresh account after matching public downloads are verified, with neither package installed, use the panel's
-   **Required components** action and confirm package installation, DNS
-   enrollment and activation in the visible terminal. It verifies the pinned
+2. For a fresh account with neither package installed, choose
+   **Install required components**, confirm `INSTALL` and package installation,
+   then `DNS` for the separate DNS-helper setup. It verifies the pinned
    downloads before normal `pacman`; it does not connect automatically.
-3. For an existing installation, follow the documented disconnected update or
+   Close the terminal, acknowledge **Terminal and system prompts are closed**
+   if shown, then **Check again**. Follow onboarding to the panel.
+3. For an existing installation, first update the repository widget with
+   `omarchy plugin update kdk.omavless`. This does not replace native packages.
+   Follow the documented disconnected update or
    recovery procedure. Do not replace a package under a connected VPN, reset
    a private store or repeat activation. The DNS broker has its own enrollment.
+   A supported pair's update has separate `PREPARE` and `UPGRADE` confirmations
+   in the same terminal. Full shutdown,
+   terminal closure and the later broker/application starts remain explicit.
+   The original v0.9.8 broker without the idle gate needs guarded administrator
+   removal/replacement, not forced automatic preparation.
 4. To install this extracted frontend over a reviewed compatible pair, run
    `./install.sh` as the desktop user after confirming Rust ownership. This
    frontend-only command does not install packages or activate the runtime.
 
 The same `./install.sh` updates an already activated native frontend without
 installing a legacy fallback. The version in its manifest belongs to the native
-candidate, as does the current source manifest. The historical marketplace
+release, as does the current source manifest. The historical marketplace
 snapshot remains 0.8.2.
 Do not install this archive through a marketplace listing pointing at another
 commit, mix its frontend with an unverified older runtime, or run any command

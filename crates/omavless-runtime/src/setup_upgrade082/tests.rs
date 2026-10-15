@@ -77,6 +77,114 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn self_consistent_local_rebuild_of_public_source_does_not_earn_admission() {
+    let f = Fixture::new();
+    let binary = f.root.join("app");
+    let receipt = f.root.join("identity");
+    fs::write(&binary, b"inert fixture binary").unwrap();
+    fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+    let digest = format!("{:x}", Sha256::digest(b"inert fixture binary"));
+    let good = format!(
+        "schemaVersion=3\nsourceCommit={}\nbinarySha256={digest}\narchitecture={}\nprovenance=caller-supplied-prebuilt\nproductVersion=0.9.8\n",
+        PUBLIC_098_SOURCES[0],
+        std::env::consts::ARCH
+    );
+    fs::write(&receipt, &good).unwrap();
+    fs::set_permissions(&receipt, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(predecessor098_at(&receipt, &binary, f.uid, std::env::consts::ARCH, None).is_err());
+    for wrong in [
+        good.replace(PUBLIC_098_SOURCES[0], &"a".repeat(40)),
+        good.replace("productVersion=0.9.8", "productVersion=0.9.7"),
+        format!("{good}sourceCommit={}\n", PUBLIC_098_SOURCES[0]),
+        good.replace("architecture=", "unknownArchitecture="),
+    ] {
+        fs::write(&receipt, wrong).unwrap();
+        assert!(predecessor098_at(&receipt, &binary, f.uid, std::env::consts::ARCH, None).is_err());
+    }
+    fs::write(&receipt, good).unwrap();
+    fs::write(&binary, b"modified fixture").unwrap();
+    assert!(predecessor098_at(&receipt, &binary, f.uid, std::env::consts::ARCH, None).is_err());
+}
+
+#[test]
+fn published_predecessor_pins_are_architecture_and_source_specific() {
+    for source in PUBLIC_098_SOURCES {
+        for arch in ["x86_64", "aarch64"] {
+            let pair = published098(source, arch).unwrap();
+            for digest in [
+                pair.app_sha,
+                pair.core_sha,
+                pair.broker_sha,
+                pair.dns_receipt_sha,
+            ] {
+                assert_eq!(digest.len(), 64);
+                assert!(
+                    digest
+                        .bytes()
+                        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                );
+            }
+        }
+    }
+    assert!(published098(&"a".repeat(40), "x86_64").is_err());
+    assert!(published098(PUBLIC_098_SOURCES[0], "unknown").is_err());
+}
+
+#[test]
+fn managed_selector_backup_and_their_absence_are_retained_without_conversion() {
+    let f = Fixture::new();
+    let scope = f.scope();
+    let selector = scope.config.join(crate::managed_pair::SELECTOR);
+    let backup = scope.config.join("route-template.pre-managed-dns.yaml");
+    let managed =
+        crate::managed_template::for_host(include_str!("../../../../templates/default.yaml"), true)
+            .unwrap();
+    f.put(
+        &scope.config.join("route-template.yaml"),
+        managed.as_bytes(),
+    );
+    f.put(&selector, crate::managed_pair::SELECTION_BYTES);
+    f.put(&backup, b"unchanged fixture backup");
+    let mut context = f.acquire().unwrap();
+    context.capture_managed_members().unwrap();
+    assert!(context.recheck_private().is_ok());
+    assert_eq!(fs::read(&backup).unwrap(), b"unchanged fixture backup");
+    fs::write(&selector, b"changed").unwrap();
+    assert!(matches!(
+        context.recheck_private(),
+        Err(Blocker::StateChanged)
+    ));
+}
+
+#[test]
+fn absent_managed_member_appearing_after_capture_blocks_package_submission() {
+    let f = Fixture::new();
+    let mut context = f.acquire().unwrap();
+    context.capture_managed_members().unwrap();
+    f.put(
+        &f.scope().config.join(crate::managed_pair::SELECTOR),
+        crate::managed_pair::SELECTION_BYTES,
+    );
+    assert!(matches!(
+        context.recheck_private(),
+        Err(Blocker::StateChanged)
+    ));
+}
+
+#[test]
+fn invalid_selector_and_pending_candidate_never_gain_managed_update_admission() {
+    for name in [
+        crate::managed_pair::SELECTOR,
+        ".managed-dns-selection.candidate",
+    ] {
+        let f = Fixture::new();
+        let mut context = f.acquire().unwrap();
+        f.put(&f.scope().config.join(name), b"invalid fixture");
+        assert!(context.capture_managed_members().is_err());
+    }
+}
+
+#[test]
 fn stopped_post_reboot_owner_acquires_fresh_volatile_exclusions() {
     let f = Fixture::new();
     let scope = f.scope();

@@ -90,7 +90,134 @@ facts. Presence is not permission/TUN/live-health evidence. A known missing core
 blocks Connect but never prevents Disconnect. Preserve the accepted main and
 Settings layout when the installation is ready.
 
+The native onboarding core step distinguishes confirmed desktop core setup,
+missing components, a supported package update and unverified/failed facts.
+Confirmed setup shows Core ready, the installed version and Continue without
+suggesting reinstall; this is not service/TUN-creation/network-health evidence.
+Other states navigate to the existing guarded component controller, not a new
+installer. Missing/unknown facts never masquerade as ready Continue. Component
+review always retains Check again, Setup help and return navigation, including
+when package presence is known but core permissions are not confirmed. Refresh
+means refreshing facts; it must not imply a package update. Only an actually
+supported update state offers the admitted app/DNS paired update. A missing
+companion beside an existing app is not automatic repair authority.
+An opened setup terminal blocks ready Continue even after programs become
+present. Review must retain the explicit terminal/prompts-closed acknowledgement
+when the ordinary missing-components block disappears; navigation/recheck alone
+does not settle authorization or authorize another effect.
+
+Component delivery freshness is independent of operational readiness. A
+verified compatible older pair keeps Connect, ready Continue and the ordinary
+Start application / Start existing DNS broker continuations; an optional update
+notice cannot replace those facts. Missing, mixed, modified or unknown members
+remain blockers. A shared package version is not delivery identity: compare
+published bytes/source per architecture, not only `pacman -Q` or a receipt's
+self-declared hash. Managed Mihomo belongs to the app/DNS pair; do not offer an
+independent update of an unrelated stock core.
+
+For a component-update change, cover current, same-version older, qualified
+0.8.2, missing companion, mixed/modified delivery and stopped broker/runtime.
+Separate inventory reads, navigation, download, consent, package transaction
+and post-update continuation. Advertise an update only if the exact pinned
+native helper actually supports it. Fixture rendering does not prove that
+delivered packages contain that helper or that their installed path works.
+
+For setup/maintenance, the acceptance unit is the affected **user journey**,
+not a helper phase. Record its actual entry, prerequisites the user must reach,
+button/terminal/consent, original outcome, closure acknowledgement and next
+reachable action. An expert-only fixture stop, socket cleanup, preloaded archive,
+seeded enrollment or manually repaired state is an unearned journey edge unless
+it is itself the documented, reviewed and tested user procedure. Mark offline
+candidate/cache evidence separately from anonymous published downloads.
+Verify the prerequisite edge before final artifact assembly; package-phase PASS
+cannot conceal a missing preparation/return path. Keep an update advisory from
+disabling ordinary Start/Continue, and make preparation explicit inside the
+update flow rather than promising immediate replacement. Its entry is named
+Update components…; the ellipsis indicates subsequent steps and confirmations.
+
 ## Three independent checks before calling a change ready
+
+### End-user editorial rule
+
+The shared [glossary](../../GLOSSARY.md) owns component names and action
+terminology across QML, shell, native prompts, user guides and support copy.
+Read it before changing user-facing wording. It does not replace runtime
+contracts, exact delivery checks or rendered review.
+
+Owner correction, October 14: onboarding, ordinary status cards, public guides
+and support replies are for the person using the product, not its implementing
+agent. Start with the user's goal, the current state and one reachable next
+action. Normally use one or two short sentences and an explicit button label.
+Keep optional updates clearly optional; preserve real failures and necessary
+warnings, but do not explain an internal authority protocol in the main panel.
+
+Words such as broker, enrollment, matched pair, ownership, joined observation,
+delivery provenance and acceptance gates belong in diagnostics/development
+records unless the user needs that exact term to act. Necessary confirmation
+tokens such as INSTALL/PREPARE/UPGRADE belong at the actual terminal prompt,
+not in a paragraph describing every future step before a button is clicked.
+Explain consequences when relevant (profiles kept/deleted, VPN disconnect,
+password request, reboot), not every action which is *not* performed.
+
+Introduce a required helper at its first user-facing mention with its short
+purpose, then use the same name in statuses, buttons and standalone terminals.
+The DNS helper manages OmaVLESS connection DNS; it is not a public DNS provider
+choice or the Mihomo VPN core, even though the same package contains both.
+Initial setup may recommend turning off other VPN connections, without stopping
+them automatically or repeating the warning during ordinary ready-state review.
+An optional update notice must not hide the operational reason for a separate
+Start/setup/recovery action, including the limits of Restore access.
+
+For setup/onboarding actions, show current state, short explanation and the
+reachable next action in that order. Required operational setup comes before
+an optional-update card; optional freshness does not acquire primary styling.
+Keep ordinary DNS-helper Start primary and place Restore access behind an
+explicit secondary disclosure with its clean-reinstall prerequisite. Disclosure
+is navigation only and never grants the restore effect. Preserve all existing
+busy, terminal-closure, pending and unknown-outcome barriers.
+
+Wizard navigation places Back/Close on the left and Continue/Finish on the
+right, stacking rather than clipping long localized labels. Refresh and web
+help are secondary controls separate from forward navigation. All web-link
+labels end with the same `↗` marker; local URL reveal, package installation and
+in-product navigation do not. Completion without a profile names that outcome,
+not an ambiguous "later" promise. Progress prose names only the observed phase
+(opening a terminal, starting the app, saving routing), never a fabricated
+package transaction or successful connection.
+
+A readiness label names its scope (core installed/ready versus VPN connected)
+without an essay about test coverage. Keep version information useful, and
+move low-level TUN/capability facts to explicit diagnostics/help. Unknown state
+still blocks unsafe actions; shortening copy never changes admission or hides
+an actual error. Avoid claiming internet health from installation metadata.
+
+Support replies include a short ordered sequence of **actual commands and
+visible actions**, then an optional link to more detail. If checks are complex,
+use a reviewed bounded helper; do not make the user assemble an engineer's
+runbook. Respect the chosen reset scope: an expressly requested fresh reset
+deletes only that application's settings after clear notice, without adding an
+unrequested backup ceremony. Normal updates still preserve user data.
+
+Before handoff, read each surface as a first-time user. Remove agent-directed
+policy, repeated caveats and redundant explanations; verify the shortened
+EN/RU rendering and the next action on the exact installed candidate. Function
+or wording-length tests are guardrails, not editorial/visual acceptance.
+
+Treat the widget, its setup shell and native helper as one editorial journey.
+Follow every referenced button through terminal consent, cancellation/failure,
+closure acknowledgement and the offered next action. Compare references to the
+actual catalog, not remembered labels. Tests check these cross-surface names
+and the controller-selected locale; the glossary is checked against the catalog.
+Return text describes the completed operation, not unobserved global VPN state.
+
+Record where each reviewed string actually comes from. In particular, the
+setup shell extracts its native helper from the pinned application archive;
+editing Rust source or installing only the widget does not update those prompts.
+An inert preview compiled from the production formatter can earn text/rendering
+review, but not privileged update, public download or installed-delivery
+acceptance. A changed native formatter requires new matching packages and pins
+before claiming that the shipped journey contains the change. Preserve system
+password/package prompts and exact consent words when simplifying prose.
 
 1. **Behavior:** does the real handler address the right record/state, honor
    admission and existing confirmation, and reject unavailable/stale inputs?
@@ -125,6 +252,11 @@ evidence. Existing main-panel/presentation, action/IPC and localization tests in
 `tests/` are the first regression entry points. Prefer behavior assertions over
 tests which merely freeze exact source wording. Do not weaken an expected
 behavior to accommodate a new layout.
+
+When a transition depends on asynchronous property notifications, model their
+actual publication order, not just a manually invoked settled callback. Include
+a refusal with an already-matching cached value and an unknown result; neither
+may advance the journey as if the new action succeeded.
 
 ### Installed review and safety
 
