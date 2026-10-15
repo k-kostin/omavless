@@ -65,7 +65,10 @@ stat() {
   case "$2" in
     '%u %a') printf '0 755\\n' ;;
     '%u:%a') printf '%s\\n' '${options.badDirectoryMetadata ? '1234:755' : '0:700'}' ;;
-    '%u:%a:%h') if [[ "$3" == *release-enrollment.json ]]; then printf '0:600:1\\n'; else printf '0:755:1\\n'; fi ;;
+    '%u:%a:%h')
+      if [[ "$3" == *release-enrollment.json ]]; then printf '0:600:1\\n';
+      elif [[ "$3" == *omavless-dns-broker.service ]]; then printf '%s\\n' '${options.unitMetadata || '0:644:1'}';
+      else printf '0:755:1\\n'; fi ;;
     '%s') /usr/bin/stat "$@" ;;
     *) printf 'UNEXPECTED STAT\\n' >&2; return 2 ;;
   esac
@@ -109,6 +112,10 @@ test('pending enrollment', {staged:true}, 'check_enrollment', false);
 test('known guard and broker', {}, 'check_dns_programs', true);
 test('unknown broker', {unknownBroker:true}, 'check_dns_programs', false, ['GUARD', 'REVOKE']);
 test('unknown guard', {badGuard:true}, 'check_dns_programs', false, ['GUARD', 'REVOKE']);
+for (const unitMetadata of ['1234:644:1', '0:666:1', '0:644:2']) {
+  test('correct unit bytes with unsafe metadata refuse before prepare effects ' + unitMetadata, {unitMetadata}, prepare, false, ['GUARD', 'DISABLE', 'REVOKE']);
+  test('correct unit bytes with unsafe metadata refuse before revoke ' + unitMetadata, {unitMetadata}, remove, false, ['GUARD', 'REVOKE']);
+}
 test('inactive pre-enrollment prepare', {enrollment:'absent'}, prepare, true, ['REVOKE']);
 test('inactive guard failure refuses preparation', {guardFailure:true}, prepare, false, ['DISABLE', 'REVOKE']);
 test('unknown private journal refuses preparation', {unknownPrivate:true}, prepare, false, ['GUARD', 'DISABLE', 'REVOKE']);

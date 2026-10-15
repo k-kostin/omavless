@@ -285,7 +285,7 @@ check_supported_installation() {
     [[ ! -e /usr/bin/omavless && ! -L /usr/bin/omavless ]] \
       || fail 'An application file remains without its package. Nothing was removed; ask for help.'
   fi
-  printf '%s\n' "Application: $app" "DNS helper and bundled core: $dns"
+  printf '%s\n' "Application: $app" "DNS helper (website address lookup) and bundled core: $dns"
 }
 # CLI entry point
 guided=false
@@ -358,6 +358,7 @@ check_dns_programs() {
     *) refuse ;;
   esac
   [[ -f /usr/lib/systemd/system/omavless-dns-broker.service && ! -L /usr/lib/systemd/system/omavless-dns-broker.service &&
+     $(stat -c '%u:%a:%h' /usr/lib/systemd/system/omavless-dns-broker.service) == 0:644:1 &&
      $(sha256sum /usr/lib/systemd/system/omavless-dns-broker.service) == '126b208158e9288c475084c8bd74029e2808edf9846da514a369266b6306462d  /usr/lib/systemd/system/omavless-dns-broker.service' ]] || refuse
 }
 dns_absent() {
@@ -496,11 +497,11 @@ exit_code=$(systemctl show omavless-dns-broker.service --property=ExecMainCode -
 exit_status=$(systemctl show omavless-dns-broker.service --property=ExecMainStatus --value)
 [[ "$exit_code:$exit_status" == 0:0 || "$exit_code:$exit_status" == 1:0 || "$exit_code:$exit_status" == 2:15 ]] || refuse
 clean
-printf '%s\n' 'CLEAN_STOP_CONFIRMED: save your work, then reboot once.'
+printf '%s\n' 'DNS helper stopped safely.'
 ROOT_PREPARE
   root_prepare="$root_checks"$'\n'"$root_prepare"
   release_lock=false
-  if [[ "$guided" == true ]]; then printf '%s\n' '[2/3] Preparing the DNS helper for removal...'; fi
+  if [[ "$guided" == true ]]; then printf '%s\n' '[2/3] Preparing removal...'; fi
   sudo /usr/bin/bash -c "$root_prepare" || fail 'DNS preparation did not finish. Do not reboot or repeat; send the error to the maintainer.'
   if [[ "$guided" == true ]]; then write_stage prepared; fi
   release_lock=true
