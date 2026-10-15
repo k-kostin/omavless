@@ -1,142 +1,61 @@
 # Troubleshooting
 
-Do not paste private profile links, subscription URLs, endpoints, UUIDs,
-passwords or keys into public issue reports.
+Start with the [setup and update guide](NATIVE_INSTALL.md). It covers fresh
+installation, an unfinished setup and updates from older releases.
 
-## Start with safe status
+## Setup stopped
 
-```bash
-omarchy-shell kdk.omavless status
-systemctl --user status omavless.service --no-pager
-journalctl --user -u omavless.service -n 80 --no-pager
-```
+Finish or cancel the current terminal and its system prompts, then reopen
+OmaVLESS. Choose **Terminal and system prompts are closed** if shown, followed
+by **Check again**. Follow the remaining action offered by the panel; do not
+repeat first-time setup just because a later step failed.
 
-Settings can export a bounded JSON support snapshot. The same safe diagnostic
-surface is available from the installed backend:
+The DNS helper handles website address lookup for OmaVLESS connections. It is
+not a choice between public DNS providers. Use **Set up DNS helper** for first
+authorization, or **Start DNS helper** when access already exists. See the
+[next-step table](NATIVE_INSTALL.md#find-your-next-step).
 
-```bash
-plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
-"$plugin" diagnostics
-"$plugin" diagnostics-export ~/omavless-diagnostics.json
-```
+## The widget or core looks out of date
 
-Review the result before sharing it. It is designed to exclude credentials,
-subscription URLs and private names.
+Updating the widget and updating native packages are separate operations.
+Follow [Updates](NATIVE_INSTALL.md#updates); a matching package version label
+alone does not prove which build is installed.
 
-## Mihomo is unavailable
+If old controls remain after a completed update, finish all related prompts
+first, then use the guide's optional shell reload. Reloading the shell does
+not repair a failed installation or disconnect a VPN.
 
-Confirm discovery and version:
+## Another VPN is active
 
-```bash
-command -v mihomo
-mihomo -v
-```
+Turn off its connection through that application's own controls before setting
+up or connecting OmaVLESS. OmaVLESS does not stop, remove or reconfigure another
+VPN client for you. Do not change its files or services as an OmaVLESS repair.
 
-If Mihomo was installed or replaced recently, verify capabilities:
+## File or clipboard import is unavailable
 
-```bash
-mihomo_bin="$(command -v mihomo)"
-getcap "$mihomo_bin"
-```
+Check the optional helpers reported in Settings. The installation guide lists
+the supported [file picker and clipboard tools](NATIVE_INSTALL.md#optional-helpers-firewall-and-older-installations).
+Profile import accepts supported links, not arbitrary remote configurations.
+Do not print clipboard contents in a shared terminal: they may contain keys.
 
-If required capabilities are absent, follow the explicit setup in
-[INSTALL.md](INSTALL.md). OmaVLESS will not request administrator permission
-automatically.
+## Connection or recovery failed
 
-## Another Mihomo service is active
+Keep the short message and attempted action. If recovery is required, do not
+repeatedly reconnect, edit generated configuration or delete service/network
+files to bypass the failure. Open **Settings → Support report** and choose
+**Copy report** or **Save file** where available.
 
-If the panel reports Mihoro or another full-tunnel core, inspect it before
-connecting. To intentionally switch from Mihoro:
+That report is designed for sharing; profiles, subscription URLs, passwords,
+keys and raw private logs are not. Include the action and short error with
+your report. A ready core alone does not prove provider connectivity.
 
-```bash
-systemctl --user disable --now mihomo.service
-```
+## Remove and start again
 
-OmaVLESS refuses competing policy-routing owners instead of stopping them.
+The [full-removal helper](CLEAN_REINSTALL_098.md) deletes OmaVLESS profiles and
+settings without a backup, then allows a fresh installation. It also works
+when the widget was already removed. Other VPN clients and a separately
+installed Mihomo stay installed.
 
-## File import cannot open a chooser
-
-Current Omarchy's GTK4 chooser should be found automatically. Settings reports
-the detected picker. On an unusually minimal system:
-
-```bash
-omarchy pkg add zenity
-```
-
-Restart Omarchy Shell after changing desktop integration if it does not detect
-the new picker. Clipboard import remains independent.
-
-## Clipboard import cannot read text
-
-Confirm `wl-paste` is available and the clipboard contains plain text:
-
-```bash
-command -v wl-paste
-wl-paste --no-newline
-```
-
-Do not run the second command while screen sharing if the clipboard may contain
-a private VPN link. A subscription must be one strictly validated URL; a
-profile must be one supported link.
-
-## Subscription already exists
-
-The top-level import flow uses the same duplicate detection as the dedicated
-Subscriptions page. Open Settings → Subscriptions to refresh or edit the
-existing entry instead of creating another copy.
-
-## Generated configuration is rejected
-
-OmaVLESS validates generated config before restart and restores the prior state
-on normal failure. Keep the previous private store/config intact and export the
-safe diagnostic snapshot.
-
-Do not edit generated `config.yaml` as a fix: it will be regenerated. For an
-advanced custom routing template, use the explicit adoption command only with
-a file you trust:
-
-```bash
-plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
-"$plugin" adopt-template -- ~/routing.yaml
-```
-
-OmaVLESS strips top-level proxies and controller listeners before using an
-adopted template.
-
-## Manual recovery required
-
-`manual recovery required` means the attempted rollback also failed. Stop and
-inspect the service rather than repeatedly reconnecting:
-
-```bash
-systemctl --user stop omavless.service
-systemctl --user status omavless.service --no-pager
-journalctl --user -u omavless.service -n 120 --no-pager
-```
-
-Confirm there is no owned Mihomo process or TUN before another attempt. Preserve
-the safe diagnostics when reporting the failure.
-
-## Routing tools
-
-The backend exposes bounded equivalents of Settings actions. Destination
-values use stdin so they are not placed in the process list:
-
-```bash
-plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
-printf '%s\n' 'example.com' | "$plugin" route-check
-printf '%s\n' 'example.com' | "$plugin" custom-rule-add suffix direct
-"$plugin" custom-rules
-"$plugin" rule-providers-refresh
-```
-
-## Remove and reinstall
-
-Normal removal preserves private data:
-
-```bash
-omarchy plugin remove kdk.omavless
-```
-
-Use `uninstall.sh --purge` only when you explicitly intend to delete profiles,
-subscription URLs and routing configuration.
+Removing only the widget through Omarchy leaves the native packages and saved
+data behind. Follow the helper's remaining step after an interruption rather
+than deleting its records or package-manager locks by hand.

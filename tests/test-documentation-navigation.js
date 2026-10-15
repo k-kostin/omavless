@@ -9,7 +9,8 @@ const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
   'docs/development/BETA_098.md', 'docs/development/RC_097.md', 'docs/development/RC_096.md', 'docs/development/RC_095.md',
   'docs/development/RC_090.md', 'docs/user/NATIVE_INSTALL.md',
-  'docs/user/INSTALL.md', 'docs/user/NATIVE_INSTALL_082_REFERENCE.md',
+  'docs/user/INSTALL.md', 'docs/user/SECURITY.md', 'docs/user/TROUBLESHOOTING.md',
+  'docs/user/NATIVE_INSTALL_082_REFERENCE.md',
   'docs/user/INSTALL_082_REFERENCE.md'];
 let links = 0;
 for (const file of files) {
@@ -31,6 +32,15 @@ const panel = fs.readFileSync(path.join(root, 'plugin/Panel.qml'), 'utf8');
 assert(setupPage.includes('function guide() { Qt.openUrlExternally("' + setupGuide + '") }'));
 assert(panel.includes('onSetupGuideRequested: Qt.openUrlExternally("' + setupGuide + '")'));
 const installGuide = fs.readFileSync(path.join(root, 'docs/user/NATIVE_INSTALL.md'), 'utf8');
+const troubleshooting = fs.readFileSync(path.join(root, 'docs/user/TROUBLESHOOTING.md'), 'utf8');
+const security = fs.readFileSync(path.join(root, 'docs/user/SECURITY.md'), 'utf8');
+for (const text of [troubleshooting, security]) {
+  assert(!text.includes('uninstall.sh --purge'), 'current help must not advertise the legacy remover');
+  assert(text.includes('CLEAN_REINSTALL_098.md'), 'current removal help must reach the reviewed helper');
+}
+assert(!troubleshooting.includes('omavless.service'), 'current help must not use the retired Python service');
+assert(!troubleshooting.includes('systemctl --user stop'), 'do not replace recovery with an unverified service stop');
+assert(troubleshooting.includes('Support report'), 'start support with the bounded current report');
 for (const anchor of ['guided-first-run', 'find-your-next-step', 'continue-dns-setup',
   'existing-dns-installations', 'when-setup-stops', 'updates', 'verify-the-installation',
   'updates-close-quit-and-removal', 'optional-helpers-firewall-and-older-installations']) {

@@ -87,10 +87,14 @@ private material. Stable bounded public messages are used instead.
 
 ## Removal
 
-Disabling or removing the plugin stops its TUN, disables login autoconnect and
-removes generated user units. Private profiles are retained by default for
-reinstallation. `uninstall.sh --purge` is the explicit destructive path for
-removing private OmaVLESS data.
+Removing the widget with Omarchy does not uninstall the application or DNS
+packages and does not erase saved profiles. Widget removal requests application
+shutdown, but a disappearing icon is not proof that shutdown completed.
 
-Neither removal path deletes Mihomo, changes Mihoro or touches another VPN's
-configuration.
+For full removal, use the [terminal removal helper](CLEAN_REINSTALL_098.md).
+It closes OmaVLESS where possible, prepares a restart, then checks the remaining
+state before removing its packages and saved profiles/settings. Interrupted
+removal continues through the same helper command. No backup is made.
+
+Other VPN clients and independently installed Mihomo stay installed. Unknown
+network ownership is not permission to delete another application's settings.
