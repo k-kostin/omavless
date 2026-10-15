@@ -6,6 +6,35 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+The authoritative current finalization summary is the
+[selected-source and acceptance matrix](../development/STABLE_DISTRIBUTION_TRANSITION.md#current-source-composition--2026-10-15)
+in Draft #794. Public main remains `ed0346c5`; #790–793 are source inputs to
+that candidate, not separately published maintenance releases. The full remover,
+short ready screen, unified user/assistance guides and tested local stable-tree
+export are prepared. Main/development migration, publication and Aryan's reply
+remain held for separate owner authorization.
+
+The final full-source CI is tracked on #794. The earlier #792 Rust failure is
+retained: a source-permitted routing-fixture teardown race has a separately
+reviewed test-only correction at `52084e7a`, not silently included with the old
+native pair. Green source checks do not disprove that race. Installed x64
+helper4345 package-before-enabled-widget unload and resumable removal are
+verified; helper7f54 ARM acceptance is partial, with its final second cycle
+waiting for unrelated package-manager repair when the powered-off Mac returns.
+Preserve its progress/masks/helper. Do not restart earned unchanged gates, claim
+ARM4345 or Internet/connected ARM acceptance, or investigate the owner-excluded
+VM-specific Qt setup issue as part of this release.
+
+VM custody is released. Raw captures/checkpoints remain local. Repository
+cleanup may close source-incorporated proposals without deleting their evidence
+branches or converting pending/failed research gates into PASS.
+
+## Earlier acceptance checkpoints — historical, not current pending gates
+
+The records below preserve their original tested identities and limits. Current
+successors and custody are described above; an earlier UNRUN is not the current
+matrix, and an earlier merge allowance does not authorize another main change.
+
 - **Removal follow-up #790:** the owner rejected the restricted reset as a full
   deinstaller. Its replacement `tools/uninstall.sh` covers public 0.8.2/0.9.8
   used/running/stopped and widget-absent states without a connection-history
