@@ -46,6 +46,12 @@ fixture from that installed command's measured schema (sanitize private values).
 An invented object satisfying the predicate is not compatibility evidence;
 retain malformed/older-schema cases as separate negative tests.
 
+For inert subprocess tests, verify that the selected mock actually ran.
+A shell function mock does not automatically cross an external timeout/env
+process boundary. Refuse unmocked effect leaves by default and retain a bounded
+fixture witness; a passing assertion against a real desktop query is not inert
+evidence. Preserve any accidental live read separately from the corrected run.
+
 Dependent commands require a fail-fast admission boundary. Check checkout/head,
 selected directories and permissions before launching a build or test; create
 and verify the HOME-backed TMPDIR first. Keep dependent shell steps in one
@@ -66,6 +72,15 @@ not a newer main checkout or shared build cache. Source review does not replace
 compilation. For an unfamiliar focused selector, inspect the module mapping or
 the actual test list first; record the selected case count. Exit 0 with zero
 selected tests is UNTESTED, not evidence that the requested behavior passed.
+
+For socket-response fixtures, accepting the last peer is not completion of its
+request. Keep fixture teardown separate from the behavior under assertion:
+signal server shutdown only after the final reply is checked, with unwind-safe
+cleanup. A teardown which takes the same mutex as the tested nonblocking read
+can manufacture `busy` before its intended ownership check. Preserve exact
+response assertions; do not accept `busy`, add sleeps/retries or weaken runtime
+admission to hide that race. A controlled contention test proves precedence,
+not the unobserved thread interleaving of an earlier CI failure.
 
 For installer/updater work, include user-reached preparation, return after
 Quit/terminal closure and continuation in that early scenario. Record every
