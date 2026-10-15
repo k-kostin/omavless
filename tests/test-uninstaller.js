@@ -160,6 +160,70 @@ userTest('cancelled UTF-8 widget removal retains checkout',{},[
  'mkdir -p "$HOME/.config/omarchy/plugins/kdk.omavless"',
  'omarchy() { [[ $LC_ALL == C.UTF-8 ]] || return 9; return 7; }','remove_widget'
 ].join('\n'),false,dir=>assert(fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless')));
+
+// Exercise the actual final user-side phase, including its actual root body
+// construction, with an inert root dispatcher. The existing ROOT_REMOVE tests
+// independently execute those guarded package/network leaves. This is order
+// and interruption evidence, not permission to invoke the real root worker.
+const completionStart=source.indexOf('\nsave_progress removing\n');
+const completionEnd=source.indexOf('\ncheck_private_targets\n[[ -d "$setup_lock"',completionStart);
+assert(completionStart>0&&completionEnd>completionStart);
+const completion=source.slice(completionStart+1,completionEnd)
+ .replaceAll('/usr/bin/omavless','"$folder/app-file"');
+const completionFixture=[
+ 'read_progress; save_progress prepared; take_setup_lock',
+ 'mkdir -p "$HOME/.config/omarchy/plugins/kdk.omavless"',
+ 'printf app > "$folder/app-file"; printf settings > "$HOME/.config/omavless-settings-witness"',
+ 'run_root() { printf "ROOT\\n" >> "$folder/order"; [[ ! -e "$folder/fail-package" ]] || return 7; [[ -e "$folder/keep-binary" ]] || rm -f -- "$folder/app-file"; printf "PACKAGES_ABSENT\\n" >> "$folder/order"; }',
+ 'omarchy() { [[ $LC_ALL == C.UTF-8 && "$*" == "plugin remove kdk.omavless" && ! -e "$folder/app-file" && ! -L "$folder/app-file" ]] || return 9; printf "WIDGET\\n" >> "$folder/order"; [[ ! -e "$folder/fail-widget" ]] || return 7; rmdir -- "$HOME/.config/omarchy/plugins/kdk.omavless"; }'
+].join('\n');
+const completionInspect=(dir)=>{
+ const base=dir+'/home/user';
+ assert(fs.existsSync(base+'/.cache/omavless-maintenance/uninstall/progress.json'));
+ assert.equal(JSON.parse(fs.readFileSync(base+'/.cache/omavless-maintenance/uninstall/progress.json')).phase,'removing');
+ assert(fs.existsSync(dir+'/run/user/'+uid+'/omavless-first-run.lock'));
+ assert.equal(fs.readFileSync(base+'/.config/omavless-settings-witness','utf8'),'settings');
+};
+userTest('actual completion removes packages before widget unload',{},completionFixture+'\n'+completion,true,(dir)=>{
+ completionInspect(dir);
+ assert.equal(fs.readFileSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/order','utf8'),'ROOT\nPACKAGES_ABSENT\nWIDGET\n');
+ assert(!fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless'));
+});
+userTest('package failure never unloads widget or deletes data',{},completionFixture+'\ntouch "$folder/fail-package"\n'+completion,false,(dir)=>{
+ completionInspect(dir);
+ assert(fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless'));
+ assert.equal(fs.readFileSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/order','utf8'),'ROOT\n');
+});
+userTest('remaining unregistered binary blocks widget unload',{},completionFixture+'\ntouch "$folder/keep-binary"\n'+completion,false,(dir)=>{
+ completionInspect(dir);
+ assert(fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless'));
+ assert(!fs.readFileSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/order','utf8').includes('WIDGET'));
+});
+userTest('widget cancellation after packages preserves continuation and data',{},completionFixture+'\ntouch "$folder/fail-widget"\n'+completion,false,(dir)=>{
+ completionInspect(dir);
+ assert(fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless'));
+ assert(!fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/app-file'));
+});
+userTest('same actual completion resumes after widget cancellation',{},completionFixture+'\n'+[
+ 'touch "$folder/fail-widget"',
+ 'if ( '+completion+'\n); then exit 9; fi',
+ '[[ -e "$record" && -d "$setup_lock" && ! -e "$folder/app-file" ]]',
+ 'unlink "$folder/fail-widget"; read_progress',completion
+].join('\n'),true,(dir)=>{
+ completionInspect(dir);
+ assert(!fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless'));
+ assert.equal(fs.readFileSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/order','utf8'),'ROOT\nPACKAGES_ABSENT\nWIDGET\nROOT\nPACKAGES_ABSENT\nWIDGET\n');
+});
+for(const [label,setup] of [
+ ['redirected widget','rmdir "$HOME/.config/omarchy/plugins/kdk.omavless"; ln -s "$folder" "$HOME/.config/omarchy/plugins/kdk.omavless"'],
+ ['dirty Git directory','mkdir "$HOME/.config/omarchy/plugins/kdk.omavless/.git"; git() { printf modified; }'],
+ ['dirty Git worktree','printf worktree > "$HOME/.config/omarchy/plugins/kdk.omavless/.git"; git() { printf modified; }'],
+ ['failed Git status','mkdir "$HOME/.config/omarchy/plugins/kdk.omavless/.git"; git() { return 7; }']
+])userTest(label+' refuses before package effects',{},completionFixture+'\n'+setup+'\n'+completion,false,(dir)=>{
+ completionInspect(dir);
+ assert(!fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/order'));
+ assert(fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/app-file'));
+});
 for(const status of [0,7])userTest('native Quit UTF-8 inherited by its desktop child, original exit'+status,{},[
  'export LC_ALL=C; guided=false',
  'function /usr/bin/omavless { [[ $LC_ALL == C.UTF-8 ]] || return 9; bash -c \'[[ $LC_ALL == C.UTF-8 ]]\' || return 9; printf \'{"synthetic":true}\'; return '+status+'; }',

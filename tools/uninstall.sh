@@ -342,14 +342,22 @@ check_legacy_selection() {
   [[ "$found" == true || ( ! -e /usr/bin/mihomo && ! -L /usr/bin/mihomo ) ]] \
     || fail 'The packaged core is not selected by the application service PATH.'
 }
-remove_widget() {
-  local plugin="$HOME/.config/omarchy/plugins/kdk.omavless" deadline state
+check_widget() {
+  local plugin="$HOME/.config/omarchy/plugins/kdk.omavless" changes
   if [[ -e "$plugin" || -L "$plugin" ]]; then
     [[ -d "$plugin" && ! -L "$plugin" ]] || fail 'The widget folder is redirected. Its target was left unchanged.'
-    if [[ -d "$plugin/.git" ]]; then
-      [[ -z $(git -C "$plugin" status --porcelain) ]] \
+    if [[ -e "$plugin/.git" || -L "$plugin/.git" ]]; then
+      changes=$(git -C "$plugin" status --porcelain) \
+        || fail 'Cannot check the installed widget for development edits. Its files were left unchanged.'
+      [[ -z "$changes" ]] \
         || fail 'The installed widget has development edits. Save those edits outside the installed widget, then run removal again.'
     fi
+  fi
+}
+remove_widget() {
+  local plugin="$HOME/.config/omarchy/plugins/kdk.omavless"
+  check_widget
+  if [[ -e "$plugin" || -L "$plugin" ]]; then
     LC_ALL=C.UTF-8 omarchy plugin remove kdk.omavless || fail 'Widget removal was cancelled or failed. Run this same command to continue.'
   fi
   [[ ! -e "$plugin" && ! -L "$plugin" ]] || fail 'The widget is still installed. Finish its removal prompt, then run this command again.'
@@ -898,7 +906,12 @@ fi
    ! -e "$runtime/omavless-login.receipt" && ! -L "$runtime/omavless-login.receipt" ]] \
   || fail 'OmaVLESS created new session state after reboot. Another start is active; finish it before continuing.'
 save_progress removing
-remove_widget
+# Reject redirected/development widgets before package effects, but leave QML
+# loaded until the installed native binary has actually been removed. Otherwise
+# its unload observer treats this intentionally stopped/masked reboot state as
+# an unverified Quit and emits a false critical warning. All root/network and
+# package guards still precede widget removal; masks/exclusion remain held.
+check_widget
 read -r -d '' root_remove <<'ROOT_REMOVE' || true
 blocker='an OmaVLESS process or tunnel is still active. Finish its normal shutdown before continuing'
 empty_host
@@ -930,6 +943,7 @@ ROOT_REMOVE
 say '[3/3] Removing OmaVLESS...'
 run_root "$root_remove" || fail 'Removal is not complete. Progress is saved; follow the specific message above, then run this command again.'
 [[ ! -e /usr/bin/omavless && ! -L /usr/bin/omavless ]] || fail 'The application file remains. The installed package must be removed before deleting settings.'
+remove_widget
 check_private_targets
 [[ -d "$setup_lock" && ! -L "$setup_lock" && $(stat -c '%d:%i:%u:%a' -- "$setup_lock") == "$recorded_lock" ]] \
   || fail 'The setup exclusion changed. Settings were left unchanged; run the same command to inspect the remaining state.'
