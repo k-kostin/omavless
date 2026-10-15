@@ -1,12 +1,28 @@
 # Current delivery status
 
-Updated 2026-10-14. This is the compact current-state entry point; the detailed
+Updated 2026-10-15. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Core onboarding follow-up:** distinguish Core ready/version/Continue from
+- **Selected fix.6 main successor:** the owner authorizes immutable
+  `v0.9.8-fix.6` and main integration of the setup stack #783–787 plus the
+  public-guide contract from #782. Native app/DNS source is
+  `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`, with inspected pins for both
+  architectures and unchanged product/package versions 0.9.8 / 0.9.8-1.
+  Actual x86_64 fresh, partial-DNS continuation and public-fix.5 update
+  journeys pass. Full Test/native builds pass on the reviewed source heads;
+  the [onboarding report](../testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
+  preserves identities, failures and limits. The release PR records final
+  public download/main-clone gates and actual publication/merge, not inferred
+  from warmed caches. Installed ARM64 remains unrun under the owner's explicit
+  publication allowance. Original 0.9.8 still needs guarded administrator
+  removal/replacement; compatible older pairs use the offered update/remaining
+  setup actions. Aryan's reply and README additions remain drafts; no
+  Marketplace action or future 0.9.9 feature is authorized here.
+
+- **Historical core onboarding/fix.5 validation:** distinguish Core ready/version/Continue from
   missing, supported-update and unverified facts. Other states navigate to the
   same guarded component setup; opening review performs no install/update.
   Refresh is a facts read, not a Mihomo updater. Existing app + missing companion

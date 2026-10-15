@@ -4,6 +4,13 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.9.8 — corrected release snapshot
 
+- Simplify setup/update screens and terminal instructions, with consistent
+  action names and a short explanation of the DNS helper. Keep required setup
+  separate from optional updates and make the return after terminal closure clear.
+- Offer a confirmed paired component update for supported earlier 0.9.8
+  deliveries, including fix.5. Preserve profiles and existing DNS authorization;
+  preparation and package installation require separate consent.
+
 - Distinguish ready, missing, update and unverified core setup in onboarding.
   Show the installed version and Continue only for confirmed setup facts;
   route other states to the existing component review and confirmed setup
@@ -44,13 +51,13 @@ All notable changes to OmaVLESS are documented here.
 - Correct first-use Backup availability without a runtime restart and keep
   the idle DNS broker available without repeatedly polling empty admission.
 
-Corrected packages and matching frontend use `v0.9.8-fix.4`, adding the setup
-and qualified-update corrections to the retained #735/#736 fixes. Both native
-packages identify source `b65695ee0609c2a971289109975678b8da87c946`;
-#778 and the [setup acceptance record](docs/testing/SETUP_082_UPGRADE_VM_2026-10-13.md)
-separate public-download checks, installed x86_64 results and pending installed
-ARM64 validation. Existing 0.9.8 installations need a guarded native package reinstall,
-not only a plugin update; product/package versions remain 0.9.8 / 0.9.8-1. The original
+Corrected packages and matching frontend use `v0.9.8-fix.6`. Both native
+packages identify source `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`.
+The [setup acceptance record](docs/testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
+and release PR separate public downloads, installed x86_64 results and the
+unrun installed ARM64 check. Existing users update the widget first, then use
+the offered component update or remaining setup action; a widget update alone
+does not replace native packages. Product/package versions remain 0.9.8 / 0.9.8-1. The original
 `v0.9.8` validation assets remain immutable. The owner authorized main/stable
 promotion; its actual merge/release event is recorded in PR #726. Marketplace
 submission and the root README were subsequently owner-approved; #10984 is the
@@ -58,9 +65,8 @@ exact-snapshot Marketplace update, with its findings addressed in #735/#736.
 Login autoconnect is Off by default; experimental protocol limitations remain.
 Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
 
-The core-onboarding refinement above is a later main frontend-only follow-up.
-It does not rebuild the app/DNS packages or overwrite the frozen fix.4 frontend
-archive; update the repository-installed widget to receive the current controls.
+Earlier fix.1–fix.5 tags and packages remain immutable historical deliveries.
+No all-stage uninstaller or Restore feature is added by this setup correction.
 
 ## 0.9.8-rc.1 — internal scope freeze, not a public release
 

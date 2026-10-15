@@ -830,7 +830,7 @@ fix.5 installation evidence is retained history, not acceptance for new bytes.
 No main merge, release/asset publication, Marketplace submission or issue772
 reply is performed or authorized by this checkpoint.
 
-### Matched prompt packages and installed continuation
+### Prepublication matched prompt packages and installed continuation
 
 Native package source: `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`.
 Installed frontend: `503a24c2a9abfba260eed0ff4e681f2ccb4f6016`.

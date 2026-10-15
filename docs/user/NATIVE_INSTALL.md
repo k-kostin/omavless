@@ -156,10 +156,7 @@ an enrollment that may already have succeeded.
 There are **two parts**: the Omarchy widget and the native application/DNS
 packages. `omarchy plugin update kdk.omavless` updates only the widget.
 
-This development guide describes the candidate for `v0.9.8-fix.6`, which is
-**not published yet**. For the currently available installation, use the
-[main guide](https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md).
-The candidate uses matching packages for x86_64 and ARM64.
+`v0.9.8-fix.6` supplies the matching packages for x86_64 and ARM64.
 Product/package versions remain `0.9.8` / `0.9.8-1`, so
 the version label alone cannot distinguish earlier deliveries. Do not mix
 packages from different corrections. The release's
@@ -184,7 +181,13 @@ A reload failure does not undo the package update or mean you should repeat it.
 
 ### Already using 0.9.8
 
-Update the widget first. For a partial setup, use Check again and finish the
+Update the widget first:
+
+```sh
+omarchy plugin update kdk.omavless
+```
+
+For a partial setup, use Check again and finish the
 remaining DNS/application step; do not initialize or activate an existing
 Rust-owned installation again.
 
