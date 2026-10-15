@@ -124,7 +124,8 @@ read_progress() {
     ((.lock == "") == (.lockToken == "")) and
     (.phase == "preparing" or .phase == "prepared" or .phase == "removing") and
     (.masks | type == "array" and length <= 2 and
-      all(.[]; keys == ["identity","unit"] and
+      all(.[]; (keys == ["identity","unit"] or
+          (keys == ["identity","unit","witness"] and (.witness | test("^[a-f0-9]{32}$")))) and
         (.unit == "omavless-runtime.service" or .unit == "omavless-login-prepare.service") and
         (.identity | test("^[0-9]+:[0-9]+$"))) and
       ([.[].unit] | unique | length) == length)
@@ -183,7 +184,7 @@ take_setup_lock() {
   if [[ -e "$setup_lock" || -L "$setup_lock" ]]; then
     [[ -n "$recorded_lock" && -d "$setup_lock" && ! -L "$setup_lock" &&
        $(stat -c '%d:%i:%u:%a' -- "$setup_lock") == "$recorded_lock" ]] \
-      || fail 'Another setup is open. Finish or cancel its terminal and authorization prompts, then run this command again.'
+      || fail 'A setup may still be running. Finish or cancel its terminal and authorization prompts. If no setup is running and all prompts are closed, save your work and restart the computer, then run this command again. Do not delete the setup lock.'
     [[ -z $(find "$setup_lock" -mindepth 1 -maxdepth 1 -print -quit) ]] \
       || fail 'The earlier setup directory is not empty. Nothing in it was deleted.'
     # The original parent is gone and the root barrier already reconciled its
@@ -217,8 +218,12 @@ release_setup_lock() {
     || fail 'The setup exclusion changed. Removal progress was kept; no unrelated directory was deleted.'
   rmdir -- "$setup_lock" || fail 'The setup exclusion is not empty. Removal progress was kept; run the same command after the other setup finishes.'
 }
+mask_link_matches() {
+  [[ -L "$1" && $(readlink -- "$1") == /dev/null &&
+     $(stat -c '%u:%i:%h' -- "$1") == "$(id -u):$2:$3" ]]
+}
 mask_future_start() {
-  local unit destination temporary identity expected
+  local unit destination temporary identity expected witness
   for directory in "$HOME/.config/systemd" "$HOME/.config/systemd/user"; do
     if [[ ! -e "$directory" && ! -L "$directory" ]]; then mkdir -- "$directory"; fi
     [[ -d "$directory" && ! -L "$directory" && $(stat -c '%u' -- "$directory") == "$(id -u)" ]] \
@@ -229,29 +234,39 @@ mask_future_start() {
   for unit in omavless-runtime.service omavless-login-prepare.service; do
     destination="$HOME/.config/systemd/user/$unit"
     expected=$(jq -r --arg unit "$unit" '.[] | select(.unit == $unit) | .identity' <<< "$masks")
+    witness=$(jq -r --arg unit "$unit" '.[] | select(.unit == $unit) | .witness // ""' <<< "$masks")
+    temporary="$folder/mask-${witness:+$witness-}$unit"
     if [[ -e "$destination" || -L "$destination" ]]; then
       [[ -L "$destination" && $(readlink -- "$destination") == /dev/null ]] \
         || fail "A custom $unit override blocks removal. Move that override out of the user-service folder, then run this command again."
       if [[ -n "$expected" ]]; then
-        [[ $(stat -c '%d:%i' -- "$destination") == "$expected" ]] || fail 'A removal-created service mask was replaced. No other service file was changed.'
+        if [[ -n "$witness" ]]; then
+          mask_link_matches "$destination" "${expected#*:}" 2 && mask_link_matches "$temporary" "${expected#*:}" 2 &&
+            [[ $(stat -c '%d:%i' -- "$destination") == $(stat -c '%d:%i' -- "$temporary") ]] \
+            || fail 'A removal-created service mask or its saved witness was replaced. No other service file was changed.'
+        else
+          [[ $(stat -c '%d:%i' -- "$destination") == "$expected" ]] || fail 'A removal-created service mask was replaced. No other service file was changed.'
+        fi
       fi
       continue
     fi
-    temporary="$folder/mask-$unit"
     if [[ -n "$expected" ]]; then
-      [[ -L "$temporary" && $(readlink -- "$temporary") == /dev/null &&
-         $(stat -c '%d:%i' -- "$temporary") == "$expected" ]] \
-        || fail 'A saved service mask is missing or changed. No new mask was created.'
+      mask_link_matches "$temporary" "${expected#*:}" 1 || fail 'A saved service mask is missing or changed. No new mask was created.'
+      [[ -n "$witness" || $(stat -c '%d:%i' -- "$temporary") == "$expected" ]] \
+        || fail 'The older saved service mask changed. No new mask was created.'
     else
+      witness=$attempt
+      temporary="$folder/mask-$witness-$unit"
       [[ ! -e "$temporary" && ! -L "$temporary" ]] || fail 'An unrecognized temporary service mask exists. It was left unchanged.'
       ln -s -- /dev/null "$temporary"
       identity=$(stat -c '%d:%i' -- "$temporary")
-      masks=$(jq -c --arg unit "$unit" --arg identity "$identity" '. + [{unit:$unit,identity:$identity}]' <<< "$masks")
+      masks=$(jq -c --arg unit "$unit" --arg identity "$identity" --arg witness "$witness" '. + [{unit:$unit,identity:$identity,witness:$witness}]' <<< "$masks")
       save_progress "$phase"
     fi
     # Publish only after exact mask identity was durably recorded; no overwrite.
     ln -P -T -- "$temporary" "$destination"
-    unlink -- "$temporary"
+    # Keep a private hardlink witness across reboot. st_dev alone is not a
+    # persistent identity (Btrfs may assign another device number next boot).
   done
   systemctl --user daemon-reload
   for unit in omavless-runtime.service omavless-login-prepare.service; do
@@ -326,19 +341,41 @@ remove_widget() {
   [[ ! -e "$plugin" && ! -L "$plugin" ]] || fail 'The widget is still installed. Finish its removal prompt, then run this command again.'
 }
 clear_created_masks() {
-  local unit destination expected temporary
-  while IFS=$'\t' read -r unit expected; do
+  local unit destination expected temporary witness links destination_present temporary_present
+  while IFS=$'\t' read -r unit expected witness; do
     destination="$HOME/.config/systemd/user/$unit"
-    temporary="$folder/mask-$unit"
+    temporary="$folder/mask-${witness:+$witness-}$unit"
+    destination_present=false; temporary_present=false; links=0
+    if [[ -e "$destination" || -L "$destination" ]]; then destination_present=true; ((links+=1)); fi
+    if [[ -e "$temporary" || -L "$temporary" ]]; then temporary_present=true; ((links+=1)); fi
+    if [[ "$witness" != '' && "$destination_present" == true && "$temporary_present" != true ]]; then
+      fail 'The saved service-mask witness is missing. Removal progress is kept; no service file was changed.'
+    fi
+    # Validate the complete pair before either unlink; after an interruption a
+    # lone witness is expected, but a lone new-format destination is not.
+    if [[ "$links" == 2 ]]; then
+      [[ $(stat -c '%d:%i' -- "$destination") == $(stat -c '%d:%i' -- "$temporary") ]] \
+        || fail 'A saved service mask was replaced. No service file was changed.'
+    fi
     for path in "$destination" "$temporary"; do
       if [[ -e "$path" || -L "$path" ]]; then
-        [[ -L "$path" && $(readlink -- "$path") == /dev/null &&
-           $(stat -c '%u:%d:%i' -- "$path") == "$(id -u):$expected" ]] \
+        mask_link_matches "$path" "${expected#*:}" "$links" \
           || fail 'A service mask changed. It was left untouched; removal progress is saved.'
-        unlink -- "$path"
+        if [[ -z "$witness" && $(stat -c '%d:%i' -- "$path") != "$expected" ]]; then
+          # Compatibility with the unreleased b4 receipt, after this invocation
+          # freshly proved packages/resources absent. Ignore only old st_dev.
+          [[ ${mask_cleanup_admitted:-false} == true && "$phase" == removing && "$prepared_boot" != "$boot_id" && "$links" == 1 ]] \
+            || fail 'The older service mask identity changed. It was left untouched; removal progress is saved.'
+        fi
       fi
     done
-  done < <(jq -r '.[] | [.unit,.identity] | @tsv' <<< "$masks")
+    # Destination first: a crash may leave only its private retained witness.
+    if [[ "$destination_present" == true ]]; then unlink -- "$destination"; fi
+    if [[ "$temporary_present" == true ]]; then
+      mask_link_matches "$temporary" "${expected#*:}" 1 || fail 'The remaining service-mask witness changed. Removal progress is kept.'
+      unlink -- "$temporary"
+    fi
+  done < <(jq -r '.[] | [.unit,.identity,(.witness // "")] | @tsv' <<< "$masks")
   systemctl --user daemon-reload
 }
 clear_runtime_enablement() {
@@ -684,12 +721,14 @@ ROOT_CHECKS
 read -r -d '' root_custody <<'ROOT_CUSTODY' || true
 # Root takes its own lifetime custody before interpreting user navigation data.
 umask 077
+blocker='the temporary removal lock has unexpected ownership or permissions. If no installation or removal is running, save your work and restart the computer, then run the saved command again'
 lease=/run/omavless-uninstall.lock
 if [[ ! -e "$lease" && ! -L "$lease" ]]; then (set -o noclobber; : > "$lease") || true; fi
 [[ -f "$lease" && ! -L "$lease" && $(stat -c '%u:%a:%h' "$lease") == 0:600:1 ]] || refuse
 exec {root_lease}<> "$lease"
 [[ $(stat -c '%d:%i' "$lease") == $(stat -Lc '%d:%i' "/proc/$$/fd/$root_lease") ]] || refuse
 flock -n "$root_lease" || { printf '%s\n' 'An earlier removal step is still running. Wait for it to finish, then run the same command.' >&2; exit 1; }
+blocker='the removal record changed or is no longer present. Close this old prompt and rerun the saved removal command from your desktop account'
 [[ ${SUDO_UID:-} =~ ^[1-9][0-9]*$ ]] || refuse
 account=$(getent passwd "$SUDO_UID") || refuse
 IFS=: read -r name password uid gid description desktop_home shell <<< "$account"
@@ -729,7 +768,6 @@ run_root() {
 
 # Cross the root barrier BEFORE reclaiming our old interoperability exclusion
 # or any user-side deletion; an already-admitted root worker may have finished.
-blocker='the previous removal record or root lock is unavailable. Finish its existing prompt before continuing'
 run_root ':' || fail 'The previous step or authorization has not settled. Follow the message above, then run this command again.'
 previous_operator=$prior_operator
 take_setup_lock
@@ -745,7 +783,7 @@ skip_restart=false
 if [[ "$installed_public_app" == absent && "$installed_public_dns" == absent ]]; then
   # Widget-only/already-removed cases earn a fresh clean gate rather than an
   # unnecessary reboot. No receipt alone can select this mutation lane.
-  run_root $'blocker="an old OmaVLESS process or network resource is still active; finish its normal shutdown first"\nempty_host\nnetwork_empty\ndns_absent' \
+  run_root $'blocker="an old OmaVLESS process or network resource is still active; finish its normal shutdown first"\nempty_host\nnetwork_empty\nblocker="DNS helper files or its service remain without a registered package. Restore the official DNS package before continuing"\ndns_absent' \
     || fail 'Remaining network state was not clean. Follow the specific message above; no settings were deleted.'
   skip_restart=true
 fi
@@ -768,6 +806,7 @@ if [[ "$prepared_boot" == "$boot_id" && "$skip_restart" != true ]]; then
 if ! pacman -Q omavless-dns >/dev/null 2>&1; then
   # Reboot recovery retains the current legacy owner; do not pretend its
   # disappearance already happened or call empty_host before the reboot.
+  blocker='DNS helper files remain without their registered package. Restore the official DNS package before continuing'
   for path in /usr/lib/omavless-dns /run/omavless-dns /usr/lib/systemd/system/omavless-dns-broker.service; do
     [[ ! -e "$path" && ! -L "$path" ]] || refuse
   done
@@ -781,19 +820,21 @@ if ! pacman -Q omavless-dns >/dev/null 2>&1; then
   printf '%s\n' 'No DNS helper is installed.'
   exit 0
 fi
+blocker='the installed DNS helper files were changed. Restore the official DNS package before continuing'
 check_dns_programs
 blocker='the bundled core differs from its registered package. Restore the official DNS package before continuing'
 check_packaged_file omavless-dns /usr/lib/omavless-dns/mihomo
 blocker='DNS helper access belongs to another account or is incomplete. Use the account that configured OmaVLESS; no other account was changed'
 check_enrollment
 if [[ "$enrolled" != true ]]; then
-  blocker='unconfigured DNS helper still retains a session. Its ownership is not this account; no network state was changed'
+  blocker='the unconfigured DNS helper still retains a session. Its ownership cannot be confirmed for this account; no network state was changed'
   [[ $(systemctl show omavless-dns-broker.service --property=MainPID --value) == 0 &&
      $(systemctl show omavless-dns-broker.service --property=NFileDescriptorStore --value) == 0 &&
      $(systemctl show omavless-dns-broker.service --property=ActiveState --value) == inactive &&
      ! -e /sys/class/net/Meta && ! -e /sys/class/net/omavless0 ]] || refuse
   empty_runtime_journal
 fi
+blocker='the DNS helper service has overrides or an unfinished reload. Restore its packaged service configuration and complete the reload before continuing'
 [[ -z $(systemctl show omavless-dns-broker.service --property=DropInPaths --value) &&
    $(systemctl show omavless-dns-broker.service --property=FragmentPath --value) == /usr/lib/systemd/system/omavless-dns-broker.service &&
    $(systemctl show omavless-dns-broker.service --property=NeedDaemonReload --value) == no &&
@@ -824,6 +865,7 @@ read -r -d '' root_remove <<'ROOT_REMOVE' || true
 blocker='an OmaVLESS process or tunnel is still active. Finish its normal shutdown before continuing'
 empty_host
 network_empty
+blocker='DNS helper files or its service remain without a registered package. Restore the official DNS package before continuing'
 if ! dns_absent; then
   blocker='the installed DNS helper files were changed. Restore its official package before continuing'
   check_dns_programs
@@ -848,7 +890,7 @@ empty_host
 network_empty
 ROOT_REMOVE
 say '[3/3] Removing OmaVLESS...'
-run_root "$root_remove" || fail 'Removal is not complete. If you cancelled installation authorization or package removal, run this same command to continue. Nothing needs reinstalling.'
+run_root "$root_remove" || fail 'Removal is not complete. Progress is saved; follow the specific message above, then run this command again.'
 [[ ! -e /usr/bin/omavless && ! -L /usr/bin/omavless ]] || fail 'The application file remains. The installed package must be removed before deleting settings.'
 check_private_targets
 [[ -d "$setup_lock" && ! -L "$setup_lock" && $(stat -c '%d:%i:%u:%a' -- "$setup_lock") == "$recorded_lock" ]] \
@@ -858,6 +900,7 @@ for directory in "$HOME/.config/omavless" "$HOME/.local/state/omavless" "$HOME/.
     || fail 'Some OmaVLESS settings could not be deleted. Fix their file permissions, then run this same command to finish.'
 done
 clear_runtime_enablement
+mask_cleanup_admitted=true
 clear_created_masks
 safe_file "$record" && [[ $(<"$record") == "$record_bytes" ]] || fail 'Components were removed but the progress record changed. No unrelated file was deleted.'
 # Release the owned shared exclusion before removing its last identity receipt.
