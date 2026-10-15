@@ -46,6 +46,12 @@ fixture from that installed command's measured schema (sanitize private values).
 An invented object satisfying the predicate is not compatibility evidence;
 retain malformed/older-schema cases as separate negative tests.
 
+For inert subprocess tests, verify that the selected mock actually ran.
+A shell function mock does not automatically cross an external timeout/env
+process boundary. Refuse unmocked effect leaves by default and retain a bounded
+fixture witness; a passing assertion against a real desktop query is not inert
+evidence. Preserve any accidental live read separately from the corrected run.
+
 For installer/updater work, include user-reached preparation, return after
 Quit/terminal closure and continuation in that early scenario. Record every
 fixture-only intervention and resulting proof limitation in the existing task

@@ -398,3 +398,49 @@ not completion of a normal uninstall; missing evidence must not redefine the
 owner's requested product scope. The later resolver preflight also reinforces
 using a sanitized actual installed schema as the positive parser fixture,
 instead of a hand-invented response that happens to satisfy its own predicate.
+
+### Follow-up: process churn and ARM64 UTF-8 transport
+
+Earlier accepted/refused journeys above retain their exact helper identities.
+The later process-churn successor is source
+`1c8ba38a6353c3276d1783321722f2ca821a0753`. Its 111 inert cases passed; on the
+retained x64 uncertain-Quit fixture it passed the previous disappearing-proc
+failure and directly earned PREPARED without resending Quit. The initiated
+reboot then supplied no trusted postboot observation. Final absence/removal is
+unearned; no reset/thaw/manual receipt repair was used to claim completion.
+
+Independent ARM64 report:
+[exact Mac checkpoint](https://github.com/k-kostin/omavless/blob/5be0c619380cf5666fb02253024ddd2ea83249fa/docs/testing/PR790_ARM64_2026-10-15.md).
+It tests helper5a, not a silently substituted successor. Public fix.7 native
+bytes were qualified; cancellation passed. A real reboot was confirmed with
+runtime/broker inactive, FD0 and no own TUN. Continuation reached removing but
+stopped before pacman because Omarchy's widget removal parsed warning-prefixed
+Quickshell stdout. Packages, private data, separate core and canonicalized DNS
+were retained. Full ARM64 removal/reinstall/UI acceptance is NOT complete.
+
+Root cause: the helper's byte-oriented `LC_ALL=C` reaches Qt/Quickshell. Its
+non-UTF-8 warning can precede JSON on stdout despite command exit 0. This affects
+both plugin inventory and normal Omarchy removal; native Full Quit's Omarchy
+children also inherit the caller's locale.
+
+Reviewed locale successor: `7f54d532df20a87f0c1c07abc0123dba97121f5d`,
+helper SHA256 `8d07906635be9c06e54bb18819ebf7343a5ca02e88c1cfeb87cef08b3a4de0fd`.
+Only the two direct Omarchy calls and both synchronous/guided native shutdown
+children receive `LC_ALL=C.UTF-8`. Parent/root checks remain in C, JSON parsing
+stays strict, and native packages/system locale are unchanged. 120 inert cases
+pass, including UTF-8 inheritance through the native child, real inert PTY,
+original exits, cancellation and rejection of warning-prefixed/failed queries.
+Bounded independent Astra delta review found no blocker to freezing this
+successor. Actual ARM continuation and fresh normal Quit remain pending.
+
+Harness deviation retained: the first new locale mock did not cross external
+timeout and queried the real desktop's read-only registry. The negative control
+failed before any shutdown/removal case. That attempted run is NOT inert.
+Corrected timeout dispatch, default refusing desktop/native leaves and an
+explicit mock witness earned the subsequent 120-case inert pass. The applicable
+execution-policy rule now covers this subprocess boundary; do not solve the
+product bug by accepting contaminated JSON or silently altering user locale.
+
+Combined local isolated suite after the locale change: original exit 0,
+777 Python tests with two existing skips, all JS/QML suites passed. This is
+source evidence; exact-head hosted CI and installed continuation are separate.

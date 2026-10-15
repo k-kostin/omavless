@@ -25,10 +25,10 @@ if [[ -f "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" ]]; the
     "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 else
   curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/k-kostin/omavless/1c8ba38a6353c3276d1783321722f2ca821a0753/tools/uninstall.sh \
+    https://raw.githubusercontent.com/k-kostin/omavless/7f54d532df20a87f0c1c07abc0123dba97121f5d/tools/uninstall.sh \
     -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 fi &&
-printf '%s  %s\n' 49f04763934cea6cf099d03e624718832c2ed2d46f4c1669cfd90094eba7d7cb \
+printf '%s  %s\n' 8d07906635be9c06e54bb18819ebf7343a5ca02e88c1cfeb87cef08b3a4de0fd \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
   "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh" &&
