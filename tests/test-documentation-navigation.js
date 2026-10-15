@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/development/EXECUTION_POLICY.md',
+  'docs/development/STABLE_DISTRIBUTION_TRANSITION.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
   'docs/development/BETA_098.md', 'docs/development/RC_097.md', 'docs/development/RC_096.md', 'docs/development/RC_095.md',
   'docs/development/RC_090.md', 'docs/user/NATIVE_INSTALL.md',
