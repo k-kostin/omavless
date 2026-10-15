@@ -278,6 +278,12 @@ of unknown state. The administrator contract linked above documents these
 requirements; a one-click all-stage uninstaller is planned, **not available in
 0.9.8**. Ask for help if setup never reached a usable shutdown screen.
 
+If your public 0.8.2 or 0.9.8 installation **never connected a VPN**, the
+[guided clean reset](CLEAN_REINSTALL_098.md) offers to close the application,
+checks its components and removes its packages **and saved profiles/settings**
+with your confirmation. It remains available after widget removal. This narrow
+reset is not the general-purpose, data-preserving 0.9.9 uninstaller above.
+
 Do not run the legacy `uninstall.sh --purge` against a native installation.
 It is not the native package remover. A clean reinstall must not silently erase
 profiles or reuse a revoked enrollment; the panel offers its explicit DNS

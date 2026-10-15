@@ -40,26 +40,27 @@ If setup is needed, **Required components** shows what is missing. Press
 <img src="docs/marketing/images/setup-en.png" width="560" alt="Required components showing the missing application and VPN core with a guided install button">
 
 Type `INSTALL` when asked, approve package installation, then type `DNS` to
-authorize VPN DNS setup. Enter your password only at the system's password
-prompt, not at the `INSTALL` or `DNS` prompt.
+authorize the DNS helper, which manages website address lookup for OmaVLESS
+connections. Enter your password only at the system's password prompt, not at
+the `INSTALL` or `DNS` prompt.
 
 The installer selects the matching packages for your architecture. When it says
 **OmaVLESS is ready**, close the terminal and return to the panel. Press
-**Setup terminal and prompts are closed**, if shown, then **Check again**.
+**Terminal and system prompts are closed**, if shown, then **Check again**.
 
 Only missing components are offered. An installed application may instead need
 **Finish application setup**. You can return later; setup never connects a VPN.
 
-If the packages installed but DNS setup did not finish, use **Continue DNS
-setup**, not another installation. Its terminal explains `FIRST` (first
-enrollment) and `START` (use existing enrollment). After it finishes, close
+If the packages installed but DNS setup did not finish, use **Set up DNS helper**,
+not another installation. Its terminal explains whether to set up the helper
+for the first time or start an already configured helper. After it finishes, close
 the prompts, Check again, then use the separate **Start OmaVLESS** action.
 
 ### 3. Add your VPN access and connect
 
 Follow onboarding to review the core, optionally choose a Routing policy,
 and import a profile or subscription from the clipboard or a file. Review it
-before saving, or choose **Finish later**.
+before saving, or choose **Finish without a profile**.
 
 Choose a mode and press **Connect** beside your profile. One connection is
 active at a time: Connect beside another profile switches it; **Disconnect**
@@ -71,6 +72,28 @@ tools, see the [installation guide](docs/user/NATIVE_INSTALL.md) and
 
 The command above follows upstream main. Marketplace verification covers a
 separate exact snapshot and may lag behind the GitHub release.
+
+## Update or reinstall
+
+Update the plugin first:
+
+```sh
+omarchy plugin update kdk.omavless
+```
+
+Open OmaVLESS and follow the next step offered in the panel. Application and
+DNS-helper packages update separately from the plugin. Normal updates preserve
+profiles and settings; see the [update instructions](docs/user/NATIVE_INSTALL.md#updates).
+
+If your first setup never reached a VPN connection and you want to start again,
+use the [guided clean reset](docs/user/CLEAN_REINSTALL_098.md). It checks the
+components, offers to close OmaVLESS, and removes its packages and saved data
+with your confirmation. Other VPN clients and a separately installed Mihomo stay.
+Ordinary `omarchy plugin remove` removes only the widget, not those components.
+
+After replacing the plugin, the shell may still show old controls. Finish all
+installation prompts, then run `omarchy restart shell` if needed. This briefly
+reloads the bar, panels and other shell plugins.
 
 ## Which mode should I choose?
 

@@ -1,32 +1,31 @@
-# Start again after an incomplete 0.9.8 installation
+# Remove an incomplete OmaVLESS installation and start again
 
-For an installation that stopped during setup and **never connected a VPN**.
-Use the corrected `v0.9.8-fix.7` installation below. For normal setup or an
-update that keeps your settings, use the [main guide](NATIVE_INSTALL.md).
+For a public 0.8.2 or 0.9.8 installation that **never connected a VPN**.
+For an update that keeps your settings, use the [update guide](NATIVE_INSTALL.md#updates).
 
 This removes the old OmaVLESS widget, application, DNS component and **its own
 profiles and settings**, without a backup. Other VPNs and a separately installed
 Mihomo are not removed. One computer restart is required.
 
-Use the same desktop account that ran setup. Close other OmaVLESS windows.
-If OmaVLESS is running, use **Settings → Shut down OmaVLESS** first.
-If you see **Recovery required**, used OmaVLESS to connect, or use custom settings
-directories, ask us for help instead. **If any command fails, stop and send us
-the step and error.** Do not post VPN keys or subscription links.
+The helper checks the installation and offers to close OmaVLESS if it is running.
+It also works after the widget has been removed. Experimental builds, custom
+settings locations and uncertain network state need help instead of forced deletion.
+**If a step fails, stop and send us the step and error**, without VPN keys or subscription links.
 
 ## 1. Prepare removal
 
-Download and check the removal helper, then run it. Enter your password only at
-sudo's prompt; confirm the widget removal when asked.
+This command creates a small download folder, downloads and verifies the helper,
+then starts it. Enter `REMOVE` to confirm the reset. If OmaVLESS is running,
+enter `STOP` to let it close safely. Enter your password only at sudo's prompt.
 
 ```bash
-mkdir -p "$HOME/.cache/ovt/reinstall-098" &&
+mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
 curl --fail --location --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/k-kostin/omavless/e30162acd24d91c85462b83dc37bc0209525a6ea/tools/clean-reinstall-098.sh \
-  -o "$HOME/.cache/ovt/reinstall-098/clean-reinstall-098.sh" &&
-printf '%s  %s\n' 7366d6f46adc545208f6ebe4d6fbe0db7225ab9c5bf04ddb6bd6748e29e38854 \
-  "$HOME/.cache/ovt/reinstall-098/clean-reinstall-098.sh" | sha256sum --check - &&
-bash "$HOME/.cache/ovt/reinstall-098/clean-reinstall-098.sh" prepare
+  https://raw.githubusercontent.com/k-kostin/omavless/0baf317f1eef09847f254a66e08268dd32155157/tools/clean-reinstall-098.sh \
+  -o "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" &&
+printf '%s  %s\n' 86c238f4a9f7b2d15fb0d530782fd890c635cd8c20eac20c1fb55cfbc38a39c1 \
+  "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" | sha256sum --check - &&
+bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" prepare
 ```
 
 Only after **Preparation finished**, save your other work and restart:
@@ -37,24 +36,19 @@ systemctl reboot
 
 ## 2. Remove the old installation
 
-After logging back in, run this command. Confirm removal of `omavless` and
-`omavless-dns` in pacman. It also deletes OmaVLESS's old settings.
+After logging back in, run this command. Enter `REMOVE`, then approve package
+removal when asked. This also deletes OmaVLESS's old settings.
 
 ```bash
-bash "$HOME/.cache/ovt/reinstall-098/clean-reinstall-098.sh" remove
+bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" remove
 ```
 
 ## 3. Install and finish setup
 
-Confirm **Clone and add this plugin?** with **Yes**, then answer **No** to
-**Enable 'kdk.omavless' now?**. The remaining commands select the fixed version
-before enabling it:
+Install the current public plugin through the ordinary Omarchy command:
 
 ```bash
-omarchy plugin add https://github.com/k-kostin/omavless.git &&
-git -C "$HOME/.config/omarchy/plugins/kdk.omavless" checkout --detach v0.9.8-fix.7 &&
-test "$(git -C "$HOME/.config/omarchy/plugins/kdk.omavless" describe --tags --exact-match)" = v0.9.8-fix.7 &&
-omarchy plugin enable kdk.omavless right
+omarchy plugin add https://github.com/k-kostin/omavless.git --enable
 ```
 
 Open OmaVLESS from the bar:
@@ -67,3 +61,7 @@ Open OmaVLESS from the bar:
 
 You should now see **Disconnected** and the profile-import buttons. Add your VPN
 profile and connect when ready. Setup itself does not connect a VPN.
+
+If old controls remain visible after installation, finish all prompts and run
+`omarchy restart shell`, then reopen OmaVLESS. This briefly reloads the bar,
+panels and other shell plugins, not the separate VPN application.

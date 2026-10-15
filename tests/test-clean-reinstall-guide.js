@@ -15,7 +15,7 @@ for (const block of blocks) {
 }
 assert.match(guide, /never connected a VPN/);
 assert.match(guide, /without a backup/);
-assert.match(guide, /corrected `v0\.9\.8-fix\.7` installation/);
+assert.match(guide, /public 0\.8\.2 or 0\.9\.8 installation/);
 assert(!guide.includes('After integration'));
 assert(!guide.includes('must be reconciled'));
 assert(!guide.includes('PRIVATE_BACKUP'));
@@ -24,13 +24,12 @@ assert.match(blocks[0], /raw\.githubusercontent\.com\/k-kostin\/omavless\/[0-9a-
 assert(blocks[0].includes(crypto.createHash('sha256').update(helper).digest('hex')));
 assert(blocks[0].indexOf('sha256sum --check') < blocks[0].indexOf('.sh" prepare'));
 assert.equal(blocks[1].trim(), 'systemctl reboot');
-assert.equal(blocks[2].trim(), 'bash "$HOME/.cache/ovt/reinstall-098/clean-reinstall-098.sh" remove');
-const selected = blocks[3].match(/checkout --detach (v0\.9\.8-fix\.7)/);
-assert(selected, 'The clean path must select the immutable corrected release.');
-assert(blocks[3].indexOf('checkout --detach ' + selected[1]) < blocks[3].indexOf('plugin enable'));
-assert(blocks[3].includes('describe --tags --exact-match)" = ' + selected[1]));
+assert.equal(blocks[2].trim(), 'bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" remove');
+assert.equal(blocks[3].trim(), 'omarchy plugin add https://github.com/k-kostin/omavless.git --enable');
 assert(!guide.includes('not published yet'));
-assert.match(guide, /answer \*\*No\*\* to/);
+assert.match(guide, /enter `STOP`/);
+assert(!guide.includes('Shut down OmaVLESS'), 'Shutdown must be offered inside the helper, not an unearned UI prerequisite.');
+assert(!guide.includes('.cache/ovt/'));
 for (const forbidden of ['sudo bash', 'curl |', 'rm -', '--nodeps', '--overwrite', '--noconfirm']) {
   assert(!blocks.some(block => block.includes(forbidden)), forbidden);
 }
