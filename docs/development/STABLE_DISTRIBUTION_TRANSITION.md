@@ -1,8 +1,9 @@
 # Stable distribution and development separation
 
 Owner-selected direction, 2026-10-15. **Preparation only:** main remains at its
-published snapshot; no files/branches have been moved and no release or merge
-is authorized by this plan. Complete #790's remaining functional gates first.
+published snapshot; no public files/branches have been moved and no release or
+merge is authorized by this plan. A local distribution export is now implemented;
+it is not the main migration. Complete the remaining functional gates first.
 The [execution policy](EXECUTION_POLICY.md#retrospective-closure-and-distribution)
 governs retained decisions and their actual distribution.
 
@@ -71,9 +72,12 @@ not remove old Git objects or solve local build-cache storage by itself.
 
 ## Proposed main file boundary
 
-This is a reviewed inventory target, **not an implemented export allowlist**.
-The exporter must later resolve the complete dependency closure at the selected
-source SHA; a directory name alone is not proof that its contents are needed.
+The inventory below is implemented by
+`packaging/release/export-distribution.py` and its regression suite. It exports
+only committed selected-source blobs into an empty private directory, never
+into main or a live installation. Source/runtime equivalence, helper identity,
+guide destinations and legacy anchors are checked before the export record is
+written. A directory name alone is not proof of runtime dependency closure.
 
 | Current paths | Intended destination / condition |
 | --- | --- |
@@ -131,11 +135,12 @@ user plugin converted into a development worktree.
 
 ## Stable user and user-agent documentation
 
-Keep one comprehensive user guide and one assistance guide, with a short README
-as the front door. File names are not yet frozen: preserving the existing
-NATIVE_INSTALL.md destination may avoid unnecessary shipped-link changes.
-Fold everyday use, setup/update/removal, FAQ and recovery into the user guide;
-old pages become concise current pointers where compatibility requires them.
+The source candidate now contains one comprehensive user guide at the existing
+`docs/user/NATIVE_INSTALL.md` destination, one assistance guide at
+`docs/user/USER_AGENT_GUIDE.md`, and a short README front door. Everyday use,
+setup/update/removal, FAQ and recovery are consolidated into the user guide.
+The exporter turns old pages into short current pointers while preserving
+their anchors and an immutable historical source link.
 
 The assistance guide covers the same published version and operations: identify
 installed components, explain effects, obtain required consent, run supported
@@ -147,6 +152,39 @@ support agents here and contributor agents to development's current entry.
 The two guides must agree with actual UI and terminal terminology and offered
 actions. Source [editorial rules](../roadmap/UI_UX_CONTRACT.md#end-user-editorial-rule)
 remain in development; only their product-facing result is shipped in main.
+
+The current unpublished guides truthfully identify the maintenance candidate.
+Before the authorized stable freeze, reconcile those short notices with the
+actual selected release, then validate the resulting exact source again. Do
+not publish candidate instructions as already supported main, or retain an
+obsolete candidate disclaimer in the final release. This is part of the
+freeze, not a post-publication bookkeeping commit.
+
+## Implemented distribution checks
+
+- Offline export and verification independently recompute the file manifest,
+  modes, lengths, hashes, native producer/features and app/DNS tuple. Missing,
+  unexpected, redirected or modified files are refused. The result remains
+  explicitly `draft-unpublished`; no installation or publication is performed.
+- Stable-tree CI does not pretend the stripped tree can build Cargo. It obtains
+  the exact full source and admits the validator against separately reviewed
+  bootstrap hashes before running it in isolated Python without bytecode caches.
+  The validator requires a complete successful **push** Test run for that exact
+  full-source SHA and the reviewed source workflow. A PR merge-context check or
+  an old green parent does not substitute. Source workflow and bootstrap changes
+  require independent review and explicit trust-pin reconciliation.
+- The exporter and trust boundary passed independent Astra source review. The
+  first actual offline export at `1f191c8d69112583df460268245c213370f9afe6`
+  passed export, verification and clean-source bootstrap admission. Its full
+  local isolated suite passed 810 Python cases (two existing skips) plus the
+  JS/QML suites; the focused export/CI suite has 23 cases. These are not installed
+  acceptance, hosted exact-source CI, ARM completion or release authorization.
+- The routing-fixture shutdown correction is preserved separately at
+  `52084e7ab866046c1eae60dbce544761da617af1`. It changes a complete Rust input blob
+  despite being test-only, so the accepted d4 native pair is **not** silently
+  reused with it. Do not weaken the native-input projection. The source-permitted
+  fixture race and original failed CI remain recorded; its actual CI interleaving
+  was not traced and the original failure was not reproduced locally.
 
 ## Preparation and promotion sequence
 
