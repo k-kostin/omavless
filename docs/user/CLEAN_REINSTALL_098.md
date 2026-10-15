@@ -21,9 +21,9 @@ enter `STOP` to let it close safely. Enter your password only at sudo's prompt.
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
 curl --fail --location --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/k-kostin/omavless/0baf317f1eef09847f254a66e08268dd32155157/tools/clean-reinstall-098.sh \
+  https://raw.githubusercontent.com/k-kostin/omavless/621502689b112760dc20b378ac2da7f3545d8e9b/tools/clean-reinstall-098.sh \
   -o "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" &&
-printf '%s  %s\n' 86c238f4a9f7b2d15fb0d530782fd890c635cd8c20eac20c1fb55cfbc38a39c1 \
+printf '%s  %s\n' 33eabf6c5e08e03df181d555a22ea7d29e9b9d4e4f0dd463fd521dbbb0794b8a \
   "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" | sha256sum --check - &&
 bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" prepare
 ```
