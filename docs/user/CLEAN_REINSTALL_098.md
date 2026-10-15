@@ -9,14 +9,15 @@ This is a terminal tool; the 0.9.8 plugin has no full-removal button.
 It supports public 0.8.2 and 0.9.8 installations: unfinished setup, a running
 or stopped application, and an already removed widget. It checks the installed
 components itself; you do not need to remember which version you used.
-Removal needs one restart. If interrupted, run the same command to continue.
+Removal normally needs one restart; widget-only cases can skip it.
+If interrupted, run the same command to continue.
 For an update that keeps settings, use the [update guide](NATIVE_INSTALL.md#updates).
 
 ## Run the removal helper
 
 Copy this whole block into your normal Omarchy terminal. It uses the helper
-from an updated widget offline, or downloads it for older/removed widgets.
-It checks the helper before starting removal.
+from the widget offline, or downloads it if absent. A mismatched local copy
+stops at the checksum check; it is not executed or silently replaced.
 
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
@@ -37,11 +38,11 @@ bash "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh"
 
 1. Enter `REMOVE` to confirm. The helper closes OmaVLESS if needed and prepares
    removal. Enter your password only at sudo's prompt.
-2. When preparation finishes, save your other work. Enter `REBOOT` to restart,
+2. If a restart is requested, save your other work. Enter `REBOOT` to restart,
    or press Enter to restart later from your desktop.
 3. After logging back in, run the same helper command below. It continues at
    removal, not preparation. Confirm `REMOVE`, then follow the package-removal
-   and widget-removal prompts that remain.
+   and widget-removal prompts that remain, in that order.
 
 Do not reopen or reinstall OmaVLESS between preparation and completing removal.
 

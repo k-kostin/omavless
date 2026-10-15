@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
@@ -13,7 +14,8 @@ const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/RC_090.md', 'docs/user/NATIVE_INSTALL.md',
   'docs/user/INSTALL.md', 'docs/user/SECURITY.md', 'docs/user/TROUBLESHOOTING.md',
   'docs/user/NATIVE_INSTALL_082_REFERENCE.md',
-  'docs/user/INSTALL_082_REFERENCE.md'];
+  'docs/user/INSTALL_082_REFERENCE.md', 'README.md',
+  'docs/user/USER_AGENT_GUIDE.md', 'docs/user/CLEAN_REINSTALL_098.md'];
 let links = 0;
 for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -45,7 +47,9 @@ assert(!troubleshooting.includes('systemctl --user stop'), 'do not replace recov
 assert(troubleshooting.includes('Support report'), 'start support with the bounded current report');
 for (const anchor of ['guided-first-run', 'find-your-next-step', 'continue-dns-setup',
   'existing-dns-installations', 'when-setup-stops', 'updates', 'verify-the-installation',
-  'updates-close-quit-and-removal', 'optional-helpers-firewall-and-older-installations']) {
+  'updates-close-quit-and-removal', 'optional-helpers-firewall-and-older-installations',
+  'set-up-update-or-reopen-omavless', 'install', 'connect-and-disconnect', 'remove', 'help',
+  'updating-the-public-082-application', 'already-using-098']) {
   const headings = [...installGuide.matchAll(/^#+ (.+)$/gm)].map(match =>
     match[1].toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-'));
   const explicit = [...installGuide.matchAll(/<a id="([a-z0-9-]+)"><\/a>/g)].map(match => match[1]);
@@ -60,6 +64,62 @@ for (const file of ['NATIVE_INSTALL_082_REFERENCE.md', 'INSTALL_082_REFERENCE.md
 }
 assert(!installGuide.includes('omarchy pkg aur add mihomo-bin'),
   'do not offer stock core installation as the current managed-pair route');
+const assistantGuide = fs.readFileSync(path.join(root, 'docs/user/USER_AGENT_GUIDE.md'), 'utf8');
+const quickRemoval = fs.readFileSync(path.join(root, 'docs/user/CLEAN_REINSTALL_098.md'), 'utf8');
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+for (const text of [installGuide, readme]) {
+  assert(text.includes('USER_AGENT_GUIDE.md'), 'the end-user assistant guide must be discoverable');
+}
+for (const text of [installGuide, assistantGuide, readme]) {
+  assert(!text.includes('Save report'), 'support uses the actual Save file label');
+  assert(!text.includes('After integration'), 'user instructions are not an agent handoff');
+}
+const i18n = require('../plugin/I18n.js');
+for (const key of ['setup.install_all', 'setup.update_components', 'setup.prepare_update',
+  'setup.resume_dns', 'setup.start_broker', 'setup.restore_enrollment', 'setup.start_app',
+  'setup.terminal_closed', 'setup.check', 'native.support.copy', 'native.support.save',
+  'native.quit.title', 'native.app.open']) {
+  const label = i18n.translate(key, 'en', {});
+  assert(!label.includes('Missing translation') && installGuide.includes(label),
+    'guide must name the actual supported control: ' + key);
+}
+const quickBlocks = [...quickRemoval.matchAll(/```bash\n([\s\S]*?)\n```/g)].map(m => m[1].trim());
+const installBlocks = [...installGuide.matchAll(/```bash\n([\s\S]*?)\n\s*```/g)].map(m => m[1].trim());
+for (const block of quickBlocks.slice(0, 2)) {
+  assert(installBlocks.includes(block),
+    'unified and short guides must use the same checked remover and continuation');
+}
+assert(installGuide.includes(quickBlocks[2]), 'reinstall and initial install must agree');
+for (const text of [installGuide, assistantGuide]) {
+  assert(/Restore is not\s+available in 0\.9\.8/.test(text), 'do not advertise development-only Restore');
+  assert(text.includes('without a backup'), 'full removal must disclose private-data deletion');
+}
+// Check links/anchors on the affected user entry points, including in-page links.
+// This is navigation/content coverage, not installed or visual acceptance.
+function anchors(text) {
+  return new Set([
+    ...[...text.matchAll(/^#+ (.+)$/gm)].map(m =>
+      m[1].toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-')),
+    ...[...text.matchAll(/<a id="([a-z0-9-]+)"><\/a>/g)].map(m => m[1]),
+  ]);
+}
+for (const file of ['README.md', 'docs/user/NATIVE_INSTALL.md',
+  'docs/user/USER_AGENT_GUIDE.md', 'docs/user/CLEAN_REINSTALL_098.md']) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  for (const match of text.matchAll(/\]\(([^\s)]+)\)/g)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(match[1])) continue;
+    const [target, anchor] = match[1].split('#');
+    const resolved = target ? path.resolve(root, path.dirname(file), target) : path.join(root, file);
+    if (anchor && resolved.endsWith('.md')) {
+      assert(anchors(fs.readFileSync(resolved, 'utf8')).has(anchor),
+        'missing help anchor from ' + file + ': ' + match[1]);
+    }
+  }
+  for (const block of text.matchAll(/```(?:bash|sh)\n([\s\S]*?)\n\s*```/g)) {
+    const syntax = spawnSync('bash', ['-n'], { input: block[1], encoding: 'utf8', timeout: 2000 });
+    assert.equal(syntax.status, 0, file + ': ' + syntax.stderr);
+  }
+}
 const entry = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
 assert(entry.split('\n').length <= 80, 'root AGENTS must remain a concise entry point');
 const publicGuidePolicy = path.join(root, 'docs/development/README.md');
