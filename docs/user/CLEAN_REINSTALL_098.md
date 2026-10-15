@@ -20,9 +20,9 @@ download folder, downloads the pinned helper, checks it and starts removal.
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
 curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/k-kostin/omavless/b4b394e8b9d27099d56d679fd24a15f3fb4bf22b/tools/uninstall.sh \
+  https://raw.githubusercontent.com/k-kostin/omavless/5a0d996f46d27c8bc5ca29c1b03d6dfcb1ad273c/tools/uninstall.sh \
   -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download" &&
-printf '%s  %s\n' 628f2ac5fd61706a8fbfa14d2e4598d3b3ceb8da31c8ef3430d1c60e19fc6ae1 \
+printf '%s  %s\n' a15e0e79163bdac8e9b24edf5dc794ceece8a68275510c51f79529a00a23c7cd \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
   "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh" &&

@@ -9,6 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RustCiIsolationTests(unittest.TestCase):
+    def test_superseded_pr_runs_cancel_without_skipping_latest_checks(self):
+        source = (ROOT / ".github/workflows/test.yml").read_text()
+        self.assertIn("group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", source)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", source)
+        self.assertIn("run: ./tests/run.sh", source)
+        self.assertIn("./tests/run-rust.sh", source)
+        self.assertNotIn("paths-ignore:", source)
+
     def test_exact_proof_drain_is_isolated_not_disabled(self):
         source = (ROOT / "tests/run-rust.sh").read_text()
         name = ("native_coordinator::connection_close::tests::"

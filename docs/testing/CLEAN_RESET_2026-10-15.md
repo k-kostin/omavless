@@ -261,6 +261,67 @@ requires a private `0700` child. Independent delta review admitted VM testing;
 parents and incorrectly public child. The original refusal remains a failed
 entry, not a successful clean removal.
 
+The first b4 journey actually connected and normally disconnected a synthetic
+profile (owned core/TUN, broker FD 1 and changed DNS; Disconnect returned FD 0,
+no core/TUN and exact original DNS). Its runtime was still active when removal
+began: this is a **used, running/disconnected app**, not an already-closed app.
+REMOVE completed authenticated Full Quit, preparation and actual encrypted guest
+reboot. Widget/packages/private roots/enrollment were then removed, but final
+mask cleanup failed: Btrfs changed `st_dev` across reboot while both recorded
+symlink inodes stayed unchanged. Original exit 1 and remaining receipt/masks/setup
+exclusion were retained, with DNS, stock core and unrelated packages unchanged.
+No chmod, mask unlink or receipt edit was used to manufacture completion.
+
+Successor `dd131de543ed89db6d41c4f7a8980dd911050c71`, helper SHA-256
+`dffe86ea32e4d7926236a097cf0920b2fab5bbb8559b939c6881df261a63b3b0`,
+retains an attempt-named private hardlink witness for new masks. Current pair
+identity survives device-number reassignment; both references are validated
+before destination-first cleanup. A missing new witness cannot downgrade to
+legacy cleanup. Attempt-unique creation also avoids blocking on an unrecorded
+private staging link if interrupted before receipt publication. Bounded b4
+recovery ignores only old device number for a fixed recorded UID-owned `/dev/null`
+symlink with unchanged inode/link count, in changed-boot `removing` state after
+this invocation's fresh root absence proof. Root authority is unchanged.
+Independent Astra review admitted installed recovery and fresh continuous gates;
+98 inert cases passed, including observed device drift and interrupted witness
+cleanup. Failure messages now retain the correct check context and a concrete
+next action rather than a stale routing error or generic support referral.
+
+Successor `5a0d996f46d27c8bc5ca29c1b03d6dfcb1ad273c`, helper SHA-256
+`a15e0e79163bdac8e9b24edf5dc794ceece8a68275510c51f79529a00a23c7cd`,
+places new fixed-name witnesses beside their user-unit targets. This removes
+the accidental requirement that `.cache` and `.config` share a filesystem.
+Old dd cache witnesses and bare b4 receipts retain their qualified compatibility
+paths; record values cannot supply an arbitrary pathname. The unit filesystem
+is flushed before witness recording, after publication (including existing-pair
+retries) and after cleanup before progress deletion. 102 inert cases pass,
+including simulated cross-device rejection of the old placement, retained-cache
+compatibility and failed cleanup/retry flush. Independent review admitted the
+bounded new installed publication/reboot/cleanup gate, not unrun ARM acceptance.
+
+### Replacement installed matrix
+
+| Exact source / starting state | Result |
+| --- | --- |
+| dd131de5; actual b4 partial removal, both packages/data already absent, old masks/receipt/exclusion retained | PASS: original exit 0, fresh root absence checks, exact old masks and receipt/exclusion removed by code; no record edit, manual unlink, reboot or reinstall inside recovery. DNS, stock core and unrelated packages unchanged. This is recovery, not a fresh happy path. |
+| dd131de5; new public fix.7 fixture, actual Connect/Disconnect, then normal Full Quit and actual runtime PID 0 **before** entry | PASS: original preparation 0, actual GUI reboot, same cached command, REMOVE/sudo/ordinary widget and package prompts, original completion 0. Both witness pairs survived reboot and were removed. Intended widget/packages/data/enrollment/runtime/enablement/masks/receipt/exclusion absent; DNS/stock/unrelated baseline unchanged. No administrative intervention inside the journey. |
+
+The primary personally inspected actual REMOVE/preparation and coded-recovery
+completion pixels, separately from the exact helper exits and independent state
+checks. A fixture's earlier normal Quit earns the already-closed entry, not a
+claim that the helper closed a running app. The active-connected and 0.8.2
+replacement gates remain separate from these rows.
+
+### CI workload correction
+
+Four superseded PR heads were simultaneously rebuilding the same large Rust
+feature matrix. The three older runs were cancelled as superseded, never marked
+successful. The test workflow now groups by PR/ref and cancels only obsolete
+PR runs; both isolated checks and the complete Rust/parity entry remain enabled
+for the latest head. A source regression protects that behavior. Main/tag push
+runs are not made cancel-in-progress, and no test assertions or feature matrix
+entries were removed to hide the latency.
+
 ### Ready wizard: installed bounded PASS
 
 Candidate `656be0654d1700daba25c896d5df16ac17346982`, installed

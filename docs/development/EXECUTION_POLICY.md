@@ -73,6 +73,10 @@ not completion of that user path. If a required path remains unavailable,
 report the remover as incomplete rather than narrowing its product goal after
 implementation. Network ownership checks remain mandatory; missing recovery
 must be implemented, not bypassed or hidden behind a generic support referral.
+For restart-resumable file ownership, do not treat kernel-assigned device IDs
+as persistent across boots. Use a retained object reference or an independently
+qualified persistent identity, and test actual restart plus partial cleanup.
+An interrupted staging create must not leave an unrecorded fixed-name blocker.
 
 When changing package pins, exercise the latest actual published predecessor
 through the complete advisory inventory and native update entry. A registry

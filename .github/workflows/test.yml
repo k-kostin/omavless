@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# New PR commits supersede old CI evidence; keep the full latest-head gate,
+# without four simultaneous rebuilds of an unchanged Rust feature matrix.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
