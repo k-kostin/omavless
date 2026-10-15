@@ -41,6 +41,10 @@ Prefer the smallest real end-to-end scenario early, then add fault and recovery
 cases. Run compilation and environment preflight before privileged execution.
 Synthetic controls complement, but never replace, the real integration gate.
 Do not create prerequisite research unless a concrete scenario needs it.
+For a parser admitting installed system-command output, derive its positive
+fixture from that installed command's measured schema (sanitize private values).
+An invented object satisfying the predicate is not compatibility evidence;
+retain malformed/older-schema cases as separate negative tests.
 
 For installer/updater work, include user-reached preparation, return after
 Quit/terminal closure and continuation in that early scenario. Record every

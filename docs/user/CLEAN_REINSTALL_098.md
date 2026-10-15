@@ -6,12 +6,11 @@ and DNS helper, which manages website address lookup for its VPN connections.
 Other VPN clients and a separately installed Mihomo stay installed.
 This is a terminal tool; the 0.9.8 plugin has no full-removal button.
 
-It supports public 0.8.2 and 0.9.8 installations, including unfinished setup
-and an already removed widget. A running 0.9.8 application can confirm its own
-clean shutdown, including disconnection. For 0.8.2 or an already stopped app,
-this reset is limited to an installation that never connected a VPN.
-Experimental builds, failed recovery and unknown network state need help,
-not forced deletion. For an update that keeps settings, use the [update guide](NATIVE_INSTALL.md#updates).
+It supports public 0.8.2 and 0.9.8 installations: unfinished setup, a running
+or stopped application, and an already removed widget. It checks the installed
+components itself; you do not need to remember which version you used.
+Removal needs one restart. If interrupted, run the same command to continue.
+For an update that keeps settings, use the [update guide](NATIVE_INSTALL.md#updates).
 
 ## Run the removal helper
 
@@ -21,32 +20,35 @@ download folder, downloads the pinned helper, checks it and starts removal.
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
 curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/k-kostin/omavless/73c41cf4b8d6dc4675a50c643bdab82d00e05c0a/tools/clean-reinstall-098.sh \
+  https://raw.githubusercontent.com/k-kostin/omavless/b4b394e8b9d27099d56d679fd24a15f3fb4bf22b/tools/uninstall.sh \
   -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download" &&
-printf '%s  %s\n' 1bc9d1361dadeb76963a9cdf6bf79a4374f1329bcd7b708ad2c870d6e1fe02e3 \
+printf '%s  %s\n' 628f2ac5fd61706a8fbfa14d2e4598d3b3ceb8da31c8ef3430d1c60e19fc6ae1 \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
-  "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" &&
-bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh"
+  "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh" &&
+bash "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh"
 ```
 
 1. Enter `REMOVE` to confirm. The helper closes OmaVLESS if needed and prepares
-   removal. Confirm Omarchy's plugin-removal prompt if shown. Enter your password
-   only at sudo's prompt.
+   removal. Enter your password only at sudo's prompt.
 2. When preparation finishes, save your other work. Enter `REBOOT` to restart,
    or press Enter to restart later from your desktop.
 3. After logging back in, run the same helper command below. It continues at
-   removal, not preparation. Confirm `REMOVE` and the normal package-removal prompt.
+   removal, not preparation. Confirm `REMOVE`, Omarchy's widget-removal prompt
+   if shown, and the normal package-removal prompt.
 
 Do not reopen or reinstall OmaVLESS between preparation and completing removal.
 
 ```bash
-bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh"
+bash "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh"
 ```
 
-Wait for **Old OmaVLESS components and settings removed**. If a step fails,
-stop and send us the step and error, without VPN keys or subscription links.
-Do not delete system files or repeat an unconfirmed step.
+Wait for **OmaVLESS and its saved profiles and settings have been removed**.
+If a step stops, follow its message, then run the same command. For example,
+let another package transaction finish or complete the requested restart.
+The helper leaves modified development builds, another account's setup and
+unrelated network settings untouched. It explains what prevents removal;
+do not delete system files or network rules yourself to bypass a check.
 
 ## Install again, if wanted
 

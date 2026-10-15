@@ -88,7 +88,9 @@ profiles and settings; see the [update instructions](docs/user/NATIVE_INSTALL.md
 To remove a supported older installation or start again after unfinished setup,
 use the [terminal removal helper](docs/user/CLEAN_REINSTALL_098.md). One entry
 guides you through closing OmaVLESS, the required restart and removal of its
-packages and saved profiles/settings. The guide explains supported states and confirmation.
+packages and saved profiles/settings. Running, stopped and unfinished public
+0.8.2/0.9.8 installations are supported, even after widget removal. If interrupted,
+run the same command to continue. Saved profiles and settings are deleted.
 Other VPN clients and a separately installed Mihomo stay.
 Ordinary `omarchy plugin remove` removes only the widget, not those components.
 

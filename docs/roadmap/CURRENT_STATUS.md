@@ -6,21 +6,19 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Guided reset follow-up #790:** source and user-guide/README reconciliation
-  is being reworked after owner rejection of the restricted reset as a full
-  deinstaller. Required used/stopped and interrupted-removal continuations are
-  not complete; earlier scoped PASS results below do not close them. The same
-  follow-up removes repair/recheck/help distractions from the ready core wizard.
-  The prior implementation and user-guide reconciliation
-  add a zero-argument terminal entry, concise REMOVE consent, existing native
-  shutdown, ASCII waiting and durable same-command continuation after reboot,
-  independent of the setup UI. The [reset matrix](../testing/CLEAN_RESET_2026-10-15.md)
-  separates original helper evidence from successor gates. Never-connected public
-  0.8.2/0.9.8 is supported; a new normal live-managed 0.9.8 lane requires this
-  invocation's actual clean shutdown and separate connected/DNS restoration
-  acceptance. Previously used 0.8.2, stopped-used/unknown state and #774's general
-  data-preserving 0.9.9 remover are not claimed complete. Main/release/issue writes
-  still need separate authorization.
+- **Removal follow-up #790:** the owner rejected the restricted reset as a full
+  deinstaller. Its replacement `tools/uninstall.sh` covers public 0.8.2/0.9.8
+  used/running/stopped and widget-absent states without a connection-history
+  question. It uses explicit restart recovery, checked absence, fixed package
+  actions and resumable removal; earlier narrow PASS rows do not close its
+  installed gates. Independent source review admitted bounded VM acceptance;
+  actual successor results belong to the [reset matrix](../testing/CLEAN_RESET_2026-10-15.md).
+  Ready-wizard action cleanup at `656be065` has actual EN/RU installed review:
+  state/version/next step and Close/Continue only, with non-ready actions retained.
+  Practical retrospective changes are in execution policy, UI contract and
+  production-expression regressions. No main/release/issue write is authorized
+  by those checks. A settings-preserving removal option is not claimed here;
+  this owner-requested remover explicitly deletes own saved profiles/settings.
 
 - **Selected fix.7 main successor:** the owner authorizes immutable
   `v0.9.8-fix.7` and main integration of the setup stack #783–787 plus the

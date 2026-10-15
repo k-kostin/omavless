@@ -201,3 +201,88 @@ old verbose onboarding until a normal shell restart. Preserve the existing
 loaded-screen check/reload guidance rather than reinstalling native packages
 to refresh a frontend. README, guide and support draft now name the same
 ordinary shell command and its bar/panel reload consequence.
+
+## Full-removal replacement and ready-wizard correction
+
+The owner rejected the earlier helper's scope as a complete deinstaller.
+`tools/clean-reinstall-098.sh` and its rows above are retained historical source,
+not the advertised replacement. `tools/uninstall.sh` is the new zero-argument
+entry. It detects the installed public version and state, never asks whether
+the owner used VPN before, and warns once that own saved data will be deleted.
+
+The replacement stages a verified digest-named continuation command outside the
+widget, uses the existing fenced native shutdown where available and suppresses
+only future own activation. It retains a currently quarantined owner/journal
+until an explicit restart. The changed boot is a declared recovery boundary,
+**not** proof that an interrupted original DNS rollback succeeded. Fresh package,
+intended-UID, process, resolver, TUN and rule/route checks precede guarded
+revocation and ordinary package removal. No foreign core, VPN configuration,
+network rule or unknown journal is forcibly deleted.
+
+Private progress selects reconciliation, not root authority. Root owns one fixed
+flock through the complete transaction; delayed old authorizations are fenced
+by attempt, phase and boot. A new user invocation crosses that barrier before
+reclaiming its exact setup directory. Setup/mask identities are saved before
+publication, and final shared-lock release precedes deletion of the receipt.
+Preparing, prepared and partially removing are separate resumable states.
+
+Source checkpoint `24b3f800d7e60456c2307a4b90c76fd466c1fb37`:
+helper SHA-256 `6fd3c72c49ded0ecdf17dd8a4807ec036e243c8e5a5573a2bd335d7401bc494f`.
+Independent Astra review admitted bounded installed testing, not product PASS.
+66 inert production-function/custody fixtures passed without real root, service,
+package, resolver or network effects. They include queued old authorization,
+an already-admitted root worker retaining its flock after frontend replacement,
+durable continuation, partial mask/setup publication, final-release interruption,
+redirected ancestors, foreign enablement links and malformed resolver inventory.
+Combined source run: 776 Python tests passed, two existing skips, all JS/QML
+suites passed. New remover installed gates remain separate below; 24b3f800
+preflight found a real resolver-schema mismatch before any removal effect, so
+that checkpoint is not accepted as an installed remover.
+
+Successor `2630b025a9101f22afa186f2cf3e57a056a549fa`, helper SHA-256
+`a8e99d291b876268ee0ab00989e6140204fb5968c7603dda1e62c9bc655effe6`,
+corrects only that resolver global-object schema. The positive fixture now uses
+the actual measured field/types with empty synthetic address/domain/scope values;
+the fabricated `servers`-only global object is an explicit negative case.
+Independent delta review admitted bounded VM execution. 82 inert cases now
+include actual preparation/removal branch source, guard-before-revoke ordering,
+cancelled pacman, already-revoked continuation and root-owned mtree/core tampering.
+These extra source cases do not replace the installed matrix.
+
+The first actual `2630b025` invocation stopped before REMOVE/root authorization:
+the old literal bootstrap had created an owned `0755` maintenance parent, while
+the new script incorrectly required `0700` for both parent and private child.
+No manual chmod/repair or removal effect was used to pass it. Successor
+`b4b394e8b9d27099d56d679fd24a15f3fb4bf22b`, helper SHA-256
+`628f2ac5fd61706a8fbfa14d2e4598d3b3ceb8da31c8ef3430d1c60e19fc6ae1`,
+admits that same owned, non-redirected, non-writable-by-others parent and still
+requires a private `0700` child. Independent delta review admitted VM testing;
+86 inert cases include the literal old bootstrap metadata, unsafe/redirected
+parents and incorrectly public child. The original refusal remains a failed
+entry, not a successful clean removal.
+
+### Ready wizard: installed bounded PASS
+
+Candidate `656be0654d1700daba25c896d5df16ac17346982`, installed
+`OnboardingWizard.qml` SHA-256
+`6bfbc2c2e51983019b00e5abfcf2f21b95e0e80d52f4915b9a5f13290189a644`.
+Actual Settings → Setup assistant → settled Core ready was reviewed in English
+and Russian after a normal guest shell reload. Only heading/step, ready/version,
+one next-step sentence and Close/Continue remain. Continue reached routing,
+Back returned to ready and Close returned to Settings in both locales. Native
+revision, disconnected state, startup Off, core/broker and DNS were unchanged.
+
+The same installed QML was also rendered with synthetic EN/RU ready, missing,
+attention, terminal and stale-delivery facts: ten reviewed captures, six blocked
+Continue checks. Non-ready recovery/recheck/help remained; optional updates did
+not leak into ready. Actual pixels were personally inspected at 1890×1333;
+synthetic adjacent-state rendering is not live setup/fault-recovery acceptance.
+30 onboarding production-expression tests passed, including the explicit
+allowed/absent action matrix. No new string catalog/native package was needed.
+
+The retrospective changes require both state relevance and actual user-reached
+prerequisites, not merely working callbacks. A safe refusal is a negative check,
+not completion of a normal uninstall; missing evidence must not redefine the
+owner's requested product scope. The later resolver preflight also reinforces
+using a sanitized actual installed schema as the positive parser fixture,
+instead of a hand-invented response that happens to satisfy its own predicate.

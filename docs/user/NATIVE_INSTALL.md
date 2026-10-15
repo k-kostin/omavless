@@ -275,12 +275,12 @@ shutdown, a restart and component removal. **Saved profiles and settings are
 deleted with your confirmation.** Other VPN clients and a separate Mihomo stay.
 The helper also works after widget removal and does not require a usable panel.
 
-Supported states are unfinished/never-connected setup and a running managed
-0.9.8 app which confirms clean shutdown. Previously used 0.8.2, an already
-stopped used installation or uncertain recovery needs a checked support path,
-not forced deletion. If you need to keep profiles, do not choose this reset.
-The general-purpose, data-preserving 0.9.9 remover is still planned; this helper
-does not claim that broader feature is complete.
+Supported public 0.8.2/0.9.8 states include unfinished setup, a running or stopped
+application, and a removed widget. The helper detects the installed components,
+closes the application where possible and verifies cleanup after a restart.
+If interrupted, the same command continues removal. If you need to keep profiles,
+do not choose this reset. Experimental builds and another account's setup are
+left untouched with a specific explanation; network checks are not bypassed.
 
 Do not run the legacy `uninstall.sh --purge` against a native installation.
 It is not the native package remover. A clean reinstall must not silently erase
