@@ -764,13 +764,29 @@ printf '%s' "$current" | jq -e --argjson uid "$SUDO_UID" --arg attempt "$removal
 [[ $(</proc/sys/kernel/random/boot_id) == "$invocation_boot" ]] || refuse
 # A pending old sudo has not taken root's lock yet. Observe it explicitly, not
 # merely a dead frontend; the token fence also denies delayed old execution.
+blocker='the process list could not be checked completely. Let other system commands finish, then run the saved removal command again'
 for file in /proc/[0-9]*/cmdline; do
   pid=${file#/proc/}; pid=${pid%/cmdline}
-  [[ -r "$file" ]] || continue
-  args=$(head -c 65536 "$file" | tr '\0' '\n') || refuse
+  if [[ ! -r "$file" ]]; then
+    [[ ! -d "${file%/cmdline}" ]] && continue
+    refuse
+  fi
+  # Keep the reader's status separate from the NUL-to-newline transformer.
+  # A process may exit between the readable check and read. That is ordinary
+  # churn, but a live unreadable process or failed transformation is not absence.
+  # The final numeric line also preserves captured trailing argument newlines.
+  args=$({ read_status=0; timeout 5 head -c 65537 -- "$file" 2>/dev/null || read_status=$?;
+    printf '\n%d' "$read_status"; } | tr '\0' '\n') || refuse
+  read_status=${args##*$'\n'}
+  args=${args%$'\n'*}
+  [[ "$read_status" =~ ^[0-9]+$ && ${#args} -le 65536 ]] || refuse
   if [[ "$args" == *'# OmaVLESS removal attempt '* && "$args" != *"# OmaVLESS removal attempt $removal_attempt"* ]]; then
     printf '%s\n' 'An earlier removal authorization is still open. Finish or cancel that prompt, then run the same command.' >&2
     exit 1
+  fi
+  if [[ "$read_status" != 0 ]]; then
+    [[ ! -d "${file%/cmdline}" ]] && continue
+    refuse
   fi
 done
 ROOT_CUSTODY

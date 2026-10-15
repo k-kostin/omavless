@@ -144,7 +144,7 @@ userTest('cancel REMOVE has no removal phase',{},'confirm_removal <<< ""',false,
 
 // Fixed root checks are path-rewritten into a private fixture. Actual root
 // ownership metadata is supplied by inert stat projection; no privilege used.
-function rootScript(dir,body,{attempt=nextToken,phase='removing',originalBoot=boot}={}){
+function rootScript(dir,body,{attempt=nextToken,phase='removing',originalBoot=boot,prologue=''}={}){
  const rewrite=s=>s.replace(/(?<![A-Za-z0-9_/.-])\/(usr|etc|run|proc|sys|var)(?=\/|\b)/g,(_,c)=>dir+'/'+c);
  const checks=rewrite(section('ROOT_CHECKS')),custody=rewrite(section('ROOT_CUSTODY'));
  const prefix=[
@@ -154,7 +154,7 @@ function rootScript(dir,body,{attempt=nextToken,phase='removing',originalBoot=bo
  'systemctl() { printf FORBIDDEN_SYSTEMCTL >&2; return 99; }; pacman() { printf FORBIDDEN_PACMAN >&2; return 99; }; ip() { printf FORBIDDEN_IP >&2; return 99; }; resolvectl() { printf FORBIDDEN_RESOLVER >&2; return 99; }',
  'getent() { printf "user:x:'+uid+':'+uid+':User:'+dir+'/home/user:/bin/bash\\n"; }',
  'stat() { local last="${@: -1}"; if [[ "$last" == '+JSON.stringify(dir+'/run/omavless-uninstall.lock')+' && "$2" == "%u:%a:%h" ]]; then printf "0:600:1\\n"; elif [[ "$last" == '+JSON.stringify(dir)+'/proc/*/fd/* ]]; then last=${last#'+JSON.stringify(dir)+'}; /usr/bin/stat "$1" "$2" "$last"; else /usr/bin/stat "$@"; fi; }',
- custody
+ rewrite(prologue),custody
  ];
  return prefix.join('\n')+'\n'+rewrite(body)+'\n';
 }
@@ -171,6 +171,17 @@ rootTest('wrong root phase is refused',{phase:'prepared'},'printf FORBIDDEN',fal
 rootTest('wrong originating boot is refused',{originalBoot:newer},'printf FORBIDDEN',false);
 rootTest('missing completion record revokes late authorization',{before:dir=>fs.unlinkSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/progress.json')},'printf FORBIDDEN',false);
 rootTest('pending old sudo is not inferred absent from free lock',{before:dir=>{fs.mkdirSync(dir+'/proc/123');fs.writeFileSync(dir+'/proc/123/cmdline','sudo\0bash\0-c\0# OmaVLESS removal attempt '+token+'\n');}},'printf FORBIDDEN',false);
+const procFixture=dir=>{fs.mkdirSync(dir+'/proc/123');fs.writeFileSync(dir+'/proc/123/cmdline','ordinary\0command\0')};
+const churnHead=body=>'head() { if [[ "${@: -1}" == */proc/123/cmdline ]]; then '+body+'; else /usr/bin/head "$@"; fi; }';
+rootTest('vanished process after readability check is normal churn',{before:procFixture,prologue:churnHead('unlink "${@: -1}"; rmdir "${file%/cmdline}"; return 1')},'printf ADMITTED',true,(_,r)=>assert(r.stdout.includes('ADMITTED')));
+rootTest('successful capture is inspected even after process exit',{before:procFixture,prologue:churnHead('printf "# OmaVLESS removal attempt '+token+'"; unlink "${@: -1}"; rmdir "${file%/cmdline}"')},'printf FORBIDDEN',false,(_,r)=>assert(r.stderr.includes('earlier removal authorization')));
+rootTest('partial old authorization capture still blocks after read failure',{before:procFixture,prologue:churnHead('printf "# OmaVLESS removal attempt '+token+'"; unlink "${@: -1}"; rmdir "${file%/cmdline}"; return 1')},'printf FORBIDDEN',false,(_,r)=>assert(r.stderr.includes('earlier removal authorization')));
+rootTest('live process read failure is not absence',{before:procFixture,prologue:churnHead('return 1')},'printf FORBIDDEN',false,(_,r)=>assert(r.stderr.includes('process list could not be checked')&&!r.stdout.includes('FORBIDDEN')));
+rootTest('live process unreadable cmdline is not skipped',{before:dir=>{procFixture(dir);fs.chmodSync(dir+'/proc/123/cmdline',0o000)}},'printf FORBIDDEN',false,(_,r)=>assert(r.stderr.includes('process list could not be checked')));
+rootTest('transformer failure is not forgiven after process exit',{before:procFixture,prologue:churnHead('unlink "${@: -1}"; rmdir "${file%/cmdline}"; return 1')+'\ntr() { /usr/bin/tr "$@"; return 7; }'},'printf FORBIDDEN',false,(_,r)=>assert(r.stderr.includes('process list could not be checked')));
+rootTest('current attempt marker remains admitted',{before:dir=>{procFixture(dir);fs.writeFileSync(dir+'/proc/123/cmdline','# OmaVLESS removal attempt '+nextToken+'\0')}},'printf ADMITTED',true);
+rootTest('exact cmdline limit preserves trailing NUL and newline',{before:dir=>{procFixture(dir);fs.writeFileSync(dir+'/proc/123/cmdline','x'.repeat(65534)+'\0\n')}},'printf ADMITTED',true);
+rootTest('oversized cmdline is not a trusted truncated inventory',{before:dir=>{procFixture(dir);fs.writeFileSync(dir+'/proc/123/cmdline','x'.repeat(65537)+'# OmaVLESS removal attempt '+token)}},'printf FORBIDDEN',false,(_,r)=>assert(r.stderr.includes('process list could not be checked')));
 for(const bad of ['[]','{}','[{"servers":[]}]','[{"resolvConfMode":false,"fallbackServers":[],"scopes":[]}]','[{"ifname":"Meta","ifindex":7}]','[{"ifname":"omavless0","ifindex":8}]']){
  // Missing link/global schema and named old links are distinct from a healthy view.
  rootTest('resolver schema/link admission '+bad,{},'ip() { printf \'[]\'; }; resolvectl() { printf \'%s\' '+JSON.stringify(bad)+'; }; network_empty',false);
