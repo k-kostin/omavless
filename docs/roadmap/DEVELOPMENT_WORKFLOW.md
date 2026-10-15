@@ -222,6 +222,14 @@ workflow: open the Draft PR at the first meaningful checkpoint to obtain cloud
 evidence. Until then, run the same `./tests/run.sh` and `./tests/run-rust.sh`
 gates locally. Every later PR synchronization runs both gates again.
 
+Use per-PR concurrency when implementing superseded-run cancellation, retaining
+the full latest-head gates and independent main/tag checks. Before a manual
+rerun/cancellation, inspect exact heads and status; never cancel another active
+scope or describe a cancelled run as successful. Batch report-only updates
+while a heavy run is active instead of repeatedly replacing it with identical
+build work. This rule does not claim that a pending CI implementation is already
+on main. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
+
 No path filters or Draft skips are used, so documentation and workflow changes
 retain the same checks. Keep the existing `test` job name and read-only token
 permissions; do not replace `pull_request` with privileged
@@ -547,6 +555,15 @@ Likewise, matching displayed versions do not prove matching immutable package
 bytes. Missing installed rows stay unrun and block readiness of that affected
 user path, rather than inheriting a clean-install PASS. Preserve earlier
 reports' scope and negative evidence; do not retrofit acceptance into history.
+
+Development fixtures must use the existing SHA-qualified snapshot packaging
+mode, or an explicitly named beta/RC version. Do not assemble a feature branch
+with the public stable package label merely because its Cargo version has not
+changed. `--stable` is reserved for the selected release assembly, not ordinary
+feature testing. Before handing a VM back for public installation acceptance,
+record widget SHA plus installed application/companion producer and payload
+identities; restore the matching public pair through the supported package path
+if needed. Widget remove/add alone does not replace native development packages.
 
 The marketplace plugin never silently builds Cargo sources or installs the
 standalone package.

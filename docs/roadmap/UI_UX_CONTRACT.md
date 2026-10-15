@@ -230,6 +230,12 @@ password/package prompts and exact consent words when simplifying prose.
 No check substitutes for another. A screenshot proves only its captured state;
 controller liveness or a Connected label does not prove internet/DNS health.
 
+For state-dependent screens, list the allowed visible actions and the controls
+which must disappear in success, loading, missing and failure states. Test both
+presence and absence against production visibility expressions; then inspect
+the installed ready screen and an adjacent non-ready state. A working callback
+or legible button does not establish that the action belongs on that screen.
+
 ### Pick affected states, not a ceremonial full-product rerun
 
 For profile selection/connection/action layout, cover these contrasts. For
