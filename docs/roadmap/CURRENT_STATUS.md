@@ -8,8 +8,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 The authoritative current finalization summary is the
 [selected-source and acceptance matrix](../development/STABLE_DISTRIBUTION_TRANSITION.md#current-source-composition--2026-10-15)
-in Draft #794. Public main remains `ed0346c5`; #790–793 are source inputs to
-that candidate, not separately published maintenance releases. The full remover,
+in Draft #794. Current main is `1688c5a3`, a rules-only update; the product
+baseline remains `ed0346c5`. #790–793 are source inputs to the candidate, not
+separately published maintenance releases. The full remover,
 short ready screen, unified user/assistance guides and tested local stable-tree
 export are prepared. Main/development migration, publication and Aryan's reply
 remain held for separate owner authorization.
@@ -25,7 +26,8 @@ Preserve its progress/masks/helper. Do not restart earned unchanged gates, claim
 ARM4345 or Internet/connected ARM acceptance, or investigate the owner-excluded
 VM-specific Qt setup issue as part of this release.
 
-VM custody is released. Raw captures/checkpoints remain local. Repository
+VM custody and the exact active source/checks are recorded in #794's current
+handoff, not inferred from historical receipts. Raw captures/checkpoints remain local. Repository
 cleanup may close source-incorporated proposals without deleting their evidence
 branches or converting pending/failed research gates into PASS.
 

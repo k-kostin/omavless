@@ -1,9 +1,10 @@
 # Stable distribution and development separation
 
-Owner-selected direction, 2026-10-15. **Preparation only:** main remains at its
-published snapshot; no public files/branches have been moved and no release or
-merge is authorized by this plan. A local distribution export is now implemented;
-it is not the main migration. Complete the remaining functional gates first.
+Owner-selected direction, 2026-10-15. **Product preparation only:** the separately
+authorized rules-only #791 is on main; the product tree has not been migrated.
+This plan grants no product merge, release or marketplace permission. A local
+distribution export is implemented; it is not the main migration. Complete the
+remaining functional gates first.
 The [execution policy](EXECUTION_POLICY.md#retrospective-closure-and-distribution)
 governs retained decisions and their actual distribution.
 
@@ -11,13 +12,15 @@ governs retained decisions and their actual distribution.
 
 The owner continued finalization without the powered-off Mac. This local source
 candidate combines the selected product changes and reusable rules, not the
-future main/development file migration. Public main remains
-`ed0346c5b224c503ec4871f43d8e65fe367a632d`.
+future main/development file migration. Current main is
+`1688c5a30a10f637bfaf1fa528738ce8e98b3706`, a five-Markdown rules-only update.
+The published product baseline remains `ed0346c5b224c503ec4871f43d8e65fe367a632d`.
 
 | Input | Exact source / scope |
 | --- | --- |
 | #790 | `67fc7aabe888243bd38f56ab63cbf372fee7ca2d`: full remover and short ready onboarding. |
 | #791 | `3a3afd948dfead66b860282be9c9c4b4cddf92bc`: retrospective closure/distribution, retained rules and this map. |
+| Rules-only main follow-up | `1688c5a30a10f637bfaf1fa528738ce8e98b3706`: narrowed #791, including the socket-fixture rule. Reconciled into the full source without importing the separate test-only runtime-file change. |
 | #792 | `cfae8a137e82c6eef1800b805e10a459ec7010ca`: installer/export helper payload and current shipped Security/Troubleshooting. Includes #790. |
 | #793 | `8ce9d4dfae26bd9cb2180657af691974fb4e76c8`: package-before-widget removal and regressions. Includes #790/#792. |
 | Native delivery | Unchanged public fix.7 app/DNS producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`; no rebuilt/relabelled archives. |
@@ -153,12 +156,12 @@ The two guides must agree with actual UI and terminal terminology and offered
 actions. Source [editorial rules](../roadmap/UI_UX_CONTRACT.md#end-user-editorial-rule)
 remain in development; only their product-facing result is shipped in main.
 
-The current unpublished guides truthfully identify the maintenance candidate.
-Before the authorized stable freeze, reconcile those short notices with the
-actual selected release, then validate the resulting exact source again. Do
-not publish candidate instructions as already supported main, or retain an
-obsolete candidate disclaimer in the final release. This is part of the
-freeze, not a post-publication bookkeeping commit.
+The user guides now have release-facing copy without internal candidate/freeze
+notices. They remain unpublished source drafts until an authorized product
+promotion; public main still serves its existing guide. Keep that boundary in
+the PR/handoff, not in the user's final instructions. Validate the exact final
+source and exported guide/helper pair before promotion; do not describe these
+drafts as already delivered by main or add a post-publication bookkeeping commit.
 
 ## Implemented distribution checks
 

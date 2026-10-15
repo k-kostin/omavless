@@ -2,10 +2,6 @@
 
 <a id="set-up-update-or-reopen-omavless"></a>
 
-*This guide describes the 0.9.8 maintenance candidate. The public main
-installation may not yet include all of its actions; follow the actions your
-installed panel actually offers.*
-
 This guide is for **OmaVLESS 0.9.8 on Omarchy**. Start with the section that
 matches your panel. Installing or starting the application does **not** connect
 a VPN; you choose a profile and Connect separately.

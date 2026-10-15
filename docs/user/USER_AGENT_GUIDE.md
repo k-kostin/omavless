@@ -2,8 +2,8 @@
 
 This is a guide for an agent helping an end user, not instructions for
 developing the repository. Read the [matching user guide](NATIVE_INSTALL.md)
-first. It describes the 0.9.8 maintenance candidate; do not assume an older
-installed panel offers every action described there.
+first. Match the guide to the user's installed release; an older panel may
+offer different actions. Identify its components before choosing a repair.
 
 ## Preserve the user's intent
 
