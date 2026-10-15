@@ -7,6 +7,8 @@ All notable changes to OmaVLESS are documented here.
 - Simplify setup/update screens and terminal instructions, with consistent
   action names and a short explanation of the DNS helper. Keep required setup
   separate from optional updates and make the return after terminal closure clear.
+- During a core check, show progress without a premature failure message.
+  Keep actual failures and the terminal-closure confirmation visible.
 - Offer a confirmed paired component update for supported earlier 0.9.8
   deliveries, including fix.5. Preserve profiles and existing DNS authorization;
   preparation and package installation require separate consent.
@@ -51,7 +53,7 @@ All notable changes to OmaVLESS are documented here.
 - Correct first-use Backup availability without a runtime restart and keep
   the idle DNS broker available without repeatedly polling empty admission.
 
-Corrected packages and matching frontend use `v0.9.8-fix.6`. Both native
+Corrected packages and matching frontend use `v0.9.8-fix.7`. Both native
 packages identify source `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`.
 The [setup acceptance record](docs/testing/ONBOARDING_CORE_REVIEW_2026-10-14.md)
 and release PR separate public downloads, installed x86_64 results and the
@@ -65,7 +67,9 @@ exact-snapshot Marketplace update, with its findings addressed in #735/#736.
 Login autoconnect is Off by default; experimental protocol limitations remain.
 Kill switch, App proxy, WireGuard/AmneziaWG and automatic recovery are not enabled.
 
-Earlier fix.1–fix.5 tags and packages remain immutable historical deliveries.
+Earlier fix.1–fix.6 tags and packages remain immutable historical deliveries.
+The fix.6 prerelease's brief loading/failure text overlap is corrected in fix.7;
+the native package bytes are unchanged between those two deliveries.
 No all-stage uninstaller or Restore feature is added by this setup correction.
 
 ## 0.9.8-rc.1 — internal scope freeze, not a public release

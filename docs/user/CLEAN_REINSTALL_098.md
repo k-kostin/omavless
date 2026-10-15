@@ -1,7 +1,7 @@
 # Start again after an incomplete 0.9.8 installation
 
 For an installation that stopped during setup and **never connected a VPN**.
-Use the corrected `v0.9.8-fix.6` installation below. For normal setup or an
+Use the corrected `v0.9.8-fix.7` installation below. For normal setup or an
 update that keeps your settings, use the [main guide](NATIVE_INSTALL.md).
 
 This removes the old OmaVLESS widget, application, DNS component and **its own
@@ -52,8 +52,8 @@ before enabling it:
 
 ```bash
 omarchy plugin add https://github.com/k-kostin/omavless.git &&
-git -C "$HOME/.config/omarchy/plugins/kdk.omavless" checkout --detach v0.9.8-fix.6 &&
-test "$(git -C "$HOME/.config/omarchy/plugins/kdk.omavless" describe --tags --exact-match)" = v0.9.8-fix.6 &&
+git -C "$HOME/.config/omarchy/plugins/kdk.omavless" checkout --detach v0.9.8-fix.7 &&
+test "$(git -C "$HOME/.config/omarchy/plugins/kdk.omavless" describe --tags --exact-match)" = v0.9.8-fix.7 &&
 omarchy plugin enable kdk.omavless right
 ```
 

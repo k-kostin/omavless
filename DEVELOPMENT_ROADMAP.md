@@ -2,8 +2,8 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
-**October 15 fix.6 delivery selection:** the owner authorizes immutable
-`v0.9.8-fix.6` and main integration, retaining product/package versions
+**October 15 fix.7 delivery selection:** the owner authorizes immutable
+`v0.9.8-fix.7` and main integration, retaining product/package versions
 0.9.8 / 0.9.8-1. The matched native/DNS producer is
 `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`; both architecture pins are inspected.
 The #783–787 setup stack supplies the guarded stopped-pair updater, latest
@@ -16,6 +16,9 @@ not these earlier cache-seeded checks. Installed ARM64 is unrun; the owner's
 explicit publication scope permits its inspected packages without that test.
 Aryan's reply and README additions are drafts only. No Marketplace action,
 0.9.9 Restore/uninstaller or frontier feature is selected by this release.
+Fix.6 remains an immutable prerelease: final VM review found a brief false
+failure explanation during the core check. Fix.7 corrects only that presentation
+and its selected delivery links, reusing exactly the inspected native packages.
 
 **October 14 core onboarding follow-up:** ready/version/Continue and explicit
 navigation to existing component setup replace ambiguous readiness guidance.

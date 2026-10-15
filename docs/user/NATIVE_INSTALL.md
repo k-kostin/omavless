@@ -156,7 +156,7 @@ an enrollment that may already have succeeded.
 There are **two parts**: the Omarchy widget and the native application/DNS
 packages. `omarchy plugin update kdk.omavless` updates only the widget.
 
-`v0.9.8-fix.6` supplies the matching packages for x86_64 and ARM64.
+`v0.9.8-fix.7` supplies the matching packages for x86_64 and ARM64.
 Product/package versions remain `0.9.8` / `0.9.8-1`, so
 the version label alone cannot distinguish earlier deliveries. Do not mix
 packages from different corrections. The release's

@@ -6,8 +6,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Selected fix.6 main successor:** the owner authorizes immutable
-  `v0.9.8-fix.6` and main integration of the setup stack #783–787 plus the
+- **Selected fix.7 main successor:** the owner authorizes immutable
+  `v0.9.8-fix.7` and main integration of the setup stack #783–787 plus the
   public-guide contract from #782. Native app/DNS source is
   `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`, with inspected pins for both
   architectures and unchanged product/package versions 0.9.8 / 0.9.8-1.
@@ -21,6 +21,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
   removal/replacement; compatible older pairs use the offered update/remaining
   setup actions. Aryan's reply and README additions remain drafts; no
   Marketplace action or future 0.9.9 feature is authorized here.
+  The final fix.6 VM journey exposed a brief false failure explanation during
+  core checking. Fix.7 corrects this presentation; the fix.6 tag/assets remain
+  unchanged, and the same native packages are reused.
 
 - **Historical core onboarding/fix.5 validation:** distinguish Core ready/version/Continue from
   missing, supported-update and unverified facts. Other states navigate to the

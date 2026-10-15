@@ -927,3 +927,45 @@ This reduces unrelated process contention; it does not make OS wall-clock timing
 deterministic or hide the original failure. Runtime/package inputs and installed
 product bytes are unchanged, so it neither earns new VM evidence nor requires
 a different native producer. The PR records the fresh hosted result separately.
+
+### October 15 public journey and final loading-cue correction
+
+The exact original-public0.9.8 never-connected partial setup was removed by
+the published short recipe: reviewed helper prepare, actual guest reboot,
+revocation, normal pacman removal and only the three admitted application
+directories. Independent absence checks passed, without manual marker/socket
+purging. A separate tag-pinned public fix.6 installation used an empty package
+cache and frontend `52a21d40aa2b9af4c8df319f4af9496e2f886ab5`. Anonymous
+downloads matched the published x86_64 app/DNS hashes; GUI INSTALL, normal
+pacman/sudo and separate DNS reached the ready message. After the original
+terminal closed and the UI acknowledgement, Core ready led to Disconnected
+and usable import actions. Independent native facts confirmed zero profiles,
+startupOff, no recovery/transition or owned TUN. These are agent-run guest
+results, not formal human acceptance or ordinary-main installation evidence.
+
+That journey also exposed a presentation defect: during the pending core read,
+Checking core setup and Core setup could not be checked briefly appeared
+together. The normal read then completed without another operation. Do not
+describe this as a completely clean UI pass. The secondary failure text used
+only a not-ready condition, so the pending state was incorrectly included.
+
+Correction `5329d02cd20de314627618a5a46f615bff1bbe34` excludes checking from
+that failure explanation while explicitly retaining terminal acknowledgement
+and real attention states. A regression evaluates the production QML bindings
+across48 combinations and terminal/checking/ready/checking/attention: it failed
+on52a and passed after the correction. Normal checks passed (776Python tests,
+two existing opt-in skips,29native-onboarding controls and other JS/QML checks).
+Independent Astra review found no actionable issue. The VM operator and root
+inspected eight installed-Qt synthetic captures, EN/RU by checking/ready/
+attention/terminal, including attention-to-checking-to-ready on one loader.
+No false failure remained while checking; real errors and the terminal control
+remained. The harness requested no action and closed with its original exit0;
+the clean VM fixture was preserved. Synthetic rendering is not package/main
+acceptance. No readiness classifier, native input, command or guard changed.
+
+The owner authorizes a new immutable `v0.9.8-fix.7` and main integration.
+Fix.6/52a and its seven public assets remain unchanged prerelease history.
+Fix.7 uses the same d4d native archives, with corrected frontend and delivery
+links. Its final SHA/CI, public downloads, actual main-clone check and stable
+promotion are recorded by the release PR, not inferred from the earlier tag
+or cache-seeded runs. Installed ARM64 remains unrun as explicitly permitted.

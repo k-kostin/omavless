@@ -1,6 +1,6 @@
-# OmaVLESS 0.9.8 — fix.6 frontend
+# OmaVLESS 0.9.8 — fix.7 frontend
 
-These are the Omarchy panel files for the matching **v0.9.8-fix.6** application
+These are the Omarchy panel files for the matching **v0.9.8-fix.7** application
 and DNS packages. Use the accompanying `managed-dns-delivery.json` and
 `SHA256SUMS` to check source identities, architecture and archive integrity.
 Checksums detect changed files; they are not signatures.
@@ -13,7 +13,7 @@ A version label alone does not prove artifact or installed acceptance.
 
 ## Installation
 
-The `v0.9.8-fix.6` delivery has exact package pins for both architectures.
+The `v0.9.8-fix.7` delivery has exact package pins for both architectures.
 Do not combine this frontend with the earlier immutable `v0.9.8` pair. Product
 and Arch versions remain 0.9.8 / 0.9.8-1; source/hash identity selects the
 correction, not the version label. Existing users may see an explicit

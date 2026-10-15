@@ -315,9 +315,9 @@ curl() {{
     shift
   done
   case "$url" in
-    'https://github.com/k-kostin/omavless/releases/download/v0.9.8-fix.6/omavless-{VERSION}-1-x86_64.pkg.tar.zst')
+    'https://github.com/k-kostin/omavless/releases/download/v0.9.8-fix.7/omavless-{VERSION}-1-x86_64.pkg.tar.zst')
       /usr/bin/cp "$TEST_DIR/download-app" "$output"; echo download-app >> "$TEST_DIR/trace";;
-    'https://github.com/k-kostin/omavless/releases/download/v0.9.8-fix.6/omavless-dns-{VERSION}-1-x86_64.pkg.tar.zst')
+    'https://github.com/k-kostin/omavless/releases/download/v0.9.8-fix.7/omavless-dns-{VERSION}-1-x86_64.pkg.tar.zst')
       /usr/bin/cp "$TEST_DIR/download-dns" "$output"; echo download-dns >> "$TEST_DIR/trace";;
     *) return 99;;
   esac
