@@ -31,6 +31,9 @@ function userScript(dir,body){return [
  'runtime='+JSON.stringify(dir+'/run/user/'+uid),'setup_lock="$runtime/omavless-first-run.lock"',
  'boot_id='+boot,'attempt='+nextToken,'operator="$$:$(process_birth "$$")"',
  'systemctl() { case "$*" in *LoadState*) printf "masked\\n";; *) :;; esac; }',
+ 'timeout() { shift; "$@"; }',
+ 'omarchy() { printf FORBIDDEN_DESKTOP >&2; return 99; }',
+ 'function /usr/bin/omavless { printf FORBIDDEN_NATIVE >&2; return 99; }',
  body
  ].join('\n')}
 function userTest(label,options,body,success,inspect=()=>{}){
@@ -141,6 +144,44 @@ userTest('custom runtime dependency target is retained',{},'mkdir "$HOME/.config
 userTest('redirected user-service ancestor never unlinks target',{},'mv "$HOME/.config/systemd/user" "$folder/foreign"; ln -s "$folder/foreign" "$HOME/.config/systemd/user"; mkdir "$folder/foreign/default.target.wants"; ln -s /usr/lib/systemd/user/omavless-runtime.service "$folder/foreign/default.target.wants/omavless-runtime.service"; clear_runtime_enablement',false,dir=>assert(fs.lstatSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/foreign/default.target.wants/omavless-runtime.service').isSymbolicLink()));
 userTest('REMOVE does not ask connection history',{},'confirm_removal <<< REMOVE',true,(_,r)=>assert(!/never connected|used it before|ask for help|support/.test(r.stdout)));
 userTest('cancel REMOVE has no removal phase',{},'confirm_removal <<< ""',false,dir=>assert(!fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/progress.json')));
+
+// Measured ARM64 failure: Quickshell exits0 but prefixes JSON with Qt's locale
+// warning under LC_ALL=C. Fix the desktop child's environment, not the parser.
+const localeList='export LC_ALL=C; omarchy() { [[ "$*" == "plugin list --json" ]] || return 9; : > "$folder/desktop-child"; if [[ $LC_ALL != C.UTF-8 ]]; then printf "Qt non-UTF-8 locale warning\\n"; fi; printf \'[{"id":"kdk.omavless","enabled":true}]\'; }';
+userTest('plugin inventory uses child-only UTF-8 locale',{},localeList+'\n[[ $(plugin_state) == enabled && $LC_ALL == C && -f "$folder/desktop-child" ]]',true);
+userTest('warning-prefixed registry still fails strict JSON',{},'omarchy() { printf \'warning\\n[{"id":"kdk.omavless","enabled":true}]\'; }; plugin_state',false);
+userTest('failed registry query is not success despite JSON',{},'omarchy() { printf \'[{"id":"kdk.omavless","enabled":true}]\'; return 7; }; plugin_state',false);
+userTest('ordinary widget removal gets UTF-8 and leaves parent C',{},[
+ 'export LC_ALL=C; mkdir -p "$HOME/.config/omarchy/plugins/kdk.omavless"',
+ 'omarchy() { [[ $LC_ALL == C.UTF-8 && "$*" == "plugin remove kdk.omavless" ]] || return 9; rmdir -- "$HOME/.config/omarchy/plugins/kdk.omavless"; }',
+ 'remove_widget; [[ $LC_ALL == C && ! -e "$HOME/.config/omarchy/plugins/kdk.omavless" ]]'
+].join('\n'),true);
+userTest('cancelled UTF-8 widget removal retains checkout',{},[
+ 'mkdir -p "$HOME/.config/omarchy/plugins/kdk.omavless"',
+ 'omarchy() { [[ $LC_ALL == C.UTF-8 ]] || return 9; return 7; }','remove_widget'
+].join('\n'),false,dir=>assert(fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless')));
+for(const status of [0,7])userTest('native Quit UTF-8 inherited by its desktop child, original exit'+status,{},[
+ 'export LC_ALL=C; guided=false',
+ 'function /usr/bin/omavless { [[ $LC_ALL == C.UTF-8 ]] || return 9; bash -c \'[[ $LC_ALL == C.UTF-8 ]]\' || return 9; printf \'{"synthetic":true}\'; return '+status+'; }',
+ 'original=0; native_shutdown plugin watch-removal || original=$?; [[ $original == '+status+' && $LC_ALL == C ]]'
+].join('\n'),true);
+// Execute the guided production branch with a real inert PTY too: changing only
+// the synchronous path would leave ordinary interactive removal broken.
+for(const status of [0,7]){
+ const dir=fixture();
+ try{
+  const script=dir+'/guided-utf8.sh';
+  fs.writeFileSync(script,userScript(dir,[
+   'export LC_ALL=C; guided=true; spinner="|/-"; stage_directory="$folder"',
+   'function /usr/bin/omavless { [[ $LC_ALL == C.UTF-8 ]] || return 9; bash -c \'[[ $LC_ALL == C.UTF-8 ]]\' || return 9; sleep 0.2; printf \'{"synthetic":true}\'; return '+status+'; }',
+   'original=0; native_shutdown plugin watch-removal || original=$?; [[ $original == '+status+' && $LC_ALL == C ]]'
+  ].join('\n')),{mode:0o600});
+  const r=spawnSync('script',['-q','-e','-c','bash --noprofile --norc '+script,'/dev/null'],{encoding:'utf8',timeout:4000});
+  assert(!r.error,String(r.error));assert.equal(r.status,0,r.stdout+r.stderr);
+  assert(r.stdout.includes('Closing OmaVLESS...')&&r.stdout.includes('{"synthetic":true}'));
+  assert.deepEqual(fs.readdirSync(dir+'/home/user/.cache/omavless-maintenance/uninstall'),[]);count++;
+ }finally{fs.rmSync(dir,{recursive:true})}
+}
 
 // Fixed root checks are path-rewritten into a private fixture. Actual root
 // ownership metadata is supplied by inert stat projection; no privilege used.

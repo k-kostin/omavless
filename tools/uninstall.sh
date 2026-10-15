@@ -350,7 +350,7 @@ remove_widget() {
       [[ -z $(git -C "$plugin" status --porcelain) ]] \
         || fail 'The installed widget has development edits. Save those edits outside the installed widget, then run removal again.'
     fi
-    omarchy plugin remove kdk.omavless || fail 'Widget removal was cancelled or failed. Run this same command to continue.'
+    LC_ALL=C.UTF-8 omarchy plugin remove kdk.omavless || fail 'Widget removal was cancelled or failed. Run this same command to continue.'
   fi
   [[ ! -e "$plugin" && ! -L "$plugin" ]] || fail 'The widget is still installed. Finish its removal prompt, then run this command again.'
 }
@@ -441,7 +441,10 @@ runtime_disabled() {
 }
 plugin_state() {
   local registry
-  registry=$(timeout 8 omarchy plugin list --json) || return 1
+  # Omarchy queries Quickshell: Qt emits a non-UTF-8 warning on stdout under
+  # plain C, corrupting the JSON even when the command succeeds. Keep the
+  # parent/root byte-oriented checks in C, and the desktop children in UTF-8.
+  registry=$(LC_ALL=C.UTF-8 timeout 8 omarchy plugin list --json) || return 1
   [[ ${#registry} -le 262144 ]] || return 1
   printf '%s' "$registry" | jq -er '
     select(type == "array" and length <= 1024
@@ -465,10 +468,12 @@ hello_fence() {
     | [.result.instanceId, (.revision | tostring)] | @tsv'
 }
 native_shutdown() {
-  if [[ ${guided:-false} != true || ! -t 2 ]]; then /usr/bin/omavless "$@"; return; fi
+  # Native Quit also calls Omarchy to disable/verify the widget; the existing
+  # installed binary inherits this child-only locale for those subprocesses.
+  if [[ ${guided:-false} != true || ! -t 2 ]]; then LC_ALL=C.UTF-8 /usr/bin/omavless "$@"; return; fi
   local output child result frame=0
   output=$(mktemp "$stage_directory/.shutdown.XXXXXXXX") || return 1
-  /usr/bin/omavless "$@" </dev/null > "$output" &
+  LC_ALL=C.UTF-8 /usr/bin/omavless "$@" </dev/null > "$output" &
   child=$!
   # Observe this shell's original job, not a reusable process ID. No timeout,
   # signal, retry or success follows from the animation.
