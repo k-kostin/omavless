@@ -15,6 +15,18 @@ short ready screen, unified user/assistance guides and tested local stable-tree
 export are prepared. Main/development migration, publication and Aryan's reply
 remain held for separate owner authorization.
 
+The selected 65-file user tree from source `117e8468` was installed in the x64
+guest through stock Omarchy local-Git candidate selection, with fresh public
+package downloads and owner-entered sudo/pacman/DNS consent. Paired installed
+payloads match the public producer; setup reached the ordinary disconnected
+panel without shell restart or administrative repair. This is not a published
+main/Marketplace install or an exact captured terminal exit. The owner found a
+remaining editorial gap: the separate completed component-review page retained
+recheck/help after the wizard had already been simplified. Its visibility
+correction and cross-state regressions belong to the next selected head;
+affected EN/RU rendering and final exact-source CI remain required. Do not
+call finalization complete from the installation result alone.
+
 The final full-source CI is tracked on #794. The earlier #792 Rust failure is
 retained: a source-permitted routing-fixture teardown race has a separately
 reviewed test-only correction at `52084e7a`, not silently included with the old

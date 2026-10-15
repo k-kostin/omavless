@@ -131,13 +131,14 @@ test('setup has separate navigation and cannot expose legacy mutation shortcuts'
   assert(panel.includes('onTextKey: function(t) {\n        if (root.bootstrapRequired) return'));
   assert(panel.includes('width: Math.max(0, setupFlick.width - root.scrollGutter)'));
 });
-test('explicit component review retains check/help/back even with ready package inventory', () => {
+test('component review retains help for unverified core, not completed readiness', () => {
   assert(page.includes('property bool componentReview: false'));
   assert(page.includes('visible: !setup.componentReview'));
   for(const name of ['reviewTerminalButton','reviewCheckButton','reviewGuideButton','closeButton']) assert(page.includes(name));
   assert(page.includes('onClicked: { setup.acknowledgeTerminalClosed(); setup.factsRefreshRequested() }'));
   assert(page.includes('onClicked: { setup.check(); setup.factsRefreshRequested() }'));
   assert(page.includes('setup.componentReview ? "back_to_panel" : "later"'));
+  assert(page.includes('&& !setup.needsAttention && !setup.reviewReady'));
   for(const locale of ['en','ru'])for(const key of ['review_components','review_core_attention','back_to_panel'])
     assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
 });

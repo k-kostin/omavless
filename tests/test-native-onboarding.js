@@ -97,6 +97,29 @@ test('component review never calls an in-flight core check a failure',()=>{
  });
  assert.deepEqual(seen,['terminal',null,null,null,'review_core_attention']);
 });
+test('successful component review removes recheck/help without hiding unsettled recovery controls',()=>{
+ const page=fs.readFileSync(__dirname+'/../plugin/SetupPage.qml','utf8');
+ const ready=page.match(/readonly property bool reviewReady: ([\s\S]*?)\n  readonly property string script:/)[1].trim();
+ const expressions=['reviewCheckButton','reviewGuideButton'].map(id=>{
+  const block=page.slice(page.indexOf('id: '+id),page.indexOf('\n    }',page.indexOf('id: '+id)));
+  return block.match(/visible: ([^\n]+)/)[1];
+ });
+ for(const state of ['ready','checking','needs_attention','needs_dns_setup','needs_pair_update'])
+  for(const reviewCoreState of ['ready','checking','attention','terminal','missing','update'])
+   for(const busy of [false,true])for(const terminalOpened of [false,true])
+    for(const nativeEffectBlocked of [false,true])for(const componentReview of [false,true])
+     for(const needsAttention of [false,true]) {
+      const setup={state,reviewCoreState,busy,terminalOpened,nativeEffectBlocked,componentReview,needsAttention};
+      setup.reviewReady=vm.runInNewContext(ready,{setup});
+      const complete=state==='ready'&&reviewCoreState==='ready'&&!busy&&!terminalOpened&&!nativeEffectBlocked;
+      assert.equal(setup.reviewReady,complete);
+      for(const expression of expressions)
+       assert.equal(vm.runInNewContext(expression,{setup}),componentReview&&!needsAttention&&!complete);
+     }
+ const acknowledgement=page.slice(page.indexOf('id: reviewTerminalButton'));
+ const shown=acknowledgement.match(/visible: ([^\n]+)/)[1];
+ assert(vm.runInNewContext(shown,{setup:{componentReview:true,needsAttention:false,terminalOpened:true,reviewReady:false}}));
+});
 function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeMetadataErrorAction:'',nativeMetadataErrorCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
 test('first use opens existing wizard, completed and dismissed states do not loop',()=>{
  const c=context();c.syncNativeOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,1);

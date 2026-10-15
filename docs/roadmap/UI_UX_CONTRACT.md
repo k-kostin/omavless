@@ -101,8 +101,14 @@ remain accessible outside this completed wizard step. The separate component
 review/error surfaces retain their relevant recheck/help controls.
 Other states navigate to the existing guarded component controller, not a new
 installer. Missing/unknown facts never masquerade as ready Continue. Component
-review always retains Check again, Setup help and return navigation, including
-when package presence is known but core permissions are not confirmed. Refresh
+review retains Check again, Setup help and return navigation when core readiness
+is unconfirmed, including when package presence is known but core permissions
+are not confirmed. Once package/core readiness is confirmed, no terminal or
+operation is pending and effects are not blocked, hide recheck/help on that
+review page too; keep Core ready and return navigation. Test this second ready
+surface as well as the wizard, rather than treating one successful screen as
+coverage of every entry. Optional component-update notices retain their own
+relevant controls. Refresh
 means refreshing facts; it must not imply a package update. Only an actually
 supported update state offers the admitted app/DNS paired update. A missing
 companion beside an existing app is not automatic repair authority.
