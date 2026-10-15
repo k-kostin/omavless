@@ -269,20 +269,18 @@ offers **Start OmaVLESS**, not an automatic VPN connection.
 or private profiles/settings. Adding it again therefore resumes an existing
 installation. Often the correct fix is finishing the remaining setup step.
 
-To completely uninstall the application, first verify native shutdown and clean
-DNS restoration. An administrator must stop/disable the clean broker, confirm
-its empty journal/FD/TUN boundary, and revoke the enrolled UID while the broker
-binary still exists; only then remove both native packages and the widget.
-Keep private profiles by default. A blocked guard needs inspection, not deletion
-of unknown state. The administrator contract linked above documents these
-requirements; a one-click all-stage uninstaller is planned, **not available in
-0.9.8**. Ask for help if setup never reached a usable shutdown screen.
+For complete removal of a supported public 0.8.2/0.9.8 installation, use the
+[terminal removal helper](CLEAN_REINSTALL_098.md). One entry guides you through
+shutdown, a restart and component removal. **Saved profiles and settings are
+deleted with your confirmation.** Other VPN clients and a separate Mihomo stay.
+The helper also works after widget removal and does not require a usable panel.
 
-If your public 0.8.2 or 0.9.8 installation **never connected a VPN**, the
-[guided clean reset](CLEAN_REINSTALL_098.md) offers to close the application,
-checks its components and removes its packages **and saved profiles/settings**
-with your confirmation. It remains available after widget removal. This narrow
-reset is not the general-purpose, data-preserving 0.9.9 uninstaller above.
+Supported states are unfinished/never-connected setup and a running managed
+0.9.8 app which confirms clean shutdown. Previously used 0.8.2, an already
+stopped used installation or uncertain recovery needs a checked support path,
+not forced deletion. If you need to keep profiles, do not choose this reset.
+The general-purpose, data-preserving 0.9.9 remover is still planned; this helper
+does not claim that broader feature is complete.
 
 Do not run the legacy `uninstall.sh --purge` against a native installation.
 It is not the native package remover. A clean reinstall must not silently erase

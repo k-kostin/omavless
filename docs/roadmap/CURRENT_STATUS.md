@@ -7,12 +7,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 ## Main and open work
 
 - **Guided reset follow-up #790:** source and user-guide/README reconciliation
-  add in-helper REMOVE/STOP consent and existing authenticated native shutdown,
-  independent of the broken setup UI. The [reset matrix](../testing/CLEAN_RESET_2026-10-15.md)
-  separates inert checks, actual cancellations and pending full installed gates.
-  Scope stays never-connected public 0.8.2/0.9.8, not connected-ever removal or
-  completion of #774's general 0.9.9 uninstaller. Main/release/issue writes still
-  need separate authorization.
+  add a zero-argument terminal entry, concise REMOVE consent, existing native
+  shutdown, ASCII waiting and durable same-command continuation after reboot,
+  independent of the setup UI. The [reset matrix](../testing/CLEAN_RESET_2026-10-15.md)
+  separates original helper evidence from successor gates. Never-connected public
+  0.8.2/0.9.8 is supported; a new normal live-managed 0.9.8 lane requires this
+  invocation's actual clean shutdown and separate connected/DNS restoration
+  acceptance. Previously used 0.8.2, stopped-used/unknown state and #774's general
+  data-preserving 0.9.9 remover are not claimed complete. Main/release/issue writes
+  still need separate authorization.
 
 - **Selected fix.7 main successor:** the owner authorizes immutable
   `v0.9.8-fix.7` and main integration of the setup stack #783–787 plus the

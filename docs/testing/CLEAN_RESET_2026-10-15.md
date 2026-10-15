@@ -14,14 +14,34 @@ This report does not authorize main integration, a release or an issue reply.
 - Documentation reconciliation: `570ffe2e7f8e3eddd93e0a48741ff49660f36576`;
   successor also removes only the proven empty root enrollment directory with
   `rmdir`. Original installed results below retain their original helper identity.
+- Owner-expanded guided successor: `7c65847156756b25f1c0097f713e75535383d59e`,
+  SHA-256 `2f1ffd56e49ad0d8c174d5e5af84006564d5ef32d9a3297c7e13097aa40417ba`.
+  Zero arguments select the guided journey, not the compatibility phase CLI.
 - No changes to the native app/DNS producer or immutable fix.7 packages.
 
-The helper is a terminal reset for supported public 0.8.2/0.9.8 installations
+The original two-phase helper is a terminal reset for public 0.8.2/0.9.8 installations
 which **never connected a VPN**. The REMOVE screen explicitly states this limit
 and deletion of this account's own profiles/subscriptions/settings. It is not
 the all-state, data-preserving 0.9.9 remover planned in #774. Connected-ever,
 unknown/experimental builds, custom XDG locations and unknown ownership remain
-unsupported; no forced kill, guard bypass or journal/socket deletion is added.
+unsupported in that original scope; no forced kill, guard bypass or journal/socket deletion is added.
+
+The owner then requested a single terminal entry, permanent data deletion with
+one short warning, simpler editing and lightweight waiting indicators. The
+guided successor retains the original partial/never-connected lanes and adds
+normal live managed 0.9.8 removal only after this invocation's authenticated
+Full Quit or actual watcher `runtimeStopped:true`. A watcher no-op cannot earn
+that lane. Original broker release proves captured DNS restoration/readback
+before journal/FD release; independently verify that fact in the connected gate.
+Already stopped used installations and connected-ever 0.8.2 remain excluded:
+missing current original cleanup proof is not repaired by deleting profiles.
+
+A bounded same-account record outside purged data selects preparation/restart/
+removal screens, never root authority. It is flushed before dependent effects.
+Same-boot continuation only offers restart; uncertain, malformed, wrong-helper
+or changed records refuse. No automatic login execution/reconnect is added.
+The ASCII spinner observes the original child job and cannot replace its exit
+status. Legacy explicit phase commands retain their never-connected restriction.
 
 The ordinary entry downloads the exact helper into a newly created
 `.cache/omavless-maintenance/reinstall-098` subdirectory and verifies its hash.
@@ -45,16 +65,17 @@ VPNs/accounts, unrelated dependencies and firewall rules are not reset.
 ## Source and documentation checks
 
 - Bash syntax and `git diff --check`: PASS.
-- Production validator/shutdown/parser/classification fixtures: 57 PASS.
+- Production validator/shutdown/parser/classification fixtures: 61 PASS.
 - Fixed root-branch fixtures with isolated paths/inert commands: 33 PASS,
   including empty-directory cleanup, hidden entries, unsafe metadata/symlinks
   and failing `rmdir`. The absent-DNS early exit is isolated before asserting
   filesystem deletion; it cannot skip that assertion.
-- Guide: four Bash blocks, exact helper/hash, ordinary main add, short reset
+- Guided phase/record/consent fixtures and inert real-PTY spinner: 32 PASS.
+- Guide: three Bash blocks, exact helper/hash, ordinary main add, short reset
   scope, no external UI Quit prerequisite: PASS.
 - Anonymous HTTPS helper bytes match the pinned SHA-256: PASS.
-- README addition and all four support-draft command blocks match branch
-  documentation byte-for-byte: PASS; the reply remains local and unsent.
+- README addition and support-draft command blocks must match the final branch
+  documentation; the reply remains local and unsent.
 - Local combined `tests/run.sh`: 776 Python tests PASS, two existing skips,
   all JS/QML suites PASS. This is not a Rust rebuild or installed removal.
 - Hosted first implementation checkpoint `0baf317f` failed the expected old
@@ -83,6 +104,7 @@ manual repair or pre-shutdown may replace a missing edge inside that journey.
 | Public 0.8.2 without DNS companion | Source implemented; installed gate pending. |
 | Packages installed before first DNS enrollment | Source implemented; installed gate pending. |
 | Successor helper; root directory cleanup after enrolled/pre-enrollment or absent DNS | Pending installed gate; earlier PASS results do not earn the new cleanup effect. |
+| Zero-argument guided successor; live connected 0.9.8 and same-command reboot continuation | Pending; no earlier never-connected result earns this new lane. |
 | Reinstall through ordinary main add after reset | Pending; no tag/candidate substitution or fixture repair inside the user journey. |
 | Connected-ever, lost ownership or experimental Restore build | Excluded; not an accepted generic uninstall. |
 
