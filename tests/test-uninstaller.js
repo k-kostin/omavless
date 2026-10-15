@@ -133,15 +133,17 @@ rootTest('wrong root phase is refused',{phase:'prepared'},'printf FORBIDDEN',fal
 rootTest('wrong originating boot is refused',{originalBoot:newer},'printf FORBIDDEN',false);
 rootTest('missing completion record revokes late authorization',{before:dir=>fs.unlinkSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/progress.json')},'printf FORBIDDEN',false);
 rootTest('pending old sudo is not inferred absent from free lock',{before:dir=>{fs.mkdirSync(dir+'/proc/123');fs.writeFileSync(dir+'/proc/123/cmdline','sudo\0bash\0-c\0# OmaVLESS removal attempt '+token+'\n');}},'printf FORBIDDEN',false);
-for(const bad of ['[]','{}','[{"ifname":"Meta","ifindex":7}]','[{"ifname":"omavless0","ifindex":8}]']){
+for(const bad of ['[]','{}','[{"servers":[]}]','[{"resolvConfMode":false,"fallbackServers":[],"scopes":[]}]','[{"ifname":"Meta","ifindex":7}]','[{"ifname":"omavless0","ifindex":8}]']){
  // Missing link/global schema and named old links are distinct from a healthy view.
  rootTest('resolver schema/link admission '+bad,{},'ip() { printf \'[]\'; }; resolvectl() { printf \'%s\' '+JSON.stringify(bad)+'; }; network_empty',false);
 }
 for(const family of ['-4','-6'])rootTest('residual '+family+' rule is not deleted',{},[
  'ip() { case "$*" in *"'+family+' rule"*) printf \'[{"priority":9000,"table":2022}]\';; *) printf \'[]\';; esac; }',
- 'resolvectl() { printf \'[{"servers":[]},{"ifname":"eth0","ifindex":2}]\'; }','network_empty'
+ 'resolvectl() { printf \'[{"resolvConfMode":"stub","fallbackServers":[],"scopes":[]},{"ifname":"eth0","ifindex":2}]\'; }','network_empty'
 ].join('\n'),false);
-rootTest('clean network view permits no-op cleanup',{},'ip() { printf \'[]\'; }; resolvectl() { printf \'[{"servers":[]},{"ifname":"eth0","ifindex":2}]\'; }; network_empty',true);
+// Positive schema measured on the actual guest, not invented from the parser.
+// Address/domain/real scope values are replaced with empty synthetic values.
+rootTest('actual installed resolver global/link schema permits clean view',{},'ip() { printf \'[]\'; }; resolvectl() { printf \'[{"fallbackServers":[],"negativeTrustAnchors":[],"dnssecSupported":false,"dnssec":"no","dnsOverTLS":"no","llmnr":"no","mDNS":"no","resolvConfMode":"stub","scopes":[]},{"ifname":"eth0","ifindex":2,"defaultRoute":true,"currentServer":{},"servers":[],"dnssecSupported":false,"dnssec":"no","dnsOverTLS":"no","llmnr":"no","mDNS":"no","scopes":[]}]\'; }; network_empty',true);
 rootTest('resolver failure is not an empty view',{},'ip() { printf \'[]\'; }; resolvectl() { return 5; }; network_empty',false);
 rootTest('genuinely absent journal is empty',{},'stat() { if [[ "$2" == "%u %a" ]]; then printf "0 755\\n"; else /usr/bin/stat "$@"; fi; }; empty_runtime_journal',true);
 for(const kind of ['file','dangling','redirect','writable','nonempty'])rootTest('unexpected runtime journal '+kind,{},[

@@ -659,7 +659,7 @@ network_empty() {
   [[ ${#inventory} -le 1048576 ]] || refuse
   printf '%s' "$inventory" | jq -e 'type == "array" and length > 0 and all(.[]; type == "object" and
     (if has("ifname") then ((.ifname | type) == "string" and (.ifindex | type) == "number" and .ifname != "Meta" and .ifname != "omavless0")
-     else (.servers | type) == "array" end))' >/dev/null || refuse
+     else ((.resolvConfMode | type) == "string" and (.fallbackServers | type) == "array" and (.scopes | type) == "array") end))' >/dev/null || refuse
   for family in -4 -6; do
     blocker='VPN routing rules remain (table 2022). Another network service may be using them; stop that service normally before continuing. No rules were deleted'
     inventory=$(timeout 8 ip -json "$family" rule show | head -c 1048577) || refuse
