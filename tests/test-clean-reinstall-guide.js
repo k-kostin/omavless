@@ -23,6 +23,9 @@ assert(guide.split(/\s+/).length < 500, 'Quick path must remain short; detailed 
 assert.match(blocks[0], /raw\.githubusercontent\.com\/k-kostin\/omavless\/[0-9a-f]{40}\/tools\/clean-reinstall-098\.sh/);
 assert(blocks[0].includes(crypto.createHash('sha256').update(helper).digest('hex')));
 assert(blocks[0].indexOf('sha256sum --check') < blocks[0].indexOf('bash "$HOME/'));
+assert(blocks[0].indexOf('sha256sum --check') < blocks[0].indexOf('mv -T --'));
+assert.match(blocks[0], /--connect-timeout 10 --max-time 60/);
+assert.match(blocks[0], /-o "\$HOME\/\.cache\/omavless-maintenance\/reinstall-098\/\.download"/);
 assert.equal(blocks[1].trim(), 'bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh"');
 assert.equal(blocks[2].trim(), 'omarchy plugin add https://github.com/k-kostin/omavless.git --enable');
 assert(!blocks.some(block => /\.sh" (prepare|remove)/.test(block)));

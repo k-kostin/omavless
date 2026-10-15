@@ -70,6 +70,8 @@ does not undo earlier completed steps.
 | `PREPARE` | Prepare an update and, if needed, safely stop the helper. Does not install packages. |
 | `UPGRADE` | Install the offered matching application and core/helper packages. Start/helper continuation is separate. |
 | `RELOAD` | Optionally reload the whole Omarchy shell. Other shell plugins reload too; this is not VPN recovery. |
+| `REMOVE` | Confirm the displayed removal, including permanent deletion of OmaVLESS profiles and settings. Other VPN clients are kept. |
+| `REBOOT` | Restart this computer after removal preparation. Save other work first; run the same removal helper after logging back in. |
 
 ## Editorial use
 

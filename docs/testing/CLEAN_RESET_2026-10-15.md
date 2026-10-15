@@ -17,6 +17,10 @@ This report does not authorize main integration, a release or an issue reply.
 - Owner-expanded guided successor: `7c65847156756b25f1c0097f713e75535383d59e`,
   SHA-256 `2f1ffd56e49ad0d8c174d5e5af84006564d5ef32d9a3297c7e13097aa40417ba`.
   Zero arguments select the guided journey, not the compatibility phase CLI.
+- Final metadata/editorial delta: `73c41cf4b8d6dc4675a50c643bdab82d00e05c0a`,
+  SHA-256 `1bc9d1361dadeb76963a9cdf6bf79a4374f1329bcd7b708ad2c870d6e1fe02e3`.
+  It additionally requires the pinned unit's own `root:0644:nlink1` metadata
+  and simplifies progress wording; existing guided sessions retain their source.
 - No changes to the native app/DNS producer or immutable fix.7 packages.
 
 The original two-phase helper is a terminal reset for public 0.8.2/0.9.8 installations
@@ -66,10 +70,12 @@ VPNs/accounts, unrelated dependencies and firewall rules are not reset.
 
 - Bash syntax and `git diff --check`: PASS.
 - Production validator/shutdown/parser/classification fixtures: 61 PASS.
-- Fixed root-branch fixtures with isolated paths/inert commands: 33 PASS,
+- Fixed root-branch fixtures with isolated paths/inert commands: 39 PASS,
   including empty-directory cleanup, hidden entries, unsafe metadata/symlinks
   and failing `rmdir`. The absent-DNS early exit is isolated before asserting
   filesystem deletion; it cannot skip that assertion.
+  Correct unit bytes with a foreign owner, writable mode or hardlink also refuse
+  before stop/revocation effects.
 - Guided phase/record/consent fixtures and inert real-PTY spinner: 32 PASS.
 - Guide: three Bash blocks, exact helper/hash, ordinary main add, short reset
   scope, no external UI Quit prerequisite: PASS.
@@ -101,10 +107,14 @@ manual repair or pre-shutdown may replace a missing edge inside that journey.
 | Same baseline; REMOVE → STOP → preparation → guest reboot → remove | PASS: helper itself completed native shutdown; intended packages/widget/three private directories/enrollment removed; unrelated packages/network unchanged and HTTPS available. |
 | Original public 0.9.8, enrolled never-connected partial setup | PASS: exact guide bootstrap downloaded/verified the immutable helper anonymously; preparation, reboot and removal completed without a bypass or manual repair inside the journey. |
 | Ordinary widget remove, then helper with checkout absent | PASS with original helper: preparation, reboot and removal completed. Normal unload may already stop the app; this does not claim installed live-watcher shutdown. |
-| Public 0.8.2 without DNS companion | Source implemented; installed gate pending. |
-| Packages installed before first DNS enrollment | Source implemented; installed gate pending. |
-| Successor helper; root directory cleanup after enrolled/pre-enrollment or absent DNS | Pending installed gate; earlier PASS results do not earn the new cleanup effect. |
+| Public 0.8.2 without DNS companion | PASS with 62150268: prepare/reboot/remove captured exit 0; separately installed stock Mihomo binary/config/units and unrelated packages/network unchanged. |
+| Packages installed before first DNS enrollment | PASS with 62150268 on separately restored fixture; original 0baf sudo timeout remains unsuccessful and its disk preserved. |
+| 62150268; enrolled original 0.9.8 running/disconnected, empty root directory cleanup | Behavioral completion and independent postconditions PASS. Prepare printed completion and original owners/lock were gone; the PTY supervisor had timed out at gum before continuing that same channel, so its outer exit 1 is not a captured helper exit. Reboot/remove exit 0; guarded revoke and root directory absence independently confirmed. |
+| Guided 7c658471; 0.8.2 cancel REMOVE | PASS in actual guest terminal: exit 1, no progress record/setup lock, packages/data unchanged. |
+| Guided 7c658471; 0.8.2 restart-later/same-boot resume | PASS: prepare exit 0; same invocation cancelled reboot; same-command resume showed only restart with unchanged record identity/bytes. Actual graphical REBOOT worked without administrator substitution. |
+| Guided 7c658471; 0.8.2 same-command removal after reboot | PASS: original exit 0, progress record cleared, packages/private state/runtime absent; stock core and unrelated packages/network unchanged. |
 | Zero-argument guided successor; live connected 0.9.8 and same-command reboot continuation | Pending; no earlier never-connected result earns this new lane. |
+| Final 73c41cf4; actual root metadata admission and guided removal | Pending affected gate; unit metadata fixtures do not substitute for installed acceptance. |
 | Reinstall through ordinary main add after reset | Pending; no tag/candidate substitution or fixture repair inside the user journey. |
 | Connected-ever, lost ownership or experimental Restore build | Excluded; not an accepted generic uninstall. |
 

@@ -3,6 +3,7 @@
 The terminal helper removes the OmaVLESS widget, application, bundled VPN core
 and DNS helper. **Its saved profiles and settings are deleted, without a backup.**
 Other VPN clients and a separately installed Mihomo stay installed.
+This is a terminal tool; the 0.9.8 plugin has no full-removal button.
 
 It supports public 0.8.2 and 0.9.8 installations, including unfinished setup
 and an already removed widget. A running 0.9.8 application can confirm its own
@@ -18,16 +19,19 @@ download folder, downloads the pinned helper, checks it and starts removal.
 
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
-curl --fail --location --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/k-kostin/omavless/7c65847156756b25f1c0097f713e75535383d59e/tools/clean-reinstall-098.sh \
-  -o "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" &&
-printf '%s  %s\n' 2f1ffd56e49ad0d8c174d5e5af84006564d5ef32d9a3297c7e13097aa40417ba \
-  "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" | sha256sum --check - &&
+curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/k-kostin/omavless/73c41cf4b8d6dc4675a50c643bdab82d00e05c0a/tools/clean-reinstall-098.sh \
+  -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download" &&
+printf '%s  %s\n' 1bc9d1361dadeb76963a9cdf6bf79a4374f1329bcd7b708ad2c870d6e1fe02e3 \
+  "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
+mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
+  "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh" &&
 bash "$HOME/.cache/omavless-maintenance/reinstall-098/clean-reinstall-098.sh"
 ```
 
 1. Enter `REMOVE` to confirm. The helper closes OmaVLESS if needed and prepares
-   its DNS helper for removal. Enter your password only at sudo's prompt.
+   removal. Confirm Omarchy's plugin-removal prompt if shown. Enter your password
+   only at sudo's prompt.
 2. When preparation finishes, save your other work. Enter `REBOOT` to restart,
    or press Enter to restart later from your desktop.
 3. After logging back in, run the same helper command below. It continues at
