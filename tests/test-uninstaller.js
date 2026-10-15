@@ -161,6 +161,30 @@ userTest('cancelled UTF-8 widget removal retains checkout',{},[
  'omarchy() { [[ $LC_ALL == C.UTF-8 ]] || return 9; return 7; }','remove_widget'
 ].join('\n'),false,dir=>assert(fs.existsSync(dir+'/home/user/.config/omarchy/plugins/kdk.omavless')));
 
+// Execute the unchanged production destructor's fixed OS wrapper separately.
+// Only its binary path is redirected into this private fixture; no installed
+// native command, shell IPC, notification or QML process is started. Coupled
+// with the final-phase tests below this proves why package-before-widget order
+// skips the observer, without pretending that enabled-QML VM unload was tested.
+const qml=fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
+const guardMatch=qml.match(/execDetached\(\["\/bin\/sh", "-c", ("if \[ -x \/usr\/bin\/omavless[^\n]+?")\]\)/);
+assert(guardMatch,'fixed native removal wrapper');
+const nativeGuard=JSON.parse(guardMatch[1]);
+assert.equal(nativeGuard,'if [ -x /usr/bin/omavless ]; then exec /usr/bin/omavless plugin watch-removal; fi',
+ 'refuse an unexpected shell program before executing the fixture');
+assert.equal(nativeGuard.split('/usr/bin/omavless').length,3);
+for(const [state,expected] of [['absent',0],['nonexecutable',0],['executable',7]]){
+ const dir=fixture();
+ try{
+  const binary=path.join(dir,'fixed-native');
+  if(state!=='absent')fs.writeFileSync(binary,'#!/bin/sh\nprintf "OBSERVER:%s\\n" "$*"\nexit 7\n',{mode:state==='executable'?0o700:0o600});
+  const quoted="'"+binary.replaceAll("'","'\\''")+"'";
+  const r=spawnSync('/bin/sh',['-c',nativeGuard.replaceAll('/usr/bin/omavless',quoted)],{encoding:'utf8',timeout:2000});
+  assert(!r.error,state+': '+r.error);assert.equal(r.status,expected,state+': '+r.stderr);
+  assert.equal(r.stdout,state==='executable'?'OBSERVER:plugin watch-removal\n':'');count++;
+ }finally{fs.rmSync(dir,{recursive:true})}
+}
+
 // Exercise the actual final user-side phase, including its actual root body
 // construction, with an inert root dispatcher. The existing ROOT_REMOVE tests
 // independently execute those guarded package/network leaves. This is order

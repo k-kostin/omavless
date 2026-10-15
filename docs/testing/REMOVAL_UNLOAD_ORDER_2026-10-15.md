@@ -43,26 +43,51 @@ native observer for arbitrary manual disable/remove remains unchanged; this
 fix addresses the full-removal journey rather than declaring all stopped or
 masked states safe.
 
-## Verification and remaining gate
+## Verification and installed result
 
 Independent bounded Astra source review: GO for a frozen successor and an
 installed check, not installed acceptance. Production-function regressions:
-129 inert cases passed, including9 new final-phase order/cancel/resume/Git and
-redirected-checkout cases. Root body/custody/schema2 and native package inputs
+132 inert cases passed, including9 new final-phase order/cancel/resume/Git and
+redirected-checkout cases and3 executions of the unchanged fixed QML OS guard
+with an absent/nonexecutable/executable fixture binary. The entire permitted
+shell program is checked before replacing its two fixed paths, so an unexpected
+new program is refused before execution. No real installed native command,
+shell IPC or notification runs in that harness. Root body/custody/schema2 and native package inputs
 are unchanged; prior installed gates retain their original helper identities.
 
 Complete local `./tests/run.sh` after the guide-pin update: original exit0,
-789 Python tests/two existing skips, all JS/QML suites including129 remover
+789 Python tests/two existing skips, all JS/QML suites including132 remover
 cases and151 documentation links passed. This is not full hosted Rust CI or
 installed acceptance.
 
-Required installed successor checks:
+Sole Linux VM operator completed the exact successor on the public fix.7 pair:
 
-- Normal guarded removal ends without the extraneous critical notification.
-- Cancel widget removal after packages; verify packages absent, private data,
-  masks/exclusion/progress retained; same-command continuation completes.
-- Independently verify own-resource/package/data absence, original DNS and
-  unrelated component preservation, not just exit0 or notification absence.
+- Preparation0 and ordinary encrypted reboot; no forced VM powercycle in this
+  journey. The native Quit normally disabled the widget before reboot.
+- The actual package manager removed both packages. Their absence and app ELF
+  absence were independently observed while the normal widget prompt was open.
+- Normal `n` cancelled widget removal, original exit1. Widget, all three private
+  data directories, schema2 removing progress, both witnessed masks and shared
+  setup exclusion were independently confirmed retained. No manual repair.
+- The same helper command then completed widget/data cleanup, original exit0,
+  without replaying package removal. App/DNS packages and files, own processes,
+  TUN/routes, private data, masks/exclusion and progress were confirmed absent;
+  original DNS, unrelated packages and separate Mihomo/config/units/capabilities
+  were preserved. Omarchy retained its ordinary public-widget-files backup,
+  not a private profile backup. No VPN or authorization remained pending.
+
+The old toast was dismissed normally before testing; no new critical warning
+was observed in the inspected preparation/cancel/completion frames. **Limit:**
+Quit had disabled the widget, so this is not an installed enabled-QML unload
+PASS or a test of every destructor branch. The precise combined evidence is
+actual ELF absence before widget removal plus the unchanged fixed OS guard's
+measured behavior for that absence. Independent Astra review approved that
+composition with the same explicit boundary; executable-stub exit7 remains7,
+not a suppressed success. General native observer behavior remains unchanged.
+
+Private captures and original exit files remain in the owning VM receipt,
+outside Git. VM master released custody after the completed removal. Full
+hosted CI for the final source head remains separate from these installed gates.
 
 Do not replace the ongoing Mac fixture or claim ARM successor acceptance from
 its earlier locale-fix continuation.
