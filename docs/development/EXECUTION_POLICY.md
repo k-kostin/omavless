@@ -41,6 +41,46 @@ Prefer the smallest real end-to-end scenario early, then add fault and recovery
 cases. Run compilation and environment preflight before privileged execution.
 Synthetic controls complement, but never replace, the real integration gate.
 Do not create prerequisite research unless a concrete scenario needs it.
+For a parser admitting installed system-command output, derive its positive
+fixture from that installed command's measured schema (sanitize private values).
+An invented object satisfying the predicate is not compatibility evidence;
+retain malformed/older-schema cases as separate negative tests.
+
+For inert subprocess tests, verify that the selected mock actually ran.
+A shell function mock does not automatically cross an external timeout/env
+process boundary. Refuse unmocked effect leaves by default and retain a bounded
+fixture witness; a passing assertion against a real desktop query is not inert
+evidence. Preserve any accidental live read separately from the corrected run.
+
+Dependent commands require a fail-fast admission boundary. Check checkout/head,
+selected directories and permissions before launching a build or test; create
+and verify the HOME-backed TMPDIR first. Keep dependent shell steps in one
+fail-fast script, or explicitly check each tool result's exit code before the
+next call. Printing only output drops the completion status. A running session
+without an exit code is not success: retain and wait for that original command.
+On failure stop dependent steps, classify reached effects and preserve the
+original outcome before selecting a corrected successor.
+
+Unix-socket fixtures must use the existing short, private shared allocator,
+not clock-based names appended to an arbitrary build TMPDIR. A working default
+/tmp path can hide this defect when HOME build paths become longer. Exercise
+the affected socket controls with a long HOME-backed TMPDIR; do not shorten a
+production endpoint, relax a socket deadline or alter the parser to fix tests.
+
+Resolve helper APIs and Rust test namespaces in the selected owning snapshot,
+not a newer main checkout or shared build cache. Source review does not replace
+compilation. For an unfamiliar focused selector, inspect the module mapping or
+the actual test list first; record the selected case count. Exit 0 with zero
+selected tests is UNTESTED, not evidence that the requested behavior passed.
+
+For socket-response fixtures, accepting the last peer is not completion of its
+request. Keep fixture teardown separate from the behavior under assertion:
+signal server shutdown only after the final reply is checked, with unwind-safe
+cleanup. A teardown which takes the same mutex as the tested nonblocking read
+can manufacture `busy` before its intended ownership check. Preserve exact
+response assertions; do not accept `busy`, add sleeps/retries or weaken runtime
+admission to hide that race. A controlled contention test proves precedence,
+not the unobserved thread interleaving of an earlier CI failure.
 
 For installer/updater work, include user-reached preparation, return after
 Quit/terminal closure and continuation in that early scenario. Record every
@@ -49,6 +89,30 @@ matrix. Do not replace a missing product step with administrator fixture work
 and later call the helper result a complete journey. Before requesting release
 publication, close its prepublication user-path gates; explicitly separate later
 public-asset/download gates which cannot exist before authorized delivery.
+
+For a user-facing reset/remover, start at the advertised installed state,
+including a running application and a widget already removed through Omarchy.
+An expert's earlier Quit does not earn the remover's shutdown prompt/consumer.
+Exercise cancellation before removal and at the shutdown offer; compare the
+actual packages, service/startup state, data and network, not only its exit code.
+Put executable prerequisites inside the guided tool where possible, and retain
+an explicit unsupported/unknown boundary rather than publishing a prerequisite
+which the reporter's broken UI cannot reach.
+
+For a full deinstaller, its completion matrix must include a previously used
+installation, both running and normally stopped, widget already absent, and
+continuation after each persistent removal phase is interrupted. Do not replace
+these ordinary entries with a never-connected fixture or ask the user to attest
+connection history. Infer the next operation from actual supported state and
+retain tested recovery for partial effects. A safe refusal is a negative test,
+not completion of that user path. If a required path remains unavailable,
+report the remover as incomplete rather than narrowing its product goal after
+implementation. Network ownership checks remain mandatory; missing recovery
+must be implemented, not bypassed or hidden behind a generic support referral.
+For restart-resumable file ownership, do not treat kernel-assigned device IDs
+as persistent across boots. Use a retained object reference or an independently
+qualified persistent identity, and test actual restart plus partial cleanup.
+An interrupted staging create must not leave an unrecorded fixed-name blocker.
 
 When changing package pins, exercise the latest actual published predecessor
 through the complete advisory inventory and native update entry. A registry
@@ -129,6 +193,15 @@ the transitive impact when they change. Do not borrow acceptance across a
 changed boundary. Focused gates run during iteration; full combined and
 installed gates run on meaningful integration checkpoints and the final exact
 candidate. An unchanged gate need not be rerun for unrelated prose.
+
+Before starting or retrying expensive CI, inspect this PR's existing runs and
+their exact heads. Keep the latest full check; cancel only confirmed superseded
+PR runs, not another agent's work or independent main/tag checks. Cancelled is
+not PASS. Batch report-only pushes at meaningful checkpoints rather than
+restarting a heavy unchanged matrix for each receipt edit. Transfer an immutable
+review candidate without a new push when practical. Never remove tests or
+borrow an old head's green status to compensate for queue time; the final
+remote candidate still needs its own required checks.
 
 ## 5. Development VM and cleanup
 
@@ -278,6 +351,34 @@ other active agents' workflow PRs first; reuse them rather than duplicating
 them. Local machine paths, secrets and private captures stay outside Git.
 Do not create a new branch for every retrospective: use an existing owned
 scope, or one separate workflow PR when the change is independently useful.
+
+### Retrospective closure and distribution
+
+A retrospective is not complete merely because its findings were written down.
+For each reusable finding, update the applicable project rule, contract or
+maintained skill and add a regression or tooling correction where practical.
+Keep one canonical rule, linked from the mandatory agent entry path; a private
+note or report is supporting evidence, not its replacement. A finding which
+needs no durable rule/test must have a short applicability reason, rather than
+generating a ceremonial policy change.
+
+Use the existing PR or handoff for a short finding → change → check → distribution
+record. Distinguish analysis complete, implemented/checked, and integrated.
+Record the rule/test location, exact available commit/PR and any remaining
+integration owner. Do not call the change project-wide while its only copy is
+local or in an unmerged feature branch. Until an authorized main update, mark
+distribution pending and give affected active agents the exact accessible
+handoff; do not silently assume they read this chat. Local reminders must point
+back to the canonical rule and be reconciled after integration.
+
+Before starting or resuming an older feature branch, check current remote main
+agent guidance, not only that branch's historical rules. Read changed applicable
+instructions and carry the process corrections without importing unrelated
+runtime code or rewriting old acceptance. Reuse the reviewed guidance identity
+while unchanged; this does not require repeated full audits or blanket rebases.
+Close a reusable finding with a check of the changed behavior or discovery, not
+only the presence of a paragraph. Main/release/marketplace authorization remains
+separate; a request for retrospective work is not an automatic merge permission.
 
 For an editorial journey review, include all text owners (frontend catalog,
 shell and the actually selected native binary). Check names against the shared

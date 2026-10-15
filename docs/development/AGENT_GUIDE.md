@@ -33,6 +33,9 @@ For installed development-VM work use the
 preflight, actual installed interface discovery and encrypted reboot. At meaningful
 checkpoints use [lightweight retrospectives](EXECUTION_POLICY.md#9-lightweight-orchestration-retrospectives)
 instead of duplicating unchanged audits or adding another permanent agent.
+Apply their [closure and distribution gate](EXECUTION_POLICY.md#retrospective-closure-and-distribution):
+reusable lessons must reach project rules/tests and affected agents, not only a
+session report. On older branches, check current remote main guidance as well.
 
 ## Selected implementation direction
 
