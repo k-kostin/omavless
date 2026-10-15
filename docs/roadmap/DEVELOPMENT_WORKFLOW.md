@@ -227,7 +227,8 @@ latest-head gates. Main and tag checks remain independent. Before a manual
 rerun/cancellation, inspect exact heads and status; never cancel another active
 scope or describe a cancelled run as successful. Batch report-only updates
 while a heavy run is active instead of repeatedly replacing it with identical
-build work. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
+build work. This describes the selected source; an unmerged implementation is
+not thereby present on public main. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
 
 No path filters or Draft skips are used, so documentation and workflow changes
 retain the same checks. Keep the existing `test` job name and read-only token

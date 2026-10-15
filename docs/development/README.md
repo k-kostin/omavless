@@ -122,6 +122,22 @@ Record final verified outcomes, substantive failures, decisions and remaining
 limits—not every typo, cancelled prompt or routine retry. Keep such transient
 details only when they explain a real defect, security concern or evidence gap.
 
+### Acceptance reports stay current
+
+Maintain one current summary/matrix at the top of the owning report: exact
+tested inputs, earned results, remaining gates and present ownership. Put older
+attempts below an explicit historical boundary; their original failures and
+identities must remain intact, but a superseded pending list must not look like
+the current task. Source-only, installed and administrator-repair results stay
+distinct. Retain only the repair's effect on acceptance, not a general host
+repair diary or copied terminal session.
+
+Batch report-only commits at a meaningful completed gate or a useful handoff.
+Use the existing PR body for intermediate progress while expensive CI runs.
+Raw logs, screenshots, private backups and detailed machine-repair checkpoints
+stay local; a cross-machine handoff carries only the bounded facts needed to
+continue. This does not prohibit preserving a substantive new failure promptly.
+
 ## Local cleanup safety
 
 New short-lived HOME-backed test fixtures belong under `~/.cache/ovt/`, in an

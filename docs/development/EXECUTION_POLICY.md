@@ -52,6 +52,27 @@ process boundary. Refuse unmocked effect leaves by default and retain a bounded
 fixture witness; a passing assertion against a real desktop query is not inert
 evidence. Preserve any accidental live read separately from the corrected run.
 
+Dependent commands require a fail-fast admission boundary. Check checkout/head,
+selected directories and permissions before launching a build or test; create
+and verify the HOME-backed TMPDIR first. Keep dependent shell steps in one
+fail-fast script, or explicitly check each tool result's exit code before the
+next call. Printing only output drops the completion status. A running session
+without an exit code is not success: retain and wait for that original command.
+On failure stop dependent steps, classify reached effects and preserve the
+original outcome before selecting a corrected successor.
+
+Unix-socket fixtures must use the existing short, private shared allocator,
+not clock-based names appended to an arbitrary build TMPDIR. A working default
+/tmp path can hide this defect when HOME build paths become longer. Exercise
+the affected socket controls with a long HOME-backed TMPDIR; do not shorten a
+production endpoint, relax a socket deadline or alter the parser to fix tests.
+
+Resolve helper APIs and Rust test namespaces in the selected owning snapshot,
+not a newer main checkout or shared build cache. Source review does not replace
+compilation. For an unfamiliar focused selector, inspect the module mapping or
+the actual test list first; record the selected case count. Exit 0 with zero
+selected tests is UNTESTED, not evidence that the requested behavior passed.
+
 For installer/updater work, include user-reached preparation, return after
 Quit/terminal closure and continuation in that early scenario. Record every
 fixture-only intervention and resulting proof limitation in the existing task
@@ -321,6 +342,34 @@ other active agents' workflow PRs first; reuse them rather than duplicating
 them. Local machine paths, secrets and private captures stay outside Git.
 Do not create a new branch for every retrospective: use an existing owned
 scope, or one separate workflow PR when the change is independently useful.
+
+### Retrospective closure and distribution
+
+A retrospective is not complete merely because its findings were written down.
+For each reusable finding, update the applicable project rule, contract or
+maintained skill and add a regression or tooling correction where practical.
+Keep one canonical rule, linked from the mandatory agent entry path; a private
+note or report is supporting evidence, not its replacement. A finding which
+needs no durable rule/test must have a short applicability reason, rather than
+generating a ceremonial policy change.
+
+Use the existing PR or handoff for a short finding → change → check → distribution
+record. Distinguish analysis complete, implemented/checked, and integrated.
+Record the rule/test location, exact available commit/PR and any remaining
+integration owner. Do not call the change project-wide while its only copy is
+local or in an unmerged feature branch. Until an authorized main update, mark
+distribution pending and give affected active agents the exact accessible
+handoff; do not silently assume they read this chat. Local reminders must point
+back to the canonical rule and be reconciled after integration.
+
+Before starting or resuming an older feature branch, check current remote main
+agent guidance, not only that branch's historical rules. Read changed applicable
+instructions and carry the process corrections without importing unrelated
+runtime code or rewriting old acceptance. Reuse the reviewed guidance identity
+while unchanged; this does not require repeated full audits or blanket rebases.
+Close a reusable finding with a check of the changed behavior or discovery, not
+only the presence of a paragraph. Main/release/marketplace authorization remains
+separate; a request for retrospective work is not an automatic merge permission.
 
 For an editorial journey review, include all text owners (frontend catalog,
 shell and the actually selected native binary). Check names against the shared

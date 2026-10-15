@@ -6,6 +6,8 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
+  'docs/development/EXECUTION_POLICY.md',
+  'docs/development/STABLE_DISTRIBUTION_TRANSITION.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
   'docs/development/BETA_098.md', 'docs/development/RC_097.md', 'docs/development/RC_096.md', 'docs/development/RC_095.md',
   'docs/development/RC_090.md', 'docs/user/NATIVE_INSTALL.md',
@@ -62,6 +64,8 @@ const entry = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
 assert(entry.split('\n').length <= 80, 'root AGENTS must remain a concise entry point');
 const publicGuidePolicy = path.join(root, 'docs/development/README.md');
 assert(fs.readFileSync(publicGuidePolicy, 'utf8').includes('## Public guides follow main'));
+assert(fs.readFileSync(publicGuidePolicy, 'utf8').includes('### Acceptance reports stay current'),
+  'retained acceptance reports need a current summary distinct from historical attempts');
 for (const file of ['AGENTS.md', 'docs/development/AGENT_GUIDE.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md']) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -78,6 +82,21 @@ for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md
   assert(entry.includes('](' + target + ')'), 'agent discovery must retain ' + target);
 }
 const guide = fs.readFileSync(path.join(root, 'docs/development/AGENT_GUIDE.md'), 'utf8');
+// Discovery/retention guard only: this cannot prove that a particular retro
+// was implemented or that an agent followed its required checks.
+const execution = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
+assert(entry.includes('](docs/development/EXECUTION_POLICY.md)'),
+  'execution rules must remain mandatory from the root entry');
+assert(guide.includes('](EXECUTION_POLICY.md#retrospective-closure-and-distribution)'),
+  'retro closure/distribution must be discoverable before older-branch work');
+assert(execution.includes('### Retrospective closure and distribution'));
+const compactExecution = execution.replace(/\s+/g, ' ');
+for (const rule of ['update the applicable project rule, contract or',
+  'add a regression or tooling correction where practical',
+  'Distinguish analysis complete, implemented/checked, and integrated',
+  'mark distribution pending', 'check current remote main']) {
+  assert(compactExecution.includes(rule), 'retain the retro closure rule: ' + rule);
+}
 for (const section of ['Mandatory freshness', 'Acceptance environments',
   'Exact-head discipline', 'Git discipline', 'Cross-agent handoff',
   'UI interaction', 'Localization work', 'Historical continuity checkpoint'])
