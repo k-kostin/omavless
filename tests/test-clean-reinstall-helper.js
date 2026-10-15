@@ -131,6 +131,18 @@ shutdown("runtime_pid() { printf '123\\n'; }; hello_fence() { return 1; }", 'STO
 const uncertain = shutdown("runtime_pid() { printf '123\\n'; }; function /usr/bin/omavless { printf 'CALL:%s\\n' \"$*\" >&2; return 73; }", 'STOP\n', false, ['did not confirm shutdown']);
 assert.equal((uncertain.stderr.match(/CALL:plugin quit/g) || []).length, 1);
 assert(!uncertain.stderr.includes('watch-removal'));
+const coalesced = shutdown("printf '123\\n' > \"$STATE\"; plugin_state() { printf 'absent\\n'; }; function /usr/bin/omavless { printf '%s\\n' '{\"schemaVersion\":1,\"runtimeStopped\":false}'; }; sleep() { SECONDS=$((SECONDS + 100)); }", 'STOP\n', false, ['Shutdown is still unconfirmed']);
+assert(!coalesced.stdout.includes('OmaVLESS closed'));
+for (const [load, enabled, fail, expected] of [
+  ['not-found','',false,true], ['loaded','disabled',false,true],
+  ['loaded','enabled',false,false], ['loaded','enabled-runtime',false,false],
+  ['loaded','',true,false], ['unknown','disabled',false,false]
+]) {
+  const fixture = `set -euo pipefail\n${coordinator}\nsystemctl() { case "$*" in *LoadState*) printf '%s\\n' '${load}' ;; *UnitFileState*) ${fail ? 'return 1' : `printf '%s\\n' '${enabled}'`} ;; esac; }\nruntime_disabled\n`;
+  const result = spawnSync('bash', ['--noprofile', '--norc'], {input:fixture, encoding:'utf8'});
+  assert.equal(result.status === 0, expected, result.stdout + result.stderr);
+  cases++;
+}
 // Use the real parser functions independently, with timeout replaced by a
 // bounded fixture producer; malformed input must not acquire a shutdown fence.
 function parseFunction(name, json, pass) {
