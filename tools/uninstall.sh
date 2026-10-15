@@ -31,6 +31,19 @@ check_private_targets() {
 }
 
 say() { printf '%s\n' "$@"; }
+prepare_maintenance_folders() {
+  local directory owner mode
+  folder="$HOME/.cache/omavless-maintenance/uninstall"
+  for directory in "$HOME/.cache/omavless-maintenance" "$folder"; do
+    [[ -e "$directory" || -L "$directory" ]] || mkdir -- "$directory"
+    [[ -d "$directory" && ! -L "$directory" ]] || fail 'The removal folder is redirected. Its target was left unchanged.'
+    read -r owner mode < <(stat -c '%u %a' -- "$directory")
+    [[ "$owner" == "$(id -u)" && "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0022) == 0 )) \
+      || fail 'The removal folder has unsafe ownership or permissions. Nothing was deleted.'
+    [[ "$directory" != "$folder" || "$mode" == 700 ]] \
+      || fail 'The private removal folder must have mode 700. Nothing was deleted.'
+  done
+}
 check_authorizations() {
   local file comm uid args
   [[ ! -e /var/lib/pacman/db.lck ]] \
@@ -499,12 +512,7 @@ for directory in "$HOME" "$HOME/.config" "$HOME/.local" "$HOME/.local/state" "$H
   [[ "$owner" == "$(id -u)" && "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0022) == 0 )) \
     || fail 'A settings parent has unsafe ownership or permissions. No settings were deleted.'
 done
-folder="$HOME/.cache/omavless-maintenance/uninstall"
-for directory in "$HOME/.cache/omavless-maintenance" "$folder"; do
-  [[ -e "$directory" || -L "$directory" ]] || mkdir -- "$directory"
-  [[ -d "$directory" && ! -L "$directory" && $(stat -c '%u:%a' -- "$directory") == "$(id -u):700" ]] \
-    || fail 'The removal folder must be private to your account (mode 700). Nothing was deleted.'
-done
+prepare_maintenance_folders
 stage_resume_helper "$(realpath -e -- "${BASH_SOURCE[0]}")"
 boot_id=$(</proc/sys/kernel/random/boot_id)
 attempt=$(tr -d '-' </proc/sys/kernel/random/uuid)

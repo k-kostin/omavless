@@ -4,6 +4,7 @@
 const fs=require('node:fs'), os=require('node:os'), path=require('node:path');
 const assert=require('node:assert/strict');
 const {spawnSync,spawn}=require('node:child_process');
+const {gzipSync}=require('node:zlib'),{createHash}=require('node:crypto');
 const source=fs.readFileSync(path.join(__dirname,'../tools/uninstall.sh'),'utf8');
 assert.equal(spawnSync('bash',['-n'],{input:source}).status,0);
 const functions=source.slice(source.indexOf('fail()'),source.indexOf('\n[[ $# == 0 ]]'));
@@ -42,6 +43,10 @@ function userTest(label,options,body,success,inspect=()=>{}){
  }finally{fs.rmSync(dir,{recursive:true})}
 }
 userTest('no record is new removal',{},'read_progress; [[ $phase == none ]]',true);
+userTest('literal old bootstrap parent755 admits private child700',{},'chmod 755 "$HOME/.cache/omavless-maintenance"; rmdir "$folder"; prepare_maintenance_folders; [[ $(stat -c %a "$folder") == 700 ]]',true);
+userTest('shared writable download parent is not admitted',{},'chmod 777 "$HOME/.cache/omavless-maintenance"; prepare_maintenance_folders',false);
+userTest('uninstall private child755 remains refused',{},'chmod 755 "$folder"; prepare_maintenance_folders',false);
+userTest('redirected maintenance parent is left unchanged',{},'mv "$HOME/.cache/omavless-maintenance" "$HOME/.cache/other"; ln -s other "$HOME/.cache/omavless-maintenance"; prepare_maintenance_folders',false);
 for(const phase of ['preparing','prepared','removing'])userTest('interrupted '+phase+' remains reconcilable',{record:record({phase})},'read_progress; [[ $phase == '+phase+' ]]',true);
 for(const changes of [{uid:uid+1},{attempt:'broken'},{operator:'0:0'},{lock:'123:456:0:700'},{lockToken:'bad'},{phase:'forced'},{masks:[{unit:'other.service',identity:'1:2'}]}]){
  userTest('reject invalid progress '+Object.keys(changes)[0],{record:record(changes)},'read_progress',false);
@@ -121,11 +126,11 @@ function rootScript(dir,body,{attempt=nextToken,phase='removing',originalBoot=bo
  return prefix.join('\n')+'\n'+rewrite(body)+'\n';
 }
 function rootFixture(){const dir=fixture();writeRecord(dir,record({attempt:nextToken,phase:'removing'}));fs.writeFileSync(dir+'/proc/sys/kernel/random/boot_id',newer);return dir}
-function rootTest(label,changes,body,success){const dir=rootFixture();try{
+function rootTest(label,changes,body,success,inspect=()=>{}){const dir=rootFixture();try{
  if(changes.record)writeRecord(dir,changes.record);
  if(changes.before)changes.before(dir);
  const r=spawnSync('bash',['--noprofile','--norc'],{input:rootScript(dir,body,changes),encoding:'utf8',timeout:4000});
- assert(!r.error,label+': '+r.error);assert.equal(r.status===0,success,label+': '+r.stdout+r.stderr);count++;
+ assert(!r.error,label+': '+r.error);assert.equal(r.status===0,success,label+': '+r.stdout+r.stderr);inspect(dir,r);count++;
 }finally{fs.rmSync(dir,{recursive:true})}}
 rootTest('current root epoch admitted',{},'printf ADMITTED',true);
 rootTest('old queued authorization token is refused',{attempt:token},'printf FORBIDDEN',false);
@@ -141,6 +146,50 @@ for(const family of ['-4','-6'])rootTest('residual '+family+' rule is not delete
  'ip() { case "$*" in *"'+family+' rule"*) printf \'[{"priority":9000,"table":2022}]\';; *) printf \'[]\';; esac; }',
  'resolvectl() { printf \'[{"resolvConfMode":"stub","fallbackServers":[],"scopes":[]},{"ifname":"eth0","ifindex":2}]\'; }','network_empty'
 ].join('\n'),false);
+
+// Execute the real preparation/removal branch source with inert leaf effects.
+// The independently reviewed leaf metadata/network checks are tested above.
+const prepareMocks=[
+ 'pacman() { [[ "$*" == "-Q omavless-dns" ]]; }',
+ 'check_dns_programs() { printf CHECK_PROGRAMS; }',
+ 'check_packaged_file() { printf CHECK_CORE; }',
+ 'check_enrollment() { enrolled=true; }',
+ 'systemctl() { case "$*" in *"--property=FragmentPath"*) printf /usr/lib/systemd/system/omavless-dns-broker.service;; *"--property=NeedDaemonReload"*) printf no;; *"--property=UnitFileState"*) printf disabled;; "disable omavless-dns-broker.service") printf DISABLED;; *"--property=DropInPaths"*|*"--property=Job"*) :;; *) return 99;; esac; }'
+].join('\n');
+rootTest('configured preparation retains owner instead of killing session',{},prepareMocks+'\n'+section('ROOT_PREPARE'),true,(_,r)=>assert(r.stdout.includes('CHECK_CORE')&&r.stdout.includes('DISABLED')));
+rootTest('foreign enrollment blocks before disabling anything',{},prepareMocks+'\ncheck_enrollment() { refuse; }\n'+section('ROOT_PREPARE'),false,(_,r)=>assert(!r.stdout.includes('DISABLED')));
+rootTest('absent enrollment with retained descriptor refuses before disabling',{},prepareMocks+'\ncheck_enrollment() { enrolled=false; }\nsystemctl() { case "$*" in *"--property=MainPID"*) printf 0;; *"--property=NFileDescriptorStore"*) printf 1;; *) printf FORBIDDEN; return 99;; esac; }\n'+section('ROOT_PREPARE'),false,(_,r)=>assert(!r.stdout.includes('DISABLED')));
+rootTest('modified bundled core blocks before enrollment or disable',{},prepareMocks+'\ncheck_packaged_file() { refuse; }\ncheck_enrollment() { printf FORBIDDEN; }\n'+section('ROOT_PREPARE'),false,(_,r)=>assert(!r.stdout.includes('FORBIDDEN')&&!r.stdout.includes('DISABLED')));
+const removeMocks=[
+ 'empty_host() { printf ABSENT_HOST; }; network_empty() { printf ABSENT_NETWORK; }',
+ 'dns_absent() { return 1; }; check_dns_programs() { printf CHECK_PROGRAMS; }',
+ 'check_enrollment() { enrolled=true; }; remove_empty_enrollment_directory() { printf EMPTY_ENROLLMENT; }',
+ 'removed=false; pacman() { if [[ "$*" == "-R -- omavless omavless-dns" ]]; then printf REMOVED; removed=true; else [[ "$removed" != true ]]; fi; }'
+].join('\n');
+function removalLeafFixture(dir){
+ const p=dir+'/usr/lib/omavless-dns';fs.mkdirSync(p,{recursive:true});
+ fs.writeFileSync(p+'/package-guard','#!/bin/bash\nprintf CHECK_GUARD',{mode:0o755});
+ fs.writeFileSync(p+'/omavless-dns-broker','#!/bin/bash\n[[ $1 == --revoke ]] || exit 8\nprintf REVOKED',{mode:0o755});
+}
+rootTest('guard precedes revoke then one ordinary paired package removal',{before:removalLeafFixture},removeMocks+'\n'+section('ROOT_REMOVE'),true,(_,r)=>{
+ assert(r.stdout.indexOf('CHECK_GUARD')<r.stdout.indexOf('REVOKED'));
+ assert(r.stdout.indexOf('REVOKED')<r.stdout.indexOf('REMOVED'));
+ assert(r.stdout.endsWith('ABSENT_HOSTABSENT_NETWORK'));
+});
+rootTest('cancel package removal retains resumable boundary',{before:removalLeafFixture},removeMocks+'\npacman() { [[ "$1" != -R ]]; }\n'+section('ROOT_REMOVE'),false,(_,r)=>assert(r.stdout.includes('REVOKED')&&!r.stdout.includes('REMOVED')));
+rootTest('already revoked enrollment is not revoked again',{before:removalLeafFixture},removeMocks+'\ncheck_enrollment() { enrolled=false; }\n'+section('ROOT_REMOVE'),true,(_,r)=>assert(!r.stdout.includes('REVOKED')&&r.stdout.includes('REMOVED')));
+rootTest('failed original guard blocks both revocation and package removal',{before:dir=>{removalLeafFixture(dir);fs.writeFileSync(dir+'/usr/lib/omavless-dns/package-guard','#!/bin/bash\nexit 8',{mode:0o755})}},removeMocks+'\n'+section('ROOT_REMOVE'),false,(_,r)=>assert(!r.stdout.includes('REVOKED')&&!r.stdout.includes('REMOVED')));
+for(const kind of ['stock','changed-core','missing-mtree','redirected-mtree','writable-mtree','foreign-owner'])rootTest('packaged core qualification '+kind,{before:dir=>{
+ const core=dir+'/usr/lib/omavless-dns/mihomo',db=dir+'/var/lib/pacman/local/omavless-dns-0.9.8-1';
+ fs.mkdirSync(path.dirname(core),{recursive:true});fs.mkdirSync(db,{recursive:true});
+ const bytes=Buffer.from('stock fixture core');fs.writeFileSync(core,kind==='changed-core'?'changed':bytes,{mode:0o755});
+ if(kind!=='missing-mtree')fs.writeFileSync(db+'/mtree',gzipSync('.'+core+' sha256digest='+createHash('sha256').update(bytes).digest('hex')+'\n'),{mode:0o644});
+ if(kind==='redirected-mtree'){fs.renameSync(db+'/mtree',db+'/original');fs.symlinkSync('original',db+'/mtree')}
+}},[
+ 'pacman() { if [[ "$1" == -Qqo ]]; then printf omavless-dns; else printf "omavless-dns 0.9.8-1"; fi; }',
+ 'stat() { case "$2" in "%u:%a:%h") printf "'+(kind==='foreign-owner'?'999':'0')+':755:1\\n";; "%u:%h") printf "0:1\\n";; "%u %a") if [[ "${@: -1}" == */mtree ]]; then printf "0 '+(kind==='writable-mtree'?'666':'644')+'\\n"; else printf "0 755\\n"; fi;; *) /usr/bin/stat "$@";; esac; }',
+ 'check_packaged_file omavless-dns /usr/lib/omavless-dns/mihomo'
+].join('\n'),kind==='stock');
 // Positive schema measured on the actual guest, not invented from the parser.
 // Address/domain/real scope values are replaced with empty synthetic values.
 rootTest('actual installed resolver global/link schema permits clean view',{},'ip() { printf \'[]\'; }; resolvectl() { printf \'[{"fallbackServers":[],"negativeTrustAnchors":[],"dnssecSupported":false,"dnssec":"no","dnsOverTLS":"no","llmnr":"no","mDNS":"no","resolvConfMode":"stub","scopes":[]},{"ifname":"eth0","ifindex":2,"defaultRoute":true,"currentServer":{},"servers":[],"dnssecSupported":false,"dnssec":"no","dnsOverTLS":"no","llmnr":"no","mDNS":"no","scopes":[]}]\'; }; network_empty',true);
@@ -164,21 +213,26 @@ assert(source.indexOf('save_progress "$phase"\n  mv -T --no-clobber')>0);
 assert(source.lastIndexOf('release_setup_lock')<source.lastIndexOf('unlink -- "$record"'));
 
 async function rootMutex(){
- const dir=rootFixture();
+ const dir=rootFixture();let owner;
  try{
   // Dedicated original process with a real FIFO, not sleep-as-effect evidence.
   const fifo=dir+'/continue';assert.equal(spawnSync('mkfifo',[fifo]).status,0);
   const filename=dir+'/root-worker.sh';fs.writeFileSync(filename,rootScript(dir,'printf "ADMITTED\\n"; read -r answer < '+JSON.stringify(fifo)+'; printf "ORIGINAL_COMPLETED\\n"'));
-  const owner=spawn('bash',[filename],{stdio:['ignore','pipe','pipe']});let live='';owner.stdout.on('data',c=>live+=c);let error='';owner.stderr.on('data',c=>error+=c);
-  const deadline=Date.now()+3000;while(!live.includes('ADMITTED')){assert(Date.now()<deadline,'original root fixture did not admit: '+error);await new Promise(r=>setTimeout(r,10));}
+  owner=spawn('bash',[filename],{stdio:['ignore','pipe','pipe']});let live='';owner.stdout.on('data',c=>live+=c);let error='';owner.stderr.on('data',c=>error+=c);
+  const deadline=Date.now()+15000;while(!live.includes('ADMITTED')){assert(owner.exitCode===null&&Date.now()<deadline,'original root fixture did not admit: '+error);await new Promise(r=>setTimeout(r,10));}
   writeRecord(dir,record({attempt:token,phase:'removing'}));
   const concurrent=spawnSync('bash',['--noprofile','--norc'],{input:rootScript(dir,'printf FORBIDDEN',{attempt:token}),encoding:'utf8',timeout:2000});
   assert.notEqual(concurrent.status,0);assert(!concurrent.stdout.includes('FORBIDDEN'));assert(concurrent.stderr.includes('still running'));
-  const complete=new Promise(resolve=>owner.once('exit',resolve));
-  const writer=spawn('bash',['-c','printf "go\\n" > "$1"','fixture',fifo]);await new Promise(r=>writer.once('exit',r));
+  const complete=new Promise(resolve=>owner.once('close',resolve));
+  const writer=spawnSync('bash',['-c','printf "go\\n" > "$1"','fixture',fifo],{timeout:4000});assert.equal(writer.status,0);
   assert.equal(await complete,0,error);assert(live.includes('ORIGINAL_COMPLETED'));
   const fresh=spawnSync('bash',['--noprofile','--norc'],{input:rootScript(dir,'printf RECONCILED',{attempt:token}),encoding:'utf8',timeout:2000});
   assert.equal(fresh.status,0,fresh.stderr);assert.equal(fresh.stdout,'RECONCILED');count+=2;
- }finally{fs.rmSync(dir,{recursive:true})}
+ }finally{
+  // Only this test's exact spawned inert worker can be terminated on failure.
+  // Drain its pipes before removing its private FIFO/fixture directory.
+  if(owner&&owner.exitCode===null){const closed=new Promise(resolve=>owner.once('close',resolve));owner.kill('SIGTERM');await closed;}
+  fs.rmSync(dir,{recursive:true});
+ }
 }
 rootMutex().then(()=>console.log('Uninstaller successor: '+count+' inert progress/mask/custody/network cases PASS; no host effects.')).catch(e=>{console.error(e);process.exitCode=1});
