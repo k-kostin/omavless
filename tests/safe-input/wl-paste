@@ -1,9 +1,0 @@
-#!/bin/bash
-# Synthetic helper source only; PATH in the GUI runner contains no real reader.
-if [[ $1 == --list-types ]]; then printf 'text/plain\n'; exit 0; fi
-case ${OMAVLESS_FIELD_CLIPBOARD_MODE:-normal} in
-  normal) printf 'replacement' ;;
-  oversized) exec /usr/bin/head -c 65537 /dev/zero ;;
-  slow) exec /usr/bin/sleep 9 ;;
-  *) exit 1 ;;
-esac

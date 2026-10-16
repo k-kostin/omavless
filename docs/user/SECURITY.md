@@ -1,96 +1,17 @@
-# Security and privacy
+# OmaVLESS help
 
-## Privilege boundary
+<a id="diagnostics"></a>
+<a id="gui-clipboard-boundary"></a>
+<a id="import-boundary"></a>
+<a id="mihomo-controller"></a>
+<a id="private-storage"></a>
+<a id="privilege-boundary"></a>
+<a id="removal"></a>
+<a id="security-and-privacy"></a>
+<a id="services-and-lifecycle"></a>
+<a id="subscriptions-and-probes"></a>
 
-Guided setup asks for explicit authorization to install SHA-pinned native
-packages and enroll the fixed-purpose managed-DNS helper. Ordinary clients have
-no arbitrary shell/root command API. The separately packaged, reviewed Mihomo
-core and DNS broker retain their own TUN/lease and caller checks. The plugin and
-TUI share one Rust runtime; future firewall features remain separate security work.
+Use the current [OmaVLESS guide](NATIVE_INSTALL.md#help) for this version.
 
-## GUI clipboard boundary
-
-Editable plugin controls do not automatically read clipboard payloads to decide
-whether Paste is available. Explicit Paste runs through the fixed Rust helper
-with byte/time bounds, including menu and keyboard actions. Middle-button primary
-paste is disabled rather than silently using a different clipboard source.
-Subscription URLs start concealed in a permanently readOnly password field;
-use Paste or show the URL for direct editing. Qt 6.11/6.12 TextInput's passive
-payload query is avoided even on hosts without Qt's upstream correction.
-
-## Private storage
-
-Profiles, subscription URLs, the routing template and generated Mihomo config
-live under `~/.config/omavless/`. Private files are regular, same-user files
-written with mode `0600` and atomic replacement where state changes.
-
-Profile links and subscription URLs travel over stdin or private files instead
-of process arguments. The ordinary status API does not return subscription
-URLs. They are revealed only in their explicit editor.
-
-## Import boundary
-
-Supported links are parsed into explicit bounded fields. Duplicate, ambiguous,
-unknown or unrepresentable connection options fail before storage. OmaVLESS
-does not merge arbitrary URI data or remote YAML into runtime config.
-
-Import review receives a redacted fact model rather than the original link.
-Complete UUIDs, passwords, Encryption values, REALITY keys and subscription
-URLs are excluded.
-
-## Mihomo controller
-
-The active core exposes a plugin-owned Unix socket inside the private user
-runtime directory. Explicitly adopted templates have inherited controller
-listeners and secrets stripped before OmaVLESS adds its socket. No attributable
-Mihomo TCP external controller should be present.
-
-Controller responses, rows and fields are bounded before display. Internal
-profile/group names are reduced to safe public outcomes where possible.
-
-## Services and lifecycle
-
-Mutations are serialized by a user-runtime operation lock. Status polls share
-a bounded short-lived cache and back off after repeated failures. The service
-supervises its Mihomo child, and lifecycle operations are designed to avoid a
-second owned core or TUN.
-
-OmaVLESS detects common competing TUN/Mihomo/Xray clients and reports a neutral
-hint. It never kills or reconfigures another application automatically.
-
-## Subscriptions and probes
-
-Remote subscription URLs require HTTPS except for explicit loopback
-development. Downloads have a fixed size limit and normal certificate
-verification. A complete candidate is validated before atomic commit.
-Candidate scanning advances monotonically with linear work in the bounded
-raw or decoded body; malformed scheme runs cannot repeatedly rescan suffixes.
-
-Manual server tests use an isolated temporary no-TUN Mihomo core with a private
-Unix controller, bounded DNS/address attempts and public connectivity targets.
-Credential-bearing temporary config is private and removed after the child is
-reaped. Tests run only after an explicit user action.
-
-## Diagnostics
-
-The shareable support snapshot omits:
-
-- profile and subscription record IDs;
-- profile, provider and server names;
-- profile links and subscription URLs;
-- UUIDs, passwords, keys and tokens;
-- private endpoint/provider metadata;
-- controller secrets and local executable paths.
-
-Raw backend/core errors are not copied into public UI when they may contain
-private material. Stable bounded public messages are used instead.
-
-## Removal
-
-Disabling or removing the plugin stops its TUN, disables login autoconnect and
-removes generated user units. Private profiles are retained by default for
-reinstallation. `uninstall.sh --purge` is the explicit destructive path for
-removing private OmaVLESS data.
-
-Neither removal path deletes Mihomo, changes Mihoro or touches another VPN's
-configuration.
+[Earlier version-specific instructions](https://github.com/k-kostin/omavless/blob/5edf4eb203926d8bd39a3ff80f611a19435c3787/docs/user/SECURITY.md) remain available as a
+historical reference, not the current setup procedure.

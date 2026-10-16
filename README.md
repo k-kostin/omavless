@@ -20,57 +20,48 @@ No live VPN connection is shown.*
 **OmaVLESS 0.9.8 is available for Omarchy on x86-64 and ARM64.** Start from
 the plugin — no Rust build or manual package selection is needed.
 
-### 1. Add the plugin
-
 ```sh
-omarchy plugin add https://github.com/k-kostin/omavless --enable
+omarchy plugin add https://github.com/k-kostin/omavless.git --enable
 ```
 
-Open OmaVLESS from the bar. The plugin guides you through installing the
-application and VPN core next.
-
-Already using OmaVLESS? Follow the [upgrade or migration guide](docs/user/NATIVE_INSTALL.md)
-instead of repeating first-run setup.
-
-### 2. Install the required components
-
-If setup is needed, **Required components** shows what is missing. Press
-**Install required components** to open the setup terminal.
+Turn off other VPN connections, open OmaVLESS from the bar and choose
+**Install required components**. The terminal installs the matching application,
+bundled Mihomo core and DNS helper for website-address lookup. Enter `INSTALL`,
+then `DNS` when asked; passwords go only into the system's password prompt.
+Setup does not connect a VPN. Follow onboarding to add your own profile or
+subscription, then press **Connect** beside the server you want.
 
 <img src="docs/marketing/images/setup-en.png" width="560" alt="Required components showing the missing application and VPN core with a guided install button">
 
-Type `INSTALL` when asked, approve package installation, then type `DNS` to
-authorize VPN DNS setup. Enter your password only at the system's password
-prompt, not at the `INSTALL` or `DNS` prompt.
-
-The installer selects the matching packages for your architecture. When it says
-**OmaVLESS is ready**, close the terminal and return to the panel. Press
-**Setup terminal and prompts are closed**, if shown, then **Check again**.
-
-Only missing components are offered. An installed application may instead need
-**Finish application setup**. You can return later; setup never connects a VPN.
-
-If the packages installed but DNS setup did not finish, use **Continue DNS
-setup**, not another installation. Its terminal explains `FIRST` (first
-enrollment) and `START` (use existing enrollment). After it finishes, close
-the prompts, Check again, then use the separate **Start OmaVLESS** action.
-
-### 3. Add your VPN access and connect
-
-Follow onboarding to review the core, optionally choose a Routing policy,
-and import a profile or subscription from the clipboard or a file. Review it
-before saving, or choose **Finish later**.
-
-Choose a mode and press **Connect** beside your profile. One connection is
-active at a time: Connect beside another profile switches it; **Disconnect**
-stops it. Clicking a profile name only selects it for management.
-
-For manual downloads, matching packages and optional clipboard/file-picker/QR
-tools, see the [installation guide](docs/user/NATIVE_INSTALL.md) and
-[0.9.8 corrected delivery](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.7).
+The [user guide](docs/user/NATIVE_INSTALL.md#install) covers installation,
+partial setup, everyday use and optional tools. You do not need to install
+Mihomo separately. [A guide for your assistant](docs/user/USER_AGENT_GUIDE.md)
+explains the same supported actions and privacy boundaries.
 
 The command above follows upstream main. Marketplace verification covers a
 separate exact snapshot and may lag behind the GitHub release.
+
+## Update or reinstall
+
+Update the plugin first:
+
+```sh
+omarchy plugin update kdk.omavless
+```
+
+Open OmaVLESS and follow the next step offered in the panel. Application and
+DNS-helper packages update separately from the plugin. Normal updates preserve
+profiles and settings; see the [update instructions](docs/user/NATIVE_INSTALL.md#updates).
+
+To start fresh, use [Remove](docs/user/NATIVE_INSTALL.md#remove) or the
+[short terminal removal guide](docs/user/CLEAN_REINSTALL_098.md).
+**Full removal deletes saved profiles/settings without a backup.** Other VPN
+clients and a separately installed Mihomo stay. The helper normally needs one
+restart; the same command resumes removal afterward, even without the widget.
+Ordinary `omarchy plugin remove` removes only the widget, not the app or data.
+
+For unfinished setup or old controls after an update, follow
+[the user guide](docs/user/NATIVE_INSTALL.md#help) instead of reinstalling blindly.
 
 ## Which mode should I choose?
 
@@ -94,7 +85,7 @@ English/Russian switching does not restart your VPN. Login autoconnect is Off
 by default.
 
 [View an expanded subscription](docs/marketing/images/subscription-en.png)
-· [Controls and everyday use](docs/user/NATIVE_USAGE.md)
+· [Connect and disconnect](docs/user/NATIVE_INSTALL.md#connect-and-disconnect)
 
 ## Open the app for more room
 
@@ -114,7 +105,7 @@ and disables the plugin after confirmation.
 
 0.9.8 includes encrypted **Backup** for profiles, subscriptions and supported
 bundled routing templates. It is not a whole-system backup; **Restore is not
-included yet**. See [Backup usage and limits](docs/user/NATIVE_USAGE.md#encrypted-backup-098-candidate).
+included yet**. See [Backup usage and limits](docs/user/NATIVE_INSTALL.md#encrypted-backup).
 
 ## Supported inputs
 
@@ -132,11 +123,19 @@ See [protocol support and limitations](docs/user/PROTOCOLS.md).
 
 ## Privacy and help
 
+Open **Settings → Help**, or **Setup help** during installation. Copy the ready
+request into Codex, Claude or another assistant on this computer and describe
+your problem at the end. The request points to the instructions installed with
+your plugin. You can also read the guide or report a problem directly; using
+an assistant is optional.
+
 Profiles and subscription URLs stay in a private local store. For support,
-use **Copy report** or **Save report** in Settings. Do not post profile files,
-subscription URLs, private configuration, backup archives or unredacted screenshots.
+use **Copy report** or **Save file** in Settings → Support report. Do not post
+profile files, subscription URLs, private configuration, backup archives or
+unredacted screenshots.
 
 - [Troubleshooting](docs/user/TROUBLESHOOTING.md)
+- [User guide and FAQ](docs/user/NATIVE_INSTALL.md#help)
 - [Security and privacy](docs/user/SECURITY.md)
 - [Updates, Quit and removal](docs/user/NATIVE_INSTALL.md#updates-close-quit-and-removal)
 - [Release notes](CHANGELOG.md)
@@ -150,4 +149,4 @@ The interface builds on [Omarchy VPN](https://github.com/jkoestinger/omarchy-vpn
 by Justin Köstinger. Routing data comes from RoscomVPN, MetaCubeX and
 Chocolate4U. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
-[MIT License](LICENSE) · [Contributing](docs/README.md#developing-and-reviewing)
+[MIT License](LICENSE) · [Contributing](CONTRIBUTING.md)

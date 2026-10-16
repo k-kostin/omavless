@@ -1,78 +1,20 @@
-# OmaVLESS: agent entry point
+# OmaVLESS: help the user
 
-These instructions apply to the entire repository. Detailed rules are retained,
-not replaced by this short entry point.
+This is the stable user distribution, not a development checkout. Read the
+[user guide](docs/user/NATIVE_INSTALL.md) and
+[assistance guide](docs/user/USER_AGENT_GUIDE.md) before helping with setup,
+updates, troubleshooting or removal.
 
-## Before work
+- Explain effects and obtain consent. Preserve the user's requested VPN state
+  and other VPN clients.
+- Use the documented helpers. Do not bypass authorization, erase network rules
+  or edit internal progress records after a refusal.
+- Protect profiles, keys, subscription addresses and private logs. Do not put
+  secrets in command arguments or shared output.
+- Check actual completion. Removing the widget does not remove its separately
+  installed application or DNS helper.
 
-1. Fetch/prune remote metadata; compare main, current branch, open PRs and local
-   changes. Preserve other agents' work; one branch has one active writer.
-2. Read the [detailed agent guide](docs/development/AGENT_GUIDE.md) completely.
-   Also read the owner-approved [execution policy](docs/development/EXECUTION_POLICY.md)
-   for failure classification, risk-based review and agent/VM coordination.
-3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
-   [current status](docs/roadmap/CURRENT_STATUS.md),
-   [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and
-   [acceptance policy](docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md).
-4. For backend/runtime/protocol/packaging/TUI work, read
-   [Rust migration](docs/roadmap/RUST_MIGRATION.md) and the owning feature contract.
-   For new execution and failure handling, also read the owner-approved
-   [execution policy](docs/development/EXECUTION_POLICY.md).
-5. For UI work, use the [UI review skill](skills/omavless-ui-review/SKILL.md).
-   For localization, use the [localization skill](skills/omavless-localization/SKILL.md).
-   For user-facing wording, also read the shared [glossary](GLOSSARY.md).
-
-## Non-negotiable boundaries
-
-- Normal runtime ownership is Rust; QML is the frontend. Do not revive Python
-  production fallback. Preserve `archive/python-legacy` as a frozen reference.
-- Scoped R6 is accepted. Do not restart its unchanged acceptance or call deferred
-  AUTO-1, DNS/provider or V0 checks PASS. Evidence belongs to exact tested heads.
-- No private profiles, credentials, provider URLs or raw private logs in Git,
-  command arguments or shareable output. No arbitrary privileged/shell IPC.
-- Preserve the owner's requested network state. Host authorization and recovery
-  follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
-- New task branches use `dev/<topic>`; temporary development assemblies use
-  `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
-  The owner-selected 0.9.8 release snapshot was promoted through
-  `dev/098-stable-preparation` (#726), carrying
-  the selected `rc/0.9.8` Backup-only scope and corrected immutable
-  `v0.9.8-fix.1` delivery. Read its current ledger before selecting
-  packages; old 0.9.8 assets are immutable and superseded. #726 is merged;
-  `v0.9.8-fix.1` is retained delivery history and the preparation branch is retired.
-  On October 11 the owner approved the user-facing README update through #732.
-  On October 11 the owner also authorized the agreed 0.9.8 Marketplace copy,
-  preview and exact-main update request, with tags vpn/bar/quickshell. Record
-  the request and bot/reviewer outcome on the publication PR, without another
-  main commit that immediately changes the submitted SHA. No standing
-  authorization for future main updates follows. Publicly accepted artifact baseline is `rc/0.9.5`
-  as historical RC evidence, not a selector for the corrected 0.9.8 packages;
-  preserve `rc/0.9.0` and its assets as
-  superseded acceptance history. Beta/task branches are not release readiness. No permanent
-  develop/beta/rc lane or direct implementation on main.
-  `main` is the stable release snapshot, including its documentation. Keep
-  ongoing decisions/status in issues, PRs and the next candidate's docs.
-  Internal RC freeze uses declared risk-based gates, not repeated public
-  provisioning per version; private restore still needs installed integration.
-- Merge and release/marketplace publication need their own applicable owner
-  authorization; a green test or a cleanup task is not that authorization.
-  This includes documentation-only merges: the former standing authorization
-  is revoked. Follow the [documentation merge rule](docs/roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates)
-  and include roadmap/docs reconciliation in every proposed main update.
-- The October 11 owner follow-up authorizes the Qt clipboard correction within
-  0.9.8 through #735, its immutable frontend delivery `v0.9.8-fix.2` with unchanged
-  native pair, and updating existing Marketplace #10984 to final main. Product
-  version stays 0.9.8; older tags/assets remain immutable. Read #735 for the actual
-  publication/installed outcome, not an inferred PASS from this authorization.
-- The October 11 continuation through #736 authorizes the same-version subscription
-  scan correction, matching native delivery `v0.9.8-fix.3` and existing #10984
-  update. Native source is `8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524`, not the
-  old e3d22459 pair. Read #736 for actual gates/publication; old assets stay immutable.
-  This is not authorization to implement #733 or publish future versions.
-- README is a product page, not an agent diary. Follow the
-  [documentation and retention policy](docs/development/README.md). Preserve
-  useful roadmaps, contracts and evidence; keep disposable session files outside Git.
-- Public guides and in-app help must match current main; apply the
-  [public-guide rule](docs/development/README.md#public-guides-follow-main).
-
-For developer commands and navigation, see [CONTRIBUTING.md](CONTRIBUTING.md).
+For development, use a separate full-source checkout and its AGENTS.md; start
+from the [source entry](CONTRIBUTING.md). Do not convert the user's installed
+plugin into a development worktree. Merges, releases and marketplace actions
+require their own applicable authorization.
