@@ -4,14 +4,43 @@ Owner-selected October16, after fix.8 delivery. `development` is the full-source
 integration home, created at released source
 `5edf4eb203926d8bd39a3ff80f611a19435c3787`. It does not start from the older
 beta/0.9.9 assembly. Main remains the generated user distribution; immutable
-release source, tags and assets are unchanged. #796 carries developer-rule and
-fixture corrections separately; its first CI failure is not PASS.
+release source, tags and assets are unchanged. #796 owns developer-rule and
+fixture-correction integration; its first CI failure remains a failure.
 
 This is a navigation/admission map, not acceptance of retained experiments or
 permission to merge them all. Public PR metadata and changed-path comparisons
 were inspected; this inventory does not claim exhaustive semantic/security
 review of every branch. Full per-ref logs/statistics and local worktree custody
 inventories stay outside Git. Use the owning contracts before implementation.
+
+## New-base queue
+
+This is the continuation order after the owner-approved repository organization,
+not feature implementation authority, a new release promise or acceptance of
+old prototypes. The [delivery ledger](../../DEVELOPMENT_ROADMAP.md) keeps the
+owner-selected product requirements. `development` is the source home;
+`beta/<version>` is a temporary selected assembly and `rc/<version>` a frozen
+candidate, not permanent parallel development lanes. Future composition is
+not a whole-beta merge. Public main and fix.8 remain unchanged by this queue.
+
+| Lane | Next bounded outcome / owning entry | Retain and re-earn |
+| --- | --- | --- |
+| Source home and test infrastructure | Integrate #796 rules, qualify development push-CI/export/bootstrap, then port only the missing socket-fixture slices from #758/#760/#762. #763's scheduling patch is incorporated and extended. | Preserve current runtime/payload assertions and fixed deadlines. A clean patch application or PR-only green is not source-push admission; test fixes do not authorize a package rebuild/publication. |
+| Next consumer import | Requalify the direct entry/local-bundle/TUI slice under #733, #742/#749/#755 and the [TUI contract](../roadmap/TUI_APP.md); select its actual dependencies from the retained beta. | Keep preview/confirm/unknown outcomes and final fix.8 first-use, clipboard and Help corrections. No new protocol, raw YAML or automatic VPN connection. New combined source/UI gates belong to the selected port. |
+| Mandatory consumer Restore | Select a bounded recovery-to-ordinary-availability path from #739 and its driver stack under the [Restore contract](../roadmap/PRIVATE_BACKUP_RESTORE.md). | Consumer Restore remains required for 0.9.9; public 0.9.8 stays Backup-only. Prove actual owner-loss recovery and fresh runtime admission, not only a happy path or same-holder Abort. Preserve original failures and NEW/OLD/unknown scopes. |
+| Remaining removal UX / product guidance | Reconcile #774's still-pending all-state in-app removal review with the already shipped terminal remover, current guides and agent-first Help. | Do not reimplement the delivered helper, restore the old preserve-by-default contract, or advertise an unimplemented UI action. Translated human guides and locale-aware links remain a separate [future localization scope](../roadmap/I18N.md#published-guide-languages). |
+| P4 WG/AWG research and port | Resume only a selected Rust-first slice through #770/#410 and the [protocol roadmap](../../PROTOCOL_ROADMAP.md). | Current-core/parser/runtime compatibility, private fixtures, security and installed/live gates are distinct. Owner-supplied .conf files remain private; they do not qualify structured containers or product support by themselves. |
+| K1 protection | Retain #703 and the owner-paused normal-lifecycle WIP under [K1](../roadmap/KILL_SWITCH.md). | No activation or automatic continuation from repository cleanup. Privilege/namespace/table ownership and crash/fault gates remain owning K1 requirements, not waived by T4's availability boundary. |
+| T3 / T4 background / S1 | Preserve shipped read-only behavior separately from sealed T3 research, #700 resume and #623 app-proxy experiments. Use their owning contracts and current exact checkpoints below before selecting work. | No revival of unknown workers, copied live authority, background scheduling or foreign-setting changes. Historical source/build receipts are not fresh execution permission. |
+| G1 and standalone hosts | Retain #766/#768 [GUI research](../roadmap/GUI_RESEARCH.md), and separate [Arch/NixOS host work](../roadmap/PLATFORM.md). | No GUI framework/product selection or graphics dependency in the runtime follows from keeping a prototype. Omarchy evidence does not qualify NixOS generations or other host integration. |
+| V0 / accepted migration | Keep frozen #30 and native successor #290 as distinct [protocol evidence](../../PROTOCOL_ROADMAP.md); retain deferred [AUTO-1](../roadmap/LOGIN_AUTOCONNECT_FOLLOWUP.md). | Missing protocol-family fixtures stay unavailable, not PASS. Do not restart accepted R6, revive Python production or make all other work wait for unrelated private fixtures. |
+
+Old beta/RC assemblies and the frozen Python archive are historical references,
+not unowned disposable work. Their open dependencies and exact evidence keep
+them retained until a specific disposition. Detailed per-ref/machine inventories
+stay outside Git; the owning PR carries current disposition, not a second
+permanent session journal. For example, #740 preserves an attributed DNSControl
+preview/apply research reference: it is not a DNS dependency or authority grant.
 
 ## Retained track entries
 
@@ -75,10 +104,16 @@ deletion manifest or proof of inactive processes. Refetch and reclassify before
 an authorized cleanup. Follow the canonical
 [cleanup lifecycle](../roadmap/DEVELOPMENT_WORKFLOW.md#branch-cleanup-lifecycle).
 
-No old PR closure/retarget, branch/worktree deletion, main/release mutation or
-frontier acceptance was performed by this inventory. #796 itself targets the
-new development home. Its initial CI cleanup error and scoped fixture correction
-remain separate from the already delivered fix.8 product.
+The initial inventory was read-only. Subsequent owner-approved cleanup removed
+106 redundant remote names after exact-head/retention/dependency/custody checks;
+their history remains reachable through immutable fix.8. #763 was closed with
+its exact carried-patch disposition; the other 16 old-main Drafts retain visible
+individual source/evidence status. No blanket retarget or history rewrite.
+The second 70-worktree audit produced a remote-name-only proposal; all local
+checkouts/artifacts and unresolved heads stay retained. No second deletion,
+main/release mutation or frontier acceptance follows from that proposal.
+Current receipts/proposals stay local and in owning PRs, not report-only source
+commits. #796's original failure remains separate from delivered fix.8.
 
 ## Source CI before the next export
 

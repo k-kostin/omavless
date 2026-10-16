@@ -11,7 +11,11 @@ for actual identities and separate gate outcomes. Final frontend installed ARM
 acceptance was explicitly waived, not passed. No new Marketplace update or
 frontier acceptance is implied. The owner now requests a
 [post-delivery retrospective](docs/development/POST_FIX8_RETROSPECTIVE.md) and
-read-only cleanup classification; developer-rule changes stay outside user main.
+systematic source-home/GitHub organization; developer-rule changes stay outside
+user main. The [new-base queue](docs/development/DEVELOPMENT_INVENTORY.md#new-base-queue)
+separates selected next consumer outcomes, pending test ports and retained
+research. This organization does not start new product features or turn an old
+beta into the next release base. Exact cleanup receipts stay local/in owning PRs.
 
 ### Earlier delivery selections — historical
 

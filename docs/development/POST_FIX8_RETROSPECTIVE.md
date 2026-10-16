@@ -44,6 +44,15 @@ not justify product fixes or another general policy without evidence.
 
 ## Distribution and remaining integration
 
+The actual developer-rule integration record belongs to
+[#796](https://github.com/k-kostin/omavless/pull/796) and its checked successors
+on `development`, not user main. Follow the
+[new-base queue](DEVELOPMENT_INVENTORY.md#new-base-queue) for current work.
+The checkpoint below records initial preparation; do not read its original
+pending state as the current GitHub outcome or as a new release hold.
+
+### Historical preparation checkpoint
+
 The deployed product corrections are in fix.8. The developer-rule reconciliation
 in this branch is prepared/locally checked, not yet integrated into the selected
 shared full-source home. Do not call it project-wide or copy this report into
