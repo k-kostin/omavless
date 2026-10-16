@@ -148,6 +148,27 @@ Update components…; the ellipsis indicates subsequent steps and confirmations.
 
 ## Three independent checks before calling a change ready
 
+### Agent-first help (owner direction, October16)
+
+One local Help surface serves setup, non-ready onboarding and Settings. The
+first option shows a short public prompt and Copy request; the prompt names
+the installed plugin's AGENTS.md and linked user-assistance guide, and ends at
+the problem entry with a blank line. Keep diagnostics/version/consent rules in
+the agent guide, not repeated in the user's prompt. Do not collect private facts
+or read the clipboard merely by opening help. Copy writes only the displayed
+template and reports success only after the clipboard writer succeeds; failure
+must retain selectable text and an honest manual-copy action.
+
+Read the guide and Report a problem are independent secondary web links marked
+with ↗. Neither using an assistant nor reading documentation is required before
+reporting an issue. Help must work before the native app is installed and during
+an unsettled setup terminal without bypassing its barriers. It never runs an
+agent, installs components, authorizes effects or changes a VPN. Closing it
+returns to the originating screen without resetting the wizard or treating a
+terminal as settled. Preserve the ready-wizard Close/Continue-only contract.
+Review EN/RU, Tab/Shift+Tab/activation/Escape, copy success/failure and constrained
+height; the overlay owns input/scroll instead of activating underlying controls.
+
 ### End-user editorial rule
 
 The shared [glossary](../../GLOSSARY.md) owns component names and action

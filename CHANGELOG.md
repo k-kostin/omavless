@@ -16,6 +16,8 @@
 - Bring installation, updates, removal, troubleshooting and FAQ together in
   one [user guide](docs/user/NATIVE_INSTALL.md). Add a separate
   [guide for your assistant](docs/user/USER_AGENT_GUIDE.md) and short installed help.
+- Add **Help** with a ready-to-copy request for your assistant, the user guide
+  and direct problem reporting. Help is available before setup is complete.
 
 The product version remains **0.9.8**; this delivery is **fix.8**. Update the
 widget first, then follow the offered component update or remaining setup step.

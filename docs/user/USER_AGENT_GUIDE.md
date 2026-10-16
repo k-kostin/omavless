@@ -5,6 +5,14 @@ developing the repository. Read the [matching user guide](NATIVE_INSTALL.md)
 first. Match the guide to the user's installed release; an older panel may
 offer different actions. Identify its components before choosing a repair.
 
+The plugin's Help screen supplies a public prompt ending at the user's problem.
+Read the installed plugin's AGENTS.md and this guide even when a system-wide
+Omarchy skill is available: that skill explains the desktop, not this release's
+OmaVLESS component/update/removal boundaries. A normal local plugin checkout
+contains this file at docs/user/USER_AGENT_GUIDE.md. If the widget was removed,
+identify the remaining installed packages and use the matching published guide;
+do not reinstall merely to recover instructions.
+
 ## Preserve the user's intent
 
 - Installing components, opening a panel, refreshing a subscription or reading

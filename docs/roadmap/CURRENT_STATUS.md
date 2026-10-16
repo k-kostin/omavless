@@ -6,6 +6,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+October16 owner scope addition for fix.8: a runtime-independent, agent-first
+Help screen in setup/non-ready onboarding and Settings. It offers a copyable
+public prompt, a guide and direct issue reporting; assistant use is optional.
+The [UI contract](UI_UX_CONTRACT.md#agent-first-help-owner-direction-october16)
+owns its no-effect/keyboard/EN-RU boundaries. The preceding source73/G0a4/native
+2d54 affected x64 update is complete with exact metadata and preserved data;
+that evidence remains separate from the new frontend's installed review and
+final exact-source CI. The owner chooses all non-Mac preparation before Mac
+acceptance, not publishing the new delivery without ARM. No main/release change.
+
 The authoritative current finalization summary is the
 [selected-source and acceptance matrix](../development/STABLE_DISTRIBUTION_TRANSITION.md#current-source-composition--2026-10-15)
 in Draft #794. Current main is `1688c5a3`, a rules-only update; the product

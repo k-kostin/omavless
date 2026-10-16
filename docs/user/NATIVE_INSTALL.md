@@ -435,6 +435,31 @@ toolchain is required for ordinary use.
 
 ## Help
 
+### Ask your assistant
+
+Open **Settings → Help**, or **Setup help** during installation. Choose
+**Copy request**, paste it into Codex, Claude or another assistant on this
+computer, then describe the problem at the end. The request contains no profiles,
+keys or diagnostic data. It points to the guide installed with your plugin:
+
+```text
+Read the installed OmaVLESS instructions:
+~/.config/omarchy/plugins/kdk.omavless/AGENTS.md
+and the assistance guide linked there.
+
+Help me with OmaVLESS in Omarchy. Problem:
+
+```
+
+The [guide for your assistant](USER_AGENT_GUIDE.md) explains how to check the
+installed version, diagnose safely and ask before changes. If you removed the
+widget, its local guide may be absent; give your assistant this web guide and
+ask it to identify your installed release first.
+
+Prefer to work without an assistant? Use the sections in this guide.
+You can also choose **Report a problem ↗** directly; there is no requirement to
+use an assistant or read the guide before opening an issue.
+
 ### Setup is ready, but websites do not open
 
 Add a working supported profile and explicitly connect it. Try another server

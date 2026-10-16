@@ -123,6 +123,12 @@ See [protocol support and limitations](docs/user/PROTOCOLS.md).
 
 ## Privacy and help
 
+Open **Settings → Help**, or **Setup help** during installation. Copy the ready
+request into Codex, Claude or another assistant on this computer and describe
+your problem at the end. The request points to the instructions installed with
+your plugin. You can also read the guide or report a problem directly; using
+an assistant is optional.
+
 Profiles and subscription URLs stay in a private local store. For support,
 use **Copy report** or **Save file** in Settings → Support report. Do not post
 profile files, subscription URLs, private configuration, backup archives or

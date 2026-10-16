@@ -78,10 +78,10 @@ test('recovery disclosure is navigation, and restore retains all existing barrie
   }
 });
 test('every web-link label has the same trailing marker, local URL reveal does not', () => {
-  for(const locale of ['en','ru'])for(const key of ['setup.guide_short','setup.update_help','setup.guide','native.onboarding.setup_guide','settings.source']) {
+  for(const locale of ['en','ru'])for(const key of ['help.guide','help.issue','setup.guide','settings.source']) {
     const value=i18n.translate(key,locale,{source:'Synthetic source'});assert(value.endsWith(' ↗'));assert.equal(value.split('↗').length,2);
   }
-  for(const key of ['common.show_url','common.hide_url','setup.install_all','setup.prepare_update'])assert(!i18n.translate(key,'ru',{}).includes('↗'));
+  for(const locale of ['en','ru'])for(const key of ['common.show_url','common.hide_url','setup.install_all','setup.prepare_update','setup.guide_short','setup.update_help','native.onboarding.setup_guide','help.copy_request'])assert(!i18n.translate(key,locale,{}).includes('↗'));
 });
 test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
   const facts={state:'needs_runtime_start',coreInstalled:true};

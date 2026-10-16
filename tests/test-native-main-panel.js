@@ -200,7 +200,7 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
 test('reopening main resets both scrollers without erasing search',()=>{
   const c=context();c.opened=true;c.panelFlick={contentY:210};c.nativeFlick.contentY=470;c.profileFilter='kept';
   c.vless.refresh=()=>{};
-  for(const name of ['subscriptionPrompt','routingPresetPrompt','startupPrompt','onboardingWizard','routingToolsPrompt']) c[name]={dismiss(){}};
+  for(const name of ['subscriptionPrompt','routingPresetPrompt','startupPrompt','onboardingWizard','routingToolsPrompt','helpPrompt']) c[name]={dismiss(){}};
   for(const name of ['cancelImport','cancelRename','cancelFileExport','syncNativeOnboarding']) c[name]=()=>{};
   c.keyCatcher={forceActiveFocus(){}};
   const start=source.indexOf('  onOpenedChanged: {');
@@ -457,7 +457,7 @@ test('native Settings Tab order follows visual action order without hidden Test'
   c.nativeSettingsBack='back';c.nativeRefresh='refresh';c.nativeGlobal='global';c.nativeRule='rule';c.nativeDirect='direct';
   vm.runInContext(source.slice(from,to),c);
   const result=Array.from(c.panelTabTargets());
-  assert.deepEqual(result.slice(0,23),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
+  assert.deepEqual(result.slice(0,24),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeHelpSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
   assert(!result.includes(c.nativeOpenAppButton));
   assert(!result.includes(c.nativeTestButton));
 });

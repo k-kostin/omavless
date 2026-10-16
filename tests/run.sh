@@ -76,6 +76,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-uninstaller.js"
   node "$here/test-uninstall-guided.js"
   node "$here/test-i18n.js"
+  node "$here/test-help-prompt.js"
   node "$here/test-safe-text.js"
   node "$here/test-tui-i18n.js"
   node "$here/test-marketplace-setup.js"

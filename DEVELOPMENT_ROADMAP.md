@@ -2,6 +2,16 @@
 
 Status: active delivery ledger; stable release updated 2026-10-10.
 
+**October16 finalization addition:** the owner requests agent-first Help in
+fix.8 and future main: a short copyable public request, optional user guide and
+direct issue reporting, available before native setup and from Settings.
+The [UI contract](docs/roadmap/UI_UX_CONTRACT.md#agent-first-help-owner-direction-october16)
+defines the bounded behavior and affected acceptance. No new native feature or
+package identity is implied. Final exact frontend/source gates and ARM acceptance
+remain separate; finish non-Mac preparation first, then owner connects Mac.
+Main storefront promotion is authorized, but release/tag/assets and Marketplace/
+support posting retain their own applicable authorization.
+
 **October 15 fix.7 delivery selection:** the owner authorizes immutable
 `v0.9.8-fix.7` and main integration, retaining product/package versions
 0.9.8 / 0.9.8-1. The matched native/DNS producer is

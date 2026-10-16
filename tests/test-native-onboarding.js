@@ -215,12 +215,12 @@ test('native helper bindings keep read, write and picker capabilities independen
  c.busy=false;c.nativeCanContinue=false;assert.equal(enabled('onboardingPaste'),false);assert.equal(enabled('onboardingFile'),false);
  c.nativeContext=false;assert.equal(enabled('onboardingPaste'),true);assert.equal(enabled('onboardingFile'),true);
 });
-test('native onboarding wires fresh inventory and fixed guide without installing anything',()=>{
+test('native onboarding wires fresh inventory and local help without installing anything',()=>{
  assert(panel.includes('nativeDesktopFacts: vless.nativeDesktopCapabilities'));
  assert(panel.includes('nativeDesktopLoading: vless.nativeDesktopLoading'));
  const refresh=panel.slice(panel.indexOf('onRefreshRequested: {',panel.indexOf('OnboardingWizard {')),panel.indexOf('onPresetChosen:',panel.indexOf('OnboardingWizard {')));
  assert(refresh.includes('vless.refreshNativeDesktopCapabilities()'));
- assert(refresh.includes('Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md")'));
+ assert(refresh.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));
  assert(!refresh.includes('execDetached'));assert(!refresh.includes('sudo'));assert(!refresh.includes('connect('));
  assert(wizard.includes('command: "omarchy pkg add wl-clipboard"'));
  assert(wizard.includes('command: "omarchy pkg add zenity"'));
@@ -362,11 +362,14 @@ test('first-use wizard has its own bounded height rather than the empty inventor
  const expression=panel.slice(start,end+6).replace('    contentHeight: ','');
  for(const visible of [false,true]) {
   const c=vm.createContext({panel:{fittedContentHeight:(h,max)=>Math.min(h,max)},
-   Style:{space:n=>n},onboardingWizard:{visible},root:{page:'main'},vless:{nativeOwner:true},
+   Style:{space:n=>n},onboardingWizard:{visible},helpPrompt:{visible:false},root:{page:'main'},vless:{nativeOwner:true},
    nativeColumn:{implicitHeight:280},nativeProfileActions:{visible:false},nativeAppFooter:{visible:false}});
   assert.equal(vm.runInContext(expression,c),visible?600:280);
   c.nativeProfileActions={visible:true,height:70};c.nativeAppFooter={visible:true,height:36};
   assert.equal(vm.runInContext(expression,c),visible?600:410);
+  c.helpPrompt.visible=true;assert.equal(vm.runInContext(expression,c),600);
+  c.root.bootstrapRequired=true;c.setupPage={implicitHeight:250};
+  assert.equal(vm.runInContext(expression,c),600,'help owns its bounded height before native setup too');
  }
 });
 test('wizard buttons share native keyboard activation without changing callbacks',()=>{

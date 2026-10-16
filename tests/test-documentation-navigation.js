@@ -33,8 +33,9 @@ for (const file of files) {
 const setupGuide = 'https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md';
 const setupPage = fs.readFileSync(path.join(root, 'plugin/SetupPage.qml'), 'utf8');
 const panel = fs.readFileSync(path.join(root, 'plugin/Panel.qml'), 'utf8');
-assert(setupPage.includes('function guide() { Qt.openUrlExternally("' + setupGuide + '") }'));
-assert(panel.includes('onSetupGuideRequested: Qt.openUrlExternally("' + setupGuide + '")'));
+assert(setupPage.includes('function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }'));
+assert(panel.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));
+assert(panel.includes('onGuideRequested: function(section) { Qt.openUrlExternally("' + setupGuide + '#" + section) }'));
 const installGuide = fs.readFileSync(path.join(root, 'docs/user/NATIVE_INSTALL.md'), 'utf8');
 const troubleshooting = fs.readFileSync(path.join(root, 'docs/user/TROUBLESHOOTING.md'), 'utf8');
 const security = fs.readFileSync(path.join(root, 'docs/user/SECURITY.md'), 'utf8');

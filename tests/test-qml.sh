@@ -16,6 +16,7 @@ import_preview_prompt="$plugin/ImportPreviewPrompt.qml"
 qr_window="$plugin/QrWindow.qml"
 rename_window="$plugin/RenameWindow.qml"
 name_prompt="$plugin/NamePrompt.qml"
+help_prompt="$plugin/HelpPrompt.qml"
 i18n="$plugin/I18n.js"
 installer="$here/../install.sh"
 
@@ -425,8 +426,8 @@ grep -q 'tooltipText: root.safeTooltip(root.textFor("tooltip.delete_profile"' "$
 grep -q 'locale: root.uiLocale' "$panel"
 (( $(grep -c 'locale: root.uiLocale' "$panel") >= 9 ))
 grep -q 'readonly property bool modalInputActive:' "$panel"
-(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 4 ))
-(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 4 ))
+(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 5 ))
+(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 5 ))
 bash -n "$installer"
 test ! -e "$here/../uninstall.sh"
 test ! -e "$here/../backend.py"
@@ -444,6 +445,7 @@ if command -v qmllint >/dev/null 2>&1; then
   qmllint "$qr_window"
   qmllint "$rename_window"
   qmllint "$name_prompt"
+  qmllint "$help_prompt"
   qmllint "$advanced_diagnostics"
   qmllint "$plain_text"
   qmllint "$sparkline"

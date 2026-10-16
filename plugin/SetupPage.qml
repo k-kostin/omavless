@@ -34,10 +34,11 @@ Item {
   signal ready()
   signal closeRequested()
   signal factsRefreshRequested()
+  signal helpRequested(string section)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   function check() { if (!probe.running && !launch.running) probe.running = true }
   function acknowledgeTerminalClosed() { terminalOpened = false; check() }
-  function guide() { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md") }
+  function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }
   function install(action) {
     var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return

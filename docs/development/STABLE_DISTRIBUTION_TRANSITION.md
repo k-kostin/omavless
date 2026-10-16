@@ -11,6 +11,16 @@ governs retained decisions and their actual distribution.
 
 ## Current source composition — 2026-10-15
 
+October16 owner addition: include local agent-first Help in fix.8 and the user
+storefront. One shared screen serves setup/non-ready onboarding and Settings;
+copy only the public prompt, with optional independent guide/issue links.
+No runtime/package/remover authority changes. Preserve the exact2d54/G0a4 x64
+update result and native pair, then verify the frontend successor's affected
+EN/RU/navigation/clipboard states and its own final source/distribution gates.
+The previous source73/G0a4 candidate is not silently treated as the new final UI.
+Complete all non-Mac preparation before the owner connects Mac for acceptance;
+no ARM waiver or release/tag/assets publication follows from this addition.
+
 October16 source successor `2d54b430866fd5b2849cd815f8552a4e9e2d16a8` corrects
 the Rust packaging-payload test to expect USER_README.md. Source82 full CI
 failed that obsolete developer-help expectation; exact local red101 and corrected

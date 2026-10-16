@@ -20,7 +20,18 @@ test('all editable fields use the shared guarded boundary', () => {
     const source = fs.readFileSync(path.join(root, 'plugin', file), 'utf8');
     if (file === 'SafeTextField.qml') continue;
     const instances = [...source.matchAll(/\b(TextField|TextInput|TextEdit|TextArea)\s*\{/g)];
-    if (file === 'SubscriptionPrompt.qml') {
+    if (file === 'HelpPrompt.qml') {
+      // This is a selectable public display, not an editable input. Unlike
+      // TextInput, QQuickTextEdit's canPaste path inspects formats only; the
+      // constant readOnly guard also prevents every paste/edit activation.
+      assert.equal(instances.length, 1);
+      assert.equal(instances[0][1], 'TextEdit');
+      assert.equal((source.match(/\breadOnly\s*:/g) || []).length, 1);
+      assert.match(source, /readOnly: true/);
+      assert.match(source, /textFormat: TextEdit.PlainText/);
+      assert.match(source, /text: help.agentPrompt/);
+      assert(!/\.paste\(|clipboard-read|wl-paste|Quickshell\.clipboard|vless\./.test(source));
+    } else if (file === 'SubscriptionPrompt.qml') {
       assert.equal(instances.length, 1);
       const masked = source.slice(instances[0].index, source.indexOf('SafeTextField {', instances[0].index));
       assert.match(masked, /readOnly: true/); assert.match(masked, /echoMode: TextInput.Password/);
