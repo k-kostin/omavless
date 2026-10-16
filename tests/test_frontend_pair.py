@@ -131,7 +131,8 @@ class FrontendPairTests(unittest.TestCase):
         self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, self.commit()), r'^[0-9a-f]{64}$')
     def test_runtime_changes_new_files_deletions_and_modes_refuse(self):
         for path in ['Cargo.lock', 'crates/runtime.rs', 'templates/default.yaml',
-                     'packaging/arch/README.md', 'packaging/systemd/omavless-runtime.service',
+                     'packaging/arch/README.md', 'packaging/arch/USER_README.md',
+                     'packaging/systemd/omavless-runtime.service',
                      'LICENSE', 'THIRD_PARTY_NOTICES.md', '.cargo/config.toml', 'new-build-input',
                      '.github/workflows/unclassified-build.yml']:
             with self.subTest(path=path):
