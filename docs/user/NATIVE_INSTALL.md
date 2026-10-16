@@ -373,10 +373,10 @@ if [[ -f "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" ]]; the
     "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 else
   curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/k-kostin/omavless/4345f28936f22e604db4a7ed0da25c7ed3edbfd7/tools/uninstall.sh \
+    https://raw.githubusercontent.com/k-kostin/omavless/0250efeb87ff5f6c331a2d067c181a29084b37a2/tools/uninstall.sh \
     -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 fi &&
-printf '%s  %s\n' a6067299fad774eef33fe06821e5aa18245fc16dc861f775ee9b96ebc9a5cd29 \
+printf '%s  %s\n' 2ecda6be26438e3f6ffa46cc66c7f1c3b55ae1db6d176cf8471b4963724532f1 \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
   "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh" &&
@@ -424,7 +424,7 @@ with `omarchy pkg add zenity`. Clipboard import does not require a picker.
 
 A default-deny firewall can block traffic on the TUN even when the panel says
 Connected. Setup never disables or changes firewall rules. See the
-[scoped firewall guidance](https://github.com/k-kostin/omavless/blob/1eda21ab2b4d9574200e7775f5ec9d256c6cd675/docs/user/NATIVE_INSTALL_082_REFERENCE.md#default-deny-firewall-and-tun);
+[scoped firewall guidance](https://github.com/k-kostin/omavless/blob/a4da21bc579e1a5a1fb84300ce9035506cdf772e/docs/user/NATIVE_INSTALL_082_REFERENCE.md#default-deny-firewall-and-tun);
 review your actual interface/address/policy rather than copying an exception
 for a different host.
 

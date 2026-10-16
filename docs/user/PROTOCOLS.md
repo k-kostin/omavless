@@ -12,5 +12,5 @@
 
 Use the current [OmaVLESS guide](NATIVE_INSTALL.md#help) for this version.
 
-[Earlier version-specific instructions](https://github.com/k-kostin/omavless/blob/1eda21ab2b4d9574200e7775f5ec9d256c6cd675/docs/user/PROTOCOLS.md) remain available as a
+[Earlier version-specific instructions](https://github.com/k-kostin/omavless/blob/a4da21bc579e1a5a1fb84300ce9035506cdf772e/docs/user/PROTOCOLS.md) remain available as a
 historical reference, not the current setup procedure.
