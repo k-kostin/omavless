@@ -274,9 +274,39 @@ class DistributionTests(unittest.TestCase):
         with patch.object(EXPORT, 'api', side_effect=self.api_fixture(step_change={'Run Rust workspace and parity checks': 'skipped'})):
             with self.assertRaises(ValueError):
                 EXPORT.verify(self.repo, self.output, True)
-        with patch.object(EXPORT, 'api', side_effect=OSError('API unavailable')):
+        with patch.object(EXPORT, 'api', side_effect=OSError('API unavailable')) as api:
             with self.assertRaises(OSError):
                 EXPORT.verify(self.repo, self.output, True)
+            api.assert_called()
+
+    def test_reviewed_workflow_and_validator_pins_match_actual_source_bytes(self):
+        workflow = ROOT / '.github/workflows/test.yml'
+        oid = subprocess.check_output(['git', 'hash-object', str(workflow)]).decode().strip()
+        self.assertEqual(EXPORT.SOURCE_WORKFLOW_BLOB, oid)
+        pins = json.loads((ROOT / EXPORT.TEMPLATES / 'source-validator-pins.json').read_text())
+        self.assertEqual(pins, {name: EXPORT.digest((ROOT / name).read_bytes()) for name in EXPORT.TOOLS})
+
+    def test_remote_workflow_mismatch_and_partial_jobs_are_not_source_ci(self):
+        self.export()
+        for fault in ('remote_blob', 'job_count', 'missing_job', 'wrong_job', 'missing_isolated'):
+            response = self.api_fixture()
+            def api(path):
+                value = response(path)
+                if fault == 'remote_blob' and path.startswith('contents/'):
+                    return {'sha': '0' * 40}
+                if path.startswith('actions/runs/'):
+                    if fault == 'job_count':
+                        value['total_count'] = 2
+                    elif fault == 'missing_job':
+                        value['jobs'] = []
+                    elif fault == 'wrong_job':
+                        value['jobs'][0]['name'] = 'other'
+                    elif fault == 'missing_isolated':
+                        value['jobs'][0]['steps'] = value['jobs'][0]['steps'][1:]
+                return value
+            with self.subTest(fault=fault), patch.object(EXPORT, 'api', side_effect=api):
+                with self.assertRaises(ValueError):
+                    EXPORT.verify(self.repo, self.output, True)
 
     def test_unknown_source_workflow_fails_even_if_it_contains_old_names(self):
         self.write('.github/workflows/test.yml', (ROOT / '.github/workflows/test.yml').read_bytes() + b'\n# changed\n')

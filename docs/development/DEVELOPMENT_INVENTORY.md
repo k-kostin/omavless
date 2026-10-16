@@ -82,11 +82,17 @@ remain separate from the already delivered fix.8 product.
 
 ## Source CI before the next export
 
-Current reviewed source-CI admission selects full push Test evidence and pins
-its workflow/bootstrap identities. The frozen release workflow's push exception
-names dev/098-finalization-integration, not the new development home. Ordinary
-PR validation works, but a new development release/export must not be called
-admitted merely because this branch exists or a PR passed. Before its next
-release, review the source-push lane and corresponding exporter/bootstrap trust
-pins as one bounded successor, with actual positive/negative admission tests.
-Do not bypass the gate or alter immutable fix.8 source to retrofit the new lane.
+Source-CI admission selects full push Test evidence and pins its workflow and
+validator identities. This source-lane successor moves the full-source push
+selector to development while preserving all PR/tag gates, exact-head checkout,
+permissions and job/step checks. The new workflow blob and matching exporter
+trust pin are one independently reviewed delta; generated user bootstrap and
+Distribution workflow are unchanged. The frozen fix.8 source retains its old
+integration-branch selector and trusted tool identities.
+
+A new development release/export is not admitted merely because this branch
+exists, unit API fixtures pass or a PR passes. Earn the actual exact-head full
+push and generated bootstrap result after integration. A changed/unreviewed
+workflow, PR-only success, partial/skipped/cancelled CI or modified validator
+must still refuse. Do not bypass the gate or alter immutable fix.8 source to
+retrofit the new lane; this work grants no publication authority.

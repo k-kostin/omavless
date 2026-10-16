@@ -243,9 +243,10 @@ becomes actionable.
 
 ### CI event policy
 
-In full source the Test workflow runs for every pull request (including Drafts),
-main/tag pushes and the explicitly selected `dev/098-finalization-integration`
-push used by the exporter source-CI gate. Other feature pushes do not also run a
+In this full-source lane successor the Test workflow runs for every pull request
+(including Drafts), development pushes and tag pushes. The immutable fix.8
+workflow retains its historical dev/098-finalization-integration selector;
+do not mutate that released source. Other feature pushes do not also run a
 duplicate workflow: open the Draft PR at the first meaningful checkpoint to
 obtain cloud evidence. Until then, run `./tests/run.sh` and
 `./tests/run-rust.sh` locally. Every later PR synchronization runs both gates.
@@ -255,7 +256,8 @@ main or remove the required full-source push check to reduce CI time. Changes
 to the workflow/trust boundary require their own reviewed successor.
 
 PR concurrency cancels superseded runs of the same PR, retaining the full
-latest-head gates. Main and tag checks remain independent. Before a manual
+latest-head gates. Development push and source-tag checks remain independent;
+user main has its separate generated Distribution checks. Before a manual
 rerun/cancellation, inspect exact heads and status; never cancel another active
 scope or describe a cancelled run as successful. Batch report-only updates
 while a heavy run is active instead of repeatedly replacing it with identical
@@ -265,8 +267,8 @@ not thereby present on public main. See the [execution policy](../development/EX
 No path filters or Draft skips are used, so documentation and workflow changes
 retain the same checks. Keep the existing `test` job name and read-only token
 permissions; do not replace `pull_request` with privileged
-`pull_request_target`. Merged `main` and release-tag checks remain independent
-of the PR check. This reduces duplicate runs, not acceptance coverage or
+`pull_request_target`. Merged development and source-tag Test checks remain
+independent of the PR check; user main does not run Cargo. This reduces duplicate runs, not acceptance coverage or
 exact-head host gates. Branch/tag filter semantics follow the
 [GitHub workflow contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushbranchestagsbranches-ignoretags-ignore).
 
