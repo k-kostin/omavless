@@ -22,8 +22,9 @@ governs retained decisions and their actual distribution.
   not passed; earlier Mac evidence retains its original inputs and limits.
 - Full-source developer-rule updates are separate from this immutable release.
   This docs follow-up does not change main, package pins, release or Marketplace.
-  A named `development` home is still proposed, not created. Until a home is
-  selected, start developer work from declared full source, not stripped main.
+  Owner-selected `development` was created from released full source5edf4eb2,
+  not an older beta. Developer-rule/fixture changes in #796 remain pending their
+  own CI/integration. No frontier feature was imported to create this home.
 - Use [current status](../roadmap/CURRENT_STATUS.md) for the live queue and
   [the retrospective](POST_FIX8_RETROSPECTIVE.md) for correction/distribution
   status. Reconcile old stacked PRs before retargeting or deleting their bases.
@@ -140,7 +141,7 @@ there. This is different from instructions for developing OmaVLESS.
 | Location | Maintained purpose |
 | --- | --- |
 | main | Stable user distribution and matching user/user-agent documentation; changes only through an authorized selected release. |
-| development (proposed; not created) | Full source, tests, build/release tooling, important architecture/roadmaps, developer instructions/skills and current portable handoff. Integrate selected work, not every unfinished experiment. |
+| development | Owner-selected full-source integration home, created from released5edf4eb2. Source/tests/build tooling, architecture/roadmaps and developer rules stay here. Integrate checked selected work, never every unfinished experiment. |
 | dev/* | Scoped feature, test or documentation work; one active writer and a meaningful reusable checkpoint. |
 | beta/*, rc/* | Temporary selected test assemblies and frozen release candidates, not permanent homes for developer documentation. |
 | Local private storage | Raw captures/logs, build outputs, VM images and disposable scratch, with purpose/retention and no secret material in Git. |

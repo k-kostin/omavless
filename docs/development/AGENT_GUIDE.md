@@ -45,6 +45,10 @@ deployed October16 separation: main serves users and their support agents;
 this full-source checkout owns product development and developer rules.
 Read its current summary before choosing a base; an older feature branch or
 the installed user checkout cannot define today's repository layout.
+The owner subsequently selected `development` from the released full source,
+not beta/0.9.9 or a frontier assembly. Follow the
+[development inventory](DEVELOPMENT_INVENTORY.md) for existing work and its
+new-base admission; branch ancestry is not feature acceptance.
 
 ## Selected implementation direction
 

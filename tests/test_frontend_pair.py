@@ -52,7 +52,11 @@ class FrontendPairTests(unittest.TestCase):
         file.write_text(value)
 
     def git(self, *args):
-        return subprocess.check_output(['git', '-C', str(self.repo), *args], stderr=subprocess.DEVNULL)
+        # Fixture-only: command completion must not leave a detached Git writer
+        # racing TemporaryDirectory cleanup. Never change the user's Git config.
+        return subprocess.check_output(['git', '-c', 'maintenance.auto=false',
+            '-c', 'gc.auto=0', '-c', 'maintenance.autoDetach=false',
+            '-c', 'gc.autoDetach=false', '-C', str(self.repo), *args], stderr=subprocess.DEVNULL)
 
     def commit(self):
         self.git('add', '.')
@@ -76,6 +80,21 @@ class FrontendPairTests(unittest.TestCase):
         self.write('docs/user/INSTALL.md', 'updated instructions')
         new = self.commit()
         self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, new), r'^[0-9a-f]{64}$')
+
+    def test_fixture_commit_and_revert_do_not_spawn_automatic_maintenance(self):
+        trace = self.base / 'git-trace.json'
+        with patch.dict(os.environ, {'GIT_TRACE2_EVENT': str(trace)}):
+            self.write('README.md', 'trace-only fixture change')
+            changed = self.commit()
+            self.git('revert', '--no-edit', 'HEAD')
+        self.assertNotEqual(changed, self.old)
+        events = [json.loads(line) for line in trace.read_text().splitlines()]
+        self.assertTrue(any(e.get('event') == 'start' for e in events))
+        for event in events:
+            if event.get('event') == 'child_start':
+                argv = event.get('argv', [])
+                self.assertFalse('--auto' in argv and ('maintenance' in argv or 'gc' in argv),
+                                 'temporary repository must not launch auto-maintenance')
 
     def test_release_notes_are_non_executable_documentation_only(self):
         self.write('CHANGELOG.md', 'release notes')

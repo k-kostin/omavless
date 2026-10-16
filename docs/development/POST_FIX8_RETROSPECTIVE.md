@@ -14,11 +14,12 @@ failures. The last frontend delta has installed x64 evidence; additional
 installed ARM evidence was waived, not earned. Aryan's response is pending.
 No new tests below can turn a past unrun installed check into PASS.
 
-Local verification: `./tests/run.sh` passed 813 Python tests (two existing opt-in
+Local verification: `./tests/run.sh` passed 814 Python tests (two existing opt-in
 skips), JS/QML suites and documentation navigation. Focused remover, onboarding
 and CI-isolation checks also passed. No Rust workspace rebuild, VM/network
 operation or new installed acceptance was needed for this docs/discovery delta.
 Remote PR CI remains a separate check, not inferred from this local result.
+The earlier 813-test local pass did not predict the first PR's cleanup failure.
 
 ## Findings, prevention and checks
 
@@ -31,7 +32,8 @@ Remote PR CI remains a separate check, not inferred from this local result.
 | Heavy duplicate/superseded CI and report-only pushes delayed a stable candidate. | Execution policy §4: inspect exact runs, batch checkpoints, retain one required exact-head result; cancelled is not PASS. | `test_rust_ci_isolation.py`; original watcher/API outcomes retained separately. Queue duration does not justify gate bypass or relabelling. |
 | Session answers stopped with authorized work remaining; local handoff chronology looked current after supersession. | Delivery closure check and report-retention policy: one operational summary, all outcomes disposed, continue actionable work, name an actual external hold. | Apply the rule to the next real outcome report. Navigation tests protect discovery only, not agent compliance. Completed release and this audit are separate outcomes. |
 | Main became user-only, but source rules still said the migration was pending and developer rules belonged on every main update. | Deployed source/distribution map; workflow and mandatory source AGENTS distinguish user help from developer guidance. | This follow-up reconciles entry points and current summaries. Navigation guards check discovery and reject the stale transition assertion. Main/release source bytes remain unchanged. |
-| Hundreds of Draft PRs and stacked branches made historical experiments look like current delivery work. | Cleanup lifecycle: inspect exact heads, dependencies, source preservation and custody; reachability is not feature acceptance. | Read-only public-metadata inventory and an ordered disposition proposal. No automatic merge/closure/deletion and no blanket frontier integration. |
+| Hundreds of Draft PRs and stacked branches made historical experiments look like current delivery work. | Cleanup lifecycle and development inventory: inspect exact heads, dependencies, source preservation and custody; reachability is not feature acceptance. | Owner-selected development starts at released full source, not an old beta. Old work must earn affected integration checks. No automatic merge/closure/deletion or blanket frontier integration. |
+| This retrospective's first CI failed while deleting a synthetic Git objects directory. Temporary Git commands could launch auto-maintenance beyond command completion. | Execution policy §1: disable automatic/detached maintenance per fixture invocation, never change global Git config or ignore cleanup errors. | Trace regression failed on old fixture helper and passed after the scoped correction; pairing/release/export suites passed. Original CI race was not traced or reproduced and is not relabelled PASS. |
 
 Existing canonical rules are reused rather than copied into another checklist.
 UI publication/persistence and remover-current-input regressions already shipped
@@ -43,13 +45,13 @@ not justify product fixes or another general policy without evidence.
 ## Distribution and remaining integration
 
 The deployed product corrections are in fix.8. The developer-rule reconciliation
-in this docs branch is prepared/locally checked, not yet integrated into a new
+in this branch is prepared/locally checked, not yet integrated into the selected
 shared full-source home. Do not call it project-wide or copy this report into
 main. Mandatory source AGENTS → agent guide → execution policy discovers the
 rules and this record. Before resuming an older branch, read this applicable
 source guidance without importing unrelated runtime code or rewriting evidence.
 
 The full-source carrier and open dependency/evidence branches remain retained.
-Selecting a future developer home and authorizing exact-ref cleanup are separate
-next decisions, not consequences of green product CI. Raw logs, screenshots,
+The owner selected development from the released baseline; integrating #796 and
+authorizing exact-ref cleanup remain separate from green product CI. Raw logs, screenshots,
 per-branch inventory, machine paths and private fixtures remain outside Git.

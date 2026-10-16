@@ -8,7 +8,7 @@ migration, standalone Arch/NixOS packaging and later TUI work.
 `AGENTS.md` is the mandatory entry point. Backend/runtime/protocol/TUI work must
 also read `RUST_MIGRATION.md`.
 
-## 1. One long-lived branch
+## 1. User release and full-source integration
 
 `main` is the long-lived stable user distribution. It preserves the selected
 product files, README, user guide and support-agent instructions, not developer
@@ -18,7 +18,11 @@ advance it between owner-authorized updates, even for documentation-only work.
 Day-to-day development continues in task branches and versioned candidates;
 issues and PRs provide the live operational status without changing release SHA.
 
-Do not maintain permanent `develop`, `rc`, `alpha` or `beta` branches. A normal feature branch
+Owner-selected October16 exception to the earlier one-lane policy:
+`development` is the full-source integration home, seeded from released
+source5edf4eb2, not a historical beta or an all-frontier assembly. Main is its
+separately gated user export. Do not maintain permanent `rc`, `alpha` or `beta`
+branches. A normal feature branch
 + Draft PR already expresses an alpha state. A cloud-ready Draft with local
 gates pending expresses the next maturity state.
 
@@ -43,7 +47,7 @@ source docs when integrating code. Neither stage
 is a release tag, authorizes public assets/marketplace, or permits a main update.
 Delete after release or recorded supersession under the cleanup rules below.
 Old unversioned `beta/<scope>` scratch branches are grandfathered evidence, not
-templates for new integration branches. There is no permanent develop/beta/RC.
+templates for new integration branches. There is no permanent beta/RC lane.
 
 Selected acceptance, 2026-10-01: accepted `rc/0.9.5` supersedes 0.9.0 after
 the [public RC1 checkpoint](../development/RC_095.md#public-rc1-acceptance).
@@ -123,7 +127,8 @@ dev/docs/<topic>
 
 Use bounded feature names which make ownership obvious. Do not rename existing
 open/evidence branches solely for cosmetics or break their exact-head handoffs.
-The `dev/` prefix is a namespace, not a permanent integration branch. Scoped R6
+The `dev/` prefix is a task namespace; `development` is the selected integration
+home. Scoped R6
 is accepted; historical migration branch names are not a new work queue.
 
 ### Concurrent agent ownership
@@ -180,6 +185,11 @@ does not prove that a feature is enabled, its gates passed or its PR is resolved
 Retain the selected full-source carrier until a successor home exists. RC
 integration alone is not grounds to delete the only independently reviewable
 source/evidence branch.
+
+Now that `development` exists, its initial released-source identity is known;
+that alone does not authorize deleting the old carrier or retargeting all PRs.
+Use the [development inventory](../development/DEVELOPMENT_INVENTORY.md) before
+carrying an old-base feature or disposing of its independently reviewed history.
 After closing a superseded PR, delete its branch once its unique commits have
 been classified, except source/evidence branches intentionally retained for
 RC-only integration until the authorized main update. Closing a duplicate PR

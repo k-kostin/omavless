@@ -52,6 +52,12 @@ process boundary. Refuse unmocked effect leaves by default and retain a bounded
 fixture witness; a passing assertion against a real desktop query is not inert
 evidence. Preserve any accidental live read separately from the corrected run.
 
+Temporary Git fixture commands must disable automatic maintenance/GC for that
+invocation and must not detach writers past fixture cleanup. Do not change the
+developer's global Git settings or ignore cleanup errors. A trace control can
+prove the new fixture no longer launches auto-maintenance; it does not prove
+the unobserved interleaving of a previous CI cleanup failure.
+
 Dependent commands require a fail-fast admission boundary. Check checkout/head,
 selected directories and permissions before launching a build or test; create
 and verify the HOME-backed TMPDIR first. Keep dependent shell steps in one

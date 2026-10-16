@@ -29,6 +29,10 @@ help for the user's agent, not the full-source development checkout. Follow the
 [source/distribution map](docs/development/STABLE_DISTRIBUTION_TRANSITION.md).
 Developer rules and retrospectives stay in full source; never merge a full-source
 PR into user main. The release's exact source remains immutable provenance.
+The owner selected `development` on October16 as the full-source integration
+home, starting at released source5edf4eb2, not an old beta. Read the
+[development inventory](docs/development/DEVELOPMENT_INVENTORY.md) before carrying
+old work; its old tests do not qualify a new integrated candidate.
 
 ## Non-negotiable boundaries
 
@@ -47,8 +51,9 @@ PR into user main. The release's exact source remains immutable provenance.
   Historical accepted artifact baseline is `rc/0.9.5`; preserve `rc/0.9.0`
   and its assets as superseded acceptance history until exact-ref disposition.
   Earlier #732/#735/#736 and Marketplace permissions are not standing authority
-  for future main/release/submission actions. Beta/task branches are not release readiness. No permanent
-  develop/beta/rc lane or direct implementation on main.
+  for future main/release/submission actions. Beta/task branches are not release
+  readiness. No permanent beta/rc lane or direct implementation on main;
+  `development` is the separately owner-selected full-source home.
   `main` is the stable user release snapshot, including user documentation. Keep
   ongoing decisions/status in issues, PRs and the next candidate's docs.
   Internal RC freeze uses declared risk-based gates, not repeated public

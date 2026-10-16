@@ -24,10 +24,16 @@ The issue remains open for the reporter's result; do not duplicate the reply or
 infer that his installation is fixed. No Marketplace update follows.
 
 Current owner request: post-delivery [retrospective](../development/POST_FIX8_RETROSPECTIVE.md)
-and read-only GitHub cleanup classification. Developer-rule reconciliation is
-prepared in a separate full-source docs branch, not integrated into a new
-developer home or main. Remote refs/PRs, local worktrees, release assets and VM
-are unchanged by the audit. A named `development` home is not yet created.
+and systematic GitHub cleanup classification. The owner selected `development`,
+created from released source5edf4eb2, not an old beta. Developer-rule changes
+and a fixture-maintenance correction remain in #796, now targeting development,
+not integrated or CI-green yet. Initial CI failed in TemporaryDirectory cleanup
+of a synthetic Git objects directory; its original result is retained. A trace
+regression first failed on automatic maintenance, then passed with fixture-only
+Git flags. This does not prove the original CI process interleaving.
+The [development inventory](../development/DEVELOPMENT_INVENTORY.md) retains old
+bases and explicit requalification. No old PR closure/retarget, branch/worktree
+deletion, main/release or VM change follows from creating this home.
 Restore/0.9.9, V0, P4, K1, S1 and GUI keep their own unfinished gates.
 
 ## Earlier finalization snapshots — superseded task lists

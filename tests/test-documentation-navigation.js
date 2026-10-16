@@ -9,6 +9,7 @@ const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/development/EXECUTION_POLICY.md',
   'docs/development/POST_FIX8_RETROSPECTIVE.md',
+  'docs/development/DEVELOPMENT_INVENTORY.md',
   'docs/development/STABLE_DISTRIBUTION_TRANSITION.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
   'docs/development/BETA_098.md', 'docs/development/RC_097.md', 'docs/development/RC_096.md', 'docs/development/RC_095.md',
@@ -173,6 +174,11 @@ assert(!currentMap.includes('product tree has not been migrated'));
 assert(!guide.includes('is preparation, not a deployed layout'));
 assert(guide.includes('](POST_FIX8_RETROSPECTIVE.md)'));
 assert(entry.includes('Developer rules and retrospectives stay in full source'));
+assert(entry.includes('](docs/development/DEVELOPMENT_INVENTORY.md)'));
+const developmentInventory = fs.readFileSync(path.join(root, 'docs/development/DEVELOPMENT_INVENTORY.md'), 'utf8');
+assert(developmentInventory.includes('## Admission of old-base work'));
+assert(developmentInventory.includes('## Source CI before the next export'));
+assert(developmentInventory.includes('not a demonstrated merge conflict'));
 const retro = fs.readFileSync(path.join(root, 'docs/development/POST_FIX8_RETROSPECTIVE.md'), 'utf8');
 for (const evidence of ['test-uninstaller.js', 'test-native-onboarding.js',
   'test_rust_ci_isolation.py', 'waived, not earned', 'not yet integrated']) {
