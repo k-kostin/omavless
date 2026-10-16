@@ -303,7 +303,9 @@ may advance the journey as if the new action succeeded.
 
 First-run completion additionally covers Finish -> native acknowledgement ->
 persisted completion -> close to desktop -> reopen. A submitted command is not
-completion. Model Process.running becoming false before result publication and
+completion. Repeat close/reopen after each terminal non-success too: a retained
+Finish retry must not silently return to step one. Model Process.running
+becoming false before result publication and
 an old in-flight read before a queued post-action read. Bound local waiting;
 failed reads, restart and acknowledged unknown outcomes must leave a reachable
 explicit continuation without clearing native operation fences or resubmitting.

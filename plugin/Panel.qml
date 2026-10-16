@@ -746,6 +746,7 @@ Panel {
       if (vless.nativeActionCode !== "") {
         onboardingCompletionTimeout.stop()
         nativeOnboardingCompletionPending = null
+        nativeOnboardingCompletionUnconfirmed = true
         if (!onboardingWizard.visible) openOnboarding(3)
         return
       }

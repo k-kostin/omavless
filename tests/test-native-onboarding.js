@@ -445,7 +445,11 @@ test('completion refusal, unknown outcome and close/reopen never reset to step o
   if(outcome==='complete'){c.vless.nativePending=null;c.vless.nativeSnapshot.onboardingComplete=true}
   c.opened=true;c.syncNativeOnboarding();
   if(c.onboardingWizard.visible)assert.equal(c.onboardingWizard.step,3);
-  if(outcome==='refused')assert(c.onboardingWizard.visible);
+  if(outcome==='refused'){
+   assert(c.onboardingWizard.visible);
+   c.onboardingWizard.dismiss();c.onboardingDismissed=false;c.syncNativeOnboarding();
+   assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,3);
+  }
   if(outcome==='complete')assert.equal(c.nativeOnboardingCompletionPending,null);
  }
 });
