@@ -38,6 +38,7 @@ ShellRoot {
         w.busy = false
         w.routingSavePending = false
         w.routingSaveUnknown = false
+        if ("completionPending" in w) w.completionPending = false
         w.nativeStatus = ""
         w.nativeCanContinue = true
         if ("firstRun" in w) w.firstRun = true
@@ -122,6 +123,21 @@ ShellRoot {
             if (!loader.item || ["current", "stale", "stale_manual"].indexOf(value) < 0) return "refused"
             var facts = loader.item.nativeSetupFacts
             loader.item.nativeSetupFacts = {state:facts.state, coreInstalled:facts.coreInstalled, delivery:value}
+            review.result = "ready"
+            return "ready"
+        }
+        function completion(value: string): string {
+            if (!loader.item || loader.item.step !== 3 || !("completionPending" in loader.item)
+                || ["waiting", "unconfirmed", "refused", "unknown", "ready"].indexOf(value) < 0) {
+                review.result = "refused"; return "refused"
+            }
+            // Synthetic presentation only: no Service, native request or store.
+            loader.item.completionPending = value === "waiting"
+            loader.item.nativeCanContinue = ["waiting", "unknown"].indexOf(value) < 0
+            loader.item.busy = false
+            loader.item.nativeStatus = value === "unconfirmed" ? loader.item.textFor("onboarding.finish_unconfirmed")
+                : value === "refused" ? loader.item.textFor("error.conflict")
+                : value === "unknown" ? loader.item.textFor("native.unknownOutcome") : ""
             review.result = "ready"
             return "ready"
         }

@@ -601,6 +601,8 @@ var CATALOG = {
   "onboarding.finish": {"en":"Finish","ru":"Готово"},
   "onboarding.finish_later": {"en":"Finish without a profile","ru":"Завершить без профиля"},
   "onboarding.saving_routing": {"en":"Saving your routing choice…","ru":"Сохраняем выбор маршрутизации…"},
+  "onboarding.finishing": {"en":"Finishing setup…","ru":"Завершаем настройку…"},
+  "onboarding.finish_unconfirmed": {"en":"Setup is not confirmed complete. Review the status, then try Finish again.","ru":"Завершение настройки не подтверждено. Проверьте состояние и попробуйте завершить её снова."},
   "native.onboarding.ready_next": {"en":"Return to the panel to choose a profile. Turn on the VPN there when you are ready.","ru":"Вернитесь в панель, чтобы выбрать профиль. Подключение VPN включается там отдельно."},
   "native.onboarding.empty_next": {"en":"You can finish setup now and add a profile later from the panel. The VPN will stay off.","ru":"Можно завершить настройку и добавить профиль позже из панели. VPN останется выключен."},
   "onboarding.copy_command_tooltip": {"en":"Copy command for the terminal","ru":"Копировать команду для терминала"},

@@ -16,6 +16,7 @@ ColumnLayout {
   readonly property bool effectBusy: busy || effectBlocked
   property bool terminalOpened: false
   property string busyMessage: "checking"
+  readonly property bool checking: facts.state === "checking" || (busy && busyMessage === "checking")
   property bool recoveryExpanded: false
   readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
@@ -44,7 +45,7 @@ ColumnLayout {
   PlainText {
     objectName: "setupDnsHelperIntro"
     Layout.fillWidth: true
-    visible: card.facts.state !== "checking" && !card.terminalOpened
+    visible: !card.checking && !card.terminalOpened
     text: card.tr("dns_helper_intro")
     font.family: Style.font.family; font.pixelSize: Style.font.caption
     color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap
@@ -52,7 +53,7 @@ ColumnLayout {
   BorderSurface {
     Layout.fillWidth: true
     implicitHeight: missingContent.implicitHeight + Style.space(20)
-    visible: card.appMissing || card.coreMissing
+    visible: !card.checking && (card.appMissing || card.coreMissing)
     color: "transparent"; radius: 0
     borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
@@ -79,7 +80,7 @@ ColumnLayout {
   BorderSurface {
     Layout.fillWidth: true
     implicitHeight: preparation.implicitHeight + Style.space(20)
-    visible: card.showPreparation
+    visible: !card.checking && card.showPreparation
     color: "transparent"; radius: 0
     borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
@@ -135,7 +136,7 @@ ColumnLayout {
   BorderSurface {
     Layout.fillWidth: true
     implicitHeight: updates.implicitHeight + Style.space(20)
-    visible: !card.appMissing && (card.updateReview || card.facts.state === "needs_pair_mismatch" || card.facts.state === "needs_companion")
+    visible: !card.checking && !card.appMissing && (card.updateReview || card.facts.state === "needs_pair_mismatch" || card.facts.state === "needs_companion")
     color: "transparent"; radius: 0
     borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
@@ -177,11 +178,12 @@ ColumnLayout {
       }
     }
   }
-  PlainText { Layout.fillWidth: true; visible: card.busy && !card.terminalOpened; text: card.tr(card.busyMessage); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
+  PlainText { Layout.fillWidth: true; visible: (card.busy || card.checking) && !card.terminalOpened; text: card.tr(card.busyMessage); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
   PlainText { Layout.fillWidth: true; visible: card.effectBlocked && !card.busy && !card.terminalOpened; text: card.tr("action_blocked"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
   PlainText { Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
   SetupButton { id: retryButton; objectName: "setupTerminalClosed"; primary: true; Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal_closed"); onClicked: card.terminalClosed() }
   RowLayout {
+    visible: !card.checking
     Layout.fillWidth: true
     spacing: Style.space(8)
     Button { id: checkButton; Layout.fillWidth: true; text: card.tr("check"); bordered: true; focusable: true; enabled: !card.busy; onClicked: card.checkRequested() }

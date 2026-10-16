@@ -133,7 +133,7 @@ test('setup has separate navigation and cannot expose legacy mutation shortcuts'
 });
 test('component review retains help for unverified core, not completed readiness', () => {
   assert(page.includes('property bool componentReview: false'));
-  assert(page.includes('visible: !setup.componentReview'));
+  assert(page.includes('visible: !setup.probing && !setup.componentReview'));
   for(const name of ['reviewTerminalButton','reviewCheckButton','reviewGuideButton','closeButton']) assert(page.includes(name));
   assert(page.includes('onClicked: { setup.acknowledgeTerminalClosed(); setup.factsRefreshRequested() }'));
   assert(page.includes('onClicked: { setup.check(); setup.factsRefreshRequested() }'));
@@ -252,7 +252,7 @@ test('freshness is advisory and preserves connection admission and stopped actio
     assert(!state.canRunAction({state:status,coreInstalled:true,delivery:'stale'},'update-pair'));
 });
 test('installed programs disappear from the required-components card; readiness is separate', () => {
-  assert(card.includes('visible: card.appMissing || card.coreMissing'));
+  assert(card.includes('visible: !card.checking && (card.appMissing || card.coreMissing)'));
   assert(card.includes('visible: card.appMissing; text: card.tr("app_missing")'));
   assert(card.includes('visible: card.coreMissing; text: card.tr("core_missing")'));
   assert(card.includes('visible: SetupState.needsAttention(facts)'));

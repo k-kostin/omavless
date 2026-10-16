@@ -68,6 +68,7 @@ without importing a profile. Neither starts a VPN.
    a profile. **Finish without a profile** is available without a profile. The default VPN
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
+   After choosing **Finish**, wait for the main panel. No VPN starts automatically.
 
    At **Core ready**, choose **Continue**. This means the core is ready for
    setup, not that a VPN is connected. If something is missing or needs an

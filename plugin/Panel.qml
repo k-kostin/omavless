@@ -13,6 +13,7 @@ import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "NativePresentation.js" as NativePresentation
+import "NativeSnapshot.js" as NativeSnapshot
 import "SetupState.js" as SetupState
 
 Panel {
@@ -106,6 +107,14 @@ Panel {
   property bool editHandedOff: false
   property bool onboardingDismissed: false
   property string nativeOnboardingPresetPending: ""
+  property var nativeOnboardingCompletionPending: null
+  property bool nativeOnboardingCompletionUnconfirmed: false
+  Timer {
+    id: onboardingCompletionTimeout
+    interval: 8000
+    repeat: false
+    onTriggered: root.markOnboardingCompletionUnconfirmed()
+  }
   // Relative update/test ages need one inexpensive shared clock. Without it,
   // text bound through helper functions would stay frozen until other state
   // happened to change.
@@ -231,9 +240,16 @@ Panel {
       return vless.nativeSnapshot.lastKnownActual
     return ""
   }
-  // Metadata work is local to its control; the VPN header/bar must continue
-  // describing the actual connection rather than a subscription edit.
-  readonly property bool nativeStatusWaiting: nativeTransitionKind !== ""
+  // Acknowledged metadata work invalidates the joined observation briefly.
+  // Its bounded refresh is neither a VPN failure nor Connected proof.
+  readonly property bool nativeMetadataVerifying: vless.nativeMetadataTransition !== null
+    && !vless.nativeMetadataTransition.failed && !vless.nativeOutcomeUnknown
+    && vless.nativeActionCode === "" && !vless.nativeSnapshotFailed
+    && vless.nativeSnapshot !== null
+    && vless.nativeSnapshot.instanceId === vless.nativeMetadataTransition.instanceId
+    && ["failed", "manualRecoveryRequired"].indexOf(vless.nativeSnapshot.lastKnownActual) < 0
+    && !NativeSnapshot.coherent(vless.nativeSnapshot, vless.nativeObservation)
+  readonly property bool nativeStatusWaiting: nativeTransitionKind !== "" || nativeMetadataVerifying
   readonly property string nativeTransitionTarget: {
     var transition = vless.nativeConnectionTransition
     if (!transition || transition.action !== "connect") return ""
@@ -725,6 +741,32 @@ Panel {
   function syncNativeOnboarding() {
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
     if (vless.nativeStatusRefreshing) return
+    if (nativeOnboardingCompletionPending !== null) {
+      if (vless.nativePending || vless.nativeActionRunning || vless.nativeOutcomeUnknown) return
+      if (vless.nativeActionCode !== "") {
+        onboardingCompletionTimeout.stop()
+        nativeOnboardingCompletionPending = null
+        if (!onboardingWizard.visible) openOnboarding(3)
+        return
+      }
+      var completion = nativeOnboardingCompletionPending
+      if (vless.nativeSnapshot.instanceId === completion.instanceId
+          && vless.nativeSnapshot.revision >= completion.revision
+          && vless.nativeSnapshot.onboardingComplete) {
+        onboardingCompletionTimeout.stop()
+        nativeOnboardingCompletionPending = null
+        nativeOnboardingCompletionUnconfirmed = false
+        dismissOnboarding()
+      } else if (vless.nativeFactsCurrent && !vless.nativeMetadataBusy) {
+        // Recovery acknowledgement or a new owner is not proof that Finish
+        // succeeded. Release the local wait, leaving a deliberate retry.
+        onboardingCompletionTimeout.stop()
+        nativeOnboardingCompletionPending = null
+        nativeOnboardingCompletionUnconfirmed = true
+        if (!onboardingWizard.visible) openOnboarding(3)
+      }
+      return
+    }
     if (nativeOnboardingPresetPending !== "" && !vless.nativePending && !vless.nativeOutcomeUnknown) {
       var presetRejected = vless.nativeActionCode !== "" || (vless.nativeMetadataErrorAction === "routing-preset" && vless.nativeMetadataErrorCode !== "")
       if (!presetRejected && onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
@@ -734,7 +776,7 @@ Panel {
     }
     if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
         && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !subscriptionPrompt.visible)
-      openOnboarding(1)
+      openOnboarding(nativeOnboardingCompletionUnconfirmed ? 3 : 1)
   }
 
   function chooseOnboardingPreset(preset) {
@@ -752,11 +794,23 @@ Panel {
   }
 
   function finishOnboarding() {
-    if (!vless.completeOnboarding()) return
-    onboardingDismissed = true
-    nativeOnboardingPresetPending = ""
-    onboardingWizard.dismiss()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    if (vless.nativeOwner) {
+      if ((nativeOnboardingCompletionPending !== null && !nativeOnboardingCompletionUnconfirmed) || !vless.nativeSnapshot) return
+      nativeOnboardingCompletionUnconfirmed = false
+      nativeOnboardingCompletionPending = {instanceId:vless.nativeSnapshot.instanceId,
+        revision:vless.nativeSnapshot.revision}
+      if (!vless.completeOnboarding()) nativeOnboardingCompletionPending = null
+      else onboardingCompletionTimeout.restart()
+      return
+    }
+    if (vless.completeOnboarding()) dismissOnboarding()
+  }
+
+  function markOnboardingCompletionUnconfirmed() {
+    if (nativeOnboardingCompletionPending === null) return
+    // Bound the local spinner, not the native operation. Preserve its fence
+    // for a late confirmed result; unknown/pending still blocks any new action.
+    nativeOnboardingCompletionUnconfirmed = true
   }
 
   function saveStartup(enabled, target, profileId, mode) {
@@ -1678,11 +1732,16 @@ Panel {
     function onNativePendingChanged() { Qt.callLater(root.syncNativeOnboarding) }
     function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }
     function onNativeActionCodeChanged() { root.syncNativeOnboarding() }
-    function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
+    function onNativeStatusRefreshingChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeFactsCurrentChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeMetadataBusyChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeOutcomeUnknownChanged() { Qt.callLater(root.syncNativeOnboarding) }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) {
         onboardingWizard.dismiss()
         root.nativeOnboardingPresetPending = ""
+        root.nativeOnboardingCompletionPending = null
+        root.nativeOnboardingCompletionUnconfirmed = false
         root.onboardingDismissed = true
         return
       }
@@ -4051,13 +4110,15 @@ Panel {
         nativeSetupFacts: setupPage.facts
         nativeSetupBusy: setupPage.busy
         nativeSetupTerminalOpened: setupPage.terminalOpened
-        nativeCoreFailed: vless.nativeCoreSetupStatus !== ""
+        nativeCoreFailed: vless.nativeCoreSetupStatus === "failed"
         nativeCanContinue: vless.nativeCanAct
         routingSavePending: root.nativeOnboardingPresetPending !== ""
         routingSaveUnknown: vless.nativeOutcomeUnknown
+        completionPending: root.nativeOnboardingCompletionPending !== null && !root.nativeOnboardingCompletionUnconfirmed
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
           : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)
+          : root.nativeOnboardingCompletionUnconfirmed ? root.textFor("onboarding.finish_unconfirmed")
           : vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
         coreSetup: vless.coreSetup
         filePicker: vless.filePicker

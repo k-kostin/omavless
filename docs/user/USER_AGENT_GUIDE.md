@@ -111,6 +111,9 @@ than bypassing package guards.
 3. Setup completion should reach the usable panel. **Core ready** and
    **Connected** have different meanings. An authorized connection test also
    needs the requested real network checks, not only traffic counters.
+   Confirm the completed wizard stays completed after closing and reopening the
+   panel. During a fresh component check, wait for its result before diagnosing
+   missing components.
 4. Report what was actually measured: a synthetic/loopback connection is not
    public Internet access; an HTTPS delay check is not a DNS-leak test or proof
    of the complete routing policy. Evidence from x86_64 is not an ARM64 install.

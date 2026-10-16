@@ -18,7 +18,7 @@ test('successful core step contains no recheck, installation help or repair navi
     const binding=block.slice(0,block.indexOf('\n            }')).match(/visible: ([^\n]+)/);
     assert(binding,name+' requires an explicit visibility decision');
     const shown=vm.runInNewContext(binding[1],c);
-    const expected=nativeCoreState!=='ready'&&(name!=='onboardingOtherVpnAdvice'||firstRun);
+    const expected=!['ready','checking'].includes(nativeCoreState)&&(name!=='onboardingOtherVpnAdvice'||firstRun);
     assert.equal(shown,expected,name+' in '+nativeCoreState+'/'+delivery);
    }
   }
@@ -120,7 +120,20 @@ test('successful component review removes recheck/help without hiding unsettled 
  const shown=acknowledgement.match(/visible: ([^\n]+)/)[1];
  assert(vm.runInNewContext(shown,{setup:{componentReview:true,needsAttention:false,terminalOpened:true,reviewReady:false}}));
 });
-function context(){const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,nativeImportBusy:false,nativeActionCode:'',nativeMetadataErrorAction:'',nativeMetadataErrorCode:'',nativeSnapshot:{onboardingComplete:false,routing:{storedPreset:''},profiles:[]},completeOnboarding:()=>true,useRoutingPreset:()=>true,refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset','dismissOnboarding','finishOnboarding','reviewComponentSetup']);return c}
+function context(){
+ const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativePending:null,
+  nativeImportBusy:false,nativeActionCode:'',nativeMetadataErrorAction:'',nativeMetadataErrorCode:'',
+  nativeSnapshot:{instanceId:'instance',revision:7,onboardingComplete:false,routing:{storedPreset:''},profiles:[]},
+  completeOnboarding:()=>true,useRoutingPreset:()=>true,
+  refreshNativeDesktopCapabilities(){this.helperReads=(this.helperReads||0)+1}},
+  setupPage:{checks:0,check(){this.checks++}},setupFlick:{contentY:90},componentSetupReview:false,
+  page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',nativeOnboardingCompletionPending:null,nativeOnboardingCompletionUnconfirmed:false,
+  onboardingCompletionTimeout:{stop(){},restart(){}},
+  onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},
+  importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
+ c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset',
+  'dismissOnboarding','finishOnboarding','markOnboardingCompletionUnconfirmed','reviewComponentSetup']);return c;
+}
 test('first use opens existing wizard, completed and dismissed states do not loop',()=>{
  const c=context();c.syncNativeOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,1);
  assert.equal(c.vless.helperReads,1);c.syncNativeOnboarding();assert.equal(c.vless.helperReads,1);
@@ -159,7 +172,8 @@ test('ready, missing, update and unknown core states do not borrow each other ac
  assert.equal(state.coreReview(ready,packageFacts,false,false,true),'terminal');
  assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false,true),'terminal');
  assert(panel.includes('nativeSetupTerminalOpened: setupPage.terminalOpened'));
- for(const facts of [{state:'checking',coreInstalled:null},{state:'needs_attention',coreInstalled:true},{state:'needs_dns_setup',coreInstalled:true}])
+ assert.equal(state.coreReview(ready,{state:'checking',coreInstalled:null},false,false),'checking');
+ for(const facts of [{state:'needs_attention',coreInstalled:true},{state:'needs_dns_setup',coreInstalled:true}])
   assert.equal(state.coreReview(ready,facts,false,false),'attention');
  assert.equal(state.coreReview(ready,{state:'needs_update',coreInstalled:false},false,false),'update');
  assert.equal(state.coreReview(null,{state:'needs_package',coreInstalled:false},false,false),'missing');
@@ -252,8 +266,8 @@ test('quick reopen waits for fresh completion rather than cached unfinished onbo
  // Explicit Settings review remains available even after completion.
  c.vless.nativeSnapshotFailed=false;c.vless.nativeSnapshot.onboardingComplete=true;
  assert(c.openOnboarding(1));assert(c.onboardingWizard.visible);
- assert(service.includes('readonly property bool nativeStatusRefreshing: statusProcess.running'));
- assert(panel.includes('function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }'));
+ assert(service.includes('readonly property bool nativeStatusRefreshing: statusProcess.running || !_nativeStatusSettled'));
+ assert(panel.includes('function onNativeStatusRefreshingChanged() { Qt.callLater(root.syncNativeOnboarding) }'));
 });
 test('preset step advances only after confirmed snapshot, not initial click or rejection',()=>{
  const c=context();c.openOnboarding(2);c.vless.nativePending={};assert(c.chooseOnboardingPreset('china-cn-direct'));assert.equal(c.onboardingWizard.step,2);
@@ -264,9 +278,19 @@ test('preset step advances only after confirmed snapshot, not initial click or r
  c.vless.nativeMetadataErrorCode='';c.chooseOnboardingPreset('iran-ir-direct');c.vless.nativeOutcomeUnknown=true;c.vless.nativePending={action:'routing-preset'};c.syncNativeOnboarding();assert.equal(c.nativeOnboardingPresetPending,'iran-ir-direct');assert.equal(c.onboardingWizard.step,2);
  assert(panel.includes('function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }'));
 });
-test('finish submits acknowledgement then uses normal pending/recovery surface',()=>{
+test('finish keeps the wizard until persisted completion is confirmed',()=>{
  const c=context();c.openOnboarding(3);c.vless.completeOnboarding=()=>false;c.finishOnboarding();assert(c.onboardingWizard.visible);
- c.vless.completeOnboarding=()=>true;c.finishOnboarding();assert(!c.onboardingWizard.visible);assert(c.onboardingDismissed);assert.equal(c.vless.nativeSnapshot.onboardingComplete,false);
+ c.vless.completeOnboarding=()=>{c.vless.nativePending={action:'onboarding-complete'};return true};
+ c.finishOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,3);
+ assert.equal(c.vless.nativeSnapshot.onboardingComplete,false);
+ c.syncNativeOnboarding();assert(c.onboardingWizard.visible);
+ // Acknowledgement precedes its persisted snapshot; it is not completion.
+ c.vless.nativePending=null;c.syncNativeOnboarding();assert(c.onboardingWizard.visible);
+ c.vless.nativeSnapshot.onboardingComplete=true;c.syncNativeOnboarding();
+ assert(!c.onboardingWizard.visible);assert(c.onboardingDismissed);
+ // Ordinary close/reopen clears session dismissal, not the native completion.
+ c.opened=false;c.syncNativeOnboarding();c.opened=true;c.onboardingDismissed=false;
+ c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
 });
 test('native completion shares exact pending fence and zero private arguments',()=>{
  const c=vm.createContext({nativeOwner:true,nativeCanAct:true,nativeSnapshot:{instanceId:'instance',revision:7},_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',nativeActionProcess:{},nativeActionCode:'',nativeSubscriptionDraft:null,nativeSubscriptionCode:'',nativeOutcomeUnknown:false,nativePending:null,nativeRefusalVerification:null,nativeRefusalVerificationTimeout:{stop(){}}});
@@ -410,5 +434,96 @@ test('wizard navigation consumes only Tab/Backtab and preserves other keys',()=>
  functions(wizard,c,['handleNavigation']);
  for(const [key,modifiers,expected] of [[1,0,1],[1,4,-1],[2,0,-1]]) {const e={key,modifiers,accepted:false};c.handleNavigation(e);assert(e.accepted);assert.equal(calls.at(-1),expected)}
  const e={key:3,modifiers:0,accepted:false};c.handleNavigation(e);assert(!e.accepted);assert.equal(calls.length,3);
+});
+test('completion refusal, unknown outcome and close/reopen never reset to step one',()=>{
+ for(const outcome of ['refused','unknown','waiting','complete']) {
+  const c=context();c.openOnboarding(3);
+  c.vless.completeOnboarding=()=>{c.vless.nativePending={action:'onboarding-complete'};return true};
+  c.finishOnboarding();c.opened=false;c.onboardingWizard.dismiss();c.onboardingDismissed=false;
+  if(outcome==='refused'){c.vless.nativePending=null;c.vless.nativeActionCode='conflict'}
+  if(outcome==='unknown')c.vless.nativeOutcomeUnknown=true;
+  if(outcome==='complete'){c.vless.nativePending=null;c.vless.nativeSnapshot.onboardingComplete=true}
+  c.opened=true;c.syncNativeOnboarding();
+  if(c.onboardingWizard.visible)assert.equal(c.onboardingWizard.step,3);
+  if(outcome==='refused')assert(c.onboardingWizard.visible);
+  if(outcome==='complete')assert.equal(c.nativeOnboardingCompletionPending,null);
+ }
+});
+test('status read is settled only after publishing result, including a queued post-action read',()=>{
+ const process=service.slice(service.indexOf('    id: statusProcess'));
+ const start=process.indexOf('    onExited: function(exitCode) {'),end=process.indexOf('\n    }',start)+6;
+ const handler=process.slice(start,end).replace('    onExited: function(exitCode)','function exited(exitCode)');
+ const expression=service.match(/readonly property bool nativeStatusRefreshing: ([^\n]+)/)[1];
+ for(const queued of [false,true]) {
+  const c=context(),v=c.vless,callbacks=[];
+  const s=vm.createContext({statusProcess:{running:true},_nativeStatusSettled:false,_refreshAfterStatus:queued,
+   statusStdout:{text:'synthetic'},statusFailureCount:0,nativeOwner:true,
+   Qt:{callLater:f=>callbacks.push(f)},refreshAfterChange(){this.statusProcess.running=true},
+   applyStatus(){v.nativeSnapshot.onboardingComplete=!this._refreshAfterStatus;c.syncNativeOnboarding();return true}});
+  s.root=s;Object.defineProperty(v,'nativeStatusRefreshing',{get:()=>vm.runInContext(expression,s)});
+  vm.runInContext(handler,s);
+  // Quickshell can publish running=false before calling its exit handler.
+  s.statusProcess.running=false;c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+  s.exited(0);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+  assert.equal(v.nativeStatusRefreshing,queued);
+  if(queued){assert.equal(callbacks.length,1);callbacks.shift().call(s);assert(s.statusProcess.running);
+   s.statusProcess.running=false;s.exited(0);assert.equal(v.nativeStatusRefreshing,false)}
+ }
+});
+test('restart and acknowledged unknown release completion wait without claiming success',()=>{
+ for(const restart of [false,true])for(const complete of [false,true]) {
+  const c=context();c.openOnboarding(3);c.finishOnboarding();
+  c.vless.nativeOutcomeUnknown=true;c.vless.nativePending={action:'onboarding-complete'};
+  c.syncNativeOnboarding();assert(c.nativeOnboardingCompletionPending);
+  // The existing recovery action explicitly accepts a freshly joined state.
+  c.vless.nativePending=null;c.vless.nativeOutcomeUnknown=false;
+  c.vless.nativeFactsCurrent=true;c.vless.nativeMetadataBusy=false;
+  if(restart)c.vless.nativeSnapshot.instanceId='new-instance';
+  c.vless.nativeSnapshot.onboardingComplete=complete;c.syncNativeOnboarding();
+  assert.equal(c.nativeOnboardingCompletionPending,null);
+  assert.equal(c.onboardingWizard.visible,restart||!complete);
+  if(restart||!complete){assert(c.nativeOnboardingCompletionUnconfirmed);assert.equal(c.onboardingWizard.step,3)}
+  if(!complete){c.opened=false;c.onboardingWizard.dismiss();c.onboardingDismissed=false;
+   c.opened=true;c.syncNativeOnboarding();assert(c.onboardingWizard.visible);assert.equal(c.onboardingWizard.step,3)}
+ }
+});
+test('failed read cannot spin forever; late completion still needs a confirmed native snapshot',()=>{
+ const c=context();c.openOnboarding(3);c.finishOnboarding();
+ c.vless.nativeSnapshotFailed=true;c.syncNativeOnboarding();assert(c.nativeOnboardingCompletionPending);
+ c.markOnboardingCompletionUnconfirmed();assert(c.nativeOnboardingCompletionUnconfirmed);
+ assert(c.onboardingWizard.visible);assert.equal(c.vless.nativeSnapshot.onboardingComplete,false);
+ c.vless.nativeSnapshotFailed=false;c.vless.nativeSnapshot.onboardingComplete=true;
+ c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);assert(!c.nativeOnboardingCompletionUnconfirmed);
+ const unknown=context();unknown.openOnboarding(3);unknown.finishOnboarding();
+ unknown.vless.nativePending={action:'onboarding-complete'};unknown.vless.nativeOutcomeUnknown=true;
+ unknown.markOnboardingCompletionUnconfirmed();unknown.syncNativeOnboarding();
+ assert(unknown.nativeOnboardingCompletionPending);assert(unknown.vless.nativePending);
+ assert(unknown.onboardingWizard.visible);assert(unknown.vless.nativeOutcomeUnknown);
+});
+test('known bounded metadata refresh is neutral, never healthy or a hidden real failure',()=>{
+ const expression=panel.match(/readonly property bool nativeMetadataVerifying: ([\s\S]*?)\n  readonly property bool nativeStatusWaiting:/)[1].trim();
+ function fixture(){return {nativeMetadataTransition:{instanceId:'instance',failed:false},nativeSnapshot:{instanceId:'instance',lastKnownActual:'disconnected'},nativeObservation:null,nativeOutcomeUnknown:false,nativeActionCode:'',nativeSnapshotFailed:false}}
+ function verify(v){return vm.runInNewContext(expression,{vless:v,NativeSnapshot:parser})}
+ assert(verify(fixture()));
+ for(const mutate of [v=>v.nativeMetadataTransition=null,v=>v.nativeMetadataTransition.failed=true,
+  v=>v.nativeSnapshot.instanceId='new',v=>v.nativeSnapshot.lastKnownActual='failed',
+  v=>v.nativeSnapshot.lastKnownActual='manualRecoveryRequired',v=>v.nativeOutcomeUnknown=true,
+  v=>v.nativeActionCode='conflict',v=>v.nativeSnapshotFailed=true]) {
+  const v=fixture();mutate(v);assert(!verify(v));
+ }
+ assert(panel.includes('nativeTransitionKind !== "" || nativeMetadataVerifying'));
+});
+test('first component read shows checking, not an install/preparation card',()=>{
+ const state=require('../plugin/SetupState.js'),card=fs.readFileSync(__dirname+'/../plugin/RequiredComponents.qml','utf8');
+ const checking=card.match(/readonly property bool checking: ([^\n]+)/)[1];
+ const surfaces=[...card.matchAll(/    visible: (!card.checking[^\n]+)/g)].map(m=>m[1]);
+ for(const facts of [{state:'checking',coreInstalled:null},{state:'needs_package',coreInstalled:false},{state:'ready',coreInstalled:true}]) {
+  const c={facts,busy:true,busyMessage:'checking',appMissing:state.appMissing(facts),coreMissing:facts.coreInstalled===false,showPreparation:true,updateReview:true,terminalOpened:false};
+  c.card=c;c.checking=vm.runInNewContext(checking,c);assert(c.checking);
+  for(const expression of surfaces)assert(!vm.runInNewContext(expression,c));
+ }
+ assert.equal(state.coreReview(null,{state:'ready',coreInstalled:true},false,false),'checking');
+ assert.equal(state.coreReview(null,{state:'ready',coreInstalled:true},false,true),'attention');
+ assert.equal(state.coreReview(null,{state:'needs_package',coreInstalled:false},false,false),'missing');
 });
 console.log(`${count} native onboarding tests passed`);

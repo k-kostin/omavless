@@ -301,6 +301,16 @@ actual publication order, not just a manually invoked settled callback. Include
 a refusal with an already-matching cached value and an unknown result; neither
 may advance the journey as if the new action succeeded.
 
+First-run completion additionally covers Finish -> native acknowledgement ->
+persisted completion -> close to desktop -> reopen. A submitted command is not
+completion. Model Process.running becoming false before result publication and
+an old in-flight read before a queued post-action read. Bound local waiting;
+failed reads, restart and acknowledged unknown outcomes must leave a reachable
+explicit continuation without clearing native operation fences or resubmitting.
+Initial component reads show checking, not missing/setup-required actions.
+An expected metadata observation refresh must not flash a fatal VPN indicator;
+its neutral presentation is bounded and never masks actual failure/recovery.
+
 ### Installed review and safety
 
 - Record source commit, installed frontend identity and relevant viewport/locale.

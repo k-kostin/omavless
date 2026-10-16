@@ -91,7 +91,10 @@ Item {
   property bool nativeSnapshotFailed: false
   // Automatic first-use presentation must wait for the read requested on open,
   // especially just after an acknowledgement changed persistent completion.
-  readonly property bool nativeStatusRefreshing: statusProcess.running
+  // Process.running may become false before onExited publishes the snapshot.
+  // Keep first-use/reopen behind the completed read, including a queued refresh.
+  property bool _nativeStatusSettled: false
+  readonly property bool nativeStatusRefreshing: statusProcess.running || !_nativeStatusSettled
   property var nativeObservation: null
   property var nativePending: null
   property string nativeActionCode: ""
@@ -1747,6 +1750,7 @@ Item {
     // *requested* — anything that happens while the poll runs or waits to
     // be parsed is "after the observation" and must keep its marker.
     _statusStartedAt = Date.now()
+    _nativeStatusSettled = false
     statusProcess.running = true
     return true
   }
@@ -4164,7 +4168,7 @@ Item {
       if (root._refreshAfterStatus) {
         root._refreshAfterStatus = false
         Qt.callLater(root.refreshAfterChange)
-      }
+      } else root._nativeStatusSettled = true
     }
   }
 
