@@ -51,9 +51,11 @@ Item {
     if (!visible || copyGeneration !== generation) return
     copyState = code === 0 ? "copied" : "copy_failed"
     if (code !== 0) requestExpanded = true
-    // Keep the result visible when the user is still on Copy; do not steal
-    // focus if they have already moved to another action.
-    if (copyButton.activeFocus) reveal(copyButton)
+    // Disclosure can move a lower action out of view. Reveal the currently
+    // focused control after layout without moving focus to another action.
+    for (var i = 0; i < focusTargets.length; i++) {
+      if (focusTargets[i].activeFocus) { reveal(focusTargets[i]); break }
+    }
   }
   function toggleRequest() {
     if (!visible) return

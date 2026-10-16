@@ -31,6 +31,8 @@ function context(locale = 'en') {
     canceled() { c.closed = true; }, guideRequested(section) { c.guide = section; },
     issueRequested() { c.issue = true; }});
   c.help = c;
+  c.guideButton = {activeFocus: false}; c.issueButton = {activeFocus: false}; c.closeButton = {activeFocus: false};
+  c.focusTargets = [c.copyButton, c.requestToggle, c.requestText, c.guideButton, c.issueButton, c.closeButton];
   for (const name of ['tr', 'openHelp', 'dismiss', 'copyRequest', 'finishCopy', 'toggleRequest', 'clampScroll', 'openGuide', 'openIssue', 'navigate']) loadFunction(source, name, c);
   c.agentPrompt = I18n.translate('help.agent_prompt', locale);
   return c;
@@ -107,14 +109,29 @@ test('collapsing clamps the scroll even when the toggle does not own focus', () 
 test('copy failure reveals manual text without stealing another action focus', () => {
   const c = context(); c.openHelp('help'); c.copyRequest();
   c.copyButton.activeFocus = false;
+  c.guideButton.activeFocus = true;
   c.finishCopy(1);
   assert(c.requestExpanded); assert.equal(c.copyState, 'copy_failed');
-  assert.equal(c.revealed, undefined); assert(!c.focusedToggle);
+  assert.equal(c.revealed, c.guideButton); assert(!c.focusedToggle);
+  c.guideButton.activeFocus = false;
   c.requestExpanded = false; c.copyButton.activeFocus = true;
   c.finishCopy(124);
   assert(c.requestExpanded); assert.equal(c.revealed, c.copyButton);
   c.requestExpanded = false; c.finishCopy(0);
   assert(!c.requestExpanded, 'success keeps compact view');
+});
+test('late failure reveals the same lower focused action using its new layout position', () => {
+  for (const name of ['guideButton', 'issueButton', 'closeButton']) {
+    const c = context(); c.openHelp('help'); c.copyRequest();
+    c[name].activeFocus = true; c[name].height = 35;
+    c[name].mapToItem = () => ({y: c.requestExpanded ? 650 : 220});
+    c.helpScroll.height = 300; c.helpScroll.contentHeight = 800;
+    loadFunction(source, 'reveal', c);
+    c.finishCopy(1);
+    assert(c[name].activeFocus, 'focus stays on ' + name);
+    assert.equal(c.helpScroll.contentY, 385, name + ' remains visible after expansion');
+    assert(!c.focusedToggle);
+  }
 });
 test('guide and issue are independent explicit navigation, not copy prerequisites', () => {
   const c = context(); c.openHelp('updates');
