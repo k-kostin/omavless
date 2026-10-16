@@ -13,5 +13,5 @@
 
 Use the current [OmaVLESS guide](NATIVE_INSTALL.md#updates) for this version.
 
-[Earlier version-specific instructions](https://github.com/k-kostin/omavless/blob/a4da21bc579e1a5a1fb84300ce9035506cdf772e/docs/user/INSTALL_082_REFERENCE.md) remain available as a
+[Earlier version-specific instructions](https://github.com/k-kostin/omavless/blob/5edf4eb203926d8bd39a3ff80f611a19435c3787/docs/user/INSTALL_082_REFERENCE.md) remain available as a
 historical reference, not the current setup procedure.

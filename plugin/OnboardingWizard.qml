@@ -39,6 +39,7 @@ Item {
   property bool busy: false
   property bool routingSavePending: false
   property bool routingSaveUnknown: false
+  property bool completionPending: false
   property string installCommand: ""
   property string capabilityCommand: ""
   property string verifyCommand: ""
@@ -233,7 +234,7 @@ Item {
 
             PlainText {
               objectName: "onboardingOtherVpnAdvice"
-              visible: wizard.nativeContext && wizard.firstRun && wizard.nativeCoreState !== "ready"
+              visible: wizard.nativeContext && wizard.firstRun && wizard.nativeCoreState !== "ready" && wizard.nativeCoreState !== "checking"
               width: parent.width
               text: wizard.textFor("setup.other_vpn_advice")
               color: wizard.dim
@@ -244,7 +245,7 @@ Item {
 
             PlainText {
               objectName: "onboardingDnsHelperIntro"
-              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready" && wizard.nativeCoreState !== "checking"
               width: parent.width
               text: wizard.textFor("setup.dns_helper_intro")
               color: wizard.dim
@@ -304,7 +305,7 @@ Item {
               elide: Text.ElideMiddle
             }
             PlainText {
-              visible: wizard.nativeContext
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "checking"
               width: parent.width
               text: wizard.textFor(wizard.nativeCoreState === "ready" ? "native.onboarding.core_ready_scope"
                 : wizard.nativeCoreState === "terminal" ? "native.onboarding.terminal_help"
@@ -316,7 +317,7 @@ Item {
             }
             WizardButton {
               objectName: "onboardingComponentSetup"
-              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready" && wizard.nativeCoreState !== "checking"
               text: wizard.textFor(wizard.nativeCoreState === "update" || SetupState.hasUpdate(wizard.nativeSetupFacts) ? "native.onboarding.review_update"
                 : wizard.nativeCoreState === "missing" ? "native.onboarding.review_install" : "native.onboarding.review_setup")
               enabled: !wizard.busy && !wizard.nativeSetupBusy
@@ -328,7 +329,7 @@ Item {
             }
             WizardButton {
               objectName: "onboardingCoreRefresh"
-              visible: !wizard.nativeContext || wizard.nativeCoreState !== "ready"
+              visible: !wizard.nativeContext || (wizard.nativeCoreState !== "ready" && wizard.nativeCoreState !== "checking")
               text: wizard.textFor("common.check_again")
               bordered: false
               enabled: !wizard.busy && !wizard.nativeSetupBusy
@@ -338,7 +339,7 @@ Item {
             }
             WizardButton {
               objectName: "onboardingSetupGuide"
-              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready"
+              visible: wizard.nativeContext && wizard.nativeCoreState !== "ready" && wizard.nativeCoreState !== "checking"
               text: wizard.textFor("native.onboarding.setup_guide")
               bordered: false
               foreground: wizard.dim
@@ -613,10 +614,10 @@ Item {
                 Layout.fillWidth: navigation.columns === 1
                 Layout.alignment: Qt.AlignRight
                 primary: wizard.profiles.length > 0
-                text: wizard.profiles.length > 0
+                text: wizard.completionPending ? wizard.textFor("onboarding.finishing") : wizard.profiles.length > 0
                   ? wizard.textFor("onboarding.finish") : wizard.textFor("onboarding.finish_later")
                 bordered: true
-                enabled: !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
+                enabled: !wizard.busy && !wizard.completionPending && (!wizard.nativeContext || wizard.nativeCanContinue)
                 foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.finishRequested()

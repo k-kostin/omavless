@@ -68,6 +68,7 @@ without importing a profile. Neither starts a VPN.
    a profile. **Finish without a profile** is available without a profile. The default VPN
    autoconnect setting is Off. Fresh setup enables the application service for
    future logins, but that is not permission to auto-connect.
+   After choosing **Finish**, wait for the main panel. No VPN starts automatically.
 
    At **Core ready**, choose **Continue**. This means the core is ready for
    setup, not that a VPN is connected. If something is missing or needs an
@@ -424,7 +425,7 @@ with `omarchy pkg add zenity`. Clipboard import does not require a picker.
 
 A default-deny firewall can block traffic on the TUN even when the panel says
 Connected. Setup never disables or changes firewall rules. See the
-[scoped firewall guidance](https://github.com/k-kostin/omavless/blob/a4da21bc579e1a5a1fb84300ce9035506cdf772e/docs/user/NATIVE_INSTALL_082_REFERENCE.md#default-deny-firewall-and-tun);
+[scoped firewall guidance](https://github.com/k-kostin/omavless/blob/5edf4eb203926d8bd39a3ff80f611a19435c3787/docs/user/NATIVE_INSTALL_082_REFERENCE.md#default-deny-firewall-and-tun);
 review your actual interface/address/policy rather than copying an exception
 for a different host.
 

@@ -2,7 +2,7 @@
 
 This branch contains the stable user distribution. The complete source,
 tests, build tools and developer instructions for this snapshot are preserved
-at [the matching source commit](https://github.com/k-kostin/omavless/blob/a4da21bc579e1a5a1fb84300ce9035506cdf772e).
+at [the matching source commit](https://github.com/k-kostin/omavless/blob/5edf4eb203926d8bd39a3ff80f611a19435c3787).
 
 For development, use a separate checkout of the full-source development branch
 and read its AGENTS.md. Do not modify an installed user's plugin as a development
