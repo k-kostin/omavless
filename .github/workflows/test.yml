@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [main, 'dev/098-finalization-integration']
+    branches: [development]
     tags: ['**']
   pull_request:
 

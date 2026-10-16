@@ -1,14 +1,14 @@
 # OmaVLESS roadmap map
 
-Status: design and delivery index, updated 2026-09-14.
+Status: full-source design and delivery index, reconciled 2026-10-16.
 
-The native installed path has completed scoped local R6 acceptance. Start with
-the [current delivery status](CURRENT_STATUS.md),
-the [closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md) and
-[publication candidate](../testing/R6_PUBLICATION_CANDIDATE_2026-09-13.md), not the
-historical migration sequence below. Native integration #238 is merged; release
-and marketplace publication remain separate. Enabled login autoconnect remains
-[AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md).
+Start with the [current delivery status](CURRENT_STATUS.md) and the
+[new-base queue](../development/DEVELOPMENT_INVENTORY.md#new-base-queue).
+Fix.8 is published, main is the stable user distribution and development is the
+full-source home. Scoped R6 is accepted; its [original closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md)
+and [earlier publication candidate](../testing/R6_PUBLICATION_CANDIDATE_2026-09-13.md)
+are retained history, not today's task list. Enabled login autoconnect remains
+[AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md), not inferred PASS from release delivery.
 
 OmaVLESS keeps the operational delivery ledger at repository root and longer
 contracts under this directory. The roadmap now separates four concerns which
@@ -32,8 +32,8 @@ must not be confused:
   Rust ownership cutover and rollback contract.
 - [`TUI_APP.md`](TUI_APP.md) — selected Rust + Ratatui full application client,
   UI responsibilities and T2+ delivery phases.
-- [`PRIVATE_BACKUP_RESTORE.md`](PRIVATE_BACKUP_RESTORE.md) — inactive T4
-  security/product proposal for portable private-state backup and restore.
+- [`PRIVATE_BACKUP_RESTORE.md`](PRIVATE_BACKUP_RESTORE.md) — T4 portable private
+  state contract: shipped Backup-only scope versus separately gated consumer Restore.
 - [`GUI_RESEARCH.md`](GUI_RESEARCH.md) — G1 candidates, huacnlee/GPUI references,
   semantic-client boundary, dependency risks and staged evaluation gates;
   research direction, not GUI implementation or adoption approval.
@@ -76,8 +76,11 @@ The forward product is:
 > **OmaVLESS — a terminal-first VPN and proxy client for Linux, with first-class
 > Omarchy integration and initial standalone support for Arch and NixOS.**
 
-Current published 0.7.0 remains an Omarchy QML/Quickshell plugin backed by
-Python and external Mihomo. Future product shape is:
+Current published 0.9.8 fix.8 uses QML/Quickshell with the canonical Rust
+runtime and the selected managed Mihomo/DNS pair. Python production is retired;
+the frozen reference remains separate. The CLI and bounded Backup TUI are
+already delivered, not a reason to restart T2 from an old migration checklist.
+The longer-term client/host shape remains:
 
 ```text
                    Omarchy bar
@@ -105,11 +108,12 @@ Standalone clients:
   optional later Rust GUI client
 ```
 
-## Current migration doctrine
+## Retained migration doctrine
 
 There is no big-bang rewrite branch.
 
-For each backend subsystem:
+The accepted migration followed this per-subsystem sequence. It explains the
+preserved fixture provenance; it is not a new R0–R6 execution queue:
 
 ```text
 Python reference
@@ -135,7 +139,10 @@ The final normal package should not require Python, pip, venv or Python modules.
 Cargo/crates are build-time source dependencies; ordinary users run the built
 `omavless` executable and do not need Cargo at runtime.
 
-Mihomo stays external and separately packaged.
+Mihomo remains a separate process. The current managed core is bundled with the
+selected DNS package; a separately installed stock core is unrelated software.
+Use the [selected distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md),
+not an old stock-core recipe, for package identity.
 
 ## Current two-lane strategy
 
@@ -153,7 +160,7 @@ Keep improving the current plugin where work is genuinely plugin-facing:
 Do not force every future app feature into the bar merely to call the plugin
 "complete".
 
-### Rust migration lane
+### Native application lane
 
 The dependency sequence (not a list of still-unimplemented stages) is:
 
@@ -202,7 +209,7 @@ not new Python-plugin subsystems:
 - K1 kill switch implementation;
 - optional Xray backend;
 - persistent background scheduling/recovery;
-- production TUI.
+- further TUI workflows beyond the shipped bounded client.
 
 Implementing them deeply in Python first would create immediate rewrite and, for
 K1/lifecycle work, additional security risk.
@@ -246,17 +253,12 @@ Keep those statuses explicit in PR bodies and handoffs.
 
 ## Current priority
 
-For the integrated native application:
-
-1. preserve #238/#240 integration and their exact evidence; do not reopen the
-   completed main-publication/branch-reconciliation task;
-2. complete native distribution/release gates separately; marketplace text,
-   screenshots and publication remain owner-controlled;
-3. investigate the preserved network/DNS failure and AUTO-1 under their own
-   reproducible host gates, without relabeling them PASS;
-4. start a bounded T2 client slice only when separately authorized; it must use
-   the existing Rust runtime, never become another tunnel owner;
-5. keep V0/P4 maturity and Arch/NixOS acceptance tied to their own evidence.
+Use the single [new-base queue](../development/DEVELOPMENT_INVENTORY.md#new-base-queue)
+and the delivery ledger's owner-selected requirements. Finish source-home/CI
+organization, then select bounded import and mandatory consumer Restore work
+on the new base; do not merge an old beta wholesale. P4/K1/S1/G1, background
+recovery, V0 and host follow-ups retain their own scope/acceptance boundaries.
+Public main, release delivery and Marketplace remain separate authorities.
 
 Do not repeat completed R0–R6 work from an older checkpoint or build new
 application features in the retired native Python path.

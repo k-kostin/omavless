@@ -24,16 +24,22 @@ The issue remains open for the reporter's result; do not duplicate the reply or
 infer that his installation is fixed. No Marketplace update follows.
 
 Current owner request: post-delivery [retrospective](../development/POST_FIX8_RETROSPECTIVE.md)
-and systematic GitHub cleanup classification. The owner selected `development`,
+and systematic GitHub/source-home organization. The owner selected `development`,
 created from released source5edf4eb2, not an old beta. Developer-rule changes
-and a fixture-maintenance correction remain in #796, now targeting development,
-not integrated or CI-green yet. Initial CI failed in TemporaryDirectory cleanup
+and the fixture-maintenance correction belong to #796, targeting development.
+Its owning PR records actual exact-head CI and integration, not an inferred
+result from a local suite. Initial CI failed in TemporaryDirectory cleanup
 of a synthetic Git objects directory; its original result is retained. A trace
 regression first failed on automatic maintenance, then passed with fixture-only
 Git flags. This does not prove the original CI process interleaving.
-The [development inventory](../development/DEVELOPMENT_INVENTORY.md) retains old
-bases and explicit requalification. No old PR closure/retarget, branch/worktree
-deletion, main/release or VM change follows from creating this home.
+The [new-base queue](../development/DEVELOPMENT_INVENTORY.md#new-base-queue) retains
+old bases and explicit requalification. Subsequent exact-list authority removed
+106 redundant remote names, preserving their commits via immutable fix.8;
+#763's carried scheduling patch was closed with a precise disposition. The
+remaining 16 old-main Drafts have visible individual statuses, not a blanket
+retarget. The second worktree audit is a remote-only proposal; local checkouts,
+private/ignored artifacts, unique histories and old beta/RC dependency bases
+remain retained. No main/release or VM change follows from source organization.
 Restore/0.9.9, V0, P4, K1, S1 and GUI keep their own unfinished gates.
 
 ## Earlier finalization snapshots — superseded task lists

@@ -1,6 +1,22 @@
 # Native release, beta and RC preparation
 
-## Unpublished finalization candidate
+## Current baseline and source lane
+
+Fix.8 is delivered through #795, with full source5edf4eb2 and unchanged native
+producer2d54b430. See the [current source/distribution map](../../docs/development/STABLE_DISTRIBUTION_TRANSITION.md#current-map--after-fix8-delivery)
+for exact identities and evidence limits. The owner selected development as
+the new full-source home; main remains the generated stable user distribution.
+Historical preparation below does not reopen the completed delivery or grant
+permission for another release.
+
+The source-lane successor proposes full push Test on development, all PRs and
+tags. Its exact workflow blob and exporter trust pin must be independently
+reviewed together. Generated user Distribution workflow/bootstrap stay
+unchanged. Actual new exact-head push/source-bootstrap admission is a separate
+required check after the lane is integrated, not inferred from unit fixtures
+or this documentation. No main/release/tag/asset changes are part of this work.
+
+## Historical finalization candidate
 
 Proposed **0.9.8 / `v0.9.8-fix.8`** selects inspected matching packages from
 `2d54b430866fd5b2849cd815f8552a4e9e2d16a8`: Native packages38858155305 and
@@ -39,7 +55,7 @@ the separate ARM remainder are not inferred from these build/archive gates.
 Main, immutable tag/assets, Marketplace and Aryan posting still need their
 applicable owner authorization. No fix.8 tag/release has been created.
 
-## Public baseline
+## Historical public baseline before fix.8
 
 Current published correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
 producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b` and inspected matching pins
@@ -170,8 +186,10 @@ nor run Cargo in the stripped user tree. Source history is fetched to
 retain the existing native-producer ancestry check; a shallow single commit is
 not enough. Source workflow changes require an explicit update/review of the
 validator's workflow-blob policy; validator changes require an explicitly
-reviewed trust-table update. The selected integration branch also receives a
-push Test run for this gate. Cancel its redundant same-head PR run only after
+reviewed trust-table update. The full-source lane is development; the frozen
+fix.8 workflow's release-specific integration branch is retained in immutable
+history, not kept as another moving source lane. Cancel a redundant same-head
+PR run only after
 the full push run is identified; cancelled is not PASS. Batch source pushes.
 Draft metadata remains unpublished even after
 technical verification; this tool never grants main/publication authorization.

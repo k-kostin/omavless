@@ -9,6 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RustCiIsolationTests(unittest.TestCase):
+    def test_full_source_push_lane_is_development_not_the_user_distribution(self):
+        source = (ROOT / ".github/workflows/test.yml").read_text()
+        self.assertIn("branches: [development]", source)
+        self.assertIn("tags: ['**']", source)
+        self.assertIn("  pull_request:", source)
+        self.assertNotIn("dev/098-finalization-integration", source)
+        self.assertNotIn("branches: [main", source)
+        distribution = (ROOT / "packaging/release/distribution/test.yml").read_text()
+        self.assertIn("branches: [main]", distribution)
+        self.assertIn("source-bootstrap.py", distribution)
+
     def test_superseded_pr_runs_cancel_without_skipping_latest_checks(self):
         source = (ROOT / ".github/workflows/test.yml").read_text()
         self.assertIn("group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", source)
