@@ -66,6 +66,7 @@ Panel {
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
   property string page: "main"
+  property var helpReturnFocus: null
   property int subscriptionIndex: 0
   property int configIndex: 0
   property var expandedSubscriptions: ({})
@@ -121,7 +122,7 @@ Panel {
   // Sheets and confirmations own pointer/scroll input while visible. Keeping
   // the page Flickables interactive underneath a translucent sheet lets one
   // wheel gesture move two surfaces and exposes two competing scrollbars.
-  readonly property bool modalInputActive: onboardingWizard.visible
+  readonly property bool modalInputActive: helpPrompt.visible || onboardingWizard.visible
     || startupPrompt.visible || routingToolsPrompt.visible
     || routingPresetPrompt.visible || importDialog.visible
     || subscriptionPrompt.visible || pendingEdit !== null
@@ -787,6 +788,22 @@ Panel {
     page = "main"
   }
 
+  function openHelp(section, returnFocus) {
+    helpReturnFocus = returnFocus || null
+    helpPrompt.openHelp(section)
+  }
+
+  function closeHelp() {
+    helpPrompt.dismiss()
+    var target = helpReturnFocus
+    helpReturnFocus = null
+    Qt.callLater(function() {
+      if (target && target.visible) target.forceActiveFocus()
+      else if (onboardingWizard.visible) onboardingWizard.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
+  }
+
   function nativeCoreSetupDescription() {
     if (vless.nativeCoreSetupStatus !== "") return textFor("native.core." + vless.nativeCoreSetupStatus)
     var facts = vless.nativeCoreSetupFacts
@@ -814,7 +831,7 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -1573,6 +1590,8 @@ Panel {
     subscriptionPrompt.dismiss()
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
+    helpPrompt.dismiss()
+    helpReturnFocus = null
     onboardingWizard.dismiss()
     nativeOnboardingPresetPending = ""
     routingToolsPrompt.dismiss()
@@ -1895,7 +1914,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      helpPrompt.visible ? Style.space(600) : root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -1905,7 +1924,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
+      blocked: helpPrompt.visible || root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
@@ -2044,8 +2063,8 @@ Panel {
         contentWidth: width
         contentHeight: setupPage.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
-        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
+        interactive: contentHeight > height && !root.modalInputActive
+        ScrollBar.vertical: OmaScrollBar { policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded }
         SetupPage {
           id: setupPage
           width: Math.max(0, setupFlick.width - root.scrollGutter)
@@ -2057,6 +2076,7 @@ Panel {
             || vless.nativeOutcomeUnknown || vless.nativeQuitting
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
+          onHelpRequested: function(section) { root.openHelp(section, setupPage) }
           onCloseRequested: {
             if (root.componentSetupReview) {
               root.componentSetupReview = false
@@ -2407,6 +2427,15 @@ Panel {
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }
+          SettingsActionRow {
+            id: nativeHelpSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("help.title")
+            description: root.textFor("help.settings_description")
+            actionText: root.textFor("common.open")
+            onAction: root.openHelp("help", nativeHelpSetting.focusTarget)
+          }
           BorderSurface {
             id: nativeSupportSetting
             Layout.fillWidth: true
@@ -4050,13 +4079,23 @@ Panel {
           setupPage.check()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
-        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md")
+        onSetupGuideRequested: root.openHelp("install", onboardingWizard)
         onComponentSetupRequested: root.reviewComponentSetup()
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }
         onFinishRequested: root.finishOnboarding()
         onCanceled: root.dismissOnboarding()
+      }
+
+      HelpPrompt {
+        id: helpPrompt
+        anchors.fill: parent
+        z: 20
+        locale: root.uiLocale
+        onGuideRequested: function(section) { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md#" + section) }
+        onIssueRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/issues/new")
+        onCanceled: root.closeHelp()
       }
 
       StartupPrompt {

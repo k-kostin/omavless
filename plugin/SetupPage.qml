@@ -26,16 +26,19 @@ Item {
   property string launchAction: "install"
   property bool nativeEffectBlocked: false
   readonly property bool busy: probe.running || launching || startApp.running
+  readonly property bool reviewReady: setup.state === "ready" && setup.reviewCoreState === "ready"
+    && !setup.busy && !setup.terminalOpened && !setup.nativeEffectBlocked
   readonly property string script: String(Qt.resolvedUrl("setup-runtime.sh")).replace(/^file:\/\//, "")
   readonly property var focusTargets: requirements.focusTargets.concat([reviewTerminalButton, reviewCheckButton, reviewGuideButton, closeButton])
   implicitHeight: content.implicitHeight
   signal ready()
   signal closeRequested()
   signal factsRefreshRequested()
+  signal helpRequested(string section)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   function check() { if (!probe.running && !launch.running) probe.running = true }
   function acknowledgeTerminalClosed() { terminalOpened = false; check() }
-  function guide() { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md") }
+  function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }
   function install(action) {
     var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
@@ -142,7 +145,7 @@ Item {
     Button {
       id: reviewCheckButton
       Layout.fillWidth: true
-      visible: setup.componentReview && !setup.needsAttention
+      visible: setup.componentReview && !setup.needsAttention && !setup.reviewReady
       enabled: !setup.busy
       text: setup.tr("check"); bordered: true; focusable: true
       onClicked: { setup.check(); setup.factsRefreshRequested() }
@@ -150,10 +153,10 @@ Item {
     Button {
       id: reviewGuideButton
       Layout.fillWidth: true
-      visible: setup.componentReview && !setup.needsAttention
+      visible: setup.componentReview && !setup.needsAttention && !setup.reviewReady
       text: setup.tr("guide_short"); bordered: false; focusable: true
       onClicked: setup.guide()
     }
-    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && !setup.needsAttention && setup.reviewCoreState === "ready" && !setup.terminalOpened ? Color.accent : Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
+    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && setup.reviewReady ? Color.accent : Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
   }
 }
