@@ -440,7 +440,8 @@ toolchain is required for ordinary use.
 Open **Settings → Help**, or **Setup help** during installation. Choose
 **Copy request**, paste it into Codex, Claude or another assistant on this
 computer, then describe the problem at the end. The request contains no profiles,
-keys or diagnostic data. It points to the guide installed with your plugin:
+keys or diagnostic data. Use **Show request** to read or select it yourself;
+the text also appears if copying fails. It points to the guide installed with your plugin:
 
 ```text
 Read the installed OmaVLESS assistance guide:

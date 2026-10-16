@@ -9,9 +9,11 @@ var MAX_VALUE_LENGTH = 160
 var CATALOG = {
   "help.title": {"en":"Help","ru":"Помощь"},
   "help.assistant": {"en":"Ask your assistant","ru":"Попросите своего AI-ассистента"},
-  "help.intro": {"en":"Paste this request into Codex, Claude or another assistant on this computer. Add your problem at the end.","ru":"Вставьте запрос в Codex, Claude или другого ассистента на этом компьютере. Допишите проблему в конце."},
+  "help.intro": {"en":"Copy the request into Codex, Claude or another assistant on this computer. Add your problem at the end.","ru":"Скопируйте запрос в Codex, Claude или другого ассистента на этом компьютере. Допишите проблему в конце."},
   "help.agent_prompt": {"en":"Read the installed OmaVLESS assistance guide:\n~/.config/omarchy/plugins/kdk.omavless/docs/user/USER_AGENT_GUIDE.md\nAlso read AGENTS.md in the plugin directory if present.\n\nHelp me with OmaVLESS in Omarchy. Problem:\n\n","ru":"Прочитай установленный гайд для ассистента OmaVLESS:\n~/.config/omarchy/plugins/kdk.omavless/docs/user/USER_AGENT_GUIDE.md\nТакже прочитай AGENTS.md в папке плагина, если он есть.\n\nПомоги с OmaVLESS в Omarchy. Проблема:\n\n"},
   "help.copy_request": {"en":"Copy request","ru":"Скопировать запрос"},
+  "help.show_request": {"en":"Show request","ru":"Показать запрос"},
+  "help.hide_request": {"en":"Hide request","ru":"Скрыть запрос"},
   "help.copying": {"en":"Copying…","ru":"Копирование…"},
   "help.copied": {"en":"Copied. Paste it into your assistant and describe the problem.","ru":"Скопировано. Вставьте запрос ассистенту и опишите проблему."},
   "help.copy_failed": {"en":"Copy failed. Select the request and press Ctrl+C.","ru":"Не удалось скопировать. Выделите запрос и нажмите Ctrl+C."},

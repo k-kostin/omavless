@@ -7,17 +7,18 @@ import qs.Ui
 import "I18n.js" as I18n
 
 // Public, runtime-independent help. No profile/report/clipboard reads, native
-// commands or automatic external navigation. Copy only the displayed template.
+// commands or automatic external navigation. Copy only the public template.
 Item {
   id: help
   property string locale: "en"
   property string guideSection: "help"
   property string copyState: ""
+  property bool requestExpanded: false
   property string pendingText: ""
   property int generation: 0
   property int copyGeneration: 0
   readonly property string agentPrompt: tr("agent_prompt")
-  readonly property var focusTargets: [requestText, copyButton, guideButton, issueButton, closeButton]
+  readonly property var focusTargets: [copyButton, requestToggle, requestText, guideButton, issueButton, closeButton].filter(function(control) { return control.visible && control.enabled })
   readonly property alias flickable: helpScroll
   signal canceled()
   signal guideRequested(string section)
@@ -30,6 +31,7 @@ Item {
     generation++
     guideSection = ["install", "updates", "help"].indexOf(section) >= 0 ? section : "help"
     copyState = ""
+    requestExpanded = false
     requestText.deselect()
     helpScroll.contentY = 0
     visible = true
@@ -46,7 +48,27 @@ Item {
     return true
   }
   function finishCopy(code) {
-    if (visible && copyGeneration === generation) copyState = code === 0 ? "copied" : "copy_failed"
+    if (!visible || copyGeneration !== generation) return
+    copyState = code === 0 ? "copied" : "copy_failed"
+    if (code !== 0) requestExpanded = true
+    // Keep the result visible when the user is still on Copy; do not steal
+    // focus if they have already moved to another action.
+    if (copyButton.activeFocus) reveal(copyButton)
+  }
+  function toggleRequest() {
+    if (!visible) return
+    if (requestExpanded) {
+      if (requestText.activeFocus) requestToggle.forceActiveFocus()
+      requestText.deselect()
+    }
+    requestExpanded = !requestExpanded
+    clampScroll()
+    reveal(requestToggle)
+  }
+  function clampScroll() {
+    Qt.callLater(function() {
+      if (help.visible) helpScroll.contentY = Math.max(0, Math.min(helpScroll.contentY, Math.max(0, helpScroll.contentHeight - helpScroll.height)))
+    })
   }
   function openGuide() {
     guideRequested(guideSection)
@@ -55,6 +77,7 @@ Item {
   function navigate(event) {
     if (event.key === Qt.Key_Escape) { canceled(); event.accepted = true; return }
     if (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab) return
+    if (focusTargets.length === 0) return
     var current = -1
     for (var i = 0; i < focusTargets.length; i++) if (focusTargets[i].activeFocus) current = i
     var direction = event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1
@@ -118,6 +141,7 @@ Item {
         anchors.rightMargin: card.contentRightInset
         contentWidth: width
         contentHeight: content.implicitHeight
+        onContentHeightChanged: help.clampScroll()
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
@@ -129,7 +153,19 @@ Item {
           PlainText { width: parent.width; text: help.tr("title"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; wrapMode: Text.Wrap }
           PlainText { width: parent.width; text: help.tr("assistant"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { width: parent.width; text: help.tr("intro"); color: Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          HelpButton {
+            id: copyButton
+            objectName: "helpCopyRequest"
+            text: help.tr(clipboardWriter.running ? "copying" : "copy_request")
+            foreground: Color.accent
+            background: Util.alpha(Color.accent, 0.08)
+            bordered: true
+            onClicked: help.copyRequest()
+          }
+          PlainText { width: parent.width; text: help.copyState === "" || help.copyState === "copying" ? " " : help.tr(help.copyState); color: help.copyState === "copy_failed" ? Color.urgent : Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          HelpButton { id: requestToggle; objectName: "helpShowRequest"; text: help.tr(help.requestExpanded ? "hide_request" : "show_request"); bordered: false; onClicked: help.toggleRequest() }
           BorderSurface {
+            visible: help.requestExpanded
             width: parent.width
             implicitHeight: requestText.contentHeight + Style.space(20)
             color: "transparent"
@@ -156,16 +192,6 @@ Item {
               Keys.onPressed: function(event) { help.navigate(event) }
             }
           }
-          HelpButton {
-            id: copyButton
-            objectName: "helpCopyRequest"
-            text: help.tr(clipboardWriter.running ? "copying" : "copy_request")
-            foreground: Color.accent
-            background: Util.alpha(Color.accent, 0.08)
-            bordered: true
-            onClicked: help.copyRequest()
-          }
-          PlainText { width: parent.width; text: help.copyState === "" || help.copyState === "copying" ? " " : help.tr(help.copyState); color: help.copyState === "copy_failed" ? Color.urgent : Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           HelpButton { id: guideButton; objectName: "helpUserGuide"; text: help.tr("guide"); bordered: false; onClicked: help.openGuide() }
           PlainText { width: parent.width; text: help.tr("issue_hint"); color: Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           HelpButton { id: issueButton; objectName: "helpIssue"; text: help.tr("issue"); bordered: false; onClicked: help.openIssue() }

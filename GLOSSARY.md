@@ -48,6 +48,8 @@ more steps and confirmations follow, not that installation starts immediately.
 | `setup.later` | Set up later | Настроить позже |
 | `native.app.open` | Open app | Открыть приложение |
 | `help.copy_request` | Copy request | Скопировать запрос |
+| `help.show_request` | Show request | Показать запрос |
+| `help.hide_request` | Hide request | Скрыть запрос |
 | `help.guide` | Read the guide ↗ | Открыть инструкцию ↗ |
 | `help.issue` | Report a problem ↗ | Сообщить о проблеме ↗ |
 

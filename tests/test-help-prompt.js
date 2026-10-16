@@ -23,14 +23,15 @@ function loadFunction(code, name, context) {
   vm.runInContext(code.slice(start, end), context);
 }
 function context(locale = 'en') {
-  const c = vm.createContext({locale, I18n, visible: false, guideSection: 'help', copyState: '', pendingText: '', generation: 0, copyGeneration: 0,
-    clipboardWriter: {running: false, stdinEnabled: false}, helpScroll: {contentY: 90},
-    requestText: {deselect() {}}, copyButton: {forceActiveFocus() { c.focusedCopy = true; }},
+  const c = vm.createContext({locale, I18n, visible: false, guideSection: 'help', copyState: '', requestExpanded: false, pendingText: '', generation: 0, copyGeneration: 0,
+    clipboardWriter: {running: false, stdinEnabled: false}, helpScroll: {contentY: 90, contentHeight: 500, height: 300},
+    requestText: {deselect() { c.deselected = true; }}, copyButton: {forceActiveFocus() { c.focusedCopy = true; }},
+    requestToggle: {forceActiveFocus() { c.focusedToggle = true; }}, reveal(control) { c.revealed = control; },
     Qt: {callLater: f => f(), Key_Escape: 1, Key_Tab: 2, Key_Backtab: 3, ShiftModifier: 4},
     canceled() { c.closed = true; }, guideRequested(section) { c.guide = section; },
     issueRequested() { c.issue = true; }});
   c.help = c;
-  for (const name of ['tr', 'openHelp', 'dismiss', 'copyRequest', 'finishCopy', 'openGuide', 'openIssue', 'navigate']) loadFunction(source, name, c);
+  for (const name of ['tr', 'openHelp', 'dismiss', 'copyRequest', 'finishCopy', 'toggleRequest', 'clampScroll', 'openGuide', 'openIssue', 'navigate']) loadFunction(source, name, c);
   c.agentPrompt = I18n.translate('help.agent_prompt', locale);
   return c;
 }
@@ -56,20 +57,22 @@ test('opening help is local navigation without runtime, copy, browser or wizard 
     assert.equal(c.guideSection, ['install', 'updates', 'help'].includes(section) ? section : 'help');
     assert.equal(c.helpScroll.contentY, 0);
     assert.equal(c.copyState, ''); assert(!c.clipboardWriter.running);
+    assert.equal(c.requestExpanded, false);
     assert.equal(c.guide, undefined); assert.equal(c.issue, undefined);
     c.dismiss(); assert(!c.visible);
   }
 });
-test('copy snapshots only the displayed prompt on explicit action and waits for its result', () => {
+test('copy snapshots the unchanged public prompt without requiring expansion', () => {
   for (const locale of ['en', 'ru']) {
     const c = context(locale);
     assert(!c.copyRequest()); assert(!c.clipboardWriter.running);
     c.openHelp('help'); assert(c.copyRequest());
+    assert.equal(c.requestExpanded, false);
     assert.equal(c.pendingText, c.agentPrompt);
     assert(c.clipboardWriter.running && c.clipboardWriter.stdinEnabled);
     assert.equal(c.copyState, 'copying');
     assert(!c.copyRequest(), 'no overlapping clipboard writer');
-    c.finishCopy(1); assert.equal(c.copyState, 'copy_failed');
+    c.finishCopy(1); assert.equal(c.copyState, 'copy_failed'); assert(c.requestExpanded);
     c.finishCopy(124); assert.equal(c.copyState, 'copy_failed');
     c.finishCopy(0); assert.equal(c.copyState, 'copied');
   }
@@ -78,6 +81,40 @@ test('copy snapshots only the displayed prompt on explicit action and waits for 
   assert(source.includes('readOnly: true') && source.includes('textFormat: TextEdit.PlainText'));
   assert(source.includes('selectByMouse: true') && source.includes('activeFocusOnTab: true'));
   assert(!/vless\.|backendPath|clipboard-read|wl-paste|execDetached|sudo|FileView/.test(source));
+});
+test('request is hidden by default and disclosure never copies or changes its text', () => {
+  const c = context();
+  c.toggleRequest(); assert(!c.requestExpanded, 'hidden Help cannot expand');
+  c.openHelp('help');
+  c.toggleRequest(); assert(c.requestExpanded);
+  assert.equal(c.revealed, c.requestToggle);
+  assert(!c.clipboardWriter.running); assert.equal(c.pendingText, '');
+  c.requestText.activeFocus = true;
+  c.toggleRequest(); assert(!c.requestExpanded && c.focusedToggle && c.deselected);
+  c.toggleRequest(); c.dismiss(); c.openHelp('help');
+  assert(!c.requestExpanded, 'new visit starts compact');
+  assert.equal(c.agentPrompt, I18n.translate('help.agent_prompt', 'en'));
+  assert(source.includes('visible: help.requestExpanded'));
+  assert(source.indexOf('id: copyButton') < source.indexOf('id: requestToggle'));
+  assert(source.indexOf('id: requestToggle') < source.indexOf('id: requestText'));
+});
+test('collapsing clamps the scroll even when the toggle does not own focus', () => {
+  const c = context(); c.openHelp('help'); c.toggleRequest();
+  c.helpScroll.contentY = 400; c.helpScroll.contentHeight = 330;
+  c.toggleRequest(); assert.equal(c.helpScroll.contentY, 30);
+  c.helpScroll.contentHeight = 150; c.clampScroll(); assert.equal(c.helpScroll.contentY, 0);
+});
+test('copy failure reveals manual text without stealing another action focus', () => {
+  const c = context(); c.openHelp('help'); c.copyRequest();
+  c.copyButton.activeFocus = false;
+  c.finishCopy(1);
+  assert(c.requestExpanded); assert.equal(c.copyState, 'copy_failed');
+  assert.equal(c.revealed, undefined); assert(!c.focusedToggle);
+  c.requestExpanded = false; c.copyButton.activeFocus = true;
+  c.finishCopy(124);
+  assert(c.requestExpanded); assert.equal(c.revealed, c.copyButton);
+  c.requestExpanded = false; c.finishCopy(0);
+  assert(!c.requestExpanded, 'success keeps compact view');
 });
 test('guide and issue are independent explicit navigation, not copy prerequisites', () => {
   const c = context(); c.openHelp('updates');
@@ -90,14 +127,38 @@ test('guide and issue are independent explicit navigation, not copy prerequisite
   }
   assert(panel.includes('onIssueRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/issues/new")'));
 });
-test('a late clipboard result cannot announce success in a reopened help surface', () => {
+test('a late clipboard result cannot announce success or expand a reopened help surface', () => {
   const c = context(); c.openHelp('help'); c.copyRequest(); c.dismiss();
   c.finishCopy(0); assert.equal(c.copyState, 'copying');
   c.openHelp('install'); assert.equal(c.copyState, '');
   c.finishCopy(0); assert.equal(c.copyState, '');
+  c.finishCopy(1); assert.equal(c.copyState, ''); assert(!c.requestExpanded);
   assert(!c.copyRequest(), 'the original bounded writer still owns its slot');
   c.clipboardWriter.running = false;
   assert(c.copyRequest()); c.finishCopy(0); assert.equal(c.copyState, 'copied');
+});
+test('actual focus binding skips hidden or disabled controls in visual order', () => {
+  const c = context();
+  const names = ['copyButton', 'requestToggle', 'requestText', 'guideButton', 'issueButton', 'closeButton'];
+  for (const name of names) {
+    c[name] = {name, visible: true, enabled: true, activeFocus: false, deselect() {}, forceActiveFocus() {
+      names.forEach(key => c[key].activeFocus = false); this.activeFocus = true;
+    }};
+  }
+  Object.defineProperty(c.requestText, 'visible', {get: () => c.requestExpanded});
+  const binding = source.match(/readonly property var focusTargets: (.+)/)[1];
+  Object.defineProperty(c, 'focusTargets', {get: () => vm.runInContext(binding, c)});
+  c.openHelp('help');
+  assert.deepEqual(Array.from(c.focusTargets, item => item.name), names.filter(name => name !== 'requestText'));
+  c.navigate({key: 2, modifiers: 0}); assert(c.requestToggle.activeFocus);
+  c.navigate({key: 2, modifiers: 0}); assert(c.guideButton.activeFocus);
+  c.toggleRequest(); c.requestToggle.forceActiveFocus();
+  c.navigate({key: 2, modifiers: 0}); assert(c.requestText.activeFocus);
+  c.navigate({key: 3, modifiers: 0}); assert(c.requestToggle.activeFocus);
+  c.guideButton.enabled = false;
+  assert(!Array.from(c.focusTargets).includes(c.guideButton));
+  names.forEach(name => c[name].enabled = false);
+  const e = {key: 2, modifiers: 0, accepted: false}; c.navigate(e); assert(!e.accepted);
 });
 test('keyboard wraps in both directions and Escape dismisses help only', () => {
   const c = context();

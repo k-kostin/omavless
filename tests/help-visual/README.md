@@ -29,7 +29,12 @@ qs ipc -p "$review_dir" call helpReview result
 
 Wait for capture to return from capturing to ready before viewing the PNG.
 Review EN/RU at heights600/360, scroll through every option using Tab/Shift+Tab,
-activate copy with Enter, and close with Escape. Inspect focus and scroll, not
+activate copy with Enter, and close with Escape. The initial view hides the
+request and has five keyboard targets; Show request adds the selectable text
+after the toggle. Check expansion, manual selection and collapse at both
+heights; collapsing must not leave a blank scrolled viewport. Copy does not
+require expansion. Reopening Help resets it to the compact view.
+Inspect focus and scroll, not
 only the callback. The three section inputs are help/install/updates; invalid
 locale/height/section inputs refuse capture rather than reusing an older frame.
 
@@ -37,7 +42,8 @@ For clipboard FAILURE only, prepend the absolute tests/help-visual/clipboard-fai
 directory to PATH when starting a fresh instance. Its executable wl-copy exits1
 without accessing a clipboard. The unchanged production command remains bounded
 by /usr/bin/timeout; verify the fixture was selected. Inspect the failure message
-and selectable request, not a copied status. Do not use this fixture to claim
+and automatically revealed selectable request, not a copied status. The failure
+must not steal focus if the user already moved to another action. Do not use this fixture to claim
 actual clipboard success. Actual success needs the normal PATH and a real UI
 copy followed by comparison with this known public template, not a read of a
 pre-existing potentially private clipboard.

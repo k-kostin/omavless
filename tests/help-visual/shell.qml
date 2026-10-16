@@ -43,7 +43,7 @@ ShellRoot {
     function inspect(): string {
       if (!loader.item) return "loading"
       return JSON.stringify({state:review.state,visible:loader.item.visible,locale:loader.item.locale,
-        copyState:loader.item.copyState,prompt:loader.item.agentPrompt,
+        copyState:loader.item.copyState,requestExpanded:loader.item.requestExpanded,prompt:loader.item.agentPrompt,
         scrollY:loader.item.flickable.contentY,contentHeight:loader.item.flickable.contentHeight,
         height:loader.item.flickable.height,
         controls:loader.item.focusTargets.map(function(control) {

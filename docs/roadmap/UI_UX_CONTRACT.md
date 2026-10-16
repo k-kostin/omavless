@@ -151,13 +151,18 @@ Update components…; the ellipsis indicates subsequent steps and confirmations.
 ### Agent-first help (owner direction, October16)
 
 One local Help surface serves setup, non-ready onboarding and Settings. The
-first option shows a short public prompt and Copy request; the prompt names
+first option offers Copy request with the public prompt hidden by default.
+Show request/Hide request reveal or collapse a separate selectable text block;
+opening Help must not present the full template as another instruction to read.
+The prompt names
 the installed user-assistance guide directly and also AGENTS.md if present. It
 ends at the problem entry with a blank line. Keep diagnostics/version/consent rules in
 the agent guide, not repeated in the user's prompt. Do not collect private facts
-or read the clipboard merely by opening help. Copy writes only the displayed
+or read the clipboard merely by opening help. Copy writes only the public
 template and reports success only after the clipboard writer succeeds; failure
-must retain selectable text and an honest manual-copy action.
+must reveal selectable text and an honest manual-copy action. Hidden text is
+excluded from keyboard traversal. Copy failure does not steal focus from a
+different action, and a late result cannot reopen text in another Help visit.
 
 Read the guide and Report a problem are independent secondary web links marked
 with ↗. Neither using an assistant nor reading documentation is required before
