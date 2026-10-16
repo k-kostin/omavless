@@ -23,7 +23,7 @@ The published product baseline remains `ed0346c5b224c503ec4871f43d8e65fe367a632d
 | Rules-only main follow-up | `1688c5a30a10f637bfaf1fa528738ce8e98b3706`: narrowed #791, including the socket-fixture rule. Reconciled into the full source without importing the separate test-only runtime-file change. |
 | #792 | `cfae8a137e82c6eef1800b805e10a459ec7010ca`: installer/export helper payload and current shipped Security/Troubleshooting. Includes #790. |
 | #793 | `8ce9d4dfae26bd9cb2180657af691974fb4e76c8`: package-before-widget removal and regressions. Includes #790/#792. |
-| Native delivery | Unchanged public fix.7 app/DNS producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`; no rebuilt/relabelled archives. |
+| Public native baseline | Public fix.7 app/DNS producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b`. A successor changing protected Rust blobs needs a newly built pair; never relabel these archives or claim equivalence. |
 
 The two policy conflicts retain both the inert-subprocess witness rule and
 dependent-command/socket/test-selection rules. CI prose describes the actual

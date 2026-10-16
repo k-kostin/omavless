@@ -72,9 +72,9 @@ class PairInventoryTests(unittest.TestCase):
     def test_real_public_pin_lookup_is_closed_and_shared_with_native_updater(self):
         data = json.loads((ROOT / 'plugin/published-pairs.json').read_text())
         self.assertEqual(data['schemaVersion'], 1)
-        self.assertEqual(len(data['pairs']), 10)
+        self.assertEqual(len(data['pairs']), 12)
         self.assertEqual(len({(pair['sourceCommit'], pair['architecture'])
-                              for pair in data['pairs']}), 10)
+                              for pair in data['pairs']}), 12)
         for pair in data['pairs']:
             result = subprocess.run(['/bin/bash', '-c', 'source "$1"; _omavless_pair_pins "$2" "$3"',
                                      'fixture', str(INSPECTOR), pair['sourceCommit'], pair['architecture']],
@@ -82,6 +82,27 @@ class PairInventoryTests(unittest.TestCase):
             expected = '\t'.join(pair[key] for key in ['appSha','coreSha','brokerSha','dnsReceiptSha']) + '\n'
             self.assertEqual(result.stdout, expected)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_fix7_remains_known_when_the_frontend_selects_a_new_target(self):
+        source = "d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b"
+        inspector = self.directory / 'setup-predecessor.sh'
+        shutil.copyfile(INSPECTOR, inspector)
+        shutil.copyfile(ROOT / 'plugin/published-pairs.json', self.directory / 'published-pairs.json')
+        metadata = json.loads((ROOT / 'plugin/component-updates.json').read_text())
+        metadata['sourceCommit'] = 'c' * 40
+        (self.directory / 'component-updates.json').write_text(json.dumps(metadata))
+        registry = json.loads((ROOT / 'plugin/published-pairs.json').read_text())['pairs']
+        for arch in ['x86_64', 'aarch64']:
+            matches = [record for record in registry
+                       if record['sourceCommit'] == source and record['architecture'] == arch]
+            self.assertEqual(len(matches), 1)
+            expected = '\t'.join(matches[0][key] for key in
+                                 ['appSha', 'coreSha', 'brokerSha', 'dnsReceiptSha']) + '\n'
+            result = subprocess.run(['/bin/bash', '-c', 'source "$1"; _omavless_pair_pins "$2" "$3"',
+                                     'fixture', str(inspector), source, arch],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, expected)
 
     def test_target_frontend_identity_is_separate_from_compiled_predecessors(self):
         inspector = self.directory / 'setup-predecessor.sh'

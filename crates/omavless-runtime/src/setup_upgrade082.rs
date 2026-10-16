@@ -349,12 +349,13 @@ fn predecessor() -> Result<()> {
 
 // Published 0.9.8 producers only. Package-version equality cannot distinguish
 // maintenance deliveries; modified/developer receipts do not earn admission.
-const PUBLIC_098_SOURCES: [&str; 5] = [
+const PUBLIC_098_SOURCES: [&str; 6] = [
     "e3d2245966c725ee11b505899b22a20721ff2ddd",
     "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524",
     "b65695ee0609c2a971289109975678b8da87c946",
     "4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998",
     "99c556e5c966e1e1dae04f2d8babd2ca2dec9375",
+    "d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b",
 ];
 
 #[derive(serde::Deserialize)]

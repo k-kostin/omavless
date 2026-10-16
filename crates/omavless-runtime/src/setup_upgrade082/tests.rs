@@ -108,6 +108,9 @@ fn self_consistent_local_rebuild_of_public_source_does_not_earn_admission() {
 
 #[test]
 fn published_predecessor_pins_are_architecture_and_source_specific() {
+    let table: PublishedPairs =
+        serde_json::from_str(include_str!("../../../../plugin/published-pairs.json")).unwrap();
+    assert_eq!(table.pairs.len(), PUBLIC_098_SOURCES.len() * 2);
     for source in PUBLIC_098_SOURCES {
         for arch in ["x86_64", "aarch64"] {
             let pair = published098(source, arch).unwrap();
@@ -128,6 +131,20 @@ fn published_predecessor_pins_are_architecture_and_source_specific() {
     }
     assert!(published098(&"a".repeat(40), "x86_64").is_err());
     assert!(published098(PUBLIC_098_SOURCES[0], "unknown").is_err());
+}
+
+#[test]
+fn fix7_is_retained_as_a_supported_predecessor_for_the_next_delivery() {
+    let source = "d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b";
+    assert!(PUBLIC_098_SOURCES.contains(&source));
+    assert_eq!(
+        published098(source, "x86_64").unwrap().app_sha,
+        "7c7b0f0c350b8903353d2fed3c8effb693aaaca0c271279b85efa51dfebb8881"
+    );
+    assert_eq!(
+        published098(source, "aarch64").unwrap().app_sha,
+        "6949d9473a714e36824e93437c61aff1064c619b9960e8a9b31bb49834176004"
+    );
 }
 
 #[test]

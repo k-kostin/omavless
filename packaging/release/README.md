@@ -1,6 +1,6 @@
 # Native release, beta and RC preparation
 
-Current selected correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
+Current published correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
 producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b` and inspected matching pins
 for x86_64 and ARM64. Source version/package version remain 0.9.8 / 0.9.8-1.
 The selected client features are `product-private-backup,setup-upgrade082`;
@@ -141,6 +141,16 @@ combine a newer test-only source with older artifacts. A newly selected native
 producer/artifact pair must go through its ordinary build and acceptance path.
 
 ### Native architecture builds without a personal Omarchy host
+
+Before freezing a new native producer, retain the previous published delivery
+as an explicitly supported predecessor. Copy its independently verified payload
+identities for both architectures into `plugin/published-pairs.json`, reconcile
+the native and shell source allowlists, and check lookup/advisory inspection
+with a different frontend target. Verify the compiled predecessor controls as
+well. The previous target's special-case self recognition is not evidence that
+the next delivery can update it. Do not register an unpublished/local build as
+a public predecessor or relax receipt, byte-hash, ownership or shutdown guards.
+Complete this step before building: the predecessor table is a compiled input.
 
 The `Native packages` workflow builds its exact checked-out Git HEAD
 in an official, dated Arch Linux
