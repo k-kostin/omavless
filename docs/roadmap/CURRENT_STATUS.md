@@ -6,6 +6,18 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+October16 ARM acceptance found a selected-delivery mismatch before Quit:
+helper4345 admitted public application hashes only through fix.7, not the
+selected2d54 fix.8 executables. Helper0250efeb adds exactly both selected app
+hashes; the real successor classifier now has current/predecessor admission
+and modified-hash/development-label/unsafe-file negatives in normal CI.
+The execution policy requires this delivery/removal coherence check. Matching
+immutable guide pins are updated; native packages and their inputs do not change.
+Final source/distribution gates and affected installed removal remain separate.
+The [Mac report](https://github.com/k-kostin/omavless/blob/0eefbfed586cdc1bde37b7d7c57360fbcc1aca4c/docs/testing/PR790_ARM64_2026-10-15.md)
+retains successful old-cycle closure and fix.8 setup/onboarding, and the original
+new-helper refusal; do not relabel it as completed final removal.
+
 October16 owner scope addition for fix.8: a runtime-independent, agent-first
 Help screen in setup/non-ready onboarding and Settings. It offers a copyable
 public prompt, a guide and direct issue reporting; assistant use is optional.

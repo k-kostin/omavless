@@ -11,6 +11,18 @@ governs retained decisions and their actual distribution.
 
 ## Current source composition — 2026-10-15
 
+October16 returned-Mac gate: original helper4345 refused the correctly installed
+selected fix.8 before Quit because both new application ELF hashes were missing.
+Helper0250efeb adds only those exact selected identities. The actual successor
+classifier regression derives positives from current component-updates plus
+public predecessors, keeping unknown/development-label/unsafe-file refusals.
+The execution policy owns the reusable delivery/removal coherence rule. Matching
+guide pins change; native2d54 archives/inputs remain unchanged. Old-cycle removal
+and fix.8 ARM setup/onboarding are earned in the
+[new Mac report](https://github.com/k-kostin/omavless/blob/0eefbfed586cdc1bde37b7d7c57360fbcc1aca4c/docs/testing/PR790_ARM64_2026-10-15.md);
+final corrected Quit/reboot/removal/reinstall and successor source/distribution
+gates are pending, not inherited from the earlier green source/user tree.
+
 October16 owner addition: include local agent-first Help in fix.8 and the user
 storefront. One shared screen serves setup/non-ready onboarding and Settings;
 copy only the public prompt, with optional independent guide/issue links.
