@@ -9201,11 +9201,16 @@ mod tests {
         let base = temporary_base("route-fixture-unwind");
         let paths = RuntimePaths::below(&base);
         let server = RuntimeServer::bind(paths.clone()).unwrap();
+        struct IntentionalRouteFixtureUnwind;
         let result = std::panic::catch_unwind(move || {
             let _serving = RunningSocketFixture::start(server);
-            panic!("synthetic assertion unwind");
+            std::panic::panic_any(IntentionalRouteFixtureUnwind);
         });
-        assert!(result.is_err());
+        match result {
+            Err(payload) if payload.is::<IntentionalRouteFixtureUnwind>() => (),
+            Err(payload) => std::panic::resume_unwind(payload),
+            Ok(()) => panic!("the intentional route-fixture unwind was not reached"),
+        }
         assert!(!paths.socket.exists());
         fs::remove_dir_all(base).unwrap();
     }

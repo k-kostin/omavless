@@ -469,6 +469,8 @@ pub struct NativeLifecycleHost {
     tun_identity: Option<(String, u64)>,
     #[cfg(test)]
     close_fixture: Option<CloseFixture>,
+    #[cfg(test)]
+    close_stop_outcome: Option<crate::core::StopOutcome>,
     #[cfg(all(test, feature = "developer-image-witness"))]
     prepared_image: Option<PreparedImageObservation>,
     #[cfg(all(test, feature = "developer-image-witness"))]
@@ -573,6 +575,11 @@ impl NativeLifecycleHost {
         let epochs = self.product_image.as_ref().unwrap();
         (epochs.issued, epochs.history.len())
     }
+    #[cfg(test)]
+    pub(crate) fn close_stop_outcome(&self) -> Option<crate::core::StopOutcome> {
+        self.close_stop_outcome
+    }
+
     #[cfg(test)]
     pub(crate) fn owned_close_fixture(
         paths: NativeHostPaths,
@@ -829,6 +836,8 @@ impl NativeLifecycleHost {
             tun_identity: None,
             #[cfg(test)]
             close_fixture: None,
+            #[cfg(test)]
+            close_stop_outcome: None,
             #[cfg(all(test, feature = "developer-image-witness"))]
             prepared_image: None,
             #[cfg(all(test, feature = "developer-image-witness"))]
@@ -1715,7 +1724,14 @@ impl LifecycleHost for NativeLifecycleHost {
             .as_ref()
             .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
         if let Some(mut core) = self.core.take()
-            && core.stop(timeout).is_err()
+            && {
+                let stopped = core.stop(timeout);
+                #[cfg(test)]
+                {
+                    self.close_stop_outcome = stopped.as_ref().ok().copied();
+                }
+                stopped.is_err()
+            }
         {
             self.core = Some(core);
             return Err(HostStepError::Stop);
