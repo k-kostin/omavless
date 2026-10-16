@@ -16,6 +16,54 @@ const parent=path.join(os.homedir(),'.cache/ovt');
 fs.mkdirSync(parent,{recursive:true,mode:0o700});
 assert(!fs.lstatSync(parent).isSymbolicLink());
 let count=0;
+// Bind removal admission to the selected delivery, not only old hand-written
+// public fixtures. Exercise the shipped successor function without executing
+// the app, package manager, service manager, native Quit or any root branch.
+const selected=JSON.parse(fs.readFileSync(path.join(__dirname,'../plugin/component-updates.json'),'utf8'));
+const published=JSON.parse(fs.readFileSync(path.join(__dirname,'../plugin/published-pairs.json'),'utf8'));
+const classification=source.slice(source.indexOf('check_supported_installation()'),source.indexOf('\n[[ $# == 0 ]]'));
+assert.deepEqual(Object.keys(selected.identities).sort(),['aarch64','x86_64']);
+const removalIdentities=[
+ ...Object.entries(selected.identities).map(([arch,identity])=>['selected '+arch,identity.appSha]),
+ ...published.pairs.map(identity=>['predecessor '+identity.sourceCommit+' '+identity.architecture,identity.appSha]),
+ ['public082 x86_64','3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1'],
+ ['public082 aarch64','62874def77df9e4f099baf74c57420a7ab1dab7b83935676828f6d445a5f357f']
+];
+function classify(label,digest,expected,options={}){
+ const dir=fs.mkdtempSync(path.join(parent,'uninstall-admission.'));
+ const app=path.join(dir,'omavless');
+ fs.writeFileSync(app,'inert fixture');
+ if(options.symlink){fs.renameSync(app,app+'.target');fs.symlinkSync(app+'.target',app)}
+ const appVersion=options.version||'0.9.8-1';
+ const dns=appVersion==='0.8.2-1'?'return 1':"printf '%s\\n' 'omavless-dns 0.9.8-1'";
+ const script=`set -euo pipefail
+fail() { printf 'REFUSED:%s\\n' "$*"; exit 1; }
+${classification.replaceAll('/usr/bin/omavless',app)}
+pacman() { case "$*" in '-Q omavless') printf '%s\\n' 'omavless ${appVersion}' ;; '-Q omavless-dns') ${dns} ;; *) exit 91 ;; esac; }
+stat() { [[ "$*" == '-c %u:%a ${app}' ]] || exit 92; printf '%s\\n' '${options.metadata||'0:755'}'; }
+sha256sum() { [[ "$*" == '${app}' ]] || exit 93; printf '%s  %s\\n' '${digest}' "$1"; }
+check_supported_installation
+`;
+ try{
+  const result=spawnSync('bash',['--noprofile','--norc'],{input:script,encoding:'utf8',timeout:3000});
+  assert(!result.error,label+': '+result.error);
+  assert.equal(result.status,expected?0:1,label+': '+result.stdout+result.stderr);
+  count++;
+ }finally{fs.rmSync(dir,{recursive:true})}
+}
+for(const [label,digest] of removalIdentities){
+ assert.match(digest,/^[a-f0-9]{64}$/);
+ classify(label,digest,true,label.startsWith('public082')?{version:'0.8.2-1'}:{});
+}
+for(const [arch,identity] of Object.entries(selected.identities)){
+ const changed=identity.appSha.slice(0,-1)+(identity.appSha.endsWith('0')?'1':'0');
+ assert(!removalIdentities.some(([,digest])=>digest===changed));
+ classify('modified selected '+arch,changed,false);
+ classify('selected hash under development label '+arch,identity.appSha,false,{version:'0.9.8.rtest-1'});
+ classify('selected symlink '+arch,identity.appSha,false,{symlink:true});
+ for(const metadata of ['1000:755','0:777'])
+  classify('selected unsafe metadata '+arch+' '+metadata,identity.appSha,false,{metadata});
+}
 function fixture(){
  const dir=fs.mkdtempSync(path.join(parent,'uninstaller.'));
  for(const p of ['home/user/.cache/omavless-maintenance/uninstall','home/user/.config/systemd/user','run/user/'+uid,'proc/sys/kernel/random'])fs.mkdirSync(path.join(dir,p),{recursive:true,mode:0o700});

@@ -120,6 +120,13 @@ lookup or local-rebuild refusal alone does not prove that the positive update
 path is reachable. Preserve the old admission fences; use explicit tested
 producer/payload identities rather than making an unknown installation qualify.
 
+The selected delivery must also be removable by its shipped remover on every
+supported architecture. Derive positive admission tests from the current pinned
+payload identities and retained public predecessors, and run the actual successor
+classification function; tests of an older helper or old hashes alone do not
+qualify the new delivery. Retain modified-hash, development-label and unsafe-file
+negative controls. Include matching DNS/service gates when their inputs change.
+
 When changing staged package content or the source of installed help, run the
 owning Rust packaging-payload integration tests as well as the Python/shell
 staging checks before freezing artifacts. Keep exact bytes, inventory and modes;
