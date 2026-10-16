@@ -24,7 +24,7 @@ PKGVER = subprocess.check_output(
     ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
 ).split()[1]
 SOURCE = "b" * 40
-RELEASE_TAG = "v0.9.8-fix.7"
+RELEASE_TAG = "v0.9.8-fix.8"
 
 
 class MarketplaceSetupTests(unittest.TestCase):

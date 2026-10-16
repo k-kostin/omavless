@@ -10,6 +10,15 @@ governs retained decisions and their actual distribution.
 
 ## Current source composition — 2026-10-15
 
+October 16 successor: selected native producer
+`da54f90e4eb6c725b2847bf96b00ef602f214e51` has both architecture app/DNS archives
+built and strictly inspected. Its matching frontend pins propose fix.8;
+publication, final source/export checks and affected installed acceptance remain
+separate. Root user release notes are now concise; the original journal is
+preserved in [the historical reference](CHANGELOG_REFERENCE.md). Current exact
+frontend/distribution/CI identities belong in #794, not another diary commit.
+The earlier composition below preserves its original selected inputs.
+
 The owner continued finalization without the powered-off Mac. This local source
 candidate combines the selected product changes and reusable rules, not the
 future main/development file migration. Current main is

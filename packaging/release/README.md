@@ -1,5 +1,20 @@
 # Native release, beta and RC preparation
 
+## Unpublished finalization candidate
+
+Proposed delivery **0.9.8 / `v0.9.8-fix.8`** uses common native producer
+`da54f90e4eb6c725b2847bf96b00ef602f214e51`. Both architecture app and production
+DNS archives were built by Native packages38849824759 and DNS pair38849826647,
+strictly inspected and selected by observed archive/payload hashes. The core
+and broker bytes are unchanged from fix.7; the application retains fix.7 as
+an explicit supported predecessor and the package now contains user help.
+Full source CI, final user-tree verification, affected installed update and
+the separate ARM remainder are not inferred from these build/archive gates.
+Main, immutable tag/assets, Marketplace and Aryan posting still need their
+applicable owner authorization. No fix.8 tag/release has been created.
+
+## Public baseline
+
 Current published correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
 producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b` and inspected matching pins
 for x86_64 and ARM64. Source version/package version remain 0.9.8 / 0.9.8-1.

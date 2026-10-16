@@ -104,7 +104,7 @@ class K1LaunchFixtureBoundaryTests(unittest.TestCase):
                 "usr/share/licenses/omavless/THIRD_PARTY_NOTICES.md":
                     (ROOT / "THIRD_PARTY_NOTICES.md", 0o644),
                 "usr/share/doc/omavless/README.md":
-                    (ROOT / "packaging/arch/README.md", 0o644),
+                    (ROOT / "packaging/arch/USER_README.md", 0o644),
             }
             # A positive complete inventory prevents vacuous absence checks
             # against an empty payload. It also rejects future root units,

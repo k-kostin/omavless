@@ -29,6 +29,8 @@ documentation-only main updates require explicit owner authorization.
   [localization](../../skills/omavless-localization/SKILL.md): reusable skills.
 - [Release preparation](../../packaging/release/README.md): source/artifact
   identity and publication gates, not a product README section.
+- [Historical development/release journal](CHANGELOG_REFERENCE.md): preserved
+  checkpoint history, separate from the short user-facing root release notes.
 
 Moving a document requires updating relative links and checking readers in
 tests/scripts/skills. Keep a useful stable navigation path where an established
