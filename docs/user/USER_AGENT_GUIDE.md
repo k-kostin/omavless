@@ -146,5 +146,58 @@ own instructions. Do not turn the user's installed widget into a worktree,
 switch it to an experimental branch, push changes, release or submit to a
 marketplace as an incidental support action.
 
+## Report a bug or contribute a fix
+
+Offer an **issue** if the documented path still fails, a user-facing step is
+missing or confusing, or a workaround hides a likely product bug. A successful
+workaround does not mean the underlying problem is fixed. A reproducible report
+is useful even when you cannot identify the cause.
+
+Offer a **pull request** when you have a small, general fix and can explain and
+test it. A machine-specific workaround or an untested idea is not a verified
+fix. An issue or draft PR may be more appropriate; say what remains uncertain.
+Do not require both an issue and a PR when one already covers the problem.
+Even if the user's installation now works, offer to contribute a reusable fix.
+
+1. Search the repository's
+   [existing issues](https://github.com/k-kostin/omavless/issues) and
+   [pull requests](https://github.com/k-kostin/omavless/pulls) for the same
+   symptom and cause. Prefer a useful addition to an existing report over a
+   duplicate.
+2. Write issue and PR titles and descriptions in English. Prepare a short
+   draft: installed widget and native delivery identities, architecture and
+   relevant Omarchy version; minimal reproduction;
+   expected and actual behavior; exact short error/stage; and what did or did
+   not help. Distinguish observations from a suspected cause. Use synthetic
+   profiles or inputs where possible. Review any Support report, patch, logs
+   or screenshots for private data before including them.
+3. Agree with the user before preparing a code contribution. Use a separate
+   full-source checkout. Start from the matching source and read its AGENTS.md
+   and CONTRIBUTING.md; follow their
+   current branch/base and test rules. The stable user distribution is not a
+   development checkout: do not submit its generated tree as a source fix or
+   assume main is the right development base. If the contribution target is
+   unclear, ask before choosing it. Show the minimal diff, regression test,
+   actual test results and unrun checks. Do not copy the user's private files
+   into the source checkout or alter their installed plugin to prepare a PR.
+4. Show the user the proposed issue/comment or PR description and patch.
+   **Obtain explicit user approval before publishing, commenting, pushing or
+   opening a PR.** Permission to diagnose or apply a local repair is not
+   permission to publish it. Do not merge, release or update the marketplace
+   as part of this support task.
+5. If GitHub access is unavailable or the user prefers to submit it themselves,
+   provide a copyable draft and, when applicable, a reviewed local patch. Do
+   not request credentials in chat or create accounts, forks or authentication
+   changes as an automatic fallback. If the user declines, leave the draft
+   unsubmitted.
+
+Keep VPN keys, profile links, subscription addresses, private configuration and
+raw private logs out of reports and patches. State whether the user's problem
+is unresolved, worked around or verified fixed. If a local patch was applied,
+identify the modified installation and explain how to retain or undo it with
+the user's agreement; do not present it as an unmodified public release. An
+open PR is not a shipped fix. End with the actual local result, any submitted
+issue/PR link, and the remaining limitation.
+
 [User guide](NATIVE_INSTALL.md) · [Short removal guide](CLEAN_REINSTALL_098.md) ·
 [Troubleshooting](TROUBLESHOOTING.md) · [Privacy and security](SECURITY.md)

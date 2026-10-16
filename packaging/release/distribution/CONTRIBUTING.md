@@ -10,3 +10,5 @@ checkout. The moving development branch is not a substitute for a release's
 immutable source provenance.
 
 For installation or troubleshooting, use the [user guide](docs/user/NATIVE_INSTALL.md).
+For agent-assisted bug reports and fixes, follow
+[Report a bug or contribute a fix](docs/user/USER_AGENT_GUIDE.md#report-a-bug-or-contribute-a-fix).

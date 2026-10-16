@@ -11,6 +11,11 @@ package identity is implied. Final exact frontend/source gates and ARM acceptanc
 remain separate; finish non-Mac preparation first, then owner connects Mac.
 Main storefront promotion is authorized, but release/tag/assets and Marketplace/
 support posting retain their own applicable authorization.
+The assistance guide also covers consent-based upstream issue/PR handoff for
+unresolved bugs and reusable local fixes. Both guides are English; localized
+human guides and language-aware Help destinations are a
+[future localization task](docs/roadmap/I18N.md#published-guide-languages), not
+new link-routing functionality in fix.8.
 
 **October 15 fix.7 delivery selection:** the owner authorizes immutable
 `v0.9.8-fix.7` and main integration, retaining product/package versions

@@ -66,6 +66,25 @@ for (const file of ['NATIVE_INSTALL_082_REFERENCE.md', 'INSTALL_082_REFERENCE.md
 assert(!installGuide.includes('omarchy pkg aur add mihomo-bin'),
   'do not offer stock core installation as the current managed-pair route');
 const assistantGuide = fs.readFileSync(path.join(root, 'docs/user/USER_AGENT_GUIDE.md'), 'utf8');
+// Discoverability/content guards, not proof of a future assistant's behavior.
+assert(assistantGuide.includes('## Report a bug or contribute a fix'));
+const upstreamHelp = assistantGuide.split('## Report a bug or contribute a fix')[1].replace(/\s+/g, ' ');
+for (const rule of ['Search the repository', 'https://github.com/k-kostin/omavless/issues',
+  'https://github.com/k-kostin/omavless/pulls', 'titles and descriptions in English', 'separate full-source checkout',
+  'Agree with the user before preparing a code contribution',
+  'AGENTS.md and CONTRIBUTING.md', 'Obtain explicit user approval',
+  'permission to publish', 'copyable draft', 'unresolved, worked around or verified fixed',
+  'An open PR is not a shipped fix']) {
+  assert(upstreamHelp.includes(rule), 'retain safe upstream support handoff: ' + rule);
+}
+const sourceEntryTemplate = fs.readFileSync(path.join(root, 'packaging/release/distribution/CONTRIBUTING.md'), 'utf8');
+assert(sourceEntryTemplate.includes('USER_AGENT_GUIDE.md#report-a-bug-or-contribute-a-fix'));
+const guideLanguages = fs.readFileSync(path.join(root, 'docs/roadmap/I18N.md'), 'utf8');
+for (const rule of ['### Published guide languages', 'Agent instructions remain English',
+  "plugin's effective UI locale", 'not part of the current fix.8 implementation',
+  'Fall back to the matching English guide']) {
+  assert(guideLanguages.replace(/\s+/g, ' ').includes(rule), 'retain guide-language boundary: ' + rule);
+}
 const quickRemoval = fs.readFileSync(path.join(root, 'docs/user/CLEAN_REINSTALL_098.md'), 'utf8');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 for (const text of [installGuide, readme]) {

@@ -43,7 +43,9 @@ class DistributionTests(unittest.TestCase):
         self.write('manifest.json', b'{"version":"0.9.8"}')
         guide = '\n'.join('## ' + title for title in ('Install', 'Updates', 'Connect and disconnect', 'Help'))
         self.write('docs/user/NATIVE_INSTALL.md', guide.encode())
-        self.write('docs/user/USER_AGENT_GUIDE.md', b'# Assistance\n[Guide](NATIVE_INSTALL.md#install)\n')
+        self.write('docs/user/USER_AGENT_GUIDE.md',
+                   b'# Assistance\n[Guide](NATIVE_INSTALL.md#install)\n'
+                   b'## Report a bug or contribute a fix\n')
         self.write('README.md', b'# Product\n[Guide](docs/user/NATIVE_INSTALL.md#install)\n')
         self.write('docs/user/INSTALL.md', b'old instructions\n')
         self.write('docs/development/private-session.md', b'DEVELOPMENT-ONLY\n')
@@ -100,6 +102,8 @@ class DistributionTests(unittest.TestCase):
         self.assertIn('help the user', (self.output / 'AGENTS.md').read_text())
         self.assertNotIn('old instructions', (self.output / 'docs/user/INSTALL.md').read_text())
         self.assertIn(EXPORT.WEB + self.sha, (self.output / 'CONTRIBUTING.md').read_text())
+        self.assertIn('docs/user/USER_AGENT_GUIDE.md#report-a-bug-or-contribute-a-fix',
+                      (self.output / 'CONTRIBUTING.md').read_text())
         self.assertEqual(record['state'], 'draft-unpublished')
         self.assertIsNone(EXPORT.verify(self.repo, self.output))
         another = self.base / 'another'
@@ -185,6 +189,14 @@ class DistributionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.export()
             self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_contribution_router_requires_shipped_assistance_anchor(self):
+        self.write('docs/user/USER_AGENT_GUIDE.md',
+                   b'# Assistance\n[Guide](NATIVE_INSTALL.md#install)\n')
+        self.sha = self.commit()
+        with self.assertRaisesRegex(ValueError, 'missing guide anchor'):
+            self.export()
+        self.assertEqual(list(self.output.iterdir()), [])
 
     def test_changed_removal_guide_pin_fails(self):
         self.write('docs/user/CLEAN_REINSTALL_098.md', b'wrong helper digest')

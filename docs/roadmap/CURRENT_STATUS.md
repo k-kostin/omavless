@@ -15,6 +15,10 @@ owns its no-effect/keyboard/EN-RU boundaries. The preceding source73/G0a4/native
 that evidence remains separate from the new frontend's installed review and
 final exact-source CI. The owner chooses all non-Mac preparation before Mac
 acceptance, not publishing the new delivery without ARM. No main/release change.
+The owner additionally requests an English agent procedure for reporting bugs
+and contributing reusable fixes with explicit user approval. Human and agent
+guides remain English; translated human guides/locale-aware links are future
+work under the [guide-language policy](I18N.md#published-guide-languages).
 
 The authoritative current finalization summary is the
 [selected-source and acceptance matrix](../development/STABLE_DISTRIBUTION_TRANSITION.md#current-source-composition--2026-10-15)

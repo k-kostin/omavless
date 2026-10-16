@@ -456,6 +456,10 @@ installed version, diagnose safely and ask before changes. If you removed the
 widget, its local guide may be absent; give your assistant this web guide and
 ask it to identify your installed release first.
 
+If you find a bug together, your assistant can prepare an issue or a proposed
+fix for the project. Review the text and any patch before agreeing to publish
+them. A local workaround does not have to remain an unreported problem.
+
 Prefer to work without an assistant? Use the sections in this guide.
 You can also choose **Report a problem ↗** directly; there is no requirement to
 use an assistant or read the guide before opening an issue.
