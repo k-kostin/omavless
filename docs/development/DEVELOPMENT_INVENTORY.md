@@ -43,6 +43,34 @@ stay outside Git; the owning PR carries current disposition, not a second
 permanent session journal. For example, #740 preserves an attributed DNSControl
 preview/apply research reference: it is not a DNS dependency or authority grant.
 
+### Open CI performance and assurance decision
+
+Before the next large feature port or expensive integration checkpoint, revisit
+the allocation of local and hosted checks. This is an OPEN design question,
+not a selected replacement policy. Apply
+[technical judgment before execution](EXECUTION_POLICY.md#technical-judgment-before-execution)
+instead of turning a faster local machine into an automatic extra full matrix.
+Focused local iteration and purposeful full preflight remain distinct from
+the current mandatory exact-source hosted/export/bootstrap gates.
+
+The same-source/toolchain trial was about4.7x faster locally, but two runtime
+test binaries consumed about87% of hosted Rust time. They use different feature
+configurations; neither removing one as a duplicate nor adding a build cache
+is justified by that measurement. Analyze existing evidence first, then select
+one bounded local shadow experiment only for a concrete remaining hypothesis,
+preserving assertions, failure/deadline coverage and configuration identity.
+
+Compare keeping full PR/push checks with a lighter premerge policy or trusted
+postmerge reuse. Lighter PR checks can defer discovery of integration failures
+until after merge into shared development. Reuse requires the exact tested
+inputs, original run/attempt and provenance of the actually executed workflow;
+tree equality or a checked-out workflow file alone is insufficient. Changed or
+unverifiable inputs must require full execution. This analysis does not waive
+current gates or authorize exporter/trust changes, a personal-host public-PR
+runner, paid capacity, or a new CI framework. Keep detailed timing/design notes
+in the owning handoff; record the selected assurance tradeoff before changing
+policy. Completing repository organization does not close this question.
+
 ## Retained track entries
 
 The exact tips below are observed checkpoints, not moving declarations of

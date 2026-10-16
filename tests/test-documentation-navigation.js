@@ -198,6 +198,14 @@ assert(!roadmapIndex.includes('Current published 0.7.0 remains'),
 assert(roadmapIndex.includes('Current published 0.9.8'));
 assert(roadmapIndex.includes('DEVELOPMENT_INVENTORY.md#new-base-queue'));
 assert(developmentInventory.includes('## New-base queue'));
+assert(developmentInventory.includes('### Open CI performance and assurance decision'));
+assert(developmentInventory.includes('EXECUTION_POLICY.md#technical-judgment-before-execution'));
+const ciDecision = developmentInventory.split('### Open CI performance and assurance decision')[1]
+  .split('## Retained track entries')[0].replace(/\s+/g, ' ');
+for (const boundary of ['not a selected replacement policy', 'different feature configurations',
+  'actually executed workflow', 'does not waive current gates']) {
+  assert(ciDecision.includes(boundary), 'retain unresolved CI decision boundary: ' + boundary);
+}
 const nextQueue = developmentInventory.split('## New-base queue')[1].split('## Retained track entries')[0];
 for (const boundary of ['consumer Restore', 'not a whole-beta merge',
   'owner-paused', 'private fixtures', 'Backup-only', 'not feature implementation']) {
