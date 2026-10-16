@@ -1,6 +1,6 @@
 # OmaVLESS development workflow
 
-Status: repository workflow policy, updated 2026-10-01.
+Status: repository workflow policy, reconciled with October16 user distribution.
 
 This workflow applies to current plugin work, incremental Python -> Rust
 migration, standalone Arch/NixOS packaging and later TUI work.
@@ -10,8 +10,10 @@ also read `RUST_MIGRATION.md`.
 
 ## 1. One long-lived branch
 
-`main` is the only long-lived release source of truth. It preserves the stable
-product snapshot, including README, roadmap and agent documentation. Do not
+`main` is the long-lived stable user distribution. It preserves the selected
+product files, README, user guide and support-agent instructions, not developer
+roadmaps or tests. The [source/distribution map](../development/STABLE_DISTRIBUTION_TRANSITION.md)
+records its immutable matching full source and current developer entry. Do not
 advance it between owner-authorized updates, even for documentation-only work.
 Day-to-day development continues in task branches and versioned candidates;
 issues and PRs provide the live operational status without changing release SHA.
@@ -35,8 +37,9 @@ Owner-approved versioned stages, 2026-09-30:
   unchanged. Later create `rc/0.9.5` from a selected, recorded beta head. Do not
   divert 0.9.5 features into the accepted 0.9.0 candidate.
 
-Both stages carry the canonical documentation and agent rules, not separate
-user/developer trees. Reconcile those docs when integrating code. Neither stage
+Both stages carry full-source documentation and developer rules. Main is their
+reviewed user-only export, not a second editable implementation. Reconcile
+source docs when integrating code. Neither stage
 is a release tag, authorizes public assets/marketplace, or permits a main update.
 Delete after release or recorded supersession under the cleanup rules below.
 Old unversioned `beta/<scope>` scratch branches are grandfathered evidence, not
@@ -161,18 +164,22 @@ retain their separate applicable authorization.
 Use narrow `dev/docs/*` PRs; run documentation/navigation checks and normal CI.
 Mark checked work ready when appropriate, but keep it outside main until the
 authorized update. Readiness and integration into beta or RC do not mean publication.
-Preserve canonical paths on every branch: main documents its released snapshot,
-the candidate documents the intended next snapshot, and issues/PRs expose the
-current queue. Do not put roadmap/agent rules exclusively in a separate branch.
+Preserve canonical paths in full source: main documents its released user
+snapshot, the source candidate retains developer rules and the next roadmap,
+and issues/PRs expose the current queue. Main's source entry must reach immutable
+release source; a future moving developer home cannot replace that provenance.
 
 Every proposed main update must complete the [release reconciliation checklist](#release-reconciliation-checklist).
 There is no docs-only exception for bypassing that checklist or the main hold.
 
 ### Branch cleanup lifecycle
 
-After inclusion in an authorized main update, delete the source branch and
-prune local remote-tracking refs. RC integration alone is not grounds to delete
-the only independently reviewable source/evidence branch.
+After inclusion in an authorized main update, classify the source branch before
+proposing deletion. Generated main carries source ancestry, but reachability
+does not prove that a feature is enabled, its gates passed or its PR is resolved.
+Retain the selected full-source carrier until a successor home exists. RC
+integration alone is not grounds to delete the only independently reviewable
+source/evidence branch.
 After closing a superseded PR, delete its branch once its unique commits have
 been classified, except source/evidence branches intentionally retained for
 RC-only integration until the authorized main update. Closing a duplicate PR
@@ -194,16 +201,26 @@ to make the branch list tidy. If a concurrently produced PR describes stale or
 contradictory state, close it with a reason rather than merging misleading
 documentation.
 
+For a cleanup proposal retain one dated public-metadata inventory outside Git:
+branch/exact head, main and full-source reachability, PR head/base relationships,
+local worktree ownership and the proposed disposition. Reachable branches with
+no open head/base PR are review candidates, not an automatic deletion batch.
+An open PR may be dormant evidence rather than an active writer; inspect its
+owning contract before closing it. Separate closing a superseded PR, deleting
+its remote branch and removing a local worktree. Before an authorized mutation,
+refetch and require the same exact head and no newly introduced dependency.
+Never retarget an old full-source PR to stripped user main for convenience.
+
 ## 3. Stacked branches
 
 Stack only for a real dependency.
 
 After predecessor merges:
 
-1. update/rebase successor onto new `main`;
+1. update/rebase successor onto the declared selected full-source base;
 2. resolve shared docs/changelog without dropping either decision;
 3. rerun materially affected cloud/parity checks;
-4. retarget to `main`;
+4. retarget to its owning full-source integration/candidate, not stripped main;
 5. perform successor's own local gates;
 6. merge only with separate owner approval.
 
@@ -216,11 +233,16 @@ becomes actionable.
 
 ### CI event policy
 
-The full Test workflow runs for every pull request (including Drafts), pushes
-to `main`, and all tag pushes. Feature-branch pushes do not also run a duplicate
-workflow: open the Draft PR at the first meaningful checkpoint to obtain cloud
-evidence. Until then, run the same `./tests/run.sh` and `./tests/run-rust.sh`
-gates locally. Every later PR synchronization runs both gates again.
+In full source the Test workflow runs for every pull request (including Drafts),
+main/tag pushes and the explicitly selected `dev/098-finalization-integration`
+push used by the exporter source-CI gate. Other feature pushes do not also run a
+duplicate workflow: open the Draft PR at the first meaningful checkpoint to
+obtain cloud evidence. Until then, run `./tests/run.sh` and
+`./tests/run-rust.sh` locally. Every later PR synchronization runs both gates.
+The generated user tree instead runs its own Distribution workflow, fetching
+the immutable admitted full source. Do not copy a Cargo workflow into stripped
+main or remove the required full-source push check to reduce CI time. Changes
+to the workflow/trust boundary require their own reviewed successor.
 
 PR concurrency cancels superseded runs of the same PR, retaining the full
 latest-head gates. Main and tag checks remain independent. Before a manual
@@ -579,20 +601,22 @@ The marketplace plugin never silently builds Cargo sources or installs the
 standalone package.
 
 The root README is a product page, not the development ledger. Keep detailed
-agent instructions discoverable through root AGENTS on every branch; use the
+developer instructions discoverable through full-source AGENTS, and user-agent
+instructions through distribution AGENTS; use the
 [documentation and retention policy](../development/README.md) for their
 placement. Repository cleanup must preserve useful roadmaps and evidence, not
-hide them in a separate develop branch or ship them as runtime payload.
+lose their source entry or ship developer records as runtime payload.
 
 ## 17. Normal flow examples
 
 Plugin/UI feature:
 
 ```text
-declared base -> dev/<topic> PR -> declared gates
+declared full-source base -> dev/<topic> PR -> declared gates
               -> optional beta/<version> + reconciled docs / combined checks
               -> rc/<version> scope freeze + final release gates
-              -> explicit owner main authorization -> main
+              -> reviewed user export / distribution gates
+              -> explicit owner main authorization -> user main
 ```
 
 Rust migration slice:

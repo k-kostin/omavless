@@ -14,7 +14,8 @@ Before planning, implementing, gating or merging work:
    through connected GitHub tooling).
 2. Compare local `main` and the current branch with their remote refs; do not
    reason from a stale checkout.
-3. Read the current remote versions of:
+3. In the declared full-source ref, read the current remote versions of the
+   files below. User main intentionally lacks these developer paths:
    - `DEVELOPMENT_ROADMAP.md`;
    - `docs/roadmap/DEVELOPMENT_WORKFLOW.md`;
    - `docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md`;
@@ -39,8 +40,11 @@ instead of duplicating unchanged audits or adding another permanent agent.
 Apply their [closure and distribution gate](EXECUTION_POLICY.md#retrospective-closure-and-distribution):
 reusable lessons must reach project rules/tests and affected agents, not only a
 session report. On older branches, check current remote main guidance as well.
-The owner-selected [stable distribution transition](STABLE_DISTRIBUTION_TRANSITION.md)
-is preparation, not a deployed layout or permission to modify main.
+The [source/distribution map](STABLE_DISTRIBUTION_TRANSITION.md) records the
+deployed October16 separation: main serves users and their support agents;
+this full-source checkout owns product development and developer rules.
+Read its current summary before choosing a base; an older feature branch or
+the installed user checkout cannot define today's repository layout.
 
 ## Selected implementation direction
 
@@ -109,6 +113,18 @@ A later GPUI desktop client is optional and must remain a client of the same
 semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
 
 ## Current delivery strategy
+
+Fix.8 is published and the user distribution was promoted through #795 on
+October16. Exact full source is `5edf4eb203926d8bd39a3ff80f611a19435c3787`;
+source CI, export/bootstrap, distribution CI and anonymous asset checks earned
+their separate results. The final onboarding delta has installed x64 evidence;
+its additional installed ARM check was explicitly waived, not passed. See the
+[current status](../roadmap/CURRENT_STATUS.md) for identities and remaining work,
+and the [post-delivery retrospective](POST_FIX8_RETROSPECTIVE.md) for reusable
+corrections. #794 retains full source; it is not a PR to merge into user main.
+Do not restart release gates or update main for this developer-only follow-up.
+
+### Earlier delivery selections — historical
 
 October 15 owner-authorized successor: prepare immutable `v0.9.8-fix.7`
 and main integration of the reviewed setup stack #783–787/#782. Common native
@@ -245,8 +261,9 @@ the change.
 
 ## Git discipline
 
-- `main` is the only long-lived release source of truth: a stable snapshot,
-  including documentation, not the daily development integration branch.
+- `main` is the stable generated user distribution, not the full-source
+  development base. Its immutable source entry preserves release provenance.
+  Follow the current source/distribution map for developer bases and rules.
 - `archive/python-legacy` is a frozen historical snapshot at
   `aa5873783c019edc303a732e55ea8c85f1f0b090`, not another development line.
   Preserve it during branch cleanup; never merge new work into it or use it as
@@ -285,10 +302,10 @@ the change.
 - Prepare agreed documentation-only updates in reviewed `dev/docs/*` PRs;
   readiness is not authorization to update `main`. The former automatic docs
   merge permission is revoked by the [2026-09-22 workflow decision](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
-  Current issues/PRs carry ongoing status; the named beta/RC carries the next roadmap
-  revision. Before an owner-authorized main update, reconcile and include all
-  applicable roadmap, current-status, feature-contract and agent-rule changes.
-  Do not leave accepted decisions stranded in a branch after publishing code.
+  Current issues/PRs carry ongoing status; selected full source carries the next
+  roadmap revision and developer rules. Reconcile them with each release, but
+  export only user-facing documentation into main. Do not strand useful rules
+  in chat or automatically copy developer retrospectives into the user tree.
 - Fetch again before rebasing, force-pushing, retargeting or merging. If the
   remote head changed unexpectedly, stop and reconcile its commits before
   writing. Use `--force-with-lease` only against the exact observed remote head;
@@ -296,8 +313,12 @@ the change.
 - Preserve useful work on GitHub before ending an ephemeral/local VM session.
   Never leave the only copy of a useful commit or test report inside Try
   Omarchy.
-- After inclusion in an authorized main update, delete the source branch and
-  prune remote-tracking refs. An RC-only merge or closure of a duplicate source
+- After inclusion in an authorized main update, classify the source branch
+  before deletion. Generated main ancestry preserves full-source history but
+  does not mean every ancestor's feature is enabled or its evidence is complete.
+  Retain the selected full-source carrier, active writers and dependency bases;
+  follow the cleanup lifecycle for an exact-ref deletion proposal. An RC-only
+  merge or closure of a duplicate source
   PR does not by itself authorize deleting the independently reviewable evidence
   branch: classify it as intentionally retained until main inclusion/cleanup.
   Other conclusively superseded branches follow the canonical

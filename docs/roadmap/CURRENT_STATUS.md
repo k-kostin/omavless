@@ -6,6 +6,36 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+Fix.8 delivered October16 through [#795](https://github.com/k-kostin/omavless/pull/795).
+Actual main `bcd744ecb3c1c61bbfe4a8ab090358b225ce1e76` is the 66-file user
+distribution, tree `8db26d9ca4a0f82fb2885f94ccb537af55073a53`, from generated
+`42d106b8ba8741a8a575b265309f27fce7fc413f` and exact full source
+`5edf4eb203926d8bd39a3ff80f611a19435c3787`. Native producer2d54 and helper0250
+retain their identities in the [source/distribution map](../development/STABLE_DISTRIBUTION_TRANSITION.md#current-map--after-fix8-delivery).
+Exact source Test38914973164, actual exporter/bootstrap, distribution
+PR38927849049/main38928565626, seven anonymous asset downloads/hashes and actual
+public-main clone verification passed independently. The final first-use UI
+delta passed installed x64; additional installed ARM acceptance was explicitly
+owner-waived, not PASS. Older Mac outcomes retain their original scope.
+
+The owner-approved update-first support reply was posted once in
+[#773](https://github.com/k-kostin/omavless/issues/773#issuecomment-6220047689).
+The issue remains open for the reporter's result; do not duplicate the reply or
+infer that his installation is fixed. No Marketplace update follows.
+
+Current owner request: post-delivery [retrospective](../development/POST_FIX8_RETROSPECTIVE.md)
+and read-only GitHub cleanup classification. Developer-rule reconciliation is
+prepared in a separate full-source docs branch, not integrated into a new
+developer home or main. Remote refs/PRs, local worktrees, release assets and VM
+are unchanged by the audit. A named `development` home is not yet created.
+Restore/0.9.9, V0, P4, K1, S1 and GUI keep their own unfinished gates.
+
+## Earlier finalization snapshots — superseded task lists
+
+The dated preparation below is historical, not a current release hold. Preserve
+original failures and identities; use the summary above and owning PRs for
+actual delivery and remaining work.
+
 October16 ARM acceptance found a selected-delivery mismatch before Quit:
 helper4345 admitted public application hashes only through fix.7, not the
 selected2d54 fix.8 executables. Helper0250efeb adds exactly both selected app

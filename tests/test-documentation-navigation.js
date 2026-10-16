@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/development/EXECUTION_POLICY.md',
+  'docs/development/POST_FIX8_RETROSPECTIVE.md',
   'docs/development/STABLE_DISTRIBUTION_TRANSITION.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
   'docs/development/BETA_098.md', 'docs/development/RC_097.md', 'docs/development/RC_096.md', 'docs/development/RC_095.md',
@@ -162,6 +163,21 @@ for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md
   assert(entry.includes('](' + target + ')'), 'agent discovery must retain ' + target);
 }
 const guide = fs.readFileSync(path.join(root, 'docs/development/AGENT_GUIDE.md'), 'utf8');
+// Repository-role/discovery guards, not proof of an agent following the rules.
+const sourceMap = fs.readFileSync(path.join(root, 'docs/development/STABLE_DISTRIBUTION_TRANSITION.md'), 'utf8');
+const currentMap = sourceMap.split('## Current source composition')[0];
+assert(currentMap.includes('## Current map — after fix.8 delivery'));
+assert(currentMap.includes('bcd744ecb3c1c61bbfe4a8ab090358b225ce1e76'));
+assert(currentMap.includes('5edf4eb203926d8bd39a3ff80f611a19435c3787'));
+assert(!currentMap.includes('product tree has not been migrated'));
+assert(!guide.includes('is preparation, not a deployed layout'));
+assert(guide.includes('](POST_FIX8_RETROSPECTIVE.md)'));
+assert(entry.includes('Developer rules and retrospectives stay in full source'));
+const retro = fs.readFileSync(path.join(root, 'docs/development/POST_FIX8_RETROSPECTIVE.md'), 'utf8');
+for (const evidence of ['test-uninstaller.js', 'test-native-onboarding.js',
+  'test_rust_ci_isolation.py', 'waived, not earned', 'not yet integrated']) {
+  assert(retro.replace(/\s+/g, ' ').includes(evidence), 'retain bounded retro evidence/disposition: ' + evidence);
+}
 // Discovery/retention guard only: this cannot prove that a particular retro
 // was implemented or that an agent followed its required checks.
 const execution = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
@@ -190,6 +206,8 @@ for (const section of ['Mandatory freshness', 'Acceptance environments',
   assert(guide.includes(section), 'preserved guide section: ' + section);
 const workflow = fs.readFileSync(path.join(root, 'docs/roadmap/DEVELOPMENT_WORKFLOW.md'), 'utf8');
 assert(workflow.includes('dev/<topic>') && workflow.includes('rc/<version>'));
+assert(workflow.includes('Never retarget an old full-source PR to stripped user main'));
+assert(workflow.includes('Reachable branches with\nno open head/base PR are review candidates'));
 assert(workflow.includes('beta/<version>'), 'versioned development assembly must be documented');
 assert(workflow.includes('### Beta-integrated / not released'));
 assert(workflow.includes('### Internal candidate checkpoints (owner decision, 2026-10-02)'));
@@ -204,7 +222,7 @@ for (const file of ['AGENTS.md', 'CONTRIBUTING.md', 'docs/development/AGENT_GUID
   assert(/supersede|histor/i.test(text),
     'previous RC must be identified as retained history: ' + file);
 }
-assert(entry.includes('Publicly accepted artifact baseline is `rc/0.9.5`'));
+assert(entry.includes('Historical accepted artifact baseline is `rc/0.9.5`'));
 assert(entry.includes('`dev/098-stable-preparation`') && entry.includes('`rc/0.9.8`'),
   'agent entry must point to the selected release preparation, not its historical beta');
 assert(entry.includes('`v0.9.8-fix.1`') && entry.includes('immutable'),
