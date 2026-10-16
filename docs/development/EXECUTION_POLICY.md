@@ -120,6 +120,14 @@ lookup or local-rebuild refusal alone does not prove that the positive update
 path is reachable. Preserve the old admission fences; use explicit tested
 producer/payload identities rather than making an unknown installation qualify.
 
+When changing staged package content or the source of installed help, run the
+owning Rust packaging-payload integration tests as well as the Python/shell
+staging checks before freezing artifacts. Keep exact bytes, inventory and modes;
+update the intended user-help source rather than weakening a stale assertion.
+An integration-test change can still affect a package's corresponding-source
+archive even when it does not compile into the executable. Follow the reviewed
+input-equivalence contract; do not exclude that file merely to reuse old assets.
+
 After two unsuccessful diagnostic cycles without narrowing the failure,
 reassess the hypothesis or design with an independent reviewer. This is a
 checkpoint to change method, not a retry allowance or a reason to stop all work.
