@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-10-15. This is the compact current-state entry point; the detailed
+Updated 2026-10-16. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -12,10 +12,23 @@ in Draft #794. Current main is `1688c5a3`, a rules-only update; the product
 baseline remains `ed0346c5`. #790–793 are source inputs to the candidate, not
 separately published maintenance releases. The full remover,
 short ready screen, unified user/assistance guides and tested local stable-tree
-export are prepared. Main/development migration, publication and Aryan's reply
-remain held for separate owner authorization.
+export are prepared. On October16 the owner authorized transfer of the prepared
+storefront into main. Required technical/coherent-delivery gates and separate
+release/tag/assets, ARM disposition, Marketplace and Aryan approval remain.
 
-The selected 65-file user tree from source `117e8468` was installed in the x64
+The corrected65ee actual x64 component update, separate existing-helper Start
+and app Start reached the normal Disconnected panel with ready/present facts,
+configuration preserved and foreign Mihomo retained. This is offline candidate
+acceptance with an empty existing profile store, not public delivery or ARM.
+Full source82 CI failed a Rust packaging-payload test expecting the old developer
+README instead of the already staged USER_README. Exact red101 followed by
+default/released3/3 and focused Clippy/fmt verified the narrow correction.
+Matching native producer2d54b430 has successful both-architecture builds and
+strict archive checks; its test is in DNS's corresponding-source archive.
+Executable bytes match65ee, but new archive/source/receipt pins are selected.
+Final successor source CI/export admission are not inherited from earlier gates.
+
+Historical selected 65-file user tree from source `117e8468` was installed in the x64
 guest through stock Omarchy local-Git candidate selection, with fresh public
 package downloads and owner-entered sudo/pacman/DNS consent. Paired installed
 payloads match the public producer; setup reached the ordinary disconnected
@@ -23,8 +36,8 @@ panel without shell restart or administrative repair. This is not a published
 main/Marketplace install or an exact captured terminal exit. The owner found a
 remaining editorial gap: the separate completed component-review page retained
 recheck/help after the wizard had already been simplified. Its visibility
-correction and cross-state regressions belong to the next selected head;
-affected EN/RU rendering and final exact-source CI remain required. Do not
+correction and cross-state regressions were carried into the successor, with
+installed EN/RU review; final exact-source CI remains separate. Do not
 call finalization complete from the installation result alone.
 
 The final full-source CI is tracked on #794. The earlier #792 Rust failure is

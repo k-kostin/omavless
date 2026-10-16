@@ -1,14 +1,27 @@
 # Stable distribution and development separation
 
-Owner-selected direction, 2026-10-15. **Product preparation only:** the separately
-authorized rules-only #791 is on main; the product tree has not been migrated.
-This plan grants no product merge, release or marketplace permission. A local
-distribution export is implemented; it is not the main migration. Complete the
-remaining functional gates first.
+Owner-selected direction, 2026-10-15; on October16 the owner authorized transfer
+of the prepared user storefront into main. The separately authorized rules-only
+#791 is on main; the product tree has not been migrated. Main authorization is
+not a technical-gate/ARM waiver or separate release/tag/assets/Marketplace/support
+permission. A local distribution export is implemented, not yet promoted.
+Complete the remaining functional and coherent-delivery gates first.
 The [execution policy](EXECUTION_POLICY.md#retrospective-closure-and-distribution)
 governs retained decisions and their actual distribution.
 
 ## Current source composition — 2026-10-15
+
+October16 source successor `2d54b430866fd5b2849cd815f8552a4e9e2d16a8` corrects
+the Rust packaging-payload test to expect USER_README.md. Source82 full CI
+failed that obsolete developer-help expectation; exact local red101 and corrected
+default/released suites3/3, focused Clippy/fmt passed. Native builds38858155305/
+38858156867 completed for both architectures; strict archive checks passed.
+They rebuild the matching pair because this test is also in DNS's
+corresponding-source payload, so no equivalence exception is introduced.
+Actual stock widget update, offered65ee component update, separate helper/app
+Start and normal Disconnected/ready UI passed in x64 with configuration retained.
+That exact offline-candidate proof remains65ee, not the new producer. Current
+successor pins/build/CI/export results belong in #794.
 
 October 16 affected-update correction: the installed selected-pair updater must
 preserve the original setup backup after ordinary preset selection rather than

@@ -2,7 +2,18 @@
 
 ## Unpublished finalization candidate
 
-Proposed **0.9.8 / `v0.9.8-fix.8`** selects native producer
+Proposed **0.9.8 / `v0.9.8-fix.8`** selects inspected matching packages from
+`2d54b430866fd5b2849cd815f8552a4e9e2d16a8`: Native packages38858155305 and
+DNS pair38858156867 completed successfully on both architectures. This successor corrects the Rust packaging test's obsolete
+developer-README expectation; the stager already installs reviewed user help.
+The test also belongs to DNS's corresponding-source archive, so the protected
+input gate is unchanged and old packages are not relabelled. Actual app/core/
+broker executables match65ee bytes; source identities, receipts and archive pins
+come from these new builds. Exact combined source CI/export remain required.
+The owner authorized storefront promotion to main on October16, not a CI/ARM
+waiver or separate release/tag/assets, Marketplace or support posting.
+
+The preceding functional correction selected native producer
 `65ee224c64d384bb59eacfa92eee32cd83ec8cb1`. App38853222637 and DNS38853224670
 completed successfully for both architectures; production archives and actual
 payload hashes are strictly inspected and pinned. The selected-pair update
@@ -10,8 +21,10 @@ captures its existing selector/backup before template admission and preserves
 their bytes after ordinary routing-preset selection. Initial-conversion,
 pending and unsafe-member refusals remain; no backup deletion or repeated
 enrollment. All three portable presets and modes are regression-covered.
-Final source CI, user export, actual x64 continuation and ARM remainder remain
-separate gates in #794; builds alone do not earn installed/public acceptance.
+Actual x64 update and separate existing-helper/app Start passed for these exact
+65ee bytes; full source82 CI later failed the stale packaging expectation.
+The successor's final source CI, user export and ARM remainder remain separate
+gates in #794; old installed proof is not renamed as the new producer.
 The optional frontend archive also has its own short user README; check its
 mapped payload, not just root/docs/user, before a final delivery freeze.
 
