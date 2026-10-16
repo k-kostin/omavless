@@ -16,6 +16,8 @@ misclassify portable routing as unfinished setup. The scoped correction retains
 all initial/unknown/pending/unsafe-member guards and requires a new producer.
 Archive README copy must also match its selected delivery; inspect actual mapped
 help in every selected artifact before final freeze. Current gates are in #794.
+The corrected native producer is `65ee224c64d384bb59eacfa92eee32cd83ec8cb1`;
+both architecture app/DNS archives passed build/strict-inspection gates.
 
 Earlier October 16 successor: preceding native producer
 `da54f90e4eb6c725b2847bf96b00ef602f214e51` has both architecture app/DNS archives

@@ -2,13 +2,16 @@
 
 ## Unpublished finalization candidate
 
-The final native producer is being revised for the actual x64 selected-pair
-update refusal after normal setup and routing-preset selection. The update
-must capture its existing selector/backup before template admission, preserve
-their bytes and keep initial-conversion/pending/unsafe-member refusals. It must
-not delete the backup or rerun DNS enrollment. All three portable presets and
-their mode variants are regression-covered. Exact current identities/gates
-belong in #794; prior archive identities below are not the corrected release.
+Proposed **0.9.8 / `v0.9.8-fix.8`** selects native producer
+`65ee224c64d384bb59eacfa92eee32cd83ec8cb1`. App38853222637 and DNS38853224670
+completed successfully for both architectures; production archives and actual
+payload hashes are strictly inspected and pinned. The selected-pair update
+captures its existing selector/backup before template admission and preserves
+their bytes after ordinary routing-preset selection. Initial-conversion,
+pending and unsafe-member refusals remain; no backup deletion or repeated
+enrollment. All three portable presets and modes are regression-covered.
+Final source CI, user export, actual x64 continuation and ARM remainder remain
+separate gates in #794; builds alone do not earn installed/public acceptance.
 The optional frontend archive also has its own short user README; check its
 mapped payload, not just root/docs/user, before a final delivery freeze.
 
