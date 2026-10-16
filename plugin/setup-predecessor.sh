@@ -129,7 +129,7 @@ _omavless_pair_delivery_inspect() (
   [[ $source =~ ^[0-9a-f]{40}$ && $digest =~ ^[0-9a-f]{64}$ ]] \
     || { printf 'unknown\n'; return; }
   case "$source" in
-    "$target"|4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998|e3d2245966c725ee11b505899b22a20721ff2ddd|8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524|b65695ee0609c2a971289109975678b8da87c946|99c556e5c966e1e1dae04f2d8babd2ca2dec9375) ;;
+    "$target"|4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998|e3d2245966c725ee11b505899b22a20721ff2ddd|8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524|b65695ee0609c2a971289109975678b8da87c946|99c556e5c966e1e1dae04f2d8babd2ca2dec9375|d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b) ;;
     *) printf 'unknown\n'; return ;;
   esac
   IFS=$'\t' read -r pinned_app pinned_core pinned_broker pinned_receipt < <(_omavless_pair_pins "$source" "$arch") \

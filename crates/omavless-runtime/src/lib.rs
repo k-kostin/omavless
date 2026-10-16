@@ -9160,6 +9160,96 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
 
+    // Socket tests which assert an ordinary response must not stop the batch
+    // scheduler merely because the last peer was accepted. Its stop acquires
+    // the same dispatcher mutex that nonblocking reads intentionally refuse.
+    struct RunningSocketFixture {
+        stop: Arc<AtomicBool>,
+        worker: Option<thread::JoinHandle<Result<()>>>,
+    }
+
+    impl RunningSocketFixture {
+        fn start(server: RuntimeServer) -> Self {
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let worker = thread::spawn(move || server.serve_until(&worker_stop));
+            Self {
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn finish(mut self) {
+            self.stop.store(true, Ordering::Release);
+            self.worker.take().unwrap().join().unwrap().unwrap();
+        }
+    }
+
+    impl Drop for RunningSocketFixture {
+        fn drop(&mut self) {
+            // Also release the fixture when an assertion unwinds. The normal
+            // finish path above still checks the original worker result.
+            self.stop.store(true, Ordering::Release);
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    #[test]
+    fn route_socket_fixture_cleanup_survives_assertion_unwind() {
+        let base = temporary_base("route-fixture-unwind");
+        let paths = RuntimePaths::below(&base);
+        let server = RuntimeServer::bind(paths.clone()).unwrap();
+        struct IntentionalRouteFixtureUnwind;
+        let result = std::panic::catch_unwind(move || {
+            let _serving = RunningSocketFixture::start(server);
+            std::panic::panic_any(IntentionalRouteFixtureUnwind);
+        });
+        match result {
+            Err(payload) if payload.is::<IntentionalRouteFixtureUnwind>() => (),
+            Err(payload) => std::panic::resume_unwind(payload),
+            Ok(()) => panic!("the intentional route-fixture unwind was not reached"),
+        }
+        assert!(!paths.socket.exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn route_check_contention_precedes_revoked_ownership_without_live_results() {
+        let base = temporary_base("route-busy-revoked");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server = RuntimeServer::bind_with_owner_factory(paths, move |_| Ok(owner)).unwrap();
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let host_before = calls.load(Ordering::Relaxed);
+        let request = make_request(
+            "route-contention",
+            "routing.check",
+            json!({"query":"private.example"}),
+        )
+        .unwrap();
+        // Deliberate fixture contention proves error precedence. It is not a
+        // trace of the original CI scheduler-stop interleaving.
+        let held = server.dispatcher.lock().unwrap();
+        let busy = server.dispatch_route_check(&request).unwrap();
+        assert_eq!(busy["error"]["code"], "busy");
+        assert!(busy.get("result").is_none());
+        drop(held);
+        let revoked = server.dispatch_route_check(&request).unwrap();
+        assert_eq!(revoked["error"]["code"], "capability_unavailable");
+        assert!(revoked.get("result").is_none());
+        for response in [&busy, &revoked] {
+            assert!(!response.to_string().contains("private.example"));
+        }
+        assert_eq!(fs::read(store).unwrap(), before);
+        assert_eq!(calls.load(Ordering::Relaxed), host_before);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn route_check_fastpaths_are_private_fenced_and_do_not_invent_live_results() {
         let base = temporary_base("route-fast");
@@ -9167,7 +9257,7 @@ mod tests {
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let serving = RunningSocketFixture::start(server);
         let caps = call(&paths, "capabilities.get", json!({})).unwrap();
         assert!(
             caps["result"]["methods"]
@@ -9225,7 +9315,7 @@ mod tests {
         write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
         let revoked = call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
         assert_eq!(revoked["error"]["code"], "capability_unavailable");
-        worker.join().unwrap();
+        serving.finish();
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -9239,7 +9329,7 @@ mod tests {
             let paths = RuntimePaths::below(&base.join("runtime"));
             let server =
                 RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-            let worker = thread::spawn(move || server.serve(Some(4)).unwrap());
+            let serving = RunningSocketFixture::start(server);
             assert_eq!(
                 call(
                     &paths,
@@ -9324,7 +9414,7 @@ mod tests {
                 let _ = call(&paths, "connection.disconnect", json!({})).unwrap();
             }
             http.join().unwrap();
-            worker.join().unwrap();
+            serving.finish();
             fs::remove_dir_all(base).unwrap();
         }
     }

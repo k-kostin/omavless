@@ -9,14 +9,15 @@ This is a terminal tool; the 0.9.8 plugin has no full-removal button.
 It supports public 0.8.2 and 0.9.8 installations: unfinished setup, a running
 or stopped application, and an already removed widget. It checks the installed
 components itself; you do not need to remember which version you used.
-Removal needs one restart. If interrupted, run the same command to continue.
+Removal normally needs one restart; widget-only cases can skip it.
+If interrupted, run the same command to continue.
 For an update that keeps settings, use the [update guide](NATIVE_INSTALL.md#updates).
 
 ## Run the removal helper
 
 Copy this whole block into your normal Omarchy terminal. It uses the helper
-from an updated widget offline, or downloads it for older/removed widgets.
-It checks the helper before starting removal.
+from the widget offline, or downloads it if absent. A mismatched local copy
+stops at the checksum check; it is not executed or silently replaced.
 
 ```bash
 mkdir -p "$HOME/.cache/omavless-maintenance/reinstall-098" &&
@@ -25,10 +26,10 @@ if [[ -f "$HOME/.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh" ]]; the
     "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 else
   curl --fail --location --connect-timeout 10 --max-time 60 --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/k-kostin/omavless/4345f28936f22e604db4a7ed0da25c7ed3edbfd7/tools/uninstall.sh \
+    https://raw.githubusercontent.com/k-kostin/omavless/0250efeb87ff5f6c331a2d067c181a29084b37a2/tools/uninstall.sh \
     -o "$HOME/.cache/omavless-maintenance/reinstall-098/.download"
 fi &&
-printf '%s  %s\n' a6067299fad774eef33fe06821e5aa18245fc16dc861f775ee9b96ebc9a5cd29 \
+printf '%s  %s\n' 2ecda6be26438e3f6ffa46cc66c7f1c3b55ae1db6d176cf8471b4963724532f1 \
   "$HOME/.cache/omavless-maintenance/reinstall-098/.download" | sha256sum --check - &&
 mv -T -- "$HOME/.cache/omavless-maintenance/reinstall-098/.download" \
   "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh" &&
@@ -37,11 +38,11 @@ bash "$HOME/.cache/omavless-maintenance/reinstall-098/uninstall.sh"
 
 1. Enter `REMOVE` to confirm. The helper closes OmaVLESS if needed and prepares
    removal. Enter your password only at sudo's prompt.
-2. When preparation finishes, save your other work. Enter `REBOOT` to restart,
+2. If a restart is requested, save your other work. Enter `REBOOT` to restart,
    or press Enter to restart later from your desktop.
 3. After logging back in, run the same helper command below. It continues at
    removal, not preparation. Confirm `REMOVE`, then follow the package-removal
-   and widget-removal prompts that remain.
+   and widget-removal prompts that remain, in that order.
 
 Do not reopen or reinstall OmaVLESS between preparation and completing removal.
 

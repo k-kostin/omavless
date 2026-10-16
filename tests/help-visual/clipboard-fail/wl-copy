@@ -1,0 +1,4 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Opt-in PATH fixture: no clipboard interaction and a known original failure.
+exit 1

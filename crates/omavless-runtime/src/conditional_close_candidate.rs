@@ -2756,6 +2756,112 @@ while True:
         (session, target)
     }
 
+    struct DrainPeer {
+        root: PathBuf,
+        core: OwnedCore,
+    }
+    impl DrainPeer {
+        fn new() -> Self {
+            let (root, core) = peer_fixture("ok");
+            Self { root, core }
+        }
+    }
+    impl Drop for DrainPeer {
+        fn drop(&mut self) {
+            // Release child ownership before removing only this fixture's files.
+            if self.core.stop(Duration::from_secs(2)).is_ok() {
+                let _ = fs::remove_dir_all(&self.root);
+            }
+        }
+    }
+
+    // Exercise the real counted flight/drop and real kernel migration flock.
+    // This unit-level composition does not manufacture EffectProof admission;
+    // the actual-owner paused-worker tests separately cover that entry path.
+    fn exact_drain_proof(session: &Session, paths: &crate::cutover::CutoverPaths) -> EffectLease {
+        let flight = session.begin_proof_flight().unwrap();
+        let lease = crate::cutover::MigrationLock::acquire(paths, session.binding.uid).unwrap();
+        EffectLease {
+            lease: Some(lease),
+            flight: Some(flight),
+        }
+    }
+
+    #[test]
+    fn cancel_and_drain_held_exact_lease_times_out_and_permanently_cancels() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let mut peer = DrainPeer::new();
+        let (session, _) = prepared(&mut peer.core);
+        let uid = session.binding.uid;
+        let paths = crate::cutover::CutoverPaths::below(&peer.root, &peer.root, uid);
+        let proof = exact_drain_proof(&session, &paths);
+        let cancellation = session.cancellation();
+        let started = Instant::now();
+        assert!(!cancellation.cancel_and_drain());
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "held proof drain: {elapsed:?}"
+        );
+        assert!(cancellation.is_cancelled());
+        assert!(matches!(
+            crate::cutover::MigrationLock::acquire_existing(&paths, uid),
+            Err(crate::cutover::CutoverError::Busy)
+        ));
+        assert!(matches!(
+            session.begin_proof_flight(),
+            Err(Outcome::RefusedBeforeWrite)
+        ));
+        assert!(!peer.root.join("effects").exists());
+        drop(proof);
+        assert!(cancellation.cancel_and_drain());
+        assert!(cancellation.is_cancelled());
+        assert!(matches!(
+            session.begin_proof_flight(),
+            Err(Outcome::RefusedBeforeWrite)
+        ));
+        let lease = crate::cutover::MigrationLock::acquire_existing(&paths, uid).unwrap();
+        assert!(lease.authorizes(&paths, uid));
+        eprintln!("direct held drain: elapsed={elapsed:?} cancelled=true lease=held-until-drop");
+    }
+
+    #[test]
+    fn cancel_and_drain_released_exact_lease_acknowledges_only_after_unlock() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let mut peer = DrainPeer::new();
+        let (session, _) = prepared(&mut peer.core);
+        let uid = session.binding.uid;
+        let paths = crate::cutover::CutoverPaths::below(&peer.root, &peer.root, uid);
+        let proof = exact_drain_proof(&session, &paths);
+        let cancellation = session.cancellation();
+        assert!(matches!(
+            crate::cutover::MigrationLock::acquire_existing(&paths, uid),
+            Err(crate::cutover::CutoverError::Busy)
+        ));
+        // Real EffectLease::drop unlocks before decrementing/acknowledging its
+        // counted flight. No fabricated zero-proof flag or mock drain result.
+        drop(proof);
+        let started = Instant::now();
+        assert!(cancellation.cancel_and_drain());
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "released proof drain: {elapsed:?}"
+        );
+        // No poll/retry between positive acknowledgement and actual reacquire.
+        let lease = crate::cutover::MigrationLock::acquire_existing(&paths, uid).unwrap();
+        assert!(lease.authorizes(&paths, uid));
+        assert!(cancellation.is_cancelled());
+        assert!(matches!(
+            session.begin_proof_flight(),
+            Err(Outcome::RefusedBeforeWrite)
+        ));
+        assert!(!peer.root.join("effects").exists());
+        eprintln!(
+            "direct released drain: elapsed={elapsed:?} cancelled=true lease=available-at-ack"
+        );
+    }
+
     #[test]
     fn detached_stalled_capability_and_effect_reply_allow_owner_status_and_urgent_disconnect() {
         use crate::mutation::{

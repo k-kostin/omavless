@@ -101,8 +101,14 @@ remain accessible outside this completed wizard step. The separate component
 review/error surfaces retain their relevant recheck/help controls.
 Other states navigate to the existing guarded component controller, not a new
 installer. Missing/unknown facts never masquerade as ready Continue. Component
-review always retains Check again, Setup help and return navigation, including
-when package presence is known but core permissions are not confirmed. Refresh
+review retains Check again, Setup help and return navigation when core readiness
+is unconfirmed, including when package presence is known but core permissions
+are not confirmed. Once package/core readiness is confirmed, no terminal or
+operation is pending and effects are not blocked, hide recheck/help on that
+review page too; keep Core ready and return navigation. Test this second ready
+surface as well as the wizard, rather than treating one successful screen as
+coverage of every entry. Optional component-update notices retain their own
+relevant controls. Refresh
 means refreshing facts; it must not imply a package update. Only an actually
 supported update state offers the admitted app/DNS paired update. A missing
 companion beside an existing app is not automatic repair authority.
@@ -141,6 +147,32 @@ update flow rather than promising immediate replacement. Its entry is named
 Update components…; the ellipsis indicates subsequent steps and confirmations.
 
 ## Three independent checks before calling a change ready
+
+### Agent-first help (owner direction, October16)
+
+One local Help surface serves setup, non-ready onboarding and Settings. The
+first option offers Copy request with the public prompt hidden by default.
+Show request/Hide request reveal or collapse a separate selectable text block;
+opening Help must not present the full template as another instruction to read.
+The prompt names
+the installed user-assistance guide directly and also AGENTS.md if present. It
+ends at the problem entry with a blank line. Keep diagnostics/version/consent rules in
+the agent guide, not repeated in the user's prompt. Do not collect private facts
+or read the clipboard merely by opening help. Copy writes only the public
+template and reports success only after the clipboard writer succeeds; failure
+must reveal selectable text and an honest manual-copy action. Hidden text is
+excluded from keyboard traversal. Copy failure does not steal focus from a
+different action, and a late result cannot reopen text in another Help visit.
+
+Read the guide and Report a problem are independent secondary web links marked
+with ↗. Neither using an assistant nor reading documentation is required before
+reporting an issue. Help must work before the native app is installed and during
+an unsettled setup terminal without bypassing its barriers. It never runs an
+agent, installs components, authorizes effects or changes a VPN. Closing it
+returns to the originating screen without resetting the wizard or treating a
+terminal as settled. Preserve the ready-wizard Close/Continue-only contract.
+Review EN/RU, Tab/Shift+Tab/activation/Escape, copy success/failure and constrained
+height; the overlay owns input/scroll instead of activating underlying controls.
 
 ### End-user editorial rule
 
@@ -268,6 +300,18 @@ When a transition depends on asynchronous property notifications, model their
 actual publication order, not just a manually invoked settled callback. Include
 a refusal with an already-matching cached value and an unknown result; neither
 may advance the journey as if the new action succeeded.
+
+First-run completion additionally covers Finish -> native acknowledgement ->
+persisted completion -> close to desktop -> reopen. A submitted command is not
+completion. Repeat close/reopen after each terminal non-success too: a retained
+Finish retry must not silently return to step one. Model Process.running
+becoming false before result publication and
+an old in-flight read before a queued post-action read. Bound local waiting;
+failed reads, restart and acknowledged unknown outcomes must leave a reachable
+explicit continuation without clearing native operation fences or resubmitting.
+Initial component reads show checking, not missing/setup-required actions.
+An expected metadata observation refresh must not flash a fatal VPN indicator;
+its neutral presentation is bounded and never masks actual failure/recovery.
 
 ### Installed review and safety
 

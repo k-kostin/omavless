@@ -227,7 +227,8 @@ latest-head gates. Main and tag checks remain independent. Before a manual
 rerun/cancellation, inspect exact heads and status; never cancel another active
 scope or describe a cancelled run as successful. Batch report-only updates
 while a heavy run is active instead of repeatedly replacing it with identical
-build work. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
+build work. This describes the selected source; an unmerged implementation is
+not thereby present on public main. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
 
 No path filters or Draft skips are used, so documentation and workflow changes
 retain the same checks. Keep the existing `test` job name and read-only token
@@ -554,6 +555,16 @@ Likewise, matching displayed versions do not prove matching immutable package
 bytes. Missing installed rows stay unrun and block readiness of that affected
 user path, rather than inheriting a clean-install PASS. Preserve earlier
 reports' scope and negative evidence; do not retrofit acceptance into history.
+
+For a component-update fixture, retain the state produced by completed public
+setup **and subsequent normal onboarding/routing choices**, not only a synthetic
+stopped default store. A selected managed pair may keep its setup backup while
+ordinary preset selection stores portable routing bytes; runtime rendering adds
+the DNS flags. Exercise supported preset/mode combinations deterministically
+and the affected installed continuation. Initial template conversion and
+package-only preservation are different admissions: do not borrow a completed
+setup's authority for an absent/invalid selector, or delete retained data to
+make either path pass. Keep pending/unsafe/changed-member refusals covered.
 
 Development fixtures must use the existing SHA-qualified snapshot packaging
 mode, or an explicitly named beta/RC version. Do not assemble a feature branch

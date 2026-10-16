@@ -1,10 +1,92 @@
 # Current delivery status
 
-Updated 2026-10-15. This is the compact current-state entry point; the detailed
+Updated 2026-10-16. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+October16 ARM acceptance found a selected-delivery mismatch before Quit:
+helper4345 admitted public application hashes only through fix.7, not the
+selected2d54 fix.8 executables. Helper0250efeb adds exactly both selected app
+hashes; the real successor classifier now has current/predecessor admission
+and modified-hash/development-label/unsafe-file negatives in normal CI.
+The execution policy requires this delivery/removal coherence check. Matching
+immutable guide pins are updated; native packages and their inputs do not change.
+Final source/distribution gates and affected installed removal remain separate.
+The [Mac report](https://github.com/k-kostin/omavless/blob/0eefbfed586cdc1bde37b7d7c57360fbcc1aca4c/docs/testing/PR790_ARM64_2026-10-15.md)
+retains successful old-cycle closure and fix.8 setup/onboarding, and the original
+new-helper refusal; do not relabel it as completed final removal.
+
+October16 owner scope addition for fix.8: a runtime-independent, agent-first
+Help screen in setup/non-ready onboarding and Settings. It offers a copyable
+public prompt, a guide and direct issue reporting; assistant use is optional.
+The [UI contract](UI_UX_CONTRACT.md#agent-first-help-owner-direction-october16)
+owns its no-effect/keyboard/EN-RU boundaries. The preceding source73/G0a4/native
+2d54 affected x64 update is complete with exact metadata and preserved data;
+that evidence remains separate from the new frontend's installed review and
+final exact-source CI. The owner chooses all non-Mac preparation before Mac
+acceptance, not publishing the new delivery without ARM. No main/release change.
+The owner additionally requests an English agent procedure for reporting bugs
+and contributing reusable fixes with explicit user approval. Human and agent
+guides remain English; translated human guides/locale-aware links are future
+work under the [guide-language policy](I18N.md#published-guide-languages).
+
+The authoritative current finalization summary is the
+[selected-source and acceptance matrix](../development/STABLE_DISTRIBUTION_TRANSITION.md#current-source-composition--2026-10-15)
+in Draft #794. Current main is `1688c5a3`, a rules-only update; the product
+baseline remains `ed0346c5`. #790–793 are source inputs to the candidate, not
+separately published maintenance releases. The full remover,
+short ready screen, unified user/assistance guides and tested local stable-tree
+export are prepared. On October16 the owner authorized transfer of the prepared
+storefront into main. Required technical/coherent-delivery gates and separate
+release/tag/assets, ARM disposition, Marketplace and Aryan approval remain.
+
+The corrected65ee actual x64 component update, separate existing-helper Start
+and app Start reached the normal Disconnected panel with ready/present facts,
+configuration preserved and foreign Mihomo retained. This is offline candidate
+acceptance with an empty existing profile store, not public delivery or ARM.
+Full source82 CI failed a Rust packaging-payload test expecting the old developer
+README instead of the already staged USER_README. Exact red101 followed by
+default/released3/3 and focused Clippy/fmt verified the narrow correction.
+Matching native producer2d54b430 has successful both-architecture builds and
+strict archive checks; its test is in DNS's corresponding-source archive.
+Executable bytes match65ee, but new archive/source/receipt pins are selected.
+Final successor source CI/export admission are not inherited from earlier gates.
+
+Historical selected 65-file user tree from source `117e8468` was installed in the x64
+guest through stock Omarchy local-Git candidate selection, with fresh public
+package downloads and owner-entered sudo/pacman/DNS consent. Paired installed
+payloads match the public producer; setup reached the ordinary disconnected
+panel without shell restart or administrative repair. This is not a published
+main/Marketplace install or an exact captured terminal exit. The owner found a
+remaining editorial gap: the separate completed component-review page retained
+recheck/help after the wizard had already been simplified. Its visibility
+correction and cross-state regressions were carried into the successor, with
+installed EN/RU review; final exact-source CI remains separate. Do not
+call finalization complete from the installation result alone.
+
+The final full-source CI is tracked on #794. The earlier #792 Rust failure is
+retained: a source-permitted routing-fixture teardown race has a separately
+reviewed test-only correction at `52084e7a`, not silently included with the old
+native pair. Green source checks do not disprove that race. Installed x64
+helper4345 package-before-enabled-widget unload and resumable removal are
+verified; helper7f54 ARM acceptance is partial, with its final second cycle
+waiting for unrelated package-manager repair when the powered-off Mac returns.
+Preserve its progress/masks/helper. Do not restart earned unchanged gates, claim
+ARM4345 or Internet/connected ARM acceptance, or investigate the owner-excluded
+VM-specific Qt setup issue as part of this release.
+
+VM custody and the exact active source/checks are recorded in #794's current
+handoff, not inferred from historical receipts. Raw captures/checkpoints remain local. Repository
+cleanup may close source-incorporated proposals without deleting their evidence
+branches or converting pending/failed research gates into PASS.
+
+## Earlier acceptance checkpoints — historical, not current pending gates
+
+The records below preserve their original tested identities and limits. Current
+successors and custody are described above; an earlier UNRUN is not the current
+matrix, and an earlier merge allowance does not authorize another main change.
 
 - **Removal follow-up #790:** the owner rejected the restricted reset as a full
   deinstaller. Its replacement `tools/uninstall.sh` covers public 0.8.2/0.9.8
@@ -638,7 +720,12 @@ the package or run this installer. The old Python implementation is archived;
 remaining Python is independent developer/test/build tooling and frozen-reference
 replay, not a supported fallback or second native lifecycle owner.
 
-## Next work, in order
+## Historical next-work order — superseded
+
+This retained queue belongs to the older0.8.2/publication checkpoint. It is not
+the current assignment; use Main and open work above and its owning current PR.
+Keep these original decisions as history without resubmitting old publication
+requests or restarting accepted migration work.
 
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged

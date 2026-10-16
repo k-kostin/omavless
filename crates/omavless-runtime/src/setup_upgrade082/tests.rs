@@ -58,6 +58,15 @@ impl Fixture {
             self.scope(),
             self.uid,
             ["synthetic-runtime".into(), "synthetic-login".into()],
+            false,
+        )
+    }
+    fn acquire_pair(&self) -> Result<UpgradeContext> {
+        UpgradeContext::acquire(
+            self.scope(),
+            self.uid,
+            ["synthetic-runtime".into(), "synthetic-login".into()],
+            true,
         )
     }
     fn contends(&self, path: &Path) -> bool {
@@ -108,6 +117,9 @@ fn self_consistent_local_rebuild_of_public_source_does_not_earn_admission() {
 
 #[test]
 fn published_predecessor_pins_are_architecture_and_source_specific() {
+    let table: PublishedPairs =
+        serde_json::from_str(include_str!("../../../../plugin/published-pairs.json")).unwrap();
+    assert_eq!(table.pairs.len(), PUBLIC_098_SOURCES.len() * 2);
     for source in PUBLIC_098_SOURCES {
         for arch in ["x86_64", "aarch64"] {
             let pair = published098(source, arch).unwrap();
@@ -128,6 +140,210 @@ fn published_predecessor_pins_are_architecture_and_source_specific() {
     }
     assert!(published098(&"a".repeat(40), "x86_64").is_err());
     assert!(published098(PUBLIC_098_SOURCES[0], "unknown").is_err());
+}
+
+#[test]
+fn fix7_is_retained_as_a_supported_predecessor_for_the_next_delivery() {
+    let source = "d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b";
+    assert!(PUBLIC_098_SOURCES.contains(&source));
+    assert_eq!(
+        published098(source, "x86_64").unwrap().app_sha,
+        "7c7b0f0c350b8903353d2fed3c8effb693aaaca0c271279b85efa51dfebb8881"
+    );
+    assert_eq!(
+        published098(source, "aarch64").unwrap().app_sha,
+        "6949d9473a714e36824e93437c61aff1064c619b9960e8a9b31bb49834176004"
+    );
+}
+
+#[test]
+fn selected_bundled_presets_and_modes_retain_setup_backup_during_package_update() {
+    for bundle in [
+        include_str!("../../../../templates/default.yaml"),
+        include_str!("../../../../templates/china.yaml"),
+        include_str!("../../../../templates/iran.yaml"),
+    ] {
+        for mode in ["rule", "global", "direct"] {
+            let f = Fixture::new();
+            let scope = f.scope();
+            let template = omavless_domain::routing::template_with_mode(bundle, mode).unwrap();
+            let current = scope.config.join("route-template.yaml");
+            let selector = scope.config.join(crate::managed_pair::SELECTOR);
+            let backup = scope.config.join("route-template.pre-managed-dns.yaml");
+            f.put(&current, template.as_bytes());
+            f.put(&selector, crate::managed_pair::SELECTION_BYTES);
+            f.put(&backup, b"retained setup backup");
+            let desired_path = scope.cutover.state_directory.join("desired.json");
+            let desired_mode = fs::read_to_string(&desired_path)
+                .unwrap()
+                .replace("\"mode\":\"global\"", &format!("\"mode\":\"{mode}\""));
+            f.put(&desired_path, desired_mode.as_bytes());
+            let profiles = fs::read(scope.config.join("profiles.json")).unwrap();
+            let desired = fs::read(scope.cutover.state_directory.join("desired.json")).unwrap();
+            assert!(crate::managed_template::for_host(&template, true).is_some());
+            let mut context = f
+                .acquire_pair()
+                .expect("selected public routing state is supported");
+            context.recheck_private().unwrap();
+            assert_eq!(fs::read(&current).unwrap(), template.as_bytes());
+            assert_eq!(fs::read(&backup).unwrap(), b"retained setup backup");
+            assert_eq!(
+                fs::read(&selector).unwrap(),
+                crate::managed_pair::SELECTION_BYTES
+            );
+            assert_eq!(
+                fs::read(scope.config.join("profiles.json")).unwrap(),
+                profiles
+            );
+            assert_eq!(
+                fs::read(scope.cutover.state_directory.join("desired.json")).unwrap(),
+                desired
+            );
+            f.put(&backup, b"changed retained backup");
+            assert_eq!(context.recheck_private(), Err(Blocker::StateChanged));
+        }
+    }
+}
+
+#[test]
+fn retained_backup_never_grants_initial_or_unselected_update_admission() {
+    for selector in [
+        None,
+        Some(b"invalid".as_slice()),
+        Some(crate::managed_pair::SELECTION_BYTES),
+    ] {
+        let f = Fixture::new();
+        f.put(
+            &f.scope().config.join("route-template.pre-managed-dns.yaml"),
+            b"retained",
+        );
+        if let Some(bytes) = selector {
+            f.put(&f.scope().config.join(crate::managed_pair::SELECTOR), bytes);
+        }
+        // The 0.8.2 initial-conversion path never borrows managed-pair authority.
+        assert!(matches!(f.acquire(), Err(Blocker::TemplateRequiresReview)));
+        if selector != Some(crate::managed_pair::SELECTION_BYTES) {
+            assert!(f.acquire_pair().is_err());
+        }
+        assert_eq!(
+            fs::read(f.scope().config.join("route-template.pre-managed-dns.yaml")).unwrap(),
+            b"retained"
+        );
+    }
+}
+
+#[test]
+fn selected_pair_update_keeps_pending_transaction_refusals() {
+    for (state, name) in [
+        (false, ".route-template.managed-dns.candidate"),
+        (false, ".managed-dns-selection.candidate"),
+        (true, "routing-preset.pending.json"),
+        (true, "restore-decision.intent"),
+        (true, "restore-finalization.pending"),
+    ] {
+        let f = Fixture::new();
+        let scope = f.scope();
+        f.put(
+            &scope.config.join(crate::managed_pair::SELECTOR),
+            crate::managed_pair::SELECTION_BYTES,
+        );
+        f.put(
+            &scope.config.join("route-template.pre-managed-dns.yaml"),
+            b"retained",
+        );
+        let directory = if state {
+            &scope.cutover.state_directory
+        } else {
+            &scope.config
+        };
+        f.put(&directory.join(name), b"pending");
+        assert!(matches!(f.acquire_pair(), Err(Blocker::PendingRecovery)));
+        assert_eq!(fs::read(directory.join(name)).unwrap(), b"pending");
+    }
+}
+
+#[test]
+fn selected_pair_update_never_converts_custom_or_partial_templates() {
+    let bundle = include_str!("../../../../templates/default.yaml");
+    for template in [
+        format!("# custom\n{bundle}"),
+        bundle.replacen(
+            "  device: Meta\n",
+            "  device: Meta\n  disable-system-dns: true\n",
+            1,
+        ),
+    ] {
+        let f = Fixture::new();
+        let scope = f.scope();
+        let current = scope.config.join("route-template.yaml");
+        let backup = scope.config.join("route-template.pre-managed-dns.yaml");
+        f.put(
+            &scope.config.join(crate::managed_pair::SELECTOR),
+            crate::managed_pair::SELECTION_BYTES,
+        );
+        f.put(&backup, b"retained");
+        f.put(&current, template.as_bytes());
+        assert!(matches!(
+            f.acquire_pair(),
+            Err(Blocker::TemplateRequiresReview)
+        ));
+        assert_eq!(fs::read(&current).unwrap(), template.as_bytes());
+        assert_eq!(fs::read(&backup).unwrap(), b"retained");
+    }
+}
+
+#[test]
+fn selected_pair_update_captures_safe_members_and_rejects_replacement() {
+    for name in [
+        crate::managed_pair::SELECTOR,
+        "route-template.pre-managed-dns.yaml",
+    ] {
+        for kind in ["mode", "empty", "symlink", "hardlink", "changed"] {
+            let f = Fixture::new();
+            let scope = f.scope();
+            f.put(
+                &scope.config.join(crate::managed_pair::SELECTOR),
+                crate::managed_pair::SELECTION_BYTES,
+            );
+            f.put(
+                &scope.config.join("route-template.pre-managed-dns.yaml"),
+                b"retained",
+            );
+            let path = scope.config.join(name);
+            assert!(Captured::read(&path, f.uid + 1, 0o600, 1024 * 1024).is_err());
+            match kind {
+                "mode" => fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap(),
+                "empty" => f.put(&path, b""),
+                "symlink" => {
+                    let retained = f.root.join("retained-member");
+                    fs::rename(&path, &retained).unwrap();
+                    std::os::unix::fs::symlink(&retained, &path).unwrap();
+                }
+                "hardlink" => fs::hard_link(&path, f.root.join("retained-member")).unwrap(),
+                "changed" => {
+                    let mut context = f.acquire_pair().unwrap();
+                    let original = f.root.join("retained-member");
+                    fs::rename(&path, &original).unwrap();
+                    f.put(&path, &fs::read(&original).unwrap());
+                    assert_eq!(context.recheck_private(), Err(Blocker::StateChanged));
+                    continue;
+                }
+                _ => unreachable!(),
+            }
+            assert!(f.acquire_pair().is_err());
+        }
+    }
+    let f = Fixture::new();
+    f.put(
+        &f.scope().config.join(crate::managed_pair::SELECTOR),
+        crate::managed_pair::SELECTION_BYTES,
+    );
+    let mut context = f.acquire_pair().unwrap();
+    f.put(
+        &f.scope().config.join("route-template.pre-managed-dns.yaml"),
+        b"appeared",
+    );
+    assert_eq!(context.recheck_private(), Err(Blocker::StateChanged));
 }
 
 #[test]

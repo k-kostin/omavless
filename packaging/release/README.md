@@ -1,6 +1,47 @@
 # Native release, beta and RC preparation
 
-Current selected correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
+## Unpublished finalization candidate
+
+Proposed **0.9.8 / `v0.9.8-fix.8`** selects inspected matching packages from
+`2d54b430866fd5b2849cd815f8552a4e9e2d16a8`: Native packages38858155305 and
+DNS pair38858156867 completed successfully on both architectures. This successor corrects the Rust packaging test's obsolete
+developer-README expectation; the stager already installs reviewed user help.
+The test also belongs to DNS's corresponding-source archive, so the protected
+input gate is unchanged and old packages are not relabelled. Actual app/core/
+broker executables match65ee bytes; source identities, receipts and archive pins
+come from these new builds. Exact combined source CI/export remain required.
+The owner authorized storefront promotion to main on October16, not a CI/ARM
+waiver or separate release/tag/assets, Marketplace or support posting.
+
+The preceding functional correction selected native producer
+`65ee224c64d384bb59eacfa92eee32cd83ec8cb1`. App38853222637 and DNS38853224670
+completed successfully for both architectures; production archives and actual
+payload hashes are strictly inspected and pinned. The selected-pair update
+captures its existing selector/backup before template admission and preserves
+their bytes after ordinary routing-preset selection. Initial-conversion,
+pending and unsafe-member refusals remain; no backup deletion or repeated
+enrollment. All three portable presets and modes are regression-covered.
+Actual x64 update and separate existing-helper/app Start passed for these exact
+65ee bytes; full source82 CI later failed the stale packaging expectation.
+The successor's final source CI, user export and ARM remainder remain separate
+gates in #794; old installed proof is not renamed as the new producer.
+The optional frontend archive also has its own short user README; check its
+mapped payload, not just root/docs/user, before a final delivery freeze.
+
+Preceding proposed **0.9.8 / `v0.9.8-fix.8`** used common native producer
+`da54f90e4eb6c725b2847bf96b00ef602f214e51`. Both architecture app and production
+DNS archives were built by Native packages38849824759 and DNS pair38849826647,
+strictly inspected and selected by observed archive/payload hashes. The core
+and broker bytes are unchanged from fix.7; the application retains fix.7 as
+an explicit supported predecessor and the package now contains user help.
+Full source CI, final user-tree verification, affected installed update and
+the separate ARM remainder are not inferred from these build/archive gates.
+Main, immutable tag/assets, Marketplace and Aryan posting still need their
+applicable owner authorization. No fix.8 tag/release has been created.
+
+## Public baseline
+
+Current published correction: **0.9.8 / `v0.9.8-fix.7`**, using native app/DNS
 producer `d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b` and inspected matching pins
 for x86_64 and ARM64. Source version/package version remain 0.9.8 / 0.9.8-1.
 The selected client features are `product-private-backup,setup-upgrade082`;
@@ -97,7 +138,60 @@ The historical marketplace snapshot is unchanged.
 
 ## Offline artifact assembly
 
+### Stable user-tree preparation
+
+`export-distribution.py` prepares the proposed user-facing tree without changing
+any branch, installation or release. Its complete source and reviewed templates
+must already be committed at the selected full SHA. The output must be a new,
+empty, owned directory outside the checkout and live Omarchy configuration,
+with root/own, non-writable-by-others ancestors. Shared writable `/tmp` is not
+an accepted output parent; use the project's HOME-backed storage policy.
+
+```sh
+python3 packaging/release/export-distribution.py export /absolute/empty/output FULL_SOURCE_SHA
+python3 packaging/release/export-distribution.py verify /absolute/output
+python3 packaging/release/export-distribution.py verify /absolute/output --source-ci
+```
+
+Offline verification proves committed-file selection, native-input equivalence,
+the paired architecture/hash metadata, helper pin, link closure and exact tree
+bytes/modes. It is not a package download/installation or ARM acceptance.
+`--source-ci` additionally requires GitHub's completed successful full-source
+push workflow for the exact head, including both isolated and Rust steps. PR
+runs are not accepted as proof of the actual workflow-definition identity. The reviewed
+workflow blob and explicit head checkout are enforced; a display name or a
+caller-written success receipt is insufficient. API failures refuse.
+
+The generated stable workflow fetches that immutable full source, then a fixed
+bootstrap verifies every executable/imported validator member against the
+reviewed distribution trust table BEFORE running it in isolated Python mode.
+It does not execute a validator authorized only by its own candidate record,
+nor run Cargo in the stripped user tree. Source history is fetched to
+retain the existing native-producer ancestry check; a shallow single commit is
+not enough. Source workflow changes require an explicit update/review of the
+validator's workflow-blob policy; validator changes require an explicitly
+reviewed trust-table update. The selected integration branch also receives a
+push Test run for this gate. Cancel its redundant same-head PR run only after
+the full push run is identified; cancelled is not PASS. Batch source pushes.
+Draft metadata remains unpublished even after
+technical verification; this tool never grants main/publication authorization.
+
+The existing native projection is unchanged. Even a `cfg(test)` edit inside a
+Rust blob refuses reuse of old package inputs. Do not weaken that boundary to
+combine a newer test-only source with older artifacts. A newly selected native
+producer/artifact pair must go through its ordinary build and acceptance path.
+
 ### Native architecture builds without a personal Omarchy host
+
+Before freezing a new native producer, retain the previous published delivery
+as an explicitly supported predecessor. Copy its independently verified payload
+identities for both architectures into `plugin/published-pairs.json`, reconcile
+the native and shell source allowlists, and check lookup/advisory inspection
+with a different frontend target. Verify the compiled predecessor controls as
+well. The previous target's special-case self recognition is not evidence that
+the next delivery can update it. Do not register an unpublished/local build as
+a public predecessor or relax receipt, byte-hash, ownership or shutdown guards.
+Complete this step before building: the predecessor table is a compiled input.
 
 The `Native packages` workflow builds its exact checked-out Git HEAD
 in an official, dated Arch Linux

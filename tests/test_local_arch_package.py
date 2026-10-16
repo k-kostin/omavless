@@ -59,6 +59,7 @@ class LocalArchPackageTests(unittest.TestCase):
         self.repo.mkdir()
         for name in ("packaging/arch/stage-payload.sh", "packaging/arch/build-local-package.sh",
                      "packaging/arch/PKGBUILD.local.in", "packaging/arch/README.md",
+                     "packaging/arch/USER_README.md",
                      "Cargo.toml",
                      "packaging/systemd/omavless-runtime.service",
                      "packaging/systemd/omavless-login-prepare.service", "LICENSE", "THIRD_PARTY_NOTICES.md"):
@@ -90,6 +91,10 @@ class LocalArchPackageTests(unittest.TestCase):
         subprocess.run(["bash", str(script), str(plain), "/usr/bin/true"], check=True)
         subprocess.run(["bash", str(script), str(product), "/usr/bin/true", "--product-image-witness", "/usr/bin/true"], check=True)
         self.assertFalse((plain / "usr/lib/omavless-image").exists())
+        self.assertEqual((plain / "usr/share/doc/omavless/README.md").read_bytes(),
+                         (ROOT / "packaging/arch/USER_README.md").read_bytes())
+        self.assertEqual((product / "usr/share/doc/omavless/README.md").read_bytes(),
+                         (ROOT / "packaging/arch/USER_README.md").read_bytes())
         self.assertEqual((product / "usr/lib/omavless-image/omavless-image-witness").read_bytes(), Path("/usr/bin/true").read_bytes())
         for node in ("omavless-runtime.service", "omavless-login-prepare.service"):
             self.assertEqual((plain / "usr/lib/systemd/user" / node).read_bytes(), (product / "usr/lib/systemd/user" / node).read_bytes())

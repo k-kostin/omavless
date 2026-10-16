@@ -136,7 +136,7 @@ install -m 0644 -- \
   "$login_unit_target"
 install -m 0644 -- "$repo_root/LICENSE" "$license_target"
 install -m 0644 -- "$repo_root/THIRD_PARTY_NOTICES.md" "$notices_target"
-install -m 0644 -- "$script_dir/README.md" "$docs_target"
+install -m 0644 -- "$script_dir/USER_README.md" "$docs_target"
 if [[ -n $product_helper ]]; then
   install -m 0755 -- "$product_helper" "${product_targets[0]}"
   install -m 0644 -- "$repo_root/packaging/systemd/omavless-image-witness.service" "${product_targets[1]}"

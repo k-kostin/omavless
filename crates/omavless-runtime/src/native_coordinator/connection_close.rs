@@ -144,9 +144,16 @@ mod tests {
     // Fixed owned subprocess/private Unix controller. No public listener,
     // provider, TUN, DNS, service, shell effect or injected owner facts.
     const CONTROLLER: &str = r#"#!/usr/bin/python3
-import argparse,json,os,socket,time
+import argparse,json,os,socket,time,signal
 p=argparse.ArgumentParser();p.add_argument('-d');p.add_argument('-f');a=p.parse_args()
 root=a.d;variant=open(a.f).readline().strip().removeprefix('# fixture-variant:')
+if variant=='slow-term':
+ def delayed_term(_signal,_frame):
+  open(root+'/term-entered','wb').close()
+  time.sleep(.3)
+  open(root+'/term-completed','wb').close()
+  raise SystemExit(0)
+ signal.signal(signal.SIGTERM,delayed_term)
 s=socket.socket(socket.AF_UNIX);s.bind(root+'/mihomo.sock');os.chmod(root+'/mihomo.sock',0o600);s.listen(8)
 while True:
  c,_=s.accept();c.settimeout(3);raw=b''
@@ -1661,6 +1668,9 @@ while True:
                 .confirm_connection_close("proof-close", 0, rows[0].handle, confirmation.ticket)
                 .unwrap();
             barrier.wait(); // real migration lease acquired, before effect gate
+            // Once the real proof is paused, any parent unwind must release
+            // it BEFORE dropping the original owner/fixture or joining it.
+            let mut paused = PausedDisconnect::new(Arc::clone(&barrier));
             if partial {
                 marker(&fixture.root.join("r/partial-entered"));
                 let prefix = fs::read(fixture.root.join("r/partial-entered")).unwrap();
@@ -1674,32 +1684,56 @@ while True:
                 .as_ref()
                 .unwrap()
                 .clone();
-            let owner = std::thread::spawn(move || {
+            paused.owner = Some(std::thread::spawn(move || {
                 let start = Instant::now();
                 let result = disconnect(&mut fixture.owner, "proof-disconnect");
                 (fixture, result, start.elapsed())
-            });
-            let deadline = Instant::now() + Duration::from_secs(1);
+            }));
+            let parent_wait_started = Instant::now();
+            let deadline = parent_wait_started + Duration::from_secs(1);
             while !cancellation.is_cancelled() {
                 assert!(Instant::now() < deadline);
                 std::thread::yield_now();
             }
+            let cancellation_observed = Instant::now();
+            let cancel_observation = cancellation_observed.duration_since(parent_wait_started);
+            let mut release_after_cancel = None;
             if !timeout {
                 // The owner is waiting only for this exact proof lease, not
                 // holding the lifetime gate or waiting on controller I/O.
                 std::thread::sleep(Duration::from_millis(5));
-                assert!(!owner.is_finished());
-                barrier.wait();
+                assert!(!paused.owner.as_ref().unwrap().is_finished());
+                paused.release();
+                release_after_cancel = Some(cancellation_observed.elapsed());
             }
-            let (mut fixture, result, elapsed) = owner.join().unwrap();
-            assert!(elapsed < Duration::from_millis(250));
+            let (fixture, result, elapsed) = paused.completed();
+            let result_class = match &result {
+                Err(NativeOwnerError::OwnershipBusy) => "ownership_busy",
+                Err(_) => "other_error",
+                Ok(NativeOwnerExecution::Applied { outcome: Ok(_), .. }) => "applied_ok",
+                Ok(_) => "other_execution",
+            };
+            eprintln!(
+                "close-drain diagnostic: partial={partial} timeout={timeout} \
+                 disconnect_elapsed={elapsed:?} result={result_class} \
+                 parent_cancel_observation={cancel_observation:?} \
+                 parent_release_after_cancel={release_after_cancel:?}"
+            );
             if timeout {
+                assert!(
+                    *elapsed < Duration::from_millis(250),
+                    "held proof: elapsed={elapsed:?} result={result_class}"
+                );
                 assert!(matches!(result, Err(NativeOwnerError::OwnershipBusy)));
                 assert!(fixture.owner.desired().unwrap().connected);
                 assert_eq!(fixture.owner.actual(), ActualState::Connected);
                 assert!(!fixture.root.join("r/effects").exists());
-                barrier.wait();
-            } else {
+            }
+            assert!(cancellation.is_cancelled());
+            // Positive full Disconnect includes real child stop, observation
+            // and durable writes: it is NOT the short proof-drain boundary.
+            let (mut fixture, result, _) = paused.finish();
+            if !timeout {
                 assert!(matches!(
                     result.unwrap(),
                     NativeOwnerExecution::Applied { outcome: Ok(_), .. }
@@ -1731,6 +1765,145 @@ while True:
             );
             assert!(!fixture.root.join("r/effects").exists());
         }
+    }
+
+    type DisconnectResult = (
+        Fixture,
+        Result<NativeOwnerExecution, NativeOwnerError>,
+        Duration,
+    );
+
+    // Owns the already-reached second proof barrier and the SAME original
+    // owner. Release before joining/dropping even when an assertion unwinds.
+    struct PausedDisconnect {
+        barrier: Option<Arc<std::sync::Barrier>>,
+        owner: Option<std::thread::JoinHandle<DisconnectResult>>,
+        result: Option<DisconnectResult>,
+    }
+    impl PausedDisconnect {
+        fn new(barrier: Arc<std::sync::Barrier>) -> Self {
+            Self {
+                barrier: Some(barrier),
+                owner: None,
+                result: None,
+            }
+        }
+        fn release(&mut self) {
+            if let Some(barrier) = self.barrier.take() {
+                barrier.wait();
+            }
+        }
+        fn completed(&mut self) -> &mut DisconnectResult {
+            if self.result.is_none() {
+                self.result = Some(self.owner.take().unwrap().join().unwrap());
+            }
+            self.result.as_mut().unwrap()
+        }
+        fn finish(mut self) -> DisconnectResult {
+            self.release();
+            self.completed();
+            self.result.take().unwrap()
+        }
+    }
+    impl Drop for PausedDisconnect {
+        fn drop(&mut self) {
+            self.release();
+            if let Some(owner) = self.owner.take() {
+                // Join completion may fail, but cleanup itself must not panic.
+                drop(owner.join());
+            }
+            drop(self.result.take());
+        }
+    }
+
+    #[test]
+    fn actual_owner_disconnect_slow_core_preserves_graceful_stop_and_cleanup() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("slow-term");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let start = Instant::now();
+        assert!(matches!(
+            disconnect(&mut fixture.owner, "slow-disconnect").unwrap(),
+            NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+        ));
+        let elapsed = start.elapsed();
+        assert!(fixture.root.join("r/term-entered").is_file());
+        assert!(fixture.root.join("r/term-completed").is_file());
+        assert!(elapsed >= Duration::from_millis(300));
+        assert_eq!(
+            fixture.owner.host_mut().close_stop_outcome(),
+            Some(crate::core::StopOutcome { graceful: true })
+        );
+        assert!(!fixture.owner.desired().unwrap().connected);
+        assert_eq!(fixture.owner.actual(), ActualState::Disconnected);
+        assert_eq!(fixture.owner.revision(), 1);
+        assert!(!fixture.root.join("r/mihomo.sock").exists());
+        assert!(!fixture.root.join("r/effects").exists());
+        assert!(
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "stale-after-stop",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket
+                )
+                .is_err()
+        );
+        let root = fixture.root.clone();
+        eprintln!("slow-core positive: elapsed={elapsed:?} graceful=true");
+        drop(fixture);
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn actual_owner_disconnect_paused_proof_unwind_releases_before_fixture_cleanup() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let root = fixture.root.clone();
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        fixture
+            .owner
+            .connection_close
+            .snapshot
+            .as_mut()
+            .unwrap()
+            .observation
+            .session_mut()
+            .pause_proof_after(0, Arc::clone(&barrier));
+        fixture
+            .owner
+            .confirm_connection_close("unwind-close", 0, rows[0].handle, confirmation.ticket)
+            .unwrap();
+        barrier.wait();
+        struct IntentionalPausedProofUnwind;
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut paused = PausedDisconnect::new(barrier);
+            paused.owner = Some(std::thread::spawn(move || {
+                let start = Instant::now();
+                let result = disconnect(&mut fixture.owner, "unwind-disconnect");
+                (fixture, result, start.elapsed())
+            }));
+            let (_, result, elapsed) = paused.completed();
+            assert!(matches!(result, Err(NativeOwnerError::OwnershipBusy)));
+            assert!(*elapsed < Duration::from_millis(250));
+            std::panic::panic_any(IntentionalPausedProofUnwind);
+        }));
+        match outcome {
+            Err(payload) if payload.is::<IntentionalPausedProofUnwind>() => (),
+            Err(payload) => std::panic::resume_unwind(payload),
+            Ok(()) => panic!("the intentional paused-proof unwind was not reached"),
+        }
+        assert!(!root.exists());
     }
 
     #[test]

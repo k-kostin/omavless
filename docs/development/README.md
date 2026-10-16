@@ -29,6 +29,8 @@ documentation-only main updates require explicit owner authorization.
   [localization](../../skills/omavless-localization/SKILL.md): reusable skills.
 - [Release preparation](../../packaging/release/README.md): source/artifact
   identity and publication gates, not a product README section.
+- [Historical development/release journal](CHANGELOG_REFERENCE.md): preserved
+  checkpoint history, separate from the short user-facing root release notes.
 
 Moving a document requires updating relative links and checking readers in
 tests/scripts/skills. Keep a useful stable navigation path where an established
@@ -121,6 +123,22 @@ preserve content and provenance and explicitly update discovery links.
 Record final verified outcomes, substantive failures, decisions and remaining
 limits—not every typo, cancelled prompt or routine retry. Keep such transient
 details only when they explain a real defect, security concern or evidence gap.
+
+### Acceptance reports stay current
+
+Maintain one current summary/matrix at the top of the owning report: exact
+tested inputs, earned results, remaining gates and present ownership. Put older
+attempts below an explicit historical boundary; their original failures and
+identities must remain intact, but a superseded pending list must not look like
+the current task. Source-only, installed and administrator-repair results stay
+distinct. Retain only the repair's effect on acceptance, not a general host
+repair diary or copied terminal session.
+
+Batch report-only commits at a meaningful completed gate or a useful handoff.
+Use the existing PR body for intermediate progress while expensive CI runs.
+Raw logs, screenshots, private backups and detailed machine-repair checkpoints
+stay local; a cross-machine handoff carries only the bounded facts needed to
+continue. This does not prohibit preserving a substantive new failure promptly.
 
 ## Local cleanup safety
 

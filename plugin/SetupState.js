@@ -45,7 +45,8 @@ function needsAttention(facts) { return facts.state !== "ready" || facts.coreIns
 // Presentation only: desktop permissions are not service/TUN/network health.
 function coreReview(core, facts, busy, failed, terminalOpened) {
   if (terminalOpened) return "terminal"
-  if (busy) return "checking"
+  if (busy || facts.state === "checking") return "checking"
+  if (!failed && core === null && facts.state === "ready") return "checking"
   // Explicit incompatible application states require an update; advisory
   // delivery freshness must not override confirmed compatible readiness.
   if (["needs_update", "needs_pair_update", "needs_pair_update_manual"].indexOf(facts.state) >= 0) return "update"

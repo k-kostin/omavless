@@ -1,0 +1,36 @@
+name: Distribution
+
+on:
+  push:
+    branches: [main]
+    tags: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Read immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=$(python3 -I -c 'import json,re; d=json.load(open("distribution.json")); s=d["sourceCommit"]; assert re.fullmatch("[0-9a-f]{40}",s); print(s)')
+          source_dir=$(mktemp -d "$RUNNER_TEMP/omavless-source.XXXXXX")
+          git -C "$source_dir" init -q
+          git -C "$source_dir" remote add origin https://github.com/k-kostin/omavless.git
+          timeout 120 git -C "$source_dir" fetch --no-tags origin "$source_sha"
+          git -C "$source_dir" checkout --detach FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$source_sha"
+          printf 'OMAVLESS_SOURCE_DIR=%s\n' "$source_dir" >> "$GITHUB_ENV"
+      - name: Verify distribution and exact-source CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .github/source-bootstrap.py "$OMAVLESS_SOURCE_DIR" "$GITHUB_WORKSPACE"

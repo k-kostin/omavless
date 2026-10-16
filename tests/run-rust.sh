@@ -16,15 +16,28 @@ cargo fmt --all -- --check
 # Keep every assertion and run this one case separately, once, below.
 # The exact-proof drain fixture likewise checks short owner/lease deadlines;
 # its private controller/process work must not compete with unrelated forks.
-# Keep its three held/released/partial cases and all assertions unchanged.
-close_drain_test='native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy'
+# Keep semantic assertions and the short held-proof bound. Successful complete
+# Disconnect also includes an independently budgeted real owned-child stop.
+close_drain_tests=(
+  'conditional_close_candidate::tests::cancel_and_drain_held_exact_lease_times_out_and_permanently_cancels'
+  'conditional_close_candidate::tests::cancel_and_drain_released_exact_lease_acknowledges_only_after_unlock'
+  'native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy'
+  'native_coordinator::connection_close::tests::actual_owner_disconnect_slow_core_preserves_graceful_stop_and_cleanup'
+  'native_coordinator::connection_close::tests::actual_owner_disconnect_paused_proof_unwind_releases_before_fixture_cleanup'
+)
+close_drain_skips=()
+for close_drain_test in "${close_drain_tests[@]}"; do
+  close_drain_skips+=(--skip "$close_drain_test")
+done
 cargo test --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
-  --skip "$close_drain_test"
+  "${close_drain_skips[@]}"
 cargo test --locked -p omavless-runtime --lib \
   core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
   --exact --test-threads=1
-cargo test --locked -p omavless-runtime --lib "$close_drain_test" -- --exact --test-threads=1
+for close_drain_test in "${close_drain_tests[@]}"; do
+  cargo test --locked -p omavless-runtime --lib "$close_drain_test" -- --exact --test-threads=1
+done
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
 # before CLOEXEC closes it, turning a malformed-journal test into an unrelated
@@ -83,8 +96,10 @@ cargo check --locked -p omavless-runtime --all-targets --features product-image-
 cargo clippy --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service -- -D warnings
 cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
-  --skip "$close_drain_test"
-cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
-  "$close_drain_test" -- --exact --test-threads=1
+  "${close_drain_skips[@]}"
+for close_drain_test in "${close_drain_tests[@]}"; do
+  cargo test --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+    "$close_drain_test" -- --exact --test-threads=1
+done
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json

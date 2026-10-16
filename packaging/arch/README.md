@@ -3,7 +3,8 @@
 This directory defines the inert filesystem payload for the native Arch
 package. The payload contains the prebuilt `omavless` executable, its packaged
 systemd runtime and login-preparation user units, license, third-party notices
-and this packaging note.
+and the short user-facing `USER_README.md`. This packaging note remains in
+the development source; it is not the installed application's help page.
 
 `stage-payload.sh` accepts an existing absolute package build root and an
 absolute prebuilt executable. It does not build software, install onto a live

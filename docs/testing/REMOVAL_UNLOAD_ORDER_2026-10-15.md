@@ -4,6 +4,16 @@ Bounded successor to #790's frozen helper7f54, based on #792 cfae8a13.
 No main integration, native package replacement or publication is authorized.
 The active Mac acceptance remains attached to helper7f54, not these new bytes.
 
+## Current installed summary
+
+Exact helper4345/SHAa606 below passed two distinct x86_64 installed journeys:
+package-before-widget cancellation/resume, then actual enabled-widget unload
+after ordinary reboot. The latter completed with original exit0, the shield
+disappeared without restarting Quickshell, and no new critical notification
+was observed. Own resources were removed; original DNS and separate Mihomo
+were preserved. Neither journey establishes ARM64 or Internet-health acceptance.
+Earlier limitations below belong to their original runs and are not erased.
+
 ## Measured defect and source explanation
 
 During actual retained emergency removal with7f54, the old public native
@@ -76,7 +86,8 @@ Sole Linux VM operator completed the exact successor on the public fix.7 pair:
   were preserved. Omarchy retained its ordinary public-widget-files backup,
   not a private profile backup. No VPN or authorization remained pending.
 
-The old toast was dismissed normally before testing; no new critical warning
+In that earlier cancellation/resume run, the old toast was dismissed normally
+before testing; no new critical warning
 was observed in the inspected preparation/cancel/completion frames. **Limit:**
 Quit had disabled the widget, so this is not an installed enabled-QML unload
 PASS or a test of every destructor branch. The precise combined evidence is
@@ -84,6 +95,32 @@ actual ELF absence before widget removal plus the unchanged fixed OS guard's
 measured behavior for that absence. Independent Astra review approved that
 composition with the same explicit boundary; executable-stub exit7 remains7,
 not a suppressed success. General native observer behavior remains unchanged.
+
+## Subsequent actual enabled-widget unload
+
+On the same frozen helper4345 and public fix.7 native pair, the sole VM operator
+separately prepared the fixture without profiles or Connect. Normal Full Quit
+returned shutdown/pluginDisabled success. Ordinary plugin enable then loaded
+the shield while the application stayed inactive/PID0; it did not start the app.
+The same helper prepared removal and performed an ordinary encrypted reboot.
+The new boot retained the enabled widget and masked/inactive application.
+
+Before confirming the real widget prompt, both packages and the application
+ELF were independently absent while the shield was still loaded. Normal Yes
+completed with original exit0. Omarchy explicitly reported that the enabled
+plugin was unloaded; the shield disappeared from the unchanged Quickshell
+process. Completion and the desktop after normal terminal closure showed no
+new misleading critical notification. Root independently inspected these frames.
+
+Final checks confirmed own packages/binaries/processes, private directories,
+TUN/routes, masks/exclusion and progress absent. Original DNS, unrelated packages
+and separate Mihomo/config/units/capabilities matched their baselines. Omarchy's
+ordinary backup contained public widget files, not saved private profiles.
+No authorization remained pending. No forced reset or record edit was used.
+
+This closes the actual enabled-QML unload gate, supplementing rather than
+relabelling the earlier disabled-widget run. General native observer behavior,
+ARM64 helper4345 and connected/Internet acceptance remain outside this result.
 
 Private captures and original exit files remain in the owning VM receipt,
 outside Git. VM master released custody after the completed removal. Full

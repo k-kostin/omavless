@@ -105,9 +105,10 @@ fn staged_arch_payload_has_exact_tree_content_and_modes() {
         fs::read(destdir.join(expected[2])).unwrap(),
         fs::read(repository_root().join("packaging/systemd/omavless-runtime.service")).unwrap()
     );
-    assert_eq!(
-        fs::read(destdir.join(expected[3])).unwrap(),
-        fs::read(repository_root().join("packaging/arch/README.md")).unwrap()
+    assert!(
+        fs::read(destdir.join(expected[3])).unwrap()
+            == fs::read(repository_root().join("packaging/arch/USER_README.md")).unwrap(),
+        "installed README must exactly match end-user help, not the developer packaging guide"
     );
     assert_eq!(
         fs::read(destdir.join(expected[4])).unwrap(),

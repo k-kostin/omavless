@@ -30,6 +30,7 @@ python3 -m unittest -v \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \
+  "$here/test_distribution_export.py" \
   "$here/test_frontend_pair.py" \
   "$here/test_dns_release_pair.py" \
   "$here/test_installed_native_acceptance.py" \
@@ -75,6 +76,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-uninstaller.js"
   node "$here/test-uninstall-guided.js"
   node "$here/test-i18n.js"
+  node "$here/test-help-prompt.js"
   node "$here/test-safe-text.js"
   node "$here/test-tui-i18n.js"
   node "$here/test-marketplace-setup.js"

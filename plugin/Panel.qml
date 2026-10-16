@@ -13,6 +13,7 @@ import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "NativePresentation.js" as NativePresentation
+import "NativeSnapshot.js" as NativeSnapshot
 import "SetupState.js" as SetupState
 
 Panel {
@@ -66,6 +67,7 @@ Panel {
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
   property string page: "main"
+  property var helpReturnFocus: null
   property int subscriptionIndex: 0
   property int configIndex: 0
   property var expandedSubscriptions: ({})
@@ -105,6 +107,14 @@ Panel {
   property bool editHandedOff: false
   property bool onboardingDismissed: false
   property string nativeOnboardingPresetPending: ""
+  property var nativeOnboardingCompletionPending: null
+  property bool nativeOnboardingCompletionUnconfirmed: false
+  Timer {
+    id: onboardingCompletionTimeout
+    interval: 8000
+    repeat: false
+    onTriggered: root.markOnboardingCompletionUnconfirmed()
+  }
   // Relative update/test ages need one inexpensive shared clock. Without it,
   // text bound through helper functions would stay frozen until other state
   // happened to change.
@@ -121,7 +131,7 @@ Panel {
   // Sheets and confirmations own pointer/scroll input while visible. Keeping
   // the page Flickables interactive underneath a translucent sheet lets one
   // wheel gesture move two surfaces and exposes two competing scrollbars.
-  readonly property bool modalInputActive: onboardingWizard.visible
+  readonly property bool modalInputActive: helpPrompt.visible || onboardingWizard.visible
     || startupPrompt.visible || routingToolsPrompt.visible
     || routingPresetPrompt.visible || importDialog.visible
     || subscriptionPrompt.visible || pendingEdit !== null
@@ -230,9 +240,16 @@ Panel {
       return vless.nativeSnapshot.lastKnownActual
     return ""
   }
-  // Metadata work is local to its control; the VPN header/bar must continue
-  // describing the actual connection rather than a subscription edit.
-  readonly property bool nativeStatusWaiting: nativeTransitionKind !== ""
+  // Acknowledged metadata work invalidates the joined observation briefly.
+  // Its bounded refresh is neither a VPN failure nor Connected proof.
+  readonly property bool nativeMetadataVerifying: vless.nativeMetadataTransition !== null
+    && !vless.nativeMetadataTransition.failed && !vless.nativeOutcomeUnknown
+    && vless.nativeActionCode === "" && !vless.nativeSnapshotFailed
+    && vless.nativeSnapshot !== null
+    && vless.nativeSnapshot.instanceId === vless.nativeMetadataTransition.instanceId
+    && ["failed", "manualRecoveryRequired"].indexOf(vless.nativeSnapshot.lastKnownActual) < 0
+    && !NativeSnapshot.coherent(vless.nativeSnapshot, vless.nativeObservation)
+  readonly property bool nativeStatusWaiting: nativeTransitionKind !== "" || nativeMetadataVerifying
   readonly property string nativeTransitionTarget: {
     var transition = vless.nativeConnectionTransition
     if (!transition || transition.action !== "connect") return ""
@@ -724,6 +741,33 @@ Panel {
   function syncNativeOnboarding() {
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
     if (vless.nativeStatusRefreshing) return
+    if (nativeOnboardingCompletionPending !== null) {
+      if (vless.nativePending || vless.nativeActionRunning || vless.nativeOutcomeUnknown) return
+      if (vless.nativeActionCode !== "") {
+        onboardingCompletionTimeout.stop()
+        nativeOnboardingCompletionPending = null
+        nativeOnboardingCompletionUnconfirmed = true
+        if (!onboardingWizard.visible) openOnboarding(3)
+        return
+      }
+      var completion = nativeOnboardingCompletionPending
+      if (vless.nativeSnapshot.instanceId === completion.instanceId
+          && vless.nativeSnapshot.revision >= completion.revision
+          && vless.nativeSnapshot.onboardingComplete) {
+        onboardingCompletionTimeout.stop()
+        nativeOnboardingCompletionPending = null
+        nativeOnboardingCompletionUnconfirmed = false
+        dismissOnboarding()
+      } else if (vless.nativeFactsCurrent && !vless.nativeMetadataBusy) {
+        // Recovery acknowledgement or a new owner is not proof that Finish
+        // succeeded. Release the local wait, leaving a deliberate retry.
+        onboardingCompletionTimeout.stop()
+        nativeOnboardingCompletionPending = null
+        nativeOnboardingCompletionUnconfirmed = true
+        if (!onboardingWizard.visible) openOnboarding(3)
+      }
+      return
+    }
     if (nativeOnboardingPresetPending !== "" && !vless.nativePending && !vless.nativeOutcomeUnknown) {
       var presetRejected = vless.nativeActionCode !== "" || (vless.nativeMetadataErrorAction === "routing-preset" && vless.nativeMetadataErrorCode !== "")
       if (!presetRejected && onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
@@ -733,7 +777,7 @@ Panel {
     }
     if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
         && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !subscriptionPrompt.visible)
-      openOnboarding(1)
+      openOnboarding(nativeOnboardingCompletionUnconfirmed ? 3 : 1)
   }
 
   function chooseOnboardingPreset(preset) {
@@ -751,11 +795,23 @@ Panel {
   }
 
   function finishOnboarding() {
-    if (!vless.completeOnboarding()) return
-    onboardingDismissed = true
-    nativeOnboardingPresetPending = ""
-    onboardingWizard.dismiss()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    if (vless.nativeOwner) {
+      if ((nativeOnboardingCompletionPending !== null && !nativeOnboardingCompletionUnconfirmed) || !vless.nativeSnapshot) return
+      nativeOnboardingCompletionUnconfirmed = false
+      nativeOnboardingCompletionPending = {instanceId:vless.nativeSnapshot.instanceId,
+        revision:vless.nativeSnapshot.revision}
+      if (!vless.completeOnboarding()) nativeOnboardingCompletionPending = null
+      else onboardingCompletionTimeout.restart()
+      return
+    }
+    if (vless.completeOnboarding()) dismissOnboarding()
+  }
+
+  function markOnboardingCompletionUnconfirmed() {
+    if (nativeOnboardingCompletionPending === null) return
+    // Bound the local spinner, not the native operation. Preserve its fence
+    // for a late confirmed result; unknown/pending still blocks any new action.
+    nativeOnboardingCompletionUnconfirmed = true
   }
 
   function saveStartup(enabled, target, profileId, mode) {
@@ -787,6 +843,22 @@ Panel {
     page = "main"
   }
 
+  function openHelp(section, returnFocus) {
+    helpReturnFocus = returnFocus || null
+    helpPrompt.openHelp(section)
+  }
+
+  function closeHelp() {
+    helpPrompt.dismiss()
+    var target = helpReturnFocus
+    helpReturnFocus = null
+    Qt.callLater(function() {
+      if (target && target.visible) target.forceActiveFocus()
+      else if (onboardingWizard.visible) onboardingWizard.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
+  }
+
   function nativeCoreSetupDescription() {
     if (vless.nativeCoreSetupStatus !== "") return textFor("native.core." + vless.nativeCoreSetupStatus)
     var facts = vless.nativeCoreSetupFacts
@@ -814,7 +886,7 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -1573,6 +1645,8 @@ Panel {
     subscriptionPrompt.dismiss()
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
+    helpPrompt.dismiss()
+    helpReturnFocus = null
     onboardingWizard.dismiss()
     nativeOnboardingPresetPending = ""
     routingToolsPrompt.dismiss()
@@ -1659,11 +1733,16 @@ Panel {
     function onNativePendingChanged() { Qt.callLater(root.syncNativeOnboarding) }
     function onNativeMetadataErrorCodeChanged() { root.syncNativeOnboarding() }
     function onNativeActionCodeChanged() { root.syncNativeOnboarding() }
-    function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
+    function onNativeStatusRefreshingChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeFactsCurrentChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeMetadataBusyChanged() { Qt.callLater(root.syncNativeOnboarding) }
+    function onNativeOutcomeUnknownChanged() { Qt.callLater(root.syncNativeOnboarding) }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) {
         onboardingWizard.dismiss()
         root.nativeOnboardingPresetPending = ""
+        root.nativeOnboardingCompletionPending = null
+        root.nativeOnboardingCompletionUnconfirmed = false
         root.onboardingDismissed = true
         return
       }
@@ -1895,7 +1974,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      helpPrompt.visible ? Style.space(600) : root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -1905,7 +1984,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
+      blocked: helpPrompt.visible || root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
@@ -2044,8 +2123,8 @@ Panel {
         contentWidth: width
         contentHeight: setupPage.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
-        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
+        interactive: contentHeight > height && !root.modalInputActive
+        ScrollBar.vertical: OmaScrollBar { policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded }
         SetupPage {
           id: setupPage
           width: Math.max(0, setupFlick.width - root.scrollGutter)
@@ -2057,6 +2136,7 @@ Panel {
             || vless.nativeOutcomeUnknown || vless.nativeQuitting
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
+          onHelpRequested: function(section) { root.openHelp(section, setupPage) }
           onCloseRequested: {
             if (root.componentSetupReview) {
               root.componentSetupReview = false
@@ -2407,6 +2487,15 @@ Panel {
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }
+          SettingsActionRow {
+            id: nativeHelpSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("help.title")
+            description: root.textFor("help.settings_description")
+            actionText: root.textFor("common.open")
+            onAction: root.openHelp("help", nativeHelpSetting.focusTarget)
+          }
           BorderSurface {
             id: nativeSupportSetting
             Layout.fillWidth: true
@@ -4022,13 +4111,15 @@ Panel {
         nativeSetupFacts: setupPage.facts
         nativeSetupBusy: setupPage.busy
         nativeSetupTerminalOpened: setupPage.terminalOpened
-        nativeCoreFailed: vless.nativeCoreSetupStatus !== ""
+        nativeCoreFailed: vless.nativeCoreSetupStatus === "failed"
         nativeCanContinue: vless.nativeCanAct
         routingSavePending: root.nativeOnboardingPresetPending !== ""
         routingSaveUnknown: vless.nativeOutcomeUnknown
+        completionPending: root.nativeOnboardingCompletionPending !== null && !root.nativeOnboardingCompletionUnconfirmed
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
           : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)
+          : root.nativeOnboardingCompletionUnconfirmed ? root.textFor("onboarding.finish_unconfirmed")
           : vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
         coreSetup: vless.coreSetup
         filePicker: vless.filePicker
@@ -4050,13 +4141,23 @@ Panel {
           setupPage.check()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
-        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md")
+        onSetupGuideRequested: root.openHelp("install", onboardingWizard)
         onComponentSetupRequested: root.reviewComponentSetup()
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }
         onFinishRequested: root.finishOnboarding()
         onCanceled: root.dismissOnboarding()
+      }
+
+      HelpPrompt {
+        id: helpPrompt
+        anchors.fill: parent
+        z: 20
+        locale: root.uiLocale
+        onGuideRequested: function(section) { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md#" + section) }
+        onIssueRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/issues/new")
+        onCanceled: root.closeHelp()
       }
 
       StartupPrompt {

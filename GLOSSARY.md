@@ -44,9 +44,19 @@ more steps and confirmations follow, not that installation starts immediately.
 | `setup.start_app` | Start OmaVLESS | Запустить OmaVLESS |
 | `setup.terminal_closed` | Terminal and system prompts are closed | Терминал и запросы системы закрыты |
 | `setup.check` | Check again | Проверить снова |
-| `setup.guide_short` | Setup help ↗ | Помощь ↗ |
+| `setup.guide_short` | Setup help | Помощь |
 | `setup.later` | Set up later | Настроить позже |
 | `native.app.open` | Open app | Открыть приложение |
+| `help.copy_request` | Copy request | Скопировать запрос |
+| `help.show_request` | Show request | Показать запрос |
+| `help.hide_request` | Hide request | Скрыть запрос |
+| `help.guide` | Read the guide ↗ | Открыть инструкцию ↗ |
+| `help.issue` | Report a problem ↗ | Сообщить о проблеме ↗ |
+
+Setup help and Settings → Help open the same local help surface, not a website.
+It offers a ready-to-copy assistant request first, then independent guide/issue
+links. Reading a guide or using an assistant is never a prerequisite for reporting
+a problem. Only the explicit web-link actions carry the arrow suffix.
 
 Restore helper access is only for access removed by a completed clean
 reinstall. It is neither restoring profiles nor a fallback after a failed
