@@ -93,6 +93,8 @@ class ReleaseCandidateTests(unittest.TestCase):
                              (self.repo / 'plugin/Panel.qml').read_bytes())
             self.assertEqual(archive.extractfile('omavless-frontend/install-frontend.sh').read(),
                              (ROOT / 'install.sh').read_bytes())
+            self.assertIn('omavless-frontend/docs/user/USER_AGENT_GUIDE.md', names)
+            self.assertNotIn('omavless-frontend/AGENTS.md', names)
 
     def test_beta_version_is_explicit_and_agrees_with_arch_projection(self):
         for value in ('0.9.5-beta.1', '0.9.5-beta.12', '0.9.5-rc.1', '0.9.5'):
@@ -263,6 +265,12 @@ esac
             self.assertFalse((target / 'uninstall.sh').exists())
             self.assertEqual((target / 'tools/uninstall.sh').read_bytes(),
                              (ROOT / 'tools/uninstall.sh').read_bytes())
+            prompt = (target / 'plugin/I18n.js').read_text()
+            self.assertIn('~/.config/omarchy/plugins/kdk.omavless/docs/user/USER_AGENT_GUIDE.md', prompt)
+            self.assertTrue((target / 'docs/user/USER_AGENT_GUIDE.md').is_file())
+            self.assertIn('Help a user operate OmaVLESS',
+                          (target / 'docs/user/USER_AGENT_GUIDE.md').read_text())
+            self.assertFalse((target / 'AGENTS.md').exists(), 'do not ship developer instructions')
             self.assertEqual(json.loads((target / 'manifest.json').read_text())['version'], RELEASE.version(self.repo, stable))
             calls = self.trace.read_text().splitlines()
             self.assertEqual(calls.count('owner-read'), 2)

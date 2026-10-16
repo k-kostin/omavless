@@ -37,7 +37,8 @@ function context(locale = 'en') {
 test('both prompts are short public text, with the problem last and no placeholder', () => {
   for (const locale of ['en', 'ru']) {
     const prompt = I18n.translate('help.agent_prompt', locale);
-    assert(prompt.includes('~/.config/omarchy/plugins/kdk.omavless/AGENTS.md'));
+    assert(prompt.includes('~/.config/omarchy/plugins/kdk.omavless/docs/user/USER_AGENT_GUIDE.md'));
+    assert(prompt.includes(locale === 'en' ? 'AGENTS.md in the plugin directory if present' : 'AGENTS.md в папке плагина, если он есть'));
     assert(prompt.endsWith(locale === 'en' ? 'Problem:\n\n' : 'Проблема:\n\n'));
     assert(prompt.length < I18n.MAX_TEXT_LENGTH);
     assert(!/\[|\]|https?:\/\/|vless:\/\/|\b(?:sudo|pacman|UPGRADE|INSTALL|diagnostic)\b/i.test(prompt));

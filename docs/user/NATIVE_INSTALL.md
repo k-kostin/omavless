@@ -443,9 +443,9 @@ computer, then describe the problem at the end. The request contains no profiles
 keys or diagnostic data. It points to the guide installed with your plugin:
 
 ```text
-Read the installed OmaVLESS instructions:
-~/.config/omarchy/plugins/kdk.omavless/AGENTS.md
-and the assistance guide linked there.
+Read the installed OmaVLESS assistance guide:
+~/.config/omarchy/plugins/kdk.omavless/docs/user/USER_AGENT_GUIDE.md
+Also read AGENTS.md in the plugin directory if present.
 
 Help me with OmaVLESS in Omarchy. Problem:
 

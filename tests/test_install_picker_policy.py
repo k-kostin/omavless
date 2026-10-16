@@ -81,6 +81,13 @@ exit "$TEST_OWNER_EXIT"
         self.assertEqual((self.target / "tools/uninstall.sh").read_bytes(),
                          (INSTALLER.parent / "tools/uninstall.sh").read_bytes())
         self.assertEqual([p.name for p in (self.target / "tools").iterdir()], ["uninstall.sh"])
+        # Help must work after the actual full-source installer, not just the
+        # generated main export. Developer AGENTS must not become a user entry.
+        prompt = (self.target / "plugin/I18n.js").read_text()
+        self.assertIn("~/.config/omarchy/plugins/kdk.omavless/docs/user/USER_AGENT_GUIDE.md", prompt)
+        self.assertEqual((self.target / "docs/user/USER_AGENT_GUIDE.md").read_bytes(),
+                         (INSTALLER.parent / "docs/user/USER_AGENT_GUIDE.md").read_bytes())
+        self.assertFalse((self.target / "AGENTS.md").exists())
         self.assertNotIn("synthetic-private", result.stdout)
         self.assertIn("no tunnel was started", result.stdout)
         return result.stdout, self.trace.read_text().splitlines()

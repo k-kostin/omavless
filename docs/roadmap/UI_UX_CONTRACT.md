@@ -152,8 +152,8 @@ Update components…; the ellipsis indicates subsequent steps and confirmations.
 
 One local Help surface serves setup, non-ready onboarding and Settings. The
 first option shows a short public prompt and Copy request; the prompt names
-the installed plugin's AGENTS.md and linked user-assistance guide, and ends at
-the problem entry with a blank line. Keep diagnostics/version/consent rules in
+the installed user-assistance guide directly and also AGENTS.md if present. It
+ends at the problem entry with a blank line. Keep diagnostics/version/consent rules in
 the agent guide, not repeated in the user's prompt. Do not collect private facts
 or read the clipboard merely by opening help. Copy writes only the displayed
 template and reports success only after the clipboard writer succeeds; failure
