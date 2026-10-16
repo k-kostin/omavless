@@ -179,6 +179,15 @@ assert(entry.includes('](docs/development/DEVELOPMENT_INVENTORY.md)'));
 const developmentInventory = fs.readFileSync(path.join(root, 'docs/development/DEVELOPMENT_INVENTORY.md'), 'utf8');
 assert(developmentInventory.includes('## Admission of old-base work'));
 assert(developmentInventory.includes('## Source CI before the next export'));
+assert(developmentInventory.includes('## Verified missing-port boundaries'));
+const missingPorts = developmentInventory.split('## Verified missing-port boundaries')[1]
+  .split('## Admission of old-base work')[0];
+// Discovery guard only: these assertions do not establish code incorporation.
+for (const carrier of ['#517', '#520', '#550', '#572', '#659', '#751', '#546', '#684', '#676']) {
+  assert(missingPorts.includes(carrier), 'retain independently missing port: ' + carrier);
+}
+assert(missingPorts.includes('absent'), 'similar concepts must not imply incorporation');
+assert(missingPorts.includes('not implementation authority'));
 assert(developmentInventory.includes('not a demonstrated merge conflict'));
 // Current developer navigation must not turn a historical migration recipe
 // or old beta into today's product/base. These are routing/content controls,

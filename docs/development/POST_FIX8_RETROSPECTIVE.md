@@ -11,7 +11,8 @@ Fix.8 and user-only main were delivered through #795 from full source5edf4eb2.
 The current [source/distribution map](STABLE_DISTRIBUTION_TRANSITION.md#current-map--after-fix8-delivery)
 records exact identities; #794/#795 retain gate receipts. Old failures remain
 failures. The last frontend delta has installed x64 evidence; additional
-installed ARM evidence was waived, not earned. Aryan's response is pending.
+installed ARM evidence was waived, not earned. The approved support follow-up
+is recorded on issue #773; further posting remains separately authorized.
 No new tests below can turn a past unrun installed check into PASS.
 
 Local verification: `./tests/run.sh` passed 814 Python tests (two existing opt-in
@@ -33,6 +34,7 @@ The earlier 813-test local pass did not predict the first PR's cleanup failure.
 | Session answers stopped with authorized work remaining; local handoff chronology looked current after supersession. | Delivery closure check and report-retention policy: one operational summary, all outcomes disposed, continue actionable work, name an actual external hold. | Apply the rule to the next real outcome report. Navigation tests protect discovery only, not agent compliance. Completed release and this audit are separate outcomes. |
 | Main became user-only, but source rules still said the migration was pending and developer rules belonged on every main update. | Deployed source/distribution map; workflow and mandatory source AGENTS distinguish user help from developer guidance. | This follow-up reconciles entry points and current summaries. Navigation guards check discovery and reject the stale transition assertion. Main/release source bytes remain unchanged. |
 | Hundreds of Draft PRs and stacked branches made historical experiments look like current delivery work. | Cleanup lifecycle and development inventory: inspect exact heads, dependencies, source preservation and custody; reachability is not feature acceptance. | Owner-selected development starts at released full source, not an old beta. Old work must earn affected integration checks. No automatic merge/closure/deletion or blanket frontier integration. |
+| Similar concepts and later carrier names could hide useful sibling changes that were never incorporated. | Admission compares actual scoped source and original evidence, not titles, ancestry alone or a later green result. | The inventory's verified missing-port boundaries route distinct hardening, test and UI gaps. Navigation regression protects discovery, not code incorporation or future acceptance. |
 | This retrospective's first CI failed while deleting a synthetic Git objects directory. Temporary Git commands could launch auto-maintenance beyond command completion. | Execution policy §1: disable automatic/detached maintenance per fixture invocation, never change global Git config or ignore cleanup errors. | Trace regression failed on old fixture helper and passed after the scoped correction; pairing/release/export suites passed. Original CI race was not traced or reproduced and is not relabelled PASS. |
 
 Existing canonical rules are reused rather than copied into another checklist.

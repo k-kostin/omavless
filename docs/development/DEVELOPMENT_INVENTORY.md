@@ -4,8 +4,9 @@ Owner-selected October16, after fix.8 delivery. `development` is the full-source
 integration home, created at released source
 `5edf4eb203926d8bd39a3ff80f611a19435c3787`. It does not start from the older
 beta/0.9.9 assembly. Main remains the generated user distribution; immutable
-release source, tags and assets are unchanged. #796 owns developer-rule and
-fixture-correction integration; its first CI failure remains a failure.
+release source, tags and assets are unchanged. #796 integrated developer rules
+and a bounded fixture correction into development; its first CI failure remains
+a failure, separate from the successful corrected-head run.
 
 This is a navigation/admission map, not acceptance of retained experiments or
 permission to merge them all. Public PR metadata and changed-path comparisons
@@ -25,13 +26,13 @@ not a whole-beta merge. Public main and fix.8 remain unchanged by this queue.
 
 | Lane | Next bounded outcome / owning entry | Retain and re-earn |
 | --- | --- | --- |
-| Source home and test infrastructure | Integrate #796 rules, qualify development push-CI/export/bootstrap, then port only the missing socket-fixture slices from #758/#760/#762. #763's scheduling patch is incorporated and extended. | Preserve current runtime/payload assertions and fixed deadlines. A clean patch application or PR-only green is not source-push admission; test fixes do not authorize a package rebuild/publication. |
-| Next consumer import | Requalify the direct entry/local-bundle/TUI slice under #733, #742/#749/#755 and the [TUI contract](../roadmap/TUI_APP.md); select its actual dependencies from the retained beta. | Keep preview/confirm/unknown outcomes and final fix.8 first-use, clipboard and Help corrections. No new protocol, raw YAML or automatic VPN connection. New combined source/UI gates belong to the selected port. |
-| Mandatory consumer Restore | Select a bounded recovery-to-ordinary-availability path from #739 and its driver stack under the [Restore contract](../roadmap/PRIVATE_BACKUP_RESTORE.md). | Consumer Restore remains required for 0.9.9; public 0.9.8 stays Backup-only. Prove actual owner-loss recovery and fresh runtime admission, not only a happy path or same-holder Abort. Preserve original failures and NEW/OLD/unknown scopes. |
+| Source home and test infrastructure | Qualify development push-CI/export/bootstrap after integrated #796; select missing socket-fixture slices #758/#760/#762, concurrent-create coverage #572 and separate builder hardening #550. #763's scheduling patch is incorporated and extended. | Preserve current runtime/payload assertions and fixed deadlines. A clean patch application or PR-only green is not source-push admission; test fixes do not authorize a package rebuild/publication. |
+| Next consumer import | Requalify the direct entry/local-bundle/TUI slice under #733, distinct #742 production footer and #755 wire tests, and the [TUI contract](../roadmap/TUI_APP.md). #749 is incorporated into #755, not another pending step; #751 is a separate unshipped loading-state correction. | Keep preview/confirm/unknown outcomes and final fix.8 first-use, clipboard and Help corrections. No new protocol, raw YAML or automatic VPN connection. New combined source/UI gates belong to the selected port. |
+| Mandatory consumer Restore | Select a bounded recovery-to-ordinary-availability path from #739, readiness/order checkpoints #720/#721 and distinct source-fixture/product-fault gates #695/#694 under the [Restore contract](../roadmap/PRIVATE_BACKUP_RESTORE.md). Reconcile missing backup hardening #517/#520 deliberately. | Consumer Restore remains required for 0.9.9; public 0.9.8 stays Backup-only. Prove actual owner-loss recovery and fresh runtime admission, not only a happy path or same-holder Abort. Preserve original failures and NEW/OLD/unknown scopes. |
 | Remaining removal UX / product guidance | Reconcile #774's still-pending all-state in-app removal review with the already shipped terminal remover, current guides and agent-first Help. | Do not reimplement the delivered helper, restore the old preserve-by-default contract, or advertise an unimplemented UI action. Translated human guides and locale-aware links remain a separate [future localization scope](../roadmap/I18N.md#published-guide-languages). |
-| P4 WG/AWG research and port | Resume only a selected Rust-first slice through #770/#410 and the [protocol roadmap](../../PROTOCOL_ROADMAP.md). | Current-core/parser/runtime compatibility, private fixtures, security and installed/live gates are distinct. Owner-supplied .conf files remain private; they do not qualify structured containers or product support by themselves. |
-| K1 protection | Retain #703 and the owner-paused normal-lifecycle WIP under [K1](../roadmap/KILL_SWITCH.md). | No activation or automatic continuation from repository cleanup. Privilege/namespace/table ownership and crash/fault gates remain owning K1 requirements, not waived by T4's availability boundary. |
-| T3 / T4 background / S1 | Preserve shipped read-only behavior separately from sealed T3 research, #700 resume and #623 app-proxy experiments. Use their owning contracts and current exact checkpoints below before selecting work. | No revival of unknown workers, copied live authority, background scheduling or foreign-setting changes. Historical source/build receipts are not fresh execution permission. |
+| P4 WG/AWG research and port | Select a Rust-first slice from #770 store/preparation, distinct #750 timer/transport and #577 family/MTU composition under the [protocol roadmap](../../PROTOCOL_ROADMAP.md). #410 is incorporated into retained source, not another open task. | Current-core/parser/runtime compatibility, private fixtures, security and installed/live gates are distinct. Owner-supplied .conf files remain private; they do not qualify structured containers or product support by themselves. |
+| K1 protection | Retain distinct #703 cold-owner and #689 native checkpoints, plus uncarried #546/#684/#676 under [K1](../roadmap/KILL_SWITCH.md). Normal-lifecycle WIP remains owner-paused. | No activation or automatic continuation from repository cleanup. Privilege/namespace/table ownership and crash/fault gates remain owning K1 requirements, not waived by T4's availability boundary. |
+| T3 / T4 background / S1 | Preserve shipped read-only behavior separately from sealed T3 research: #660 composition, #664 native source, #562 owner-close, #683 interruption, #659 cuts, #622 graph and #597 diagnostics. #700 resume differs from #351 prototype; #623 global CAS differs from #693 child witness. #400 is an unactivated persistent-claim model. | No revival of unknown workers, copied live authority, background scheduling or foreign-setting changes. Historical source/build receipts are not fresh execution permission; shipped private nonpersistent usage reads are not #400's persisted claims. |
 | G1 and standalone hosts | Retain #766/#768 [GUI research](../roadmap/GUI_RESEARCH.md), and separate [Arch/NixOS host work](../roadmap/PLATFORM.md). | No GUI framework/product selection or graphics dependency in the runtime follows from keeping a prototype. Omarchy evidence does not qualify NixOS generations or other host integration. |
 | V0 / accepted migration | Keep frozen #30 and native successor #290 as distinct [protocol evidence](../../PROTOCOL_ROADMAP.md); retain deferred [AUTO-1](../roadmap/LOGIN_AUTOCONNECT_FOLLOWUP.md). | Missing protocol-family fixtures stay unavailable, not PASS. Do not restart accepted R6, revive Python production or make all other work wait for unrelated private fixtures. |
 
@@ -53,7 +54,7 @@ orientation, not the selected package pins for a new integration.
 | --- | --- | --- | --- |
 | Old beta/0.9.9, [#737](https://github.com/k-kostin/omavless/pull/737) | `2a49ec0322502465c04aa7d842437d050713b559` | Common ancestor `b4ef783e`, nearest ancestor tag fix.1; 9 branch-only commits, 156 released-source commits absent. | Retain as historical development assembly; do not use as the new base or merge into user main. |
 | Restore integration, [#739](https://github.com/k-kostin/omavless/pull/739) | `c783583c498c1c27afa3f9d7973a2162eadfda16` | Same common ancestor; 65 branch-only commits, 16 paths changed on both sides. | Preserve recovery contracts/failures and stacked drivers including #745/#747/#752/#759/#765/#769; qualify selected Restore scope independently. |
-| TUI import, [#742](https://github.com/k-kostin/omavless/pull/742), [#749](https://github.com/k-kostin/omavless/pull/749), [#755](https://github.com/k-kostin/omavless/pull/755) | Latest recorded #755 `3e32e2c9b99bdf69ee31eb02c63fb56e8e56ea2e` | Common ancestor `b4ef783e`; 13 branch-only commits, 13 overlapping paths. | Port the reviewed import dependency slice, preserving final onboarding/clipboard/Help corrections. Old import evidence is not new-base acceptance. |
+| TUI import, [#742](https://github.com/k-kostin/omavless/pull/742), [#755](https://github.com/k-kostin/omavless/pull/755) | Recorded #755 `3e32e2c9b99bdf69ee31eb02c63fb56e8e56ea2e`; #742 has a newer distinct production footer. | Common ancestor `b4ef783e`; #755 has 13 branch-only commits and 13 overlapping paths. | #749 is included in #755; #742's newer production delta is not. Port selected dependencies, preserving final onboarding/clipboard/Help corrections. |
 | P4, [#770](https://github.com/k-kostin/omavless/pull/770) | `d325b0a08d3f6e4e5f51c5f8f233b180ddeb00b4` | Common ancestor `d620c300`, historical v0.8.2; 24 branch-only commits, 6 overlapping paths. | Preserve one-peer WG/AWG/parser/private-fixture/core/runtime gates. New owner fixtures do not themselves earn interoperability. |
 | K1, [#703](https://github.com/k-kostin/omavless/pull/703) | `65d53d7ab0b6ae97ff666208e1b5f0c291b341fd` | Common ancestor `1bbd358e`, historical 0.9.5-RC lineage; 162 branch-only commits, 22 overlapping paths. | Retain separate privilege/ownership/fault requirements; no activation by source consolidation. |
 | T4 background/resume, [#700](https://github.com/k-kostin/omavless/pull/700) | `87cc3009c24f300fe85620e28000c730a489924a` | Common ancestor old rc/0.9.7 `c4e80042`; 44 branch-only commits, 16 overlapping paths. | Retain explicit host hints/recovery permission and original failure scopes. Do not borrow new managed-DNS authority. |
@@ -65,6 +66,28 @@ An overlapping path is a review target, not a demonstrated merge conflict or
 product failure. A large commit count measures history, not missing features
 or the amount of code to cherry-pick. Fully reachable inactive foundations are
 not automatically enabled or accepted either.
+
+## Verified missing-port boundaries
+
+These are selected source-comparison findings, not implementation authority or
+new vulnerability/acceptance claims. The referenced PRs retain exact old tips,
+original failures and evidence. Compare again with current development before
+porting: a shared concept, ancestor or filename does not establish incorporation.
+
+| Retained source | Verified distinction / required adaptation |
+| --- | --- |
+| #517, including closed #513/#514 | Explicit caller-owned Argon2 workspace clearing, frozen V1 catalog and fixed-member openat/fstatat hardening are absent from released 5edf and #739. Reconcile later managed-DNS templates, archive compatibility and current backup/lease contracts; do not replace them wholesale with old code. |
+| #520 | The bounded peer-first private recovery-stream reader is absent from released source and #739; it is not the same scope as #517. |
+| #550 | The independent DNS-host pair builder's fresh bare object export, ambient/replacement Git suppression and post-reap no-signal changes are absent from the current builder. A different T3 exporter is not this implementation. |
+| #572 | The exclusive-create loser test and deterministic output/Busy assertion correction are absent from current migration-lease coverage. Preserve legitimate conservative UnsafePath outcomes; this is not evidence that current CI failed. |
+| #659 | The positive-stage-cut test matrix is absent from #660. One successful actual composition does not supply negative cut coverage. |
+| #751 | Subscriptions loading/unavailable wording and state handling are absent from released QML/catalogs. This is separate from the shipped first-use/onboarding correction. |
+| #546 / #684 / #676 | Standalone namespace API compile-consumer fixtures, the DNS/TUN managed-device contract/Go overlay, and the same-client four-exchange scenario respectively are absent from #703. Newer API/client artifacts do not establish these sibling ports. |
+| #622 / #597 | The decoder counterexample graph and standalone Btrfs diagnostic are absent from the retained #660 composition; keep each source/evidence entry distinct. |
+
+#395 and #375 remain historical matched-core/compatibility audits, not current
+merge vehicles. Closed predecessors keep their source and unique failure reports;
+closure means demonstrated incorporation or supersession, never feature PASS.
 
 ## Admission of old-base work
 
@@ -107,8 +130,12 @@ an authorized cleanup. Follow the canonical
 The initial inventory was read-only. Subsequent owner-approved cleanup removed
 106 redundant remote names after exact-head/retention/dependency/custody checks;
 their history remains reachable through immutable fix.8. #763 was closed with
-its exact carried-patch disposition; the other 16 old-main Drafts retain visible
-individual source/evidence status. No blanket retarget or history rewrite.
+its exact carried-patch disposition. The subsequent whole-backlog review closed
+demonstrably incorporated predecessors and retained distinct source/evidence
+carriers with individual top-level dispositions and original bodies below.
+Current carriers are routed above; closed dependency references remain historical
+source/evidence, not separately open implementation steps. No blanket retarget
+or history rewrite.
 The second 70-worktree audit produced a remote-name-only proposal; all local
 checkouts/artifacts and unresolved heads stay retained. No second deletion,
 main/release mutation or frontier acceptance follows from that proposal.
