@@ -215,6 +215,18 @@ for (const evidence of ['test-uninstaller.js', 'test-native-onboarding.js',
 // Discovery/retention guard only: this cannot prove that a particular retro
 // was implemented or that an agent followed its required checks.
 const execution = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
+// Protect mandatory discovery/content, not proof of an agent's judgment.
+assert(guide.includes('](EXECUTION_POLICY.md#technical-judgment-before-execution)'));
+assert(execution.includes('### Technical judgment before execution'));
+const judgment = execution.split('### Technical judgment before execution')[1].split('## 1.')[0]
+  .replace(/\s+/g, ' ');
+for (const rule of ['proposed means, not automatically the right technical decision',
+  'Distinguish a question or hypothesis from an explicit instruction',
+  'explain the conflict, material cost, risks and practical alternatives',
+  'Do not silently replace a clear owner instruction',
+  'Mandatory exact-source CI/export/installed gates remain separate']) {
+  assert(judgment.includes(rule), 'retain engineering judgment boundary: ' + rule);
+}
 assert(entry.includes('](docs/development/EXECUTION_POLICY.md)'),
   'execution rules must remain mandatory from the root entry');
 assert(guide.includes('](EXECUTION_POLICY.md#retrospective-closure-and-distribution)'),

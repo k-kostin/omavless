@@ -29,6 +29,10 @@ policy or useful implementation.
 Read the durable [execution policy](EXECUTION_POLICY.md) before development or
 diagnostic work. It distinguishes ordinary build failures from uncertain effects
 and retains risk-proportionate review and explicit single-operator VM custody.
+Apply [technical judgment before execution](EXECUTION_POLICY.md#technical-judgment-before-execution):
+evaluate proposed means against the owner's goal, explain meaningful conflicts
+and alternatives before expensive action, and do not confuse a tentative idea
+with an approved standing technical policy.
 For installed development-VM work use the
 [VM operations skill](../../skills/omavless-dev-vm/SKILL.md), including graphical
 preflight, actual installed interface discovery and encrypted reboot. Before
