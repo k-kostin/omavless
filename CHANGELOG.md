@@ -11,6 +11,8 @@
 - Make partial setup and supported component updates easier to follow. Explain
   the DNS helper before asking for permission, keep confirmation steps clear,
   and preserve settings during updates from earlier public releases.
+- Keep component updates working after choosing a routing preset in onboarding;
+  retain the original setup backup without rewriting your routing settings.
 - Bring installation, updates, removal, troubleshooting and FAQ together in
   one [user guide](docs/user/NATIVE_INSTALL.md). Add a separate
   [guide for your assistant](docs/user/USER_AGENT_GUIDE.md) and short installed help.

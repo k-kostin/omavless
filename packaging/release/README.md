@@ -2,7 +2,17 @@
 
 ## Unpublished finalization candidate
 
-Proposed delivery **0.9.8 / `v0.9.8-fix.8`** uses common native producer
+The final native producer is being revised for the actual x64 selected-pair
+update refusal after normal setup and routing-preset selection. The update
+must capture its existing selector/backup before template admission, preserve
+their bytes and keep initial-conversion/pending/unsafe-member refusals. It must
+not delete the backup or rerun DNS enrollment. All three portable presets and
+their mode variants are regression-covered. Exact current identities/gates
+belong in #794; prior archive identities below are not the corrected release.
+The optional frontend archive also has its own short user README; check its
+mapped payload, not just root/docs/user, before a final delivery freeze.
+
+Preceding proposed **0.9.8 / `v0.9.8-fix.8`** used common native producer
 `da54f90e4eb6c725b2847bf96b00ef602f214e51`. Both architecture app and production
 DNS archives were built by Native packages38849824759 and DNS pair38849826647,
 strictly inspected and selected by observed archive/payload hashes. The core

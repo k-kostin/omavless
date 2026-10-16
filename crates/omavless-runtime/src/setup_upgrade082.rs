@@ -524,7 +524,12 @@ pub(crate) struct UpgradeContext {
     absent_members: Vec<PathBuf>,
 }
 impl UpgradeContext {
-    fn acquire(scope: Scope, uid: u32, observed_units: [String; 2]) -> Result<Self> {
+    fn acquire(
+        scope: Scope,
+        uid: u32,
+        observed_units: [String; 2],
+        managed_pair_update: bool,
+    ) -> Result<Self> {
         // /run is boot-local. These descriptors exclude this original update,
         // not prove that a historical daemon once created a lock pathname.
         // Persistent ownership/configuration is never initialized or repaired.
@@ -678,24 +683,6 @@ impl UpgradeContext {
         if !store.startup_is_configured() || store.startup_preferences().enabled {
             return Err(Blocker::StartupRequiresOff);
         }
-        let template =
-            std::str::from_utf8(&captured[4].bytes).map_err(|_| Blocker::TemplateRequiresReview)?;
-        if crate::managed_template::for_host(template, true).is_none()
-            || (!crate::managed_template::is_bundled_default_mode_variant(template)
-                && !crate::core_readiness::ConfigReadiness::from_generated_config(
-                    desired.mode,
-                    String::new(),
-                    template,
-                )
-                .is_some_and(|policy| policy.managed_dns()))
-        {
-            return Err(Blocker::TemplateRequiresReview);
-        }
-        if crate::managed_template::is_bundled_default_mode_variant(template)
-            && !absent(&scope.config.join("route-template.pre-managed-dns.yaml"))
-        {
-            return Err(Blocker::TemplateRequiresReview);
-        }
         crate::login_transaction::check_startup_receipt(
             &scope.cutover,
             uid,
@@ -722,8 +709,52 @@ impl UpgradeContext {
             login_receipt_absent,
             absent_members: Vec::new(),
         };
+        if managed_pair_update {
+            // A completed managed setup may retain its original backup while
+            // a later ordinary preset transaction saves a portable template.
+            // Capture selector/backup under these same original leases BEFORE
+            // distinguishing that state from an unfinished first conversion.
+            context.capture_managed_members()?;
+        }
+        context.validate_template(managed_pair_update, desired.mode)?;
         context.recheck_private()?;
         Ok(context)
+    }
+    fn validate_template(
+        &self,
+        managed_pair_update: bool,
+        mode: crate::desired::RoutingMode,
+    ) -> Result<()> {
+        let template = std::str::from_utf8(&self.captured[4].bytes)
+            .map_err(|_| Blocker::TemplateRequiresReview)?;
+        let selector = self.scope.config.join(crate::managed_pair::SELECTOR);
+        let selected = managed_pair_update
+            && self.captured.iter().any(|capture| {
+                capture.path == selector && capture.bytes == crate::managed_pair::SELECTION_BYTES
+            });
+        if crate::managed_template::for_host(template, true).is_none()
+            || (!selected
+                && !crate::managed_template::is_bundled_default_mode_variant(template)
+                && !crate::core_readiness::ConfigReadiness::from_generated_config(
+                    mode,
+                    String::new(),
+                    template,
+                )
+                .is_some_and(|policy| policy.managed_dns()))
+            || (!selected
+                && crate::managed_template::is_bundled_default_mode_variant(template)
+                && !absent(
+                    &self
+                        .scope
+                        .config
+                        .join("route-template.pre-managed-dns.yaml"),
+                ))
+        {
+            return Err(Blocker::TemplateRequiresReview);
+        }
+        // Package-only update preserves all captured bytes. Selected-host
+        // rendering, not another prepare-template/backup write, adds DNS flags.
+        Ok(())
     }
     fn recheck_private(&mut self) -> Result<()> {
         for directory in &self.directories {
@@ -881,10 +912,7 @@ fn acquire_current_for(target098: Option<&str>) -> Result<UpgradeContext> {
         observer
             .verify_native_empty()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;
-        let mut context = UpgradeContext::acquire(scope, uid, observed_units)?;
-        if target098.is_some() {
-            context.capture_managed_members()?;
-        }
+        let mut context = UpgradeContext::acquire(scope, uid, observed_units, target098.is_some())?;
         observer
             .verify_native_empty()
             .map_err(|_| Blocker::HostAdmissionUnavailable)?;

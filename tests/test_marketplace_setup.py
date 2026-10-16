@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import shutil
 import subprocess
@@ -340,6 +341,14 @@ app_archive_identity synthetic-archive {source} {arch} {version}
         self.assertEqual(result.stdout, f"{RELEASE_TAG}\n{VERSION}\n{PKGVER}\n")
         changed = self.run_shell('release_tag=caller-selected')
         self.assertNotEqual(changed.returncode, 0)
+
+    def test_frontend_archive_help_matches_selected_delivery(self):
+        help_text = (ROOT / "packaging/release/FRONTEND_README.md").read_text()
+        tags = set(re.findall(r"v\d+\.\d+\.\d+-fix\.\d+", help_text))
+        self.assertEqual(tags, {RELEASE_TAG})
+        self.assertIn("docs/user/NATIVE_INSTALL.md", help_text)
+        self.assertIn("docs/user/CLEAN_REINSTALL_098.md", help_text)
+        self.assertIn("only the panel files", help_text)
 
     def test_selected_candidate_has_matching_bounded_pair_pins(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())

@@ -10,7 +10,14 @@ governs retained decisions and their actual distribution.
 
 ## Current source composition — 2026-10-15
 
-October 16 successor: selected native producer
+October 16 affected-update correction: the installed selected-pair updater must
+preserve the original setup backup after ordinary preset selection rather than
+misclassify portable routing as unfinished setup. The scoped correction retains
+all initial/unknown/pending/unsafe-member guards and requires a new producer.
+Archive README copy must also match its selected delivery; inspect actual mapped
+help in every selected artifact before final freeze. Current gates are in #794.
+
+Earlier October 16 successor: preceding native producer
 `da54f90e4eb6c725b2847bf96b00ef602f214e51` has both architecture app/DNS archives
 built and strictly inspected. Its matching frontend pins propose fix.8;
 publication, final source/export checks and affected installed acceptance remain
