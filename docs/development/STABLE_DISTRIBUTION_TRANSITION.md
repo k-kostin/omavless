@@ -1,15 +1,39 @@
 # Stable distribution and development separation
 
-Owner-selected direction, 2026-10-15; on October16 the owner authorized transfer
-of the prepared user storefront into main. The separately authorized rules-only
-#791 is on main; the product tree has not been migrated. Main authorization is
-not a technical-gate/ARM waiver or separate release/tag/assets/Marketplace/support
-permission. A local distribution export is implemented, not yet promoted.
-Complete the remaining functional and coherent-delivery gates first.
+Deployed October16 through [#795](https://github.com/k-kostin/omavless/pull/795).
+Main is now the generated stable user distribution, not the full source tree.
+The release is [v0.9.8-fix.8](https://github.com/k-kostin/omavless/releases/tag/v0.9.8-fix.8).
 The [execution policy](EXECUTION_POLICY.md#retrospective-closure-and-distribution)
 governs retained decisions and their actual distribution.
 
+## Current map — after fix.8 delivery
+
+- Released full source: `5edf4eb203926d8bd39a3ff80f611a19435c3787`, retained on
+  `dev/098-finalization-integration` and through generated release ancestry.
+- Generated release: `42d106b8ba8741a8a575b265309f27fce7fc413f`; promoted main:
+  `bcd744ecb3c1c61bbfe4a8ab090358b225ce1e76`. Both have user tree
+  `8db26d9ca4a0f82fb2885f94ccb537af55073a53`, 66 tracked files.
+- Native app/DNS producer remains `2d54b430866fd5b2849cd815f8552a4e9e2d16a8`;
+  remover source remains `0250efeb87ff5f6c331a2d067c181a29084b37a2`.
+- Source Test, actual exporter/source-bootstrap, distribution PR/main checks,
+  all seven anonymous asset downloads/hashes and actual public-main clone
+  verification passed separately. #795/#794 retain their bounded receipts.
+  Additional installed ARM acceptance of the final frontend was owner-waived,
+  not passed; earlier Mac evidence retains its original inputs and limits.
+- Full-source developer-rule updates are separate from this immutable release.
+  This docs follow-up does not change main, package pins, release or Marketplace.
+  Owner-selected `development` was created from released full source5edf4eb2,
+  not an older beta. Developer-rule/fixture changes in #796 remain pending their
+  own CI/integration. No frontier feature was imported to create this home.
+- Use [current status](../roadmap/CURRENT_STATUS.md) for the live queue and
+  [the retrospective](POST_FIX8_RETROSPECTIVE.md) for correction/distribution
+  status. Reconcile old stacked PRs before retargeting or deleting their bases.
+
 ## Current source composition — 2026-10-15
+
+Historical preparation ledger below: earlier pending gates and publication
+holds describe their dated candidates. The current map above supersedes those
+pending lists, not the original failures, inputs or unrun checks.
 
 October16 returned-Mac gate: original helper4345 refused the correctly installed
 selected fix.8 before Quit because both new application ELF hashes were missing.
@@ -117,7 +141,7 @@ there. This is different from instructions for developing OmaVLESS.
 | Location | Maintained purpose |
 | --- | --- |
 | main | Stable user distribution and matching user/user-agent documentation; changes only through an authorized selected release. |
-| development (proposed; not created) | Full source, tests, build/release tooling, important architecture/roadmaps, developer instructions/skills and current portable handoff. Integrate selected work, not every unfinished experiment. |
+| development | Owner-selected full-source integration home, created from released5edf4eb2. Source/tests/build tooling, architecture/roadmaps and developer rules stay here. Integrate checked selected work, never every unfinished experiment. |
 | dev/* | Scoped feature, test or documentation work; one active writer and a meaningful reusable checkpoint. |
 | beta/*, rc/* | Temporary selected test assemblies and frozen release candidates, not permanent homes for developer documentation. |
 | Local private storage | Raw captures/logs, build outputs, VM images and disposable scratch, with purpose/retention and no secret material in Git. |
@@ -126,7 +150,7 @@ Do not rewrite history, remove unique commits, delete evidence branches or move
 an active fixture to make the working tree look smaller. A clean main tree does
 not remove old Git objects or solve local build-cache storage by itself.
 
-## Proposed main file boundary
+## Selected main file boundary
 
 The inventory below is implemented by
 `packaging/release/export-distribution.py` and its regression suite. It exports
@@ -209,12 +233,11 @@ The two guides must agree with actual UI and terminal terminology and offered
 actions. Source [editorial rules](../roadmap/UI_UX_CONTRACT.md#end-user-editorial-rule)
 remain in development; only their product-facing result is shipped in main.
 
-The user guides now have release-facing copy without internal candidate/freeze
-notices. They remain unpublished source drafts until an authorized product
-promotion; public main still serves its existing guide. Keep that boundary in
-the PR/handoff, not in the user's final instructions. Validate the exact final
-source and exported guide/helper pair before promotion; do not describe these
-drafts as already delivered by main or add a post-publication bookkeeping commit.
+The selected guides were delivered with fix.8. Future edits in a source branch
+remain drafts until their own selected export and authorized promotion. Keep
+that boundary in the PR/handoff, not in the user's instructions. Validate the
+exact final source and exported guide/helper pair before each promotion; do not
+add a post-publication bookkeeping commit to user main.
 
 ## Implemented distribution checks
 

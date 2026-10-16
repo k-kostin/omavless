@@ -1,6 +1,19 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; stable release updated 2026-10-10.
+Status: full-source delivery ledger; stable release reconciled 2026-10-16.
+
+**Current release:** immutable `v0.9.8-fix.8` is published; #795 promoted the
+generated user distribution into main. Exact full source is
+`5edf4eb203926d8bd39a3ff80f611a19435c3787`, not the stripped main checkout.
+See [current status](docs/roadmap/CURRENT_STATUS.md) and the
+[deployed source/distribution map](docs/development/STABLE_DISTRIBUTION_TRANSITION.md#current-map--after-fix8-delivery)
+for actual identities and separate gate outcomes. Final frontend installed ARM
+acceptance was explicitly waived, not passed. No new Marketplace update or
+frontier acceptance is implied. The owner now requests a
+[post-delivery retrospective](docs/development/POST_FIX8_RETROSPECTIVE.md) and
+read-only cleanup classification; developer-rule changes stay outside user main.
+
+### Earlier delivery selections — historical
 
 **October16 finalization addition:** the owner requests agent-first Help in
 fix.8 and future main: a short copyable public request, optional user guide and
@@ -319,12 +332,15 @@ Where older wording says Arch/AUR is the only future host,
 
 ### One source of truth
 
-`main` is the stable owner-approved release snapshot, including documentation.
+`main` is the stable owner-approved generated user distribution, including
+user/support-agent documentation. Full source retains developer instructions,
+roadmaps and tests; start development from its declared source entry, not main.
 Daily work and roadmap updates live in `dev/*` PRs, named `beta/<version>`
 development assemblies and scope-frozen `rc/<version>` candidates; issues/PRs
 carry live status. No automatic docs-only main merges:
 the September 22 decision supersedes the former standing permission. Every
-authorized main update includes the applicable roadmap/docs reconciliation;
+authorized main update includes applicable full-source roadmap/docs reconciliation
+and exports only selected user-facing files;
 see the [release checklist](docs/roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
 Runtime/network/security/migration changes retain their exact-head gates.
 Documentation-only changes do not invent a live VPN test or permission to publish.

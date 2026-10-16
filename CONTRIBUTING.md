@@ -26,7 +26,13 @@ an allowlisted frontend, not agent guidance, tests or developer tooling.
 
 ## Workflow
 
-Use a narrow `dev/<topic>` branch from the declared main or versioned candidate
+Since October16, main is the generated stable user distribution. For development
+start from the declared full-source entry in the
+[source/distribution map](docs/development/STABLE_DISTRIBUTION_TRANSITION.md#current-map--after-fix8-delivery),
+not a stripped main checkout or the user's installed plugin. Keep immutable
+released source separate from later developer-rule updates.
+
+Use a narrow `dev/<topic>` branch from declared full source or a versioned candidate
 base and an early meaningful Draft PR. Optional kind prefixes include
 `dev/fix/<topic>` and `dev/docs/<topic>`. A temporary `beta/<version>` assembles
 selected development checkpoints; a later `rc/<version>` freezes release scope.
@@ -44,10 +50,11 @@ exact-head gates, affected rechecks, merge approval and cleanup. Existing open
 branches need not be renamed for cosmetics. Published releases use immutable
 version tags and an exact reviewed marketplace snapshot.
 
-Main is the stable release snapshot, documentation included. Docs-only PRs do
+Main is the stable user release snapshot, user documentation included. Docs-only PRs do
 not have automatic merge permission. Keep daily status in issues/PRs, include
 the next roadmap/docs revision in the named beta/RC, and complete the workflow's
 release reconciliation checklist before an explicitly owner-authorized main update.
+Developer retrospectives and rules stay in full source, not the user export.
 
 ## Checks
 

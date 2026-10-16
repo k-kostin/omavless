@@ -4,15 +4,18 @@ The product front door is [README](../../README.md); the developer front door is
 [CONTRIBUTING](../../CONTRIBUTING.md). Root [AGENTS](../../AGENTS.md) remains the
 small discoverable instruction entry point. It requires the complete
 [detailed agent guide](AGENT_GUIDE.md), which preserves the former root rules and
-historical continuity notes. These instructions travel with the code on every
-branch; they are not hidden only in a permanent develop/rc branch.
+historical continuity notes. These developer instructions travel with full source.
+Since October16, main instead ships user/support-agent instructions and an
+immutable source entry, not developer retrospectives, roadmaps or build tooling.
+See the [deployed source/distribution map](STABLE_DISTRIBUTION_TRANSITION.md).
 
-Main's documentation belongs to its stable release snapshot. Current issues
-and PRs carry day-to-day status; checked `dev/docs/*` changes join the next named
-beta/RC. A versioned beta integrates development; a versioned RC freezes release
-scope. Both retain these canonical paths. Before any owner-authorized main update, apply the mandatory
+Main's user documentation belongs to its stable release snapshot. Current issues
+and PRs carry day-to-day status; checked `dev/docs/*` changes belong in selected
+full source. A versioned beta integrates development; a versioned RC freezes
+release scope. Both retain these canonical source paths. Before any owner-authorized main update, apply the mandatory
 [release reconciliation checklist](../roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist)
-so roadmap, contracts, evidence and agent guidance are not left behind. Even
+so source roadmap, contracts, evidence and agent guidance are reconciled, while
+only selected user-facing files are exported into main. Even
 documentation-only main updates require explicit owner authorization.
 
 ## Canonical map — retain useful work

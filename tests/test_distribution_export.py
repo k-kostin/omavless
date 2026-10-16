@@ -80,7 +80,10 @@ class DistributionTests(unittest.TestCase):
         path.write_bytes(data)
 
     def git(self, *args):
-        return subprocess.check_output(['git', '-C', str(self.repo), *args], stderr=subprocess.DEVNULL)
+        # Keep temporary repository writes synchronous without host config edits.
+        return subprocess.check_output(['git', '-c', 'maintenance.auto=false',
+            '-c', 'gc.auto=0', '-c', 'maintenance.autoDetach=false',
+            '-c', 'gc.autoDetach=false', '-C', str(self.repo), *args], stderr=subprocess.DEVNULL)
 
     def commit(self):
         self.git('add', '.')

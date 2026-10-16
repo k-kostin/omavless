@@ -52,6 +52,12 @@ process boundary. Refuse unmocked effect leaves by default and retain a bounded
 fixture witness; a passing assertion against a real desktop query is not inert
 evidence. Preserve any accidental live read separately from the corrected run.
 
+Temporary Git fixture commands must disable automatic maintenance/GC for that
+invocation and must not detach writers past fixture cleanup. Do not change the
+developer's global Git settings or ignore cleanup errors. A trace control can
+prove the new fixture no longer launches auto-maintenance; it does not prove
+the unobserved interleaving of a previous CI cleanup failure.
+
 Dependent commands require a fail-fast admission boundary. Check checkout/head,
 selected directories and permissions before launching a build or test; create
 and verify the HOME-backed TMPDIR first. Keep dependent shell steps in one
@@ -396,13 +402,20 @@ Use the existing PR or handoff for a short finding → change → check → dist
 record. Distinguish analysis complete, implemented/checked, and integrated.
 Record the rule/test location, exact available commit/PR and any remaining
 integration owner. Do not call the change project-wide while its only copy is
-local or in an unmerged feature branch. Until an authorized main update, mark
+local or in an unmerged feature branch. Until integration into the selected
+full-source guidance, mark
 distribution pending and give affected active agents the exact accessible
-handoff; do not silently assume they read this chat. Local reminders must point
+handoff; do not silently assume they read this chat. Since the October16
+source/distribution separation, developer-rule distribution does not mean
+copying those rules or a retrospective report into user main. Retain the
+immutable released source; use the current developer entry for process updates.
+Local reminders must point
 back to the canonical rule and be reconciled after integration.
 
 Before starting or resuming an older feature branch, check current remote main
-agent guidance, not only that branch's historical rules. Read changed applicable
+agent guidance and follow its source entry for current developer guidance, not
+only that branch's historical rules. User main's support-agent instructions do
+not replace full-source development policy. Read changed applicable
 instructions and carry the process corrections without importing unrelated
 runtime code or rewriting old acceptance. Reuse the reviewed guidance identity
 while unchanged; this does not require repeated full audits or blanket rebases.

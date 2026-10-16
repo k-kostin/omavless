@@ -190,6 +190,8 @@ Before planning/gating/reporting:
 
 - refresh remote metadata;
 - read current remote `AGENTS.md`;
+- if that ref is user main, follow its source entry and read full-source AGENTS
+  and developer rules; do not query absent developer paths in the user export;
 - read current `DEVELOPMENT_ROADMAP.md`;
 - read current `DEVELOPMENT_WORKFLOW.md`;
 - for backend/runtime/TUI work read `RUST_MIGRATION.md`.
