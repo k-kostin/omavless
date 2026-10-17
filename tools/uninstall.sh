@@ -553,11 +553,12 @@ check_supported_installation() {
     [[ -f /usr/bin/omavless && ! -L /usr/bin/omavless && $(stat -c '%u:%a' /usr/bin/omavless) == 0:755 ]] \
       || fail 'The registered application file is missing or changed. Restore its official package before continuing.'
     digest=$(sha256sum /usr/bin/omavless) || fail 'Cannot identify the application.'
-    # Release-selected ELF identities, not a development build's package label.
-    # Public 0.8.2/0.9.8 predecessors and the selected fix.8 delivery.
+    # Exact selected ELF identities, not a development build's package label.
+    # Public predecessors/fix.8 and the inspected nonpublic developer pair.
     case "${digest%% *}" in
       3ff795316aa331463aff4e26571546433bdfd9317f348712d135be2f0a8d28a1|62874def77df9e4f099baf74c57420a7ab1dab7b83935676828f6d445a5f357f|219479595f4b59e07a9639d703e939125d464165f7a5f426ec523ce5d952600b|42a0f2550567c21cf8201a13d8797124237edfb71f1ee67a93d33fb6852753ee|3e5e8a5aca3d48d1bada328471b5078eb96a5796a1c44a6ba03a289def050141|5930244698e7fb1c6fe7518af2b093e7c2f5dcb5c4400dd845588553e0c7e2fd|118a12989f737e7c5f7ee167d10f6487ab6ca16ba4ed34f8dae71e813a384bd4|bf7787ee90bdbb0e2de03ecdd8bebb4b01810ad9607eaaecbfbf5ff7eeeaa2b4|b8cc106248953abcc3b3475efa7cec362778b5ae918b6866c1e8febdd3c44ff9|897710505a8fae9783bb8130c0e0d98133144e2b8e9ae68d169ad7a413999990|e1d320dc3347e2bdb4f45a576c34c42098a73e54e00f698010e5424cf97808b6|07295f1694bffb0ce234a8ce4164e03b3ddad2e88ef25a98f36a9e3fd6be6b73|7c7b0f0c350b8903353d2fed3c8effb693aaaca0c271279b85efa51dfebb8881|6949d9473a714e36824e93437c61aff1064c619b9960e8a9b31bb49834176004) ;;
       d9e1c1a5cc455fe1bd84f4bf405b5cf8a0d03280a2fa2a134a26d914a40ab51e|172dcc1abf5ceaca1d816941cc8662e7199c5d4d994df0a4687116f9ae02681a) ;;
+      909ce59cd284adc164a62584774df30d713f109d16151193c767f997b77c2415|7ef39bd5b14b316096261b56dc2228139afcb1d4542b4fd59161f5ab7c0e1a74) ;;
       *) fail 'The application is a development or modified build. Restore its official package before continuing; no development checkout was deleted.' ;;
     esac
   else
