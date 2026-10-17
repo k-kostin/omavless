@@ -11,11 +11,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
+
 struct ChildGuard(Child);
 
 #[test]
 fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without_effects() {
-    let base = runtime_base();
+    let base = file_base();
     for args in [
         vec!["restore", "abort"],
         vec![
@@ -51,7 +54,7 @@ fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without
 
 #[test]
 fn removal_watcher_refuses_all_external_parameters_before_host_effects() {
-    let base = runtime_base();
+    let base = file_base();
     for private in ["private-token", "--force", "$(private)"] {
         let output = isolated_command(&base)
             .args(["plugin", "watch-removal", private])
@@ -67,7 +70,7 @@ fn removal_watcher_refuses_all_external_parameters_before_host_effects() {
 
 #[test]
 fn status_without_runtime_reports_unavailable_not_unsafe_and_never_creates_state() {
-    let base = runtime_base();
+    let base = file_base();
     let paths = omavless_runtime::RuntimePaths::below(&base);
     for directory_present in [false, true] {
         if directory_present {
@@ -100,7 +103,7 @@ fn status_without_runtime_reports_unavailable_not_unsafe_and_never_creates_state
 
 #[test]
 fn login_commands_reject_terminal_invocation_without_skipping_or_writing() {
-    let base = runtime_base();
+    let base = file_base();
     for args in [
         vec!["login-condition"],
         vec!["login-prepare"],
@@ -202,7 +205,7 @@ fn doctor_uses_one_fixed_read_and_discards_private_response_fields() {
 
 #[test]
 fn doctor_without_runtime_is_read_only_and_unavailable() {
-    let base = runtime_base();
+    let base = file_base();
     let output = isolated_command(&base).arg("doctor").output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
@@ -645,7 +648,7 @@ fn custom_rules_cli_maps_only_fixed_read_and_keeps_private_output_off_stderr() {
 fn store_compatibility_cli_is_bounded_read_only_and_requires_no_external_tools() {
     use omavless_runtime::cutover::{CutoverPaths, MigrationLock};
     use std::os::unix::fs::{MetadataExt, symlink};
-    let base = runtime_base();
+    let base = file_base();
     prepare_isolated_daemon_environment(&base);
     let directory = base.join("home/.config/omavless");
     fs::create_dir_all(&directory).unwrap();
@@ -917,6 +920,14 @@ impl ChildGuard {
 }
 
 fn runtime_base() -> PathBuf {
+    // Actual CLI fixtures bind omavless/control.sock below this root. Do not
+    // inherit an arbitrarily long TMPDIR for a kernel Unix address.
+    test_temp::directory_under(&test_temp::home_parent().unwrap(), "cli").unwrap()
+}
+
+// Preserve the original TMP policy for refusal/private-file controls that do
+// not bind a pathname socket. Only actual IPC fixtures use runtime_base above.
+fn file_base() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1003,7 +1014,7 @@ fn help_exposes_only_fixed_semantic_commands() {
 
 #[test]
 fn raw_and_extra_commands_fail_before_socket_without_echoing_arguments() {
-    let base = runtime_base();
+    let base = file_base();
     prepare_isolated_daemon_environment(&base);
     let private = "private.example/password";
     for arguments in [
@@ -1027,7 +1038,7 @@ fn raw_and_extra_commands_fail_before_socket_without_echoing_arguments() {
 
 #[test]
 fn rename_stdin_is_bounded_and_never_echoed() {
-    let base = runtime_base();
+    let base = file_base();
     prepare_isolated_daemon_environment(&base);
     let profile = "00000000-0000-4000-8000-000000000001";
     let private = "private.example/password".repeat(20);
@@ -1058,7 +1069,7 @@ fn rename_stdin_is_bounded_and_never_echoed() {
 
 #[test]
 fn import_preview_stdin_rejects_oversize_invalid_utf8_and_empty_without_echo() {
-    let base = runtime_base();
+    let base = file_base();
     prepare_isolated_daemon_environment(&base);
     for input in [
         vec![b'x'; omavless_runtime::import_read_protocol::MAX_IMPORT_STDIN_BYTES + 1],
@@ -1087,7 +1098,7 @@ fn import_preview_stdin_rejects_oversize_invalid_utf8_and_empty_without_echo() {
 
 #[test]
 fn subscription_stdin_is_bounded_and_never_echoed() {
-    let base = runtime_base();
+    let base = file_base();
     prepare_isolated_daemon_environment(&base);
     let private = format!(
         "Private source\nhttps://private.example/{}",
@@ -1120,7 +1131,7 @@ fn subscription_stdin_is_bounded_and_never_echoed() {
 
 #[test]
 fn preflight_reads_desired_state_without_disclosing_profile_id() {
-    let base = runtime_base();
+    let base = file_base();
     let state_root = base.join("state");
     fs::create_dir(&state_root).unwrap();
     fs::set_permissions(&state_root, fs::Permissions::from_mode(0o700)).unwrap();
@@ -1152,7 +1163,7 @@ fn preflight_reads_desired_state_without_disclosing_profile_id() {
 
 #[test]
 fn store_preflight_validates_private_config_but_returns_only_safe_facts() {
-    let base = runtime_base();
+    let base = file_base();
     let home = base.join("home");
     let config = home.join(".config/omavless");
     fs::create_dir_all(&config).unwrap();

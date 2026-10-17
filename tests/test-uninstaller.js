@@ -342,6 +342,34 @@ function rootTest(label,changes,body,success,inspect=()=>{}){const dir=rootFixtu
  const r=spawnSync('bash',['--noprofile','--norc'],{input:rootScript(dir,body,changes),encoding:'utf8',timeout:4000});
  assert(!r.error,label+': '+r.error);assert.equal(r.status===0,success,label+': '+r.stdout+r.stderr);inspect(dir,r);count++;
 }finally{fs.rmSync(dir,{recursive:true})}}
+// Exercise the actual fixed DNS file admission with selected delivery hashes,
+// not a mock of check_dns_programs or merely the public predecessor catalogue.
+const guardSha=createHash('sha256').update(fs.readFileSync(path.join(__dirname,'dns_broker_host/package/package-guard'))).digest('hex');
+const brokerUnit=fs.readFileSync(path.join(__dirname,'dns_broker_host/omavless-dns-broker.service'),'utf8')
+ .replace('ExecStart=/usr/lib/omavless/omavless-dns-broker --serve','ExecStart=/usr/lib/omavless-dns/omavless-dns-broker --serve')
+ .replace('# REVIEW-ONLY opt-in candidate. Not installed or enabled by normal packages.\n','# Installation alone does not enroll, enable, or start this service.\n');
+const unitSha=createHash('sha256').update(brokerUnit).digest('hex');
+function dnsAdmission(label,brokerSha,expected,options={}){
+ rootTest(label,{before:dir=>{
+  for(const name of ['/usr/lib/omavless-dns/package-guard','/usr/lib/omavless-dns/omavless-dns-broker','/usr/lib/systemd/system/omavless-dns-broker.service']){
+   const file=dir+name;fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'inert; never execute');
+  }
+ }},[
+  'stat() { case "$2" in "%u %a") printf "0 755\\n";; "%u:%a:%h") if [[ "${@: -1}" == */omavless-dns-broker.service ]]; then printf "'+(options.unsafeUnit?'0:666:1':'0:644:1')+'\\n"; else printf "0:755:1\\n"; fi;; *) printf FORBIDDEN_STAT >&2; return 99;; esac; }',
+  'sha256sum() { case "$1" in */package-guard) printf "%s  %s\\n" "'+(options.badGuard?'0'.repeat(64):guardSha)+'" "$1";; */omavless-dns-broker) printf "%s  %s\\n" "'+brokerSha+'" "$1";; */omavless-dns-broker.service) printf "%s  %s\\n" "'+(options.badUnit?'0'.repeat(64):unitSha)+'" "$1";; *) printf FORBIDDEN_HASH >&2; return 99;; esac; }',
+  'check_dns_programs; printf DNS_ADMITTED'
+ ].join('\n'),expected,(_,r)=>assert.equal(r.stdout.includes('DNS_ADMITTED'),expected));
+}
+for(const [arch,identity] of Object.entries(selected.identities)){
+ dnsAdmission('selected DNS '+arch,identity.brokerSha,true);
+ const changed=identity.brokerSha.slice(0,-1)+(identity.brokerSha.endsWith('0')?'1':'0');
+ assert(!published.pairs.some(p=>p.brokerSha===changed));
+ dnsAdmission('modified selected DNS '+arch,changed,false);
+ for(const options of [{badGuard:true},{badUnit:true},{unsafeUnit:true}])
+  dnsAdmission('selected DNS '+arch+' refuses '+Object.keys(options)[0],identity.brokerSha,false,options);
+}
+for(const record of published.pairs)
+ dnsAdmission('public DNS '+record.sourceCommit+' '+record.architecture,record.brokerSha,true);
 rootTest('current root epoch admitted',{},'printf ADMITTED',true);
 rootTest('old queued authorization token is refused',{attempt:token},'printf FORBIDDEN',false);
 rootTest('wrong root phase is refused',{phase:'prepared'},'printf FORBIDDEN',false);

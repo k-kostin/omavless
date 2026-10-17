@@ -86,7 +86,7 @@ fn package_group_binding_refuses_mutation_replacement_and_symlink() {
 #[test]
 fn changing_package_group_before_publication_leaves_socket_directory_private() {
     for late in [false, true] {
-        let f = Fixture::new();
+        let f = Fixture::new_socket();
         let (parent, path, owner) = publication_site(&f);
         if owner.1 == 0 {
             // A root-run test cannot exercise non-root package-group identity.
@@ -115,7 +115,7 @@ fn changing_package_group_before_publication_leaves_socket_directory_private() {
 
 #[test]
 fn trusted_first_publisher_opens_group_only_after_private_bind() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (parent, path, owner) = publication_site(&f);
     let mut inspected = false;
     let admitted = publish_test_parent(
@@ -151,7 +151,7 @@ fn trusted_first_publisher_opens_group_only_after_private_bind() {
 
 #[test]
 fn interrupted_first_publication_stays_private_and_cannot_be_adopted() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (parent, path, owner) = publication_site(&f);
     let result = publish_test_parent(
         File::open(&parent).unwrap(), &path, owner, owner.1, || false,
@@ -167,7 +167,7 @@ fn interrupted_first_publication_stays_private_and_cannot_be_adopted() {
 
 #[test]
 fn replaced_socket_during_private_publication_is_never_admitted() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (parent, path, owner) = publication_site(&f);
     let mut replacement = None;
     let result = publish_test_parent(
@@ -184,7 +184,7 @@ fn replaced_socket_during_private_publication_is_never_admitted() {
 
 #[test]
 fn replaced_directory_during_private_publication_is_never_admitted() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (parent, path, owner) = publication_site(&f);
     let original = parent.join("moved-private-directory");
     let mut replacement = None;
@@ -225,7 +225,7 @@ fn first_publisher_refuses_existing_or_symlinked_directory() {
 
 #[test]
 fn session_owner_serializes_clients_under_one_lock_without_replay() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid(), Kernel::new(&f));
     assert_eq!(owner.poll_one(), SessionProgress::Idle);
     assert!(matches!(open_fixture(&f.0), Err(StateError::Busy)));
@@ -275,7 +275,7 @@ fn session_owner_serializes_clients_under_one_lock_without_replay() {
 
 #[test]
 fn malformed_and_stalled_clients_do_not_prevent_a_later_valid_client() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid(), Kernel::new(&f));
     for bytes in [
         0_u32.to_be_bytes().to_vec(),
@@ -312,7 +312,7 @@ fn malformed_and_stalled_clients_do_not_prevent_a_later_valid_client() {
 
 #[test]
 fn uncertain_accept_error_returns_once_and_does_not_poison_the_owner() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid(), Kernel::new(&f));
     let mut called = 0;
     assert_eq!(
@@ -331,7 +331,7 @@ fn uncertain_accept_error_returns_once_and_does_not_poison_the_owner() {
 
 #[test]
 fn unauthorized_peer_and_missing_enrollment_never_dispatch() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid() + 1, Kernel::new(&f));
     let _unauthorized = client(&path, ARM);
     assert_eq!(
@@ -352,7 +352,7 @@ fn unauthorized_peer_and_missing_enrollment_never_dispatch() {
 
 #[test]
 fn enrollment_rebinding_seals_session_without_disarming_or_replaying() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid(), Kernel::new(&f));
     let mut arm = client(&path, ARM);
     assert_eq!(owner.poll_one(), SessionProgress::Served);
@@ -365,7 +365,7 @@ fn enrollment_rebinding_seals_session_without_disarming_or_replaying() {
     assert_eq!(owner.test_kernel().effects, 1);
     assert_eq!(f.bytes(), before);
 
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid(), Kernel::new(&f));
     let _status = client(&path, Request::Status {});
     assert_eq!(
@@ -378,7 +378,7 @@ fn enrollment_rebinding_seals_session_without_disarming_or_replaying() {
     assert_eq!(owner.poll_one(), SessionProgress::AuthorityLost);
     assert_eq!(owner.test_kernel().effects, 0);
 
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let mut kernel = Kernel::new(&f);
     kernel.rebind_enrollment_on_effect = true;
     let (mut owner, path) = session_owner(&f, peer_uid(), kernel);
@@ -396,7 +396,7 @@ fn enrollment_rebinding_seals_session_without_disarming_or_replaying() {
 
 #[test]
 fn lost_reply_and_poisoned_transaction_preserve_effect_history() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (mut owner, path) = session_owner(&f, peer_uid(), Kernel::new(&f));
     let lost = client(&path, ARM);
     drop(lost);
@@ -419,7 +419,7 @@ fn lost_reply_and_poisoned_transaction_preserve_effect_history() {
     ));
     assert_eq!(owner.test_kernel().effects, 1);
 
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let mut kernel = Kernel::new(&f);
     kernel.fail_after_effect = true;
     let (mut owner, path) = session_owner(&f, peer_uid(), kernel);
@@ -445,7 +445,7 @@ fn lost_reply_and_poisoned_transaction_preserve_effect_history() {
 
 #[test]
 fn dropping_armed_listener_preserves_durable_evidence_for_restart() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let uid = peer_uid();
     let (mut owner, path) = session_owner(&f, uid, Kernel::new(&f));
     let mut arm = client(&path, ARM);
@@ -488,7 +488,7 @@ fn dropping_armed_listener_preserves_durable_evidence_for_restart() {
 
 #[test]
 fn admitted_listener_refuses_wrong_address_permissions_and_package_group() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (admitted, path) = admitted_listener(&f);
     assert_eq!(admitted.validate(), Ok(()));
     let parent = f.0.join("run");
@@ -529,7 +529,7 @@ fn admitted_listener_refuses_wrong_address_permissions_and_package_group() {
 
 #[test]
 fn socket_replacement_seals_owner_without_erasing_armed_records() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (listener, path) = admitted_listener(&f);
     let mut owner =
         SessionOwner::from_admitted(listener, bound_state(&f, peer_uid()), Kernel::new(&f), NS)
@@ -551,7 +551,7 @@ fn socket_replacement_seals_owner_without_erasing_armed_records() {
 
 #[test]
 fn directory_replacement_or_symlink_seals_admitted_listener() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (admitted, path) = admitted_listener(&f);
     let directory = path.parent().unwrap();
     let old = f.0.join("old-runtime");
@@ -568,7 +568,7 @@ fn directory_replacement_or_symlink_seals_admitted_listener() {
 
 #[test]
 fn listener_replacement_after_accept_does_not_dispatch_queued_request() {
-    let f = Fixture::new();
+    let f = Fixture::new_socket();
     let (listener, path) = admitted_listener(&f);
     let mut owner =
         SessionOwner::from_admitted(listener, bound_state(&f, peer_uid()), Kernel::new(&f), NS)

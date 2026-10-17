@@ -8,7 +8,9 @@ use std::env;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
 
 const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000001";
 
@@ -17,17 +19,7 @@ fn configured_core() -> Option<PathBuf> {
 }
 
 fn root() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = env::temp_dir().join(format!(
-        "omavless-native-host-mihomo-{}-{nonce}",
-        std::process::id()
-    ));
-    fs::create_dir(&root).unwrap();
-    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-    root
+    test_temp::directory_under(&test_temp::home_parent().unwrap(), "native-controller").unwrap()
 }
 
 fn private_directory(root: &Path, name: &str) -> PathBuf {

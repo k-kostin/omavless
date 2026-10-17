@@ -2469,7 +2469,9 @@ mod tests {
             return;
         };
         let _fixture = FIXTURE.lock().unwrap();
-        let root = crate::test_temp::directory("cc").unwrap();
+        let root =
+            crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "cc")
+                .unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let socket = root.join("mihomo.sock");
         let config = root.join("config.yaml");
@@ -2717,7 +2719,9 @@ while True:
 
     fn peer_fixture(variant: &str) -> (std::path::PathBuf, OwnedCore) {
         use std::os::unix::fs::PermissionsExt;
-        let root = crate::test_temp::directory("cp").unwrap();
+        let root =
+            crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "cp")
+                .unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let exe = root.join("core.py");
         fs::write(&exe, PEER_FIXTURE).unwrap();
