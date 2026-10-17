@@ -80,6 +80,15 @@ Keep durable private stdout/stderr and the original exit status. A later isolate
 pass does not relabel an earlier failed run, and this scheduling problem does
 not warrant changing application recovery code.
 
+The Rust runner optimizes only `sha2` in Cargo's test profile, explicitly keeping
+its debug assertions and overflow checks. Runtime code keeps its default debug
+profile; release builds, lint/check commands and the parity executable are not
+changed. Every original test configuration/filter remains required. A focused
+speed measurement is not evidence of whole-CI speed or timing-sensitive coverage.
+When probing an isolated Rust toolchain, bind its `CARGO_HOME`/`RUSTUP_HOME` and
+disable automatic installation (`RUSTUP_AUTO_INSTALL=0`): even `--version` on a
+rustup shim can otherwise initialize the ordinary user's toolchain store.
+
 For docs-only work, verify local links, discovery paths and any affected tooling.
 Never repeat unchanged R6/live acceptance merely to update prose. CI may still
 run its normal full suite. Runtime changes need owning regression coverage and
