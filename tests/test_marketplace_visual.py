@@ -1,5 +1,6 @@
 """Offline screenshot staging uses committed public metadata, never a live store."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -31,7 +32,7 @@ class MarketplaceVisualStagingTests(unittest.TestCase):
         result = self.stage()
         self.assertEqual(result.returncode, 0, result.stderr)
         capture = Path(result.stdout.strip())
-        self.assertEqual(capture.parent, Path("/tmp"))
+        self.assertEqual(capture.parent, Path.home() / ".cache" / "ovt")
         self.assertTrue(capture.name.startswith("omavless-marketplace."))
         self.assertTrue(capture.is_dir() and not capture.is_symlink())
         self.addCleanup(shutil.rmtree, capture)
@@ -44,6 +45,37 @@ class MarketplaceVisualStagingTests(unittest.TestCase):
         result = self.stage()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
+
+    def test_unsafe_capture_parent_refuses_without_permission_repair(self):
+        for kind in ("writable-home", "symlink-cache", "writable-cache", "public-ovt"):
+            with self.subTest(kind=kind):
+                home = self.repo / kind
+                home.mkdir(mode=0o700)
+                cache = home / ".cache"
+                if kind == "writable-home":
+                    home.chmod(0o777)
+                    watched = home
+                elif kind == "symlink-cache":
+                    target = self.repo / "cache-target"
+                    target.mkdir(mode=0o700)
+                    cache.symlink_to(target, target_is_directory=True)
+                    watched = target
+                else:
+                    cache.mkdir(mode=0o700)
+                    watched = cache
+                    if kind == "writable-cache":
+                        cache.chmod(0o777)
+                    else:
+                        watched = cache / "ovt"
+                        watched.mkdir(mode=0o755)
+                before = watched.stat().st_mode
+                result = subprocess.run(
+                    ["bash", str(ROOT / "tests/marketplace-visual/prepare.sh"), str(self.repo)],
+                    env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(watched.stat().st_mode, before)
+                self.assertFalse(list(home.rglob("omavless-marketplace.*")))
 
 
 if __name__ == "__main__":

@@ -295,6 +295,14 @@ Panel {
       ? "native.profiles.subscription_empty" : "native.profiles.empty")
   }
 
+  function nativeEmptySubscriptionsText() {
+    if (vless.nativeSnapshotFailed)
+      return textFor("native.subscriptions.unavailable")
+    if (!vless.nativeSnapshot)
+      return textFor("native.subscriptions.loading")
+    return textFor("native.subscriptions.empty")
+  }
+
   function buildNativeRows() {
     var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
     if (page === "subscription") return sortNativeProbeProfiles(profiles.filter(function(p) {
@@ -888,7 +896,7 @@ Panel {
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
       var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
-        : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
+        : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
@@ -898,7 +906,8 @@ Panel {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
       }
-      targets = targets.concat([nativeRecoveryDisconnect, nativeEditorReopen, nativeEditorDiscard, nativeReconcile, nativeAcceptState])
+      if (page !== "subscriptions") targets.push(nativeRecoveryDisconnect)
+      targets = targets.concat([nativeEditorReopen, nativeEditorDiscard, nativeReconcile, nativeAcceptState])
       for (var i = 0; i < nativeProfiles.count; i++) {
         var row = nativeProfiles.itemAt(i)
         if (row) targets = targets.concat(row.focusTargets)
@@ -2326,7 +2335,7 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: vless.nativeActionCode === "dns_pair_required" ? root.foreground : root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportBusy; text: root.textFor("native.importBusy"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.textFor("native.importError." + vless.nativeImportCode) : ""; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          Button { id: nativeRecoveryDisconnect; visible: root.nativeTransitionKind === "" && !vless.nativeMetadataBusy && root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanStop; onClicked: vless.requestNativeAction("disconnect", "", "") }
+          Button { id: nativeRecoveryDisconnect; visible: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed && root.nativeTransitionKind === "" && !vless.nativeMetadataBusy && root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanStop; onClicked: vless.requestNativeAction("disconnect", "", "") }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.connections"); foreground: root.foreground; fontFamily: root.fontFamily }
           // Primary connection controls stay on the main page, like the
           // reference frontend. Settings reuses this same action surface.
@@ -2556,8 +2565,14 @@ Panel {
             wrapMode: Text.Wrap
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
-          Button { id: nativeSubscriptionAdd; visible: root.page === "subscriptions"; text: root.textFor("common.add"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.addSubscription() }
-          Button { id: nativeSubscriptionRefreshAll; visible: root.page === "subscriptions"; text: root.textFor("diagnostics.update_all"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && root.nativeView.subscriptions.length > 0; onClicked: vless.refreshAllSubscriptions() }
+          Flow {
+            id: nativeSubscriptionActions
+            visible: root.page === "subscriptions"
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            Button { id: nativeSubscriptionAdd; visible: root.page === "subscriptions"; text: root.textFor("common.add"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.addSubscription() }
+            Button { id: nativeSubscriptionRefreshAll; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length > 0; text: root.textFor("native.subscriptions.update_all"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && root.nativeView.subscriptions.length > 0; onClicked: vless.refreshAllSubscriptions() }
+          }
           ColumnLayout {
             Layout.fillWidth: true
             visible: vless.nativeBatchJob !== null
@@ -2575,7 +2590,7 @@ Panel {
           }
           PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== "" && !(root.page === "main" && vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionStatusId !== ""); text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0 && !(root.page === "main" && root.nativeMetadataTargetId !== ""); text: root.nativeMetadataText; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.nativeEmptySubscriptionsText(); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Repeater {
             id: nativeSubscriptions
             model: root.page === "subscriptions" ? root.nativeView.subscriptions : []

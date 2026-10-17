@@ -139,7 +139,7 @@ porting: a shared concept, ancestor or filename does not establish incorporation
 | #550 | The independent DNS-host pair builder's fresh bare object export, ambient/replacement Git suppression and post-reap no-signal changes are absent from the current builder. A different T3 exporter is not this implementation. |
 | #572 | The exclusive-create loser test and deterministic output/Busy assertion correction are absent from current migration-lease coverage. Preserve legitimate conservative UnsafePath outcomes; this is not evidence that current CI failed. |
 | #659 | The positive-stage-cut test matrix is absent from #660. One successful actual composition does not supply negative cut coverage. |
-| #751 | Subscriptions loading/unavailable wording and state handling are absent from released QML/catalogs. This is separate from the shipped first-use/onboarding correction. |
+| #751 | The selected new-base UI port adds loading/unavailable/confirmed-empty Subscriptions guidance and user-facing refresh-failure wording, with actual-expression tests and isolated EN/RU render controls. It preserves cached rows, action/unknown fences and Commons.Color. Its owning development PR records exact current gates; old #751 source/rendering is not new-base acceptance or a whole-beta merge. |
 | #546 / #684 / #676 | Standalone namespace API compile-consumer fixtures, the DNS/TUN managed-device contract/Go overlay, and the same-client four-exchange scenario respectively are absent from #703. Newer API/client artifacts do not establish these sibling ports. |
 | #622 / #597 | The decoder counterexample graph and standalone Btrfs diagnostic are absent from the retained #660 composition; keep each source/evidence entry distinct. |
 

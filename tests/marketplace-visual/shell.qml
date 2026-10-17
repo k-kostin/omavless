@@ -116,6 +116,58 @@ ShellRoot {
         rowWidth:group ? group.parent.width : 0, focused:!!(group && group.activeFocus),
         pointerHovered:!!(group && group.pointerHovered), state:product.nativeView.state})
     }
+    function reviewQuiesce(): string {
+      product.open()
+      review.stopFixtureTimers(product)
+      return review.find(product, function(o) {
+        return "command" in o && "running" in o && o.running
+      }) ? "busy" : "idle"
+    }
+    function reviewSubscriptions(locale: string, kind: string, width: int): string {
+      if (["en", "ru"].indexOf(locale) < 0 || [360, 460].indexOf(width) < 0
+          || ["loading", "failed-loading", "unavailable", "empty", "populated", "failed-populated", "recovery"].indexOf(kind) < 0)
+        return "refused"
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      if (!service || !service.nativeOwner || (!review.reviewSnapshot && !service.nativeSnapshot))
+        return "not-ready"
+      if (!review.reviewSnapshot) review.reviewSnapshot = JSON.parse(JSON.stringify(service.nativeSnapshot))
+      if (review.reviewSnapshot.desired.connected) return "refused"
+      review.stopFixtureTimers(product)
+      var snapshot = JSON.parse(JSON.stringify(review.reviewSnapshot))
+      if (kind.indexOf("populated") < 0) snapshot.subscriptions = []
+      if (kind === "recovery") snapshot.lastKnownActual = "manualRecoveryRequired"
+      product.settings = {locale:locale, showExitIp:false, showBarThroughput:false}
+      product.open()
+      service.nativeSnapshot = kind.indexOf("loading") >= 0 ? null : snapshot
+      service.nativeSnapshotFailed = kind === "unavailable" || kind.indexOf("failed-") === 0
+      product.page = "subscriptions"
+      var popup = review.find(product, function(o) { return "cardOrigin" in o && "contentWidth" in o })
+      if (!popup) return "not-ready"
+      popup.contentWidth = width
+      review.reviewKind = "subscriptions-" + kind
+      return "ready"
+    }
+    function reviewSubscriptionsInspect(): string {
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      if (!service || review.reviewKind.indexOf("subscriptions-") !== 0) return "not-ready"
+      var targets = product.availablePanelTabTargets()
+      return JSON.stringify({kind:review.reviewKind, locale:product.uiLocale, page:product.page,
+        subscriptions:product.nativeView.subscriptions.length, failed:service.nativeSnapshotFailed,
+        snapshotPresent:service.nativeSnapshot !== null, connected:product.nativeView.connected,
+        bootstrap:product.bootstrapRequired, opened:product.opened,
+        focusIndex:targets.findIndex(function(t) { return t.activeFocus }),
+        focusLabels:targets.map(function(t) { return "text" in t && t.text !== "" ? t.text : "tooltipText" in t ? t.tooltipText : "" })})
+    }
+    // Exercise the real affected focus/navigation handler, never action activation.
+    // Input delivery from the unchanged host KeyCatcher is a separate boundary.
+    function reviewSubscriptionsKey(kind: string): string {
+      if (product.page !== "subscriptions" || ["tab", "backtab", "escape"].indexOf(kind) < 0)
+        return "refused"
+      var event = {key:kind === "escape" ? Qt.Key_Escape : kind === "backtab" ? Qt.Key_Backtab : Qt.Key_Tab,
+        modifiers:Qt.NoModifier, accepted:false}
+      product.handlePanelControlKey(event)
+      return event.accepted ? "accepted" : "refused"
+    }
     function reviewFocus(): string {
       var group = review.subscriptionGroup()
       if (!group) return "not-ready"

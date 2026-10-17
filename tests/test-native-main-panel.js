@@ -17,6 +17,9 @@ function context(){
   c.root=c;c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
   vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
+  const subscriptionEmptyStart=source.indexOf('  function nativeEmptySubscriptionsText(');
+  if(subscriptionEmptyStart>=0)
+    vm.runInContext(source.slice(subscriptionEmptyStart,source.indexOf('\n  }',subscriptionEmptyStart)+4),c);
   c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
   const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
   vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
@@ -49,6 +52,107 @@ test('empty native list guidance distinguishes unavailable, absent, filtered and
     assert.equal(c.calls.length,0);
   }
   assert.match(source,/PlainText \{[^\n]*text: root.nativeEmptyProfilesText\(\)/);
+});
+test('Subscriptions label distinguishes loading, failed reads and confirmed empty metadata without actions',()=>{
+  const line=source.split('\n').find(s=>s.includes('visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text:'));
+  assert(line,'actual Subscriptions empty-label sink');
+  const visible=line.match(/visible: (.*?); text:/)[1];
+  const text=line.match(/; text: (.*?); color:/)[1];
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;c.page='subscriptions';c.nativeView.subscriptions=[];
+    const rendered=()=>vm.runInContext(visible,c)?vm.runInContext(text,c):'';
+    c.vless.nativeSnapshot=null;c.vless.nativeSnapshotFailed=false;
+    assert.equal(rendered(),c.textFor('native.subscriptions.loading'));
+    c.vless.nativeSnapshotFailed=true;
+    assert.equal(rendered(),c.textFor('native.subscriptions.unavailable'));
+    // Service publishes a new snapshot before clearing the failed-read flag.
+    c.vless.nativeSnapshot={instanceId:'instance',revision:4};
+    assert.equal(rendered(),c.textFor('native.subscriptions.unavailable'));
+    c.vless.nativeSnapshotFailed=false;
+    assert.equal(rendered(),c.textFor('native.subscriptions.empty'));
+    c.vless.nativeSnapshotFailed=true;
+    assert.equal(rendered(),c.textFor('native.subscriptions.unavailable'));
+    c.nativeView.subscriptions=[{id:'sub',name:'Synthetic'}];
+    assert.equal(rendered(),''); // Retain cached rows and the separate error banner.
+    c.vless.nativeSnapshotFailed=false;
+    assert.equal(rendered(),'');
+    c.page='main';c.nativeView.subscriptions=[];
+    assert.equal(rendered(),'');
+    c.page='settings';
+    assert.equal(rendered(),'');
+    assert.equal(c.calls.length,0);
+  }
+  assert.match(source,/id: nativeRefresh;[^\n]*onClicked: vless.refresh\(\)/);
+  assert.match(source,/visible: vless.nativeSnapshotFailed; text: root.textFor\("native.refreshFailed"\)/);
+});
+test('Subscriptions actions form one compact group and preserve actual targets and gates',()=>{
+  const start=source.indexOf('id: nativeSubscriptionActions\n');
+  assert(start>=0,'one named adaptive action group, not two arbitrary stacked buttons');
+  const group=source.slice(start,source.indexOf('id: nativeBatchCheck;',start));
+  assert(group.includes('id: nativeSubscriptionAdd;') && group.includes('id: nativeSubscriptionRefreshAll;'));
+  assert.match(source.slice(start-25,start),/Flow \{/);
+  function expression(id,prop) {
+    const line=source.split('\n').find(s=>s.includes('id: '+id+';'));
+    assert(line,id);
+    const match=line.match(new RegExp('(?:; |\\{ )'+prop+': ([^;]+)'));
+    assert(match,id+' '+prop);return match[1];
+  }
+  const c=context();c.page='subscriptions';c.nativeView.subscriptions=[];
+  const add=expression('nativeSubscriptionAdd','enabled');
+  const updateVisible=expression('nativeSubscriptionRefreshAll','visible');
+  const updateEnabled=expression('nativeSubscriptionRefreshAll','enabled');
+  for(const allowed of [false,true]) {
+    c.vless.nativeCanAct=allowed;c.vless.nativeSubscriptionLoading=false;c.vless.nativeSubscriptionDraft=null;c.vless.nativeBatchBusy=false;
+    assert.equal(vm.runInContext(add,c),allowed);
+    assert.equal(vm.runInContext(updateVisible,c),false);
+    assert.equal(vm.runInContext(updateEnabled,c),false);
+    c.nativeView.subscriptions=[{id:'sub',name:'Synthetic'}];
+    assert.equal(vm.runInContext(updateVisible,c),true);
+    assert.equal(vm.runInContext(updateEnabled,c),allowed);
+    c.vless.nativeBatchBusy=true;assert.equal(vm.runInContext(updateEnabled,c),false);
+    c.vless.nativeSubscriptionDraft={};assert.equal(vm.runInContext(add,c),false);
+    c.vless.nativeSubscriptionDraft=null;c.vless.nativeSubscriptionLoading=true;
+    assert.equal(vm.runInContext(add,c),false);
+    c.nativeView.subscriptions=[];
+  }
+  c.page='main';c.nativeView.subscriptions=[{id:'sub'}];
+  assert.equal(vm.runInContext(updateVisible,c),false);
+  assert.equal(c.calls.length,0);
+  assert.match(group,/onClicked: root.addSubscription\(\)/);
+  assert.match(group,/onClicked: vless.refreshAllSubscriptions\(\)/);
+  assert.match(source,/onAction: root.browseNativeSubscription\(nativeSubscriptionRow.modelData.id\)/);
+});
+test('recovery Disconnect is not offered for missing or failed reads but remains for parsed recovery',()=>{
+  const line=source.split('\n').find(s=>s.includes('id: nativeRecoveryDisconnect;'));
+  const visible=line.match(/visible: (.*?); text:/)[1];
+  const enabled=line.match(/enabled: (.*?); onClicked:/)[1];
+  const c=context();c.nativeTransitionKind='';c.vless.nativeMetadataBusy=false;
+  c.nativeView.state='unavailable';c.nativeView.connected=false;
+  c.vless.nativeSnapshot=null;c.vless.nativeSnapshotFailed=false;c.vless.nativeCanStop=false;
+  assert.equal(vm.runInContext(visible,c),false);
+  c.vless.nativeSnapshot={instanceId:'instance',revision:4};c.vless.nativeSnapshotFailed=true;
+  assert.equal(vm.runInContext(visible,c),false);
+  c.vless.nativeSnapshotFailed=false;c.nativeView.state='manualRecoveryRequired';c.vless.nativeCanStop=true;
+  assert.equal(vm.runInContext(visible,c),true);assert.equal(vm.runInContext(enabled,c),true);
+  c.vless.nativeCanStop=false;assert.equal(vm.runInContext(enabled,c),false);
+  c.nativeTransitionKind='connect';assert.equal(vm.runInContext(visible,c),false);
+  c.nativeTransitionKind='';c.nativeView.state='disconnected';assert.equal(vm.runInContext(visible,c),false);
+  assert.match(line,/onClicked: vless.requestNativeAction\("disconnect", "", ""\)/);
+  assert.equal(c.calls.length,0);
+});
+test('Subscriptions Tab order follows header, recovery, action group and row actions without duplicates',()=>{
+  const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
+  const code=source.slice(from,to),names=Array.from(new Set(code.match(/\bnative[A-Z]\w*/g)));
+  const c=vm.createContext({page:'subscriptions',vless:{nativeOwner:true},showMainConnectionTest:false,showMainLatencySection:false});
+  c.root=c;c.bootstrapRequired=false;
+  for(const name of names)c[name]={focusTarget:name,count:0};
+  c.nativeSubscriptions={count:2,itemAt:i=>({focusTargets:['subscription-row-'+i]})};
+  c.nativeProfiles={count:0};
+  vm.runInContext(code,c);
+  const targets=Array.from(c.panelTabTargets());
+  assert.deepEqual(targets.slice(0,5),[c.nativeSettingsBack,c.nativeRefresh,c.nativeRecoveryDisconnect,c.nativeSubscriptionAdd,c.nativeSubscriptionRefreshAll]);
+  assert(targets.indexOf('subscription-row-0')>targets.indexOf(c.nativeSubscriptionRefreshAll));
+  assert.equal(targets.filter(t=>t===c.nativeRecoveryDisconnect).length,1);
 });
 test('subscription toggle describes the actual target and preserves expansion during search',()=>{
   for(const locale of ['en','ru']) {

@@ -14,8 +14,10 @@ node tests/test-marketplace-assets.js
 bash tests/marketplace-visual/prepare.sh /absolute/reviewed/source
 ```
 
-The preparation command prints a fresh `/tmp/omavless-marketplace.XXXXXX`
-directory, records its source commit/tree and stages only committed plugin
+The preparation command prints a fresh `~/.cache/ovt/omavless-marketplace.XXXXXX`
+directory under checked same-UID, non-symlink, non-writable parents (`ovt` must
+be mode0700); it never repairs an unsafe existing parent. It records its source
+commit/tree and stages only committed plugin
 blobs plus the adjacent public `manifest.json` used by the Settings credit.
 Dirty plugin/manifest changes refuse staging. `backend.sh` and
 `plugin/setup-runtime.sh` are replaced with the included
@@ -112,3 +114,24 @@ pointer hover at both widths. During `search`, the matching subscription must
 be expanded, toggling must preserve the stored false preference, and clearing
 search must restore collapsed. Review the saved PNGs yourself. Real installed
 runtime/package behavior remains a separate gate.
+
+`reviewSubscriptions LOCALE KIND WIDTH` projects `loading`, `failed-loading`,
+`unavailable` (failed cached-empty), `empty`, `populated` or `failed-populated`
+through the production Subscriptions page, at 360/460 pixels in EN/RU. Only this
+isolated fixture's snapshot/failure flag changes; polling stays stopped and all
+runtime mutations refuse. `reviewSubscriptionsInspect` reports the selected
+state/locale/page and metadata counts. Inspect the loading/unavailable/confirmed
+empty wording, the existing Refresh action and populated adjacent states.
+Use `reviewCapture` and finish only this isolated instance. These are synthetic
+renderings, not daemon reads, provider requests or saved-subscription acceptance.
+Before projecting these states, call `reviewQuiesce` until it reports `idle`:
+opening the ordinary panel starts a read, and stopping polling timers does not
+settle an already-running fixture read. This waits for original read processes,
+not a fixed delay or a production timeout change.
+The `recovery` state supplies a parsed manual-recovery snapshot to review the
+preserved explicit Disconnect path without activating it. `reviewSubscriptionsKey`
+accepts only `tab`, `backtab` and `escape`; it exercises the actual production
+focus/navigation handler, never Enter/Space/action activation. Inspect returned
+focus order and wrapping through `reviewSubscriptionsInspect`. This is actual
+rendered focus behavior with synthetic key events, not physical-key delivery
+through the unchanged host KeyCatcher or native request acceptance.
