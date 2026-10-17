@@ -295,6 +295,14 @@ Panel {
       ? "native.profiles.subscription_empty" : "native.profiles.empty")
   }
 
+  function nativeEmptySubscriptionsText() {
+    if (vless.nativeSnapshotFailed)
+      return textFor("native.subscriptions.unavailable")
+    if (!vless.nativeSnapshot)
+      return textFor("native.subscriptions.loading")
+    return textFor("native.subscriptions.empty")
+  }
+
   function buildNativeRows() {
     var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
     if (page === "subscription") return sortNativeProbeProfiles(profiles.filter(function(p) {
@@ -2575,7 +2583,7 @@ Panel {
           }
           PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== "" && !(root.page === "main" && vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionStatusId !== ""); text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0 && !(root.page === "main" && root.nativeMetadataTargetId !== ""); text: root.nativeMetadataText; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.nativeEmptySubscriptionsText(); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Repeater {
             id: nativeSubscriptions
             model: root.page === "subscriptions" ? root.nativeView.subscriptions : []

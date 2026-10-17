@@ -6,6 +6,23 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+Development now includes the deliberate-check-allocation rules (#798), test-only
+sha2 optimization (#799) and explicit Commons.Color compatibility fix (#800).
+Their owning PRs retain exact full PR/push and fresh export/bootstrap outcomes;
+none updates public main or publishes a new release. The Color fix was also
+verified after reboot in the Qt6.12 guest and by an isolated Qt6.11 smoke;
+the separately corrected Omarchy shell remains a local pinned source, not an
+upstream delivery.
+
+The next selected consumer UI port from #751 distinguishes Subscriptions
+loading, failed reads and confirmed-empty metadata. It retains existing cached
+rows, Refresh, action/unknown fences, setup/Help and current Color imports.
+The same change replaces implementation-oriented refresh-failure wording with
+a short reachable Refresh/reopen instruction in EN/RU. The owning new-base PR
+must earn its own source/rendering and integration gates; old-base results do
+not qualify this composition. No runtime API, provider request, VPN transition,
+new import/Restore capability, native package or user-main change follows.
+
 Fix.8 delivered October16 through [#795](https://github.com/k-kostin/omavless/pull/795).
 Actual main `bcd744ecb3c1c61bbfe4a8ab090358b225ce1e76` is the 66-file user
 distribution, tree `8db26d9ca4a0f82fb2885f94ccb537af55073a53`, from generated
@@ -65,10 +82,12 @@ also exports a Color singleton. The x86_64 guest loaded Qt6.12.0 with
 Quickshell0.3.2. Shell-only correction restored stock surfaces but retained
 plugin QColor warnings/black icons; the joint candidate restored the plugin
 main/Settings colors and removed undefined-QColor warnings in the fresh shell.
-Regression guards protect both source trees. This is local candidate validation,
-not a published fix, a development merge, an upstream shell delivery or ARM
-requalification. The shell ran from a separate working copy; the system package
-and stable main remained unchanged.
+Regression guards protect both source trees. The source fix subsequently merged
+in development through #800; it is not a published user-main fix, an upstream
+shell delivery or ARM requalification. The guest shell selects a root-owned
+local source copy persistently after reboot; that pin needs reconciliation
+when adopting a future upstream/package update. System package bytes and stable
+main remain unchanged.
 
 ## Earlier finalization snapshots — superseded task lists
 

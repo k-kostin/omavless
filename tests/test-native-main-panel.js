@@ -17,6 +17,9 @@ function context(){
   c.root=c;c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
   vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
+  const subscriptionEmptyStart=source.indexOf('  function nativeEmptySubscriptionsText(');
+  if(subscriptionEmptyStart>=0)
+    vm.runInContext(source.slice(subscriptionEmptyStart,source.indexOf('\n  }',subscriptionEmptyStart)+4),c);
   c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
   const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
   vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
@@ -49,6 +52,38 @@ test('empty native list guidance distinguishes unavailable, absent, filtered and
     assert.equal(c.calls.length,0);
   }
   assert.match(source,/PlainText \{[^\n]*text: root.nativeEmptyProfilesText\(\)/);
+});
+test('Subscriptions label distinguishes loading, failed reads and confirmed empty metadata without actions',()=>{
+  const line=source.split('\n').find(s=>s.includes('visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text:'));
+  assert(line,'actual Subscriptions empty-label sink');
+  const visible=line.match(/visible: (.*?); text:/)[1];
+  const text=line.match(/; text: (.*?); color:/)[1];
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;c.page='subscriptions';c.nativeView.subscriptions=[];
+    const rendered=()=>vm.runInContext(visible,c)?vm.runInContext(text,c):'';
+    c.vless.nativeSnapshot=null;c.vless.nativeSnapshotFailed=false;
+    assert.equal(rendered(),c.textFor('native.subscriptions.loading'));
+    c.vless.nativeSnapshotFailed=true;
+    assert.equal(rendered(),c.textFor('native.subscriptions.unavailable'));
+    // Service publishes a new snapshot before clearing the failed-read flag.
+    c.vless.nativeSnapshot={instanceId:'instance',revision:4};
+    assert.equal(rendered(),c.textFor('native.subscriptions.unavailable'));
+    c.vless.nativeSnapshotFailed=false;
+    assert.equal(rendered(),c.textFor('native.subscriptions.empty'));
+    c.vless.nativeSnapshotFailed=true;
+    assert.equal(rendered(),c.textFor('native.subscriptions.unavailable'));
+    c.nativeView.subscriptions=[{id:'sub',name:'Synthetic'}];
+    assert.equal(rendered(),''); // Retain cached rows and the separate error banner.
+    c.vless.nativeSnapshotFailed=false;
+    assert.equal(rendered(),'');
+    c.page='main';c.nativeView.subscriptions=[];
+    assert.equal(rendered(),'');
+    c.page='settings';
+    assert.equal(rendered(),'');
+    assert.equal(c.calls.length,0);
+  }
+  assert.match(source,/id: nativeRefresh;[^\n]*onClicked: vless.refresh\(\)/);
+  assert.match(source,/visible: vless.nativeSnapshotFailed; text: root.textFor\("native.refreshFailed"\)/);
 });
 test('subscription toggle describes the actual target and preserves expansion during search',()=>{
   for(const locale of ['en','ru']) {
