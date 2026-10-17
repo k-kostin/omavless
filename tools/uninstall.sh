@@ -642,6 +642,7 @@ check_dns_programs() {
   hash=$(sha256sum /usr/lib/omavless-dns/omavless-dns-broker)
   case "${hash%% *}" in
     8caba1a57b44b2856b98b0d0213cc545905ba5a031aac144fcce2420957b0d2e|33121a6f4c4eb7b644da034fc521e221d7f292d61bdaffb837ed82c015dbe755|ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5|8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26|1855ed920a4b064c811ed14134b5ae14e3c5ece0a26695a84afc1ccfd711dc93|c764c30ba24844f6972e2b19c600c068c92682d9fe1e1bd94de5896356f93c5e) ;;
+    e23288fb3f388b0a3c06c1b6e1ff55af51dc546da005ec1d71c667baa3517268|df06087de5909bc81f229037c6268d54f1a225eec338d275c80f10c81782ee98) ;;
     *) refuse ;;
   esac
   [[ -f /usr/lib/systemd/system/omavless-dns-broker.service && ! -L /usr/lib/systemd/system/omavless-dns-broker.service &&
