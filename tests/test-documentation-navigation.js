@@ -203,7 +203,9 @@ assert(developmentInventory.includes('EXECUTION_POLICY.md#technical-judgment-bef
 const ciDecision = developmentInventory.split('### Open CI performance and assurance decision')[1]
   .split('## Retained track entries')[0].replace(/\s+/g, ' ');
 for (const boundary of ['not a selected replacement policy', 'different feature configurations',
-  'actually executed workflow', 'does not waive current gates']) {
+  'actually executed workflow', 'does not waive current gates',
+  '#### Current recommendation', 'retain full PR and exact development push checks',
+  'not evidence of a full hosted speedup', 'not adopted']) {
   assert(ciDecision.includes(boundary), 'retain unresolved CI decision boundary: ' + boundary);
 }
 const nextQueue = developmentInventory.split('## New-base queue')[1].split('## Retained track entries')[0];
@@ -234,6 +236,12 @@ for (const rule of ['proposed means, not automatically the right technical decis
   'Do not silently replace a clear owner instruction',
   'Mandatory exact-source CI/export/installed gates remain separate']) {
   assert(judgment.includes(rule), 'retain engineering judgment boundary: ' + rule);
+}
+assert(judgment.includes('#### Local and hosted check allocation'));
+for (const rule of ['Focused local iteration', 'Full hosted integration gate',
+  'Purposeful full local run', 'not an automatic duplicate',
+  'actual selected compiler version', 'original run/attempt']) {
+  assert(judgment.includes(rule), 'retain deliberate local/hosted allocation: ' + rule);
 }
 assert(entry.includes('](docs/development/EXECUTION_POLICY.md)'),
   'execution rules must remain mandatory from the root entry');

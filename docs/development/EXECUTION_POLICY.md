@@ -52,6 +52,32 @@ not an automatic extra gate. Mandatory exact-source CI/export/installed gates
 remain separate: neither a faster local run nor a workflow preference silently
 waives them. Evaluate a permanent process change separately from a bounded trial.
 
+#### Local and hosted check allocation
+
+| Stage | Purpose and required scope |
+| --- | --- |
+| Focused local iteration | Run formatting, compilation and tests materially affected by the patch to obtain early feedback. Select actual test namespaces and verify nonzero case counts. |
+| Full hosted integration gate | Earn the current workflow's complete exact-head checks before ordinary integration, and its independent exact development push proof before source export/admission. A local result does not replace either obligation. |
+| Purposeful full local run | Use a complete local run for a declared preflight, CI reproduction or measurement when the expected benefit justifies its cost; it is not an automatic duplicate of every hosted matrix. |
+
+Use the project's pinned toolchain in both environments and verify the actual
+selected compiler version; the system compiler or a toolchain file alone does
+not prove which executable a launcher ran. Reuse compatible owned caches without
+replacing an active re-executing test ELF; follow the
+[test execution guidance](../../CONTRIBUTING.md#checks).
+
+Before changing the mandatory premerge/postmerge allocation, state which
+guarantee changes and obtain the applicable owner decision. A PR-head result
+is not necessarily the merged composition or push-origin workflow execution.
+Any proposed reuse must bind actual executed workflow/ref/event provenance,
+the original run/attempt and all relevant inputs; tree equality alone is not
+sufficient. A focused speed trial cannot qualify the full matrix, a release
+configuration or deadline-sensitive behavior. Keep assertions, configuration
+coverage, fault cases and security parameters; reject shortcuts that omit them.
+Prefer no optimization over a new permanent mechanism with no demonstrated
+material benefit. Current CI gates stay in force until a reviewed successor
+changes them, including for documentation-only PRs.
+
 ## 1. Plan around executable outcomes
 
 For each active feature write a short completion matrix: supported scope,
