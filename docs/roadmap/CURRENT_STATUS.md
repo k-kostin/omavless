@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-10-16. This is the compact current-state entry point; the detailed
+Updated 2026-10-17. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -57,6 +57,18 @@ assurance tradeoff needs its own owner decision and reviewed successor.
 This guidance changes no runtime, package, CI recipe or user-main content;
 its owning PR records actual integration rather than assuming prepared rules
 are already shared.
+
+The owner separately selected the Qt6.12 Color compatibility correction, without
+changing main. Both OmaVLESS and the Omarchy4.0.4 shell need explicit
+`import qs.Commons as Commons` / `Commons.Color` palette lookups: QtQuick6.12
+also exports a Color singleton. The x86_64 guest loaded Qt6.12.0 with
+Quickshell0.3.2. Shell-only correction restored stock surfaces but retained
+plugin QColor warnings/black icons; the joint candidate restored the plugin
+main/Settings colors and removed undefined-QColor warnings in the fresh shell.
+Regression guards protect both source trees. This is local candidate validation,
+not a published fix, a development merge, an upstream shell delivery or ARM
+requalification. The shell ran from a separate working copy; the system package
+and stable main remained unchanged.
 
 ## Earlier finalization snapshots — superseded task lists
 
@@ -132,8 +144,11 @@ helper4345 package-before-enabled-widget unload and resumable removal are
 verified; helper7f54 ARM acceptance is partial, with its final second cycle
 waiting for unrelated package-manager repair when the powered-off Mac returns.
 Preserve its progress/masks/helper. Do not restart earned unchanged gates, claim
-ARM4345 or Internet/connected ARM acceptance, or investigate the owner-excluded
-VM-specific Qt setup issue as part of this release.
+ARM4345 or Internet/connected ARM acceptance. The owner excluded Qt remediation
+from that release, not the recorded defect: clean public source rendered dark
+text and undefined QColor assignments under Qt6.12.0 on ARM. Keep this known
+compatibility failure and its immutable report discoverable. The separately
+selected x86_64 successor above does not replace an actual ARM retest.
 
 VM custody and the exact active source/checks are recorded in #794's current
 handoff, not inferred from historical receipts. Raw captures/checkpoints remain local. Repository

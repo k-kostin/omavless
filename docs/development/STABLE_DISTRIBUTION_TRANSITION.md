@@ -121,8 +121,13 @@ Combined source CI is its own gate; individual green PR checks are not enough.
 ARM results above come from the
 [immutable Mac report](https://github.com/k-kostin/omavless/blob/a58fe2fbe39a372f91ae702f8880a064361e261f/docs/testing/PR790_ARM64_2026-10-15.md),
 not inherited from x64. Helper4345 is not yet ARM-installed acceptance. The
-owner classifies the Qt rendering issue as specific to that VM's setup and
-excludes it from this release task; no general Qt correction/PASS is claimed.
+owner excluded the Qt issue from that release task. The report nevertheless
+records a reproduced Qt6.12.0 Color-collision/rendering defect on clean public
+source; this is a known compatibility failure, not proof of a VM-only cause.
+The retained import-pin workaround is not a shipped fix or general Qt PASS.
+The separately selected Commons.Color successor was subsequently checked in
+an x86_64 Qt6.12 guest together with a separate Omarchy shell patch; that is
+not an ARM retest, a fix.8 update or an upstream Omarchy release.
 No connected/Internet ARM scenario was earned. Mac repair/resume waits for
 that machine to return; never reset its removal records or masks to bypass it.
 

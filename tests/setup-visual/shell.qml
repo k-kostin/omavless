@@ -6,6 +6,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 
 ShellRoot {
   id: review
@@ -19,7 +20,7 @@ ShellRoot {
     title: "OmaVLESS setup review — synthetic"
     implicitWidth: Style.space(460)
     implicitHeight: Style.space(600)
-    color: Color.background
+    color: Commons.Color.background
     Flickable {
       id: flick
       anchors.centerIn: parent

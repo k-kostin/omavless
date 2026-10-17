@@ -8,6 +8,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "NativeSnapshot.js" as NativeSnapshot
@@ -35,9 +36,9 @@ PanelWindow {
   property bool loading: false
   property string errorCode: ""
   property string locale: "en"
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
 
   signal closeRequested()
@@ -118,8 +119,8 @@ PanelWindow {
       width: Math.max(Style.space(320), codeSide) + card.contentLeftInset + card.contentRightInset
       height: card.contentTopInset + card.contentBottomInset + content.implicitHeight
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 

@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -121,15 +122,15 @@ Item {
   }
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.82)
+    color: Util.alpha(Commons.Color.background, 0.82)
     MouseArea { anchors.fill: parent; onClicked: help.canceled() }
     BorderSurface {
       id: card
       width: Math.min(parent.width - Style.space(24), Style.space(440))
       height: Math.min(parent.height - Style.space(24), content.implicitHeight + card.contentTopInset + card.contentBottomInset)
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
       MouseArea { anchors.fill: parent; onClicked: {} }
@@ -152,26 +153,26 @@ Item {
           id: content
           width: Math.max(0, parent.width - Style.space(16))
           spacing: Style.space(10)
-          PlainText { width: parent.width; text: help.tr("title"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; wrapMode: Text.Wrap }
-          PlainText { width: parent.width; text: help.tr("assistant"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          PlainText { width: parent.width; text: help.tr("intro"); color: Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { width: parent.width; text: help.tr("title"); color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; wrapMode: Text.Wrap }
+          PlainText { width: parent.width; text: help.tr("assistant"); color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { width: parent.width; text: help.tr("intro"); color: Qt.darker(Commons.Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           HelpButton {
             id: copyButton
             objectName: "helpCopyRequest"
             text: help.tr(clipboardWriter.running ? "copying" : "copy_request")
-            foreground: Color.accent
-            background: Util.alpha(Color.accent, 0.08)
+            foreground: Commons.Color.accent
+            background: Util.alpha(Commons.Color.accent, 0.08)
             bordered: true
             onClicked: help.copyRequest()
           }
-          PlainText { width: parent.width; text: help.copyState === "" || help.copyState === "copying" ? " " : help.tr(help.copyState); color: help.copyState === "copy_failed" ? Color.urgent : Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { width: parent.width; text: help.copyState === "" || help.copyState === "copying" ? " " : help.tr(help.copyState); color: help.copyState === "copy_failed" ? Commons.Color.urgent : Qt.darker(Commons.Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           HelpButton { id: requestToggle; objectName: "helpShowRequest"; text: help.tr(help.requestExpanded ? "hide_request" : "show_request"); bordered: false; onClicked: help.toggleRequest() }
           BorderSurface {
             visible: help.requestExpanded
             width: parent.width
             implicitHeight: requestText.contentHeight + Style.space(20)
             color: "transparent"
-            borderSpec: Border.flat(requestText.activeFocus ? Color.accent : Util.alpha(Color.foreground, 0.28), Style.normalBorderWidth)
+            borderSpec: Border.flat(requestText.activeFocus ? Commons.Color.accent : Util.alpha(Commons.Color.foreground, 0.28), Style.normalBorderWidth)
             radius: Style.cornerRadius
             TextEdit {
               id: requestText
@@ -184,9 +185,9 @@ Item {
               readOnly: true
               selectByMouse: true
               activeFocusOnTab: true
-              color: Color.foreground
-              selectionColor: Color.accent
-              selectedTextColor: Color.background
+              color: Commons.Color.foreground
+              selectionColor: Commons.Color.accent
+              selectedTextColor: Commons.Color.background
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
               wrapMode: TextEdit.Wrap
@@ -195,7 +196,7 @@ Item {
             }
           }
           HelpButton { id: guideButton; objectName: "helpUserGuide"; text: help.tr("guide"); bordered: false; onClicked: help.openGuide() }
-          PlainText { width: parent.width; text: help.tr("issue_hint"); color: Qt.darker(Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { width: parent.width; text: help.tr("issue_hint"); color: Qt.darker(Commons.Color.foreground, 1.55); font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           HelpButton { id: issueButton; objectName: "helpIssue"; text: help.tr("issue"); bordered: false; onClicked: help.openIssue() }
           HelpButton { id: closeButton; objectName: "helpClose"; text: I18n.translate("common.close", help.locale, {}); bordered: true; onClicked: help.canceled() }
         }

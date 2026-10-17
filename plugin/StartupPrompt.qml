@@ -4,6 +4,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -18,9 +19,9 @@ Item {
   property bool coreReady: false
   property bool nativeContext: false
   property bool busy: false
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
   property string locale: "en"
 
@@ -68,7 +69,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.80)
+    color: Util.alpha(Commons.Color.background, 0.80)
     MouseArea { anchors.fill: parent; onClicked: prompt.canceled() }
 
     BorderSurface {
@@ -77,8 +78,8 @@ Item {
       height: Math.min(parent.height - Style.space(24), body.implicitHeight
         + card.contentTopInset + card.contentBottomInset)
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 
@@ -176,7 +177,7 @@ Item {
                       text: prompt.safeTooltip(modelData.name)
                       tooltipText: prompt.safeTooltip(modelData.name)
                       bordered: prompt.profileChoice === modelData.uuid
-                      foreground: prompt.profileChoice === modelData.uuid ? Color.accent : prompt.foreground
+                      foreground: prompt.profileChoice === modelData.uuid ? Commons.Color.accent : prompt.foreground
                       fontFamily: prompt.fontFamily
                       onClicked: prompt.profileChoice = modelData.uuid
                     }
@@ -283,14 +284,14 @@ Item {
       Button {
         text: choiceRow.leftText
         bordered: !choiceRow.rightSelected
-        foreground: !choiceRow.rightSelected ? Color.accent : prompt.dim
+        foreground: !choiceRow.rightSelected ? Commons.Color.accent : prompt.dim
         fontFamily: prompt.fontFamily
         onClicked: choiceRow.leftChosen()
       }
       Button {
         text: choiceRow.rightText
         bordered: choiceRow.rightSelected
-        foreground: choiceRow.rightSelected ? Color.accent : prompt.dim
+        foreground: choiceRow.rightSelected ? Commons.Color.accent : prompt.dim
         fontFamily: prompt.fontFamily
         onClicked: choiceRow.rightChosen()
       }

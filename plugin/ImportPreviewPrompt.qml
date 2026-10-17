@@ -6,6 +6,7 @@
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -22,9 +23,9 @@ Item {
   property bool accepted: false
   property var preview: ({})
   property alias value: nameField.text
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
 
   signal confirmed()
@@ -54,7 +55,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.78)
+    color: Util.alpha(Commons.Color.background, 0.78)
     MouseArea { anchors.fill: parent; onClicked: prompt.canceled() }
 
     BorderSurface {
@@ -62,8 +63,8 @@ Item {
       width: Math.min(parent.width - Style.space(24), Style.space(420))
       height: card.contentTopInset + card.contentBottomInset + body.implicitHeight
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 
@@ -91,7 +92,7 @@ Item {
         PlainText {
           width: parent.width
           text: prompt.textFor("import.review")
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.subtitle
           font.bold: true
@@ -167,7 +168,7 @@ Item {
           width: parent.width
           visible: text.length > 0
           text: String(prompt.preview.compatibilityNote || "")
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap

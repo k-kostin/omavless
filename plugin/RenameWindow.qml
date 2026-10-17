@@ -8,6 +8,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // The rename prompt as a screen-centred window of its own, not a card inside
@@ -32,9 +33,9 @@ PanelWindow {
   property alias confirmLabel: prompt.confirmLabel
   property alias locale: prompt.locale
   property alias value: prompt.value
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
 
   signal confirmed()

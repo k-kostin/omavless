@@ -40,9 +40,14 @@ The earlier 813-test local pass did not predict the first PR's cleanup failure.
 Existing canonical rules are reused rather than copied into another checklist.
 UI publication/persistence and remover-current-input regressions already shipped
 with fix.8; this follow-up reruns their inert checks for retained-rule confidence,
-not a new installed acceptance claim. VM-specific Qt/package-manager repair and
-artifact-download trouble remain environment/transport observations; they do
-not justify product fixes or another general policy without evidence.
+not a new installed acceptance claim. Package-manager repair and artifact
+download trouble retain their own environment/transport classification.
+Separately, the immutable ARM report records a Qt6.12 Color-collision defect
+on clean public source. Its release-scope exclusion did not establish a
+VM-specific cause or a fix. Reconcile shorthand status with original evidence
+before calling a matching upstream warning a new risk. The owner subsequently
+selected an explicit-namespace correction in both plugin and shell, with its
+own x86_64 Qt6.12 verification; historical ARM gates remain unchanged.
 
 ## Distribution and remaining integration
 

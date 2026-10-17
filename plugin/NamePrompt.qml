@@ -6,6 +6,7 @@
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -32,9 +33,9 @@ Item {
   // The panel card is Style.space(340) wide, so the prompt inside it cannot
   // be wider; a window of its own can afford more.
   property real maxCardWidth: Style.space(340)
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
 
   signal confirmed()
@@ -67,7 +68,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.7)
+    color: Util.alpha(Commons.Color.background, 0.7)
 
     MouseArea { anchors.fill: parent; onClicked: prompt.canceled() }
 
@@ -76,8 +77,8 @@ Item {
       width: Math.min(parent.width - Style.space(32), prompt.maxCardWidth)
       height: promptCard.contentTopInset + promptCard.contentBottomInset + promptColumn.implicitHeight
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 

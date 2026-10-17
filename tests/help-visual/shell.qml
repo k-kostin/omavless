@@ -5,6 +5,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 
 ShellRoot {
   id: review
@@ -16,7 +17,7 @@ ShellRoot {
     title: "OmaVLESS help review — synthetic"
     implicitWidth: Style.space(460)
     implicitHeight: Style.space(review.viewportHeight)
-    color: Color.background
+    color: Commons.Color.background
     Loader {
       id: loader
       anchors.fill: parent

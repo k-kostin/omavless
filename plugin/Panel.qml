@@ -10,6 +10,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "NativePresentation.js" as NativePresentation
@@ -528,8 +529,8 @@ Panel {
     })
   }
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
   // Deliberately distinct from the often near-white theme accent: these are
   // data-series colors, shared by the legend and chart. Saturation keeps the
@@ -558,8 +559,8 @@ Panel {
     : (vless.active ? heroConnectedIcon : heroDisconnectedIcon)
   // Urgent trumps everything: a failed operation or an externally dropped
   // tunnel must be visible without opening the panel.
-  readonly property color barIconColor: vless.nativeOwner ? (nativeStatusWaiting ? Color.accent : nativeView.connected ? barForeground : nativeView.state === "disconnected" ? Qt.darker(barForeground, 1.55) : (bar ? bar.urgent : Color.urgent)) : vless.lastError !== ""
-    ? (bar ? bar.urgent : Color.urgent)
+  readonly property color barIconColor: vless.nativeOwner ? (nativeStatusWaiting ? Commons.Color.accent : nativeView.connected ? barForeground : nativeView.state === "disconnected" ? Qt.darker(barForeground, 1.55) : (bar ? bar.urgent : Commons.Color.urgent)) : vless.lastError !== ""
+    ? (bar ? bar.urgent : Commons.Color.urgent)
     : (vless.active ? barForeground : Qt.darker(barForeground, 1.55))
   readonly property string toggleHint: vless.active
     ? textFor("action.disconnect")
@@ -2184,7 +2185,7 @@ Panel {
               iconComponent: Component {
                 PlainText {
                   text: root.heroStatusIcon
-                  color: root.nativeStatusWaiting ? Color.accent : root.iconColor
+                  color: root.nativeStatusWaiting ? Commons.Color.accent : root.iconColor
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.display
                   RotationAnimation on rotation { from: 0; to: 360; duration: 1200; loops: Animation.Infinite; running: root.nativeTransitionKind !== "" }
@@ -2246,8 +2247,8 @@ Panel {
             Layout.fillWidth: true
             visible: root.page === "main" && root.nativeTransitionKind !== ""
             implicitHeight: nativeModeTransitionContent.implicitHeight + Style.space(20)
-            color: Util.alpha(Color.accent, 0.07)
-            borderSpec: Border.flat(Util.alpha(Color.accent, 0.7), Style.normalBorderWidth)
+            color: Util.alpha(Commons.Color.accent, 0.07)
+            borderSpec: Border.flat(Util.alpha(Commons.Color.accent, 0.7), Style.normalBorderWidth)
             radius: Style.cornerRadius
             RowLayout {
               id: nativeModeTransitionContent
@@ -2256,7 +2257,7 @@ Panel {
               spacing: Style.space(10)
               PlainText {
                 text: root.transitionIcon
-                color: Color.accent
+                color: Commons.Color.accent
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
                 RotationAnimation on rotation { from: 0; to: 360; duration: 1200; loops: Animation.Infinite; running: root.nativeTransitionKind !== "" }
@@ -2264,7 +2265,7 @@ Panel {
               ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Style.space(3)
-                PlainText { Layout.fillWidth: true; text: root.nativeTransitionTitle; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+                PlainText { Layout.fillWidth: true; text: root.nativeTransitionTitle; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
                 PlainText { Layout.fillWidth: true; text: root.textFor(root.nativeTransitionKind === "mode" ? "native.modeSwitch.detail" : "native.progress.verify"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
               }
             }
@@ -2307,7 +2308,7 @@ Panel {
             OmaNavigationButton { id: nativeRefresh; visible: root.page !== "subscription"; iconText: "󰑓"; tooltipText: root.textFor("common.refresh"); focusable: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.appearance"); foreground: root.foreground; fontFamily: root.fontFamily }
-          PlainText { Layout.fillWidth: true; visible: root.page === "settings" && root.nativeMetadataAction !== "" && root.nativeMetadataAction.indexOf("subscription-") !== 0 && root.nativeMetadataAction.indexOf("profile-") !== 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "settings" && root.nativeMetadataAction !== "" && root.nativeMetadataAction.indexOf("subscription-") !== 0 && root.nativeMetadataAction.indexOf("profile-") !== 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings" && vless.nativeMetadataErrorCode !== "" && vless.nativeMetadataErrorAction.indexOf("subscription-") !== 0 && vless.nativeMetadataErrorAction.indexOf("profile-") !== 0; text: vless.nativeMetadataErrorCode ? root.textFor("error." + vless.nativeMetadataErrorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           SettingsActionRow { id: nativeLanguageRow; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.language"); description: root.textFor("settings.language_description"); actionText: root.languageSettingLabel(); onAction: root.cycleLanguageSetting() }
           SettingsActionRow {
@@ -2334,9 +2335,9 @@ Panel {
             visible: root.page === "main" || root.page === "settings"
             Layout.fillWidth: true
             spacing: Style.space(6)
-            Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "global" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
-            Button { id: nativeRule; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("rule"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "rule" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "rule"; onClicked: vless.requestNativeAction("mode", "", "rule") }
-            Button { id: nativeDirect; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("direct"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "direct" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
+            Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "global" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
+            Button { id: nativeRule; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("rule"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "rule" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "rule"; onClicked: vless.requestNativeAction("mode", "", "rule") }
+            Button { id: nativeDirect; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("direct"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "direct" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.modeHelp"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           SettingsActionRow {
@@ -2573,7 +2574,7 @@ Panel {
             }
           }
           PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== "" && !(root.page === "main" && vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionStatusId !== ""); text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0 && !(root.page === "main" && root.nativeMetadataTargetId !== ""); text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0 && !(root.page === "main" && root.nativeMetadataTargetId !== ""); text: root.nativeMetadataText; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Repeater {
             id: nativeSubscriptions
@@ -2614,7 +2615,7 @@ Panel {
             OmaNavigationButton { id: nativeImportClipboard; iconText: "󰅍"; tooltipText: root.textFor("native.importClipboard"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
             OmaNavigationButton { id: nativeImportFile; iconText: "󰉓"; tooltipText: root.textFor("native.importFile"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
           }
-          PlainText { Layout.fillWidth: true; visible: root.page === "main" && root.nativeMetadataAction.indexOf("profile-") === 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "main" && root.nativeMetadataAction.indexOf("profile-") === 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && vless.nativeMetadataErrorCode !== "" && vless.nativeMetadataErrorAction.indexOf("profile-") === 0; text: vless.nativeMetadataErrorCode ? root.textFor("error." + vless.nativeMetadataErrorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorCode !== ""; text: vless.nativeEditorCode ? root.textFor("native.editor." + vless.nativeEditorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.privateDraft"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
@@ -2684,7 +2685,7 @@ Panel {
                     PanelActionButton {
                       id: nativeGroup
                       size: Style.space(24)
-                      foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground
+                      foreground: root.nativeCursor === nativeRow.index ? Commons.Color.accent : root.foreground
                       iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"
                       focusable: true
                       property bool pointerHovered: false
@@ -2706,14 +2707,14 @@ Panel {
                       MouseArea { anchors.fill: parent; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
                     }
                     PlainText { text: nativeRow.isProfile ? "" : String(nativeRow.modelData.count); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body }
-                    PlainText { visible: !nativeRow.isProfile && root.nativeActiveProfile !== null && root.nativeActiveProfile.subscriptionId === nativeRow.modelData.subscription.id; text: root.textFor("native.profile.connected"); color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                    PlainText { visible: !nativeRow.isProfile && root.nativeActiveProfile !== null && root.nativeActiveProfile.subscriptionId === nativeRow.modelData.subscription.id; text: root.textFor("native.profile.connected"); color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                     PanelActionButton {
                       id: nativeGroupRefresh
                       size: Style.space(24)
                       iconText: "󰑓"
                       tooltipText: root.textFor("subscriptions.refresh_servers")
                       foreground: root.foreground
-                      hoverColor: Color.accent
+                      hoverColor: Commons.Color.accent
                       focusable: true
                       enabled: !nativeRow.isProfile && vless.nativeCanAct && !vless.nativeBatchBusy
                       onClicked: if (enabled) vless.requestNativeSubscriptionAction("subscription-refresh", nativeRow.modelData.subscription.id, "", "")
@@ -2755,7 +2756,7 @@ Panel {
                         verticalAlignment: Text.AlignVCenter
                         text: nativeRow.isProfile ? nativeRow.profile.name : ""
                         textFormat: Text.PlainText
-                        color: nativeRow.connected ? Color.accent : root.foreground
+                        color: nativeRow.connected ? Commons.Color.accent : root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.body
                         elide: Text.ElideRight
@@ -2996,7 +2997,7 @@ Panel {
                     height: header.controlHeight
                     anchors.verticalCenter: parent.verticalCenter
                     color: "transparent"
-                    borderSpec: Border.controlSpec("normal", hero.foreground, Color.accent)
+                    borderSpec: Border.controlSpec("normal", hero.foreground, Commons.Color.accent)
                     radius: Style.cornerRadius
 
                     PlainText {
@@ -3083,7 +3084,7 @@ Panel {
                     cursorRing: false
                     width: trackWidth + Style.space(12)
                     height: header.controlHeight
-                    foreground: header.ringVisible ? Color.accent : hero.foreground
+                    foreground: header.ringVisible ? Commons.Color.accent : hero.foreground
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onToggled: vless.toggle()
 
@@ -3218,9 +3219,9 @@ Panel {
 
                   width: (routingModeButtons.width - routingModeButtons.spacing * 2) / 3
                   height: Style.space(34)
-                  color: selected ? Util.alpha(Color.foreground, 0.08) : "transparent"
+                  color: selected ? Util.alpha(Commons.Color.foreground, 0.08) : "transparent"
                   borderSpec: Border.flat(selected
-                    ? Color.accent
+                    ? Commons.Color.accent
                     : Util.alpha(root.foreground, available ? 0.38 : 0.18),
                     Style.normalBorderWidth)
                   radius: 0
@@ -3229,7 +3230,7 @@ Panel {
                     anchors.centerIn: parent
                     text: modelData.label
                     color: selected
-                      ? Color.accent
+                      ? Commons.Color.accent
                       : (available ? root.foreground : root.dim)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -3538,7 +3539,7 @@ Panel {
                 color: profileSearch.activeFocus
                   ? Util.alpha(root.foreground, 0.06) : "transparent"
                 border.color: profileSearch.activeFocus
-                  ? Color.accent : Util.alpha(root.foreground, 0.38)
+                  ? Commons.Color.accent : Util.alpha(root.foreground, 0.38)
                 border.width: Style.normalBorderWidth
                 radius: 0
               }
@@ -3650,7 +3651,7 @@ Panel {
               iconText: "󰁍"
               tooltipText: root.textFor("tooltip.back_profiles")
               foreground: root.foreground
-              hoverColor: Color.accent
+              hoverColor: Commons.Color.accent
               fontFamily: root.fontFamily
               focusable: true
               Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
@@ -3811,8 +3812,8 @@ Panel {
 
               width: settingsColumn.width
               height: routingPresetContent.implicitHeight + Style.space(18)
-              color: selected ? Util.alpha(Color.foreground, 0.08) : "transparent"
-              borderSpec: Border.flat(selected ? Color.accent : Util.alpha(root.foreground, 0.30),
+              color: selected ? Util.alpha(Commons.Color.foreground, 0.08) : "transparent"
+              borderSpec: Border.flat(selected ? Commons.Color.accent : Util.alpha(root.foreground, 0.30),
                 Style.normalBorderWidth)
               radius: Style.cornerRadius
 
@@ -3833,7 +3834,7 @@ Panel {
                     Layout.fillWidth: true
                     text: root.routingPresetCountryText(routingPresetCard.modelData)
                       + " · " + routingPresetCard.modelData.name
-                    color: routingPresetCard.selected ? Color.accent : root.foreground
+                    color: routingPresetCard.selected ? Commons.Color.accent : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.bold: true
@@ -3995,7 +3996,7 @@ Panel {
               iconText: "󰁍"
               tooltipText: root.textFor("tooltip.back_profiles")
               foreground: root.foreground
-              hoverColor: Color.accent
+              hoverColor: Commons.Color.accent
               fontFamily: root.fontFamily
               focusable: true
               Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
@@ -4313,7 +4314,7 @@ Panel {
 
         Rectangle {
           anchors.fill: parent
-          color: Util.alpha(Color.background, 0.7)
+          color: Util.alpha(Commons.Color.background, 0.7)
 
           MouseArea { anchors.fill: parent; onClicked: root.pendingEdit = null }
 
@@ -4323,8 +4324,8 @@ Panel {
             height: editCard.contentTopInset + editCard.contentBottomInset
               + editMessage.implicitHeight + Style.space(20) + Style.space(34)
             anchors.centerIn: parent
-            color: Color.background
-            borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+            color: Commons.Color.background
+            borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
             padding: Style.space(18)
             radius: Style.cornerRadius
 
@@ -4371,16 +4372,16 @@ Panel {
                     // those overflow this card's width.
                     width: (editButtonsRow.width - Style.space(10) * 2) / 3
                     height: Style.space(34)
-                    color: selected ? Util.alpha(Color.foreground, 0.08) : "transparent"
+                    color: selected ? Util.alpha(Commons.Color.foreground, 0.08) : "transparent"
                     borderSpec: Border.flat(selected
-                      ? Color.accent
+                      ? Commons.Color.accent
                       : Util.alpha(root.foreground, 0.38), Style.normalBorderWidth)
                     radius: 0
 
                     PlainText {
                       anchors.centerIn: parent
                       text: modelData.label
-                      color: selected ? Color.accent : root.foreground
+                      color: selected ? Commons.Color.accent : root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
                     }
@@ -4891,8 +4892,8 @@ Panel {
           serverRow.profile && serverRow.profile.favorite
             ? "tooltip.unpin_profile" : "tooltip.pin_profile",
           { name: serverRow.profile ? serverRow.profile.name : "" }), 160)
-        foreground: serverRow.profile && serverRow.profile.favorite ? Color.accent : root.dim
-        hoverColor: Color.accent
+        foreground: serverRow.profile && serverRow.profile.favorite ? Commons.Color.accent : root.dim
+        hoverColor: Commons.Color.accent
         fontFamily: root.fontFamily
         enabled: !vless.busy && serverRow.profile !== null
         visible: serverRow.hasCursor || (serverRow.profile && serverRow.profile.favorite)
@@ -5226,8 +5227,8 @@ Panel {
           configRow.profile && configRow.profile.favorite
             ? "tooltip.unpin_profile" : "tooltip.pin_profile",
           { name: configRow.profile ? configRow.profile.name : "" }), 160)
-        foreground: configRow.profile && configRow.profile.favorite ? Color.accent : root.dim
-        hoverColor: Color.accent
+        foreground: configRow.profile && configRow.profile.favorite ? Commons.Color.accent : root.dim
+        hoverColor: Commons.Color.accent
         fontFamily: root.fontFamily
         enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
         visible: configRow.hasCursor || (configRow.profile && configRow.profile.favorite)
