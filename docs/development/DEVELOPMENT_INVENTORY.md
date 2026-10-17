@@ -43,6 +43,64 @@ stay outside Git; the owning PR carries current disposition, not a second
 permanent session journal. For example, #740 preserves an attributed DNSControl
 preview/apply research reference: it is not a DNS dependency or authority grant.
 
+### Open CI performance and assurance decision
+
+Before the next large feature port or expensive integration checkpoint, revisit
+the allocation of local and hosted checks. This is an OPEN design question,
+not a selected replacement policy. Apply
+[technical judgment before execution](EXECUTION_POLICY.md#technical-judgment-before-execution)
+instead of turning a faster local machine into an automatic extra full matrix.
+Focused local iteration and purposeful full preflight remain distinct from
+the current mandatory exact-source hosted/export/bootstrap gates.
+
+The same-source/toolchain trial was about 4.7x faster locally, but two runtime
+test binaries consumed about 87% of hosted Rust time. They use different feature
+configurations; neither removing one as a duplicate nor adding a build cache
+is justified by that measurement. Analyze existing evidence first, then select
+one bounded local shadow experiment only for a concrete remaining hypothesis,
+preserving assertions, failure/deadline coverage and configuration identity.
+
+Compare keeping full PR/push checks with a lighter premerge policy or trusted
+postmerge reuse. Lighter PR checks can defer discovery of integration failures
+until after merge into shared development. Reuse requires the exact tested
+inputs, original run/attempt and provenance of the actually executed workflow;
+tree equality or a checked-out workflow file alone is insufficient. Changed or
+unverifiable inputs must require full execution. This analysis does not waive
+current gates or authorize exporter/trust changes, a personal-host public-PR
+runner, paid capacity, or a new CI framework. Keep detailed timing/design notes
+in the owning handoff; record the selected assurance tradeoff before changing
+policy. Completing repository organization does not close this question.
+
+#### Current recommendation
+
+For the next developer checkpoint, retain full PR and exact development push
+checks, and use focused local checks for iteration. Do not replace independent
+hosted admission with the faster personal machine. A lighter premerge gate or
+trusted postmerge reuse remains a separate owner decision, not an implementation
+selected by the local-first preference.
+
+A bounded same-source/Rust 1.98.0 shadow trial compared three ordinary Restore
+cleanup matrices under default and the distinct image-witness/T4 configuration,
+twice per variant. Runtime-package-only test opt1, with debug assertions and
+overflow checks retained, improved individual mean wall times by roughly
+0.5–3.4%; aggregate selected-case wall time changed from 1720.76s to 1691.92s.
+All 24 original case runs passed, including real own-child crash/reopen prefixes;
+fixture bodies, KDF parameters, assertions and deadlines were unchanged.
+This is not evidence of a full hosted speedup or timing-sensitive conformance.
+The variants ran sequentially on one local machine, not as a randomized
+cross-host study. Candidate compilation took about 40s per configuration; a
+comparable baseline build was not measured in this focused trial. Compile and
+execution costs must not be conflated. This profile change is not adopted.
+
+The useful result is a rejected weak optimization hypothesis, not a faster CI
+claim. Existing logs identify expensive repeated Restore validation/file/fault
+matrices, but do not identify one exact hot function or prove a hosted storage
+bottleneck. Before further performance work, localize the remaining cost with
+a specific bounded profiling question; do not launch another full benchmark,
+skip a configuration, weaken cryptography or remove negative coverage. Keep
+machine logs and detailed identities in the owning PR/handoff rather than
+adding a permanent benchmark diary to source.
+
 ## Retained track entries
 
 The exact tips below are observed checkpoints, not moving declarations of

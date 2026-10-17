@@ -198,6 +198,16 @@ assert(!roadmapIndex.includes('Current published 0.7.0 remains'),
 assert(roadmapIndex.includes('Current published 0.9.8'));
 assert(roadmapIndex.includes('DEVELOPMENT_INVENTORY.md#new-base-queue'));
 assert(developmentInventory.includes('## New-base queue'));
+assert(developmentInventory.includes('### Open CI performance and assurance decision'));
+assert(developmentInventory.includes('EXECUTION_POLICY.md#technical-judgment-before-execution'));
+const ciDecision = developmentInventory.split('### Open CI performance and assurance decision')[1]
+  .split('## Retained track entries')[0].replace(/\s+/g, ' ');
+for (const boundary of ['not a selected replacement policy', 'different feature configurations',
+  'actually executed workflow', 'does not waive current gates',
+  '#### Current recommendation', 'retain full PR and exact development push checks',
+  'not evidence of a full hosted speedup', 'not adopted']) {
+  assert(ciDecision.includes(boundary), 'retain unresolved CI decision boundary: ' + boundary);
+}
 const nextQueue = developmentInventory.split('## New-base queue')[1].split('## Retained track entries')[0];
 for (const boundary of ['consumer Restore', 'not a whole-beta merge',
   'owner-paused', 'private fixtures', 'Backup-only', 'not feature implementation']) {
@@ -215,6 +225,24 @@ for (const evidence of ['test-uninstaller.js', 'test-native-onboarding.js',
 // Discovery/retention guard only: this cannot prove that a particular retro
 // was implemented or that an agent followed its required checks.
 const execution = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
+// Protect mandatory discovery/content, not proof of an agent's judgment.
+assert(guide.includes('](EXECUTION_POLICY.md#technical-judgment-before-execution)'));
+assert(execution.includes('### Technical judgment before execution'));
+const judgment = execution.split('### Technical judgment before execution')[1].split('## 1.')[0]
+  .replace(/\s+/g, ' ');
+for (const rule of ['proposed means, not automatically the right technical decision',
+  'Distinguish a question or hypothesis from an explicit instruction',
+  'explain the conflict, material cost, risks and practical alternatives',
+  'Do not silently replace a clear owner instruction',
+  'Mandatory exact-source CI/export/installed gates remain separate']) {
+  assert(judgment.includes(rule), 'retain engineering judgment boundary: ' + rule);
+}
+assert(judgment.includes('#### Local and hosted check allocation'));
+for (const rule of ['Focused local iteration', 'Full hosted integration gate',
+  'Purposeful full local run', 'not an automatic duplicate',
+  'actual selected compiler version', 'original run/attempt']) {
+  assert(judgment.includes(rule), 'retain deliberate local/hosted allocation: ' + rule);
+}
 assert(entry.includes('](docs/development/EXECUTION_POLICY.md)'),
   'execution rules must remain mandatory from the root entry');
 assert(guide.includes('](EXECUTION_POLICY.md#retrospective-closure-and-distribution)'),

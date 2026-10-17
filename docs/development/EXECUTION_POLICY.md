@@ -29,6 +29,55 @@ Main merges (including documentation), release/tag/assets and marketplace
 actions still require their applicable explicit owner authorization. Approval
 to prepare these rules or start a long session is not publication permission.
 
+### Technical judgment before execution
+
+Treat the owner's technical suggestions as proposed means, not automatically
+the right technical decision. Distinguish a question or hypothesis from an
+explicit instruction, and evaluate the intended outcome against current code,
+constraints and evidence. Do not turn tentative suggestions into standing
+policy or expand the task merely by agreeing with them.
+
+Before committing to an expensive, risky or materially different workflow,
+explain the conflict, material cost, risks and practical alternatives when
+the proposal duplicates work, cannot achieve its goal or trades away a required
+guarantee. Give a reasoned recommendation, not reflexive agreement or dismissal.
+Do not silently replace a clear owner instruction with a preferred approach;
+surface the tradeoff and obtain a decision where scope or authority requires it.
+Routine compatible low-risk work does not need ceremonial objections or approval.
+
+Optimize time to a verified outcome, not hardware utilization or activity.
+For example, focused local checks can shorten iteration; duplicating a full
+already-running hosted matrix needs a concrete diagnostic or measurement purpose,
+not an automatic extra gate. Mandatory exact-source CI/export/installed gates
+remain separate: neither a faster local run nor a workflow preference silently
+waives them. Evaluate a permanent process change separately from a bounded trial.
+
+#### Local and hosted check allocation
+
+| Stage | Purpose and required scope |
+| --- | --- |
+| Focused local iteration | Run formatting, compilation and tests materially affected by the patch to obtain early feedback. Select actual test namespaces and verify nonzero case counts. |
+| Full hosted integration gate | Earn the current workflow's complete exact-head checks before ordinary integration, and its independent exact development push proof before source export/admission. A local result does not replace either obligation. |
+| Purposeful full local run | Use a complete local run for a declared preflight, CI reproduction or measurement when the expected benefit justifies its cost; it is not an automatic duplicate of every hosted matrix. |
+
+Use the project's pinned toolchain in both environments and verify the actual
+selected compiler version; the system compiler or a toolchain file alone does
+not prove which executable a launcher ran. Reuse compatible owned caches without
+replacing an active re-executing test ELF; follow the
+[test execution guidance](../../CONTRIBUTING.md#checks).
+
+Before changing the mandatory premerge/postmerge allocation, state which
+guarantee changes and obtain the applicable owner decision. A PR-head result
+is not necessarily the merged composition or push-origin workflow execution.
+Any proposed reuse must bind actual executed workflow/ref/event provenance,
+the original run/attempt and all relevant inputs; tree equality alone is not
+sufficient. A focused speed trial cannot qualify the full matrix, a release
+configuration or deadline-sensitive behavior. Keep assertions, configuration
+coverage, fault cases and security parameters; reject shortcuts that omit them.
+Prefer no optimization over a new permanent mechanism with no demonstrated
+material benefit. Current CI gates stay in force until a reviewed successor
+changes them, including for documentation-only PRs.
+
 ## 1. Plan around executable outcomes
 
 For each active feature write a short completion matrix: supported scope,

@@ -25,10 +25,12 @@ infer that his installation is fixed. No Marketplace update follows.
 
 Current owner request: post-delivery [retrospective](../development/POST_FIX8_RETROSPECTIVE.md)
 and systematic GitHub/source-home organization. The owner selected `development`,
-created from released source5edf4eb2, not an old beta. Developer-rule changes
-and the fixture-maintenance correction belong to #796, targeting development.
-Its owning PR records actual exact-head CI and integration, not an inferred
-result from a local suite. Initial CI failed in TemporaryDirectory cleanup
+created from released source5edf4eb2, not an old beta. #796 integrated the
+developer rules and fixture-maintenance correction; #797 integrated the
+source-CI lane and coherent new-base queue. Developmentf202's exact full push
+and actual fresh export/bootstrap subsequently passed; their owning PRs retain
+identities and original outcomes, not an inferred result from a local suite.
+#796's initial CI failed in TemporaryDirectory cleanup
 of a synthetic Git objects directory; its original result is retained. A trace
 regression first failed on automatic maintenance, then passed with fixture-only
 Git flags. This does not prove the original CI process interleaving.
@@ -36,11 +38,25 @@ The [new-base queue](../development/DEVELOPMENT_INVENTORY.md#new-base-queue) ret
 old bases and explicit requalification. Subsequent exact-list authority removed
 106 redundant remote names, preserving their commits via immutable fix.8;
 #763's carried scheduling patch was closed with a precise disposition. The
-remaining 16 old-main Drafts have visible individual statuses, not a blanket
-retarget. The second worktree audit is a remote-only proposal; local checkouts,
+whole 293-PR historical review subsequently closed 250 incorporated/superseded
+predecessors and retained 43 distinct source/evidence carriers, with exact
+individual dispositions and original bodies preserved, not blanket retargeting
+or feature acceptance. The second worktree audit is a remote-only proposal;
+local checkouts,
 private/ignored artifacts, unique histories and old beta/RC dependency bases
 remain retained. No main/release or VM change follows from source organization.
 Restore/0.9.9, V0, P4, K1, S1 and GUI keep their own unfinished gates.
+
+The developer-process follow-up makes
+[technical judgment and local/hosted check allocation](../development/EXECUTION_POLICY.md#technical-judgment-before-execution)
+mandatory and retains the
+[current CI recommendation](../development/DEVELOPMENT_INVENTORY.md#current-recommendation).
+The bounded runtime-only test optimization showed no material demonstrated
+payoff and is not adopted. Keep complete PR/push source gates; any changed
+assurance tradeoff needs its own owner decision and reviewed successor.
+This guidance changes no runtime, package, CI recipe or user-main content;
+its owning PR records actual integration rather than assuming prepared rules
+are already shared.
 
 ## Earlier finalization snapshots — superseded task lists
 
