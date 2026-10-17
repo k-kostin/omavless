@@ -648,7 +648,9 @@ mod tests {
         fn new(mode: &str) -> Self {
             // Leave room for scratch/probe-<pid>-<sequence>/controller.sock.
             // The fixed production suffix and its validation stay unchanged.
-            let root = crate::test_temp::directory("px").unwrap();
+            let root =
+                crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "px")
+                    .unwrap();
             let scratch = root.join("scratch");
             fs::DirBuilder::new().mode(0o700).create(&scratch).unwrap();
             let core = root.join("core");

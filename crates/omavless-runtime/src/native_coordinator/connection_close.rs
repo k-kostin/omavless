@@ -241,7 +241,11 @@ while True:
         variant: &str,
         batch_instance: Option<&str>,
     ) -> (PathBuf, OfflineNativeCoordinator<NativeLifecycleHost>) {
-        let root = crate::test_temp::directory("owner-close").unwrap();
+        let root = crate::test_temp::directory_under(
+            &crate::test_temp::home_parent().unwrap(),
+            "owner-close",
+        )
+        .unwrap();
         let runtime = root.join("r");
         let config = root.join("c");
         let state = root.join("s");

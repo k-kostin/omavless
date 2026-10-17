@@ -318,6 +318,11 @@ mod tests {
         crate::test_temp::directory("core").unwrap()
     }
 
+    fn socket_root() -> PathBuf {
+        crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "core")
+            .unwrap()
+    }
+
     fn script(root: &Path, body: &str) -> PathBuf {
         let path = root.join("fake-core");
         let staged = root.join(".fake-core.staged");
@@ -548,7 +553,7 @@ mod tests {
             atomic::{AtomicU8, Ordering},
         };
 
-        let root = root("configuration-barrier");
+        let root = socket_root();
         let socket = root.join("controller.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
@@ -649,7 +654,7 @@ mod tests {
     #[test]
     fn actual_child_pid_managed_ready_and_extended_stop_budget_are_enforced() {
         use crate::desired::RoutingMode;
-        let root = root("managed-pid-ready");
+        let root = socket_root();
         let controller = root.join("controller.py");
         fs::write(&controller, r#"
 import json, os, pathlib, socket, sys

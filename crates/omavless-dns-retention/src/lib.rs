@@ -9,6 +9,10 @@
 //! serialized insertion by the authenticated service main process.
 #![cfg(target_os = "linux")]
 
+#[cfg(test)]
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
+
 use rustix::{
     event::{PollFd, PollFlags, Timespec, poll},
     fs::{OFlags, fcntl_getfl, fstat, major, minor},

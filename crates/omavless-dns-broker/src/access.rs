@@ -132,7 +132,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn fixture() -> (TempDir, UnixListener, u32) {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let path = directory.path().join("control.sock");
         let listener = UnixListener::bind(&path).unwrap();

@@ -15,6 +15,10 @@ mod transaction;
 pub use server::{Error, serve};
 
 #[cfg(test)]
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
+
+#[cfg(test)]
 mod device_policy_tests {
     #[test]
     fn selected_enrollment_cannot_promote_another_flavor() {
