@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 
 ShellRoot {
     id: review
@@ -58,7 +59,7 @@ ShellRoot {
         title: "OmaVLESS onboarding review — synthetic"
         implicitWidth: 760
         implicitHeight: 720
-        color: Color.background
+        color: Commons.Color.background
         Loader {
             id: loader
             anchors.centerIn: parent
@@ -87,7 +88,7 @@ ShellRoot {
             anchors.topMargin: 12
             text: "UI TEST — synthetic data; nothing is saved"
             textFormat: Text.PlainText
-            color: Color.foreground
+            color: Commons.Color.foreground
         }
     }
     IpcHandler {

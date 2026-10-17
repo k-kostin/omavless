@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "SetupState.js" as SetupState
@@ -43,9 +44,9 @@ Item {
   property string installCommand: ""
   property string capabilityCommand: ""
   property string verifyCommand: ""
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
   property string locale: "en"
   property int step: 1
@@ -89,7 +90,7 @@ Item {
     property bool primary: false
     readonly property bool onboardingControl: true
     focusable: true
-    background: enabled && primary ? Util.alpha(Color.accent, 0.08) : "transparent"
+    background: enabled && primary ? Util.alpha(Commons.Color.accent, 0.08) : "transparent"
     onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)
     Keys.onPressed: function(event) { wizard.handleNavigation(event) }
   }
@@ -147,7 +148,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.82)
+    color: Util.alpha(Commons.Color.background, 0.82)
     MouseArea { anchors.fill: parent; onClicked: wizard.canceled() }
 
     BorderSurface {
@@ -156,8 +157,8 @@ Item {
       height: Math.min(parent.height - Style.space(24), content.implicitHeight
         + card.contentTopInset + card.contentBottomInset)
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 
@@ -211,7 +212,7 @@ Item {
             text: wizard.step === 1 ? wizard.textFor("onboarding.step.core")
               : (wizard.step === 2 ? wizard.textFor("onboarding.step.routing")
                 : wizard.textFor("onboarding.step.connection"))
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: wizard.fontFamily
             font.pixelSize: Style.font.subtitle
             font.bold: true
@@ -323,7 +324,7 @@ Item {
               enabled: !wizard.busy && !wizard.nativeSetupBusy
               primary: wizard.nativeCoreState !== "ready"
               bordered: true
-              foreground: enabled && primary ? Color.accent : wizard.dim
+              foreground: enabled && primary ? Commons.Color.accent : wizard.dim
               fontFamily: wizard.fontFamily
               onClicked: wizard.componentSetupRequested()
             }
@@ -370,8 +371,8 @@ Item {
                 readonly property bool selected: wizard.routingPreset === modelData.id
                 width: content.width
                 height: presetBody.implicitHeight + Style.space(16)
-                color: selected ? Util.alpha(Color.foreground, 0.08) : "transparent"
-                borderSpec: Border.flat(selected ? Color.accent
+                color: selected ? Util.alpha(Commons.Color.foreground, 0.08) : "transparent"
+                borderSpec: Border.flat(selected ? Commons.Color.accent
                   : Util.alpha(wizard.foreground, 0.30), Style.normalBorderWidth)
                 radius: Style.cornerRadius
 
@@ -388,7 +389,7 @@ Item {
                     PlainText {
                       width: parent.width
                       text: wizard.presetCountry(presetCard.modelData)
-                      color: presetCard.selected ? Color.accent : wizard.foreground
+                      color: presetCard.selected ? Commons.Color.accent : wizard.foreground
                       font.family: wizard.fontFamily
                       font.pixelSize: Style.font.body
                       font.bold: true
@@ -430,7 +431,7 @@ Item {
                     count: wizard.localizedCount("connection", wizard.profiles.length)
                   })
                 : wizard.textFor(wizard.nativeContext ? "native.onboarding.import_help" : "onboarding.import_help")
-              color: wizard.profiles.length > 0 ? Color.accent : wizard.dim
+              color: wizard.profiles.length > 0 ? Commons.Color.accent : wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
@@ -509,7 +510,7 @@ Item {
                 text: wizard.textFor("onboarding.paste_link")
                 bordered: true
                 enabled: wizard.clipboardReady && !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
-                foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
+                foreground: enabled && primary ? Commons.Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.pasteRequested()
               }
@@ -521,7 +522,7 @@ Item {
                 text: wizard.textFor("onboarding.choose_file")
                 bordered: true
                 enabled: wizard.pickerReady && (!wizard.nativeContext || wizard.nativeCanContinue) && !wizard.busy
-                foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
+                foreground: enabled && primary ? Commons.Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.fileRequested()
               }
@@ -588,7 +589,7 @@ Item {
                 primary: true
                 bordered: true
                 enabled: (wizard.nativeContext ? wizard.nativeCoreState === "ready" && wizard.nativeCanContinue : wizard.coreSetup.tunReady) && !wizard.busy
-                foreground: enabled ? Color.accent : wizard.dim
+                foreground: enabled ? Commons.Color.accent : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.step = 2
               }
@@ -603,7 +604,7 @@ Item {
                   ? wizard.textFor("onboarding.skip_for_now") : wizard.textFor("common.continue")
                 bordered: true
                 enabled: !wizard.busy && !wizard.routingSavePending
-                foreground: enabled ? Color.accent : wizard.dim
+                foreground: enabled ? Commons.Color.accent : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.step = 3
               }
@@ -618,7 +619,7 @@ Item {
                   ? wizard.textFor("onboarding.finish") : wizard.textFor("onboarding.finish_later")
                 bordered: true
                 enabled: !wizard.busy && !wizard.completionPending && (!wizard.nativeContext || wizard.nativeCanContinue)
-                foreground: enabled && primary ? Color.accent : enabled ? wizard.foreground : wizard.dim
+                foreground: enabled && primary ? Commons.Color.accent : enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.finishRequested()
               }

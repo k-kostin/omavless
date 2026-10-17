@@ -209,6 +209,16 @@ Classify the actual reached operations, not merely the exit code or filename.
 An outer build script may have staged a privileged unit; it is not automatically
 a pure compiler failure. Preserve the original failed result in either case.
 
+A release-scope exclusion or waived gate is not a root-cause diagnosis, a fix
+or proof that a known failure is confined to its first machine. Retain the
+observed symptom, exact source and relevant dependency versions separately
+from the owner's decision to defer work. Before calling an external warning
+a new or merely hypothetical risk, search the affected evidence and open its
+linked original report; a shorthand status label cannot replace that report.
+Classify compatibility by the demonstrated boundary (for example Qt version),
+not by Mac/PC or VM/bare-metal alone. Do not infer an untested fix or expand
+the current task from that reclassification.
+
 No automatic retry of uncertain effects, guessed ownership, arbitrary privileged
 IPC, broad firewall cleanup or permissive parser is introduced. A new directory
 name alone does not isolate effects in a shared kernel, manager or network.

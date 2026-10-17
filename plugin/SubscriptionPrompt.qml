@@ -4,6 +4,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 import "SafeText.js" as SafeText
@@ -22,9 +23,9 @@ Item {
   property string confirmLabel: textFor("common.save")
   property alias nameValue: nameField.text
   property alias urlValue: urlField.text
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
   property bool autoName: true
   property bool fromFile: false
@@ -82,7 +83,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.76)
+    color: Util.alpha(Commons.Color.background, 0.76)
     MouseArea { anchors.fill: parent; onClicked: prompt.canceled() }
 
     BorderSurface {
@@ -90,8 +91,8 @@ Item {
       width: Math.min(parent.width - Style.space(24), Style.space(410))
       height: card.contentTopInset + card.contentBottomInset + content.implicitHeight
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 

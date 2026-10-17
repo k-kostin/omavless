@@ -3,6 +3,7 @@
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -14,7 +15,7 @@ Item {
   property var presets: []
   property string selectedPreset: "roscomvpn-default"
   property bool accepted: selectedPreset !== ""
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
   property string fontFamily: Style.font.family
   property string locale: "en"
@@ -76,7 +77,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.78)
+    color: Util.alpha(Commons.Color.background, 0.78)
 
     MouseArea { anchors.fill: parent; onClicked: prompt.canceled() }
 
@@ -85,8 +86,8 @@ Item {
       width: Math.min(parent.width - Style.space(24), Style.space(420))
       height: card.contentTopInset + card.contentBottomInset + content.implicitHeight
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 
@@ -129,8 +130,8 @@ Item {
 
             width: content.width
             height: presetContent.implicitHeight + Style.space(18)
-            color: selected ? Util.alpha(Color.foreground, 0.08) : "transparent"
-            borderSpec: Border.flat(selected ? Color.accent : Util.alpha(prompt.foreground, 0.32),
+            color: selected ? Util.alpha(Commons.Color.foreground, 0.08) : "transparent"
+            borderSpec: Border.flat(selected ? Commons.Color.accent : Util.alpha(prompt.foreground, 0.32),
               Style.normalBorderWidth)
             radius: Style.cornerRadius
 
@@ -148,7 +149,7 @@ Item {
                 spacing: Style.space(6)
                 PlainText {
                   text: prompt.presetCountry(presetCard.modelData)
-                  color: presetCard.selected ? Color.accent : prompt.foreground
+                  color: presetCard.selected ? Commons.Color.accent : prompt.foreground
                   font.family: prompt.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true

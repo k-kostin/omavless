@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -16,9 +17,9 @@ Item {
   id: page
 
   property var service: null
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
   property string locale: "en"
   property string nativeLocalSummary: ""
@@ -242,7 +243,7 @@ Item {
       PlainText {
         width: parent.width
         text: page.textFor("diagnostics.loaded_rules")
-        color: Color.accent
+        color: Commons.Color.accent
         font.family: page.fontFamily
         font.pixelSize: Style.font.subtitle
         font.bold: true
@@ -332,7 +333,7 @@ Item {
 
             PlainText {
               text: modelData.target
-              color: modelData.target === "REJECT" ? page.urgent : Color.accent
+              color: modelData.target === "REJECT" ? page.urgent : Commons.Color.accent
               font.family: page.fontFamily
               font.pixelSize: Style.font.bodySmall
               font.bold: true
@@ -353,7 +354,7 @@ Item {
           PlainText {
             Layout.fillWidth: true
             text: page.textFor("diagnostics.rule_providers")
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: page.fontFamily
             font.pixelSize: Style.font.subtitle
             font.bold: true

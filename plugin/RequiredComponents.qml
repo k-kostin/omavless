@@ -2,6 +2,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "SetupState.js" as SetupState
 import "I18n.js" as I18n
@@ -38,8 +39,8 @@ ColumnLayout {
   component SetupButton: Button {
     property bool primary: false
     bordered: true; focusable: true
-    foreground: enabled && primary ? Color.accent : Color.foreground
-    background: enabled && primary ? Util.alpha(Color.accent, 0.08) : "transparent"
+    foreground: enabled && primary ? Commons.Color.accent : Commons.Color.foreground
+    background: enabled && primary ? Util.alpha(Commons.Color.accent, 0.08) : "transparent"
     opacity: enabled ? 1 : 0.45
   }
   PlainText {
@@ -48,23 +49,23 @@ ColumnLayout {
     visible: !card.checking && !card.terminalOpened
     text: card.tr("dns_helper_intro")
     font.family: Style.font.family; font.pixelSize: Style.font.caption
-    color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap
+    color: Qt.darker(Commons.Color.foreground, 1.55); wrapMode: Text.Wrap
   }
   BorderSurface {
     Layout.fillWidth: true
     implicitHeight: missingContent.implicitHeight + Style.space(20)
     visible: !card.checking && (card.appMissing || card.coreMissing)
     color: "transparent"; radius: 0
-    borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
+    borderSpec: Border.flat(Util.alpha(Commons.Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
       id: missingContent
       anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
       anchors.margins: Style.space(10)
       spacing: Style.space(10)
-      PlainText { Layout.fillWidth: true; text: card.tr("components"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
-      PlainText { Layout.fillWidth: true; visible: card.appMissing; text: card.tr("app_missing"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
-      PlainText { Layout.fillWidth: true; visible: card.coreMissing; text: card.tr("core_missing"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
-      PlainText { Layout.fillWidth: true; visible: card.facts.state === "release_unavailable"; text: card.tr("release_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr("components"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; visible: card.appMissing; text: card.tr("app_missing"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; visible: card.coreMissing; text: card.tr("core_missing"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; visible: card.facts.state === "release_unavailable"; text: card.tr("release_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Qt.darker(Commons.Color.foreground, 1.55); wrapMode: Text.Wrap }
       SetupButton {
         id: installButton
         objectName: "setupInstall"
@@ -82,19 +83,19 @@ ColumnLayout {
     implicitHeight: preparation.implicitHeight + Style.space(20)
     visible: !card.checking && card.showPreparation
     color: "transparent"; radius: 0
-    borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
+    borderSpec: Border.flat(Util.alpha(Commons.Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
       id: preparation
       anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
       anchors.margins: Style.space(10)
       spacing: Style.space(10)
-      PlainText { Layout.fillWidth: true; text: card.tr("prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr("prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap }
       PlainText {
         objectName: "setupOperationalReason"
         Layout.fillWidth: true
         text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : card.facts.state)
         font.family: Style.font.family; font.pixelSize: Style.font.caption
-        color: Color.foreground; wrapMode: Text.Wrap
+        color: Commons.Color.foreground; wrapMode: Text.Wrap
       }
       SetupButton {
         id: prepareButton
@@ -120,7 +121,7 @@ ColumnLayout {
         visible: recoveryToggle.visible && card.recoveryExpanded
         text: card.tr("restore_help")
         font.family: Style.font.family; font.pixelSize: Style.font.caption
-        color: Color.foreground; wrapMode: Text.Wrap
+        color: Commons.Color.foreground; wrapMode: Text.Wrap
       }
       SetupButton {
         id: restoreButton
@@ -138,14 +139,14 @@ ColumnLayout {
     implicitHeight: updates.implicitHeight + Style.space(20)
     visible: !card.checking && !card.appMissing && (card.updateReview || card.facts.state === "needs_pair_mismatch" || card.facts.state === "needs_companion")
     color: "transparent"; radius: 0
-    borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
+    borderSpec: Border.flat(Util.alpha(Commons.Color.foreground, 0.38), Style.normalBorderWidth)
     ColumnLayout {
       id: updates
       anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
       anchors.margins: Style.space(10)
       spacing: Style.space(10)
-      PlainText { Layout.fillWidth: true; text: card.tr(card.optionalUpdate ? "optional_update_title" : card.facts.state === "needs_pair_install" ? "prepare_title" : "update_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
-      PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : SetupState.updateMessage(card.facts)); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr(card.optionalUpdate ? "optional_update_title" : card.facts.state === "needs_pair_install" ? "prepare_title" : "update_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap }
+      PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : SetupState.updateMessage(card.facts)); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
       SetupButton {
         id: updateButton
         objectName: "setupUpdate"
@@ -178,9 +179,9 @@ ColumnLayout {
       }
     }
   }
-  PlainText { Layout.fillWidth: true; visible: (card.busy || card.checking) && !card.terminalOpened; text: card.tr(card.busyMessage); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
-  PlainText { Layout.fillWidth: true; visible: card.effectBlocked && !card.busy && !card.terminalOpened; text: card.tr("action_blocked"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
-  PlainText { Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
+  PlainText { Layout.fillWidth: true; visible: (card.busy || card.checking) && !card.terminalOpened; text: card.tr(card.busyMessage); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
+  PlainText { Layout.fillWidth: true; visible: card.effectBlocked && !card.busy && !card.terminalOpened; text: card.tr("action_blocked"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
+  PlainText { Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
   SetupButton { id: retryButton; objectName: "setupTerminalClosed"; primary: true; Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal_closed"); onClicked: card.terminalClosed() }
   RowLayout {
     visible: !card.checking

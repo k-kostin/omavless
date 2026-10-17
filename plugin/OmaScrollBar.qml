@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 
 // The hit lane stays the same width in every state. Callers reserve a 16px
 // scaled gutter so the thumb never covers text or shifts it when scrolling.
@@ -19,7 +20,7 @@ ScrollBar {
     implicitWidth: Style.space(4)
     implicitHeight: Style.space(24)
     radius: 0
-    color: control.pressed || control.hovered ? Color.accent : Color.foreground
+    color: control.pressed || control.hovered ? Commons.Color.accent : Commons.Color.foreground
     opacity: control.pressed || control.hovered ? 1 : (control.active ? 0.65 : 0.35)
   }
   background: Item {}

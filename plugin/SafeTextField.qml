@@ -2,6 +2,7 @@
 import QtQuick
 import QtQuick.Controls as Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "SafeText.js" as SafeText
 import "I18n.js" as I18n
@@ -24,7 +25,7 @@ FocusScope {
   property alias leftPadding: editor.leftPadding
   property alias rightPadding: editor.rightPadding
   property alias background: editor.background
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string locale: "en"
   property int maximumLength: 8192
   property string pasteError: ""
@@ -167,7 +168,7 @@ FocusScope {
       selectByMouse: true
       persistentSelection: false
       color: field.foreground
-      selectionColor: Style.selectionFillFor(field.foreground, Color.accent)
+      selectionColor: Style.selectionFillFor(field.foreground, Commons.Color.accent)
       selectedTextColor: field.foreground
       placeholderTextColor: Qt.darker(field.foreground, 1.6)
       font.family: Style.font.family
@@ -229,8 +230,8 @@ FocusScope {
         field.pasteError = ""; field.textEdited()
       }
       background: BorderSurface {
-        color: Style.controlFill(field.activeFocus, editor.hovered, field.foreground, Color.accent)
-        borderSpec: Border.controlSpec(field.activeFocus ? "focus" : editor.hovered ? "hover-cursor" : "normal", field.foreground, Color.accent)
+        color: Style.controlFill(field.activeFocus, editor.hovered, field.foreground, Commons.Color.accent)
+        borderSpec: Border.controlSpec(field.activeFocus ? "focus" : editor.hovered ? "hover-cursor" : "normal", field.foreground, Commons.Color.accent)
         radius: Style.cornerRadius
       }
     }

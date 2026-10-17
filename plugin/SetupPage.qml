@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "SetupState.js" as SetupState
 import "I18n.js" as I18n
@@ -93,8 +94,8 @@ Item {
     id: content
     width: parent.width
     spacing: Style.space(12)
-    PlainText { Layout.fillWidth: true; text: "OmaVLESS"; font.family: Style.font.family; font.pixelSize: Style.font.title; color: Color.foreground }
-    PlainText { Layout.fillWidth: true; text: setup.tr(setup.probing ? "checking" : setup.componentReview ? "review_components" : "panel_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
+    PlainText { Layout.fillWidth: true; text: "OmaVLESS"; font.family: Style.font.family; font.pixelSize: Style.font.title; color: Commons.Color.foreground }
+    PlainText { Layout.fillWidth: true; text: setup.tr(setup.probing ? "checking" : setup.componentReview ? "review_components" : "panel_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap }
     PlainText {
       objectName: "setupOtherVpnAdvice"
       Layout.fillWidth: true
@@ -102,21 +103,21 @@ Item {
         && (setup.state === "needs_package" || setup.state === "needs_activation")
       text: setup.tr("other_vpn_advice")
       font.family: Style.font.family; font.pixelSize: Style.font.caption
-      color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap
+      color: Qt.darker(Commons.Color.foreground, 1.55); wrapMode: Text.Wrap
     }
     BorderSurface {
       Layout.fillWidth: true
       implicitHeight: profilesPlaceholder.implicitHeight + Style.space(20)
       visible: !setup.probing && !setup.componentReview
       color: "transparent"; radius: 0
-      borderSpec: Border.flat(Util.alpha(Color.foreground, 0.38), Style.normalBorderWidth)
+      borderSpec: Border.flat(Util.alpha(Commons.Color.foreground, 0.38), Style.normalBorderWidth)
       ColumnLayout {
         id: profilesPlaceholder
         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
         anchors.margins: Style.space(10)
         spacing: Style.space(8)
-        PlainText { Layout.fillWidth: true; text: I18n.translate("profiles.title", setup.locale, {}); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground }
-        PlainText { Layout.fillWidth: true; text: setup.tr("profiles_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Qt.darker(Color.foreground, 1.55); wrapMode: Text.Wrap }
+        PlainText { Layout.fillWidth: true; text: I18n.translate("profiles.title", setup.locale, {}); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground }
+        PlainText { Layout.fillWidth: true; text: setup.tr("profiles_unavailable"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Qt.darker(Commons.Color.foreground, 1.55); wrapMode: Text.Wrap }
       }
     }
     RequiredComponents {
@@ -133,14 +134,14 @@ Item {
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention
       text: I18n.translate("native.onboarding.core_" + (setup.terminalOpened ? "terminal" : setup.reviewCoreState), setup.locale, {})
-      font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap
+      font.family: Style.font.family; font.pixelSize: Style.font.body; color: Commons.Color.foreground; wrapMode: Text.Wrap
     }
     PlainText {
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention
         && (setup.terminalOpened || (setup.reviewCoreState !== "ready" && setup.reviewCoreState !== "checking"))
       text: setup.tr(setup.terminalOpened ? "terminal" : "review_core_attention")
-      font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap
+      font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap
     }
     Button {
       id: reviewTerminalButton
@@ -164,6 +165,6 @@ Item {
       text: setup.tr("guide_short"); bordered: false; focusable: true
       onClicked: setup.guide()
     }
-    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && setup.reviewReady ? Color.accent : Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
+    Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && setup.reviewReady ? Commons.Color.accent : Commons.Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
   }
 }

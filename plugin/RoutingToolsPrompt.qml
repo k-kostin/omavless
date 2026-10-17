@@ -4,6 +4,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -21,9 +22,9 @@ Item {
   property string rulesUpdatedLabel: ""
   property string statusText: ""
   property string errorText: ""
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
-  property color urgent: Color.urgent
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
   property string locale: "en"
   // Qt's attached scrollbar overlays Flickable content. Reserve the same
@@ -91,7 +92,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.82)
+    color: Util.alpha(Commons.Color.background, 0.82)
     MouseArea { anchors.fill: parent; onClicked: prompt.canceled() }
 
     BorderSurface {
@@ -100,8 +101,8 @@ Item {
       height: Math.min(parent.height - Style.space(24), content.implicitHeight
         + card.contentTopInset + card.contentBottomInset)
       anchors.centerIn: parent
-      color: Color.background
-      borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+      color: Commons.Color.background
+      borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
 
@@ -139,7 +140,7 @@ Item {
           PlainText {
             width: parent.width
             text: prompt.textFor("routing_tools.destination_question")
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.subtitle
             font.bold: true
@@ -200,7 +201,7 @@ Item {
                 width: parent.width
                 text: prompt.outcomeTitle(prompt.result)
                 color: prompt.result && prompt.result.outcome === "block"
-                  ? prompt.urgent : Color.accent
+                  ? prompt.urgent : Commons.Color.accent
                 font.family: prompt.fontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
@@ -221,7 +222,7 @@ Item {
           PlainText {
             width: parent.width
             text: prompt.textFor("routing_tools.custom_rules")
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.subtitle
             font.bold: true
@@ -248,7 +249,7 @@ Item {
                 required property var modelData
                 text: modelData.label
                 bordered: prompt.matchChoice === modelData.value
-                foreground: prompt.matchChoice === modelData.value ? Color.accent : prompt.dim
+                foreground: prompt.matchChoice === modelData.value ? Commons.Color.accent : prompt.dim
                 fontFamily: prompt.fontFamily
                 onClicked: prompt.matchChoice = modelData.value
               }
@@ -284,7 +285,7 @@ Item {
                   required property var modelData
                   text: modelData.label
                   bordered: prompt.actionChoice === modelData.value
-                  foreground: prompt.actionChoice === modelData.value ? Color.accent : prompt.dim
+                  foreground: prompt.actionChoice === modelData.value ? Commons.Color.accent : prompt.dim
                   fontFamily: prompt.fontFamily
                   onClicked: prompt.actionChoice = modelData.value
                 }
