@@ -25,7 +25,7 @@ assert(!panelSource.includes('native.main.unavailable'))
 assert.strictEqual(I18n.translate("native.state.connected", "en"), "CONNECTED")
 assert.strictEqual(I18n.translate("native.state.connected", "ru"), "ПОДКЛЮЧЕНО")
 for (const locale of ["en", "ru"]) {
-  for (const key of ["settings.setup_description", "native.support.scope", "native.support.save", "native.settings.modeHelp", "native.refreshFailed", "native.subscriptions.loading", "native.subscriptions.unavailable"]) {
+  for (const key of ["settings.setup_description", "native.support.scope", "native.support.save", "native.settings.modeHelp", "native.refreshFailed", "native.subscriptions.loading", "native.subscriptions.unavailable", "native.subscriptions.update_all", "native.subscription.help"]) {
     const value = I18n.translate(key, locale)
     assert(value.length > 0 && value.length < 150)
     assert(!/Missing translation|Rust|Python|acceptance|приёмк/i.test(value))

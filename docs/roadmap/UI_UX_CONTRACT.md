@@ -273,6 +273,42 @@ presence and absence against production visibility expressions; then inspect
 the installed ready screen and an adjacent non-ready state. A working callback
 or legible button does not establish that the action belongs on that screen.
 
+### Premerge affected-surface UX gate
+
+Owner clarification, October17: this is mandatory before integration into
+development, including a narrow wording or read-state fix. Review all controls
+on the affected surface, not only changed labels. An inherited control can make
+the new state misleading even when its own source line did not change.
+
+Record primary, secondary, navigation and recovery roles before selecting the
+composition. Use shared Omarchy controls/tokens and compact coherent action
+groups; do not leave unrelated actions in an arbitrary vertical stack merely
+because that was the old layout. Different roles need not have identical
+widths, borders or emphasis. Preserve the accepted main-screen profile dock
+and unrelated screens; this rule does not authorize a whole-product redesign.
+
+For each affected loading, unavailable/error, confirmed-empty and populated
+state (plus cached, pending or unknown states where relevant), check visibility,
+enabled state, target and actual handler. Distinguish navigation and local
+metadata reads from provider/store mutations. Do not hide a required explicit
+Disconnect/recovery/exit path to simplify appearance, enable a blocked action,
+remove confirmation or weaken native authority/unknown-outcome fences.
+
+Before merge, give separate behavior, meaning and rendering dispositions on
+the final exact candidate. Include adjacent states, EN/RU narrow/normal layout
+and relevant keyboard traversal; fix findings and repeat materially affected
+checks/captures after a change. Text legibility alone is not final UX acceptance;
+neither green CI, a correct callback nor a count of screenshots closes this gate.
+Known relevant UX findings block merge unless the owner explicitly defers them.
+Record that decision and remaining limits rather than calling an unfinished
+surface final or silently scheduling its correction after integration.
+
+The owning PR carries the bounded action/state matrix and disposition. Link
+this one canonical rule from the mandatory agent entry and protect discovery
+with the navigation guard; such a test cannot prove actual agent judgment or
+rendered acceptance. Unrelated baseline findings may be separately scoped with
+an applicability reason; do not turn every small change into a full UI audit.
+
 ### Pick affected states, not a ceremonial full-product rerun
 
 For profile selection/connection/action layout, cover these contrasts. For

@@ -165,6 +165,32 @@ for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md
   assert(entry.includes('](' + target + ')'), 'agent discovery must retain ' + target);
 }
 const guide = fs.readFileSync(path.join(root, 'docs/development/AGENT_GUIDE.md'), 'utf8');
+// Mandatory discovery/content, not proof of an agent's actual visual judgment.
+const uiContract = fs.readFileSync(path.join(root, 'docs/roadmap/UI_UX_CONTRACT.md'), 'utf8');
+const uiReviewSkill = fs.readFileSync(path.join(root, 'skills/omavless-ui-review/SKILL.md'), 'utf8');
+function requireAffectedUiGate(contract, agentGuide, skill) {
+  const normalized = contract.replace(/\s+/g, ' ');
+  for (const rule of ['### Premerge affected-surface UX gate',
+    'all controls on the affected surface', 'not only changed labels',
+    'primary, secondary, navigation and recovery roles',
+    'visibility, enabled state, target and actual handler',
+    'Known relevant UX findings block merge',
+    'unless the owner explicitly defers them',
+    'Text legibility alone is not final UX acceptance']) {
+    assert(normalized.includes(rule), 'retain mandatory affected-surface UX gate: ' + rule);
+  }
+  assert(agentGuide.includes('](../roadmap/UI_UX_CONTRACT.md#premerge-affected-surface-ux-gate)'),
+    'mandatory agent guide must discover the premerge UX gate');
+  assert(skill.includes('](../../docs/roadmap/UI_UX_CONTRACT.md)'),
+    'existing UI-review skill must route to the canonical contract');
+}
+requireAffectedUiGate(uiContract, guide, uiReviewSkill);
+assert.throws(() => requireAffectedUiGate(
+  uiContract.replace('### Premerge affected-surface UX gate', '### Removed gate'), guide, uiReviewSkill),
+  /mandatory affected-surface UX gate/);
+assert.throws(() => requireAffectedUiGate(uiContract,
+  guide.replace('#premerge-affected-surface-ux-gate', '#removed-gate'), uiReviewSkill),
+  /discover the premerge UX gate/);
 // Repository-role/discovery guards, not proof of an agent following the rules.
 const sourceMap = fs.readFileSync(path.join(root, 'docs/development/STABLE_DISTRIBUTION_TRANSITION.md'), 'utf8');
 const currentMap = sourceMap.split('## Current source composition')[0];

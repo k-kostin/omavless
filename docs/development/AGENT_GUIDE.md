@@ -387,6 +387,13 @@ transitions; otherwise explicitly record visual/integration evidence pending.
 Preserve owner-approved layout outside the task. UI review does not authorize
 VPN transitions, credential export or publication beyond the current request.
 
+Before development integration apply the mandatory
+[affected-surface UX gate](../roadmap/UI_UX_CONTRACT.md#premerge-affected-surface-ux-gate),
+including inherited controls on the changed screen. Wording/legibility checks
+alone do not close behavior, meaning, button hierarchy or state eligibility.
+Keep known relevant UX findings as premerge blockers unless the owner explicitly
+defers them; no automatic postmerge-polish assumption.
+
 ## Localization work
 
 For translation, locale formatting or localized-UI review, read

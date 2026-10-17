@@ -128,3 +128,10 @@ Before projecting these states, call `reviewQuiesce` until it reports `idle`:
 opening the ordinary panel starts a read, and stopping polling timers does not
 settle an already-running fixture read. This waits for original read processes,
 not a fixed delay or a production timeout change.
+The `recovery` state supplies a parsed manual-recovery snapshot to review the
+preserved explicit Disconnect path without activating it. `reviewSubscriptionsKey`
+accepts only `tab`, `backtab` and `escape`; it exercises the actual production
+focus/navigation handler, never Enter/Space/action activation. Inspect returned
+focus order and wrapping through `reviewSubscriptionsInspect`. This is actual
+rendered focus behavior with synthetic key events, not physical-key delivery
+through the unchanged host KeyCatcher or native request acceptance.
