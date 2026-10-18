@@ -94,7 +94,7 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
     None
 }
 
-#[cfg(feature = "tui")]
+#[cfg(all(feature = "tui", any(feature = "t4-manager-actor-service", test)))]
 fn consumer_recovery_tui_entry(arguments: &[std::ffi::OsString]) -> bool {
     arguments == ["tui"] && private_pair_tui_entry(arguments) == Some(PrivatePairTui::Restore)
 }
