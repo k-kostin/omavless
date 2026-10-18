@@ -3,12 +3,12 @@
   "version": "0.9.9",
   "packages": {
     "x86_64": {
-      "sha256": "05ba26b405811ad6121697112bac47aac8fcc5c43acf55ee7cdf8e375e22f37f",
-      "sourceCommit": "f7882e438470cef76bcb95652cc00f18ed1712bf"
+      "sha256": "60cefa4cfd105f8aa8a332e17dd8aede629075cb5540c5298728d70f4907847e",
+      "sourceCommit": "ee209338b814c4de82e55b5987ac8af8980ae7ec"
     },
     "aarch64": {
-      "sha256": "d3c1e172da1fb2612b181013eb0c59564a40b4e267d29668c6fe55a3ea3f03e9",
-      "sourceCommit": "f7882e438470cef76bcb95652cc00f18ed1712bf"
+      "sha256": "f5c173629a3b85485e1d2b36f18eec98e748e158c94d023875de03c9c6b47f71",
+      "sourceCommit": "ee209338b814c4de82e55b5987ac8af8980ae7ec"
     }
   }
 }
