@@ -178,20 +178,21 @@ impl RecoveryManagerIdentity {
         root: &File,
         record: RecoveryManagerRecord,
         budget: &mut Budget,
+        #[cfg(feature = "t4-manager-actor-service")] progress: RecoveryProgress,
     ) -> Result<Self> {
         use rustix::process::{Pid as RustPid, PidfdFlags, pidfd_open};
-        recovery_checkpoint!(true, ManagerProcDirectory);
+        recovery_checkpoint!(progress, ManagerProcDirectory);
         let pid = record.pid;
         let directory = directory(root, &pid.to_string())?;
         let metadata = directory.metadata().map_err(|_| ())?;
-        recovery_checkpoint!(true, ManagerProcStat);
+        recovery_checkpoint!(progress, ManagerProcStat);
         let start = start_time(&proc_bytes(&directory, "stat", MAX_STATUS, budget)?, pid)?;
-        recovery_checkpoint!(true, ManagerProcStatus);
+        recovery_checkpoint!(progress, ManagerProcStatus);
         let status = status(&proc_bytes(&directory, "status", MAX_STATUS, budget)?, pid)?;
         if status.uids != [record.uid; 4] || status.namespace_pids != [pid] {
             return Err(());
         }
-        recovery_checkpoint!(true, ManagerPidfd);
+        recovery_checkpoint!(progress, ManagerPidfd);
         let pidfd = File::from(
             pidfd_open(
                 RustPid::from_raw(pid as i32).ok_or(())?,
@@ -200,7 +201,7 @@ impl RecoveryManagerIdentity {
             .map_err(|_| ())?,
         );
         alive(&pidfd)?;
-        recovery_checkpoint!(true, ManagerCanonicalDirectories);
+        recovery_checkpoint!(progress, ManagerCanonicalDirectories);
         let mut parents = Vec::new();
         for (path, owner) in [
             ("/run".to_owned(), 0),
@@ -232,7 +233,7 @@ impl RecoveryManagerIdentity {
             }
             parents.push((path, file, m));
         }
-        recovery_checkpoint!(true, ManagerPrivateSocket);
+        recovery_checkpoint!(progress, ManagerPrivateSocket);
         let parent = &parents.last().ok_or(())?.1;
         let socket = File::from(
             openat(
@@ -251,7 +252,7 @@ impl RecoveryManagerIdentity {
         {
             return Err(());
         }
-        recovery_checkpoint!(true, ManagerPeerAllocation);
+        recovery_checkpoint!(progress, ManagerPeerAllocation);
         let peer = nix::sys::socket::socket(
             AddressFamily::Unix,
             SockType::Stream,
@@ -262,13 +263,13 @@ impl RecoveryManagerIdentity {
         let path = format!("/proc/self/fd/{}/private", parent.as_raw_fd());
         // AF_UNIX nonblocking connect either finishes or refuses. No pending
         // connection is retried or used as evidence.
-        recovery_checkpoint!(true, ManagerPeerConnect);
+        recovery_checkpoint!(progress, ManagerPeerConnect);
         connect(
             peer.as_raw_fd(),
             &UnixAddr::new(Path::new(&path)).map_err(|_| ())?,
         )
         .map_err(|_| ())?;
-        recovery_checkpoint!(true, ManagerPeerCredentials);
+        recovery_checkpoint!(progress, ManagerPeerCredentials);
         peer_matches(&peer, &record)?;
         let result = Self {
             record,
@@ -282,7 +283,7 @@ impl RecoveryManagerIdentity {
             socket_metadata,
             peer,
         };
-        recovery_checkpoint!(true, ManagerCaptureRecheck);
+        recovery_checkpoint!(progress, ManagerCaptureRecheck);
         result.recheck(root, budget)?;
         Ok(result)
     }

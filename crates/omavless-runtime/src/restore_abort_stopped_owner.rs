@@ -24,19 +24,19 @@ type Result<T> = std::result::Result<T, ()>;
 // Fixed, development-only progress. Historical Abort never enables this path.
 // Diagnostic output does not authorize effects or alter operation results.
 macro_rules! recovery_checkpoint {
-    ($enabled:expr, $phase:ident) => {{
+    ($progress:expr, $phase:ident) => {{
         #[cfg(feature = "t4-manager-actor-service")]
         recovery_diagnostic(
-            $enabled,
+            $progress,
             concat!("restore_owner_", stringify!($phase), "\n").as_bytes(),
         );
     }};
 }
 
 #[cfg(feature = "t4-manager-actor-service")]
-fn recovery_diagnostic(enabled: bool, label: &'static [u8]) {
+fn recovery_diagnostic(progress: RecoveryProgress, label: &'static [u8]) {
     static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    bounded_recovery_diagnostic(enabled, &COUNT, label, |bytes| {
+    bounded_recovery_diagnostic(progress.enabled(), &COUNT, label, |bytes| {
         // One raw write, no formatting/locks/retry/panic on a broken stderr.
         // The CLI's existing stderr destination is used, never a selected path.
         nix::unistd::write(std::io::stderr(), bytes).map_or(-1, |written| written as isize)
@@ -103,7 +103,30 @@ enum SelfInvocation {
     Diagnostic,
 }
 
+/// Presentation only, never a query, custody or recovery admission selector.
+#[cfg(feature = "t4-manager-actor-service")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RecoveryProgress {
+    DiagnosticCli,
+    ConsumerSilent,
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+impl RecoveryProgress {
+    pub(crate) fn enabled(self) -> bool {
+        self == Self::DiagnosticCli
+    }
+}
+
 impl SelfInvocation {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn progress(self) -> RecoveryProgress {
+        if matches!(self, Self::OldRecovery) {
+            RecoveryProgress::DiagnosticCli
+        } else {
+            RecoveryProgress::ConsumerSilent
+        }
+    }
     #[cfg(feature = "t4-manager-actor-service")]
     fn lost_owner_recovery(self) -> bool {
         matches!(self, Self::OldRecovery | Self::ConsumerRecovery)
@@ -1520,7 +1543,7 @@ impl OldRecoveryOwner {
     fn prepare_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
         // Reserve original command custody without a process query/capture.
         // The caller installs this guard before qualification can spawn a child.
-        recovery_checkpoint!(true, Prepare);
+        recovery_checkpoint!(invocation.progress(), Prepare);
         listener_paths(uid, socket)?;
         Ok(Self {
             owner: None,
@@ -1539,7 +1562,7 @@ impl OldRecoveryOwner {
     }
 
     pub(crate) fn stop_and_qualify(&mut self) -> Result<()> {
-        recovery_checkpoint!(true, QualifyEntry);
+        recovery_checkpoint!(self.invocation.progress(), QualifyEntry);
         if self.attempted || self.queries.refused.get() {
             if let Some(owner) = &self.owner {
                 owner.refused.set(true);
@@ -1551,7 +1574,7 @@ impl OldRecoveryOwner {
             // Qualification already holds the SAME migration and singleton
             // locks. Initial manager query uses original retained Queries, so
             // capture failure cannot drop an unknown local Child.
-            recovery_checkpoint!(true, CaptureEntry);
+            recovery_checkpoint!(self.invocation.progress(), CaptureEntry);
             self.owner = Some(StoppedOwner::capture_inner(
                 self.uid,
                 &self.socket,
@@ -1566,11 +1589,11 @@ impl OldRecoveryOwner {
                 // candidates, canonical listeners and live legacy operations must
                 // be absent. Only runtime failed/queued-restart state is permitted.
                 || {
-                    recovery_checkpoint!(true, BeforeStopObservation);
+                    recovery_checkpoint!(self.invocation.progress(), BeforeStopObservation);
                     owner.observe_inner(Some(&self.queries), false)
                 },
                 || {
-                    recovery_checkpoint!(true, StopRuntime);
+                    recovery_checkpoint!(self.invocation.progress(), StopRuntime);
                     let mut budget = Budget::new();
                     let stopped = self.queries.run(
                         FixedRecoveryCommand::StopRuntime,
@@ -1580,7 +1603,7 @@ impl OldRecoveryOwner {
                     if stopped.is_empty() { Ok(()) } else { Err(()) }
                 },
                 || {
-                    recovery_checkpoint!(true, AfterStopObservation);
+                    recovery_checkpoint!(self.invocation.progress(), AfterStopObservation);
                     owner.observe_inner(Some(&self.queries), true)
                 },
             )
@@ -1590,9 +1613,9 @@ impl OldRecoveryOwner {
         }
         self.qualified = result.is_ok();
         if self.qualified {
-            recovery_checkpoint!(true, Qualified);
+            recovery_checkpoint!(self.invocation.progress(), Qualified);
         } else {
-            recovery_checkpoint!(true, QualificationRefused);
+            recovery_checkpoint!(self.invocation.progress(), QualificationRefused);
         }
         result
     }
@@ -1684,6 +1707,8 @@ fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
 }
 
 pub(crate) struct StoppedOwner {
+    #[cfg(feature = "t4-manager-actor-service")]
+    progress: RecoveryProgress,
     root: File,
     root_identity: Metadata,
     uid: u32,
@@ -1720,6 +1745,8 @@ impl StoppedOwner {
         #[cfg(test)] retained_parent: Option<std::rc::Rc<retained_parent_prototype::LocalParent>>,
     ) -> Result<Self> {
         // The plain historical Abort build cannot enter development recovery.
+        #[cfg(feature = "t4-manager-actor-service")]
+        let progress = invocation.progress();
         #[cfg(not(any(test, feature = "t4-manager-actor-service")))]
         if old_queries.is_some() {
             return Err(());
@@ -1728,7 +1755,7 @@ impl StoppedOwner {
         if invocation.lost_owner_recovery() != old_queries.is_some() {
             return Err(());
         }
-        recovery_checkpoint!(old_queries.is_some(), CaptureProcRoot);
+        recovery_checkpoint!(progress, CaptureProcRoot);
         checkpoint!(ProcRoot);
         let listeners = listener_paths(uid, socket)?;
         let root = File::from(
@@ -1745,44 +1772,46 @@ impl StoppedOwner {
         let root_identity = root.metadata().map_err(|_| ())?;
         let mut budget = Budget::new();
         checkpoint!(SelfProcess);
-        recovery_checkpoint!(old_queries.is_some(), CaptureSelfProcess);
+        recovery_checkpoint!(progress, CaptureSelfProcess);
         let myself = Process::capture(&root, std::process::id(), &mut budget)?;
         checkpoint!(SelfArguments);
-        recovery_checkpoint!(old_queries.is_some(), CaptureSelfArguments);
+        recovery_checkpoint!(progress, CaptureSelfArguments);
         invocation.validate(&myself.command)?;
         if myself.status.uids != [uid; 4] || myself.status.namespace_pids != [myself.pid] {
             return Err(());
         }
         checkpoint!(ProcVisibility);
-        recovery_checkpoint!(old_queries.is_some(), CaptureProcVisibility);
+        recovery_checkpoint!(progress, CaptureProcVisibility);
         proc_visibility(&root, &myself, &mut budget)?;
         let mut namespaces = Vec::new();
         checkpoint!(NamespaceHandles);
-        recovery_checkpoint!(old_queries.is_some(), CaptureNamespaces);
+        recovery_checkpoint!(progress, CaptureNamespaces);
         for name in ["ns/pid", "ns/user", "ns/mnt", "ns/net"] {
             let file = magic_file(&myself.directory, name)?;
             let metadata = file.metadata().map_err(|_| ())?;
             namespaces.push((name, file, metadata));
         }
         checkpoint!(ManagerQuery);
-        recovery_checkpoint!(old_queries.is_some(), CaptureManagerQuery);
+        recovery_checkpoint!(progress, CaptureManagerQuery);
         let reply = match old_queries {
             Some(queries) => queries.run(FixedRecoveryCommand::Manager, uid, &mut budget)?,
             None => query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
         };
         checkpoint!(ManagerRecord);
-        recovery_checkpoint!(old_queries.is_some(), CaptureManagerRecord);
+        recovery_checkpoint!(progress, CaptureManagerRecord);
         let manager = if old_queries.is_some() {
             #[cfg(not(any(test, feature = "t4-manager-actor-service")))]
             return Err(());
             #[cfg(any(test, feature = "t4-manager-actor-service"))]
             {
                 let record = RecoveryManagerRecord::parse(&reply, uid)?;
-                recovery_checkpoint!(true, CaptureManagerIdentity);
+                recovery_checkpoint!(progress, CaptureManagerIdentity);
                 let manager = recovery_manager_identity::RecoveryManagerIdentity::capture(
                     &root,
                     record,
                     &mut budget,
+                    #[cfg(feature = "t4-manager-actor-service")]
+                    progress,
                 )?;
                 // The first observe_inner below brackets capture with the second
                 // fixed system snapshot AFTER this graph is in OldRecoveryOwner.
@@ -1815,13 +1844,15 @@ impl StoppedOwner {
             }
         };
         let recovery_cgroup = if old_queries.is_some() {
-            recovery_checkpoint!(true, CaptureCgroupHierarchy);
+            recovery_checkpoint!(progress, CaptureCgroupHierarchy);
             Some(recovery_cgroup::RecoveryCgroup::capture(uid, &mut budget)?)
         } else {
             None
         };
         budget.check()?;
         let observer = Self {
+            #[cfg(feature = "t4-manager-actor-service")]
+            progress,
             root,
             root_identity,
             uid,
@@ -1837,13 +1868,13 @@ impl StoppedOwner {
             // Original manager/namespace capture is inside already installed
             // recovery custody and after engine singleton exclusivity. This
             // capture path itself never issues Stop.
-            recovery_checkpoint!(true, CaptureFinalNamespaces);
+            recovery_checkpoint!(progress, CaptureFinalNamespaces);
             observer.namespace_boundary(&mut budget)?;
-            recovery_checkpoint!(true, CaptureFinalManager);
+            recovery_checkpoint!(progress, CaptureFinalManager);
             observer.manager.recheck(&observer.root, &mut budget)?;
-            recovery_checkpoint!(true, CaptureFinalSelf);
+            recovery_checkpoint!(progress, CaptureFinalSelf);
             observer.myself.recheck(&observer.root, &mut budget)?;
-            recovery_checkpoint!(true, CaptureComplete);
+            recovery_checkpoint!(progress, CaptureComplete);
             return Ok(observer);
         }
         if !observer.recheck() {
@@ -1919,17 +1950,17 @@ impl StoppedOwner {
         runtime_off: bool,
     ) -> Result<()> {
         let mut budget = Budget::new();
-        recovery_checkpoint!(old.is_some(), ObserveNamespaces);
+        recovery_checkpoint!(self.progress, ObserveNamespaces);
         checkpoint!(NamespaceBoundary);
         self.namespace_boundary(&mut budget)?;
         checkpoint!(ProcVisibility);
-        recovery_checkpoint!(old.is_some(), ObserveProcVisibility);
+        recovery_checkpoint!(self.progress, ObserveProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
         checkpoint!(ManagerRecheck);
-        recovery_checkpoint!(old.is_some(), ObserveManager);
+        recovery_checkpoint!(self.progress, ObserveManager);
         self.manager.recheck(&self.root, &mut budget)?;
         checkpoint!(ManagerQuery);
-        recovery_checkpoint!(old.is_some(), ObserveManagerQuery);
+        recovery_checkpoint!(self.progress, ObserveManagerQuery);
         let reply = match old {
             Some(queries) => queries.run(FixedRecoveryCommand::Manager, self.uid, &mut budget)?,
             None => query(
@@ -1940,7 +1971,7 @@ impl StoppedOwner {
             )?,
         };
         checkpoint!(ManagerRecord);
-        recovery_checkpoint!(old.is_some(), ObserveManagerRecord);
+        recovery_checkpoint!(self.progress, ObserveManagerRecord);
         let pid = if old.is_some() {
             #[cfg(not(any(test, feature = "t4-manager-actor-service")))]
             return Err(());
@@ -1960,10 +1991,10 @@ impl StoppedOwner {
         self.manager.recheck_executable()?;
         for unit in ["omavless.service", "omavless-runtime.service"] {
             if unit == "omavless.service" {
-                recovery_checkpoint!(old.is_some(), ObserveLegacyQuery);
+                recovery_checkpoint!(self.progress, ObserveLegacyQuery);
                 checkpoint!(LegacyUnitQuery);
             } else {
-                recovery_checkpoint!(old.is_some(), ObserveRuntimeQuery);
+                recovery_checkpoint!(self.progress, ObserveRuntimeQuery);
                 checkpoint!(RuntimeUnitQuery);
             }
             let reply = match old {
@@ -1979,10 +2010,10 @@ impl StoppedOwner {
                 None => query(self.uid, unit, false, &mut budget)?,
             };
             if unit == "omavless.service" {
-                recovery_checkpoint!(old.is_some(), ObserveLegacyRecord);
+                recovery_checkpoint!(self.progress, ObserveLegacyRecord);
                 checkpoint!(LegacyUnitRecord);
             } else {
-                recovery_checkpoint!(old.is_some(), ObserveRuntimeRecord);
+                recovery_checkpoint!(self.progress, ObserveRuntimeRecord);
                 checkpoint!(RuntimeUnitRecord);
             }
             if let Some(queries) = old {
@@ -1993,7 +2024,7 @@ impl StoppedOwner {
             }
         }
         checkpoint!(Inventory);
-        recovery_checkpoint!(old.is_some(), ObserveInventory);
+        recovery_checkpoint!(self.progress, ObserveInventory);
         #[cfg(test)]
         if let ManagerIdentity::Historical {
             process: manager, ..
@@ -2018,26 +2049,26 @@ impl StoppedOwner {
         #[cfg(not(test))]
         self.inventory(&mut budget)?;
         checkpoint!(UnixTable);
-        recovery_checkpoint!(old.is_some(), ObserveUnixTable);
+        recovery_checkpoint!(self.progress, ObserveUnixTable);
         let net = directory(&self.myself.directory, "net")?;
         let table = proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?;
         checkpoint!(UnixParser);
-        recovery_checkpoint!(old.is_some(), ObserveListeners);
+        recovery_checkpoint!(self.progress, ObserveListeners);
         no_listener(&table, &self.listeners)?;
         checkpoint!(FinalManager);
-        recovery_checkpoint!(old.is_some(), ObserveFinalManager);
+        recovery_checkpoint!(self.progress, ObserveFinalManager);
         self.manager.recheck(&self.root, &mut budget)?;
         checkpoint!(FinalSelf);
-        recovery_checkpoint!(old.is_some(), ObserveFinalSelf);
+        recovery_checkpoint!(self.progress, ObserveFinalSelf);
         self.myself.recheck(&self.root, &mut budget)?;
         checkpoint!(FinalNamespaces);
-        recovery_checkpoint!(old.is_some(), ObserveFinalNamespaces);
+        recovery_checkpoint!(self.progress, ObserveFinalNamespaces);
         self.namespace_boundary(&mut budget)?;
         checkpoint!(FinalProcVisibility);
-        recovery_checkpoint!(old.is_some(), ObserveFinalProcVisibility);
+        recovery_checkpoint!(self.progress, ObserveFinalProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
         checkpoint!(FinalBudget);
-        recovery_checkpoint!(old.is_some(), ObserveFinalBudget);
+        recovery_checkpoint!(self.progress, ObserveFinalBudget);
         budget.check()
     }
 }
@@ -2066,6 +2097,22 @@ mod tests {
         }
         assert_eq!(writes.get(), 256);
         assert_eq!(count.load(Ordering::Relaxed), 256);
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn consumer_recovery_progress_never_reaches_original_writer() {
+        let count = std::sync::atomic::AtomicUsize::new(0);
+        bounded_recovery_diagnostic(
+            SelfInvocation::ConsumerRecovery.progress().enabled(),
+            &count,
+            b"restore_owner_CaptureEntry\n",
+            |_| panic!("consumer terminal writer must not run"),
+        );
+        assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert!(SelfInvocation::OldRecovery.progress().enabled());
+        assert!(!SelfInvocation::Recovery.progress().enabled());
+        assert!(!SelfInvocation::Diagnostic.progress().enabled());
     }
 
     #[test]
