@@ -783,6 +783,9 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         #[cfg(feature = "private-backup")]
         if app.restore_enabled {
             settings.push(Line::from(""));
+            if app.recovery_enabled {
+                settings.push(Line::from(tr("tui.recovery_entry")));
+            }
             settings.push(Line::from(tr("tui.restore_scope")));
             settings.push(Line::from(tr(if app.restore_unresolved() {
                 "tui.restore_pending_entry"
@@ -1674,6 +1677,10 @@ fn settings_scope_key(_app: &App) -> &'static str {
 
 fn settings_keys_key(_app: &App) -> &'static str {
     #[cfg(feature = "private-backup")]
+    if _app.recovery_enabled {
+        return "tui.settings_recovery_keys";
+    }
+    #[cfg(feature = "private-backup")]
     if _app.restore_enabled {
         return "tui.settings_restore_keys";
     }
@@ -1685,8 +1692,13 @@ fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_r
     use crate::private_restore::{Field, State};
     let tr = |key| app.locale.text(key);
     let area = frame.area();
+    let recovery = restore.is_recovery();
     let mut lines = vec![
-        Line::from(tr("tui.restore_scope")),
+        Line::from(tr(if recovery {
+            "tui.recovery_scope"
+        } else {
+            "tui.restore_scope"
+        })),
         Line::from(tr("tui.restore_private")),
         Line::from(""),
     ];
@@ -1720,25 +1732,54 @@ fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_r
         State::Confirming => {
             if let Some((profiles, subscriptions)) = restore.counts() {
                 lines.push(Line::from(
-                    tr("tui.restore_counts")
-                        .replace("{profiles}", &profiles.to_string())
-                        .replace("{subscriptions}", &subscriptions.to_string()),
+                    tr(if recovery {
+                        "tui.recovery_counts"
+                    } else {
+                        "tui.restore_counts"
+                    })
+                    .replace("{profiles}", &profiles.to_string())
+                    .replace("{subscriptions}", &subscriptions.to_string()),
                 ));
             }
-            lines.push(Line::from(tr("tui.restore_preview_data")));
+            lines.push(Line::from(tr(if recovery {
+                "tui.recovery_preview_data"
+            } else {
+                "tui.restore_preview_data"
+            })));
             lines.push(Line::from(""));
-            lines.push(Line::from(tr("tui.restore_replace")));
-            lines.push(Line::from(tr("tui.restore_off")));
+            lines.push(Line::from(tr(if recovery {
+                if restore.recovery_keeps_new() == Some(true) {
+                    "tui.recovery_keep_new"
+                } else {
+                    "tui.recovery_keep_old"
+                }
+            } else {
+                "tui.restore_replace"
+            })));
+            lines.push(Line::from(tr(if recovery {
+                "tui.recovery_off"
+            } else {
+                "tui.restore_off"
+            })));
             lines.push(Line::from(""));
-            lines.push(Line::from(tr("tui.restore_confirm")));
+            lines.push(Line::from(tr(if recovery {
+                "tui.recovery_confirm"
+            } else {
+                "tui.restore_confirm"
+            })));
         }
         state => {
             lines.push(Line::from(""));
             lines.push(Line::from(tr(match state {
                 State::Previewing => "tui.restore_previewing",
+                State::Submitted if recovery => "tui.recovery_submitted",
                 State::Submitted => "tui.restore_submitted",
+                State::Completed if recovery => "tui.recovery_completed",
                 State::Completed => "tui.restore_completed",
+                State::AvailabilityUnverified => "tui.recovery_availability_unverified",
+                State::Denied if recovery => "tui.recovery_denied",
                 State::Denied => "tui.restore_denied",
+                State::Unknown if recovery => "tui.recovery_unknown",
                 State::Unknown => "tui.restore_unknown",
                 State::PreviewUnavailable => "tui.restore_preview_unavailable",
                 State::Cancelled => "tui.restore_cancelled",
@@ -1750,13 +1791,21 @@ fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_r
         lines.push(Line::from(tr(app.notice)));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(tr("tui.restore_return")));
+    lines.push(Line::from(tr(if recovery {
+        "tui.recovery_return"
+    } else {
+        "tui.restore_return"
+    })));
     let content = if area.width >= 70 && area.height >= 24 {
         lines
     } else {
         vec![
             Line::from(tr("tui.action_resize")),
-            Line::from(tr("tui.restore_return")),
+            Line::from(tr(if recovery {
+                "tui.recovery_return"
+            } else {
+                "tui.restore_return"
+            })),
         ]
     };
     frame.render_widget(
@@ -1765,7 +1814,11 @@ fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_r
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(tr("tui.restore_title")),
+                    .title(tr(if recovery {
+                        "tui.recovery_title"
+                    } else {
+                        "tui.restore_title"
+                    })),
             )
             .style(app.palette.normal()),
         area,

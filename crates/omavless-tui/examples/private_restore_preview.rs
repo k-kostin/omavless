@@ -25,14 +25,22 @@ fn escape(v: &str) -> String {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    let recovery = args.get(2).is_some_and(|s| s.starts_with("recovery-"));
+    let scenario = args
+        .get(2)
+        .map_or("", |s| s.strip_prefix("recovery-").unwrap_or(s));
     if args.len() != 4
         || !matches!(args[0].as_str(), "en" | "ru")
-        || !matches!(args[1].as_str(), "70x24" | "50x14")
+        || !matches!(args[1].as_str(), "70x24" | "100x30" | "50x14")
         || !matches!(
-            args[2].as_str(),
+            scenario,
             "editing"
                 | "confirming"
                 | "confirming-long"
+                | "confirming-old"
+                | "availability-unverified"
+                | "previewing"
+                | "submitted"
                 | "unknown"
                 | "completed"
                 | "denied"
@@ -50,6 +58,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let (w, h) = if args[1] == "50x14" {
         (50u16, 14u16)
+    } else if args[1] == "100x30" {
+        (100, 30)
     } else {
         (70, 24)
     };
@@ -57,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new(locale);
     app.actions_enabled = true;
     app.restore_enabled = true;
+    app.recovery_enabled = recovery;
     app.backup_enabled = true;
     let mut s=load_page(&mut|read|{
         let mut v=support::response(read);
@@ -65,16 +76,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     },Page::Settings).unwrap();
     s.capabilities.private_restore = true;
     s.capabilities.private_backup = true;
-    app.accept(Ok(s), now);
+    if !recovery {
+        app.accept(Ok(s), now);
+    }
     let press = |app: &mut App, k| app.key_at(KeyEvent::new(k, KeyModifiers::NONE), now);
     press(&mut app, KeyCode::Char(','));
-    if args[2] == "settings-end" {
+    if scenario == "settings-end" {
         press(&mut app, KeyCode::End);
         view::clamp_scroll(&mut app, w, h, now);
     }
-    if !matches!(args[2].as_str(), "settings" | "settings-end") {
-        press(&mut app, KeyCode::Char('R'));
-        let path = if args[2] == "confirming-long" {
+    if !matches!(scenario, "settings" | "settings-end") {
+        press(&mut app, KeyCode::Char(if recovery { 'Y' } else { 'R' }));
+        let path = if scenario == "confirming-long" {
             format!("/private/{}.ovb", "x".repeat(147))
         } else {
             "/private/public-fixture.ovb".into()
@@ -86,28 +99,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for ch in "synthetic-only-secret".chars() {
             press(&mut app, KeyCode::Char(ch));
         }
-        if args[2] != "editing" {
+        if scenario != "editing" {
             press(&mut app, KeyCode::Enter);
             let original = app.take_restore_request().unwrap();
-            if args[2] == "cancelled-preview-waiting" {
+            if scenario == "cancelled-preview-waiting" {
                 // Retain the actual original synthetic request without a reply.
                 press(&mut app, KeyCode::Esc);
-                press(&mut app, KeyCode::Char('R'));
+                press(&mut app, KeyCode::Char(if recovery { 'Y' } else { 'R' }));
                 std::hint::black_box(&original);
+            } else if scenario == "previewing" {
+                std::hint::black_box(&original);
+            } else if recovery {
+                app.finish_restore(original.settle_recovery(
+                    omavless_tui::private_restore::RecoveryResult::Preview {
+                        profiles: 3,
+                        subscriptions: 1,
+                        keep_new: scenario != "confirming-old",
+                    },
+                ));
             } else {
                 app.finish_restore(original.settle(Ok(json!({"ok":true,"revision":7,"result":{"profiles":3,"subscriptions":1,"scope":"privatePair","ciphertextDigest":"a".repeat(64)}}))));
             }
-            if matches!(args[2].as_str(), "unknown" | "completed" | "denied") {
+            if matches!(
+                scenario,
+                "unknown" | "completed" | "denied" | "availability-unverified" | "submitted"
+            ) {
                 press(&mut app, KeyCode::Enter);
                 let original = app.take_restore_request().unwrap();
-                let result = match args[2].as_str() {
-                    "completed" => Ok(
-                        json!({"ok":true,"revision":8,"result":{"completed":true,"replayed":false,"scope":"privatePair"}}),
-                    ),
-                    "denied" => Ok(json!({"ok":false,"error":{"code":"conflict"}})),
-                    _ => Err(ReadError::Unavailable),
-                };
-                app.finish_restore(original.settle(result));
+                if scenario == "submitted" {
+                    std::hint::black_box(&original);
+                } else if recovery {
+                    use omavless_tui::private_restore::RecoveryResult;
+                    app.finish_restore(original.settle_recovery(match scenario {
+                        "completed" => RecoveryResult::Completed,
+                        "denied" => RecoveryResult::Denied,
+                        "availability-unverified" => RecoveryResult::AvailabilityUnverified,
+                        _ => RecoveryResult::Unknown,
+                    }));
+                } else {
+                    let result = match scenario {
+                        "completed" => Ok(
+                            json!({"ok":true,"revision":8,"result":{"completed":true,"replayed":false,"scope":"privatePair"}}),
+                        ),
+                        "denied" => Ok(json!({"ok":false,"error":{"code":"conflict"}})),
+                        _ => Err(ReadError::Unavailable),
+                    };
+                    app.finish_restore(original.settle(result));
+                }
             }
         }
     }

@@ -24,6 +24,8 @@ pub struct App {
     #[cfg(feature = "private-backup")]
     pub restore_enabled: bool,
     #[cfg(feature = "private-backup")]
+    pub recovery_enabled: bool,
+    #[cfg(feature = "private-backup")]
     pub restore: Option<crate::private_restore::Workspace>,
     #[cfg(feature = "private-backup")]
     pub restore_open: bool,
@@ -159,6 +161,8 @@ impl App {
             import_serial: 0,
             #[cfg(feature = "private-backup")]
             restore_enabled: false,
+            #[cfg(feature = "private-backup")]
+            recovery_enabled: false,
             #[cfg(feature = "private-backup")]
             restore: None,
             #[cfg(feature = "private-backup")]
@@ -456,7 +460,9 @@ impl App {
                     code if backup_navigation_key(code) && self.backup_unresolved() => {
                         self.backup_open = true;
                     }
-                    KeyCode::Char('R') if self.restore_unresolved() => self.restore_open = true,
+                    KeyCode::Char('R' | 'Y') if self.restore_unresolved() => {
+                        self.restore_open = true
+                    }
                     KeyCode::Char('r') => return Action::Refresh,
                     KeyCode::Tab | KeyCode::BackTab => {
                         let next = self.page.next(
@@ -627,6 +633,16 @@ impl App {
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
                 self.operator_query.clear();
+                return Action::None;
+            }
+            #[cfg(feature = "private-backup")]
+            if self.page == crate::inspection::Page::Settings
+                && key.code == KeyCode::Char('Y')
+                && self.recovery_available()
+            {
+                self.restore = crate::private_restore::Workspace::new_recovery();
+                self.restore_open = self.restore.is_some();
+                self.notice = "";
                 return Action::None;
             }
             #[cfg(feature = "private-backup")]
@@ -1110,6 +1126,20 @@ impl App {
             })
     }
     #[cfg(feature = "private-backup")]
+    pub fn recovery_available(&self) -> bool {
+        self.recovery_enabled
+            && self.restore_enabled
+            && self.viewport_ready
+            && !self.running
+            && !self.unknown
+            && self.pending.is_none()
+            && !self.import_open
+            && !self.import_unresolved()
+            && !self.backup_unresolved()
+            && !self.restore_unresolved()
+            && !self.job.as_ref().is_some_and(|j| j.blocks_actions())
+    }
+    #[cfg(feature = "private-backup")]
     pub(crate) fn restore_unresolved(&self) -> bool {
         self.restore.as_ref().is_some_and(|w| w.unresolved())
     }
@@ -1142,7 +1172,7 @@ impl App {
         }
         if matches!(
             w.state(),
-            State::Previewing | State::Submitted | State::Unknown
+            State::Previewing | State::Submitted | State::Unknown | State::AvailabilityUnverified
         ) {
             return if key.code == KeyCode::Char('q') {
                 Action::Close

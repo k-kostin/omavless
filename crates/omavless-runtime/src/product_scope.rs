@@ -22,6 +22,12 @@ pub(crate) fn method_disabled(method: &str) -> bool {
                 | "developer.backup_current"
                 | "developer.pause_current_intent"
                 | "developer.abort_current_intent"
+                | "developer.cut_current_first_rename"
+                | "developer.cut_current_terminal"
+                | "developer.abort_current_after_retirement_cut"
+                | "developer.cut_current_committed_retirement"
+                | "developer.cut_current_committed_ticket"
+                | "developer.cut_current_committed_complete"
         )
 }
 
@@ -53,6 +59,12 @@ mod tests {
             "developer.backup_current",
             "developer.pause_current_intent",
             "developer.abort_current_intent",
+            "developer.cut_current_first_rename",
+            "developer.cut_current_terminal",
+            "developer.abort_current_after_retirement_cut",
+            "developer.cut_current_committed_retirement",
+            "developer.cut_current_committed_ticket",
+            "developer.cut_current_committed_complete",
         ] {
             assert_eq!(method_disabled(method), backup_only());
         }
@@ -97,6 +109,21 @@ mod tests {
             )
             .is_err()
         );
+        for (command, confirmation) in [
+            (
+                "cut-current-first-rename",
+                "--confirm-private-first-rename-cut",
+            ),
+            ("cut-current-terminal", "--confirm-private-terminal-cut"),
+        ] {
+            assert!(
+                crate::developer_current_restore::from_private_input(
+                    &["developer".into(), command.into(), confirmation.into()],
+                    NoRead
+                )
+                .is_err()
+            );
+        }
         assert!(
             crate::private_pair_api::preview_from_private_input(
                 &["backup".into(), "preview".into()],

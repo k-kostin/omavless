@@ -58,6 +58,53 @@ acceptance; earlier private-composition process-loss evidence does not accept it
 
 ## User task and scope
 
+### Nonpublic consumer recovery candidate
+
+The owner-authorized next development assembly targets 0.9.9; this is not
+authorization to activate Restore in public 0.9.8, change main or publish a
+release. Its selected source and applicable installed/UX/integration/export
+evidence must qualify independently. The historical research results below do
+not substitute for this candidate's acceptance.
+
+The ordinary TUI Settings Restore entry uses the current disconnected owner's
+authenticated preview and digest-bound explicit replacement confirmation.
+A distinct **Recover interrupted Restore** entry may be opened without an
+ordinary daemon snapshot. Opening it is navigation, not recovery admission.
+Both flows use bounded private archive input and a masked passphrase, with no
+secret arguments, environment values, logs or generic shell/privileged IPC.
+
+Recovery Preview authenticates the archive and observes two unchanged bounded
+snapshots under an existing-only migration lock. It displays archive counts and
+one proposed OLD rollback or committed NEW preservation. This is comparison
+DATA only: it neither reserves FreshRecovery nor queries/stops the manager,
+syncs, publishes, unlinks, reconstructs former FDs or admits an ordinary owner.
+The local worker retains the preview binding; Cancel never confirms it. No
+ordinary IPC response can manufacture that local confirmation.
+
+Confirm consumes the same worker/workspace observation once. The new recovery
+origin reauthenticates the actual ciphertext and compares its exact digest,
+closed disposition and configuration/record identities under its own lease
+before native capture or Stop. All existing manager, cgroup, singleton,
+generation, Desired, archive and package guards remain mandatory. There is no
+seven-command probing, automatic OLD/NEW fallback or failed-connect authority.
+Supported complete stage/journal, closure-only, ticket and closed Complete
+prefixes are distinct procedures; malformed, sparse, exhausted, torn or
+unsupported shapes refuse rather than becoming a generic repair capability.
+Prior immutable history is preserved, not overwritten to obtain capacity.
+
+Configuration completion and ordinary availability are separate results. Only
+positive typed release permits one fixed ordinary Start and independent Off
+readback. An availability failure must say that configuration was recovered
+but availability is unverified, not invite recovery again. Unknown outcomes
+remain non-repeatable; do not promise an active existence fence after an
+uncertain late history rename. Preserve actual evidence without cleanup/reset.
+
+Changed consumer screens need EN/RU, minimum/normal width, focus, masking,
+Preview/Cancel/OLD/NEW/Unknown and availability-result review before integration.
+Source rendering is not installed consumer acceptance. Earn real fresh owned
+owner-loss OLD/NEW recovery and fresh ordinary availability with exact packages;
+neither historical CLI acceptance nor a source-only matrix closes this gate.
+
 The user goal is to move or recover their own profiles, subscriptions and
 routing preferences without copying runtime ownership to another machine.
 Backup targets the currently committed private configuration; Restore targets

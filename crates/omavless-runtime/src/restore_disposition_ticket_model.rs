@@ -88,6 +88,11 @@ impl Ticket {
                 .matches_owner_desired(generation, desired)
     }
 
+    /// Canonical nested comparison DATA, not a descriptor or former authority.
+    pub(crate) fn closure_data(&self) -> &ClosureRecord {
+        &self.closure
+    }
+
     /// Historical identity only. Current desired/live state must be validated
     /// independently; this never authenticates an archive or grants effects.
     pub(crate) fn matches_history(
