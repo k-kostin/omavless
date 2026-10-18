@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "version": "0.9.8",
+  "version": "0.9.9",
   "packages": {
     "x86_64": {
-      "sha256": "a4fd4e993016016d4b1af989b0e3f491e8d3d0065f0fc78e75cd9607c63c90a8",
-      "sourceCommit": "e2fea87de20d64a7867d13871e350ff0df552f0f"
+      "sha256": "513791433ae32b741daac6ebbc1bb66143a88b5652f6c7e49d67e97d24d9cb6b",
+      "sourceCommit": "082306cfe6fad3677d98d28068a1cfb0365f942d"
     },
     "aarch64": {
-      "sha256": "cd61471f1434bbeb8650a5f68f8d967e35910f1c6356d6c5bad8c349a02f0125",
-      "sourceCommit": "e2fea87de20d64a7867d13871e350ff0df552f0f"
+      "sha256": "8aadb76a2115851916f70c61b11023d09a911270f6986356af7837f78de493c7",
+      "sourceCommit": "082306cfe6fad3677d98d28068a1cfb0365f942d"
     }
   }
 }
