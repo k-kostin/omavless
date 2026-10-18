@@ -130,7 +130,7 @@ function context(){
   page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',nativeOnboardingCompletionPending:null,nativeOnboardingCompletionUnconfirmed:false,
   onboardingCompletionTimeout:{stop(){},restart(){}},
   onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},
-  importDialog:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
+  importDialog:{visible:false},importEntryPrompt:{visible:false},bundleImportPrompt:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
  c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset',
   'dismissOnboarding','finishOnboarding','markOnboardingCompletionUnconfirmed','reviewComponentSetup']);return c;
 }
@@ -248,7 +248,7 @@ test('new onboarding guidance has complete safe EN/RU text',()=>{
  }
 });
 test('missing/stale/closed/pending metadata never opens first use over another operation',()=>{
- for(const change of [c=>c.vless.nativeSnapshot=null,c=>c.vless.nativeSnapshotFailed=true,c=>c.vless.nativeStatusRefreshing=true,c=>c.opened=false,c=>c.vless.nativePending={},c=>c.vless.nativeImportBusy=true,c=>c.importDialog.visible=true,c=>c.subscriptionPrompt.visible=true]){const c=context();change(c);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible)}
+ for(const change of [c=>c.vless.nativeSnapshot=null,c=>c.vless.nativeSnapshotFailed=true,c=>c.vless.nativeStatusRefreshing=true,c=>c.opened=false,c=>c.vless.nativePending={},c=>c.vless.nativeImportBusy=true,c=>c.importDialog.visible=true,c=>c.importEntryPrompt.visible=true,c=>c.bundleImportPrompt.visible=true,c=>c.subscriptionPrompt.visible=true]){const c=context();change(c);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible)}
 });
 test('quick reopen waits for fresh completion rather than cached unfinished onboarding',()=>{
  const c=context();c.vless.nativeStatusRefreshing=true;

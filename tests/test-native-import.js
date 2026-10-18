@@ -23,17 +23,18 @@ function harness() {
       desired:{connected:false,mode:'rule',generation:3},availability:'observed',manualRecoveryRequired:false},
     nativePending:null,nativeQuitting:false,nativeOutcomeUnknown:false,nativeActionCode:'',nativeImportCode:'',
     _nativeOperationSerial:0,_nativeImportContext:null,_nativeSourceContext:null,_nativePreviewContext:null,
-    importPreview:{},nativeImportSource:{running:false},nativeImportPreview:{running:false},
+    importPreview:{},nativeBundlePreview:null,bundleReady:0,nativeImportSource:{running:false},nativeImportPreview:{running:false},
     nativeActionProcess:{running:false},backendPath:'/synthetic/backend.sh',ready:[],subscriptionReady:[]});
   c.importReady = (...args) => c.ready.push(args);
+  c.nativeBundleReady = () => c.bundleReady++;
   c.startNativeSubscription = (...args) => { c.subscriptionReady.push(args); return true; };
   for (const name of ['nativeFactsCurrent','nativeCanAct','nativeActionRunning','nativeImportBusy']) {
     const match = source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:property|readonly|function|$))'));
     assert(match, name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',c);
   }
-  for (const name of ['cancelNativeImport','startNativeImport','nativeImportCurrent','finishNativeImportSource',
-    'finishNativeImportPreview','confirmNativeImport','isValidName','reconcileNativeAction']) {
+  for (const name of ['cancelNativeImport','startNativeImport','startNativeImportText','nativeImportCurrent','finishNativeImportSource',
+    'finishNativeImportPreview','confirmNativeImport','confirmNativeBundle','isValidName','reconcileNativeAction']) {
     const start=source.indexOf('  function '+name+'('), end=source.indexOf('\n  }',start)+4;
     assert(start>=0 && end>start,name);vm.runInContext(source.slice(start,end),c);
   }
@@ -178,5 +179,114 @@ test('Add rejects duplicates without replacement and confirmation preserves exac
   const saved=JSON.stringify(c.nativePending);c.nativeActionProcess.running=false;c.nativeOutcomeUnknown=true;
   assert.equal(c.reconcileNativeAction(),true);assert.equal(JSON.stringify(c.nativePending),saved);assert.equal(c.nativeActionProcess.stdinEnabled,true);
   assert.equal(JSON.stringify(c.nativeSnapshot),before);
+});
+test('direct entry uses canonical preview without acquisition, write or connection',()=>{
+  const c=harness(), before=JSON.stringify(c.nativeSnapshot);
+  assert(c.startNativeImportText('synthetic-private-link'));
+  assert.equal(c.nativeImportSource.running,false);
+  assert.equal(c.nativeImportPreview.running,true);
+  assert.equal(c._nativePreviewContext.input,'synthetic-private-link');
+  assert.equal(c.nativePending,null);
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
+  assert.deepEqual(c.ready[0],['native-entry','','Synthetic']);
+  assert.equal(JSON.stringify(c.nativeSnapshot),before);
+  assert(c.confirmNativeImport('Typed'));
+  assert.equal(c.nativePending.input,'Typed\nsynthetic-private-link');
+});
+test('direct subscription entry requires confirmation and canonical duplicate decision',()=>{
+  for(const duplicate of [false,true]) {
+    const c=harness();assert(c.startNativeImportText('https://synthetic.invalid/token'));
+    c.nativeImportPreview.running=false;
+    c.finishNativeImportPreview(0,frame({version:1,kind:'subscription',suggestedName:'Subscription',duplicate}));
+    assert.equal(c.subscriptionReady.length,duplicate?0:1);
+    assert.equal(c.nativePending,null);
+    assert.equal(c.nativeImportCode,duplicate?'duplicateSubscription':'');
+  }
+});
+test('direct entry enforces bounds and refuses concurrent or stale work',()=>{
+  for(const value of ['',null,'x'.repeat(32769),'я'.repeat(16385),'\ud800','bad\0value']) {
+    const c=harness();assert.equal(c.startNativeImportText(value),false);
+    assert.equal(c.nativeImportPreview.running,false);
+  }
+  for(const change of [c=>c.nativeOwner=false,c=>c.nativeImportSource.running=true,c=>c._nativeImportContext={}]) {
+    const c=harness();change(c);assert.equal(c.startNativeImportText('private'),false);
+  }
+  const c=harness();c.startNativeImportText('private');c.nativeSnapshot.revision++;
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
+  assert.equal(c.ready.length,0);assert.equal(c.nativeImportCode,'stale');
+});
+test('cancel clears retained private preview context and rejects late completion',()=>{
+  const c=harness();c.startNativeImportText('private');const retained=c._nativePreviewContext;
+  c.cancelNativeImport();assert.equal(retained.input,'');
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
+  assert.equal(c.ready.length,0);assert.equal(c.nativePending,null);
+});
+function bundle(accepted=2) { return {version:1,kind:'bundle',counts:{accepted,duplicates:1,skipped:1},previewFingerprint:'a'.repeat(64)}; }
+test('bundle preview accepts bounded counts only, never arbitrary private projection',()=>{
+  assert.equal(parser.parseImportPreview(frame(bundle()),4).counts.accepted,2);
+  for (const change of [r=>r.counts.accepted=-1,r=>r.counts.accepted=257,r=>r.counts.skipped=1024,
+    r=>r.counts.duplicates=1.5,r=>r.counts.private='secret',r=>r.previewFingerprint='private',
+    r=>r.extra='secret',r=>r.counts={accepted:0,duplicates:0,skipped:0}]) {
+    const r=bundle();change(r);assert.equal(parser.parseImportPreview(frame(r),4),null);
+  }
+});
+test('entry clipboard and file bundle preview are read-only; cancel clears secrets',()=>{
+  for (const kind of ['entry','clipboard','file']) {
+    const c=harness(), before=JSON.stringify(c.nativeSnapshot);
+    if(kind==='entry') c.startNativeImportText('private\nbundle'); else sourced(c,'private\nbundle',kind);
+    c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame(bundle()));
+    assert.equal(c.bundleReady,1);assert.equal(c.ready.length,0);assert.equal(c.subscriptionReady.length,0);
+    assert.equal(c.nativePending,null);assert.equal(c.confirmNativeImport('No'),false);
+    assert.equal(JSON.stringify(c.nativeSnapshot),before);
+    const context=c._nativeImportContext;c.cancelNativeImport();assert.equal(context.input,'');
+    assert.equal(c.nativeBundlePreview,null);assert.equal(c.confirmNativeBundle(),false);
+  }
+});
+test('bundle confirmation binds exact private input and fingerprint only through stdin',()=>{
+  const c=harness();c.startNativeImportText('private\nbundle');
+  c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame(bundle()));
+  assert(c.confirmNativeBundle());
+  assert.equal(c.nativePending.action,'profile-bundle-import');
+  assert.equal(c.nativePending.input,'a'.repeat(64)+'\nprivate\nbundle');
+  assert.equal(c.nativeActionProcess.command.length,6);
+  assert(!JSON.stringify(c.nativeActionProcess.command).includes('private'));
+  assert.equal(c.nativeBundlePreview,null);assert.equal(c._nativeImportContext,null);
+  const saved=JSON.stringify(c.nativePending);c.nativeActionProcess.running=false;c.nativeOutcomeUnknown=true;
+  assert(c.reconcileNativeAction());assert.equal(JSON.stringify(c.nativePending),saved);
+  const response=JSON.stringify({api:'omavless.control',version:1,id:'save',ok:true,revision:5,
+    result:{schemaVersion:1,instanceId:c.nativePending.instanceId,operationId:c.nativePending.operationId,action:'profile-bundle-import',applied:true}});
+  assert.equal(parser.parseAction(response,c.nativePending).ok,true);
+});
+test('bundle stale epoch/revision, unknown state and no-new preview refuse writes',()=>{
+  for (const change of [c=>c.nativeSnapshot.revision++,c=>c.nativeSnapshot.instanceId='new',
+    c=>c.nativeOutcomeUnknown=true,c=>c.nativeBundlePreview.accepted=0]) {
+    const c=harness();c.startNativeImportText('private');c.nativeImportPreview.running=false;
+    c.finishNativeImportPreview(0,frame(bundle()));change(c);
+    assert.equal(c.confirmNativeBundle(),false);assert.equal(c.nativePending,null);
+  }
+});
+test('actual panel signal routes direct entry as well as file/clipboard previews',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
+  const start=source.indexOf('    function onImportReady('),end=source.indexOf('\n    }',start)+6;
+  const calls=[], c=vm.createContext({vless:{nativeOwner:true},root:{opened:true,beginImport:(...args)=>calls.push(args)}});
+  vm.runInContext(source.slice(start,end),c);
+  for (const kind of ['native-entry','native-file','native-clipboard']) c.onImportReady(kind,'','Synthetic');
+  c.onImportReady('legacy','','Synthetic');assert.equal(calls.length,3);
+  assert(source.includes('bundleImportPrompt.visible'));
+});
+test('private direct entry starts masked and clears reveal on every close',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportEntryPrompt.qml'),'utf8');
+  assert(source.includes('property bool revealed: false'));
+  assert(source.includes('opacity: prompt.revealed ? 1 : 0'));
+  assert(source.includes('revealed = false'));
+  assert(source.includes('visible: !prompt.revealed'));
+  assert(source.includes('entry.cancelPaste()'));
+});
+test('unavailable import explains cancellation and disabled Review is visibly inactive',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportEntryPrompt.qml'),'utf8');
+  assert(source.includes('objectName: "omavlessImportUnavailable"'));
+  assert(source.includes('visible: !prompt.available'));
+  const start=source.indexOf('            id: review')>=0 ? source.indexOf('            id: review') : source.indexOf('id: review');
+  assert(source.slice(start).includes('opacity: enabled ? 1 : 0.45'));
 });
 console.log(`${count} native import tests passed`);

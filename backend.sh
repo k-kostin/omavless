@@ -163,7 +163,7 @@ if command -v omavless >/dev/null 2>&1; then
             native-import-path) exec omavless desktop file-read ;;
           esac
           ;;
-        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import|native-profile-replace|native-subscription-add|native-subscription-update|native-subscription-delete|native-subscription-refresh|native-routing-preset|native-custom-rule-add|native-custom-rule-delete)
+        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import|native-profile-bundle-import|native-profile-replace|native-subscription-add|native-subscription-update|native-subscription-delete|native-subscription-refresh|native-routing-preset|native-custom-rule-add|native-custom-rule-delete)
           action=${1#native-}
           shift
           exec omavless plugin "$action" "$@"

@@ -122,6 +122,26 @@ restoration. `tests/run-rust.sh` checks the optional runtime adapter as well as
 the default workspace. The Python PTY driver is developer tooling, not a runtime
 dependency.
 
+The direct-import successor adds `tests/test-tui-native-import-wire.py` to the
+normal Rust gate. It launches the actual `omavless tui` binary built with only
+`--no-default-features --features tui`, using a hash-checked immutable copy.
+Its same-UID Unix peer has fixed synthetic read/classify/action replies in a
+new mode-0700 HOME-backed fixture with a mode-0600 socket. Real 70×24 EN/RU PTYs
+exercise F3, Ctrl+N, bracketed paste, masking, Cancel/Save counts, exact Hello
+guards, owner/revision refusal and unknown Save without retry. A standalone
+Escape must visibly close the Unknown modal before ordinary
+selection/Connect/confirmation/mode keys are tried; F3 then visibly reopens the
+same Unknown workspace without another classify or Save. A paired Cancel→
+Connect control earns actual ordinary-action reachability against the synthetic
+peer, so missing capabilities or an unparsed Escape cannot make the refusal
+row pass vacuously. This is still not a real connection or authorization.
+A fixed bounded
+H/J/K text-cell projection handles only the selected one-cell EN/RU fixtures,
+not arbitrary terminal emulation. This port retains the copied executable and
+its fresh directory on either outcome rather than deleting admission artifacts.
+This earns native **client wire** evidence, not real daemon/store/provider,
+canonical classification/save, packaged private T4 pair or installed acceptance.
+
 Live acceptance should attach to an already running runtime, verify the rendered
 active identity privately, close/reopen the client, and compare before/after
 desired/actual state, revision and owner/core/TUN identity. Do not disconnect an

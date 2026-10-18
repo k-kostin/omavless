@@ -25,7 +25,9 @@ if (mode !== 'gui') {
 }
 const child = spawn('/usr/bin/qs', ['-p', stage], {env, stdio:['ignore','pipe','pipe']});
 let output = '', receipt = false, stopped = false;
-const timer = setTimeout(() => child.kill('SIGTERM'), 20000);
+// Two explicit slow-provider cases each exercise the six-second helper bound.
+// Leave bounded startup/Qt-test time on the ARM VM without changing that bound.
+const timer = setTimeout(() => child.kill('SIGTERM'), 45000);
 function observe(bytes) {
   output += bytes.toString();
   if (output.length > 65536) { child.kill('SIGTERM'); return; }
@@ -44,12 +46,13 @@ function observe(bytes) {
   }
 }
 child.stdout.on('data', observe); child.stderr.on('data', observe);
-child.on('error', () => { receipt = false; });
-child.on('close', code => {
+child.on('error', error => { receipt = false; console.log(`fixture spawn failure: ${error.code || 'unknown'}`); });
+child.on('close', (code, signal) => {
   clearTimeout(timer);
   // Receipts, process exit and absence of QML errors are independent gates.
   const passed = receipt && code === 0 && !/ERROR:|TypeError:|ReferenceError:|has crashed/.test(output);
   console.log(`${mode}: ${passed ? 'PASS' : 'FAIL'}`);
+  if (!passed) console.log(`original fixture exit=${code} signal=${signal || 'none'} receipt=${receipt}`);
   if (!passed) console.log(output);
   process.exitCode = passed ? 0 : 1;
 });

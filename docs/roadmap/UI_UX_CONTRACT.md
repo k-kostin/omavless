@@ -311,6 +311,14 @@ an applicability reason; do not turn every small change into a full UI audit.
 
 ### Pick affected states, not a ceremonial full-product rerun
 
+Changing a global terminal/input mode requires checking every existing editor,
+not just the new dialog. Bracketed paste must reach only the active field and
+must not replay shortcuts, Enter or confirmations. Verify advertised modified
+keys through real terminal encoding/PTY input; synthetic key objects alone can
+hide an unsupported key combination. Trace action copy to the actual semantic
+runtime dispatch: a save-shaped label must disclose a subscription fetch when
+that existing operation fetches before committing.
+
 For profile selection/connection/action layout, cover these contrasts. For
 other UI changes select the corresponding affected and adjacent states and
 explain any exclusions briefly.

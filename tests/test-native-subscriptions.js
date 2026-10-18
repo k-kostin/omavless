@@ -162,4 +162,12 @@ test('ordinary subscription failure is not styled as a fatal VPN failure on the 
   assert(line && line.includes('color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim'));
   assert(line.includes('wrapMode: Text.Wrap'));
 });
+test('private confirmation explanation has full width below URL controls',()=>{
+  const prompt=fs.readFileSync(path.join(__dirname,'../plugin/SubscriptionPrompt.qml'),'utf8');
+  const hint=prompt.match(/PlainText\s*\{\s*id: privateHint[\s\S]*?\n        \}/);
+  assert(hint,'named full-width private hint');
+  assert(hint[0].includes('width: parent.width'));
+  assert(!hint[0].includes('Layout.fillWidth'));
+  assert(prompt.indexOf('id: privateHint')>prompt.indexOf('id: pasteUrl'));
+});
 console.log('native subscriptions: '+count+' passed');

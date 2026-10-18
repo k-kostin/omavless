@@ -8,12 +8,14 @@ pub mod client;
 #[cfg(feature = "developer-conditional-close")]
 pub mod developer_close;
 pub mod i18n;
+mod import_ui;
 pub mod inspection;
 pub mod job_ui;
 pub mod jobs;
 pub mod model;
 #[cfg(feature = "private-backup")]
 pub mod private_backup;
+pub mod private_import;
 #[cfg(feature = "private-backup")]
 pub mod private_restore;
 pub mod route_inspection;
@@ -24,6 +26,8 @@ pub mod traffic_history;
 pub mod view;
 
 use app::{Action, App};
+pub type ImportAdapter =
+    Box<dyn FnMut(private_import::Request) -> private_import::Completion + Send>;
 use client::Read;
 use model::ReadError;
 use ratatui::crossterm::event::{self, Event};
@@ -38,6 +42,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use zeroize::Zeroizing;
 
 #[cfg(feature = "private-backup")]
 type BackupAdapter = Box<dyn FnMut(private_backup::Request) -> private_backup::Completion + Send>;
@@ -48,6 +53,25 @@ type RestoreAdapter =
     Box<dyn FnMut(private_restore::Request) -> private_restore::Completion + Send>;
 #[cfg(not(feature = "private-backup"))]
 type RestoreAdapter = ();
+
+enum Input {
+    Event(Event),
+    Paste(Zeroizing<String>),
+    OversizedPaste,
+}
+fn bound_input(event: Event) -> Input {
+    match event {
+        Event::Paste(text) => {
+            let private = Zeroizing::new(text);
+            if private.len() > private_import::MAX_INPUT {
+                Input::OversizedPaste
+            } else {
+                Input::Paste(private)
+            }
+        }
+        event => Input::Event(event),
+    }
+}
 
 /// Ratatui 0.30's Terminal destructor uses eprintln! if cursor restoration
 /// fails. After a PTY is revoked both that write and the destructor can panic.
@@ -61,6 +85,7 @@ fn drop_terminal_safely<T>(value: T) {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        let _ = ratatui::crossterm::execute!(std::io::stdout(), event::DisableBracketedPaste);
         if let Some(terminal) = self.0.take() {
             drop_terminal_safely(terminal);
         }
@@ -90,6 +115,7 @@ pub fn run(
         None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
         None,
         None,
+        None,
     )
 }
 
@@ -105,6 +131,7 @@ pub fn run_actions(
         None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
         None,
         None,
+        None,
     )
 }
 
@@ -113,8 +140,9 @@ pub fn run_full(
     read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
     mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
+    import: Option<ImportAdapter>,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate), Some(jobs), None, None)
+    run_client(read, Some(mutate), Some(jobs), None, None, import)
 }
 
 /// Explicit opt-in client only. Backup callback has one fixed semantic method;
@@ -125,8 +153,16 @@ pub fn run_full_private_backup(
     mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
     backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
+    import: Option<ImportAdapter>,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate), Some(jobs), Some(Box::new(backup)), None)
+    run_client(
+        read,
+        Some(mutate),
+        Some(jobs),
+        Some(Box::new(backup)),
+        None,
+        import,
+    )
 }
 
 /// Separate explicit experimental client; existing Backup-only selection is unchanged.
@@ -137,6 +173,7 @@ pub fn run_full_private_restore(
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
     backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
     restore: impl FnMut(private_restore::Request) -> private_restore::Completion + Send + 'static,
+    import: Option<ImportAdapter>,
 ) -> Result<(), &'static str> {
     run_client(
         read,
@@ -144,6 +181,7 @@ pub fn run_full_private_restore(
         Some(jobs),
         Some(Box::new(backup)),
         Some(Box::new(restore)),
+        import,
     )
 }
 
@@ -153,6 +191,7 @@ fn run_client(
     jobs: Option<impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static>,
     _backup: Option<BackupAdapter>,
     _restore: Option<RestoreAdapter>,
+    import: Option<ImportAdapter>,
 ) -> Result<(), &'static str> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
@@ -230,7 +269,12 @@ fn run_client(
         .name("tui-input".into())
         .spawn(move || {
             loop {
-                let event = event::read().map_err(|_| "Could not read terminal input");
+                // Crossterm has already assembled this event: do not claim a
+                // parser acquisition bound. Bound/zeroize BEFORE the 16-slot
+                // queue so it cannot retain arbitrarily large paste payloads.
+                let event = event::read()
+                    .map(bound_input)
+                    .map_err(|_| "Could not read terminal input");
                 let failed = event.is_err();
                 if input.send(event).is_err() || failed {
                     break;
@@ -239,6 +283,24 @@ fn run_client(
         })
         .map_err(|_| "Could not start terminal input")?;
     let mut app = App::new(i18n::Locale::current());
+    // Bracketed terminal paste delivers explicit input without clipboard reads.
+    ratatui::crossterm::execute!(std::io::stdout(), event::EnableBracketedPaste)
+        .map_err(|_| "Could not enable private terminal paste")?;
+    let (import_calls, import_requests) = mpsc::sync_channel::<private_import::Request>(1);
+    let (import_results, import_responses) = mpsc::sync_channel(1);
+    if let Some(mut import) = import {
+        app.import_enabled = true;
+        thread::Builder::new()
+            .name("tui-private-import".into())
+            .spawn(move || {
+                while let Ok(request) = import_requests.recv() {
+                    if import_results.send(import(request)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|_| "Could not start private import client")?;
+    }
     // Theme sampling is independent of IPC (which can block). A capacity-one
     // channel coalesces filesystem changes; no watcher/path/log surface added.
     let (palettes, palette_updates) = mpsc::sync_channel(1);
@@ -328,6 +390,15 @@ fn run_client(
     let mut pending = false;
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
+        app.refresh_import_context(now);
+        match import_responses.try_recv() {
+            Ok(result) => {
+                app.finish_import(result);
+                due = now;
+            }
+            Err(mpsc::TryRecvError::Disconnected) => app.import_worker_lost(),
+            Err(mpsc::TryRecvError::Empty) => (),
+        }
         #[cfg(feature = "private-backup")]
         {
             match restore_responses.try_recv() {
@@ -412,10 +483,19 @@ fn run_client(
             })
             .map_err(|_| "Could not draw OmaVLESS terminal")?;
         match keys.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(Event::Key(key))) => match app.key_at(key, now) {
+            Ok(Ok(Input::Event(Event::Key(key)))) => match app.key_at(key, now) {
                 Action::Close => break,
                 Action::Refresh => due = Instant::now(),
                 Action::None => {}
+                Action::SubmitImport => {
+                    if let Some(request) = app.take_import_request()
+                        && let Err(error) = import_calls.try_send(request)
+                    {
+                        let (mpsc::TrySendError::Full(request)
+                        | mpsc::TrySendError::Disconnected(request)) = error;
+                        app.finish_import(request.not_sent());
+                    }
+                }
                 action @ (Action::StartJob | Action::PollJob | Action::CancelJob) => {
                     let phase = match action {
                         Action::StartJob => job_ui::Phase::Start,
@@ -459,6 +539,8 @@ fn run_client(
                     }
                 }
             },
+            Ok(Ok(Input::Paste(text))) => app.paste_input(text, now),
+            Ok(Ok(Input::OversizedPaste)) => app.notice = "tui.paste_too_large",
             Ok(Ok(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(Err(message)) => return Err(message),
             Err(mpsc::RecvTimeoutError::Disconnected) => return Err("Terminal input stopped"),
@@ -490,5 +572,29 @@ mod terminal_drop_tests {
         let drops = Arc::new(AtomicUsize::new(0));
         drop_terminal_safely(PanickingDrop(drops.clone()));
         assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[cfg(test)]
+mod input_bound_tests {
+    use super::*;
+    #[test]
+    fn paste_bound_applies_before_queue_without_truncating_a_chunk() {
+        assert!(matches!(
+            bound_input(Event::Paste("x".repeat(private_import::MAX_INPUT))),
+            Input::Paste(_)
+        ));
+        assert!(matches!(
+            bound_input(Event::Paste("x".repeat(private_import::MAX_INPUT + 1))),
+            Input::OversizedPaste
+        ));
+        assert!(matches!(
+            bound_input(Event::Paste("я".repeat(private_import::MAX_INPUT / 2 + 1))),
+            Input::OversizedPaste
+        ));
+        assert!(matches!(
+            bound_input(Event::Resize(70, 24)),
+            Input::Event(Event::Resize(70, 24))
+        ));
     }
 }
