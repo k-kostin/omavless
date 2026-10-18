@@ -624,7 +624,11 @@ fn native_final_old_every_origin_gate_failure_retains_and_never_retries() {
 
 #[test]
 fn native_final_new_actual_authenticated_output_is_required_and_no_old_grant_exists() {
-    let root = crate::test_temp::directory("final-new-auth").unwrap();
+    let root = crate::test_temp::directory_under(
+        &crate::test_temp::home_parent().unwrap(),
+        "final-new-auth",
+    )
+    .unwrap();
     let source = root.join("new.ovb");
     let password = b"synthetic new output passphrase";
     let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"china-cn-direct","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
@@ -1541,7 +1545,11 @@ fn native_new_ticket_original_gate_failures_and_same_byte_ticket_swap_seal_once(
 
 #[test]
 fn native_new_ticket_actual_authenticated_archive_output_and_missing_observed_role_controls() {
-    let root = crate::test_temp::directory("new-ticket-auth").unwrap();
+    let root = crate::test_temp::directory_under(
+        &crate::test_temp::home_parent().unwrap(),
+        "new-ticket-auth",
+    )
+    .unwrap();
     let source = root.join("new.ovb");
     let password = b"synthetic ticket passphrase";
     let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"china-cn-direct","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
@@ -1906,7 +1914,11 @@ fn native_new_complete_observed_files_absences_and_catalogue_target_swaps_never_
 
 #[test]
 fn native_new_complete_actual_authenticated_new_and_each_original_gate_are_required() {
-    let root = crate::test_temp::directory("new-complete-auth").unwrap();
+    let root = crate::test_temp::directory_under(
+        &crate::test_temp::home_parent().unwrap(),
+        "new-complete-auth",
+    )
+    .unwrap();
     let source = root.join("new.ovb");
     let portable = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"china-cn-direct","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
     let password = b"synthetic Complete passphrase";
