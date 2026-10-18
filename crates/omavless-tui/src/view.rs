@@ -1693,6 +1693,15 @@ fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_r
     let tr = |key| app.locale.text(key);
     let area = frame.area();
     let recovery = restore.is_recovery();
+    let return_key = if recovery {
+        if restore.state() == State::Completed {
+            "tui.recovery_completed_return"
+        } else {
+            "tui.recovery_return"
+        }
+    } else {
+        "tui.restore_return"
+    };
     let mut lines = vec![
         Line::from(tr(if recovery {
             "tui.recovery_scope"
@@ -1791,21 +1800,13 @@ fn draw_private_restore(frame: &mut Frame, app: &App, restore: &crate::private_r
         lines.push(Line::from(tr(app.notice)));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(tr(if recovery {
-        "tui.recovery_return"
-    } else {
-        "tui.restore_return"
-    })));
+    lines.push(Line::from(tr(return_key)));
     let content = if area.width >= 70 && area.height >= 24 {
         lines
     } else {
         vec![
             Line::from(tr("tui.action_resize")),
-            Line::from(tr(if recovery {
-                "tui.recovery_return"
-            } else {
-                "tui.restore_return"
-            })),
+            Line::from(tr(return_key)),
         ]
     };
     frame.render_widget(

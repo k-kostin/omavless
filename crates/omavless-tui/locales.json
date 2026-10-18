@@ -2,6 +2,7 @@
   "tui.settings_recovery_keys":{"en":"b: Backup · R: Restore · Y: recover · l: lang · t: theme · 0: reset","ru":"b:копия · R:восстановить · Y:после сбоя · l:язык · t:тема · 0:сброс"},
   "tui.recovery_off":{"en":"Recovery does not connect VPN. Ordinary app availability is checked separately.","ru":"Восстановление не подключает VPN. Доступность обычного приложения проверяется отдельно."},
   "tui.recovery_return":{"en":"Esc: Settings · Ctrl+C: close client; recovery may be incomplete","ru":"Esc: настройки · Ctrl+C: выйти; завершение не гарантировано"},
+  "tui.recovery_completed_return":{"en":"Esc: Settings · Ctrl+C: close client","ru":"Esc: настройки · Ctrl+C: выйти"},
   "tui.recovery_entry":{"en":"Y: recover an interrupted Restore — works without the ordinary app owner","ru":"Y: завершить прерванное восстановление — обычная служба может быть недоступна"},
   "tui.recovery_title":{"en":"Recover interrupted Restore","ru":"Завершить прерванное восстановление"},
   "tui.recovery_scope":{"en":"EXPERIMENTAL: verify one interrupted Restore. No automatic VPN connection.","ru":"ЭКСПЕРИМЕНТ: проверить одно прерванное восстановление. Без подключения VPN."},
