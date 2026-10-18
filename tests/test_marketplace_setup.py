@@ -374,6 +374,9 @@ app_archive_identity synthetic-archive {source} {arch} {version}
         self.assertIn(CANDIDATE_VERSION, ("0.9.8", "0.9.9"))
         self.assertEqual(set(records["runtime-release.json"]["packages"]),
                          set(records["dns-release.json"]["packages"]))
+        for arch, app in records["runtime-release.json"]["packages"].items():
+            dns = records["dns-release.json"]["packages"][arch]
+            self.assertEqual(app["sourceCommit"], dns["sourceCommit"])
         if CANDIDATE_VERSION == "0.9.9":
             # Real candidate pins are still validated above. Public provisioning
             # must REFUSE them: 0.9.9 has no authorized public release/tag here.
@@ -398,7 +401,6 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             self.assertEqual(result.returncode, 0)
             app = records["runtime-release.json"]["packages"][arch]
             dns = records["dns-release.json"]["packages"][arch]
-            self.assertEqual(app["sourceCommit"], dns["sourceCommit"])
             self.assertEqual(result.stdout, f"{VERSION}\t{arch}\t{app['sha256']}\t{dns['sha256']}\t{app['sourceCommit']}\n")
             self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
                              "needs_package\n")
