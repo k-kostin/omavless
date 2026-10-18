@@ -46,12 +46,13 @@ function observe(bytes) {
   }
 }
 child.stdout.on('data', observe); child.stderr.on('data', observe);
-child.on('error', () => { receipt = false; });
-child.on('close', code => {
+child.on('error', error => { receipt = false; console.log(`fixture spawn failure: ${error.code || 'unknown'}`); });
+child.on('close', (code, signal) => {
   clearTimeout(timer);
   // Receipts, process exit and absence of QML errors are independent gates.
   const passed = receipt && code === 0 && !/ERROR:|TypeError:|ReferenceError:|has crashed/.test(output);
   console.log(`${mode}: ${passed ? 'PASS' : 'FAIL'}`);
+  if (!passed) console.log(`original fixture exit=${code} signal=${signal || 'none'} receipt=${receipt}`);
   if (!passed) console.log(output);
   process.exitCode = passed ? 0 : 1;
 });
