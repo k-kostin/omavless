@@ -43,6 +43,13 @@ ShellRoot {
     }
   }
   Component { id: lateDialogComponent; Product.SubscriptionPrompt { width:700; height:500; accepted:true } }
+  Component {
+    id: narrowSubscriptionComponent
+    Product.SubscriptionPrompt {
+      width: 360; height: 520; accepted: true
+      hint: textFor("native.subscription.private")
+    }
+  }
   FloatingWindow {
     id: window
     visible: true
@@ -254,6 +261,21 @@ ShellRoot {
         subscription.openWith("Synthetic", "https://synthetic.invalid/token")
         wait(30); compare(subscription.urlValue, "https://synthetic.invalid/token")
         subscription.dismiss(); compare(subscription.urlValue, "")
+      }
+      function test_subscription_private_hint_uses_full_width() {
+        var prompt = createTemporaryObject(narrowSubscriptionComponent, window.contentItem)
+        verify(prompt !== null)
+        for (var locale of ["en", "ru"]) for (var width of [360, 460]) {
+          prompt.locale = locale; prompt.width = width
+          prompt.openWith("Synthetic", "https://synthetic.invalid/token"); wait(30)
+          var hint = review.find(prompt, "omavlessSubscriptionPrivateHint")
+          verify(hint !== null); verify(hint.visible)
+          verify(hint.width >= width - 100)
+          verify(hint.lineCount <= 4)
+          var url = review.find(prompt, "omavlessMaskedSubscriptionUrl")
+          compare(url.readOnly, true); compare(url.echoMode, TextInput.Password)
+          prompt.dismiss(); compare(prompt.urlValue, "")
+        }
       }
       function test_subscription_reopen_binding() {
         subscription.openWith("Synthetic", "https://synthetic.invalid/first"); wait(30)

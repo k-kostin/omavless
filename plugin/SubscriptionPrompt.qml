@@ -262,6 +262,7 @@ Item {
 
         RowLayout {
           width: parent.width
+          visible: !prompt.fromFile
           spacing: Style.space(6)
 
           Button {
@@ -296,16 +297,21 @@ Item {
             onClicked: urlField.paste(true)
           }
 
-          PlainText {
-            Layout.fillWidth: true
-            Layout.alignment: Qt.AlignVCenter
-            text: prompt.loading ? prompt.textFor("subscription.loading_private") : prompt.hint
-            color: prompt.error || (!prompt.accepted && !prompt.loading)
-              ? prompt.urgent : prompt.dim
-            font.family: prompt.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.Wrap
-          }
+        }
+
+        // A separate full-width line keeps the private/fetch explanation
+        // readable beside longer localized Show URL / Paste labels.
+        PlainText {
+          id: privateHint
+          objectName: "omavlessSubscriptionPrivateHint"
+          width: parent.width
+          visible: text !== ""
+          text: prompt.loading ? prompt.textFor("subscription.loading_private") : prompt.hint
+          color: prompt.error || (!prompt.accepted && !prompt.loading)
+            ? prompt.urgent : prompt.dim
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
         }
 
         Item {
