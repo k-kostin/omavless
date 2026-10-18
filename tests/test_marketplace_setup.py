@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -421,6 +422,28 @@ app_archive_identity synthetic-archive {source} {arch} {version}
         result = self.run_shell('printf "%s\\n" "$release_tag" "$release_version" "$package_version"')
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "v0.9.8-fix.8\n0.9.8\n0.9.8\n")
+
+    def test_nonpublic_candidate_still_requires_same_producer_before_public_refusal(self):
+        fixture = self.directory / "synthetic-candidate"
+        (fixture / "plugin").mkdir(parents=True)
+        (fixture / "manifest.json").write_text(json.dumps({"version": "0.9.9"}))
+        app = {"schemaVersion": 1, "version": "0.9.9", "packages": {
+            arch: {"sha256": "a" * 64, "sourceCommit": SOURCE}
+            for arch in ("aarch64", "x86_64")}}
+        dns = json.loads(json.dumps(app))
+        (fixture / "plugin/runtime-release.json").write_text(json.dumps(app))
+        path = fixture / "plugin/dns-release.json"
+        with patch(f"{__name__}.ROOT", fixture), patch(f"{__name__}.CANDIDATE_VERSION", "0.9.9"):
+            # Coherent synthetic NONPUBLIC metadata earns only public refusal,
+            # not real producer provenance or installed acceptance.
+            path.write_text(json.dumps(dns))
+            self.test_selected_candidate_has_matching_bounded_pair_pins()
+            for arch in ("aarch64", "x86_64"):
+                changed = json.loads(json.dumps(dns))
+                changed["packages"][arch]["sourceCommit"] = "d" * 40
+                path.write_text(json.dumps(changed))
+                with self.subTest(arch=arch), self.assertRaises(AssertionError):
+                    self.test_selected_candidate_has_matching_bounded_pair_pins()
 
     def test_pair_requires_both_exact_pins_and_one_source(self):
         self.pins(app="a" * 64, dns="c" * 64)
