@@ -246,6 +246,15 @@ add a post-publication bookkeeping commit to user main.
 
 ## Implemented distribution checks
 
+- Public source removal instructions follow the published main delivery, while
+  a nonpublic developer export can ship a newer inspected remover. If their
+  pins differ, the exporter accepts only the exact reviewed public guide and
+  its regular, mode644 frozen helper witness, then rebinds the single canonical
+  immutable URL/checksum pair in the generated draft to its selected source
+  commit and shipped helper. Unknown, edited or ambiguous recipes refuse before
+  payload writes. The source guide is unchanged; the generated guide/helper
+  invariant, native-input projection and unpublished state remain mandatory.
+  This is not installed acceptance or authorization to publish the draft.
 - Offline export and verification independently recompute the file manifest,
   modes, lengths, hashes, native producer/features and app/DNS tuple. Missing,
   unexpected, redirected or modified files are refused. The result remains

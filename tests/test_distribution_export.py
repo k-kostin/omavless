@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -53,7 +54,9 @@ class DistributionTests(unittest.TestCase):
         self.write('crates/runtime.rs', b'compiled fixture\n')
         self.write('Cargo.toml', b'[workspace.package]\nversion = "0.9.8"\n')
         self.write('docs/user/CLEAN_REINSTALL_098.md',
-                   ('Reviewed removal entry ' + EXPORT.digest((self.repo / 'tools/uninstall.sh').read_bytes())).encode())
+                   (ROOT / 'docs/user/CLEAN_REINSTALL_098.md').read_bytes().replace(
+                       b'2ecda6be26438e3f6ffa46cc66c7f1c3b55ae1db6d176cf8471b4963724532f1',
+                       EXPORT.digest((self.repo / 'tools/uninstall.sh').read_bytes()).encode()))
         self.write('packaging/release/client-features.sh', b'features\n')
         self.write('.github/workflows/test.yml', (ROOT / '.github/workflows/test.yml').read_bytes())
         self.git('init', '-q')
@@ -206,6 +209,125 @@ class DistributionTests(unittest.TestCase):
         self.sha = self.commit()
         with self.assertRaisesRegex(ValueError, 'guide/helper'):
             self.export()
+
+    def published_removal_inputs(self):
+        guide = (ROOT / 'docs/user/CLEAN_REINSTALL_098.md').read_bytes()
+        snapshot = 'tests/fixtures/public-uninstaller/0250efeb87ff5f6c331a2d067c181a29084b37a2.sh.txt'
+        self.write('docs/user/CLEAN_REINSTALL_098.md', guide)
+        self.write(snapshot, (ROOT / snapshot).read_bytes())
+        self.sha = self.commit()
+        return guide, snapshot
+
+    def test_published_guide_rebinds_only_generated_draft_to_its_shipped_helper(self):
+        original, _ = self.published_removal_inputs()
+        record = self.export()
+        generated = (self.output / 'docs/user/CLEAN_REINSTALL_098.md').read_bytes()
+        helper = (self.output / 'tools/uninstall.sh').read_bytes()
+        expected_url = ('https://raw.githubusercontent.com/k-kostin/omavless/'
+                        + self.sha + '/tools/uninstall.sh').encode()
+        self.assertIn(expected_url, generated)
+        self.assertIn(EXPORT.digest(helper).encode(), generated)
+        self.assertNotIn(b'0250efeb87ff5f6c331a2d067c181a29084b37a2/tools', generated)
+        self.assertEqual((self.repo / 'docs/user/CLEAN_REINSTALL_098.md').read_bytes(), original)
+        self.assertFalse(any(p.startswith('tests/') for p in record['files']))
+        self.assertEqual(record['state'], 'draft-unpublished')
+        self.assertIsNone(EXPORT.verify(self.repo, self.output))
+        another = self.base / 'another'
+        another.mkdir()
+        self.assertEqual(record, EXPORT.export(self.repo, self.sha, another))
+
+    def test_generated_removal_recipe_admits_only_matching_local_or_download_bytes(self):
+        _, snapshot = self.published_removal_inputs()
+        self.export()
+        guide = (self.output / 'docs/user/CLEAN_REINSTALL_098.md').read_text()
+        blocks = re.findall(r'```bash\n(.*?)\n```', guide, re.S)
+        self.assertEqual(len(blocks), 3)
+        selected = (self.output / 'tools/uninstall.sh').read_bytes()
+        public = (self.repo / snapshot).read_bytes()
+        expected_url = 'https://raw.githubusercontent.com/k-kostin/omavless/' + self.sha + '/tools/uninstall.sh'
+        for kind in ('local', 'download', 'old-local', 'modified-local', 'bad-download'):
+            with self.subTest(kind=kind):
+                home = self.base / kind
+                home.mkdir()
+                (home / 'approved-download').write_bytes(b'wrong' if kind == 'bad-download' else selected)
+                local = home / '.config/omarchy/plugins/kdk.omavless/tools/uninstall.sh'
+                if kind not in ('download', 'bad-download'):
+                    local.parent.mkdir(parents=True)
+                    local.write_bytes(public if kind == 'old-local' else b'modified' if kind == 'modified-local' else selected)
+                # Inert leaves: the helper body is NEVER executed, and curl
+                # must witness exactly the generated immutable URL before copy.
+                script = '''set -euo pipefail
+bash() { printf 'HELPER_ADMITTED\\n'; }
+curl() {
+  [[ "${@: -3:1}" == "$EXPECTED_URL" ]] || return 91
+  printf 'DOWNLOAD_ADMITTED\\n'
+  command cp -- "$HOME/approved-download" "${@: -1}"
+}
+''' + blocks[0]
+                result = subprocess.run(['bash', '--noprofile', '--norc'], input=script,
+                                        text=True, capture_output=True, timeout=5,
+                                        env={**os.environ, 'HOME': str(home), 'EXPECTED_URL': expected_url})
+                admitted = kind in ('local', 'download')
+                self.assertEqual(result.returncode == 0, admitted, result.stderr)
+                self.assertEqual('HELPER_ADMITTED' in result.stdout, admitted)
+                self.assertEqual('DOWNLOAD_ADMITTED' in result.stdout, kind in ('download', 'bad-download'))
+
+    def test_unknown_public_guide_or_snapshot_refuses_before_payload_writes(self):
+        original, snapshot = self.published_removal_inputs()
+        cases = {
+            'unknown_source': original.replace(b'0250efeb87ff5f6c331a2d067c181a29084b37a2', b'0' * 40),
+            'mutable_source': original.replace(b'0250efeb87ff5f6c331a2d067c181a29084b37a2', b'main'),
+            'wrong_checksum': original.replace(b'2ecda6be26438e3f6ffa46cc66c7f1c3b55ae1db6d176cf8471b4963724532f1', b'0' * 64),
+            'extra_pin': original + b'\n2ecda6be26438e3f6ffa46cc66c7f1c3b55ae1db6d176cf8471b4963724532f1\n',
+            'extra_url': original + b'\nhttps://raw.githubusercontent.com/k-kostin/omavless/0250efeb87ff5f6c331a2d067c181a29084b37a2/tools/uninstall.sh\n',
+            'changed_recipe': original.replace(b'sha256sum --check -', b'true'),
+        }
+        for label, guide in cases.items():
+            with self.subTest(label=label):
+                self.write('docs/user/CLEAN_REINSTALL_098.md', guide)
+                self.sha = self.commit()
+                with self.assertRaises(ValueError):
+                    self.export()
+                self.assertEqual(list(self.output.iterdir()), [])
+        self.write('docs/user/CLEAN_REINSTALL_098.md', original)
+        self.write(snapshot, b'modified published snapshot')
+        self.sha = self.commit()
+        with self.assertRaises(ValueError):
+            self.export()
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_missing_redirected_or_wrong_mode_public_snapshot_refuses(self):
+        _, snapshot = self.published_removal_inputs()
+        path = self.repo / snapshot
+        payload = path.read_bytes()
+        path.unlink()
+        self.sha = self.commit()
+        with self.assertRaises(KeyError):
+            self.export()
+        self.assertEqual(list(self.output.iterdir()), [])
+        path.symlink_to(self.repo / 'README.md')
+        self.sha = self.commit()
+        with self.assertRaises(ValueError):
+            self.export()
+        self.assertEqual(list(self.output.iterdir()), [])
+        path.unlink()
+        path.write_bytes(payload)
+        path.chmod(0o755)
+        self.sha = self.commit()
+        with self.assertRaises(ValueError):
+            self.export()
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_generated_removal_guide_or_helper_tampering_refuses(self):
+        self.published_removal_inputs()
+        self.export()
+        for name in ('docs/user/CLEAN_REINSTALL_098.md', 'tools/uninstall.sh'):
+            target = self.output / name
+            original = target.read_bytes()
+            target.write_bytes(original + b'\nchanged\n')
+            with self.assertRaises(ValueError):
+                EXPORT.verify(self.repo, self.output)
+            target.write_bytes(original)
 
     def test_product_version_disagreement_fails(self):
         self.write('manifest.json', b'{"version":"0.9.9"}')

@@ -43,6 +43,12 @@ ALIASES = {'INSTALL.md': 'install', 'INSTALL_082_REFERENCE.md': 'updates',
            'SECURITY.md': 'help', 'TROUBLESHOOTING.md': 'help'}
 TEMPLATES = 'packaging/release/distribution/'
 LINK = re.compile(r'\]\(([^\s)]+)\)')
+# The public source guide stays on main's reviewed removal recipe. A newer
+# nonpublic helper may rebind ONLY the generated draft's canonical pin pair.
+PUBLIC_HELPER_COMMIT = '0250efeb87ff5f6c331a2d067c181a29084b37a2'
+PUBLIC_HELPER_SHA256 = '2ecda6be26438e3f6ffa46cc66c7f1c3b55ae1db6d176cf8471b4963724532f1'
+PUBLIC_REMOVAL_GUIDE_SHA256 = '982eab7b13486b1634e38d860bef55e99d947faa25cb6aba705823a9de9e6b88'
+RAW_SOURCE = 'https://raw.githubusercontent.com/' + REPO + '/'
 
 
 def git(root, *args):
@@ -206,6 +212,39 @@ def links(root, sha, tree, entries):
                 raise ValueError('missing shipped help destination')
 
 
+def removal_guide(root, sha, tree, entries):
+    name = 'docs/user/CLEAN_REINSTALL_098.md'
+    data, mode = entries[name]
+    text = data.decode('utf-8')
+    urls = re.findall(r'https?://raw\.githubusercontent\.com/[^\s]+', text)
+    checksums = re.findall(r"printf '%s  %s\\n' ([0-9a-f]{64}) \\\n", text)
+    all_digests = re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', text)
+    if (len(urls) != 1 or not re.fullmatch(re.escape(RAW_SOURCE) + SHA + '/tools/uninstall\\.sh', urls[0])
+            or len(checksums) != 1 or all_digests != checksums):
+        raise ValueError('removal guide/helper pin shape differs')
+    helper_sha = digest(entries['tools/uninstall.sh'][0])
+    if checksums[0] != helper_sha:
+        # Refuse unknown public recipes, edited witnesses and ambiguous pins;
+        # never globally replace a caller-selected URL/hash or weaken admission.
+        public_url = RAW_SOURCE + PUBLIC_HELPER_COMMIT + '/tools/uninstall.sh'
+        snapshot, snapshot_mode = blob(root, tree, 'tests/fixtures/public-uninstaller/'
+                                       + PUBLIC_HELPER_COMMIT + '.sh.txt')
+        if (digest(data) != PUBLIC_REMOVAL_GUIDE_SHA256 or urls[0] != public_url
+                or checksums[0] != PUBLIC_HELPER_SHA256 or snapshot_mode != 0o644
+                or digest(snapshot) != PUBLIC_HELPER_SHA256):
+            raise ValueError('unreviewed public removal guide/helper')
+        selected_url = RAW_SOURCE + sha + '/tools/uninstall.sh'
+        text = text.replace(public_url, selected_url, 1).replace(PUBLIC_HELPER_SHA256, helper_sha, 1)
+        if (re.findall(r'https?://raw\.githubusercontent\.com/[^\s]+', text) != [selected_url]
+                or re.findall(r"printf '%s  %s\\n' ([0-9a-f]{64}) \\\n", text) != [helper_sha]):
+            raise ValueError('generated removal guide/helper identity differs')
+    # Preserve the same-helper invariant for every generated distribution.
+    if helper_sha not in text:
+        raise ValueError('removal guide/helper identity differs')
+    entries[name] = (text.encode('utf-8'), mode)
+    return helper_sha
+
+
 def compose(root, sha):
     tree = source(root, sha)
     # A different working-tree implementation must not export under this SHA.
@@ -226,9 +265,7 @@ def compose(root, sha):
     if pins != {name: digest(blob(root, tree, name)[0]) for name in TOOLS}:
         raise ValueError('reviewed validator pins differ from source code')
     entries['.github/source-validator-pins.json'] = (canonical(pins), 0o644)
-    helper_sha = digest(entries['tools/uninstall.sh'][0])
-    if helper_sha not in entries['docs/user/CLEAN_REINSTALL_098.md'][0].decode('utf-8'):
-        raise ValueError('removal guide/helper identity differs')
+    helper_sha = removal_guide(root, sha, tree, entries)
     for old, anchor in ALIASES.items():
         name = 'docs/user/' + old
         if name in tree:
