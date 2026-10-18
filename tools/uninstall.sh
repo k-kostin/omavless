@@ -555,10 +555,10 @@ check_supported_installation() {
       || fail 'The registered application file is missing or changed. Restore its official package before continuing.'
     digest=$(sha256sum /usr/bin/omavless) || fail 'Cannot identify the application.'
     if [[ "$app" == 'omavless 0.9.9-1' ]]; then
-      # Exact inspected NONPUBLIC 082306cf producer, never a generic version
+      # Exact inspected NONPUBLIC 6021b4b4 producer, never a generic version
       # allowance or a public predecessor ELF relabelled as the new package.
       case "${digest%% *}" in
-        f0c5771d60a024328c89b246a10c65c72e66d207a4d519b45c62c0568cab505a|6f57fdf6e67196bcb22ca4024bfb3265644c93ab14a182d79fe575f76045a404) ;;
+        3b35e526a6bf19dbd35c7918b006c397cde0e8dce7a65d4247abc7e72dbe728d|14c75c3ca3848b5d67b1d2965fb13b1d8e00bef2b82a13a74d6ed07f8b4298fd) ;;
         *) fail 'The application is a development or modified build. Restore its official package before continuing; no development checkout was deleted.' ;;
       esac
     else

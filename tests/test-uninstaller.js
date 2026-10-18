@@ -76,6 +76,12 @@ for(const [arch,identity] of Object.entries(selected.identities)){
    classify('public app with099 DNS '+arch+' '+predecessor.sourceCommit,predecessor.appSha,false,{dnsVersion:selectedVersion});
  }
 }
+// A superseded nonpublic producer is not this candidate's selected 0.9.9 ELF.
+// Public predecessor admission remains covered independently above.
+if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','f0c5771d60a024328c89b246a10c65c72e66d207a4d519b45c62c0568cab505a'],
+ ['aarch64','6f57fdf6e67196bcb22ca4024bfb3265644c93ab14a182d79fe575f76045a404']
+])classify('superseded nonpublic082 app under099 label '+arch,digest,false,{version:selectedVersion});
 function fixture(){
  const dir=fs.mkdtempSync(path.join(parent,'uninstaller.'));
  for(const p of ['home/user/.cache/omavless-maintenance/uninstall','home/user/.config/systemd/user','run/user/'+uid,'proc/sys/kernel/random'])fs.mkdirSync(path.join(dir,p),{recursive:true,mode:0o700});
