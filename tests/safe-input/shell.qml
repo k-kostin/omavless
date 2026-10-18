@@ -9,6 +9,11 @@ import "plugin" as Product
 ShellRoot {
   id: review
   property bool ready: false
+  readonly property bool visual: Quickshell.env("OMAVLESS_INPUT_VISUAL") === "1"
+  property string captureResult: "idle"
+  property string visualKind: ""
+  property int visualWidth: 460
+  property int visualHeight: 520
   property var baselineInput: null
   property string modelText: ""
   property var lateDialog: null
@@ -42,7 +47,7 @@ ShellRoot {
     id: window
     visible: true
     implicitWidth: 700
-    implicitHeight: 500
+    implicitHeight: review.visual ? 700 : 500
     color: "#20202e"
     Product.SafeTextField {
       id: field
@@ -58,8 +63,10 @@ ShellRoot {
     Product.SafeTextField { id: second; x: 30; y: 100; width: 400; KeyNavigation.tab: field; KeyNavigation.backtab: field }
     Product.SafeTextField { id: bound; x: 30; y: 170; width: 400; text: review.modelText; onTextChanged: review.modelText = text }
     Product.SubscriptionPrompt { id: subscription; anchors.fill: parent; accepted: true }
+    Item { id: visualCanvas; width: review.visualWidth; height: review.visualHeight }
     Product.ImportEntryPrompt {
       id: importEntry
+      parent: review.visual ? visualCanvas : window.contentItem
       anchors.fill: parent
       available: true
       property int submissions: 0
@@ -69,6 +76,7 @@ ShellRoot {
     }
     Product.BundleImportPrompt {
       id: bundlePrompt
+      parent: review.visual ? visualCanvas : window.contentItem
       anchors.fill: parent
       available: true
       counts: ({accepted:2, duplicates:1, skipped:1})
@@ -79,11 +87,25 @@ ShellRoot {
     }
     TestCase {
       name: "SafeTextFields"
-      when: review.ready
+      when: review.ready && !review.visual
       onCompletedChanged: if (completed) console.log("SAFE_INPUT_RESULT " + JSON.stringify({passed:qtest_results.passCount, failed:qtest_results.failCount, skipped:qtest_results.skipCount}))
       function cleanup() { console.log("SAFE_INPUT_CASE " + qtest_results.functionName + " failed=" + qtest_results.failed) }
       function type(value) { for (var i = 0; i < value.length; i++) keyClick(value.charAt(i)) }
-      function init() { bundlePrompt.dismiss(); importEntry.dismiss(); subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
+      function init() { bundlePrompt.dismiss(); importEntry.dismiss(); importEntry.available = true; subscription.dismiss(); field.text = ""; field.pasteError = ""; field.forceActiveFocus(); wait(30) }
+      function test_import_unavailable_keeps_cancel_and_blocks_review() {
+        importEntry.open(); wait(30)
+        var editor = findChild(importEntry, "omavlessImportEntry")
+        var reviewButton = findChild(importEntry, "omavlessImportReview")
+        var cancel = findChild(importEntry, "omavlessImportCancel")
+        editor.text = "synthetic fixture"; importEntry.available = false
+        verify(!reviewButton.enabled); compare(reviewButton.opacity, 0.45)
+        verify(findChild(importEntry, "omavlessImportUnavailable").visible)
+        verify(cancel.enabled)
+        var before = importEntry.submissions
+        editor.forceActiveFocus(); keyClick(Qt.Key_Return)
+        compare(importEntry.submissions, before)
+        keyClick(Qt.Key_Escape); verify(!importEntry.visible); compare(editor.text, "")
+      }
       function test_import_multiline_and_undo() {
         importEntry.open(); wait(30)
         var editor = findChild(importEntry, "omavlessImportEntry")
@@ -252,6 +274,56 @@ ShellRoot {
   }
   IpcHandler {
     target: "safeInputReview"
+    // Rendering only: fixed invented text/counts, no classifier/store/action.
+    function visualScene(locale: string, kind: string, width: int, height: int): string {
+      if (!review.visual || ["en", "ru"].indexOf(locale) < 0
+          || [360, 460].indexOf(width) < 0 || [400, 520, 600].indexOf(height) < 0
+          || ["empty", "masked", "revealed", "blocked", "bundle", "no-new", "stale"].indexOf(kind) < 0)
+        return "refused"
+      importEntry.dismiss(); bundlePrompt.dismiss(); subscription.dismiss()
+      // Fixed backing window; bind the actual QML canvas rather than claiming
+      // that an offscreen platform honored a native window-resize request.
+      review.visualWidth = width; review.visualHeight = height
+      importEntry.locale = locale; bundlePrompt.locale = locale
+      importEntry.available = kind !== "blocked"
+      bundlePrompt.available = kind !== "stale"
+      bundlePrompt.errorText = kind === "stale" ? importEntry.tr("native.importError.stale") : ""
+      if (["bundle", "no-new", "stale"].indexOf(kind) >= 0) {
+        bundlePrompt.counts = {accepted:kind === "no-new" ? 0 : 37, duplicates:3, skipped:2}
+        bundlePrompt.open()
+      } else {
+        importEntry.open()
+        var editor = review.find(importEntry, "omavlessImportEntry")
+        if (kind !== "empty") editor.text = "trojan://synthetic-not-a-real-key@fixture.invalid:443#Synthetic"
+        importEntry.revealed = kind === "revealed"
+      }
+      review.visualKind = kind
+      return "ready"
+    }
+    function visualInspect(): string {
+      if (!review.visual) return "refused"
+      var prompt = bundlePrompt.visible ? bundlePrompt : importEntry
+      var ids = bundlePrompt.visible ? ["omavlessBundleCancel", "omavlessBundleSave"]
+        : ["omavlessImportEntry", "omavlessImportReveal", "omavlessImportPaste", "omavlessImportCancel", "omavlessImportReview"]
+      return JSON.stringify({kind:review.visualKind, width:visualCanvas.width, height:visualCanvas.height,
+        masked:importEntry.visible && !importEntry.revealed,
+        controls:ids.map(function(id) {
+          var item = review.find(prompt, id)
+          var point = item ? item.mapToItem(visualCanvas, 0, 0) : {x:-1,y:-1}
+          return {id:id, present:!!item, enabled:!!(item && item.enabled), focus:!!(item && item.activeFocus),
+            x:point.x, y:point.y, width:item ? item.width : 0, height:item ? item.height : 0}
+        })})
+    }
+    function visualCapture(slug: string): string {
+      if (!review.visual || !/^[a-z0-9-]{1,60}$/.test(slug)) return "refused"
+      review.captureResult = "capturing"
+      var surface = bundlePrompt.visible ? bundlePrompt : importEntry
+      surface.grabToImage(function(image) {
+        review.captureResult = image.saveToFile(Quickshell.env("OMAVLESS_CAPTURE_DIR") + "/" + slug + ".png") ? "captured" : "failed"
+      })
+      return "started"
+    }
+    function visualResult(): string { return review.captureResult }
     function inspect(): string { return JSON.stringify({loaded:true, length:field.text.length, error:field.pasteError, focus:field.activeFocus}) }
     function finish() { Qt.quit() }
   }

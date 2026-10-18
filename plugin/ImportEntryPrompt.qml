@@ -121,6 +121,16 @@ Item {
           font.pixelSize: Style.font.caption
           wrapMode: Text.Wrap
         }
+        PlainText {
+          objectName: "omavlessImportUnavailable"
+          width: parent.width
+          visible: !prompt.available
+          text: prompt.tr("import.entry.unavailable")
+          color: Commons.Color.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.Wrap
+        }
         Flow {
           width: parent.width
           spacing: Style.space(8)
@@ -171,6 +181,7 @@ Item {
             bordered: true
             focusable: true
             enabled: prompt.available && entry.text.trim().length > 0
+            opacity: enabled ? 1 : 0.45
             KeyNavigation.tab: entry
             KeyNavigation.backtab: cancel
             onClicked: prompt.submitted(entry.text)

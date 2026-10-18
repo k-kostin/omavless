@@ -282,4 +282,11 @@ test('private direct entry starts masked and clears reveal on every close',()=>{
   assert(source.includes('visible: !prompt.revealed'));
   assert(source.includes('entry.cancelPaste()'));
 });
+test('unavailable import explains cancellation and disabled Review is visibly inactive',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportEntryPrompt.qml'),'utf8');
+  assert(source.includes('objectName: "omavlessImportUnavailable"'));
+  assert(source.includes('visible: !prompt.available'));
+  const start=source.indexOf('            id: review')>=0 ? source.indexOf('            id: review') : source.indexOf('id: review');
+  assert(source.slice(start).includes('opacity: enabled ? 1 : 0.45'));
+});
 console.log(`${count} native import tests passed`);

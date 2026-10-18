@@ -10,6 +10,7 @@ var CATALOG = {
   "import.entry.title": {"en":"Enter VPN access","ru":"Ввести VPN-доступ"},
   "import.entry.show": {"en":"Show input","ru":"Показать ввод"},
   "import.entry.hide": {"en":"Hide input","ru":"Скрыть ввод"},
+  "import.entry.unavailable": {"en":"Import is unavailable. Cancel and check the application status.","ru":"Импорт недоступен. Отмените ввод и проверьте состояние приложения."},
   "import.entry.hint": {"en":"Enter a profile link, subscription URL or raw/Base64 profile list (up to 32 KiB). Enter to review; Shift+Enter for a new line.","ru":"Введите ссылку на профиль, подписку или список профилей — текстом либо в Base64 (до 32 КиБ). Enter — проверить, Shift+Enter — новая строка."},
   "import.entry.private": {"en":"This field contains private access details. Do not share screenshots of it.","ru":"Поле содержит приватные данные доступа. Не публикуйте его снимки экрана."},
   "import.entry.placeholder": {"en":"Profile link, subscription URL or profile list","ru":"Ссылка на профиль, подписку или список профилей"},
