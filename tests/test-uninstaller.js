@@ -82,6 +82,10 @@ if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
  ['x86_64','f0c5771d60a024328c89b246a10c65c72e66d207a4d519b45c62c0568cab505a'],
  ['aarch64','6f57fdf6e67196bcb22ca4024bfb3265644c93ab14a182d79fe575f76045a404']
 ])classify('superseded nonpublic082 app under099 label '+arch,digest,false,{version:selectedVersion});
+if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','3b35e526a6bf19dbd35c7918b006c397cde0e8dce7a65d4247abc7e72dbe728d'],
+ ['aarch64','14c75c3ca3848b5d67b1d2965fb13b1d8e00bef2b82a13a74d6ed07f8b4298fd']
+])classify('superseded nonpublic6021 app under099 label '+arch,digest,false,{version:selectedVersion});
 function fixture(){
  const dir=fs.mkdtempSync(path.join(parent,'uninstaller.'));
  for(const p of ['home/user/.cache/omavless-maintenance/uninstall','home/user/.config/systemd/user','run/user/'+uid,'proc/sys/kernel/random'])fs.mkdirSync(path.join(dir,p),{recursive:true,mode:0o700});
