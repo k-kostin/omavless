@@ -32,7 +32,7 @@ class RustCiIsolationTests(unittest.TestCase):
                 "    sys.exit(17)\n"
             )
             stub.chmod(0o755)
-            for name in ("cargo", "rustfmt", "python3", "cc"):
+            for name in ("cargo", "rustfmt", "python3", "cc", "bash"):
                 (tools / name).symlink_to(stub)
             result = subprocess.run(
                 ["/bin/bash", str(ROOT / "tests/run-rust.sh")], cwd=ROOT,
@@ -58,6 +58,20 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[8:]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        # Assert each bounded import addition explicitly, then retain the exact
+        # pre-import recipe hash: no prior feature/filter/deadline/parity gate
+        # may disappear behind an opaque replacement digest.
+        additions = [
+            ["cargo", "build", "--locked", "-p", "omavless-tui", "--example", "private_import_preview"],
+            ["python3", "tests/test-tui-import-terminal.py", "target/debug/examples/private_import_preview"],
+            ["cargo", "build", "--locked", "-p", "omavless-runtime", "--bin", "omavless", "--no-default-features", "--features", "tui"],
+            ["bash", "tests/run-tui-native-import-wire.sh", "target/debug/omavless"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", "tui", "tui_private_import_uses_existing_canonical"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--bin", "omavless", "--features", "tui", "tui_import_entry::tests"],
+        ]
+        for command in additions:
+            self.assertEqual(normalized.count(command), 1, command)
+            normalized.remove(command)
         # Captured from the pre-optimization recipe: all expanded commands,
         # features, filters, skips, isolated deadlines, lint and parity entries.
         payload = json.dumps(normalized, separators=(",", ":")).encode()

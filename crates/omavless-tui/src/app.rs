@@ -16,6 +16,11 @@ fn backup_navigation_key(code: KeyCode) -> bool {
 }
 
 pub struct App {
+    pub import_enabled: bool,
+    pub import_open: bool,
+    pub import: Option<crate::private_import::Workspace>,
+    pub(crate) import_request: Option<crate::private_import::Request>,
+    pub(crate) import_serial: u64,
     #[cfg(feature = "private-backup")]
     pub restore_enabled: bool,
     #[cfg(feature = "private-backup")]
@@ -70,7 +75,7 @@ pub struct App {
     pub searching: bool,
     pub help: bool,
     pub locale: Locale,
-    accepted: Option<(String, u64)>,
+    pub(crate) accepted: Option<(String, u64)>,
     pub actions_enabled: bool,
     pub viewport_ready: bool,
     pub confirmation: Option<Confirmation>,
@@ -78,7 +83,7 @@ pub struct App {
     pub running: bool,
     pub unknown: bool,
     pub notice: &'static str,
-    minimum_sample: Option<Instant>,
+    pub(crate) minimum_sample: Option<Instant>,
 }
 pub enum Confirmation {
     Job(crate::job_ui::Intent),
@@ -89,6 +94,7 @@ pub enum Confirmation {
 }
 #[derive(PartialEq, Eq, Debug)]
 pub enum Action {
+    SubmitImport,
     #[cfg(feature = "private-backup")]
     SubmitRestore,
     #[cfg(feature = "private-backup")]
@@ -146,6 +152,11 @@ impl App {
     }
     pub fn new(locale: Locale) -> Self {
         Self {
+            import_enabled: false,
+            import_open: false,
+            import: None,
+            import_request: None,
+            import_serial: 0,
             #[cfg(feature = "private-backup")]
             restore_enabled: false,
             #[cfg(feature = "private-backup")]
@@ -396,6 +407,37 @@ impl App {
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Action::Close;
+        }
+        self.refresh_import_context(now);
+        if self.import_open {
+            return self.import_key(key, now);
+        }
+        if self.import_unresolved() {
+            return match key.code {
+                KeyCode::Char('q') => Action::Close,
+                KeyCode::Char('r') => Action::Refresh,
+                KeyCode::F(3) => {
+                    self.import_open = true;
+                    Action::None
+                }
+                _ => Action::None,
+            };
+        }
+        if key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && !self.searching
+            && !self.route_editing
+            && !self.help
+            && self.confirmation.is_none()
+            && (key.code == KeyCode::F(3)
+                || (key.code == KeyCode::Char('i')
+                    && self.page == crate::inspection::Page::Profiles))
+            && self.import_enabled
+        {
+            self.open_import(now);
+            return Action::None;
         }
         #[cfg(feature = "private-backup")]
         {
@@ -923,6 +965,8 @@ impl App {
 
     fn eligible(&self, kind: Kind, now: Instant) -> bool {
         self.actions_enabled
+            && !self.import_open
+            && !self.import_unresolved()
             && self.viewport_ready
             && self.pending.is_none()
             && (kind == Kind::Disconnect || !self.job.as_ref().is_some_and(|j| j.blocks_actions()))
@@ -941,6 +985,8 @@ impl App {
     #[cfg(feature = "private-backup")]
     pub fn backup_available(&self, now: Instant) -> bool {
         self.backup_enabled
+            && !self.import_open
+            && !self.import_unresolved()
             && !self.restore_unresolved()
             && self.viewport_ready
             && self.fresh(now)
@@ -1048,6 +1094,8 @@ impl App {
     #[cfg(feature = "private-backup")]
     pub fn restore_available(&self, now: Instant) -> bool {
         self.restore_enabled
+            && !self.import_open
+            && !self.import_unresolved()
             && self.viewport_ready
             && self.fresh(now)
             && !self.running

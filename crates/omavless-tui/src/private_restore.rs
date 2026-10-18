@@ -139,6 +139,20 @@ impl Workspace {
         text.push(ch);
         true
     }
+    pub fn paste(&mut self, value: &str) -> bool {
+        if self.inflight.is_some() || self.state != State::Editing || value.chars().any(|ch| ch.is_control()
+            || matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}')) { return false; }
+        let (text, bound) = if self.field == Field::Archive {
+            (&mut self.archive, MAX_PATH)
+        } else {
+            (&mut self.passphrase, MAX_SECRET)
+        };
+        if text.len().saturating_add(value.len()) > bound {
+            return false;
+        }
+        text.push_str(value);
+        true
+    }
     pub fn backspace(&mut self) {
         if self.state != State::Editing {
             return;

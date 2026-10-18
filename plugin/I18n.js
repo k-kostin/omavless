@@ -7,6 +7,19 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "import.entry.title": {"en":"Enter VPN access","ru":"Ввести VPN-доступ"},
+  "import.entry.show": {"en":"Show input","ru":"Показать ввод"},
+  "import.entry.hide": {"en":"Hide input","ru":"Скрыть ввод"},
+  "import.entry.hint": {"en":"Enter a profile link, subscription URL or raw/Base64 profile list (up to 32 KiB). Enter to review; Shift+Enter for a new line.","ru":"Введите ссылку на профиль, подписку или список профилей — текстом либо в Base64 (до 32 КиБ). Enter — проверить, Shift+Enter — новая строка."},
+  "import.entry.private": {"en":"This field contains private access details. Do not share screenshots of it.","ru":"Поле содержит приватные данные доступа. Не публикуйте его снимки экрана."},
+  "import.entry.placeholder": {"en":"Profile link, subscription URL or profile list","ru":"Ссылка на профиль, подписку или список профилей"},
+  "import.entry.review": {"en":"Review","ru":"Проверить"},
+  "import.bundle.title": {"en":"Add local profiles","ru":"Добавить локальные профили"},
+  "import.bundle.counts": {"en":"New: {accepted}\nDuplicates: {duplicates}\nSkipped: {skipped}","ru":"Новые: {accepted}\nПовторы: {duplicates}\nПропущены: {skipped}"},
+  "import.bundle.explanation": {"en":"Adds local profiles, not an updating subscription. Existing profiles stay unchanged. Unsupported or invalid entries are skipped. Nothing connects automatically.","ru":"Будут добавлены локальные профили, а не обновляемая подписка. Существующие профили не изменятся. Неподдерживаемые и некорректные записи пропускаются. Автоматического подключения не будет."},
+  "import.bundle.no_new": {"en":"No new profiles to add.","ru":"Новых профилей для добавления нет."},
+  "import.bundle.save": {"en":"Add profiles","ru":"Добавить профили"},
+  "input.error.multiline": {"en":"Use text up to 32 KiB without unsupported control characters.","ru":"Введите текст до 32 КиБ без недопустимых управляющих символов."},
   "help.title": {"en":"Help","ru":"Помощь"},
   "help.assistant": {"en":"Ask your assistant","ru":"Попросите своего AI-ассистента"},
   "help.intro": {"en":"Copy the request into Codex, Claude or another assistant on this computer. Add your problem at the end.","ru":"Скопируйте запрос в Codex, Claude или другого ассистента на этом компьютере. Допишите проблему в конце."},
@@ -255,7 +268,7 @@ var CATALOG = {
   "native.importFile": {"en":"Import from file","ru":"Импорт из файла"},
   "native.importName": {"en":"Add a new profile named {name}","ru":"Добавить новый профиль с именем {name}"},
   "native.importBusy": {"en":"Waiting for import input or checking preview…","ru":"Ожидание данных или проверка предпросмотра…"},
-  "native.importError.input": {"en":"Use one supported profile link, at most 32 KiB of UTF-8 text.","ru":"Укажите одну поддерживаемую ссылку профиля: не более 32 КиБ текста UTF-8."},
+  "native.importError.input": {"en":"Use a supported profile, subscription URL or raw/Base64 profile list within 32 KiB and the 256-profile store limit.","ru":"Укажите поддерживаемый профиль, ссылку подписки или список профилей текстом/Base64: до 32 КиБ, не более 256 профилей в хранилище."},
   "native.importError.stale": {"en":"Runtime state changed. Cancel and start import again.","ru":"Состояние изменилось. Отмените импорт и начните снова."},
   "native.importError.subscription": {"en":"This is a subscription link. Native subscription management is not available yet; no subscription was added.","ru":"Это ссылка подписки. Управление подписками через Rust пока недоступно; подписка не добавлена."},
   "native.importError.duplicateSubscription": {"en":"This subscription is already added. Nothing was changed.","ru":"Эта подписка уже добавлена. Ничего не изменено."},

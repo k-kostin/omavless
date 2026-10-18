@@ -1,5 +1,14 @@
 # Current delivery status
 
+Development-only import successor: selected #733/#737 direct input and local
+raw/Base64 bundles, composed with #742's narrow unresolved-state footer and
+#755's native-wire/PTY checks on the current development base. Rust retains
+classification, preview/store binding, duplicate handling and one atomic Save;
+clients add no parser or tunnel owner. Private input starts masked, explicit
+Reveal/Paste is local, and ambiguous manual-recovery Save remains blocking
+Unknown. Affected UI, exact source/native delivery and installed integration
+remain gates of the owning development PR, not a stable 0.9.8 feature claim.
+
 Updated 2026-10-17. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.

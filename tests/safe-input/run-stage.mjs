@@ -25,7 +25,9 @@ if (mode !== 'gui') {
 }
 const child = spawn('/usr/bin/qs', ['-p', stage], {env, stdio:['ignore','pipe','pipe']});
 let output = '', receipt = false, stopped = false;
-const timer = setTimeout(() => child.kill('SIGTERM'), 20000);
+// Two explicit slow-provider cases each exercise the six-second helper bound.
+// Leave bounded startup/Qt-test time on the ARM VM without changing that bound.
+const timer = setTimeout(() => child.kill('SIGTERM'), 45000);
 function observe(bytes) {
   output += bytes.toString();
   if (output.length > 65536) { child.kill('SIGTERM'); return; }

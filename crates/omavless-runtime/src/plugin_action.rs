@@ -75,6 +75,52 @@ pub(crate) struct Action {
     pub canonical: Value,
 }
 
+#[cfg(all(test, feature = "tui"))]
+#[test]
+fn tui_private_import_uses_existing_canonical_classification_and_mutation_shapes() {
+    use omavless_tui::private_import::Workspace;
+    let now = std::time::Instant::now();
+    for (preview, action, canonical) in [
+        (
+            json!({"version":1,"kind":"profile","profile":{"version":1,"protocol":"vless","suggestedName":"Synthetic","insecure":false,"experimental":false}}),
+            "profile-import",
+            "profiles.import",
+        ),
+        (
+            json!({"version":1,"kind":"subscription","suggestedName":"Synthetic","duplicate":false}),
+            "subscription-add",
+            "subscriptions.add",
+        ),
+        (
+            json!({"version":1,"kind":"bundle","counts":{"accepted":1,"duplicates":0,"skipped":0},"previewFingerprint":"a".repeat(64)}),
+            "profile-bundle-import",
+            "profiles.importBundle",
+        ),
+    ] {
+        let mut workspace = Workspace::new("fixture-runtime", 7, 1).unwrap();
+        // Public .invalid fixtures only; parsing never contacts this host.
+        let input = if action == "subscription-add" {
+            "https://fixture.invalid/feed"
+        } else {
+            "trojan://synthetic-not-a-real-key@fixture.invalid:443?security=tls#Synthetic"
+        };
+        assert!(workspace.append(input));
+        let preview_request = workspace.classify(now).unwrap();
+        let value =
+            crate::make_request("preview", "imports.classify", preview_request.params()).unwrap();
+        assert!(crate::import_read_protocol::parse_import_preview_request(&value).is_ok());
+        workspace
+            .accept(preview_request.settle(Ok(json!({"ok":true,"revision":7,"result":preview}))));
+        let request = workspace.confirm("original-operation".into(), now).unwrap();
+        let value = crate::make_request("save", "plugin.action", request.params()).unwrap();
+        let parsed = parse(&value).expect("actual canonical parser must admit TUI shape");
+        assert_eq!(parsed.action, action);
+        assert_eq!(parsed.canonical["method"], canonical);
+        assert_eq!(parsed.operation, "original-operation");
+        assert_eq!(parsed.instance, "fixture-runtime");
+    }
+}
+
 pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
     use MutationProtocolError::InvalidArgument;
     omavless_control_protocol::validate_request(request)
@@ -156,6 +202,14 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "name",
             "input",
         ],
+        "profile-bundle-import" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "input",
+            "previewFingerprint",
+        ],
         "subscription-add" => &[
             "instanceId",
             "expectedRevision",
@@ -229,6 +283,7 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         "profile-delete" => "profiles.delete",
         "profile-replace" => "profiles.replace",
         "profile-import" => "profiles.import",
+        "profile-bundle-import" => "profiles.importBundle",
         "subscription-add" => "subscriptions.add",
         "subscription-update" => "subscriptions.update",
         "subscription-delete" => "subscriptions.delete",
@@ -257,6 +312,8 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         crate::subscription_refresh_protocol::parse_subscription_refresh_request(&canonical)?;
     } else if action.starts_with("subscription-") {
         crate::subscription_mutation_protocol::parse_subscription_mutation_request(&canonical)?;
+    } else if action == "profile-bundle-import" {
+        crate::profile_bundle_protocol::parse(&canonical)?;
     } else if action == "profile-import" {
         crate::profile_import_protocol::parse_profile_import_request(&canonical)?;
     } else if action.starts_with("profile-") {
@@ -290,6 +347,7 @@ pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
         "profile-delete" => Some(36 + 1),
         "profile-replace" => Some(36 + 1 + crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
         "profile-import" => Some(crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
+        "profile-bundle-import" => Some(65 + crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES),
         "subscription-add" => Some(crate::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES),
         "subscription-update" => Some(37 + crate::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES),
         "subscription-delete" | "subscription-refresh" => Some(37),
@@ -322,6 +380,7 @@ pub fn cli_params(
                 "profile-delete",
                 "profile-replace",
                 "profile-import",
+                "profile-bundle-import",
                 "subscription-add",
                 "subscription-update",
                 "subscription-delete",
@@ -373,6 +432,7 @@ pub fn cli_params(
             | "profile-favorite"
             | "profile-delete"
             | "profile-import"
+            | "profile-bundle-import"
             | "profile-replace"
             | "subscription-add"
             | "subscription-update"
@@ -520,6 +580,14 @@ pub fn cli_params(
             .as_object_mut()
             .ok_or(InvalidArgument)?
             .extend(replaced.as_object().ok_or(InvalidArgument)?.clone());
+    } else if action == "profile-bundle-import" {
+        let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
+        if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
+            return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
+        }
+        let (fingerprint, input) = input.split_once('\n').ok_or(InvalidArgument)?;
+        params["previewFingerprint"] = json!(fingerprint);
+        params["input"] = json!(input);
     } else if action == "profile-import" {
         let (_, imported) = crate::semantic_cli::parse_semantic_profile_import(
             &["profile".into(), "import".into()],
@@ -571,6 +639,50 @@ pub fn cli_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundle_cli_keeps_exact_input_on_stdin_and_requires_preview_binding() {
+        let args: Vec<_> = [
+            "plugin",
+            "profile-bundle-import",
+            "instance",
+            "7",
+            "operation",
+        ]
+        .map(OsString::from)
+        .into();
+        let link = "trojan://synthetic-password@203.0.113.1:443#One\ntrojan://second-password@203.0.113.2:443#Two\n";
+        let input = format!("{}\n{link}", "a".repeat(64));
+        let params = cli_params(&args, Some(&input)).unwrap().unwrap();
+        assert_eq!(params["input"], link);
+        assert_eq!(params["previewFingerprint"], "a".repeat(64));
+        let parsed = parse(&request(params.clone())).unwrap();
+        assert_eq!(parsed.canonical["method"], "profiles.importBundle");
+        assert_eq!(cli_input_limit(&args), Some(65 + 32768));
+        assert!(cli_params(&args, None).is_err());
+        for invalid in [
+            link.to_owned(),
+            format!("bad\n{link}"),
+            format!("{}\n", "a".repeat(64)),
+            format!("{}\n{}", "a".repeat(64), "x".repeat(32769)),
+        ] {
+            assert!(cli_params(&args, Some(&invalid)).is_err());
+        }
+        for field in [
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "previewFingerprint",
+        ] {
+            let mut invalid = params.clone();
+            invalid.as_object_mut().unwrap().remove(field);
+            assert!(parse(&request(invalid)).is_err());
+        }
+        let mut argv_payload = args;
+        argv_payload.push(link.into());
+        assert_eq!(cli_input_limit(&argv_payload), None);
+        assert!(cli_params(&argv_payload, Some(&input)).is_err());
+    }
 
     #[test]
     fn startup_plugin_bridge_reuses_exact_policy_validation_and_private_stdin() {

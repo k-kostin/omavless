@@ -54,9 +54,17 @@ done
 # explicit race/failure cases and all assertions remain enabled.
 cargo test "${sha2_test_profile[@]}" --locked -p omavless-dns-broker -p omavless-dns-resolved -- --test-threads=1
 python3 tests/test-tui-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/fixture_preview"
+cargo build --locked -p omavless-tui --example private_import_preview
+python3 tests/test-tui-import-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/private_import_preview"
+# Real ordinary client, fixed same-UID synthetic peer; not daemon/store/VPN acceptance.
+cargo build --locked -p omavless-runtime --bin omavless --no-default-features --features tui
+bash tests/run-tui-native-import-wire.sh "${CARGO_TARGET_DIR:-target}/debug/omavless"
+# Retain this immutable artifact on either outcome; never rebuild an active ELF.
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo check --locked -p omavless-runtime --features tui
 cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
+cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features tui tui_private_import_uses_existing_canonical
+cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --bin omavless --features tui tui_import_entry::tests
 cargo clippy --locked -p omavless-runtime --features tui --all-targets -- -D warnings
 # The opt-in client is not in default packages. These filters run only memory/
 # parser/TestBackend controls; resource/terminal gates remain ignored.
