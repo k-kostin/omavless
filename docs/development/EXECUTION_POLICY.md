@@ -78,6 +78,40 @@ Prefer no optimization over a new permanent mechanism with no demonstrated
 material benefit. Current CI gates stay in force until a reviewed successor
 changes them, including for documentation-only PRs.
 
+#### Producer and final integration checkpoints
+
+Keep the first meaningful Draft checkpoint visible; do not wait for final
+acceptance merely to avoid its automatic CI. A native producer is an immutable
+reviewed input for building packages, not necessarily the final integration
+candidate. Its real package digests may require a matching metadata successor.
+Record this dependency rather than treating every superseded run as avoidable
+waste or calling the producer's green result proof of the successor.
+
+Before selecting the producer, finish feasible affected-source checks and
+review the whole affected surface, not only an isolated component. If a rendered
+or installed state requires actual produced packages, declare it pending and
+exercise it as soon as those packages exist. Source-only checks do not close
+that dependency. Before final selection, inspect the actual selected packages,
+qualify their coherent pins/update/remover guards and run the actual candidate
+export and offline verification. Reuse inspected native inputs only through
+the existing reviewed equivalence contract, never by narrowing its projection.
+
+Batch related fixes and pins into meaningful successors. Record the selected
+head/tree, completed and pending gates, native identities and reason for each
+successor in the existing owning PR/handoff. Put report-only updates there,
+not in pushes which replace a heavy run. This scheduling does not suppress
+automatic Draft checks, waive premerge UX/installed gates or reuse a PR result
+as independent merged-push evidence. A newly discovered defect still requires
+its correction and the affected exact-candidate checks, even during a long CI.
+
+Before proposing a speed change, distinguish compilation from test execution
+using existing original step/log timings. Repeated feature configurations can
+exercise different guarantees; matching test names do not prove duplication.
+Do not promise a build cache will remove measured test time or launch another
+full local matrix merely to keep hardware busy. Record observed benefit
+separately from expected savings; keep all required configurations, fault cases,
+assertions, deadlines and cryptographic parameters unchanged.
+
 ## 1. Plan around executable outcomes
 
 For each active feature write a short completion matrix: supported scope,

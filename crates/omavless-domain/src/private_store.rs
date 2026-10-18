@@ -1970,10 +1970,13 @@ pub fn apply_compatibility_pointer_update(
                     .collect();
                 store.profiles.retain(|profile| !profile.missing);
 
-                if !store
-                    .profiles
-                    .iter()
-                    .any(|profile| profile.id == store.last_id)
+                // An empty Last is intentional for an imported profile that
+                // has never connected; only repair an existing stale pointer.
+                if !original_last.is_empty()
+                    && !store
+                        .profiles
+                        .iter()
+                        .any(|profile| profile.id == store.last_id)
                 {
                     store.last_id = store
                         .profiles
@@ -2955,6 +2958,57 @@ mod tests {
             .unwrap(),
             PrivateStoreError::ProfileNotFound
         );
+    }
+
+    #[test]
+    fn compatibility_disconnect_preserves_never_connected_import_exactly() {
+        let mut initial = local_document();
+        initial["profiles"] = serde_json::json!([]);
+        initial["subscriptions"] = serde_json::json!([]);
+        initial["activeId"] = Value::from("");
+        initial["lastId"] = Value::from("");
+        initial["startup"]["enabled"] = Value::from(false);
+        initial["startup"]["profileId"] = Value::from("");
+        let imported = apply_profile_import(
+            &initial.to_string(),
+            PROFILE_ID,
+            "Never connected",
+            PRIVATE_URI,
+        )
+        .unwrap();
+        let input = std::str::from_utf8(imported.payload()).unwrap();
+        for prune_missing in [false, true] {
+            let result = apply_compatibility_pointer_update(
+                input,
+                CompatibilityPointerTarget::Disconnected { prune_missing },
+            )
+            .unwrap();
+            assert!(!result.changed);
+            assert_eq!(result.pruned, 0);
+            assert_eq!(result.payload(), imported.payload());
+            let written: Value = serde_json::from_slice(result.payload()).unwrap();
+            assert_eq!(written["activeId"], "");
+            assert_eq!(written["lastId"], "");
+        }
+    }
+
+    #[test]
+    fn compatibility_disconnect_pruning_repairs_nonempty_stale_last() {
+        let mut value = local_document();
+        value["activeId"] = Value::from("");
+        value["lastId"] = Value::from("00000000-0000-0000-0000-000000000098");
+        let result = apply_compatibility_pointer_update(
+            &value.to_string(),
+            CompatibilityPointerTarget::Disconnected {
+                prune_missing: true,
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        assert_eq!(result.pruned, 0);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["activeId"], "");
+        assert_eq!(written["lastId"], value["profiles"][0]["id"]);
     }
 
     #[test]

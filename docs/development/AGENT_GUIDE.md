@@ -44,6 +44,10 @@ instead of duplicating unchanged audits or adding another permanent agent.
 Apply their [closure and distribution gate](EXECUTION_POLICY.md#retrospective-closure-and-distribution):
 reusable lessons must reach project rules/tests and affected agents, not only a
 session report. On older branches, check current remote main guidance as well.
+For native delivery, use the
+[producer and final checkpoint procedure](EXECUTION_POLICY.md#producer-and-final-integration-checkpoints)
+to schedule feasible whole-surface review and real package/export preflights
+before final selection, without bypassing automatic Draft or merged-push CI.
 The [source/distribution map](STABLE_DISTRIBUTION_TRANSITION.md) records the
 deployed October16 separation: main serves users and their support agents;
 this full-source checkout owns product development and developer rules.
