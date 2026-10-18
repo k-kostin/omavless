@@ -63,7 +63,8 @@ class ReleaseCandidateTests(unittest.TestCase):
         return target
 
     def test_native_source_manifest_version_and_lock_are_coherent(self):
-        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.9.8')
+        # Exact owner-selected NONPUBLIC assembly; this is not publication.
+        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.9.9')
         lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
         versions = {p['version'] for p in lock['package'] if p['name'].startswith('omavless-')}
         self.assertEqual(versions, {RELEASE.version(ROOT, stable=True)})

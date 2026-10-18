@@ -21,7 +21,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = json.loads((ROOT / "manifest.json").read_text())["version"]
+# The copied public controller deliberately remains fixed to the published
+# 0.9.8/fix.8 delivery, independently of a NONPUBLIC development candidate.
+VERSION = "0.9.8"
 SOURCE = "b" * 40
 
 
