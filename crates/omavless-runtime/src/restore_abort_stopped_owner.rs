@@ -92,12 +92,34 @@ macro_rules! capture_step {
     }};
 }
 
+#[derive(Clone, Copy)]
 enum SelfInvocation {
     Recovery,
     #[cfg(feature = "t4-manager-actor-service")]
     OldRecovery,
+    #[cfg(feature = "t4-manager-actor-service")]
+    ConsumerRecovery,
     #[cfg(test)]
     Diagnostic,
+}
+
+impl SelfInvocation {
+    #[cfg(feature = "t4-manager-actor-service")]
+    fn lost_owner_recovery(self) -> bool {
+        matches!(self, Self::OldRecovery | Self::ConsumerRecovery)
+    }
+
+    fn validate(self, command: &[u8]) -> Result<()> {
+        match self {
+            Self::Recovery => recovery_self(command),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::OldRecovery => old_recovery_self(command),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::ConsumerRecovery => consumer_recovery_self(command),
+            #[cfg(test)]
+            Self::Diagnostic => super::diagnostic::exact_self(&arguments(command)?),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -449,6 +471,15 @@ fn old_recovery_self(command: &[u8]) -> Result<()> {
         ) => Ok(()),
         _ => Err(()),
     }
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn consumer_recovery_self(command: &[u8]) -> Result<()> {
+    let args = arguments(command)?;
+    if args.len() != 2 || args[1] != b"tui" {
+        return Err(());
+    }
+    Ok(())
 }
 
 fn same_namespace(left: &File, right: &File) -> Result<()> {
@@ -1473,11 +1504,20 @@ pub(crate) struct OldRecoveryOwner {
     socket: std::path::PathBuf,
     attempted: bool,
     qualified: bool,
+    invocation: SelfInvocation,
 }
 
 #[cfg(feature = "t4-manager-actor-service")]
 impl OldRecoveryOwner {
     pub(crate) fn prepare(uid: u32, socket: &Path) -> Result<Self> {
+        Self::prepare_inner(uid, socket, SelfInvocation::OldRecovery)
+    }
+
+    pub(crate) fn prepare_consumer(uid: u32, socket: &Path) -> Result<Self> {
+        Self::prepare_inner(uid, socket, SelfInvocation::ConsumerRecovery)
+    }
+
+    fn prepare_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
         // Reserve original command custody without a process query/capture.
         // The caller installs this guard before qualification can spawn a child.
         recovery_checkpoint!(true, Prepare);
@@ -1494,6 +1534,7 @@ impl OldRecoveryOwner {
             socket: socket.to_owned(),
             attempted: false,
             qualified: false,
+            invocation,
         })
     }
 
@@ -1514,7 +1555,7 @@ impl OldRecoveryOwner {
             self.owner = Some(StoppedOwner::capture_inner(
                 self.uid,
                 &self.socket,
-                SelfInvocation::OldRecovery,
+                self.invocation,
                 Some(&self.queries),
                 #[cfg(test)]
                 None,
@@ -1684,7 +1725,7 @@ impl StoppedOwner {
             return Err(());
         }
         #[cfg(feature = "t4-manager-actor-service")]
-        if matches!(invocation, SelfInvocation::OldRecovery) != old_queries.is_some() {
+        if invocation.lost_owner_recovery() != old_queries.is_some() {
             return Err(());
         }
         recovery_checkpoint!(old_queries.is_some(), CaptureProcRoot);
@@ -1708,15 +1749,7 @@ impl StoppedOwner {
         let myself = Process::capture(&root, std::process::id(), &mut budget)?;
         checkpoint!(SelfArguments);
         recovery_checkpoint!(old_queries.is_some(), CaptureSelfArguments);
-        match invocation {
-            SelfInvocation::Recovery => recovery_self(&myself.command)?,
-            #[cfg(feature = "t4-manager-actor-service")]
-            SelfInvocation::OldRecovery => old_recovery_self(&myself.command)?,
-            #[cfg(test)]
-            SelfInvocation::Diagnostic => {
-                super::diagnostic::exact_self(&arguments(&myself.command)?)?
-            }
-        }
+        invocation.validate(&myself.command)?;
         if myself.status.uids != [uid; 4] || myself.status.namespace_pids != [myself.pid] {
             return Err(());
         }
@@ -1800,7 +1833,7 @@ impl StoppedOwner {
             refused: Cell::new(false),
         };
         #[cfg(feature = "t4-manager-actor-service")]
-        if matches!(invocation, SelfInvocation::OldRecovery) {
+        if invocation.lost_owner_recovery() {
             // Original manager/namespace capture is inside already installed
             // recovery custody and after engine singleton exclusivity. This
             // capture path itself never issues Stop.
@@ -2116,6 +2149,31 @@ mod tests {
         }
         assert!(recovery_self(b"binary\0restore\0abort\0--confirm-rollback\0").is_ok());
         assert!(recovery_self(b"binary\0restore\0recover-old\0--confirm-rollback\0").is_err());
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn consumer_recovery_self_accepts_only_ordinary_tui_and_keeps_cli_guards() {
+        let ordinary = b"/usr/bin/omavless\0tui\0";
+        assert!(SelfInvocation::ConsumerRecovery.validate(ordinary).is_ok());
+        assert!(SelfInvocation::ConsumerRecovery.lost_owner_recovery());
+        assert!(SelfInvocation::OldRecovery.lost_owner_recovery());
+        assert!(!SelfInvocation::Recovery.lost_owner_recovery());
+        assert!(SelfInvocation::OldRecovery.validate(ordinary).is_err());
+        assert!(SelfInvocation::Recovery.validate(ordinary).is_err());
+        for command in [
+            b"binary\0tui\0--developer-private-restore\0".as_slice(),
+            b"binary\0tui\0--available\0".as_slice(),
+            b"binary\0tui\0extra\0".as_slice(),
+            b"binary\0tui\0\0".as_slice(),
+            b"binary\0tui".as_slice(),
+            b"\0tui\0".as_slice(),
+            b"binary\0daemon\0".as_slice(),
+            b"binary\0restore\0abort\0--confirm-rollback\0".as_slice(),
+            b"binary\0restore\0recover-old\0--confirm-rollback\0".as_slice(),
+        ] {
+            assert!(SelfInvocation::ConsumerRecovery.validate(command).is_err());
+        }
     }
 
     #[test]

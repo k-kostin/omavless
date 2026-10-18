@@ -95,6 +95,11 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
 }
 
 #[cfg(feature = "tui")]
+fn consumer_recovery_tui_entry(arguments: &[std::ffi::OsString]) -> bool {
+    arguments == ["tui"] && private_pair_tui_entry(arguments) == Some(PrivatePairTui::Restore)
+}
+
+#[cfg(feature = "tui")]
 fn tui_import_adapter() -> Result<omavless_tui::ImportAdapter, CliError> {
     let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
     Ok(Box::new(move |request| {
@@ -259,7 +264,7 @@ fn run() -> Result<(), CliError> {
                     }
                 },
                 Some(tui_import_adapter()?),
-                true,
+                consumer_recovery_tui_entry(&arguments),
             )
             .map_err(CliError::Terminal);
         }
@@ -909,6 +914,22 @@ mod tests {
                 .map(std::ffi::OsString::from)
                 .collect::<Vec<_>>()
         };
+        assert_eq!(
+            consumer_recovery_tui_entry(&args(&["tui"])),
+            cfg!(all(
+                feature = "t4-manager-actor-service",
+                not(feature = "product-private-backup")
+            ))
+        );
+        for parts in [
+            &["tui", "--developer-private-restore"][..],
+            &["tui", "--developer-private-backup"],
+            &["tui", "--available"],
+            &["tui", "extra"],
+            &["daemon"],
+        ] {
+            assert!(!consumer_recovery_tui_entry(&args(parts)));
+        }
         #[cfg(all(
             feature = "t4-manager-actor-service",
             not(feature = "product-private-backup")

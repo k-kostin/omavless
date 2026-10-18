@@ -2026,11 +2026,15 @@ impl FreshRecovery {
                 | FreshRecoveryMode::NewCompleteOutput
         ) {
             phase(b"Restore recovery: stopped service\n");
-            self.old_quiescence = Some(Box::new(NativeOldRecoveryQuiescence::prepare(
-                &paths,
-                uid,
-                Arc::clone(lock),
-            )?));
+            // Only the authenticated, same-graph consumer preview above selects
+            // the ordinary TUI invocation. Legacy CLI and Abort guards retain
+            // their exact argument grammar and all stopped-owner observations.
+            let prepare = if self.preview_binding.is_some() {
+                NativeOldRecoveryQuiescence::prepare_consumer
+            } else {
+                NativeOldRecoveryQuiescence::prepare
+            };
+            self.old_quiescence = Some(Box::new(prepare(&paths, uid, Arc::clone(lock))?));
             let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
             phase(b"Restore recovery: engine\n");
             match mode {

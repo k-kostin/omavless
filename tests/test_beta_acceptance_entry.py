@@ -10,6 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BetaAcceptanceEntryTests(unittest.TestCase):
+    def test_nonpublic_restore_selection_is_exact_and_public_backup_stays_restricted(self):
+        script = ROOT / "packaging/release/client-features.sh"
+        for version, expected in [
+            ("0.9.9", "t4-manager-actor-service,setup-upgrade082\n"),
+            ("0.9.8", "product-private-backup,setup-upgrade082\n"),
+            ("0.9.8-rc.1", "product-private-backup\n"),
+            ("0.9.9-rc.1", ""), ("0.9.9-beta.1", ""), ("0.9.10", ""),
+        ]:
+            result = subprocess.run(["bash", str(script), version], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, expected, version)
+
     def test_backup_entry_is_literal_and_explicit(self):
         parser = configparser.ConfigParser(interpolation=None)
         parser.read(ROOT / "tools/omavless-beta-backup.desktop")
@@ -36,7 +48,12 @@ class BetaAcceptanceEntryTests(unittest.TestCase):
         current = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
         result = subprocess.run(["bash", str(script), current], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "product-private-backup,setup-upgrade082\n")
+        selected = {
+            "0.9.8": "product-private-backup,setup-upgrade082\n",
+            "0.9.9": "t4-manager-actor-service,setup-upgrade082\n",
+        }
+        self.assertIn(current, selected, "new assemblies need their own reviewed selection")
+        self.assertEqual(result.stdout, selected[current])
         for version in ["0.9.8-rc.1", "0.9.8"]:
             result = subprocess.run(["bash", str(script), version], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0)

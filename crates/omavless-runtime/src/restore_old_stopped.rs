@@ -75,14 +75,30 @@ impl NativeOldRecoveryQuiescence {
         uid: u32,
         lock: Arc<OnceLock<MigrationLock>>,
     ) -> Result<Self> {
+        Self::prepare_inner(paths, uid, lock, OldRecoveryOwner::prepare)
+    }
+
+    pub(crate) fn prepare_consumer(
+        paths: &CutoverPaths,
+        uid: u32,
+        lock: Arc<OnceLock<MigrationLock>>,
+    ) -> Result<Self> {
+        Self::prepare_inner(paths, uid, lock, OldRecoveryOwner::prepare_consumer)
+    }
+
+    fn prepare_inner(
+        paths: &CutoverPaths,
+        uid: u32,
+        lock: Arc<OnceLock<MigrationLock>>,
+        prepare_owner: fn(u32, &Path) -> std::result::Result<OldRecoveryOwner, ()>,
+    ) -> Result<Self> {
         if paths.runtime_base != Path::new(&format!("/run/user/{uid}"))
             || !lock.get().is_some_and(|held| held.authorizes(paths, uid))
         {
             return Err(NativeFirstError::Admission);
         }
         let socket = paths.runtime_base.join("omavless/control.sock");
-        let owner =
-            OldRecoveryOwner::prepare(uid, &socket).map_err(|()| NativeFirstError::Admission)?;
+        let owner = prepare_owner(uid, &socket).map_err(|()| NativeFirstError::Admission)?;
         if !lock.get().is_some_and(|held| held.authorizes(paths, uid)) {
             return Err(NativeFirstError::Admission);
         }
