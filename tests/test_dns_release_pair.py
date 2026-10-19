@@ -47,7 +47,17 @@ class SelectedDeliveryTests(unittest.TestCase):
         return app, dns, update
 
     def test_selected_frontend_tuple_is_closed_and_not_a_compiled_self_hash(self):
-        _, _, update = self.selected()
+        app, dns, update = self.selected()
+        self.assertEqual(update['sourceCommit'], '5281e02fb89b61e39859b0d4085d34599b848c1c')
+        self.assertEqual(app['version'], '0.9.9')
+        for arch, app_sha, dns_sha in (
+            ('x86_64', '8ee20402d7a519fc19c0128c7f4001b12019b5b2fd711a0249d282c299e75a15',
+             '4f213591b5c0bf11947b765f24281592e96fc18841f116709016760f692fe529'),
+            ('aarch64', 'd75077e0aa1ea0aefaf0fe99f02c129716f2d626506332be68eccba726f3f957',
+             '2ca89a54ec55d4f84f3c9cdc7c1051978f55860b39f1829fd4c18fa6829a58ac'),
+        ):
+            self.assertEqual(app['packages'][arch]['sha256'], app_sha)
+            self.assertEqual(dns['packages'][arch]['sha256'], dns_sha)
         published = PAIR.metadata((ROOT / 'plugin/published-pairs.json').read_bytes())
         self.assertFalse(any(p['sourceCommit'] == update['sourceCommit']
                              for p in published['pairs']))

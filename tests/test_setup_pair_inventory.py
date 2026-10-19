@@ -156,6 +156,7 @@ class PairInventoryTests(unittest.TestCase):
         app = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
         dns = json.loads((ROOT / 'plugin/dns-release.json').read_text())
         self.assertEqual(metadata['schemaVersion'], 2)
+        self.assertEqual(metadata['sourceCommit'], '5281e02fb89b61e39859b0d4085d34599b848c1c')
         self.assertIs(metadata['updatePair'], True)
         self.assertEqual(set(metadata['identities']), {'x86_64', 'aarch64'})
         for arch in ('x86_64', 'aarch64'):
@@ -169,6 +170,14 @@ class PairInventoryTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, expected)
+            # A previous nonpublic native producer remains removable, but it is
+            # not an updater predecessor or this frontend's selected identity.
+            previous = subprocess.run(['/bin/bash', '-c',
+                'source "$1"; _omavless_pair_pins "$2" "$3"',
+                'fixture', str(INSPECTOR), 'a128524e3fc90561bc04230fba06c91c41fa7e94', arch],
+                capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(previous.returncode, 0)
+            self.assertEqual(previous.stdout, '')
 
     def test_same_package_version_does_not_hide_a_previous_delivery(self):
         self.assertEqual(self.inspect(), "stale")
