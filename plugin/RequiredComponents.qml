@@ -182,7 +182,7 @@ ColumnLayout {
   PlainText { Layout.fillWidth: true; visible: (card.busy || card.checking) && !card.terminalOpened; text: card.tr(card.busyMessage); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
   PlainText { Layout.fillWidth: true; visible: card.effectBlocked && !card.busy && !card.terminalOpened; text: card.tr("action_blocked"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
   PlainText { Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal"); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Commons.Color.foreground; wrapMode: Text.Wrap }
-  SetupButton { id: retryButton; objectName: "setupTerminalClosed"; primary: true; Layout.fillWidth: true; visible: card.terminalOpened; text: card.tr("terminal_closed"); onClicked: card.terminalClosed() }
+  SetupButton { id: retryButton; objectName: "setupTerminalClosed"; primary: true; Layout.fillWidth: true; visible: card.terminalOpened; enabled: !card.busy; text: card.tr("terminal_closed"); onClicked: card.terminalClosed() }
   RowLayout {
     visible: !card.checking
     Layout.fillWidth: true

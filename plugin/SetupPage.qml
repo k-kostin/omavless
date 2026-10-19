@@ -35,6 +35,7 @@ Item {
   implicitHeight: content.implicitHeight
   signal ready()
   signal closeRequested()
+  signal terminalRequested()
   signal factsRefreshRequested()
   signal helpRequested(string section)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
@@ -44,7 +45,13 @@ Item {
       probe.running = true
     }
   }
-  function acknowledgeTerminalClosed() { terminalOpened = false; check() }
+  function acknowledgeTerminalClosed() {
+    if (launch.running || launching) return
+    terminalOpened = false; check()
+  }
+  function handOffTerminal() {
+    if (launching && launch.running && terminalOpened) terminalRequested()
+  }
   function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }
   function install(action) {
     var allowed = SetupState.canRunAction(facts, action)
@@ -54,6 +61,9 @@ Item {
     if (action === "start-app") { startApp.running = true; return }
     launchAction = action
     launching = true
+    // Submission is not completion. Keep the closure barrier even when the
+    // launcher fails, until the user settles any terminal/system prompts.
+    terminalOpened = true
     launch.running = true
   }
   Component.onCompleted: check()
@@ -84,9 +94,9 @@ Item {
     command: ["omarchy", "launch", "terminal", "/bin/bash", setup.script, setup.launchAction, setup.locale === "ru" ? "ru" : "en"]
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
+    onStarted: setup.handOffTerminal()
     onExited: function(code) {
       setup.launching = false
-      setup.terminalOpened = code === 0
       if (code !== 0) setup.facts = {state:"needs_attention", coreInstalled:setup.facts.coreInstalled}
     }
   }
@@ -147,6 +157,7 @@ Item {
       id: reviewTerminalButton
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention && setup.terminalOpened
+      enabled: !setup.busy
       text: setup.tr("terminal_closed"); bordered: true; focusable: true
       onClicked: { setup.acknowledgeTerminalClosed(); setup.factsRefreshRequested() }
     }

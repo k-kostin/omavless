@@ -39,6 +39,11 @@ No package rebuild or fresh download is implied by this procedure.
 2. Open OmaVLESS and choose **Install required components**. The terminal names
    the unpublished offline candidate before the ordinary `INSTALL` confirmation.
    Enter without `INSTALL` cancels without package or native effects.
+   Starting the fixed terminal launcher closes only the panel so it cannot
+   retain the keyboard over the prompt. This is a handoff, not launch or setup
+   success. Reopening retains the terminal-closure barrier; while the original
+   launcher is running, acknowledgement cannot clear it. A launcher failure also
+   requires explicit closure acknowledgement before a new setup action.
 3. Enter the absolute archive-directory path when requested; Enter cancels.
    Both complete pinned hashes are verified before parsing or staging. Bounded
    private copies are rehashed and published without replacing existing cache

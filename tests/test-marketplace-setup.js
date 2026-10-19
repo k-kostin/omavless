@@ -142,6 +142,35 @@ test('page never uses missing backend, never installs on load or check', () => {
   assert(page.includes('launching || terminalOpened'));
   assert(page.includes('terminalOpened = false; check()'));
 });
+test('terminal handoff closes only the panel and keeps its barrier until explicit closure', () => {
+  const vm=require('node:vm');
+  function method(name) {
+    const start=page.indexOf('  function '+name+'(');
+    assert(start>=0,name+' exists');
+    return page.slice(start,page.indexOf('\n  }',start)+4);
+  }
+  let handedOff=0,checked=0;
+  const c=vm.createContext({SetupState:state,facts:{state:'needs_package',coreInstalled:false},
+    busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,
+    launch:{running:false},terminalRequested(){handedOff++},check(){checked++}});
+  vm.runInContext(method('install'),c);
+  c.install('install');assert(c.launch.running);assert(c.launching);assert(c.terminalOpened);
+  assert.equal(handedOff,0,'request is not observed process start');
+  vm.runInContext(method('handOffTerminal'),c);
+  c.handOffTerminal();assert.equal(handedOff,1);
+  vm.runInContext(method('acknowledgeTerminalClosed'),c);
+  c.acknowledgeTerminalClosed();assert(c.terminalOpened);assert.equal(checked,0);
+  c.launch.running=false;c.acknowledgeTerminalClosed();assert(c.terminalOpened);
+  c.launching=false;c.acknowledgeTerminalClosed();assert(!c.terminalOpened);assert.equal(checked,1);
+  c.handOffTerminal();assert.equal(handedOff,1,'no stale handoff after completion');
+  assert(page.includes('onStarted: setup.handOffTerminal()'));
+  assert(panel.includes('onTerminalRequested: root.close()'));
+  const setupFlick=panel.slice(panel.indexOf('id: setupFlick'),panel.indexOf('id: nativeFlick'));
+  assert(setupFlick.includes('Keys.onPressed: function(event) { root.handlePanelControlKey(event) }'));
+  const ack=card.slice(card.indexOf('id: retryButton')).split('\n')[0];
+  assert(ack.includes('enabled: !card.busy'));
+  assert(!page.includes('setup.terminalOpened = code === 0'),'failure cannot silently clear closure barrier');
+});
 test('setup has separate navigation and cannot expose legacy mutation shortcuts', () => {
   assert(panel.includes('readonly property bool bootstrapRequired: componentSetupReview || SetupState.bootstrapRequired('));
   assert(panel.includes('vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown'));
@@ -304,8 +333,9 @@ test('real install handler rejects stale target, arbitrary action and repeated l
   c.launch.running=false;c.install('finish-selection');assert(!c.launch.running);
   c.launching=false;c.terminalOpened=true;c.install('finish-selection');assert(!c.launch.running);
   c.terminalOpened=false;c.facts={state:'needs_activation',coreInstalled:true};c.install('install');assert(c.launch.running);
-  c.launching=false;c.launch.running=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
-  c.launching=false;c.launch.running=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
+  // Each distinct terminal case starts only after its previous closure is acknowledged.
+  c.launching=false;c.launch.running=false;c.terminalOpened=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
+  c.launching=false;c.launch.running=false;c.terminalOpened=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
 });
 test('setup effect handler blocks unresolved native work across both card locations', () => {
   const vm=require('node:vm');
