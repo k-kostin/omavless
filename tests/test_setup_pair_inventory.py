@@ -48,12 +48,12 @@ class PairInventoryTests(unittest.TestCase):
         self.fixture_pins = '\t'.join(hashlib.sha256(path.read_bytes()).hexdigest()
                                       for path in (self.app, self.core, self.broker, self.receipt))
 
-    def inspect(self, published=False):
+    def inspect(self, published=False, candidate=False):
         # Only this inert test replaces the compiled/public expected identity;
         # the production caller has no pin/path override.
         # Capture fixture pins before entering the two-argument helper.
         override = '' if published else 'fixture_pins=$9; _omavless_pair_pins() { printf "%s\\n" "$fixture_pins"; }; '
-        command = 'set -euo pipefail; source "$1"; ' + override + '_omavless_pair_delivery_inspect "$2" "$3" "$4" "$5" "$6" x86_64 "$7" "$8"'
+        command = 'set -euo pipefail; source "$1"; ' + override + '_omavless_pair_delivery_inspect "$2" "$3" "$4" "$5" "$6" x86_64 "$7" "$8"' + (' 0.9.9' if candidate else '')
         result = subprocess.run(
             ["/bin/bash", "-c", command, "fixture", str(INSPECTOR),
              str(self.identity), str(self.app), str(self.receipt), str(self.core), str(self.broker),
@@ -63,6 +63,31 @@ class PairInventoryTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
         self.assertIn(result.stdout, ["current\n", "stale\n", "missing\n", "mismatch\n", "unknown\n"])
         return result.stdout.strip()
+
+    def test_nonpublic_current_requires_exact_version_target_and_all_payloads(self):
+        self.delivery(TARGET)
+        self.assertEqual(self.inspect(), 'current')
+        self.assertEqual(self.inspect(candidate=True), 'unknown')
+        self.identity.write_text(self.identity.read_text().replace('productVersion=0.9.8', 'productVersion=0.9.9'))
+        self.assertEqual(self.inspect(candidate=True), 'current')
+        # Public path does not acquire the candidate's version admission.
+        self.assertEqual(self.inspect(), 'unknown')
+        # Self-consistent old source cannot be relabelled as a candidate.
+        self.delivery(OLD)
+        self.identity.write_text(self.identity.read_text().replace('productVersion=0.9.8', 'productVersion=0.9.9'))
+        self.assertEqual(self.inspect(candidate=True), 'unknown')
+        self.delivery(TARGET)
+        self.identity.write_text(self.identity.read_text().replace('productVersion=0.9.8', 'productVersion=0.9.9'))
+        self.app.write_bytes(b'modified candidate app')
+        self.assertEqual(self.inspect(candidate=True), 'unknown')
+
+    def test_nonpublic_current_still_distinguishes_missing_and_mixed_dns(self):
+        self.delivery(TARGET, dns_source=OLD)
+        self.identity.write_text(self.identity.read_text().replace('productVersion=0.9.8', 'productVersion=0.9.9'))
+        self.assertEqual(self.inspect(candidate=True), 'mismatch')
+        for path in (self.receipt, self.core, self.broker):
+            path.unlink()
+        self.assertEqual(self.inspect(candidate=True), 'missing')
 
     def test_known_public_source_does_not_admit_a_self_consistent_local_rebuild(self):
         self.assertEqual(self.inspect(published=True), 'unknown')

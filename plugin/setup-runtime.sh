@@ -502,6 +502,11 @@ offer_shell_reload() {
   fi
 }
 
+obtain_install_archives() {
+  [[ $# == 5 ]] || return 2
+  upgrade_download "$1" "$2" "$5" && upgrade_download "$3" "$4" "$5"
+}
+
 install_package() {
   local version arch app_hash dns_hash source app_package dns_package cache
   fresh_package_boundary || return 1
@@ -513,8 +518,7 @@ install_package() {
   say 'Checking the application, VPN core and DNS helper packages…' 'Проверка пакетов приложения, ядра VPN и DNS-помощника…'
   # Cache presence is not trust. Reuse only the same fixed reviewed pins and
   # authenticated regular archives as upgrade; a poisoned entry refuses.
-  upgrade_download "$app_package" "$app_hash" "$cache" \
-    && upgrade_download "$dns_package" "$dns_hash" "$cache" || return 1
+  obtain_install_archives "$app_package" "$app_hash" "$dns_package" "$dns_hash" "$cache" || return 1
   [[ $(package_info "$cache/$app_package") == "omavless $package_version-1" \
      && $(package_info "$cache/$dns_package") == "omavless-dns $package_version-1" ]] || return 1
   app_archive_identity "$cache/$app_package" "$source" "$arch" "$version" \
