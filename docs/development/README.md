@@ -127,6 +127,50 @@ Record final verified outcomes, substantive failures, decisions and remaining
 limits—not every typo, cancelled prompt or routine retry. Keep such transient
 details only when they explain a real defect, security concern or evidence gap.
 
+### Compact operational checkpoints
+
+Keep one small current index outside Git, separate from immutable chronological
+receipts. Its job is to answer what is actionable now, not reproduce the chat.
+Use this shape (normally one screen, at most about 80 lines):
+
+```text
+Updated / scope / operator
+Outcome | prepared / checked / integrated / admitted | exact input | next action
+Active original operations: identity, original completion, bounded next observation
+Frozen / sealed boundaries and explicit evidence limits
+Links to owning PR, canonical procedure and original evidence/archive
+```
+
+Update that index in place. Before replacing an overgrown index, preserve its
+complete original bytes in a private dated archive and verify the copy/digest;
+keep an explicit link back. Do not delete, rewrite or turn old failures into
+successes. A historical ACTIVE/PENDING field is a snapshot, never current live
+custody or permission to observe/restart that scope. Link completed outcomes
+instead of copying their full prefixes into every later task or heartbeat.
+Keep private paths and raw logs out of source/PRs, and do not add report-only
+source commits or resume a completed monitor merely to update bookkeeping.
+
+For repeated offline source-admission preparation, use the maintained
+[source fixture helper](../../packaging/release/source-fixture.py):
+
+```sh
+python3 -E -B packaging/release/source-fixture.py FULL_40_CHARACTER_SOURCE_COMMIT
+```
+
+It requires an existing owned parent under HOME's `.cache/ovt`, creates
+only a new private workspace, explicitly fetches the selected local Git object,
+and checks a clean detached source, exact tracked bytes, actual 644/755 modes and
+absence of bytecode/build outputs. It disables ambient Git overrides, global
+filters/hooks, automatic maintenance and lazy object fetching; only local file
+transport is allowed, with interactive authentication disabled. No old fixture
+is reused or repaired.
+The returned distribution directory stays EMPTY for the actual exporter. Use
+the returned command-local Git identity options only when committing that
+later export; do not change global author settings or initialize the output
+before export. This helper does not import candidate code, export, authenticate,
+run CI/bootstrap, install or operate a VM. The actual newly generated bootstrap
+and all applicable source/native/installed gates remain separate obligations.
+
 ### Acceptance reports stay current
 
 Maintain one current summary/matrix at the top of the owning report: exact

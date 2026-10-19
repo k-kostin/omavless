@@ -60,5 +60,5 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, ValueError, TypeError) as error:
-        sys.exit('Source validator refused: ' + str(error))
+    except (OSError, ValueError, TypeError):
+        sys.exit('Source validator refused: check source and reviewed validator pins.')

@@ -4,6 +4,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
   "$here/test_rust_ci_isolation.py" \
+  "$here/test_tui_native_import_wire_order.py" \
   "$here/test_actor_state_export.py" \
   "$here/test_terminal_envelope_export.py" \
   "$here/test_prepared_local_reply_export.py" \
@@ -31,6 +32,7 @@ python3 -m unittest -v \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \
   "$here/test_distribution_export.py" \
+  "$here/test_source_fixture.py" \
   "$here/test_frontend_pair.py" \
   "$here/test_dns_release_pair.py" \
   "$here/test_installed_native_acceptance.py" \

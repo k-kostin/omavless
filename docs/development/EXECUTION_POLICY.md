@@ -280,6 +280,14 @@ are acceptable after privacy inspection; raw logs are not categorically banned.
 Private configuration, credentials and provider content must not enter Git,
 argv or shareable output. Private runtime diagnostics remain private and their
 public projection is allowlisted. Do not dump a whole raw log as a shortcut.
+Authentication output is not an ordinary log: do not capture a launcher/shim's
+stdout directly into a token or print its exception payload. Validate the exact
+credential bytes before constructing a request; reject contamination without
+trimming, extracting a token or falling back to anonymous access. Exceptions
+may include headers or remote response text, so public refusal messages must
+be constant or allowlisted and omit chained sensitive diagnostics. Check this
+boundary with synthetic credentials and inert transports, never a real token.
+The maintained distribution exporter owns this check for its GitHub API path.
 
 Read-only does not mean harmless: observation must not run lazy initialization,
 change state, trigger cleanup/reaping, drain a protocol needed by a retained
