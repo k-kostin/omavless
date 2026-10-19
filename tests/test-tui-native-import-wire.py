@@ -100,6 +100,29 @@ def require(condition, category):
         raise AssertionError(category)
 
 
+def require_import_trace(calls, foreground, *, partial_read=False):
+    """Exact per-worker order, allowing only ordinary read-cycle interleaving.
+
+    The real client has independent read/import workers. Their global journal
+    need not place an import Hello immediately beside its classify/Save call.
+    Every method must still belong to the exact foreground sequence or one
+    ordered Hello/capabilities/snapshot/observation read cycle. No extra guard,
+    missing guard, reordered read or repeated mutation can be discarded.
+    """
+    states = {(0, 0)}
+    for method in calls:
+        following = set()
+        for operation, read in states:
+            if operation < len(foreground) and method == foreground[operation]:
+                following.add((operation + 1, read))
+            if method == METHODS[read]:
+                following.add((operation, (read + 1) % 4))
+        require(bool(following), "native import/read transaction ordering")
+        states = following
+    require(any(operation == len(foreground) and (partial_read or read == 0)
+                for operation, read in states), "native import/read transaction incomplete")
+
+
 def exact_object(pairs):
     obj = {}
     for key, value in pairs:
@@ -127,7 +150,7 @@ def private_parent():
 
 class Peer:
     """One fixed same-UID listener, bounded frames, original child only."""
-    def __init__(self, directory, kind, fault):
+    def __init__(self, directory, kind, fault, force_save_interleave=False):
         directory.mkdir(mode=0o700)
         self.path = directory / "control.sock"
         require(len(os.fsencode(self.path)) < 108, "Unix fixture path bound")
@@ -149,12 +172,36 @@ class Peer:
         self.armed = None
         self.fault_sent = False
         self.post_pending = False
+        self.force_save_interleave = force_save_interleave
+        self.refresh_held = threading.Event()
+        self.interleave_phase = "refresh"
+        self.interleaved = False
         self.thread = threading.Thread(target=self.serve, name="native-wire-peer")
         self.thread.start()
 
     def methods(self):
         with self.lock:
             return list(self.calls)
+
+    def interleave_response(self, method):
+        if not self.force_save_interleave:
+            return
+        if (method == "capabilities.get" and self.interleave_phase == "refresh"
+                and self.methods().count("imports.classify") == 1):
+            # Hold the background refresh until the Save worker has queued its
+            # Hello. No sleep or relaxed deadline: observe this owned listener.
+            self.interleave_phase = "save-hello"
+            self.refresh_held.set()
+            require(bool(select.select([self.listener], [], [], 1)[0]),
+                    "Save Hello did not queue during held refresh")
+        elif method == "system.hello" and self.interleave_phase == "save-hello":
+            # The read worker can now queue ui.snapshot, but Save cannot queue
+            # plugin.action until this Hello response is sent. Thus a real read
+            # is guaranteed between the guard and Save in the global log.
+            require(bool(select.select([self.listener], [], [], 1)[0]),
+                    "background read did not queue before Save Hello reply")
+            self.interleave_phase = "done"
+            self.interleaved = True
 
     def result(self, method, params):
         require(method in METHODS, "unexpected native method")
@@ -273,6 +320,7 @@ class Peer:
                         revision = self.revision
                     if result is None:
                         continue
+                    self.interleave_response(method)
                     if isinstance(result, tuple):
                         result, revision = result
                     response = {"api": "omavless.control", "version": 1, "id": request["id"],
@@ -299,13 +347,15 @@ class Peer:
         require(self.failure is None, self.failure or "synthetic peer failure")
 
 
-def check(binary, locale, kind, fault):
+def check(binary, locale, kind, fault, force_save_interleave=False):
+    require(not force_save_interleave or (kind, fault) == ("bundle", "save"),
+            "interleave witness has one fixed scenario")
     with tempfile.TemporaryDirectory(prefix="tnw-", dir=private_parent()) as name:
         home = Path(name)
         home.chmod(0o700)
         runtime = home / "run"
         runtime.mkdir(mode=0o700)
-        peer = Peer(runtime / "omavless", kind, fault)
+        peer = Peer(runtime / "omavless", kind, fault, force_save_interleave)
         master, slave = pty.openpty()
         original = termios.tcgetattr(slave)
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 70, 0, 0))
@@ -373,8 +423,8 @@ def check(binary, locale, kind, fault):
                 relevant = peer.methods()[boundary:]
                 expected = ["system.hello"] if fault.startswith("before-") else [
                     "system.hello", "imports.classify", "system.hello"]
-                require(relevant[:len(expected)] == expected and peer.fault_sent,
-                        "changed context admission sequence")
+                require_import_trace(peer.methods(), expected, partial_read=True)
+                require(peer.fault_sent, "changed context admission sequence")
                 require(relevant.count("imports.classify") == int(fault.startswith("after-")),
                         "private classify refusal count")
                 os.write(master, b"\r\r")
@@ -384,8 +434,8 @@ def check(binary, locale, kind, fault):
                 key = "tui.import_no_new" if fault == "no-new" else "tui.import_confirm_keys"
                 wait(lambda: text(key))
                 relevant = peer.methods()[boundary:]
-                require(relevant[:3] == ["system.hello", "imports.classify", "system.hello"],
-                        "native classify pre/post hello sequence")
+                classified = ["system.hello", "imports.classify", "system.hello"]
+                require_import_trace(peer.methods(), classified, partial_read=True)
                 require(relevant.count("imports.classify") == 1, "one original classify")
                 if fault in ("cancel", "cancel-connect"):
                     os.write(master, b"\x1b")
@@ -405,19 +455,21 @@ def check(binary, locale, kind, fault):
                     settle_for(0.35)
                     require("plugin.action" not in peer.methods(), "zero-new must not Save")
                 else:
+                    if force_save_interleave:
+                        wait(peer.refresh_held.is_set)
                     if fault.startswith("save-"):
                         # Classification completion triggers a new normal read.
                         # Earn that completed phase before arming the next Hello,
                         # so a polling Hello cannot consume this negative fixture.
                         wait(lambda: peer.methods()[-4:] == METHODS[:4])
-                        boundary = len(peer.methods())
                         with peer.lock:
                             peer.armed = "before"
                     os.write(master, b"\r")
                     if fault.startswith("save-"):
                         wait(lambda: text("tui.import_rejected"))
-                        require(peer.methods()[boundary] == "system.hello" and peer.fault_sent,
-                                "Save fixed pre-hello refusal")
+                        require_import_trace(peer.methods(), classified + ["system.hello"],
+                                             partial_read=True)
+                        require(peer.fault_sent, "Save fixed pre-hello refusal")
                         os.write(master, b"\r\r")
                         settle_for(0.35)
                         require("plugin.action" not in peer.methods(), "changed Save owner/revision admission")
@@ -425,7 +477,12 @@ def check(binary, locale, kind, fault):
                         wait(lambda: peer.methods().count("plugin.action") == 1)
                         calls = peer.methods()
                         index = calls.index("plugin.action")
-                        require(calls[index - 1] == "system.hello", "Save fixed pre-hello")
+                        if force_save_interleave:
+                            require(peer.interleaved and calls[index - 1] in (
+                                "ui.snapshot", "runtime.observation"),
+                                "forced real read interleaving not observed")
+                        require_import_trace(calls[:index + 1], classified + [
+                            "system.hello", "plugin.action"], partial_read=True)
                         key = "tui.import_unknown" if fault in ("unknown", "manual-recovery") else "tui.import_saved"
                         wait(lambda: text(key))
                         if fault in ("unknown", "manual-recovery"):
@@ -473,6 +530,14 @@ def check(binary, locale, kind, fault):
             require(calls.count("ui.snapshot") == cycles == calls.count("runtime.observation") and
                     calls.count("system.hello") == cycles + guards,
                     "exact native read cycles and import Hello guards")
+            foreground = ["system.hello"]
+            if classifications:
+                foreground += ["imports.classify", "system.hello"]
+            if saves or fault.startswith("save-"):
+                foreground += ["system.hello"]
+            if saves or connect_control:
+                foreground += ["plugin.action"]
+            require_import_trace(calls, foreground)
             return {"classify": calls.count("imports.classify"),
                     "Save": saves, "ConnectControl": connect_control,
                     "HelloGuards": guards, "readCycles": cycles}
@@ -524,5 +589,7 @@ if __name__ == "__main__":
     for locale in ("en", "ru"):
         for kind, fault in cases:
             counts = check(binary, locale, kind, fault)
-            print(f"PASS: native client wire / {locale} / {kind} / {fault} / {counts}")
+            print(f"PASS: native client wire / {locale} / {kind} / {fault} / {counts}", flush=True)
+        counts = check(binary, locale, "bundle", "save", force_save_interleave=True)
+        print(f"PASS: native client wire / {locale} / forced-read-interleaving / {counts}", flush=True)
     print("Hermetic native CLIENT ONLY: real tui entry, Unix framing/peer, PTY keys/masking/counts/teardown PASS")
