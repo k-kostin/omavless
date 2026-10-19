@@ -17,6 +17,89 @@ PAIR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PAIR)
 
 
+class ProducerWorkflowPathsTests(unittest.TestCase):
+    WORKFLOWS = {
+        'native-package.yml': 'c98c1e09c9f167b0448cdb420a42da6977c0e32c20462d78b253f933010b72a3',
+        'dns-pair-native-arm64.yml': '759cdfafad4c2628b935904c3eb61a843a42e6be79232d0b45f3d3d611d025f9',
+    }
+
+    def paths(self, workflow):
+        text = (ROOT / '.github/workflows' / workflow).read_text()
+        block = text.split('    paths:\n', 1)[1].split('\n\n', 1)[0]
+        return [line.strip()[3:-1] for line in block.splitlines()
+                if line.strip().startswith("- '")]
+
+    def triggers(self, workflow, path):
+        # These workflows deliberately use only exact paths, ** and prefix/**;
+        # evaluate GitHub's ordered negative/re-inclusion semantics, not fnmatch
+        # where a single * incorrectly also matches directory separators.
+        selected = False
+        for entry in self.paths(workflow):
+            pattern = entry.lstrip('!')
+            self.assertTrue('*' not in pattern or pattern == '**' or
+                            (pattern.endswith('/**') and '*' not in pattern[:-2]))
+            if (pattern == '**' or path == pattern or
+                    (pattern.endswith('/**') and path.startswith(pattern[:-2]))):
+                selected = not entry.startswith('!')
+        return selected
+
+    def test_runtime_only_changes_schedule_both_same_producer_packages(self):
+        for workflow in self.WORKFLOWS:
+            for path in ('crates/omavless-runtime/src/native_host.rs',
+                         'crates/omavless-profile/src/wireguard/managed.rs',
+                         'crates/omavless-domain/src/private_store.rs',
+                         'crates/omavless-tui/src/view.rs'):
+                with self.subTest(workflow=workflow, path=path):
+                    self.assertTrue(self.triggers(workflow, path))
+
+    def test_every_actual_protected_blob_and_new_protected_path_schedules_both(self):
+        head = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).decode().strip()
+        actual = PAIR.runtime_tree(ROOT, head)
+        self.assertTrue(actual, 'the actual protected input graph must be nonempty')
+        synthetic = ('new-build-input.cfg', '.cargo/new-config.toml',
+                     'crates/new-native-crate/build.rs', 'templates/new-mode.yaml')
+        wire = b'\0'.join(b'100644 blob ' + b'a' * 40 + b'\t' + name.encode()
+                          for name in synthetic)
+        with patch.object(PAIR.release, 'git', return_value=wire):
+            future = PAIR.runtime_tree(ROOT, 'a' * 40)
+        self.assertEqual(len(future.split(b'\0')), len(synthetic))
+        for workflow in self.WORKFLOWS:
+            for record in (actual + b'\0' + future).split(b'\0'):
+                if record:
+                    path = record.split(b'\t', 1)[1].decode()
+                    with self.subTest(workflow=workflow, path=path):
+                        self.assertTrue(self.triggers(workflow, path))
+
+    def test_frontend_exclusions_keep_explicit_compiled_and_builder_inputs(self):
+        for workflow in self.WORKFLOWS:
+            for path in ('README.md', 'docs/user/NEW_GUIDE.md', 'plugin/Panel.qml',
+                         'skills/new-review/SKILL.md', 'tests/ordinary_test.py'):
+                self.assertFalse(self.triggers(workflow, path), (workflow, path))
+            for path in sorted(PAIR.RUNTIME_DATA_FILES) + [
+                    'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
+                    '.github/workflows/native-package.yml',
+                    '.github/workflows/dns-pair-native-arm64.yml',
+                    'packaging/arch/build-local-package.sh',
+                    'packaging/systemd/omavless-runtime.service',
+                    'packaging/release/build-native-ci.sh',
+                    'packaging/release/build-candidate.py',
+                    'packaging/release/version-mode.sh',
+                    'packaging/release/pair-frontend.py',
+                    'tests/installed_native_package.py', 'tests/human_authorization.py',
+                    'tests/dns_broker_host/package/build_pair.py',
+                    'tests/core_dns_adapter/mihomo-dns-broker.patch',
+                    'packaging/dns/stage.py']:
+                self.assertTrue(self.triggers(workflow, path), (workflow, path))
+        self.assertEqual(self.paths('native-package.yml'), self.paths('dns-pair-native-arm64.yml'))
+
+    def test_execution_permissions_jobs_pins_and_deadlines_remain_exact(self):
+        for workflow, expected in self.WORKFLOWS.items():
+            text = (ROOT / '.github/workflows' / workflow).read_bytes()
+            self.assertIn(b'on:\n  workflow_dispatch:\n  pull_request:\n', text)
+            execution = text.split(b'permissions:\n', 1)[1]
+            self.assertEqual(hashlib.sha256(execution).hexdigest(), expected)
+
+
 class FrontendPairTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='omavless-pair-')
