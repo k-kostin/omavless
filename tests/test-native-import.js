@@ -289,4 +289,31 @@ test('unavailable import explains cancellation and disabled Review is visibly in
   const start=source.indexOf('            id: review')>=0 ? source.indexOf('            id: review') : source.indexOf('id: review');
   assert(source.slice(start).includes('opacity: enabled ? 1 : 0.45'));
 });
+test('entry navigation handles both reverse key representations without activation',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportEntryPrompt.qml'),'utf8');
+  const start=source.indexOf('  function navigateEntry('), end=source.indexOf('\n  }',start)+4;
+  assert(start>=0 && end>start,'production entry navigation function');
+  for (const enabled of [false,true]) for (const revealed of [false,true]) {
+    const focused=[];
+    const target=name=>({forceActiveFocus:reason=>focused.push([name,reason])});
+    const c=vm.createContext({visible:true,revealed,Qt:{Key_Tab:1,Key_Backtab:2,ShiftModifier:4,TabFocusReason:10,BacktabFocusReason:11},
+      reveal:target('reveal'),cancel:target('cancel'),review:{...target('review'),enabled}});
+    vm.runInContext(source.slice(start,end),c);
+    for (const [key,modifiers,back] of [[1,0,false],[1,4,true],[2,0,true],[2,4,true]]) {
+      const event={key,modifiers,accepted:false}; c.navigateEntry(event);
+      assert(event.accepted);
+      assert.deepEqual(focused.pop(),[back?(enabled?'review':'cancel'):'reveal',back?11:10]);
+    }
+    for (const key of [3,4,5]) {
+      const event={key,modifiers:4,accepted:false}; c.navigateEntry(event);
+      assert(!event.accepted); assert.equal(focused.length,0,'editing/Return/Escape unchanged');
+    }
+    c.visible=false; const event={key:1,modifiers:4,accepted:false}; c.navigateEntry(event);
+    assert(!event.accepted); assert.equal(focused.length,0,'hidden dialog has no navigation');
+  }
+  const entry=source.slice(source.indexOf('            id: entry'),source.indexOf('          Rectangle {',source.indexOf('            id: entry')));
+  assert(entry.includes('KeyNavigation.priority: KeyNavigation.AfterItem'));
+  assert(entry.includes('Keys.priority: Keys.BeforeItem'));
+  assert(entry.includes('Keys.onPressed: function(event) { prompt.navigateEntry(event) }'));
+});
 console.log(`${count} native import tests passed`);

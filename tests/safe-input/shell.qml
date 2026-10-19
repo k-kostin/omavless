@@ -189,6 +189,40 @@ ShellRoot {
         compare(importEntry.visible, true)
         importEntry.dismiss(); compare(editor.text, ""); compare(editor.pasteContext, null)
       }
+      function test_import_entry_reverse_from_editor_data() {
+        var rows = []
+        for (var key of [Qt.Key_Tab, Qt.Key_Backtab])
+          for (var state of ["empty", "unavailable", "review"])
+            for (var revealed of [false, true])
+              rows.push({tag:key + "-" + state + "-" + revealed,
+                key:key, state:state, revealed:revealed})
+        return rows
+      }
+      function test_import_entry_reverse_from_editor(data) {
+        importEntry.open(); wait(30)
+        var editor = findChild(importEntry, "omavlessImportEntry")
+        var cancel = findChild(importEntry, "omavlessImportCancel")
+        var reviewButton = findChild(importEntry, "omavlessImportReview")
+        if (data.state !== "empty") type("synthetic-cancel-only")
+        importEntry.available = data.state !== "unavailable"
+        importEntry.revealed = data.revealed
+        editor.forceActiveFocus(); verify(editor.activeFocus)
+        var submissions = importEntry.submissions
+        var cancellations = importEntry.cancellations
+        keyClick(data.key, Qt.ShiftModifier)
+        if (data.state === "review") {
+          verify(reviewButton.activeFocus, "reverse reaches enabled Review before activation")
+          keyClick(Qt.Key_Escape)
+        } else {
+          verify(cancel.activeFocus, "reverse reaches Cancel before activation")
+          keyClick(Qt.Key_Return)
+        }
+        compare(importEntry.cancellations, cancellations + 1)
+        compare(importEntry.submissions, submissions)
+        compare(importEntry.visible, false); compare(editor.text, "")
+        compare(editor.previousText, ""); compare(editor.undoStates.length, 0)
+        compare(editor.redoStates.length, 0); compare(importEntry.revealed, false)
+      }
       function test_typing_enter() {
         type("Safe name"); compare(field.text, "Safe name")
         keyClick(Qt.Key_Return); compare(field.text, "Safe name"); compare(field.accepts, 1)

@@ -33,6 +33,13 @@ Item {
     Qt.callLater(function() { if (prompt.visible) entry.forceActiveFocus() })
   }
   function dismiss() { visible = false; clear() }
+  function navigateEntry(event) {
+    if (!visible || (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab)) return
+    var back = event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier)
+    var target = back ? (review.enabled ? review : cancel) : reveal
+    target.forceActiveFocus(back ? Qt.BacktabFocusReason : Qt.TabFocusReason)
+    event.accepted = true
+  }
   onVisibleChanged: if (!visible) clear()
   Keys.onEscapePressed: canceled()
   Rectangle {
@@ -90,8 +97,13 @@ Item {
             maximumLength: 32768
             placeholderText: prompt.tr("import.entry.placeholder")
             onAccepted: if (review.enabled) prompt.submitted(text)
+            // Qt can deliver Shift+Tab as Tab plus a modifier. Handle both
+            // representations before attached navigation consumes forward Tab.
+            KeyNavigation.priority: KeyNavigation.AfterItem
             KeyNavigation.tab: reveal
             KeyNavigation.backtab: review.enabled ? review : cancel
+            Keys.priority: Keys.BeforeItem
+            Keys.onPressed: function(event) { prompt.navigateEntry(event) }
             Keys.onEscapePressed: prompt.canceled()
           }
           Rectangle {
