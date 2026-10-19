@@ -154,6 +154,12 @@ The historical marketplace snapshot is unchanged.
 
 ## Offline artifact assembly
 
+For the separately owner-selected unpublished0.9.9 **installation** path, see
+[offline candidate setup](../../docs/development/OFFLINE_CANDIDATE_SETUP.md).
+Its explicit committed channel uses local exact-pin archives and ordinary
+package/DNS consent; it is not an authorization to publish or change fix.8 URLs.
+The assembly tools below still perform no installation.
+
 ### Stable user-tree preparation
 
 `export-distribution.py` prepares the proposed user-facing tree without changing

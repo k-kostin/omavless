@@ -24,6 +24,7 @@ python3 -m unittest -v \
   "$here/test_native_launcher_no_python.py" \
   "$here/test_install_picker_policy.py" \
   "$here/test_marketplace_setup.py" \
+  "$here/test_offline_candidate_setup.py" \
   "$here/test_setup_upgrade_frontend.py" \
   "$here/test_setup_predecessor.py" \
   "$here/test_setup_pair_inventory.py" \

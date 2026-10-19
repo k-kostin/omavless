@@ -9,10 +9,11 @@ function parse(raw, exitCode) {
 function canInstall(state) { return state === "needs_update" || state === "needs_pair_update" || state === "needs_pair_install" || state === "needs_package" || state === "needs_activation" || state === "needs_selection" || state === "needs_broker_stopped" || state === "needs_dns_setup" }
 function inventory(raw, exitCode) {
   if (exitCode !== 0 || typeof raw !== "string" || raw.length > 128) return {state:"needs_attention", coreInstalled:null}
-  var match = /^(ready|needs_package|needs_update|needs_pair_update|needs_pair_update_manual|needs_pair_install|needs_pair_mismatch|needs_activation|needs_companion|needs_selection|needs_broker|needs_dns_setup|needs_broker_stopped|needs_runtime_stop|needs_runtime_start|needs_attention|release_unavailable)\t(present|missing)(?:\t(current|stale|stale_manual))?\n?$/.exec(raw)
+  var match = /^(ready|needs_package|needs_update|needs_pair_update|needs_pair_update_manual|needs_pair_install|needs_pair_mismatch|needs_activation|needs_companion|needs_selection|needs_broker|needs_dns_setup|needs_broker_stopped|needs_runtime_stop|needs_runtime_start|needs_attention|release_unavailable)\t(present|missing)(?:\t(current|stale|stale_manual|offline-candidate))?\n?$/.exec(raw)
   if (!match || match[0].length !== raw.length) return {state:"needs_attention", coreInstalled:null}
   var facts = {state:match[1], coreInstalled:match[2] === "present"}
-  if (match[3]) facts.delivery = match[3]
+  if (match[3] === "offline-candidate") facts.channel = match[3]
+  else if (match[3]) facts.delivery = match[3]
   return facts
 }
 function hasUpdate(facts) { return facts.delivery === "stale" || facts.delivery === "stale_manual" }
@@ -34,12 +35,16 @@ function missingAction(facts) {
   if (facts.state === "needs_broker_stopped") return "start-broker"
   return facts.state === "needs_selection" ? "finish-selection" : ""
 }
+function canRestoreHelperAccess(facts) {
+  return facts.state === "needs_broker_stopped" && facts.coreInstalled === true
+    && facts.channel !== "offline-candidate"
+}
 function canRunAction(facts, action) {
   return action !== "" && (action === missingAction(facts)
     || (canOfferPairUpdate(facts) && action === "update-pair")
     || (hasUpdate(facts) && action === "update-help")
     || (["needs_update", "needs_pair_update", "needs_pair_install"].indexOf(facts.state) >= 0 && action === "update-help")
-    || (facts.state === "needs_broker_stopped" && facts.coreInstalled === true && action === "restore-enrollment"))
+    || (canRestoreHelperAccess(facts) && action === "restore-enrollment"))
 }
 function needsAttention(facts) { return facts.state !== "ready" || facts.coreInstalled !== true || hasUpdate(facts) }
 // Presentation only: desktop permissions are not service/TUN/network health.
@@ -63,4 +68,4 @@ function bootstrapRequired(facts, nativeOwner, hasSnapshot, actionRunning, pendi
     && !actionRunning && !pending && !outcomeUnknown
   return appMissing(facts) || !nativeOwner || !hasSnapshot || stopped
 }
-if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, hasUpdate:hasUpdate, updateMessage:updateMessage, canOfferPairUpdate:canOfferPairUpdate, appMissing:appMissing, missingAction:missingAction, canRunAction:canRunAction, needsAttention:needsAttention, coreReview:coreReview, bootstrapRequired:bootstrapRequired}
+if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, hasUpdate:hasUpdate, updateMessage:updateMessage, canOfferPairUpdate:canOfferPairUpdate, appMissing:appMissing, missingAction:missingAction, canRestoreHelperAccess:canRestoreHelperAccess, canRunAction:canRunAction, needsAttention:needsAttention, coreReview:coreReview, bootstrapRequired:bootstrapRequired}

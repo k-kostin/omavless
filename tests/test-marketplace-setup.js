@@ -77,11 +77,45 @@ test('recovery disclosure is navigation, and restore retains all existing barrie
     assert.equal(vm.runInNewContext(enabled,c),shown&&recoveryExpanded&&coreInstalled===true&&!effectBusy&&!terminalOpened);
   }
 });
+test('offline inventory hides unsupported recovery but keeps ordinary continuations', () => {
+  const vm=require('node:vm');
+  const toggle=card.slice(card.indexOf('id: recoveryToggle'),card.indexOf('\n      }',card.indexOf('id: recoveryToggle')));
+  const visible=toggle.match(/visible: ([^\n]+)/)[1];
+  for(const channel of ['', '\toffline-candidate'])for(const present of ['present','missing']) {
+    const facts=state.inventory('needs_broker_stopped\t'+present+channel+'\n',0);
+    const restore=channel===''&&present==='present';
+    assert.equal(vm.runInNewContext(visible,{SetupState:state,card:{facts}}),restore);
+    assert.equal(state.canRunAction(facts,'restore-enrollment'),restore);
+    assert.equal(state.canRunAction(facts,'start-broker'),present==='present');
+    assert(!state.hasUpdate(facts));
+  }
+  for(const [status,action] of [['needs_package','install'],['needs_activation','install'],
+      ['needs_dns_setup','resume-dns'],['needs_selection','finish-selection'],['needs_runtime_start','start-app']]) {
+    const facts=state.inventory(status+'\tpresent\toffline-candidate\n',0);
+    assert.equal(facts.channel,'offline-candidate');
+    assert(state.canRunAction(facts,action));
+    assert(!state.canRunAction(facts,'restore-enrollment'));
+    assert(!state.canRunAction(facts,'update-pair'));
+  }
+  assert(card.includes('onFactsChanged: if (!SetupState.canRestoreHelperAccess(facts)) recoveryExpanded = false'));
+});
 test('every web-link label has the same trailing marker, local URL reveal does not', () => {
   for(const locale of ['en','ru'])for(const key of ['help.guide','help.issue','setup.guide','settings.source']) {
     const value=i18n.translate(key,locale,{source:'Synthetic source'});assert(value.endsWith(' ↗'));assert.equal(value.split('↗').length,2);
   }
   for(const locale of ['en','ru'])for(const key of ['common.show_url','common.hide_url','setup.install_all','setup.prepare_update','setup.guide_short','setup.update_help','native.onboarding.setup_guide','help.copy_request'])assert(!i18n.translate(key,locale,{}).includes('↗'));
+});
+test('local setup Help keeps a neutral button boundary and its existing local destination', () => {
+  for (const [source, id, handler] of [[card, 'guideButton', 'card.guideRequested()'],
+      [page, 'reviewGuideButton', 'setup.guide()']]) {
+    const control = source.slice(source.indexOf('id: ' + id)).split('}')[0];
+    assert(control.includes('bordered: true'), id + ' needs a visible button boundary');
+    assert(control.includes('focusable: true'), id + ' remains keyboard reachable');
+    assert(!/primary:\s*true/.test(control), id + ' must not compete with setup');
+    assert(control.includes('onClicked: ' + handler), id + ' preserves local navigation');
+    assert(!/installRequested|openUrlExternally/.test(control));
+  }
+  assert(page.includes('helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install")'));
 });
 test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
   const facts={state:'needs_runtime_start',coreInstalled:true};
@@ -119,6 +153,35 @@ test('page never uses missing backend, never installs on load or check', () => {
   assert(!/backendPath|execDetached|sudo|connect\(/.test(page));
   assert(page.includes('launching || terminalOpened'));
   assert(page.includes('terminalOpened = false; check()'));
+});
+test('terminal handoff closes only the panel and keeps its barrier until explicit closure', () => {
+  const vm=require('node:vm');
+  function method(name) {
+    const start=page.indexOf('  function '+name+'(');
+    assert(start>=0,name+' exists');
+    return page.slice(start,page.indexOf('\n  }',start)+4);
+  }
+  let handedOff=0,checked=0;
+  const c=vm.createContext({SetupState:state,facts:{state:'needs_package',coreInstalled:false},
+    busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,
+    launch:{running:false},terminalRequested(){handedOff++},check(){checked++}});
+  vm.runInContext(method('install'),c);
+  c.install('install');assert(c.launch.running);assert(c.launching);assert(c.terminalOpened);
+  assert.equal(handedOff,0,'request is not observed process start');
+  vm.runInContext(method('handOffTerminal'),c);
+  c.handOffTerminal();assert.equal(handedOff,1);
+  vm.runInContext(method('acknowledgeTerminalClosed'),c);
+  c.acknowledgeTerminalClosed();assert(c.terminalOpened);assert.equal(checked,0);
+  c.launch.running=false;c.acknowledgeTerminalClosed();assert(c.terminalOpened);
+  c.launching=false;c.acknowledgeTerminalClosed();assert(!c.terminalOpened);assert.equal(checked,1);
+  c.handOffTerminal();assert.equal(handedOff,1,'no stale handoff after completion');
+  assert(page.includes('onStarted: setup.handOffTerminal()'));
+  assert(panel.includes('onTerminalRequested: root.close()'));
+  const setupFlick=panel.slice(panel.indexOf('id: setupFlick'),panel.indexOf('id: nativeFlick'));
+  assert(setupFlick.includes('Keys.onPressed: function(event) { root.handlePanelControlKey(event) }'));
+  const ack=card.slice(card.indexOf('id: retryButton')).split('\n')[0];
+  assert(ack.includes('enabled: !card.busy'));
+  assert(!page.includes('setup.terminalOpened = code === 0'),'failure cannot silently clear closure barrier');
 });
 test('setup has separate navigation and cannot expose legacy mutation shortcuts', () => {
   assert(panel.includes('readonly property bool bootstrapRequired: componentSetupReview || SetupState.bootstrapRequired('));
@@ -282,8 +345,9 @@ test('real install handler rejects stale target, arbitrary action and repeated l
   c.launch.running=false;c.install('finish-selection');assert(!c.launch.running);
   c.launching=false;c.terminalOpened=true;c.install('finish-selection');assert(!c.launch.running);
   c.terminalOpened=false;c.facts={state:'needs_activation',coreInstalled:true};c.install('install');assert(c.launch.running);
-  c.launching=false;c.launch.running=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
-  c.launching=false;c.launch.running=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
+  // Each distinct terminal case starts only after its previous closure is acknowledged.
+  c.launching=false;c.launch.running=false;c.terminalOpened=false;c.facts={state:'needs_broker_stopped',coreInstalled:true};c.install('start-broker');assert(c.launch.running);assert.equal(c.launchAction,'start-broker');
+  c.launching=false;c.launch.running=false;c.terminalOpened=false;c.install('restore-enrollment');assert(c.launch.running);assert.equal(c.launchAction,'restore-enrollment');
 });
 test('setup effect handler blocks unresolved native work across both card locations', () => {
   const vm=require('node:vm');

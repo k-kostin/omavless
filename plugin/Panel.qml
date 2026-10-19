@@ -2133,6 +2133,7 @@ Panel {
 
       Flickable {
         id: setupFlick
+        Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
         anchors.fill: parent
         visible: root.bootstrapRequired
         clip: true
@@ -2153,6 +2154,7 @@ Panel {
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
           onHelpRequested: function(section) { root.openHelp(section, setupPage) }
+          onTerminalRequested: root.close()
           onCloseRequested: {
             if (root.componentSetupReview) {
               root.componentSetupReview = false

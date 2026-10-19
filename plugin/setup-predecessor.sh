@@ -118,7 +118,9 @@ _omavless_pair_pins() {
 }
 _omavless_pair_delivery_inspect() (
   export LC_ALL=C
-  local app_receipt=$1 app=$2 dns_receipt=$3 core=$4 broker=$5 arch=$6 target=$7 owner=$8
+  local app_receipt=$1 app=$2 dns_receipt=$3 core=$4 broker=$5 arch=$6 target=$7 owner=$8 version=${9:-0.9.8}
+  [[ $# == 8 || $# == 9 ]] && [[ "$version" == 0.9.8 || "$version" == 0.9.9 ]] \
+    || { printf 'unknown\n'; return; }
   local app_id binary_id dns_id core_id broker_id source digest actual dns_source core_sha broker_sha
   local pinned_app pinned_core pinned_broker pinned_receipt
   app_id=$(_omavless_predecessor_file_identity "$app_receipt" "$owner" 644 4096) \
@@ -128,6 +130,9 @@ _omavless_pair_delivery_inspect() (
   digest=$(/usr/bin/sed -n 's/^binarySha256=//p' "$app_receipt")
   [[ $source =~ ^[0-9a-f]{40}$ && $digest =~ ^[0-9a-f]{64}$ ]] \
     || { printf 'unknown\n'; return; }
+  # The nonpublic lane recognizes ONLY its exact current target, not public
+  # predecessors relabelled with a newer package version.
+  [[ "$version" != 0.9.9 || "$source" == "$target" ]] || { printf 'unknown\n'; return; }
   case "$source" in
     "$target"|4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998|e3d2245966c725ee11b505899b22a20721ff2ddd|8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524|b65695ee0609c2a971289109975678b8da87c946|99c556e5c966e1e1dae04f2d8babd2ca2dec9375|d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b) ;;
     *) printf 'unknown\n'; return ;;
@@ -135,8 +140,8 @@ _omavless_pair_delivery_inspect() (
   IFS=$'\t' read -r pinned_app pinned_core pinned_broker pinned_receipt < <(_omavless_pair_pins "$source" "$arch") \
     || { printf 'unknown\n'; return; }
   [[ "$digest" == "$pinned_app" ]] || { printf 'unknown\n'; return; }
-  printf 'schemaVersion=3\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\nproductVersion=0.9.8\n' \
-    "$source" "$digest" "$arch" | /usr/bin/cmp -s -- - "$app_receipt" \
+  printf 'schemaVersion=3\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\nproductVersion=%s\n' \
+    "$source" "$digest" "$arch" "$version" | /usr/bin/cmp -s -- - "$app_receipt" \
     || { printf 'unknown\n'; return; }
   actual=$(/usr/bin/timeout 8 /usr/bin/sha256sum -- "$app") \
     || { printf 'unknown\n'; return; }
@@ -182,6 +187,16 @@ _omavless_pair_delivery_inspect() (
   elif [[ $source == "$target" ]]; then printf 'current\n'
   else printf 'stale\n'; fi
 )
+
+_omavless_candidate_pair_delivery_status() {
+  [[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || { printf 'unknown\n'; return; }
+  local arch
+  arch=$(/usr/bin/uname -m) || { printf 'unknown\n'; return; }
+  [[ $arch == x86_64 || $arch == aarch64 ]] || { printf 'unknown\n'; return; }
+  _omavless_pair_delivery_inspect /usr/share/doc/omavless/build-identity.txt /usr/bin/omavless \
+    /usr/share/omavless-dns/source-receipt.json /usr/lib/omavless-dns/mihomo \
+    /usr/lib/omavless-dns/omavless-dns-broker "$arch" "$1" 0 0.9.9
+}
 
 omavless_pair_delivery_status() {
   [[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || { printf 'unknown\n'; return; }
