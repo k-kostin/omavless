@@ -173,7 +173,7 @@ Item {
       id: reviewGuideButton
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention && !setup.reviewReady
-      text: setup.tr("guide_short"); bordered: false; focusable: true
+      text: setup.tr("guide_short"); bordered: true; focusable: true
       onClicked: setup.guide()
     }
     Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && setup.reviewReady ? Commons.Color.accent : Commons.Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }

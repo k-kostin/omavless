@@ -188,6 +188,6 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: Style.space(8)
     Button { id: checkButton; Layout.fillWidth: true; text: card.tr("check"); bordered: true; focusable: true; enabled: !card.busy; onClicked: card.checkRequested() }
-    Button { id: guideButton; Layout.fillWidth: true; text: card.tr("guide_short"); bordered: false; focusable: true; onClicked: card.guideRequested() }
+    Button { id: guideButton; Layout.fillWidth: true; text: card.tr("guide_short"); bordered: true; focusable: true; onClicked: card.guideRequested() }
   }
 }

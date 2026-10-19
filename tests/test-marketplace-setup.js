@@ -105,6 +105,18 @@ test('every web-link label has the same trailing marker, local URL reveal does n
   }
   for(const locale of ['en','ru'])for(const key of ['common.show_url','common.hide_url','setup.install_all','setup.prepare_update','setup.guide_short','setup.update_help','native.onboarding.setup_guide','help.copy_request'])assert(!i18n.translate(key,locale,{}).includes('↗'));
 });
+test('local setup Help keeps a neutral button boundary and its existing local destination', () => {
+  for (const [source, id, handler] of [[card, 'guideButton', 'card.guideRequested()'],
+      [page, 'reviewGuideButton', 'setup.guide()']]) {
+    const control = source.slice(source.indexOf('id: ' + id)).split('}')[0];
+    assert(control.includes('bordered: true'), id + ' needs a visible button boundary');
+    assert(control.includes('focusable: true'), id + ' remains keyboard reachable');
+    assert(!/primary:\s*true/.test(control), id + ' must not compete with setup');
+    assert(control.includes('onClicked: ' + handler), id + ' preserves local navigation');
+    assert(!/installRequested|openUrlExternally/.test(control));
+  }
+  assert(page.includes('helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install")'));
+});
 test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
   const facts={state:'needs_runtime_start',coreInstalled:true};
   assert.equal(state.parse('needs_runtime_start\n',0),'needs_runtime_start');
