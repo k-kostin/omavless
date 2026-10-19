@@ -94,6 +94,11 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
     None
 }
 
+#[cfg(all(feature = "tui", any(feature = "t4-manager-actor-service", test)))]
+fn consumer_recovery_tui_entry(arguments: &[std::ffi::OsString]) -> bool {
+    arguments == ["tui"] && private_pair_tui_entry(arguments) == Some(PrivatePairTui::Restore)
+}
+
 #[cfg(feature = "tui")]
 fn tui_import_adapter() -> Result<omavless_tui::ImportAdapter, CliError> {
     let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
@@ -184,6 +189,19 @@ fn run() -> Result<(), CliError> {
         .first()
         .is_some_and(|argument| argument == "restore")
     {
+        #[cfg(feature = "t4-manager-actor-service")]
+        if omavless_runtime::restore_old_cli::arguments_admitted(&arguments) {
+            if std::io::IsTerminal::is_terminal(&io::stdin()) {
+                return Err("Restore recovery requires bounded private JSON on stdin".into());
+            }
+            omavless_runtime::restore_old_cli::recover_selected_from_private_input(
+                &arguments,
+                io::stdin().lock(),
+            )
+            .map_err(|error| CliError::Message(error.to_string()))?;
+            println!("Recovery completed; ordinary runtime verified disconnected.");
+            return Ok(());
+        }
         if !omavless_runtime::restore_abort_cli::arguments_admitted(&arguments) {
             return Err(
                 "Usage: omavless restore abort --confirm-rollback (private JSON on stdin)".into(),
@@ -221,6 +239,7 @@ fn run() -> Result<(), CliError> {
         if selection == PrivatePairTui::Restore {
             let restore_paths =
                 RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+            let mut recovery = omavless_runtime::restore_recovery_preview::Consumer::default();
             return omavless_tui::run_full_private_restore(
                 move |request| {
                     call(&paths, request.method(), request.params())
@@ -238,9 +257,14 @@ fn run() -> Result<(), CliError> {
                     omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
                 },
                 move |request| {
-                    omavless_runtime::private_pair_api::restore_for_tui(&restore_paths, request)
+                    if request.is_recovery() {
+                        recovery.execute(request)
+                    } else {
+                        omavless_runtime::private_pair_api::restore_for_tui(&restore_paths, request)
+                    }
                 },
                 Some(tui_import_adapter()?),
+                consumer_recovery_tui_entry(&arguments),
             )
             .map_err(CliError::Terminal);
         }
@@ -890,6 +914,22 @@ mod tests {
                 .map(std::ffi::OsString::from)
                 .collect::<Vec<_>>()
         };
+        assert_eq!(
+            consumer_recovery_tui_entry(&args(&["tui"])),
+            cfg!(all(
+                feature = "t4-manager-actor-service",
+                not(feature = "product-private-backup")
+            ))
+        );
+        for parts in [
+            &["tui", "--developer-private-restore"][..],
+            &["tui", "--developer-private-backup"],
+            &["tui", "--available"],
+            &["tui", "extra"],
+            &["daemon"],
+        ] {
+            assert!(!consumer_recovery_tui_entry(&args(parts)));
+        }
         #[cfg(all(
             feature = "t4-manager-actor-service",
             not(feature = "product-private-backup")

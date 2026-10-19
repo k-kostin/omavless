@@ -15,6 +15,11 @@ enum NativeMode {
     FenceCommitted,
     CompleteCommitted,
     PauseIntent,
+    CutFirstRename,
+    CutTerminal,
+    CutCommittedRetirement,
+    CutCommittedTicket,
+    CutCommittedComplete,
 }
 
 pub(crate) struct HeldExecution {
@@ -78,6 +83,54 @@ pub(crate) struct HeldExecutionSlot {
     reservation: Option<Arc<Mutex<HeldExecution>>>,
 }
 impl HeldExecutionSlot {
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_reserve_complete_write_fault(&mut self, panic: bool) {
+        assert!(self.original.is_none() && self.reservation.is_none());
+        let mut held = HeldExecution::reserve();
+        held.engine.test_set_complete_write_fault(panic);
+        self.reservation = Some(Arc::new(Mutex::new(held)));
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_complete_cut_unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .engine
+                .complete_cut_unavailable()
+        })
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_reserve_ticket_write_fault(&mut self, panic: bool) {
+        assert!(self.original.is_none() && self.reservation.is_none());
+        let mut held = HeldExecution::reserve();
+        held.engine.test_set_ticket_write_fault(panic);
+        self.reservation = Some(Arc::new(Mutex::new(held)));
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_ticket_cut_unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .engine
+                .ticket_cut_unavailable()
+        })
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_original_identity(&self) -> Option<usize> {
+        self.original
+            .as_ref()
+            .map(|original| Arc::as_ptr(original) as usize)
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_cut_only_unavailable(&self) -> bool {
+        self.original.as_ref().is_some_and(|original| {
+            original
+                .lock()
+                .is_ok_and(|held| held.engine.cut_only_unavailable())
+        })
+    }
     #[cfg(test)]
     pub(crate) fn occupied(&self) -> bool {
         self.original.is_some()
@@ -116,6 +169,298 @@ impl Drop for HeldExecutionSlot {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_complete_cut_callback(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        self.run_committed_publication_cut(
+            source,
+            passphrase,
+            cut,
+            NativeMode::CutCommittedComplete,
+        )
+        .0
+        .map(|_| ())
+    }
+    pub(crate) fn cut_current_committed_complete(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        let mut reached = false;
+        let (result, unwound) = self.run_committed_publication_cut(
+            source,
+            passphrase,
+            |step| {
+                if step == crate::manager_actor_service::NativeStep::DispositionComplete {
+                    reached = true;
+                    Err(FirstError::StillFenced)
+                } else {
+                    Ok(())
+                }
+            },
+            NativeMode::CutCommittedComplete,
+        );
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.ordinary_lock.get().is_none()
+                })
+            });
+        if !unwound
+            && reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            result.and(Err(FirstError::StillFenced))
+        }
+    }
+    pub(crate) fn cut_current_committed_ticket(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        let mut reached = false;
+        let (result, unwound) = self.run_committed_ticket_cut(source, passphrase, |step| {
+            if step == crate::manager_actor_service::NativeStep::DispositionTicket {
+                reached = true;
+                Err(FirstError::StillFenced)
+            } else {
+                Ok(())
+            }
+        });
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.ordinary_lock.get().is_none()
+                })
+            });
+        if !unwound
+            && reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            result.and(Err(FirstError::StillFenced))
+        }
+    }
+    fn run_committed_ticket_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> (Result<FirstOutcome, FirstError>, bool) {
+        self.run_committed_publication_cut(source, passphrase, cut, NativeMode::CutCommittedTicket)
+    }
+    fn run_committed_publication_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+        mode: NativeMode,
+    ) -> (Result<FirstOutcome, FirstError>, bool) {
+        if !matches!(
+            mode,
+            NativeMode::CutCommittedTicket | NativeMode::CutCommittedComplete
+        ) {
+            return (Err(FirstError::Admission), false);
+        }
+        if !crate::product_scope::restore_enabled() {
+            return (Err(FirstError::Admission), false);
+        }
+        // No submission and no mutation of an older original, including Pause.
+        if self.held_restore_execution.original.is_some() {
+            return (Err(FirstError::StillFenced), false);
+        }
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.execute_first_restore_mode(source, passphrase, || Ok(()), cut, mode)
+        }));
+        let (result, unwound) = match caught {
+            Ok(result) => (result, false),
+            Err(_) => (Err(FirstError::StillFenced), true),
+        };
+        // Only THIS attempt may have installed an original. Even unwind before
+        // the ticket capability exists permanently blocks it. Poisoned data is
+        // sealed, never adopted or resumed; sealing uses only irreversible flags.
+        if let Some(original) = &self.held_restore_execution.original {
+            original
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .refuse_ordinary();
+            self.transaction.block();
+        }
+        (result, unwound)
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_ticket_cut_callback(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        cut: impl FnMut(crate::manager_actor_service::NativeStep) -> Result<(), FirstError>,
+    ) -> Result<(), FirstError> {
+        self.run_committed_ticket_cut(source, passphrase, cut)
+            .0
+            .map(|_| ())
+    }
+    #[cfg(all(test, not(feature = "product-private-backup")))]
+    pub(super) fn test_unreached_committed_retirement_cut(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |_| Ok(()),
+            NativeMode::CutCommittedRetirement,
+        )
+        .map(|_| ())
+    }
+    pub(crate) fn cut_current_committed_retirement(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        // Not submitted: never seal/block a previous paused, failed or ordinary
+        // holder when this new cut cannot acquire its original vacant slot.
+        if self.held_restore_execution.original.is_some() {
+            return Err(FirstError::StillFenced);
+        }
+        let mut reached = false;
+        let result = self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |step| {
+                if step == crate::manager_actor_service::NativeStep::RetirementComplete {
+                    reached = true;
+                    Err(FirstError::StillFenced)
+                } else {
+                    Ok(())
+                }
+            },
+            NativeMode::CutCommittedRetirement,
+        );
+        // Entry was vacant; only THIS attempt's newly installed graph is ours
+        // to seal. Revision/auth refusal before installation has no such grant.
+        if let Some(original) = &self.held_restore_execution.original {
+            if let Ok(mut held) = original.lock() {
+                held.refuse_ordinary();
+            }
+            self.transaction.block();
+        }
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.ordinary_lock.get().is_none()
+                })
+            });
+        if reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            match result {
+                Err(error) => Err(error),
+                Ok(_) => Err(FirstError::StillFenced),
+            }
+        }
+    }
+    pub(crate) fn cut_current_first_rename(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.cut_current_restore(source, passphrase, NativeMode::CutFirstRename)
+    }
+    pub(crate) fn cut_current_terminal(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), FirstError> {
+        self.cut_current_restore(source, passphrase, NativeMode::CutTerminal)
+    }
+    fn cut_current_restore(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+        mode: NativeMode,
+    ) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        let mut reached = false;
+        let result = self.execute_first_restore_mode(
+            source,
+            passphrase,
+            || Ok(()),
+            |step| {
+                if matches!(
+                    (mode, step),
+                    (
+                        NativeMode::CutFirstRename,
+                        crate::manager_actor_service::NativeStep::Renamed(0)
+                    ) | (
+                        NativeMode::CutTerminal,
+                        crate::manager_actor_service::NativeStep::Terminal
+                    )
+                ) {
+                    reached = true;
+                    return Err(FirstError::StillFenced);
+                }
+                Ok(())
+            },
+            mode,
+        );
+        // Only after the original engine error handling and owner fence. This
+        // is data about a reached cut, never successful Restore or a live grant.
+        if reached && result == Err(FirstError::StillFenced) {
+            Ok(())
+        } else {
+            match result {
+                Err(error) => Err(error),
+                Ok(_) => Err(FirstError::StillFenced),
+            }
+        }
+    }
     pub(crate) fn pause_current_restore_intent(
         &mut self,
         source: &Path,
@@ -236,10 +581,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<FirstOutcome, FirstError> {
         let complete = mode == NativeMode::CompleteCommitted;
         let pause = mode == NativeMode::PauseIntent;
+        let loss_cut = matches!(
+            mode,
+            NativeMode::CutFirstRename
+                | NativeMode::CutTerminal
+                | NativeMode::CutCommittedRetirement
+                | NativeMode::CutCommittedTicket
+                | NativeMode::CutCommittedComplete
+        );
+        let owned_admission = complete || pause || loss_cut;
         if self.retained_restore_busy() {
             return Err(FirstError::StillFenced);
         }
-        let mut revision = if complete || pause {
+        let mut revision = if owned_admission {
             Some(
                 self.coordinator
                     .prepare_retained_restore()
@@ -279,7 +633,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     .acquire_lock()
                     .map_err(|_| FirstError::Admission)?,
             );
-            if (complete || pause)
+            if owned_admission
                 && (!held.lock.as_ref().is_some_and(completion_owns_lease)
                     || !self.transaction.original_lease_vacant()
                     || held.ordinary_lock.get().is_some())
@@ -326,6 +680,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 held.pause_revision = revision.take();
                 held.pause_instance = pause_instance;
                 return Ok(FirstOutcome::IntentPaused);
+            }
+            if mode == NativeMode::CutCommittedRetirement {
+                // Dedicated engine entry latches typed CutOnly BEFORE Stage.
+                // It has no completed/disposition/ordinary handoff return.
+                engine.execute_native_committed_retirement_cut(&mut origin, prepared, &mut cut)?;
+                return Err(FirstError::StillFenced);
+            }
+            if mode == NativeMode::CutCommittedTicket {
+                engine.execute_native_committed_ticket_cut(&mut origin, prepared, &mut cut)?;
+                return Err(FirstError::StillFenced);
+            }
+            if mode == NativeMode::CutCommittedComplete {
+                engine.execute_native_committed_complete_cut(&mut origin, prepared, &mut cut)?;
+                return Err(FirstError::StillFenced);
             }
             engine
                 .execute_native(&mut origin, prepared, &mut cut)
@@ -392,7 +760,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         } else {
             result
         };
-        if (mode == NativeMode::FenceCommitted) || result.is_err() {
+        if loss_cut {
+            // Even an unexpected successful/unreached inner return cannot
+            // grant completion, retirement or ordinary-owner availability.
+            if let Ok(mut held) = original.lock() {
+                held.refuse_ordinary();
+            }
+        }
+        if loss_cut || (mode == NativeMode::FenceCommitted) || result.is_err() {
             self.transaction.block();
         }
         self.invalidate_connection_close();
@@ -416,6 +791,48 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
     pub(crate) fn abort_current_restore_intent(&mut self) -> Result<(), FirstError> {
         self.abort_current_restore_intent_cut(&mut |_| Ok(()))
+    }
+    /// Fixed genuine closure-only producer. Consumes the SAME positive pause;
+    /// after its expected sealed error, the return value is cut DATA only.
+    pub(crate) fn abort_current_after_retirement_cut(&mut self) -> Result<(), FirstError> {
+        if crate::product_scope::backup_only() {
+            return Err(FirstError::Admission);
+        }
+        let mut reached = false;
+        let result = self.abort_current_restore_intent_cut(&mut |step| {
+            if step == crate::manager_actor_service::NativeStep::RetirementComplete {
+                reached = true;
+                Err(FirstError::StillFenced)
+            } else {
+                Ok(())
+            }
+        });
+        let retained = self
+            .held_restore_execution
+            .original
+            .as_ref()
+            .is_some_and(|original| {
+                original.lock().is_ok_and(|held| {
+                    !held.available.load(Ordering::Acquire)
+                        && !held.activated
+                        && held.lock.is_some()
+                        && held.prepared.is_some()
+                        && held.boundary.is_some()
+                        && held.intent_pause.is_none()
+                })
+            });
+        if reached
+            && result == Err(FirstError::StillFenced)
+            && retained
+            && self.transaction.independently_blocked()
+        {
+            Ok(())
+        } else {
+            match result {
+                Err(error) => Err(error),
+                Ok(()) => Err(FirstError::StillFenced),
+            }
+        }
     }
     /// Factual diagnostic only: true means this SAME pause was consumed,
     /// original engine revoked/unavailable and transaction independently blocked.

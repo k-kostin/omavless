@@ -87,6 +87,179 @@ fn joined(text: &str) -> String {
         .filter(|c| !c.is_whitespace() && *c != '│')
         .collect()
 }
+
+fn open_recovery(locale: Locale) -> (App, Instant) {
+    let now = Instant::now();
+    let mut app = App::new(locale);
+    app.restore_enabled = true;
+    app.recovery_enabled = true;
+    // Deliberately no daemon snapshot or capability. This is a distinct
+    // local entry, not failed socket-connect authority or normal Restore.
+    press(&mut app, KeyCode::Char(','), now);
+    press(&mut app, KeyCode::Char('Y'), now);
+    assert!(app.restore_open && app.restore.as_ref().unwrap().is_recovery());
+    (app, now)
+}
+
+#[test]
+fn recovery_entry_without_daemon_is_local_masked_and_cancel_does_not_confirm() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = open_recovery(locale);
+        fill(&mut app, now, "/private/synthetic.ovb");
+        let text = render(&app, now, 70, 24);
+        assert!(text.contains("********") && !text.contains("synthetic-only-secret"));
+        assert_eq!(press(&mut app, KeyCode::Enter, now), Action::SubmitRestore);
+        let request = app.take_restore_request().unwrap();
+        assert!(request.is_recovery());
+        assert_eq!(request.params(), Value::Null);
+        assert_ne!(request.method(), "backup.restore_previewed");
+        press(&mut app, KeyCode::Esc, now);
+        app.finish_restore(request.settle_recovery(
+            omavless_tui::private_restore::RecoveryResult::Preview {
+                profiles: 2,
+                subscriptions: 1,
+                keep_new: false,
+            },
+        ));
+        assert_eq!(app.restore.as_ref().unwrap().state(), State::Cancelled);
+        assert!(app.take_restore_request().is_none());
+    }
+}
+
+#[test]
+fn recovery_confirm_shows_exact_old_or_new_and_unknown_unavailable_are_sticky() {
+    use omavless_tui::private_restore::RecoveryResult;
+    for locale in [Locale::En, Locale::Ru] {
+        for keep_new in [false, true] {
+            let (mut app, now) = open_recovery(locale);
+            fill(&mut app, now, "/private/synthetic.ovb");
+            press(&mut app, KeyCode::Enter, now);
+            let preview = app.take_restore_request().unwrap();
+            app.finish_restore(preview.settle_recovery(RecoveryResult::Preview {
+                profiles: 2,
+                subscriptions: 1,
+                keep_new,
+            }));
+            let text = render(&app, now, 70, 24);
+            for key in [
+                if keep_new {
+                    "tui.recovery_keep_new"
+                } else {
+                    "tui.recovery_keep_old"
+                },
+                "tui.recovery_confirm",
+                "tui.recovery_return",
+            ] {
+                assert!(
+                    joined(&text).contains(&joined(locale.text(key))),
+                    "{key}: {text}"
+                );
+            }
+            assert_eq!(press(&mut app, KeyCode::Enter, now), Action::SubmitRestore);
+            let confirm = app.take_restore_request().unwrap();
+            assert_eq!(press(&mut app, KeyCode::Enter, now), Action::None);
+            app.finish_restore(confirm.settle_recovery(if keep_new {
+                RecoveryResult::AvailabilityUnverified
+            } else {
+                RecoveryResult::Unknown
+            }));
+            assert_eq!(
+                app.restore.as_ref().unwrap().state(),
+                if keep_new {
+                    State::AvailabilityUnverified
+                } else {
+                    State::Unknown
+                }
+            );
+            assert!(!app.recovery_available());
+            assert!(app.restore.as_ref().unwrap().unresolved());
+            press(&mut app, KeyCode::Esc, now);
+            press(&mut app, KeyCode::Char('Y'), now);
+            assert!(app.restore_open);
+            assert!(app.take_restore_request().is_none());
+        }
+    }
+}
+
+#[test]
+fn recovery_completed_return_is_neutral_but_uncertain_states_keep_exit_warning() {
+    use omavless_tui::private_restore::RecoveryResult;
+    for locale in [Locale::En, Locale::Ru] {
+        for outcome in [
+            None,
+            Some(RecoveryResult::Completed),
+            Some(RecoveryResult::Unknown),
+            Some(RecoveryResult::AvailabilityUnverified),
+        ] {
+            let completed = matches!(outcome, Some(RecoveryResult::Completed));
+            let (mut app, now) = open_recovery(locale);
+            fill(&mut app, now, "/private/synthetic.ovb");
+            press(&mut app, KeyCode::Enter, now);
+            let preview = app.take_restore_request().unwrap();
+            app.finish_restore(preview.settle_recovery(RecoveryResult::Preview {
+                profiles: 2,
+                subscriptions: 1,
+                keep_new: false,
+            }));
+            press(&mut app, KeyCode::Enter, now);
+            let confirm = app.take_restore_request().unwrap();
+            if let Some(outcome) = outcome {
+                app.finish_restore(confirm.settle_recovery(outcome));
+            }
+            for (width, height) in [(70, 24), (100, 30), (50, 14)] {
+                let text = joined(&render(&app, now, width, height));
+                let warning = joined(locale.text("tui.recovery_return"));
+                assert_eq!(text.contains(&warning), !completed);
+                if completed {
+                    let neutral = match locale {
+                        Locale::En => "Esc: Settings · Ctrl+C: close client",
+                        Locale::Ru => "Esc: настройки · Ctrl+C: выйти",
+                    };
+                    assert!(text.contains(&joined(neutral)));
+                    if width >= 70 {
+                        assert!(text.contains(&joined(locale.text("tui.recovery_completed"))));
+                    }
+                }
+                assert!(!text.contains("synthetic-only-secret"));
+            }
+            assert_eq!(press(&mut app, KeyCode::Enter, now), Action::None);
+            assert!(app.take_restore_request().is_none());
+        }
+    }
+}
+
+#[test]
+fn recovery_long_path_confirmation_and_settings_keys_fit_minimum_bilingual_surface() {
+    use omavless_tui::private_restore::RecoveryResult;
+    let path = format!("/private/{}.ovb", "x".repeat(147));
+    assert_eq!(path.len(), 160);
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = open_recovery(locale);
+        fill(&mut app, now, &path);
+        press(&mut app, KeyCode::Enter, now);
+        let r = app.take_restore_request().unwrap();
+        app.finish_restore(r.settle_recovery(RecoveryResult::Preview {
+            profiles: omavless_domain::store::MAX_PROFILES as u64,
+            subscriptions: omavless_domain::store::MAX_SUBSCRIPTIONS as u64,
+            keep_new: true,
+        }));
+        assert_eq!(app.restore.as_ref().unwrap().state(), State::Confirming);
+        let text = render(&app, now, 70, 24);
+        for key in [
+            "tui.recovery_keep_new",
+            "tui.recovery_off",
+            "tui.recovery_confirm",
+            "tui.recovery_return",
+        ] {
+            assert!(
+                joined(&text).contains(&joined(locale.text(key))),
+                "{key}: {text}"
+            );
+        }
+        assert!(joined(&text).contains(&path));
+        assert!(locale.text("tui.settings_recovery_keys").chars().count() <= 68);
+    }
+}
 #[test]
 fn absent_selector_capability_connected_and_narrow_never_send() {
     let now = Instant::now();

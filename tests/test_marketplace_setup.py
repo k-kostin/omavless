@@ -16,11 +16,15 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "plugin/setup-runtime.sh"
-VERSION = json.loads((ROOT / "manifest.json").read_text())["version"]
+# This suite exercises the unchanged public fix.8 provisioning entry. A new
+# NONPUBLIC candidate must not silently retarget its immutable download URLs.
+VERSION = "0.9.8"
+CANDIDATE_VERSION = json.loads((ROOT / "manifest.json").read_text())["version"]
 PKGVER = subprocess.check_output(
     ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
 ).split()[1]
@@ -367,9 +371,21 @@ app_archive_identity synthetic-archive {source} {arch} {version}
                 self.assertRegex(entry["sourceCommit"], r"^[0-9a-f]{40}$")
             records[filename] = metadata
             shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
-        self.assertEqual(manifest["version"], VERSION)
+        self.assertEqual(manifest["version"], CANDIDATE_VERSION)
+        self.assertIn(CANDIDATE_VERSION, ("0.9.8", "0.9.9"))
         self.assertEqual(set(records["runtime-release.json"]["packages"]),
                          set(records["dns-release.json"]["packages"]))
+        for arch, app in records["runtime-release.json"]["packages"].items():
+            dns = records["dns-release.json"]["packages"][arch]
+            self.assertEqual(app["sourceCommit"], dns["sourceCommit"])
+        if CANDIDATE_VERSION == "0.9.9":
+            # Real candidate pins are still validated above. Public provisioning
+            # must REFUSE them: 0.9.9 has no authorized public release/tag here.
+            for arch in ("aarch64", "x86_64"):
+                self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
+                self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                                 "release_unavailable\n")
+            return
         if not records["runtime-release.json"]["packages"]:
             for arch in ("aarch64", "x86_64"):
                 self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
@@ -386,7 +402,6 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             self.assertEqual(result.returncode, 0)
             app = records["runtime-release.json"]["packages"][arch]
             dns = records["dns-release.json"]["packages"][arch]
-            self.assertEqual(app["sourceCommit"], dns["sourceCommit"])
             self.assertEqual(result.stdout, f"{VERSION}\t{arch}\t{app['sha256']}\t{dns['sha256']}\t{app['sourceCommit']}\n")
             self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
                              "needs_package\n")
@@ -397,6 +412,38 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
             self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
                              "release_unavailable\n")
+
+    def test_nonpublic_restore_metadata_cannot_retarget_public_downloads(self):
+        self.pins(app="a" * 64, dns="c" * 64, version="0.9.9")
+        for arch in ("aarch64", "x86_64"):
+            result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+        result = self.run_shell('printf "%s\\n" "$release_tag" "$release_version" "$package_version"')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "v0.9.8-fix.8\n0.9.8\n0.9.8\n")
+
+    def test_nonpublic_candidate_still_requires_same_producer_before_public_refusal(self):
+        fixture = self.directory / "synthetic-candidate"
+        (fixture / "plugin").mkdir(parents=True)
+        (fixture / "manifest.json").write_text(json.dumps({"version": "0.9.9"}))
+        app = {"schemaVersion": 1, "version": "0.9.9", "packages": {
+            arch: {"sha256": "a" * 64, "sourceCommit": SOURCE}
+            for arch in ("aarch64", "x86_64")}}
+        dns = json.loads(json.dumps(app))
+        (fixture / "plugin/runtime-release.json").write_text(json.dumps(app))
+        path = fixture / "plugin/dns-release.json"
+        with patch(f"{__name__}.ROOT", fixture), patch(f"{__name__}.CANDIDATE_VERSION", "0.9.9"):
+            # Coherent synthetic NONPUBLIC metadata earns only public refusal,
+            # not real producer provenance or installed acceptance.
+            path.write_text(json.dumps(dns))
+            self.test_selected_candidate_has_matching_bounded_pair_pins()
+            for arch in ("aarch64", "x86_64"):
+                changed = json.loads(json.dumps(dns))
+                changed["packages"][arch]["sourceCommit"] = "d" * 40
+                path.write_text(json.dumps(changed))
+                with self.subTest(arch=arch), self.assertRaises(AssertionError):
+                    self.test_selected_candidate_has_matching_bounded_pair_pins()
 
     def test_pair_requires_both_exact_pins_and_one_source(self):
         self.pins(app="a" * 64, dns="c" * 64)

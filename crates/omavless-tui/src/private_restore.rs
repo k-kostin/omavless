@@ -25,6 +25,7 @@ pub enum State {
     Confirming,
     Submitted,
     Completed,
+    AvailabilityUnverified,
     Denied,
     Unknown,
     PreviewUnavailable,
@@ -44,9 +45,11 @@ struct Preview {
     profiles: u64,
     subscriptions: u64,
     digest: String,
+    keep_new: Option<bool>,
 }
 /// No Debug/Clone/Serialize: secrets remain private and requests move once.
 pub struct Workspace {
+    recovery: bool,
     nonce: u64,
     instance: String,
     revision: u64,
@@ -71,6 +74,7 @@ impl Workspace {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .ok()?;
         Some(Self {
+            recovery: false,
             nonce,
             instance: instance.into(),
             revision,
@@ -87,6 +91,19 @@ impl Workspace {
     }
     pub fn state(&self) -> State {
         self.state
+    }
+    /// Presentation context only, not a fabricated daemon instance or owner.
+    /// Its adapter authenticates local recovery independently of ordinary IPC.
+    pub fn new_recovery() -> Option<Self> {
+        let mut workspace = Self::new("local-recovery", 0)?;
+        workspace.recovery = true;
+        Some(workspace)
+    }
+    pub fn is_recovery(&self) -> bool {
+        self.recovery
+    }
+    pub fn recovery_keeps_new(&self) -> Option<bool> {
+        self.preview.as_ref().and_then(|p| p.keep_new)
     }
     pub fn field(&self) -> Field {
         self.field
@@ -108,7 +125,10 @@ impl Workspace {
         self.inflight.is_some()
             || matches!(
                 self.state,
-                State::Previewing | State::Submitted | State::Unknown
+                State::Previewing
+                    | State::Submitted
+                    | State::Unknown
+                    | State::AvailabilityUnverified
             )
     }
     pub fn next_field(&mut self) {
@@ -184,6 +204,11 @@ impl Workspace {
         }
     }
     pub fn check_header(&mut self, instance: &str, revision: u64, available: bool) {
+        // Ordinary daemon availability is NOT recovery admission or refusal.
+        // The local worker binds a fresh existing lease and exact graph instead.
+        if self.recovery {
+            return;
+        }
         if matches!(
             self.state,
             State::Editing | State::Previewing | State::Confirming
@@ -212,6 +237,7 @@ impl Workspace {
         self.inflight = Some(Phase::Preview);
         self.until = Some(until);
         Some(Request {
+            recovery: self.recovery,
             nonce: self.nonce,
             instance: self.instance.clone(),
             revision: self.revision,
@@ -240,6 +266,7 @@ impl Workspace {
         self.operation = Some(operation.clone());
         self.until = Some(until);
         Some(Request {
+            recovery: self.recovery,
             nonce: self.nonce,
             instance: self.instance.clone(),
             revision: self.revision,
@@ -347,6 +374,7 @@ fn known_denial(value: &Value) -> bool {
 }
 /// One owned fixed request. JSON/terminal-library temporaries are not all wiped.
 pub struct Request {
+    recovery: bool,
     nonce: u64,
     instance: String,
     revision: u64,
@@ -368,7 +396,25 @@ pub struct Completion {
     preview: Option<Preview>,
 }
 impl Request {
+    pub fn is_recovery(&self) -> bool {
+        self.recovery
+    }
+    /// Borrow private input only for the selected local worker; never Debug,
+    /// argv, environment, diagnostics or a generic shell/RPC command.
+    pub fn recovery_input(&self) -> Option<(u64, bool, &str, &str)> {
+        self.recovery.then_some((
+            self.nonce,
+            self.phase == Phase::Preview,
+            self.credentials.archive.as_str(),
+            self.credentials.passphrase.as_str(),
+        ))
+    }
     pub fn method(&self) -> &'static str {
+        // Not registered in ordinary IPC; accidental remote routing must not
+        // turn a recovery Confirm into a normal Restore request.
+        if self.recovery {
+            return "local.recovery";
+        }
         if self.phase == Phase::Preview {
             "backup.preview"
         } else {
@@ -384,6 +430,9 @@ impl Request {
             .filter(|d| !d.is_zero())
     }
     pub fn params(&self) -> Value {
+        if self.recovery {
+            return Value::Null;
+        }
         let mut params = json!({"schema":1,"archive":self.credentials.archive.as_str(),"passphrase":self.credentials.passphrase.as_str(),"instanceId":self.instance,"expectedRevision":self.revision});
         if self.phase == Phase::Restore {
             params["confirmation"] = "replace-previewed-current-private-pair".into();
@@ -393,6 +442,11 @@ impl Request {
         params
     }
     pub fn settle(self, response: Result<Value, ReadError>) -> Completion {
+        let response = if self.recovery {
+            Err(ReadError::Unavailable)
+        } else {
+            response
+        };
         self.settle_at(response, Instant::now())
     }
     fn settle_at(self, response: Result<Value, ReadError>, now: Instant) -> Completion {
@@ -421,6 +475,7 @@ impl Request {
                             .is_some_and(digest_valid)
                     {
                         preview = Some(Preview {
+                            keep_new: None,
                             profiles: result["profiles"].as_u64().unwrap(),
                             subscriptions: result["subscriptions"].as_u64().unwrap(),
                             digest: result["ciphertextDigest"].as_str().unwrap().into(),
@@ -460,6 +515,74 @@ impl Request {
             preview,
         }
     }
+
+    pub fn settle_recovery(self, outcome: RecoveryResult) -> Completion {
+        let timely = Instant::now() < self.until;
+        let mut preview = None;
+        let state = if !self.recovery || !timely {
+            if self.phase == Phase::Preview {
+                State::PreviewUnavailable
+            } else {
+                State::Unknown
+            }
+        } else {
+            match (self.phase, outcome) {
+                (
+                    Phase::Preview,
+                    RecoveryResult::Preview {
+                        profiles,
+                        subscriptions,
+                        keep_new,
+                    },
+                ) if profiles <= omavless_domain::store::MAX_PROFILES as u64
+                    && subscriptions <= omavless_domain::store::MAX_SUBSCRIPTIONS as u64 =>
+                {
+                    preview = Some(Preview {
+                        profiles,
+                        subscriptions,
+                        digest: String::new(),
+                        keep_new: Some(keep_new),
+                    });
+                    State::Confirming
+                }
+                (Phase::Restore, RecoveryResult::Completed) => State::Completed,
+                (Phase::Restore, RecoveryResult::AvailabilityUnverified) => {
+                    State::AvailabilityUnverified
+                }
+                (_, RecoveryResult::Denied) => State::Denied,
+                (Phase::Preview, _) => State::PreviewUnavailable,
+                _ => State::Unknown,
+            }
+        };
+        Completion {
+            nonce: self.nonce,
+            instance: self.instance,
+            revision: self.revision,
+            phase: self.phase,
+            operation: self.operation,
+            until: self.until,
+            state,
+            credentials: if state == State::Confirming {
+                Some(self.credentials)
+            } else {
+                None
+            },
+            preview,
+        }
+    }
+}
+
+/// Closed local-worker outcomes, not evidence supplied by a daemon or caller.
+pub enum RecoveryResult {
+    Preview {
+        profiles: u64,
+        subscriptions: u64,
+        keep_new: bool,
+    },
+    Completed,
+    AvailabilityUnverified,
+    Denied,
+    Unknown,
 }
 
 #[cfg(test)]

@@ -15,8 +15,33 @@ pub(crate) const PAUSE_METHOD: &str = "developer.pause_current_intent";
 const PAUSE_CONFIRM: &str = "pause-current-private-intent";
 pub(crate) const ABORT_METHOD: &str = "developer.abort_current_intent";
 const ABORT_CONFIRM: &str = "abort-current-private-intent";
+pub(crate) const ABORT_RETIREMENT_CUT_METHOD: &str = "developer.abort_current_after_retirement_cut";
+const ABORT_RETIREMENT_CUT_CONFIRM: &str = "abort-current-after-retirement-cut";
+pub(crate) const FIRST_RENAME_CUT_METHOD: &str = "developer.cut_current_first_rename";
+const FIRST_RENAME_CUT_CONFIRM: &str = "cut-current-first-rename";
+pub(crate) const TERMINAL_CUT_METHOD: &str = "developer.cut_current_terminal";
+const TERMINAL_CUT_CONFIRM: &str = "cut-current-terminal";
+pub(crate) const COMMITTED_RETIREMENT_CUT_METHOD: &str =
+    "developer.cut_current_committed_retirement";
+const COMMITTED_RETIREMENT_CUT_CONFIRM: &str = "cut-current-committed-retirement";
+pub(crate) const COMMITTED_TICKET_CUT_METHOD: &str = "developer.cut_current_committed_ticket";
+const COMMITTED_TICKET_CUT_CONFIRM: &str = "cut-current-committed-ticket";
+pub(crate) const COMMITTED_COMPLETE_CUT_METHOD: &str = "developer.cut_current_committed_complete";
+const COMMITTED_COMPLETE_CUT_CONFIRM: &str = "cut-current-committed-complete";
+pub(crate) fn loss_cut_method(method: &str) -> bool {
+    matches!(
+        method,
+        FIRST_RENAME_CUT_METHOD
+            | TERMINAL_CUT_METHOD
+            | ABORT_RETIREMENT_CUT_METHOD
+            | COMMITTED_RETIREMENT_CUT_METHOD
+            | COMMITTED_TICKET_CUT_METHOD
+            | COMMITTED_COMPLETE_CUT_METHOD
+    )
+}
 pub(crate) fn private_method(method: &str) -> bool {
     matches!(method, METHOD | BACKUP_METHOD | PAUSE_METHOD | ABORT_METHOD)
+        || loss_cut_method(method)
 }
 pub(crate) const MAX_INPUT: usize = 32768;
 /// Fixed best-effort observation only. Never replaces the original publication
@@ -32,7 +57,19 @@ pub(crate) fn publish_positive_pause_response(
     revision: u64,
     refuse: impl FnOnce(u64),
 ) -> crate::Result<()> {
-    let publication = response
+    let publication = publish_positive_cut_response(response, stream);
+    if publication.is_err() {
+        refuse(revision);
+    }
+    publication
+}
+/// Already sealed cut graph stays retained by the caller's SAME owner mutex.
+/// Reply loss is UNKNOWN; this encoder has no resume, cleanup or retry callback.
+pub(crate) fn publish_positive_cut_response(
+    response: Result<Value, omavless_control_protocol::ProtocolError>,
+    stream: &mut std::os::unix::net::UnixStream,
+) -> crate::Result<()> {
+    response
         .map_err(|_| crate::RuntimeError::Protocol)
         .and_then(|response| {
             crate::encode_response(&response).map_err(|_| crate::RuntimeError::Protocol)
@@ -40,11 +77,7 @@ pub(crate) fn publish_positive_pause_response(
         .and_then(|frame| {
             crate::write_unary_frame(stream, &frame, crate::FrameKind::Response)
                 .map_err(|_| crate::RuntimeError::Io)
-        });
-    if publication.is_err() {
-        refuse(revision);
-    }
-    publication
+        })
 }
 #[derive(Debug, PartialEq, Eq)]
 enum ReplyDisposition {
@@ -55,6 +88,14 @@ fn classify_response(response: &Value) -> Result<(), ReplyDisposition> {
     classify_response_field(response, "completed")
 }
 fn classify_response_field(response: &Value, field: &str) -> Result<(), ReplyDisposition> {
+    if field == "cutReachedStillFenced"
+        && response["ok"] == true
+        && response["result"]
+            .as_object()
+            .is_none_or(|result| result.len() != 1)
+    {
+        return Err(ReplyDisposition::Unknown);
+    }
     if response["ok"] == true && response["result"][field] == true {
         return Ok(());
     }
@@ -111,13 +152,20 @@ pub(crate) struct AbortRequest {
 }
 impl AbortRequest {
     pub(crate) fn parse(value: &Value) -> Result<Self, ()> {
+        Self::parse_for_method(value, ABORT_METHOD)
+    }
+    pub(crate) fn parse_for_method(value: &Value, method: &str) -> Result<Self, ()> {
         let input = serde_json::to_vec(value).map_err(|_| ())?;
         if input.len() > MAX_INPUT {
             return Err(());
         }
         let request: Self = serde_json::from_slice(&input).map_err(|_| ())?;
         if request.schema != 1
-            || request.confirmation != ABORT_CONFIRM
+            || !matches!(
+                (method, request.confirmation.as_str()),
+                (ABORT_METHOD, ABORT_CONFIRM)
+                    | (ABORT_RETIREMENT_CUT_METHOD, ABORT_RETIREMENT_CUT_CONFIRM)
+            )
             || request.instance_id.is_empty()
             || request.instance_id.len() > 128
             || request.expected_revision > omavless_control_protocol::MAX_REVISION
@@ -176,7 +224,14 @@ impl Request {
         valid_private(self.schema, &self.archive.0, &self.passphrase.0)
             && matches!(
                 self.confirmation.as_str(),
-                CONFIRM | BACKUP_CONFIRM | PAUSE_CONFIRM
+                CONFIRM
+                    | BACKUP_CONFIRM
+                    | PAUSE_CONFIRM
+                    | FIRST_RENAME_CUT_CONFIRM
+                    | TERMINAL_CUT_CONFIRM
+                    | COMMITTED_RETIREMENT_CUT_CONFIRM
+                    | COMMITTED_TICKET_CUT_CONFIRM
+                    | COMMITTED_COMPLETE_CUT_CONFIRM
             )
             && !self.instance_id.is_empty()
             && self.instance_id.len() <= 128
@@ -197,7 +252,20 @@ impl Request {
     pub(crate) fn matches_method(&self, method: &str) -> bool {
         matches!(
             (method, self.confirmation.as_str()),
-            (METHOD, CONFIRM) | (BACKUP_METHOD, BACKUP_CONFIRM) | (PAUSE_METHOD, PAUSE_CONFIRM)
+            (METHOD, CONFIRM)
+                | (BACKUP_METHOD, BACKUP_CONFIRM)
+                | (PAUSE_METHOD, PAUSE_CONFIRM)
+                | (FIRST_RENAME_CUT_METHOD, FIRST_RENAME_CUT_CONFIRM)
+                | (TERMINAL_CUT_METHOD, TERMINAL_CUT_CONFIRM)
+                | (
+                    COMMITTED_RETIREMENT_CUT_METHOD,
+                    COMMITTED_RETIREMENT_CUT_CONFIRM
+                )
+                | (COMMITTED_TICKET_CUT_METHOD, COMMITTED_TICKET_CUT_CONFIRM)
+                | (
+                    COMMITTED_COMPLETE_CUT_METHOD,
+                    COMMITTED_COMPLETE_CUT_CONFIRM
+                )
         )
     }
 }
@@ -226,6 +294,42 @@ pub fn arguments_admitted(arguments: &[OsString]) -> bool {
                 "abort-current-intent",
                 "--confirm-private-intent-abort",
             ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-first-rename",
+                "--confirm-private-first-rename-cut",
+            ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-terminal",
+                "--confirm-private-terminal-cut",
+            ]
+        || arguments
+            == [
+                "developer",
+                "abort-current-after-retirement-cut",
+                "--confirm-private-abort-retirement-cut",
+            ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-committed-retirement",
+                "--confirm-private-committed-retirement-cut",
+            ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-committed-ticket",
+                "--confirm-private-committed-ticket-cut",
+            ]
+        || arguments
+            == [
+                "developer",
+                "cut-current-committed-complete",
+                "--confirm-private-committed-complete-cut",
+            ]
 }
 /// A lost reply is UNKNOWN, never an automatic retry. No request data is echoed.
 pub fn from_private_input(
@@ -238,13 +342,52 @@ pub fn from_private_input(
     if !arguments_admitted(arguments) {
         return Err("developer_current_arguments_refused");
     }
-    let abort = arguments[1] == "abort-current-intent";
-    let (method, confirmation, marker) = if abort {
+    let abort = matches!(
+        arguments[1].to_str(),
+        Some("abort-current-intent" | "abort-current-after-retirement-cut")
+    );
+    let (method, confirmation, marker) = if arguments[1] == "abort-current-after-retirement-cut" {
+        (
+            ABORT_RETIREMENT_CUT_METHOD,
+            ABORT_RETIREMENT_CUT_CONFIRM,
+            "t4_current_abort_retirement_cut_reached_still_fenced",
+        )
+    } else if abort {
         (ABORT_METHOD, ABORT_CONFIRM, "t4_current_intent_aborted")
     } else if arguments[1] == "pause-current-intent" {
         (PAUSE_METHOD, PAUSE_CONFIRM, "t4_current_intent_paused")
     } else if arguments[1] == "backup-current" {
         (BACKUP_METHOD, BACKUP_CONFIRM, "t4_current_backup_created")
+    } else if arguments[1] == "cut-current-first-rename" {
+        (
+            FIRST_RENAME_CUT_METHOD,
+            FIRST_RENAME_CUT_CONFIRM,
+            "t4_current_first_rename_cut_reached_still_fenced",
+        )
+    } else if arguments[1] == "cut-current-terminal" {
+        (
+            TERMINAL_CUT_METHOD,
+            TERMINAL_CUT_CONFIRM,
+            "t4_current_terminal_cut_reached_still_fenced",
+        )
+    } else if arguments[1] == "cut-current-committed-complete" {
+        (
+            COMMITTED_COMPLETE_CUT_METHOD,
+            COMMITTED_COMPLETE_CUT_CONFIRM,
+            "t4_current_committed_complete_cut_reached_still_fenced",
+        )
+    } else if arguments[1] == "cut-current-committed-ticket" {
+        (
+            COMMITTED_TICKET_CUT_METHOD,
+            COMMITTED_TICKET_CUT_CONFIRM,
+            "t4_current_committed_ticket_cut_reached_still_fenced",
+        )
+    } else if arguments[1] == "cut-current-committed-retirement" {
+        (
+            COMMITTED_RETIREMENT_CUT_METHOD,
+            COMMITTED_RETIREMENT_CUT_CONFIRM,
+            "t4_current_committed_retirement_cut_reached_still_fenced",
+        )
     } else {
         (METHOD, CONFIRM, "t4_current_pair_completed")
     };
@@ -310,7 +453,9 @@ pub fn from_private_input(
     let response =
         crate::call_with_timeout(&paths, method, params, std::time::Duration::from_secs(120))
             .map_err(|_| "developer_current_restore_outcome_unknown")?;
-    let disposition = if method == PAUSE_METHOD {
+    let disposition = if loss_cut_method(method) {
+        classify_response_field(&response, "cutReachedStillFenced")
+    } else if method == PAUSE_METHOD {
         classify_response_field(&response, "intentPaused")
     } else {
         classify_response(&response)
@@ -324,7 +469,289 @@ pub fn from_private_input(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_complete_fixed_request_has_no_generic_cut_or_ticket_confirmation() {
+        use super::*;
+        let args = [
+            "developer",
+            "cut-current-committed-complete",
+            "--confirm-private-committed-complete-cut",
+        ]
+        .map(OsString::from);
+        assert!(arguments_admitted(&args) && loss_cut_method(COMMITTED_COMPLETE_CUT_METHOD));
+        let mut raw = serde_json::json!({"schema":1,"archive":"/public/synthetic.ovb","passphrase":"source password",
+            "confirmation":COMMITTED_COMPLETE_CUT_CONFIRM,"instanceId":"source-instance","expectedRevision":0});
+        assert!(
+            Request::parse(&raw)
+                .unwrap()
+                .matches_method(COMMITTED_COMPLETE_CUT_METHOD)
+        );
+        assert!(
+            !Request::parse(&raw)
+                .unwrap()
+                .matches_method(COMMITTED_TICKET_CUT_METHOD)
+        );
+        raw["step"] = "DispositionComplete".into();
+        assert!(Request::parse(&raw).is_err());
+        let bad = [
+            "developer",
+            "cut-current-committed-complete",
+            "--confirm-private-committed-ticket-cut",
+        ]
+        .map(OsString::from);
+        assert!(!arguments_admitted(&bad));
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn new_complete_product_union_does_not_read_private_input() {
+        use super::*;
+        struct NoRead;
+        impl std::io::Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("must not read");
+            }
+        }
+        let args = [
+            "developer",
+            "cut-current-committed-complete",
+            "--confirm-private-committed-complete-cut",
+        ]
+        .map(OsString::from);
+        assert_eq!(
+            from_private_input(&args, NoRead),
+            Err("developer_restore_disabled")
+        );
+    }
+    #[test]
+    fn new_ticket_fixed_full_request_and_method_never_accept_retirement_or_arbitrary_cut() {
+        use super::*;
+        let args = [
+            "developer",
+            "cut-current-committed-ticket",
+            "--confirm-private-committed-ticket-cut",
+        ]
+        .map(OsString::from);
+        assert!(arguments_admitted(&args) && loss_cut_method(COMMITTED_TICKET_CUT_METHOD));
+        let mut raw = serde_json::json!({"schema":1,"archive":"/public/synthetic.ovb","passphrase":"source password",
+            "confirmation":COMMITTED_TICKET_CUT_CONFIRM,"instanceId":"source-instance","expectedRevision":0});
+        assert!(
+            Request::parse(&raw)
+                .unwrap()
+                .matches_method(COMMITTED_TICKET_CUT_METHOD)
+        );
+        assert!(
+            !Request::parse(&raw)
+                .unwrap()
+                .matches_method(COMMITTED_RETIREMENT_CUT_METHOD)
+        );
+        raw["step"] = "DispositionTicket".into();
+        assert!(Request::parse(&raw).is_err());
+        for bad in [
+            vec![
+                "developer",
+                "cut-current-committed-ticket",
+                "--confirm-private-committed-retirement-cut",
+            ],
+            vec![
+                "developer",
+                "cut-current-committed-ticket",
+                "--confirm-private-committed-ticket-cut",
+                "extra",
+            ],
+        ] {
+            assert!(!arguments_admitted(
+                &bad.into_iter().map(OsString::from).collect::<Vec<_>>()
+            ));
+        }
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn new_ticket_product_union_denies_before_private_read() {
+        use super::*;
+        struct NoRead;
+        impl std::io::Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("must not read");
+            }
+        }
+        let args = [
+            "developer",
+            "cut-current-committed-ticket",
+            "--confirm-private-committed-ticket-cut",
+        ]
+        .map(OsString::from);
+        assert_eq!(
+            from_private_input(&args, NoRead),
+            Err("developer_restore_disabled")
+        );
+    }
     use super::*;
+    #[test]
+    fn final_new_committed_retirement_cut_uses_only_exact_full_private_request() {
+        let argv = [
+            "developer",
+            "cut-current-committed-retirement",
+            "--confirm-private-committed-retirement-cut",
+        ]
+        .map(OsString::from);
+        assert!(arguments_admitted(&argv));
+        assert!(loss_cut_method(COMMITTED_RETIREMENT_CUT_METHOD));
+        let value = serde_json::json!({"schema":1,"archive":"/private/source.ovb","passphrase":"synthetic source password",
+            "confirmation":COMMITTED_RETIREMENT_CUT_CONFIRM,"instanceId":"source-instance","expectedRevision":0});
+        let parsed = Request::parse(&value).unwrap();
+        assert!(parsed.matches_method(COMMITTED_RETIREMENT_CUT_METHOD));
+        assert!(!parsed.matches_method(TERMINAL_CUT_METHOD));
+        for field in ["step", "index", "pid", "unit", "proof"] {
+            let mut changed = value.clone();
+            changed[field] = "source".into();
+            assert!(Request::parse(&changed).is_err());
+        }
+        let mut extra = argv.to_vec();
+        extra.push("0".into());
+        assert!(!arguments_admitted(&extra));
+        assert!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"completed":true}}),
+                "cutReachedStillFenced"
+            )
+            .is_err()
+        );
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn final_new_committed_retirement_cut_product_union_denies_before_input() {
+        struct NoRead;
+        impl Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("disabled Source selector read input");
+            }
+        }
+        assert_eq!(
+            from_private_input(
+                &[
+                    "developer".into(),
+                    "cut-current-committed-retirement".into(),
+                    "--confirm-private-committed-retirement-cut".into()
+                ],
+                NoRead
+            ),
+            Err("developer_restore_disabled")
+        );
+    }
+    #[test]
+    fn final_old_abort_cut_is_exact_resume_context_without_archive_or_steps() {
+        let arguments = [
+            "developer",
+            "abort-current-after-retirement-cut",
+            "--confirm-private-abort-retirement-cut",
+        ]
+        .map(OsString::from);
+        assert!(arguments_admitted(&arguments));
+        assert!(loss_cut_method(ABORT_RETIREMENT_CUT_METHOD));
+        let value = serde_json::json!({"schema":1,"confirmation":ABORT_RETIREMENT_CUT_CONFIRM,
+            "instanceId":"synthetic-instance","expectedRevision":0});
+        assert!(AbortRequest::parse_for_method(&value, ABORT_RETIREMENT_CUT_METHOD).is_ok());
+        assert!(AbortRequest::parse(&value).is_err());
+        let mut wrong = value.clone();
+        wrong["confirmation"] = ABORT_CONFIRM.into();
+        assert!(AbortRequest::parse_for_method(&wrong, ABORT_RETIREMENT_CUT_METHOD).is_err());
+        for key in ["step", "archive", "passphrase", "unit", "pid", "proof"] {
+            let mut extra = value.clone();
+            extra[key] = "synthetic".into();
+            assert!(AbortRequest::parse_for_method(&extra, ABORT_RETIREMENT_CUT_METHOD).is_err());
+        }
+        let mut extra = arguments.to_vec();
+        extra.push("0".into());
+        assert!(!arguments_admitted(&extra));
+        assert!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"completed":true}}),
+                "cutReachedStillFenced"
+            )
+            .is_err()
+        );
+    }
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn final_old_abort_cut_product_union_denies_before_private_input() {
+        struct NoRead;
+        impl Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("disabled selector read input");
+            }
+        }
+        assert_eq!(
+            from_private_input(
+                &[
+                    "developer".into(),
+                    "abort-current-after-retirement-cut".into(),
+                    "--confirm-private-abort-retirement-cut".into()
+                ],
+                NoRead
+            ),
+            Err("developer_restore_disabled")
+        );
+    }
+    #[test]
+    fn fixed_loss_cut_requests_confirmations_wiping_and_replies_are_distinct() {
+        for (method, confirmation, cli, flag) in [
+            (
+                FIRST_RENAME_CUT_METHOD,
+                FIRST_RENAME_CUT_CONFIRM,
+                "cut-current-first-rename",
+                "--confirm-private-first-rename-cut",
+            ),
+            (
+                TERMINAL_CUT_METHOD,
+                TERMINAL_CUT_CONFIRM,
+                "cut-current-terminal",
+                "--confirm-private-terminal-cut",
+            ),
+        ] {
+            assert!(private_method(method));
+            assert!(arguments_admitted(&[
+                "developer".into(),
+                cli.into(),
+                flag.into()
+            ]));
+            assert!(!arguments_admitted(&[
+                "developer".into(),
+                cli.into(),
+                flag.into(),
+                "0".into()
+            ]));
+            let raw = wire()
+                .replace(METHOD, method)
+                .replace(CONFIRM, confirmation);
+            assert!(checked(raw.as_bytes()).is_ok());
+            assert!(checked(raw.replace(confirmation, PAUSE_CONFIRM).as_bytes()).is_err());
+            let mut request = crate::decode_request(raw.as_bytes()).unwrap();
+            request["params"]["step"] = "any".into();
+            assert!(Request::parse(&request["params"]).is_err());
+            wipe_request(&mut request);
+            assert!(request["params"].get("passphrase").is_none());
+        }
+        let cut = serde_json::json!({"ok":true,"result":{"cutReachedStillFenced":true}});
+        assert_eq!(
+            classify_response_field(&cut, "cutReachedStillFenced"),
+            Ok(())
+        );
+        assert_eq!(classify_response(&cut), Err(ReplyDisposition::Unknown));
+        assert_eq!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"cutReachedStillFenced":true,"completed":true}}),
+                "cutReachedStillFenced"
+            ),
+            Err(ReplyDisposition::Unknown)
+        );
+        assert_eq!(
+            classify_response_field(
+                &serde_json::json!({"ok":true,"result":{"completed":true}}),
+                "cutReachedStillFenced"
+            ),
+            Err(ReplyDisposition::Unknown)
+        );
+    }
     #[test]
     fn diagnostic_write_failure_is_ignored_without_flush_or_unwind() {
         struct Failing;

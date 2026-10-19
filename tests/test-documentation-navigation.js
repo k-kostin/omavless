@@ -269,6 +269,17 @@ for (const rule of ['Focused local iteration', 'Full hosted integration gate',
   'actual selected compiler version', 'original run/attempt']) {
   assert(judgment.includes(rule), 'retain deliberate local/hosted allocation: ' + rule);
 }
+// Discovery/retention only, not evidence that preflights happened or CI sped up.
+assert(guide.includes('](EXECUTION_POLICY.md#producer-and-final-integration-checkpoints)'),
+  'native producer/final checkpoint procedure must be discoverable');
+assert(judgment.includes('#### Producer and final integration checkpoints'));
+for (const rule of ['first meaningful Draft checkpoint',
+  'whole affected surface', 'actual produced packages',
+  'matching metadata successor', 'actual candidate export',
+  'does not suppress automatic Draft checks',
+  'reason for each successor', 'compilation from test execution']) {
+  assert(judgment.includes(rule), 'retain measured checkpoint planning: ' + rule);
+}
 assert(entry.includes('](docs/development/EXECUTION_POLICY.md)'),
   'execution rules must remain mandatory from the root entry');
 assert(guide.includes('](EXECUTION_POLICY.md#retrospective-closure-and-distribution)'),

@@ -43,7 +43,10 @@ class FirstAbortCli(unittest.TestCase):
         self.assertIn("stopped.recheck() && owner.recheck() && stopped.recheck()", body)
         self.assertIn("live_runtime_with_pre_acquire_replaced_lock_is_not_stopped", cli)
         text = (SRC / "restore_abort_stopped_owner.rs").read_text().split("#[cfg(test)]\nmod tests {", 1)[0]
-        for token in ("initial.uids.contains(&uid)", "self.manager.recheck", "recovery_self(&myself.command)",
+        for token in ("initial.uids.contains(&uid)", "self.manager.recheck", "invocation.validate(&myself.command)?",
+                      "Self::Recovery => recovery_self(command)",
+                      "Self::OldRecovery => old_recovery_self(command)",
+                      "Self::ConsumerRecovery => consumer_recovery_self(command)",
                       "MAX_PIDS: usize = 4096", "16 * 1024 * 1024", "Duration::from_secs(2)",
                       "WaitPidFlag::WNOWAIT", "known_reap", "checked_once", ".env_clear()",
                       "proc_visibility", "visible_proc_mount", "hidepid=0", "listener_paths(uid, socket)",
@@ -51,8 +54,20 @@ class FirstAbortCli(unittest.TestCase):
                       'TrustedExecutable::capture("/usr/bin/systemctl")', "Command::new(tool.exec_path())",
                       '"/usr/lib/systemd/systemd"', '"omavless-runtime.service"', '"omavless.service"'):
             self.assertIn(token, text)
-        for forbidden in (".try_wait(", ".kill(", ".wait(", "killpg", "pre_exec", "sudo", '"start"', '"stop"'):
+        for forbidden in (".try_wait(", ".kill(", ".wait(", "killpg", "pre_exec", "sudo"):
             self.assertNotIn(forbidden, text)
+        # Historical Abort keeps its read-only command even though the NEW
+        # separately qualified recovery owner has fixed Stop/Start commands.
+        query = text.split("fn query(", 1)[1].split("fn listener_paths(", 1)[0]
+        self.assertIn('"show",\n            unit,', query)
+        for forbidden in ('"start"', '"stop"', "FixedRecoveryCommand", "command.arguments"):
+            self.assertNotIn(forbidden, query)
+        capture = text.split("impl StoppedOwner {", 1)[1].split("fn capture_inner(", 1)[0]
+        self.assertIn("SelfInvocation::Recovery", capture)
+        self.assertNotIn("OldRecoveryQueries", capture)
+        self.assertNotIn("ConsumerRecovery", capture)
+        for forbidden in ("OldRecoveryOwner", "FixedRecoveryCommand", "prepare_consumer"):
+            self.assertNotIn(forbidden, body)
 
     def test_cached_owner_counterexample_is_actual_frozen_child_not_service_override(self):
         text = (SRC / "restore_abort_cached_owner_tests.rs").read_text()

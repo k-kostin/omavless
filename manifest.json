@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kdk.omavless",
   "name": "OmaVLESS",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "author": "kdk",
   "license": "MIT",
   "description": "OmaVLESS is a VPN app for Omarchy users who want more control over their traffic privacy or face heavy internet censorship in countries such as China, Iran and Russia. Bring your own compatible VLESS profile or HTTPS subscription, connect and switch profiles from the bar, choose Full VPN, Routing or Direct with built-in routing presets, and refresh subscription server lists. Powered by Mihomo. Free and open source; VPN servers and service subscriptions are not included.",

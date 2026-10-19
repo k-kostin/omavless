@@ -116,6 +116,7 @@ pub fn run(
         None,
         None,
         None,
+        false,
     )
 }
 
@@ -132,6 +133,7 @@ pub fn run_actions(
         None,
         None,
         None,
+        false,
     )
 }
 
@@ -142,7 +144,7 @@ pub fn run_full(
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
     import: Option<ImportAdapter>,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate), Some(jobs), None, None, import)
+    run_client(read, Some(mutate), Some(jobs), None, None, import, false)
 }
 
 /// Explicit opt-in client only. Backup callback has one fixed semantic method;
@@ -162,6 +164,7 @@ pub fn run_full_private_backup(
         Some(Box::new(backup)),
         None,
         import,
+        false,
     )
 }
 
@@ -174,6 +177,7 @@ pub fn run_full_private_restore(
     backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
     restore: impl FnMut(private_restore::Request) -> private_restore::Completion + Send + 'static,
     import: Option<ImportAdapter>,
+    recovery: bool,
 ) -> Result<(), &'static str> {
     run_client(
         read,
@@ -182,6 +186,7 @@ pub fn run_full_private_restore(
         Some(Box::new(backup)),
         Some(Box::new(restore)),
         import,
+        recovery,
     )
 }
 
@@ -192,6 +197,7 @@ fn run_client(
     _backup: Option<BackupAdapter>,
     _restore: Option<RestoreAdapter>,
     import: Option<ImportAdapter>,
+    _recovery: bool,
 ) -> Result<(), &'static str> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
@@ -346,6 +352,7 @@ fn run_client(
     #[cfg(feature = "private-backup")]
     if let Some(mut restore) = _restore {
         app.restore_enabled = true;
+        app.recovery_enabled = _recovery;
         thread::Builder::new()
             .name("tui-private-restore".into())
             .spawn(move || {

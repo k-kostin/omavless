@@ -21,6 +21,7 @@ let count=0;
 // the app, package manager, service manager, native Quit or any root branch.
 const selected=JSON.parse(fs.readFileSync(path.join(__dirname,'../plugin/component-updates.json'),'utf8'));
 const published=JSON.parse(fs.readFileSync(path.join(__dirname,'../plugin/published-pairs.json'),'utf8'));
+const selectedVersion=JSON.parse(fs.readFileSync(path.join(__dirname,'../manifest.json'),'utf8')).version+'-1';
 const classification=source.slice(source.indexOf('check_supported_installation()'),source.indexOf('\n[[ $# == 0 ]]'));
 assert.deepEqual(Object.keys(selected.identities).sort(),['aarch64','x86_64']);
 const removalIdentities=[
@@ -32,14 +33,14 @@ const removalIdentities=[
 function classify(label,digest,expected,options={}){
  const dir=fs.mkdtempSync(path.join(parent,'uninstall-admission.'));
  const app=path.join(dir,'omavless');
- fs.writeFileSync(app,'inert fixture');
+ if(!options.appAbsent)fs.writeFileSync(app,'inert fixture');
  if(options.symlink){fs.renameSync(app,app+'.target');fs.symlinkSync(app+'.target',app)}
  const appVersion=options.version||'0.9.8-1';
- const dns=appVersion==='0.8.2-1'?'return 1':"printf '%s\\n' 'omavless-dns 0.9.8-1'";
+ const dns=options.dnsAbsent||appVersion==='0.8.2-1'?'return 1':"printf '%s\\n' 'omavless-dns "+(options.dnsVersion||appVersion)+"'";
  const script=`set -euo pipefail
 fail() { printf 'REFUSED:%s\\n' "$*"; exit 1; }
 ${classification.replaceAll('/usr/bin/omavless',app)}
-pacman() { case "$*" in '-Q omavless') printf '%s\\n' 'omavless ${appVersion}' ;; '-Q omavless-dns') ${dns} ;; *) exit 91 ;; esac; }
+pacman() { case "$*" in '-Q omavless') ${options.appAbsent?'return 1':"printf '%s\\n' 'omavless "+appVersion+"'"} ;; '-Q omavless-dns') ${dns} ;; *) exit 91 ;; esac; }
 stat() { [[ "$*" == '-c %u:%a ${app}' ]] || exit 92; printf '%s\\n' '${options.metadata||'0:755'}'; }
 sha256sum() { [[ "$*" == '${app}' ]] || exit 93; printf '%s  %s\\n' '${digest}' "$1"; }
 check_supported_installation
@@ -53,17 +54,42 @@ check_supported_installation
 }
 for(const [label,digest] of removalIdentities){
  assert.match(digest,/^[a-f0-9]{64}$/);
- classify(label,digest,true,label.startsWith('public082')?{version:'0.8.2-1'}:{});
+ classify(label,digest,true,label.startsWith('public082')?{version:'0.8.2-1'}:label.startsWith('selected ')?{version:selectedVersion}:{});
 }
 for(const [arch,identity] of Object.entries(selected.identities)){
  const changed=identity.appSha.slice(0,-1)+(identity.appSha.endsWith('0')?'1':'0');
  assert(!removalIdentities.some(([,digest])=>digest===changed));
- classify('modified selected '+arch,changed,false);
+ classify('modified selected '+arch,changed,false,{version:selectedVersion});
  classify('selected hash under development label '+arch,identity.appSha,false,{version:'0.9.8.rtest-1'});
- classify('selected symlink '+arch,identity.appSha,false,{symlink:true});
+ classify('selected symlink '+arch,identity.appSha,false,{version:selectedVersion,symlink:true});
  for(const metadata of ['1000:755','0:777'])
-  classify('selected unsafe metadata '+arch+' '+metadata,identity.appSha,false,{metadata});
+  classify('selected unsafe metadata '+arch+' '+metadata,identity.appSha,false,{version:selectedVersion,metadata});
+ if(selectedVersion==='0.9.9-1'){
+  classify('099 selected app without DNS '+arch,identity.appSha,true,{version:selectedVersion,dnsAbsent:true});
+  classify('099 DNS without app '+arch,identity.appSha,true,{version:selectedVersion,appAbsent:true});
+  classify('099 app with public DNS '+arch,identity.appSha,false,{version:selectedVersion,dnsVersion:'0.9.8-1'});
+  classify('099 ELF under public label '+arch,identity.appSha,false,{version:'0.9.8-1'});
+  classify('099 ELF under unknown label '+arch,identity.appSha,false,{version:'0.9.10-1'});
+  for(const predecessor of published.pairs)
+   classify('public ELF under099 label '+arch+' '+predecessor.sourceCommit,predecessor.appSha,false,{version:selectedVersion});
+  for(const predecessor of published.pairs)
+   classify('public app with099 DNS '+arch+' '+predecessor.sourceCommit,predecessor.appSha,false,{dnsVersion:selectedVersion});
+ }
 }
+// A superseded nonpublic producer is not this candidate's selected 0.9.9 ELF.
+// Public predecessor admission remains covered independently above.
+if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','f0c5771d60a024328c89b246a10c65c72e66d207a4d519b45c62c0568cab505a'],
+ ['aarch64','6f57fdf6e67196bcb22ca4024bfb3265644c93ab14a182d79fe575f76045a404']
+])classify('superseded nonpublic082 app under099 label '+arch,digest,false,{version:selectedVersion});
+if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','3b35e526a6bf19dbd35c7918b006c397cde0e8dce7a65d4247abc7e72dbe728d'],
+ ['aarch64','14c75c3ca3848b5d67b1d2965fb13b1d8e00bef2b82a13a74d6ed07f8b4298fd']
+])classify('superseded nonpublic6021 app under099 label '+arch,digest,false,{version:selectedVersion});
+if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','9d4aa2d13fabb8330409ddef3438dde5870e20cb40d248cfdd12cc8adbbd2cec'],
+ ['aarch64','08b83d3ef71b46c41521f5ad190e6b2fb6f613b3b92422d6c984d9e4da1076b2']
+])classify('superseded nonpublicf788 app under099 label '+arch,digest,false,{version:selectedVersion});
 function fixture(){
  const dir=fs.mkdtempSync(path.join(parent,'uninstaller.'));
  for(const p of ['home/user/.cache/omavless-maintenance/uninstall','home/user/.config/systemd/user','run/user/'+uid,'proc/sys/kernel/random'])fs.mkdirSync(path.join(dir,p),{recursive:true,mode:0o700});
@@ -355,18 +381,25 @@ function dnsAdmission(label,brokerSha,expected,options={}){
    const file=dir+name;fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'inert; never execute');
   }
  }},[
+  'pacman() { [[ "$*" == "-Q omavless-dns" ]] || return 99; printf "%s\\n" "omavless-dns '+(options.version||'0.9.8-1')+'"; }',
   'stat() { case "$2" in "%u %a") printf "0 755\\n";; "%u:%a:%h") if [[ "${@: -1}" == */omavless-dns-broker.service ]]; then printf "'+(options.unsafeUnit?'0:666:1':'0:644:1')+'\\n"; else printf "0:755:1\\n"; fi;; *) printf FORBIDDEN_STAT >&2; return 99;; esac; }',
   'sha256sum() { case "$1" in */package-guard) printf "%s  %s\\n" "'+(options.badGuard?'0'.repeat(64):guardSha)+'" "$1";; */omavless-dns-broker) printf "%s  %s\\n" "'+brokerSha+'" "$1";; */omavless-dns-broker.service) printf "%s  %s\\n" "'+(options.badUnit?'0'.repeat(64):unitSha)+'" "$1";; *) printf FORBIDDEN_HASH >&2; return 99;; esac; }',
   'check_dns_programs; printf DNS_ADMITTED'
  ].join('\n'),expected,(_,r)=>assert.equal(r.stdout.includes('DNS_ADMITTED'),expected));
 }
 for(const [arch,identity] of Object.entries(selected.identities)){
- dnsAdmission('selected DNS '+arch,identity.brokerSha,true);
+ dnsAdmission('selected DNS '+arch,identity.brokerSha,true,{version:selectedVersion});
  const changed=identity.brokerSha.slice(0,-1)+(identity.brokerSha.endsWith('0')?'1':'0');
  assert(!published.pairs.some(p=>p.brokerSha===changed));
- dnsAdmission('modified selected DNS '+arch,changed,false);
+ dnsAdmission('modified selected DNS '+arch,changed,false,{version:selectedVersion});
  for(const options of [{badGuard:true},{badUnit:true},{unsafeUnit:true}])
-  dnsAdmission('selected DNS '+arch+' refuses '+Object.keys(options)[0],identity.brokerSha,false,options);
+  dnsAdmission('selected DNS '+arch+' refuses '+Object.keys(options)[0],identity.brokerSha,false,{version:selectedVersion,...options});
+ if(selectedVersion==='0.9.9-1'){
+  dnsAdmission('099 DNS under public label '+arch,identity.brokerSha,false);
+  dnsAdmission('099 DNS under unknown label '+arch,identity.brokerSha,false,{version:'0.9.10-1'});
+  for(const predecessor of published.pairs)
+   dnsAdmission('public DNS under099 label '+arch+' '+predecessor.sourceCommit,predecessor.brokerSha,false,{version:selectedVersion});
+ }
 }
 for(const record of published.pairs)
  dnsAdmission('public DNS '+record.sourceCommit+' '+record.architecture,record.brokerSha,true);

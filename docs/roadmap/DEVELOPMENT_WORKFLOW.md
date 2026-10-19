@@ -248,8 +248,13 @@ In this full-source lane successor the Test workflow runs for every pull request
 workflow retains its historical dev/098-finalization-integration selector;
 do not mutate that released source. Other feature pushes do not also run a
 duplicate workflow: open the Draft PR at the first meaningful checkpoint to
-obtain cloud evidence. Until then, run `./tests/run.sh` and
-`./tests/run-rust.sh` locally. Every later PR synchronization runs both gates.
+obtain cloud evidence. Until then, run affected local checks according to the
+[local/hosted allocation](../development/EXECUTION_POLICY.md#local-and-hosted-check-allocation);
+a full local Rust run needs a declared purpose, not an automatic duplicate of
+hosted CI. Every later PR synchronization runs both full hosted gates. Use the
+[producer/final checkpoint procedure](../development/EXECUTION_POLICY.md#producer-and-final-integration-checkpoints)
+for early whole-surface review and actual native/export preflights; it does not
+skip automatic Draft checks or replace the independent development push proof.
 The generated user tree instead runs its own Distribution workflow, fetching
 the immutable admitted full source. Do not copy a Cargo workflow into stripped
 main or remove the required full-source push check to reduce CI time. Changes

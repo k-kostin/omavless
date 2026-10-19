@@ -545,6 +545,7 @@ check_supported_installation() {
   dns=$(pacman -Q omavless-dns 2>/dev/null) || dns=absent
   case "$app:$dns" in
     'omavless 0.8.2-1:absent'|'omavless 0.9.8-1:omavless-dns 0.9.8-1'|'omavless 0.9.8-1:absent'|'absent:omavless-dns 0.9.8-1'|'absent:absent') ;;
+    'omavless 0.9.9-1:omavless-dns 0.9.9-1'|'omavless 0.9.9-1:absent'|'absent:omavless-dns 0.9.9-1') ;;
     *) fail 'The installed package version is not supported by this remover. Restore an official 0.8.2 or 0.9.8 package before continuing.' ;;
   esac
   installed_public_app=$app
@@ -553,6 +554,14 @@ check_supported_installation() {
     [[ -f /usr/bin/omavless && ! -L /usr/bin/omavless && $(stat -c '%u:%a' /usr/bin/omavless) == 0:755 ]] \
       || fail 'The registered application file is missing or changed. Restore its official package before continuing.'
     digest=$(sha256sum /usr/bin/omavless) || fail 'Cannot identify the application.'
+    if [[ "$app" == 'omavless 0.9.9-1' ]]; then
+      # Exact inspected NONPUBLIC ee209338 producer, never a generic version
+      # allowance or a public predecessor ELF relabelled as the new package.
+      case "${digest%% *}" in
+        5a6ce1d4fb84c8ff1686d66a5ec754bbd09848ca26adc4c5afe45e5f43a49df3|e0d008c5a1b6d065900f36eb07b5346cab870ebb291334f843a3180a6a0f2ec0) ;;
+        *) fail 'The application is a development or modified build. Restore its official package before continuing; no development checkout was deleted.' ;;
+      esac
+    else
     # Exact selected ELF identities, not a development build's package label.
     # Public predecessors/fix.8 and the inspected nonpublic developer pair.
     case "${digest%% *}" in
@@ -562,6 +571,7 @@ check_supported_installation() {
       73c3a899039441717b2709a74b6ddc8d15b1a838202d2441aa50073f4ce97ddb|2805ca1a8db6f8a748c162b36f94a83279ff38550edff4cddef3c5055b1fedb4) ;;
       *) fail 'The application is a development or modified build. Restore its official package before continuing; no development checkout was deleted.' ;;
     esac
+    fi
   else
     [[ ! -e /usr/bin/omavless && ! -L /usr/bin/omavless ]] \
       || fail 'An unregistered application file remains. Have its installer remove that file before continuing; it was left unchanged.'
@@ -631,6 +641,12 @@ empty_host() {
   done
 }
 check_dns_programs() {
+  local dns_identity
+  dns_identity=$(pacman -Q omavless-dns 2>/dev/null) || refuse
+  case "$dns_identity" in
+    'omavless-dns 0.9.8-1'|'omavless-dns 0.9.9-1') ;;
+    *) refuse ;;
+  esac
   for path in /usr /usr/lib /usr/lib/omavless-dns /usr/lib/systemd /usr/lib/systemd/system; do
     [[ -d "$path" && ! -L "$path" ]] || refuse
     read -r owner mode < <(stat -c '%u %a' "$path")
@@ -641,11 +657,18 @@ check_dns_programs() {
   done
   [[ $(sha256sum /usr/lib/omavless-dns/package-guard) == '624c08b458afd1dd48f6a16ef36e80d97027ee1062e0a7c8fa4ef0239fa89b03  /usr/lib/omavless-dns/package-guard' ]] || refuse
   hash=$(sha256sum /usr/lib/omavless-dns/omavless-dns-broker)
+  if [[ "$dns_identity" == 'omavless-dns 0.9.9-1' ]]; then
+    case "${hash%% *}" in
+      50f4a046677ca8fe2cb7af58af2b536caba7dfc04ddebc1dbc23a3ac30f7d0c5|62a5f8ab13c8fcdce56a8290147dce4ebfe911cf3572e656c45d10785d5778b9) ;;
+      *) refuse ;;
+    esac
+  else
   case "${hash%% *}" in
     8caba1a57b44b2856b98b0d0213cc545905ba5a031aac144fcce2420957b0d2e|33121a6f4c4eb7b644da034fc521e221d7f292d61bdaffb837ed82c015dbe755|ba61e433d89baa3ae4fd1af5ed275f769654c19fbf6a7b22592869e617b277d5|8f250d4fce7e784477c91204579ed6f8792006713ccc895ac357e23faa03df26|1855ed920a4b064c811ed14134b5ae14e3c5ece0a26695a84afc1ccfd711dc93|c764c30ba24844f6972e2b19c600c068c92682d9fe1e1bd94de5896356f93c5e) ;;
     e23288fb3f388b0a3c06c1b6e1ff55af51dc546da005ec1d71c667baa3517268|df06087de5909bc81f229037c6268d54f1a225eec338d275c80f10c81782ee98) ;;
     *) refuse ;;
   esac
+  fi
   [[ -f /usr/lib/systemd/system/omavless-dns-broker.service && ! -L /usr/lib/systemd/system/omavless-dns-broker.service &&
      $(stat -c '%u:%a:%h' /usr/lib/systemd/system/omavless-dns-broker.service) == 0:644:1 &&
      $(sha256sum /usr/lib/systemd/system/omavless-dns-broker.service) == '126b208158e9288c475084c8bd74029e2808edf9846da514a369266b6306462d  /usr/lib/systemd/system/omavless-dns-broker.service' ]] || refuse
