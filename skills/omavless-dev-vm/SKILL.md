@@ -39,6 +39,11 @@ empty destination from the desktop user's inability to inspect it.
 
 ## Before using the VM
 
+Apply the canonical [VM session lifetime policy](../../docs/development/EXECUTION_POLICY.md#vm-session-lifetime)
+when choosing a future launcher. Per-command bounds are not a blanket VM kill
+timer; changed policy never reactivates a sealed fixture or amends an already
+admitted launch contract.
+
 Identify the designated sole operator, exact VM directory/image, current QEMU
 process, QMP socket and SSH endpoint from the local VM application or its
 maintained configuration. Check active VM ownership with the orchestrator;

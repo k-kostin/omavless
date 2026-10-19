@@ -398,6 +398,9 @@ Before development integration apply the mandatory
 [affected-surface UX gate](../roadmap/UI_UX_CONTRACT.md#premerge-affected-surface-ux-gate),
 including inherited controls on the changed screen. Wording/legibility checks
 alone do not close behavior, meaning, button hierarchy or state eligibility.
+Choose their [control roles and visual grammar](../roadmap/UI_UX_CONTRACT.md#control-roles-and-visual-grammar)
+before implementation; role/priority, framing and external-link cues are not
+left to a passing callback test or a one-off QML preference.
 Keep known relevant UX findings as premerge blockers unless the owner explicitly
 defers them; no automatic postmerge-polish assumption.
 

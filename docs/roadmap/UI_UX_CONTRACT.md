@@ -65,6 +65,117 @@ selection and hover must not overlap adjacent controls or move their hit areas.
 The owner-hidden main Test and latency sections remain hidden until explicitly
 requested. Do not restore them as part of general polish.
 
+## Control roles and visual grammar
+
+Owner-directed clarification, October19: choose controls by their effect, then
+apply a consistent presentation. "Secondary" describes priority, not a license
+to make an interactive control look like ordinary text. These rules govern new
+and materially affected surfaces; they do not order a whole-product redesign or
+retroactively qualify an existing screen. The specific profile dock, setup and
+ready-wizard contracts below remain in force.
+
+### Choose the role before the style
+
+For each control, identify the user's goal, exact target, effect and return path.
+Classify the effect as navigation, disclosure, local read, persistent mutation,
+external navigation or destructive/recovery action. Then choose priority and
+presentation in this order:
+
+1. The state-specific contract decides whether the control exists and is enabled.
+2. Its effect chooses the affordance and cues in the table below.
+3. Priority chooses emphasis within that affordance, not a different effect.
+
+Normally one action per active decision group is primary; use the shared accent
+treatment for its button. Related alternatives are secondary and neutral.
+Ordinary command buttons remain bordered at either priority. Effect-specific
+link/disclosure treatments take precedence over that generic button default:
+a secondary web link is still a link, not a second instruction to frame it as a
+button. State-specific forward navigation such as Continue may be primary;
+local Help is secondary. Independent profile rows retain their own connection
+actions. Navigation is not mutation; a secondary action can still be dangerous.
+Neither its color nor its position grants authorization.
+
+| Role | Presentation | Behavior and examples |
+| --- | --- | --- |
+| Command/action | Bordered button; accent when primary, neutral when secondary. | Install components, Save, Check again or Copy request. Keep a visible boundary even when not hovered. Do not accent an optional update over required setup. |
+| In-product navigation | Bordered button, neutral by default, no external-link marker. | Setup help, Settings Help, Back, Close or Open app; a state-specific forward step may use primary emphasis. Name the destination; opening a surface does not confirm, save, install, settle a terminal or change VPN state. |
+| External navigation | A visibly identifiable link ending in `↗`, separated from the primary decision. | Read the guide or Report a problem. Borderless presentation is allowed for this link role, but it still needs an identifiable link treatment and visible keyboard focus; plain status-like text is insufficient. |
+| Disclosure | Compact expandable control with an expansion cue and explicit Show/Hide label or equivalent accessible name. | Show request, Hide request or Other options. Borderless is allowed when the cue, hover and keyboard focus distinguish the control. Expansion itself never submits the revealed action. |
+| Value/selection control | The shared switch, selector, tab or selectable row for that value. | On/Off, locale, mode or profile selection. Show the selected value independently of hover/focus and actual connection. Do not invent a link-shaped substitute or use an expansion arrow for a leaf selection. |
+| Destructive or recovery action | Explicit bordered action with consequence-specific wording, visually separated from routine navigation. Use shared warning treatment where applicable, never warning color alone. | Delete, Full Quit or Restore access. Retain the owning confirmation, prerequisite and unknown-outcome fences; an ordinary Close is not Full Quit. |
+| Information | Plain text, no button hover, focus stop or clickable hit area. | Status, version and explanatory copy. Do not rely on users discovering that an apparent label is actionable. |
+
+For a multi-role control, keep the effect explicit and use the stronger safety
+contract; do not disguise a fetch-and-save as a harmless local read. An icon-only
+button is allowed for an established compact action when its target and familiar
+meaning are unambiguous, it has an accessible name/tooltip and a visible boundary
+or established selector treatment. Do not use icon-only styling to hide a new
+or consequential action.
+
+### Concrete Help decision
+
+Setup help and Settings Help are in-product navigation: use a neutral bordered
+button without `↗`. They open the same local Help surface, not a website.
+Keep Setup help and Check again in a coherent secondary group when both are
+eligible; neither becomes the primary setup action. Inside Help, Copy request
+is an action, Show/Hide request is disclosure, and the guide/issue destinations
+are external links. A change from a web destination to local Help must change
+both the handler and its visual role; removing the arrow alone is insufficient.
+Preserve origin/focus on return and the existing terminal-closure barriers.
+This decision does not restore Help controls on a confirmed-ready wizard or
+component-review state where the state-specific contract hides them.
+
+### Composition, states and interaction
+
+Group controls by the user's decision, not by the order their code was added.
+Keep the primary outcome prominent, related neutral actions together and
+destructive/recovery actions separate. Use one compact related row when it fits;
+stack in the same logical order at constrained width. Back/Close and forward
+wizard navigation retain their established left/right order. Do not force every
+role to the same width, frame color or emphasis, and do not create duplicate
+primary actions. Preserve the main-screen fixed management dock.
+
+Use shared Omarchy components, palette, typography, spacing, borders and focus
+tokens rather than per-screen guessed colors or dimensions. Neutral framing
+must be visible at rest; hover and focus may strengthen it without moving the
+control or adjacent content. Long EN/RU labels wrap or stack without clipping
+their text, focus indicator or hit area. Grouping must not turn several actions
+into one ambiguous clickable surface.
+
+| State | Required visible meaning and interaction |
+| --- | --- |
+| Enabled / idle | Recognizable action or navigation before hover; label identifies its target. |
+| Hover / keyboard focus | Distinct feedback with stable geometry. Focus must remain visible without a pointer; focus alone never activates or changes a selection's product effect. |
+| Pressed / activated | Activate only the focused/pointed enabled control, once per explicit activation; preserve the owning asynchronous/pending fences. |
+| Disabled / busy | Distinguish unavailable from ordinary text and explain a blocking reason nearby when needed. No keyboard activation, duplicate submission or apparently successful completion. |
+| Hidden | No hit area or keyboard stop; do not leave an invisible action over the surface below it. |
+| Error / unknown outcome | Retain truthful failure and the supported next action; do not manufacture success, auto-resubmit or make recovery look like ordinary navigation. |
+
+Tab/Shift+Tab order follows the visible decision order and skips unavailable
+controls. Enter/Space activation follows the selected shared control's supported
+semantics; text editors retain their own newline/submit contract. Escape closes
+the current cancellable surface and returns focus to its origin, without
+silently discarding committed work, settling a system prompt or disconnecting
+VPN. A modal overlay owns input and scroll; its keys must not activate controls
+behind it. Test both forward and reverse traversal, not only callback invocation.
+
+### Applying and challenging the rules
+
+Keep one small action/state matrix in the owning PR: control, role/priority,
+target/effect, visible/enabled states, presentation and return/focus. Do not
+create a separate design diary. Apply the
+[affected-surface UX gate](#premerge-affected-surface-ux-gate) to behavior,
+meaning and actual rendering, including EN/RU normal/constrained states.
+Navigation tests protect discovery, not visual conformance. A docs-only rule
+update does not mean its referenced UI has already been fixed or inspected.
+
+If a role is genuinely missing, record the exact ambiguity and proposed
+extension here before implementation; do not improvise a one-off exception in
+QML. Deviations need an explicit rationale and review, with an owner decision
+when they change an agreed interaction. Retain known relevant findings as
+premerge blockers unless explicitly owner-deferred; a border rule is not a
+replacement for judgment about the user's actual task.
+
 ### Explicit exit during connection recovery
 
 Recovery/unavailable controller facts block Connect, mode changes and ordinary

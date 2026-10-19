@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/development/EXECUTION_POLICY.md',
+  'docs/roadmap/UI_UX_CONTRACT.md',
+  'skills/omavless-ui-review/SKILL.md', 'skills/omavless-dev-vm/SKILL.md',
   'docs/development/POST_FIX8_RETROSPECTIVE.md',
   'docs/development/DEVELOPMENT_INVENTORY.md',
   'docs/roadmap/README.md',
@@ -191,6 +193,37 @@ assert.throws(() => requireAffectedUiGate(
 assert.throws(() => requireAffectedUiGate(uiContract,
   guide.replace('#premerge-affected-surface-ux-gate', '#removed-gate'), uiReviewSkill),
   /discover the premerge UX gate/);
+// Role/discovery regressions only: no screenshot or installed acceptance is
+// inferred from the existence of these rules.
+function requireControlGrammar(contract, agentGuide, skill) {
+  assert(anchors(contract).has('control-roles-and-visual-grammar'), 'missing control grammar anchor');
+  for (const source of [agentGuide, skill]) {
+    assert(source.includes('UI_UX_CONTRACT.md#control-roles-and-visual-grammar)'),
+      'control grammar must be discoverable before composition');
+  }
+  const grammar = contract.split('## Control roles and visual grammar')[1]
+    .split('### Explicit exit during connection recovery')[0].replace(/\s+/g, ' ');
+  for (const rule of ['Its effect chooses the affordance',
+    'Priority chooses emphasis within that affordance',
+    '| Command/action | Bordered button; accent when primary, neutral when secondary.',
+    '| In-product navigation | Bordered button, neutral by default, no external-link marker.',
+    '| External navigation | A visibly identifiable link ending in `↗`',
+    '| Disclosure |', '| Value/selection control |', '| Destructive or recovery action |',
+    '| Information |', '### Concrete Help decision',
+    'Setup help and Settings Help are in-product navigation',
+    'both the handler and its visual role',
+    'visible at rest', 'No hit area or keyboard stop',
+    'does not mean its referenced UI has already been fixed or inspected']) {
+    assert(grammar.includes(rule), 'retain control role rule: ' + rule);
+  }
+}
+requireControlGrammar(uiContract, guide, uiReviewSkill);
+assert.throws(() => requireControlGrammar(uiContract.replace(
+  '| In-product navigation | Bordered button', '| In-product navigation | Plain text'),
+guide, uiReviewSkill), /retain control role rule/);
+assert.throws(() => requireControlGrammar(uiContract, guide,
+  uiReviewSkill.replace('#control-roles-and-visual-grammar', '#missing-grammar')),
+  /discoverable before composition/);
 // Repository-role/discovery guards, not proof of an agent following the rules.
 const sourceMap = fs.readFileSync(path.join(root, 'docs/development/STABLE_DISTRIBUTION_TRANSITION.md'), 'utf8');
 const currentMap = sourceMap.split('## Current source composition')[0];
@@ -251,6 +284,26 @@ for (const evidence of ['test-uninstaller.js', 'test-native-onboarding.js',
 // Discovery/retention guard only: this cannot prove that a particular retro
 // was implemented or that an agent followed its required checks.
 const execution = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
+const vmSkill = fs.readFileSync(path.join(root, 'skills/omavless-dev-vm/SKILL.md'), 'utf8');
+function requireVmLifetime(policy, skill) {
+  assert(anchors(policy).has('vm-session-lifetime'), 'missing VM lifetime anchor');
+  assert(skill.includes('EXECUTION_POLICY.md#vm-session-lifetime)'), 'VM skill must route lifetime policy');
+  const lifetime = policy.split('### VM session lifetime')[1]
+    .split('Cleanup of a known owned completed fixture')[0].replace(/\s+/g, ' ');
+  for (const rule of ['no automatic wall-clock VM termination by default',
+    'bounded SSH/API/capture/test commands', 'authentication and product confirmation deadlines',
+    'Fault-injection actors', 'obtain a separate owner decision before launch',
+    'future launch design only', 'terminated/sealed fixture',
+    'single-operator and recovery boundaries remain unchanged']) {
+    assert(lifetime.includes(rule), 'retain VM lifetime boundary: ' + rule);
+  }
+}
+requireVmLifetime(execution, vmSkill);
+assert.throws(() => requireVmLifetime(execution.replace(
+  'no automatic wall-clock VM termination by default', 'kill the VM after four hours'), vmSkill),
+  /retain VM lifetime boundary/);
+assert.throws(() => requireVmLifetime(execution,
+  vmSkill.replace('#vm-session-lifetime', '#missing-lifetime')), /route lifetime policy/);
 // Protect mandatory discovery/content, not proof of an agent's judgment.
 assert(guide.includes('](EXECUTION_POLICY.md#technical-judgment-before-execution)'));
 assert(execution.includes('### Technical judgment before execution'));

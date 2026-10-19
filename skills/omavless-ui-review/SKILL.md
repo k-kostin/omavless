@@ -22,6 +22,13 @@ and the expected visible result. For layout changes, identify what stays fixed
 when selection or content changes. Do not add technical metadata or familiar
 icons without explaining their actual user-facing purpose.
 
+Use the contract's [control roles and visual grammar](../../docs/roadmap/UI_UX_CONTRACT.md#control-roles-and-visual-grammar)
+before choosing components or styling. Record role/priority, target/effect,
+eligible states and return/focus in the existing PR matrix. Local Help is not
+a web link; a lower-priority action must still be recognizable as interactive.
+Resolve a missing role in the canonical contract rather than inventing a
+one-off visual exception. This skill routes the rules; do not duplicate them.
+
 For setup/update, use the contract's user-journey unit: verify the actual entry
 and user-reached prerequisites before assembling final artifacts. Identify each
 fixture-only intervention; do not let an expert-prepared broker/cache or a direct
