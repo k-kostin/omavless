@@ -241,7 +241,8 @@ metadata, path, seed text or purpose flag. Its fixed CLI is
 `omavless profile edit-input PROFILE_ID`. Only an exact committed native owner
 serves it; the migration lock spans ownership revalidation, strict private-store
 validation and projection creation. Success is explicitly sensitive
-`{"name": NAME, "input": STORED_LINK}`. The 80-scalar store name, 32-KiB
+`{"name": NAME, "input": PRIVATE_INPUT}`: the stored URI or canonical native
+WireGuard/AmneziaWG configuration. The 80-scalar store name, 32-KiB
 transport string and 256-KiB response bounds apply, without truncation. An
 oversized stored link returns `capability_unavailable`. Missing IDs return
 `not_found`; provider-managed records return `invalid_argument` before release,
@@ -258,7 +259,7 @@ revalidates current ownership/store/revision. The existing strict XHTTP legacy
 store differences described below apply; no new permissive parser is added.
 
 `profiles.export` accepts exactly `{"profileId": ID, "purpose": "qr"|"file"}`.
-The fixed CLI is `omavless profile export PROFILE_ID qr|file`. Its success is
+The fixed CLI is `omavless profile export PROFILE_ID qr|file`. Its URI success is
 explicitly sensitive `{"format":"uri","content":TEXT}`: the validated stored
 link, not a rewritten URI, name, file path, subscription URL or generated QR.
 Both standalone and subscription-managed profiles may be exported, matching
@@ -266,6 +267,14 @@ the existing Python export action. Only an exact committed Rust owner serves
 it, holding the migration lock across ownership validation and private-store
 lookup. It does not mutate revision/store, fetch, launch a program or touch
 the tunnel. Missing records return `not_found` with no ID echo.
+
+The native data path retains the requested purpose. For WireGuard/AmneziaWG,
+`file` returns `{"format":"wireguard-conf","content":TEXT}` containing the
+canonical reimportable `.conf`, never a private JSON store row or fake URI.
+`qr` explicitly returns `capability_unavailable`; clients must not feed native
+configuration to the URI QR renderer. Both file/editor reads reject an
+unrepresentable or over-32-KiB native export without changing stored bytes.
+The QML file writer uses a separate typed export parser, not its QR parser.
 
 The v1 32-KiB string and 256-KiB response bounds apply without truncation;
 a valid stored link exceeding the transport string bound returns
@@ -355,13 +364,72 @@ committed Rust owner; a transition candidate or stale owner fails closed.
 
 The first native `profiles.import` mutation adds a **new** standalone profile
 only. It requires explicit `name` and `input`, with optional `operationId`
-and `expectedRevision`. The input must be one valid supported profile link;
-subscription URLs, arbitrary config, caller-generated IDs, replacement IDs and
+and `expectedRevision`. The input must be one valid supported profile link or
+strict standalone WireGuard/AmneziaWG configuration (including the bounded
+supported `vpn://` container). Subscription URLs, arbitrary config,
+caller-generated IDs, replacement IDs and
 paths are rejected. The name is bounded to 320 UTF-8 input bytes and canonical
 80-scalar name rules; the link uses the same v1 32-KiB string/frame bounds as
 preview. The fixed CLI `omavless profile import` reads confirmed name on its
 first stdin line and the link from the remaining text. Empty names are not
 implicit confirmation; UI clients supply their confirmed preview name.
+
+Native configuration admission additionally requires its canonical private
+export to fit 32 KiB and reimport to the same credential record, within the
+actual 64-KiB serialized request / 256-KiB response envelopes. CRLF and JSON
+escaping do not bypass byte bounds. Preview/cancel never migrates the store;
+the first confirmed native insertion and legacy-to-v4 promotion are one
+existing exact-byte transaction. Mixed v4 remains sticky and old URI-only
+stores retain their existing versions. The closed Backup v3/v4 codec is shared.
+Data support is not connection readiness. The development managed subset uses
+one credential-derived compatibility predicate before connected intent,
+startup selection or active replacement quiesce, and repeats it at render,
+prepare and start. Unsupported active replacement is refused before stopping
+the old owner; ordinary Disconnect/Quit/delete cleanup stays available.
+
+### Experimental managed WG/AWG subset
+
+The source contract targets Mihomo `v1.19.31`, commit
+`ab405bad5beeeac8b003bb01f60f134f6df54471`, and its pinned
+`metacubex/amneziawg-go` engine `0c1c6f40ecd7`. Actual matching producer/package,
+lazy UAPI initialization, traffic and lifecycle gates remain required; parser
+acceptance or `mihomo -t` alone is not that evidence. This is not full P4/R6 or
+all-generation interoperability acceptance.
+
+Initial managed admission requires IPv4 interface/AllowedIPs/endpoint transport.
+The renderer fixes one `peers[]` entry with its exact endpoint/public key/PSK
+and AllowedIPs; the adapter's synthesized root-peer path ignores root
+AllowedIPs. Per-proxy `ip-version: ipv4` also constrains hostname resolution,
+without changing global IPv6/template policy. Dual-stack records stay intact
+and exportable but are not currently connection-admitted.
+
+Nonconstant peer keepalive ranges are retained privately but explicitly
+unsupported for execution, never lowered to a minimum. Constant intervals
+remain representable. H1–H4 use uint32 ordered, pairwise nonoverlapping ranges;
+legacy v1/v2 admission additionally requires each minimum >4, or its exact
+corresponding default singleton 1/2/3/4. Other low-header values/ranges stay
+private data but refuse connection because that engine would substitute defaults.
+Padding is uint16 and nonzero header protection requires every S padding to be
+at least 12. Legacy v1/v2 additionally require the four total packet sizes
+`148+S1`, `92+S2`, `64+S3`, `32+S4` to differ pairwise and each be below
+65535 (missing legacy S3/S4 mean zero). This is the Linux pinned-engine lazy
+UAPI rule, not a new private-data rewrite. Other numeric/data bounds are not
+widened. Managed junk execution additionally requires Jc ≤64, ordered Jmin/Jmax
+and Jmax ≤4096.
+
+For v3/v3.1, only exact static `b`, `t`, `r`, `rc`, `rd` expressions are
+currently admitted, with valid arguments, at most 128 tags and at most 4096
+generated bytes per I packet. Dynamic `d`/`ds`/`dz`, ignored/trailing text,
+extra arguments and the different legacy-generation junk grammar are explicit
+execution refusals, not silently normalized. Those private configurations may
+still be stored, edited and exported subject to transport bounds.
+
+Imported DNS remains an outbound resolver setting, not a rewrite of managed
+system VPN DNS. Peer AllowedIPs do not override the application's existing
+TUN/private-address exclusions or routing mode. No automatic dual-stack,
+private-network access, DNS inheritance or compatibility with another VPN is
+claimed. QML/TUI show the experimental IPv4/options scope in Preview and
+profile display; private parameters and endpoints are never error text.
 
 The owner generates an opaque record ID only after mutation/replay admission
 and acquiring the migration lock. It rechecks duplicate names and complete

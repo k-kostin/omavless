@@ -18,6 +18,28 @@ function context() {
   return c;
 }
 const frame = (revision=7) => JSON.stringify({api:'omavless.control',version:1,id:'export',ok:true,revision,result:{format:'uri',content:'synthetic-private-content'}});
+test('typed native configuration file export is private multiline stdin, never QR or JSON record',()=>{
+  const content='[Interface]\r\nPrivateKey = synthetic\r\n[Peer]\r\n';
+  const response=JSON.stringify({...JSON.parse(frame()),result:{format:'wireguard-conf',content}});
+  assert.equal(parser.parseQrExport(response,7),null);
+  assert.equal(parser.parsePrivateProfileExport(response,7).content,content);
+  const c=context();c.startNativeFileExport({uuid:'one'},'/tmp/native.conf');
+  c.finishNativeFileExport(c.nativeFileExportProcess,0,response);
+  assert.equal(c.nativeFileExportProcess.privateInput,'/tmp/native.conf\n'+content);
+  assert(!c.nativeFileExportProcess.command.join('|').includes('PrivateKey = synthetic'));
+  for(const result of [{format:'wireguard-record',content:'{}'}, {format:'wireguard-conf',content:'x'.repeat(32769)},
+      {format:'wireguard-conf',content:'secret\0key'}])
+    assert.equal(parser.parsePrivateProfileExport(JSON.stringify({...JSON.parse(frame()),result}),7),null);
+});
+test('fixed action record preserves family for an honest native QR unavailable state',()=>{
+  const start=panel.indexOf('  function nativeRecord('),end=panel.indexOf('\n  }',start)+4;
+  const c=vm.createContext({});vm.runInContext(panel.slice(start,end),c);
+  for(const protocol of ['wireguard','amneziawg'])
+    assert.equal(c.nativeRecord({id:'one',name:'Synthetic',protocol,subscriptionId:''}).protocol,protocol);
+  const qr=panel.slice(panel.indexOf('id: rowQr;'),panel.indexOf('id: rowExport;'));
+  assert(qr.includes('record.protocol'));assert(qr.includes('!nativeCredential'));
+  assert(qr.includes('native.main.qr_native_unavailable'));
+});
 test('absolute bounded path without controls; shell syntax remains inert data', () => {
   const c=context();
   for(const path of ['/tmp/private file','/tmp/$(do-not-run)','/tmp/a;not-a-command']) assert(c.validNativeExportPath(path));

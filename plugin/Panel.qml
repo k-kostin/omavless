@@ -281,7 +281,7 @@ Panel {
   property var nativePowerControl: null
 
   function nativeRecord(profile) {
-    return {uuid:profile.id, name:profile.name, favorite:profile.favorite, managed:profile.subscriptionId !== ""}
+    return {uuid:profile.id, name:profile.name, protocol:profile.protocol, favorite:profile.favorite, managed:profile.subscriptionId !== ""}
   }
 
   function nativeEmptyProfilesText() {
@@ -2789,6 +2789,7 @@ Panel {
                     Button { id: rowConnect; text: root.textFor(nativeRow.connected ? "action.disconnect" : "action.connect"); bordered: true; focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing && (nativeRow.connected || (!root.coreComponentMissing && (root.nativeView.connected || root.nativeView.state === "disconnected"))); onClicked: root.nativeActivateProfile(nativeRow.profile.id) }
                   }
                   PlainText { Layout.fillWidth: true; visible: nativeRow.isProfile && vless.probeResult(nativeRow.profile.id) !== null; text: nativeRow.isProfile ? root.nativeProbeLabel(nativeRow.profile.id) : ""; textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+                  PlainText { Layout.fillWidth: true; visible: nativeRow.isProfile && ["wireguard", "amneziawg"].indexOf(nativeRow.profile.protocol) >= 0; text: root.textFor("import.managed_scope"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
                   ColumnLayout {
                     Layout.fillWidth: true
                     visible: nativeRow.selected && root.nativeExpandedDetailsId === nativeRow.profile.id
@@ -2863,7 +2864,7 @@ Panel {
             OmaNavigationButton { id: rowPin; iconText: root.nativeActionProfile && root.nativeActionProfile.favorite ? "󰓎" : "󰓒"; tooltipText: root.textFor(root.nativeActionProfile && root.nativeActionProfile.favorite ? "native.unpin" : "native.pin"); focusable: true; enabled: nativeProfileActions.canAct; onClicked: vless.toggleFavorite(nativeProfileActions.record) }
             OmaNavigationButton { id: rowRename; iconText: "󰑕"; tooltipText: root.textFor("common.rename"); focusable: true; enabled: nativeProfileActions.canAct && !nativeProfileActions.record.managed; onClicked: root.requestRename(nativeProfileActions.record) }
             OmaNavigationButton { id: rowEdit; iconText: "󰏫"; tooltipText: root.textFor("native.editor.open"); focusable: true; enabled: nativeProfileActions.canAct && !nativeProfileActions.record.managed && vless.nativeEditorDraft === null && !vless.nativeEditorRunning; onClicked: { if (root.handOffToEditor(nativeProfileActions.record)) root.close() } }
-            OmaNavigationButton { id: rowQr; iconText: "󰐲"; tooltipText: root.textFor("native.main.qr"); focusable: true; enabled: nativeProfileActions.canAct; onClicked: vless.showQr(nativeProfileActions.record) }
+            OmaNavigationButton { id: rowQr; readonly property bool nativeCredential: !!nativeProfileActions.record && ["wireguard", "amneziawg"].indexOf(nativeProfileActions.record.protocol) >= 0; iconText: "󰐲"; tooltipText: root.textFor(nativeCredential ? "native.main.qr_native_unavailable" : "native.main.qr"); focusable: true; enabled: nativeProfileActions.canAct && !nativeCredential; onClicked: vless.showQr(nativeProfileActions.record) }
             OmaNavigationButton { id: rowExport; iconText: "󰈔"; tooltipText: root.textFor("native.fileExport.title"); focusable: true; enabled: nativeProfileActions.canAct && vless.nativeFileExportProcess === null; onClicked: root.requestFileExport(nativeProfileActions.record) }
             OmaNavigationButton { id: rowDetails; iconText: "󰋽"; tooltipText: root.textFor("native.details.open"); focusable: true; enabled: nativeProfileActions.canAct; onClicked: root.toggleNativeProfileDetails() }
             Item { Layout.fillWidth: true }

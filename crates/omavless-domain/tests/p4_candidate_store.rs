@@ -116,7 +116,7 @@ fn replacement_and_typed_export_preserve_identity_favorite_and_pointers() {
     assert!(output["profiles"][2] == source["profiles"][2]);
     assert!(
         parse_private_store(std::str::from_utf8(&serde_json::to_vec(&output).unwrap()).unwrap())
-            .is_err()
+            .is_ok()
     );
 }
 
@@ -273,8 +273,8 @@ fn mixed_store_validates_one_graph_and_roundtrips_privately() {
         (1, 2, 1)
     );
     assert!(
-        parse_private_store(&source).is_err(),
-        "runtime v3 loader stays closed"
+        parse_private_store(&source).is_ok(),
+        "shared domain loader admits strict v4; runtime publication is separate"
     );
 }
 
@@ -287,7 +287,7 @@ fn wireguard_only_store_keeps_defaults_and_valid_startup_pointer() {
     let candidate = parse_candidate_private_store(&source.to_string()).unwrap();
     assert_eq!(candidate.profile_counts(), (0, 2, 0));
     assert_eq!(candidate.pointer_presence(), (true, true, true));
-    assert!(parse_private_store(&source.to_string()).is_err());
+    assert!(parse_private_store(&source.to_string()).is_ok());
 
     source["startup"]["profileId"] = URI_ID.into();
     let stale = parse_candidate_private_store(&source.to_string()).unwrap();
@@ -487,8 +487,8 @@ fn explicit_candidate_migration_preserves_current_bundle_and_backup_boundaries()
     expected["version"] = 4.into();
     assert!(serde_json::from_slice::<Value>(&bytes).unwrap() == expected);
     let candidate = std::str::from_utf8(&bytes).unwrap();
-    assert!(parse_private_store(candidate).is_err());
-    assert!(validate_existing_store_without_repair(candidate).is_err());
+    assert!(parse_private_store(candidate).is_ok());
+    assert!(validate_existing_store_without_repair(candidate).is_ok());
     assert!(
         parse_private_store(original)
             .unwrap()
@@ -519,7 +519,7 @@ fn legacy_migration_and_standalone_append_are_private_in_memory_only() {
     let document: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(document["profiles"][0]["extension"]["preserve"], true);
     assert_eq!(document["version"], 4);
-    assert!(parse_private_store(std::str::from_utf8(&bytes).unwrap()).is_err());
+    assert!(parse_private_store(std::str::from_utf8(&bytes).unwrap()).is_ok());
     assert_eq!(
         parse_private_store(&source)
             .unwrap()

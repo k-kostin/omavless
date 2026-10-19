@@ -640,7 +640,9 @@ fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Wor
         State::Classifying => lines.push(Line::from(tr("tui.import_classifying"))),
         State::Preview => {
             if let Some(preview) = import.preview() {
-                if preview.warning {
+                if preview.native {
+                    lines.push(Line::from(tr("import.managed_scope")));
+                } else if preview.warning {
                     lines.push(Line::from(tr("tui.import_warning")));
                 }
                 lines.push(Line::from(tr(match preview.kind {
@@ -1128,7 +1130,7 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 .profile_details
                 .as_ref()
                 .filter(|d| d.profile_id() == p.id);
-            vec![
+            let mut lines = vec![
                 field("tui.action_selected", display(&p.name, 80)),
                 field(
                     "tui.protocol",
@@ -1181,7 +1183,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 ),
                 Line::from(tr("tui.details_categories")),
                 Line::from(tr("tui.health")),
-            ]
+            ];
+            if details
+                .and_then(|d| d.protocol)
+                .is_some_and(|p| matches!(p, "wireguard" | "amneziawg"))
+            {
+                lines.push(Line::from(tr("import.managed_scope")));
+            }
+            lines
         }
         Page::Diagnostics => {
             let facts = s.observation.facts.as_ref();

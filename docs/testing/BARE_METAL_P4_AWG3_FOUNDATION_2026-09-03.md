@@ -41,6 +41,12 @@ The provider's AWG3 peer keepalive is a range. Mihomo `v1.19.30` exposes
 deterministically and exposes `keepalive_range_normalized` in safe facts. This
 compatibility choice still requires a real connection test.
 
+This paragraph records the historical September renderer, not current managed
+admission. The later development subset rejects nonconstant keepalive ranges
+without modifying stored/exported data; it no longer selects a minimum. See
+the current [control-plane subset](../roadmap/CONTROL_PLANE.md#experimental-managed-wgawg-subset)
+for its exact source pins and still-required installed/live gates.
+
 ## Upstream basis
 
 - Amnezia Client `dev` commit

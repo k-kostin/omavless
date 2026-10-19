@@ -94,7 +94,6 @@ impl PreparedPointerMutation {
 }
 
 impl PreparedPrivateStoreWrite {
-    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn planned_output(&self) -> &[u8] {
         if self.changed {
             &self.candidate

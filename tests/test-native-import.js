@@ -14,6 +14,25 @@ function profile() { return {version:1,protocol:'vless',server:'192.0.2.1',port:
 function frame(result={version:1,kind:'profile',profile:profile()}) {
   return JSON.stringify({api:'omavless.control',version:1,id:'preview',ok:true,revision:4,result});
 }
+test('native preview schema accepts WG and AWG masked facts, rejects cross-family combinations',()=>{
+  for(const protocol of ['wireguard','amneziawg']) {
+    const p={...profile(),protocol,transport:'udp',security:'wireguard',experimental:true,
+      credentialHint:'••••',experimentalFeatures:[protocol]};
+    assert(parser.parseImportPreview(frame({version:1,kind:'profile',profile:p}),4));
+    for(const change of [{security:'tls'},{transport:'tcp'},{credentialHint:'private-token'},
+        {sni:'synthetic.invalid'},{insecure:true},{experimental:false}])
+      assert.equal(parser.parseImportPreview(frame({version:1,kind:'profile',profile:{...p,...change}}),4),null);
+  }
+  assert.equal(parser.parseImportPreview(frame({version:1,kind:'profile',profile:{...profile(),security:'wireguard'}}),4),null);
+});
+test('native Preview and saved rows disclose managed scope without mislabeling WireGuard as TLS',()=>{
+  const prompt=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
+  const panel=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
+  assert(prompt.includes('prompt.nativeCredential ? prompt.textFor("import.not_tls")'));
+  assert(prompt.includes('prompt.nativeCredential ? prompt.textFor("import.managed_scope")'));
+  assert(panel.includes('["wireguard", "amneziawg"].indexOf(nativeRow.profile.protocol) >= 0'));
+  assert(panel.includes('root.textFor("import.managed_scope")'));
+});
 function harness() {
   const source = fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
   const c = vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeSnapshotFailed:false,

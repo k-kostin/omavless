@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Read-only validation and projection of the current private Python store.
+//! Pure typed validation, projection and byte preparation of private stores.
 //!
 //! Values in this module include reusable credentials. They deliberately do
 //! not implement `Debug` or serialization. Shareable diagnostics may publish
@@ -13,8 +13,8 @@ use crate::config::{ConfigError, MAX_TEMPLATE_BYTES, assemble_runtime_config};
 use crate::import::valid_subscription_url;
 use crate::routing::{CustomRule, RoutingError, template_with_mode};
 use crate::store::{
-    CURRENT_STORE_VERSION, MAX_PROFILES, MAX_SUBSCRIPTIONS, ProfileState, StartupState, StoreError,
-    StoreStateInput, SubscriptionState, normalize_store_state, valid_record_id,
+    MAX_PROFILES, MAX_SUBSCRIPTIONS, ProfileState, StartupState, StoreError, StoreStateInput,
+    SubscriptionState, normalize_store_state, valid_record_id,
 };
 use crate::subscription::{
     IncomingProfile, ManagedProfile, SyncCounts, SyncError, plan_subscription_sync,
@@ -27,6 +27,11 @@ use std::fmt;
 
 pub(crate) mod backup_candidate;
 mod candidate;
+mod credential;
+use crate::store::normalize_candidate_store_state;
+pub use credential::PrivateProfileCredential;
+use omavless_profile::import::ImportFamily;
+use omavless_profile::wireguard::parse_unique_private_json;
 mod local_bundle;
 pub use local_bundle::{LocalBundleCounts, LocalBundlePlan};
 mod startup;
@@ -36,6 +41,12 @@ pub use candidate::{
     CandidateProfileExport, CandidateProfileInput, CandidateRuntimeConfig,
     apply_candidate_compatibility_pointer_update, migrate_legacy_store_candidate,
     parse_candidate_private_store,
+};
+// Neutral names for the shared domain API; historical candidate callers retain
+// their aliases without requiring a second credential or mutation model.
+pub use candidate::{
+    CandidateExportFormat as ProfileCredentialExportFormat,
+    CandidateProfileExport as PrivateCredentialExport,
 };
 pub use startup::{StartupPreferences, apply_startup_preferences};
 
@@ -80,6 +91,7 @@ pub enum PrivateStoreError {
     ActiveSubscription,
     SubscriptionSync(SyncError),
     CustomRuleNotFound,
+    TypedCredentialRequired,
 }
 
 impl PrivateStoreError {
@@ -106,6 +118,7 @@ impl PrivateStoreError {
             Self::ActiveSubscription => "active_subscription",
             Self::SubscriptionSync(error) => error.code(),
             Self::CustomRuleNotFound => "custom_rule_not_found",
+            Self::TypedCredentialRequired => "typed_credential_required",
         }
     }
 }
@@ -139,6 +152,7 @@ impl fmt::Display for PrivateStoreError {
             }
             Self::SubscriptionSync(error) => return error.fmt(formatter),
             Self::CustomRuleNotFound => "Requested custom routing rule was not found",
+            Self::TypedCredentialRequired => "Typed profile operation is required",
         })
     }
 }
@@ -148,8 +162,7 @@ impl std::error::Error for PrivateStoreError {}
 struct PrivateProfile {
     id: String,
     name: String,
-    uri: String,
-    canonical: CanonicalProfile,
+    credential: PrivateProfileCredential,
     subscription_id: String,
     subscription_key: String,
     missing: bool,
@@ -235,6 +248,8 @@ pub struct StoreProjection {
     pub trojan_count: usize,
     pub hysteria2_count: usize,
     pub tuic_count: usize,
+    pub wireguard_count: usize,
+    pub amneziawg_count: usize,
     pub active_present: bool,
     pub last_present: bool,
     pub routing_preset: String,
@@ -250,7 +265,7 @@ pub struct StoreProjection {
 pub struct ProfileListItem {
     id: String,
     name: String,
-    protocol: Protocol,
+    protocol: ImportFamily,
     subscription_id: String,
     missing: bool,
     favorite: bool,
@@ -268,7 +283,7 @@ impl ProfileListItem {
     }
 
     #[must_use]
-    pub const fn protocol(&self) -> Protocol {
+    pub const fn protocol(&self) -> ImportFamily {
         self.protocol
     }
 
@@ -920,7 +935,9 @@ fn protocol(value: &str) -> Option<Protocol> {
     }
 }
 
-/// Parse and fully validate one existing v1-v3 store without mutating it.
+/// Parse and normalize a legacy v1-v3 or strict typed v4 store in memory.
+/// URI-only legacy reads retain their historical v3 normalization. V4 is
+/// sticky after explicit native insertion; no startup migration or I/O occurs.
 pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreError> {
     if input.len() > MAX_PRIVATE_STORE_BYTES {
         return Err(PrivateStoreError::TooLarge);
@@ -932,9 +949,17 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         .map(|value| value.as_u64().ok_or(PrivateStoreError::InvalidShape))
         .unwrap_or(Ok(1))?;
     let version = u8::try_from(version).map_err(|_| PrivateStoreError::InvalidShape)?;
-    if !(1..=CURRENT_STORE_VERSION).contains(&version) {
+    if !(1..=4).contains(&version) {
         return Err(PrivateStoreError::Store(StoreError::UnsupportedVersion));
     }
+
+    // Preserve historical v1-v3 semantics; validate v4 original bytes strictly.
+    let value = if version == 4 {
+        parse_unique_private_json(input).map_err(|_| PrivateStoreError::InvalidJson)?
+    } else {
+        value
+    };
+    let root = object(&value)?;
 
     let subscription_values = root
         .get("subscriptions")
@@ -985,19 +1010,17 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         let record = object(value)?;
         let id = required_string(record, "id")?;
         let name = required_string(record, "name")?;
-        let uri = required_string(record, "uri")?;
+        if version == 4
+            && subscriptions
+                .iter()
+                .any(|subscription| subscription.id == id)
+        {
+            return Err(PrivateStoreError::InvalidShape);
+        }
         if !canonical_name(name) {
             return Err(PrivateStoreError::InvalidName);
         }
-        let canonical = parse_canonical(uri).map_err(PrivateStoreError::Profile)?;
-        let stored_protocol = match record.get("protocol") {
-            Some(value) => value.as_str().ok_or(PrivateStoreError::InvalidShape)?,
-            None if version < 3 => canonical.protocol().as_str(),
-            None => return Err(PrivateStoreError::InvalidShape),
-        };
-        if protocol(stored_protocol) != Some(canonical.protocol()) {
-            return Err(PrivateStoreError::ProtocolMismatch);
-        }
+        let credential = PrivateProfileCredential::parse_row(record, version)?;
         let subscription_id = optional_string(record, "subscriptionId", "")?;
         let subscription_key = optional_string(record, "subscriptionKey", "")?;
         let missing = optional_bool(record, "missing", false)?;
@@ -1012,8 +1035,7 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         profiles.push(PrivateProfile {
             id: id.to_owned(),
             name: name.to_owned(),
-            uri: uri.to_owned(),
-            canonical,
+            credential,
             subscription_id: subscription_id.to_owned(),
             subscription_key: subscription_key.to_owned(),
             missing,
@@ -1093,7 +1115,12 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         startup_configured,
         onboarding_complete,
     };
-    let normalized = normalize_store_state(input).map_err(PrivateStoreError::Store)?;
+    let normalized = if version == 4 {
+        normalize_candidate_store_state(input)
+    } else {
+        normalize_store_state(input)
+    }
+    .map_err(PrivateStoreError::Store)?;
     let mut store = PrivateStore {
         document: value,
         version: normalized.version,
@@ -1112,7 +1139,7 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
     Ok(store)
 }
 
-/// Existing schema-3 snapshot admission without duplicate collapse, extension
+/// Existing schema-3/4 snapshot admission without duplicate collapse, extension
 /// interpretation, default insertion or stale-pointer/startup repair. Reuses
 /// the portable backup's strict shape and semantic equality validator.
 pub fn validate_existing_store_without_repair(
@@ -1130,6 +1157,18 @@ impl PrivateStore {
         profile_id: Option<&str>,
     ) -> Result<Vec<(String, omavless_profile::canonical::CanonicalProfile)>, PrivateStoreError>
     {
+        self.into_typed_profile_probe_profiles(profile_id)?
+            .into_iter()
+            .map(|(id, credential)| Ok((id, credential.into_uri()?)))
+            .collect()
+    }
+
+    /// Complete typed worker snapshot. The legacy URI-only API refuses WG,
+    /// rather than silently omitting it or manufacturing a canonical URI.
+    pub fn into_typed_profile_probe_profiles(
+        self,
+        profile_id: Option<&str>,
+    ) -> Result<Vec<(String, PrivateProfileCredential)>, PrivateStoreError> {
         if profile_id.is_some_and(|id| {
             !self
                 .profiles
@@ -1142,7 +1181,7 @@ impl PrivateStore {
             .profiles
             .into_iter()
             .filter(|item| !item.missing && profile_id.is_none_or(|id| item.id == id))
-            .map(|item| (item.id, item.canonical))
+            .map(|item| (item.id, item.credential))
             .collect())
     }
     /// Move only current members of an existing subscription into a private
@@ -1159,12 +1198,11 @@ impl PrivateStore {
         {
             return Err(PrivateStoreError::SubscriptionNotFound);
         }
-        Ok(self
-            .profiles
+        self.profiles
             .into_iter()
             .filter(|item| item.subscription_id == subscription_id && !item.missing)
-            .map(|item| (item.id, item.canonical))
-            .collect())
+            .map(|item| Ok((item.id, item.credential.into_uri()?)))
+            .collect::<Result<Vec<_>, PrivateStoreError>>()
     }
     /// Private redaction inputs only: never serialize, log or expose this list.
     pub fn diagnostic_private_fragments(&self) -> Vec<String> {
@@ -1186,6 +1224,13 @@ impl PrivateStore {
                                 | "encryption"
                                 | "mldsa65-verify"
                                 | "obfs-password"
+                                | "privatekey"
+                                | "publickey"
+                                | "presharedkey"
+                                | "endpoint"
+                                | "address"
+                                | "dns"
+                                | "headerprotectionkey"
                         ) && let Some(text) = value.as_str().filter(|text| !text.is_empty())
                         {
                             output.push(text.to_owned());
@@ -1206,9 +1251,13 @@ impl PrivateStore {
             output.extend([
                 profile.id.clone(),
                 profile.name.clone(),
-                profile.uri.clone(),
+                profile
+                    .credential
+                    .private_input()
+                    .expect("validated credential"),
             ]);
-            sensitive(&profile.canonical.private_diagnostic_model(), &mut output);
+            sensitive(&profile.credential.private_diagnostic_model(), &mut output);
+            output.extend(profile.credential.native_private_fragments());
         }
         for subscription in &self.subscriptions {
             output.extend([
@@ -1266,25 +1315,31 @@ impl PrivateStore {
             .document
             .as_object_mut()
             .ok_or(PrivateStoreError::InvalidShape)?;
-        root.insert("version".to_owned(), Value::from(CURRENT_STORE_VERSION));
+        root.insert("version".to_owned(), Value::from(self.version));
         root.insert("activeId".to_owned(), Value::from(self.active_id.clone()));
         root.insert("lastId".to_owned(), Value::from(self.last_id.clone()));
         root.insert(
             "routingPreset".to_owned(),
             Value::from(self.routing_preset.clone()),
         );
-        root.insert(
-            "rulesUpdatedAt".to_owned(),
-            Value::from(self.rules_updated_at),
-        );
-        root.insert(
-            "startupConfigured".to_owned(),
-            Value::from(self.startup_configured),
-        );
-        root.insert(
-            "onboardingComplete".to_owned(),
-            Value::from(self.onboarding_complete),
-        );
+        if self.version < 4 || root.contains_key("rulesUpdatedAt") || self.rules_updated_at != 0 {
+            root.insert(
+                "rulesUpdatedAt".to_owned(),
+                Value::from(self.rules_updated_at),
+            );
+        }
+        if self.version < 4 || root.contains_key("startupConfigured") {
+            root.insert(
+                "startupConfigured".to_owned(),
+                Value::from(self.startup_configured),
+            );
+        }
+        if self.version < 4 || root.contains_key("onboardingComplete") {
+            root.insert(
+                "onboardingComplete".to_owned(),
+                Value::from(self.onboarding_complete),
+            );
+        }
         root.entry("customRules".to_owned())
             .or_insert_with(|| Value::Array(Vec::new()));
 
@@ -1302,7 +1357,10 @@ impl PrivateStore {
                 .ok_or(PrivateStoreError::InvalidShape)?;
             record.insert("name".to_owned(), Value::from(subscription.name.clone()));
             record.insert("url".to_owned(), Value::from(subscription.url.clone()));
-            record.insert("updatedAt".to_owned(), Value::from(subscription.updated_at));
+            if self.version < 4 || subscription.updated_at != 0 || record.contains_key("updatedAt")
+            {
+                record.insert("updatedAt".to_owned(), Value::from(subscription.updated_at));
+            }
         }
 
         let profile_values = root
@@ -1317,11 +1375,10 @@ impl PrivateStore {
                 .as_object_mut()
                 .ok_or(PrivateStoreError::InvalidShape)?;
             record.insert("name".to_owned(), Value::from(profile.name.clone()));
-            record.insert(
-                "protocol".to_owned(),
-                Value::from(profile.canonical.protocol().as_str()),
-            );
-            record.insert("favorite".to_owned(), Value::from(profile.favorite));
+            profile.credential.write_fields(record)?;
+            if self.version < 4 || profile.favorite || record.contains_key("favorite") {
+                record.insert("favorite".to_owned(), Value::from(profile.favorite));
+            }
             if profile.subscription_id.is_empty() {
                 for key in ["subscriptionId", "subscriptionKey", "missing"] {
                     record.remove(key);
@@ -1335,19 +1392,27 @@ impl PrivateStore {
                     "subscriptionKey".to_owned(),
                     Value::from(profile.subscription_key.clone()),
                 );
-                record.insert("missing".to_owned(), Value::from(profile.missing));
+                if self.version < 4 || profile.missing || record.contains_key("missing") {
+                    record.insert("missing".to_owned(), Value::from(profile.missing));
+                }
             }
         }
 
-        root.insert(
-            "startup".to_owned(),
-            serde_json::json!({
-                "enabled": self.startup.enabled,
-                "target": self.startup.target,
-                "profileId": self.startup.profile_id,
-                "mode": self.startup.mode,
-            }),
-        );
+        // V4 retains validated extension fields, including startup extensions.
+        // Legacy normalization remains unchanged for v1-v3 inputs.
+        let mut startup = if self.version == 4 {
+            root.get("startup")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            Map::new()
+        };
+        startup.insert("enabled".into(), self.startup.enabled.into());
+        startup.insert("target".into(), self.startup.target.clone().into());
+        startup.insert("profileId".into(), self.startup.profile_id.clone().into());
+        startup.insert("mode".into(), self.startup.mode.clone().into());
+        root.insert("startup".into(), Value::Object(startup));
         Ok(())
     }
 
@@ -1363,13 +1428,15 @@ impl PrivateStore {
 
     #[must_use]
     pub fn projection(&self) -> StoreProjection {
-        let mut counts = [0_usize; 4];
+        let mut counts = [0_usize; 6];
         for profile in &self.profiles {
-            let index = match profile.canonical.protocol() {
-                Protocol::Vless => 0,
-                Protocol::Trojan => 1,
-                Protocol::Hysteria2 => 2,
-                Protocol::Tuic => 3,
+            let index = match profile.credential.family() {
+                ImportFamily::Vless => 0,
+                ImportFamily::Trojan => 1,
+                ImportFamily::Hysteria2 => 2,
+                ImportFamily::Tuic => 3,
+                ImportFamily::WireGuard => 4,
+                ImportFamily::AmneziaWg => 5,
             };
             counts[index] += 1;
         }
@@ -1381,6 +1448,8 @@ impl PrivateStore {
             trojan_count: counts[1],
             hysteria2_count: counts[2],
             tuic_count: counts[3],
+            wireguard_count: counts[4],
+            amneziawg_count: counts[5],
             active_present: !self.active_id.is_empty(),
             last_present: !self.last_id.is_empty(),
             routing_preset: self.routing_preset.clone(),
@@ -1401,7 +1470,7 @@ impl PrivateStore {
             .map(|profile| ProfileListItem {
                 id: profile.id.clone(),
                 name: profile.name.clone(),
-                protocol: profile.canonical.protocol(),
+                protocol: profile.credential.family(),
                 subscription_id: profile.subscription_id.clone(),
                 missing: profile.missing,
                 favorite: profile.favorite,
@@ -1462,9 +1531,62 @@ impl PrivateStore {
             .iter()
             .find(|profile| profile.id == profile_id)
             .ok_or(PrivateStoreError::ProfileNotFound)?;
-        Ok(PrivateProfileExport {
-            uri: profile.uri.clone(),
+        match &profile.credential {
+            PrivateProfileCredential::Uri { original_uri, .. } => Ok(PrivateProfileExport {
+                uri: original_uri.clone(),
+            }),
+            PrivateProfileCredential::WireGuard(_) => {
+                Err(PrivateStoreError::TypedCredentialRequired)
+            }
+        }
+    }
+
+    /// Explicit typed credential release for a separately admitted same-user
+    /// export boundary. Native WG/AWG material is never labelled as a URI.
+    pub fn profile_credential_export(
+        &self,
+        profile_id: &str,
+    ) -> Result<PrivateCredentialExport, PrivateStoreError> {
+        self.profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?
+            .credential
+            .private_export()
+    }
+
+    pub fn selected_wireguard_flavor(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<omavless_profile::wireguard::WireGuardFlavor>, PrivateStoreError> {
+        let profile = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        Ok(match &profile.credential {
+            PrivateProfileCredential::Uri { .. } => None,
+            PrivateProfileCredential::WireGuard(profile) => Some(profile.facts().flavor),
         })
+    }
+
+    /// Execution compatibility is derived from the actual selected credential,
+    /// never from a client-supplied family label. Data access is not permission.
+    pub fn managed_connection_compatibility(
+        &self,
+        profile_id: &str,
+    ) -> Result<(), PrivateStoreError> {
+        let profile = self
+            .profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        match &profile.credential {
+            PrivateProfileCredential::Uri { .. } => Ok(()),
+            PrivateProfileCredential::WireGuard(profile) => profile
+                .managed_compatibility()
+                .map_err(|_| PrivateStoreError::TypedCredentialRequired),
+        }
     }
 
     pub fn profile_details(
@@ -1478,7 +1600,7 @@ impl PrivateStore {
             .ok_or(PrivateStoreError::ProfileNotFound)?;
         // Reuse the already validated canonical model, not a second URI parser.
         // Reconstruct an allowlisted projection instead of removing known secrets.
-        let preview = profile.canonical.private_preview();
+        let preview = profile.credential.private_preview();
         let field = |key: &str, max: usize| -> Result<String, PrivateStoreError> {
             let value = preview[key]
                 .as_str()
@@ -1521,7 +1643,7 @@ impl PrivateStore {
         }
         Ok(ProfileEditInput {
             name: profile.name.clone(),
-            input: profile.uri.clone(),
+            input: profile.credential.private_input()?,
         })
     }
 
@@ -1545,7 +1667,9 @@ impl PrivateStore {
             .iter()
             .find(|profile| profile.id == profile_id)
             .ok_or(PrivateStoreError::ProfileNotFound)?;
-        let rendered = profile.canonical.render_mihomo_proxy(&profile.name, None);
+        let rendered = profile
+            .credential
+            .render_mihomo_proxy(&profile.name, None)?;
         assemble_runtime_config(template, &rendered, controller_socket, &self.custom_rules)
             .map_err(PrivateStoreError::Config)
     }
@@ -1663,23 +1787,24 @@ pub fn apply_profile_import(
     if store.profiles.iter().any(|profile| profile.name == name) {
         return Err(PrivateStoreError::DuplicateProfileName);
     }
-    if !matches!(
-        crate::import::classify_import(profile_input, &[]),
-        Ok(crate::import::ImportKind::Profile(_))
-    ) {
-        return Err(PrivateStoreError::InvalidShape);
+    let credential = PrivateProfileCredential::parse_input(profile_input)?;
+    if matches!(credential, PrivateProfileCredential::WireGuard(_)) {
+        // First insertion prepares one complete v4+WG payload, never an
+        // intermediate migrated write. Existing publication/lease is the owner.
+        parse_unique_private_json(input).map_err(|_| PrivateStoreError::InvalidJson)?;
+        store.version = 4;
+        store.document["version"] = Value::from(4);
     }
-    let uri = profile_input.trim();
-    let canonical = parse_canonical(uri).map_err(PrivateStoreError::Profile)?;
     let profiles = store
         .document
         .get_mut("profiles")
         .and_then(Value::as_array_mut)
         .ok_or(PrivateStoreError::InvalidShape)?;
-    profiles.push(serde_json::json!({
-        "id": profile_id, "name": name, "uri": uri,
-        "protocol": canonical.protocol().as_str(),
-    }));
+    let mut row = Map::new();
+    row.insert("id".into(), profile_id.into());
+    row.insert("name".into(), name.into());
+    credential.write_fields(&mut row)?;
+    profiles.push(Value::Object(row));
     let candidate =
         serde_json::to_string(&store.document).map_err(|_| PrivateStoreError::InvalidJson)?;
     let validated = parse_private_store(&candidate)?;
@@ -1825,20 +1950,37 @@ pub fn apply_profile_mutation(
             {
                 return Err(PrivateStoreError::DuplicateProfileName);
             }
-            if !matches!(
-                crate::import::classify_import(&new_input, &[]),
-                Ok(crate::import::ImportKind::Profile(_))
-            ) {
-                return Err(PrivateStoreError::InvalidShape);
+            let credential = PrivateProfileCredential::parse_input(&new_input)?;
+            if matches!(credential, PrivateProfileCredential::WireGuard(_)) {
+                let row = object(&store.document["profiles"][index])?;
+                if matches!(
+                    store.profiles[index].credential,
+                    PrivateProfileCredential::Uri { .. }
+                ) && row.contains_key("wireguard")
+                {
+                    return Err(PrivateStoreError::InvalidShape);
+                }
+                if row.keys().any(|key| {
+                    !["id", "name", "protocol", "uri", "wireguard", "favorite"]
+                        .contains(&key.as_str())
+                }) {
+                    return Err(PrivateStoreError::InvalidShape);
+                }
+                parse_unique_private_json(input).map_err(|_| PrivateStoreError::InvalidJson)?;
+                store.version = 4;
+                store.document["version"] = Value::from(4);
             }
-            let uri = new_input.trim();
-            let canonical = parse_canonical(uri).map_err(PrivateStoreError::Profile)?;
             let profile = &mut store.profiles[index];
-            let changed = profile.name != name || profile.uri != uri;
+            let changed = profile.name != name
+                || profile.credential.private_input()? != credential.private_input()?;
+            if matches!(profile.credential, PrivateProfileCredential::WireGuard(_)) {
+                store.document["profiles"][index]
+                    .as_object_mut()
+                    .ok_or(PrivateStoreError::InvalidShape)?
+                    .remove("wireguard");
+            }
             profile.name = name;
-            profile.uri = uri.to_owned();
-            profile.canonical = canonical;
-            store.document["profiles"][index]["uri"] = Value::from(uri);
+            profile.credential = credential;
             changed
         }
         ProfileMutation::Rename {
@@ -1915,8 +2057,14 @@ pub fn apply_profile_mutation(
         }
     };
     store.normalize_document()?;
+    // Replacement can promote legacy v3 to strict v4. Validate the complete
+    // resulting graph, not only the selected row, before releasing any bytes.
+    let candidate = store.private_payload()?;
+    let validated = parse_private_store(
+        std::str::from_utf8(&candidate).map_err(|_| PrivateStoreError::InvalidJson)?,
+    )?;
     Ok(PrivateStoreMutation {
-        payload: store.private_payload()?,
+        payload: validated.private_payload()?,
         changed,
     })
 }
@@ -2018,7 +2166,11 @@ pub fn apply_compatibility_pointer_update(
         std::str::from_utf8(&candidate).map_err(|_| PrivateStoreError::InvalidJson)?;
     let validated = parse_private_store(candidate_text)?;
     Ok(PrivatePointerMutation {
-        payload: validated.private_payload()?,
+        payload: if !changed && validated.version == 4 {
+            input.as_bytes().to_vec()
+        } else {
+            validated.private_payload()?
+        },
         changed,
         pruned,
     })
@@ -2082,7 +2234,7 @@ fn sync_private_subscription(
             name: profile.name.clone(),
             subscription_id: profile.subscription_id.clone(),
             subscription_key: profile.subscription_key.clone(),
-            derived_key: profile.canonical.subscription_identity(),
+            derived_key: profile.credential.subscription_identity(),
             missing: profile.missing,
             favorite: profile.favorite,
         })
@@ -2139,7 +2291,7 @@ fn sync_private_subscription(
     let mut next_profiles = Vec::with_capacity(plan.profiles.len());
     let mut next_values = Vec::with_capacity(plan.profiles.len());
     for profile in plan.profiles {
-        let (uri, canonical, mut value) = if profile.subscription_id == subscription_id
+        let (credential, mut value) = if profile.subscription_id == subscription_id
             && !profile.missing
         {
             let incoming = incoming_by_key
@@ -2152,7 +2304,13 @@ fn sync_private_subscription(
             {
                 return Err(PrivateStoreError::Store(StoreError::InvalidProfileId));
             }
-            (incoming.uri, incoming.canonical, value)
+            (
+                PrivateProfileCredential::Uri {
+                    original_uri: incoming.uri,
+                    canonical: incoming.canonical,
+                },
+                value,
+            )
         } else {
             let current = profiles_by_id
                 .remove(&profile.id)
@@ -2160,23 +2318,18 @@ fn sync_private_subscription(
             let value = values_by_id
                 .remove(&profile.id)
                 .ok_or(PrivateStoreError::InvalidShape)?;
-            (current.uri, current.canonical, value)
+            (current.credential, value)
         };
         let record = value
             .as_object_mut()
             .ok_or(PrivateStoreError::InvalidShape)?;
         record.insert("id".to_owned(), Value::from(profile.id.clone()));
-        record.insert("uri".to_owned(), Value::from(uri.clone()));
-        record.insert(
-            "protocol".to_owned(),
-            Value::from(canonical.protocol().as_str()),
-        );
+        credential.write_fields(record)?;
         next_values.push(value);
         next_profiles.push(PrivateProfile {
             id: profile.id,
             name: profile.name,
-            uri,
-            canonical,
+            credential,
             subscription_id: profile.subscription_id,
             subscription_key: profile.subscription_key,
             missing: profile.missing,
@@ -3102,6 +3255,8 @@ mod tests {
                 trojan_count: 0,
                 hysteria2_count: 0,
                 tuic_count: 0,
+                wireguard_count: 0,
+                amneziawg_count: 0,
                 active_present: true,
                 last_present: true,
                 routing_preset: "custom".into(),
@@ -3141,7 +3296,7 @@ mod tests {
         let profile = &projection.profiles()[0];
         assert_eq!(profile.id(), PROFILE_ID);
         assert_eq!(profile.name(), "Synthetic");
-        assert_eq!(profile.protocol(), Protocol::Vless);
+        assert_eq!(profile.protocol(), ImportFamily::Vless);
         assert_eq!(profile.subscription_id(), SUBSCRIPTION_ID);
         assert!(profile.favorite());
         assert!(!profile.missing());

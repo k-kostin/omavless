@@ -70,6 +70,22 @@ impl fmt::Display for HostStepError {
 
 impl std::error::Error for HostStepError {}
 
+/// Read-only target admission has distinct public classifications. A profile
+/// unsupported by this product/core gate is never diagnosed as missing DNS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionPreflightError {
+    DnsPairRequired,
+    UnsupportedProfile,
+}
+impl ConnectionPreflightError {
+    fn lifecycle_error(self) -> LifecycleError {
+        match self {
+            Self::DnsPairRequired => LifecycleError::DnsPairRequired,
+            Self::UnsupportedProfile => LifecycleError::UnsupportedProfile,
+        }
+    }
+}
+
 /// Fresh facts from the trusted local process/sysfs/controller view. These
 /// fields do not establish routing, DNS, internet reachability or TUN ownership.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,6 +224,15 @@ pub trait LifecycleHost {
     fn connection_preflight(&mut self) -> Result<(), HostStepError> {
         Ok(())
     }
+    /// Select from the trusted current store, not caller-provided protocol.
+    /// Legacy synthetic hosts keep their existing DNS-only preflight behavior.
+    fn connection_preflight_for(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<(), ConnectionPreflightError> {
+        self.connection_preflight()
+            .map_err(|_| ConnectionPreflightError::DnsPairRequired)
+    }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError>;
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError>;
     fn start_prepared(&mut self) -> Result<(), HostStepError>;
@@ -220,6 +245,7 @@ pub trait LifecycleHost {
 pub enum LifecycleError {
     InvalidRequest,
     DnsPairRequired,
+    UnsupportedProfile,
     State,
     TransitionFailedRestored,
     RecoveryFailed,
@@ -232,6 +258,7 @@ impl LifecycleError {
         match self {
             Self::InvalidRequest => StableErrorCode::InvalidArgument,
             Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
+            Self::UnsupportedProfile => StableErrorCode::CoreRejected,
             Self::State => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
             Self::RecoveryFailed => StableErrorCode::CoreRejected,
@@ -245,6 +272,7 @@ impl fmt::Display for LifecycleError {
         formatter.write_str(match self {
             Self::InvalidRequest => "Connection request is invalid",
             Self::DnsPairRequired => "Set up the managed DNS pair before connecting",
+            Self::UnsupportedProfile => "This profile is not available for connection",
             Self::State => "Connection state could not be updated",
             Self::TransitionFailedRestored => "Connection transition failed and was restored",
             Self::RecoveryFailed => "Connection recovery failed",
@@ -508,8 +536,8 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         target: DesiredState,
         admission: &mut ConnectionAdmission<'_, '_>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        self.connection_host(admission, |host| host.connection_preflight())?
-            .map_err(|_| LifecycleError::DnsPairRequired)?;
+        self.connection_host(admission, |host| host.connection_preflight_for(&target))?
+            .map_err(ConnectionPreflightError::lifecycle_error)?;
         let attempted = DesiredState {
             generation: Self::next_generation(current.generation, 1)?,
             ..target
@@ -568,11 +596,11 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         self.connect_requested_admitted(profile_id, mode, &mut ConnectionAdmission::ordinary())
     }
 
-    fn connection_host<T>(
+    fn connection_host<T, E>(
         &mut self,
         admission: &mut ConnectionAdmission<'_, '_>,
-        step: impl FnOnce(&mut H) -> Result<T, HostStepError>,
-    ) -> Result<Result<T, HostStepError>, LifecycleError> {
+        step: impl FnOnce(&mut H) -> Result<T, E>,
+    ) -> Result<Result<T, E>, LifecycleError> {
         if admission.recheck().is_err() {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
@@ -641,6 +669,8 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             ReconcileAction::AdoptConnected
                 if current.profile_id == profile_id && current.mode == mode =>
             {
+                self.connection_host(admission, |host| host.connection_preflight_for(&target))?
+                    .map_err(ConnectionPreflightError::lifecycle_error)?;
                 self.actual = ActualState::Connected;
                 return Ok(self.outcome(&current, false));
             }
@@ -667,8 +697,8 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             ..current
         };
 
-        self.connection_host(admission, |host| host.connection_preflight())?
-            .map_err(|_| LifecycleError::DnsPairRequired)?;
+        self.connection_host(admission, |host| host.connection_preflight_for(&armed))?
+            .map_err(ConnectionPreflightError::lifecycle_error)?;
         self.actual = ActualState::Starting;
         if self
             .connection_host(admission, |host| host.prepare(&armed))?
@@ -718,6 +748,9 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             }
             ReconcileAction::AdoptConnected => {
                 if current.mode == mode {
+                    self.host
+                        .connection_preflight_for(&current)
+                        .map_err(ConnectionPreflightError::lifecycle_error)?;
                     self.actual = ActualState::Connected;
                     return Ok(self.outcome(&current, false));
                 }
@@ -876,8 +909,8 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             return Err(LifecycleError::ManualRecoveryRequired);
         }
         self.host
-            .connection_preflight()
-            .map_err(|_| LifecycleError::DnsPairRequired)?;
+            .connection_preflight_for(&desired)
+            .map_err(ConnectionPreflightError::lifecycle_error)?;
         self.actual = ActualState::Stopping;
         if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
             self.actual = ActualState::ManualRecoveryRequired;
@@ -932,6 +965,17 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         admission
             .action(action)
             .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+        if matches!(
+            action,
+            ReconcileAction::AdoptConnected | ReconcileAction::RecoverConnected
+        ) {
+            self.host
+                .connection_preflight_for(&desired)
+                .map_err(ConnectionPreflightError::lifecycle_error)?;
+            admission
+                .recheck()
+                .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+        }
         match action {
             ReconcileAction::SettledDisconnected => {
                 self.actual = ActualState::Disconnected;
@@ -1028,6 +1072,7 @@ mod tests {
         observation: OwnedObservation,
         fail_prepare: bool,
         fail_connection_preflight: bool,
+        unsupported_profile: Option<String>,
         fail_observe_once: bool,
         fail_start: bool,
         remaining_start_failures: usize,
@@ -1047,6 +1092,7 @@ mod tests {
                 observation: empty(),
                 fail_prepare: false,
                 fail_connection_preflight: false,
+                unsupported_profile: None,
                 fail_observe_once: false,
                 fail_start: false,
                 remaining_start_failures: 0,
@@ -1072,6 +1118,17 @@ mod tests {
     }
 
     impl LifecycleHost for FakeHost {
+        fn connection_preflight_for(
+            &mut self,
+            desired: &DesiredState,
+        ) -> Result<(), ConnectionPreflightError> {
+            if self.unsupported_profile.as_deref() == Some(desired.profile_id.as_str()) {
+                self.calls.push("unsupported-profile");
+                return Err(ConnectionPreflightError::UnsupportedProfile);
+            }
+            self.connection_preflight()
+                .map_err(|_| ConnectionPreflightError::DnsPairRequired)
+        }
         fn connection_preflight(&mut self) -> Result<(), HostStepError> {
             if self.fail_connection_preflight {
                 self.calls.push("preflight-denied");
@@ -1317,6 +1374,112 @@ mod tests {
         assert_eq!(desired(&executor), before);
         assert_eq!(executor.actual(), ActualState::Connected);
         assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_target_refuses_before_desired_writes_or_old_owner_quiesce() {
+        let (root, mut executor) = executor("unsupported-target", FakeHost::default());
+        let before = desired(&executor);
+        executor.host_mut().unsupported_profile = Some("profile-wg".into());
+        assert_eq!(
+            executor.connect("profile-wg", RoutingMode::Rule),
+            Err(LifecycleError::UnsupportedProfile)
+        );
+        assert_eq!(desired(&executor), before);
+        assert!(
+            executor
+                .host()
+                .calls
+                .iter()
+                .all(|call| matches!(*call, "observe" | "unsupported-profile"))
+        );
+        executor.connect("profile-uri", RoutingMode::Rule).unwrap();
+        let before = desired(&executor);
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.connect("profile-wg", RoutingMode::Global),
+            Err(LifecycleError::UnsupportedProfile)
+        );
+        assert_eq!(desired(&executor), before);
+        assert!(
+            executor
+                .host()
+                .calls
+                .iter()
+                .all(|call| matches!(*call, "observe" | "unsupported-profile"))
+        );
+        executor.host_mut().unsupported_profile = Some("profile-uri".into());
+        for mode in [RoutingMode::Rule, RoutingMode::Direct] {
+            executor.host_mut().calls.clear();
+            assert_eq!(
+                executor.set_mode(mode),
+                Err(LifecycleError::UnsupportedProfile)
+            );
+            assert_eq!(desired(&executor), before);
+            assert!(
+                executor
+                    .host()
+                    .calls
+                    .iter()
+                    .all(|call| matches!(*call, "observe" | "unsupported-profile"))
+            );
+        }
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.quiesce_profile_preserving_desired("profile-uri"),
+            Err(LifecycleError::UnsupportedProfile)
+        );
+        assert_eq!(desired(&executor), before);
+        assert!(
+            executor
+                .host()
+                .calls
+                .iter()
+                .all(|call| matches!(*call, "observe" | "unsupported-profile"))
+        );
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.reconcile_startup(),
+            Err(LifecycleError::UnsupportedProfile)
+        );
+        assert_eq!(desired(&executor), before);
+        assert!(
+            executor
+                .host()
+                .calls
+                .iter()
+                .all(|call| matches!(*call, "observe" | "unsupported-profile"))
+        );
+        assert_eq!(
+            LifecycleError::UnsupportedProfile.stable_code(),
+            StableErrorCode::CoreRejected
+        );
+        assert_ne!(
+            LifecycleError::UnsupportedProfile.stable_code(),
+            StableErrorCode::DnsPairRequired
+        );
+        executor.host_mut().calls.clear();
+        executor.disconnect().unwrap();
+        assert!(!desired(&executor).connected);
+        assert!(executor.host().calls.contains(&"stop"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_startup_recovery_preserves_intent_and_never_prepares_or_cleans() {
+        let (root, mut executor) = executor("unsupported-recovery", FakeHost::default());
+        executor.connect("profile-wg", RoutingMode::Rule).unwrap();
+        let before = desired(&executor);
+        executor.host_mut().observation = empty();
+        executor.host_mut().unsupported_profile = Some("profile-wg".into());
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.reconcile_startup(),
+            Err(LifecycleError::UnsupportedProfile)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.host().calls, ["observe", "unsupported-profile"]);
         fs::remove_dir_all(root).unwrap();
     }
 

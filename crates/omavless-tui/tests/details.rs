@@ -95,6 +95,21 @@ fn details_capabilities_and_revision_are_fenced() {
 }
 
 #[test]
+fn native_details_categories_are_allowlisted_without_retaining_private_metadata() {
+    let target = ProfileTarget::new("fixture-b").unwrap();
+    for protocol in ["wireguard", "amneziawg"] {
+        let mut v = support::response(Read::ProfileDetails(target));
+        v["result"]["protocol"] = json!(protocol);
+        v["result"]["transport"] = json!("udp");
+        v["result"]["security"] = json!("wireguard");
+        let d = ProfileDetails::parse(&v, target).unwrap();
+        assert_eq!(d.protocol, Some(protocol));
+        assert_eq!(d.transport, Some("udp"));
+        assert_eq!(d.security, Some("wireguard"));
+    }
+}
+
+#[test]
 fn details_discard_all_unrecognized_or_private_tokens() {
     let target = ProfileTarget::new("fixture-b").unwrap();
     let mut v = support::response(Read::ProfileDetails(target));

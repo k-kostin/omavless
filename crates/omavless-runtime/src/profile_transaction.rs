@@ -27,6 +27,13 @@ use std::path::{Path, PathBuf};
 
 pub(crate) trait StorePlan {
     fn changed(&self) -> bool;
+    // Candidate credentials, not caller protocol labels, gate active changes.
+    fn connection_target_supported(
+        &self,
+        _profile_id: &str,
+    ) -> Result<bool, ProfileTransactionError> {
+        Ok(true)
+    }
     fn commit(
         &self,
         lock: &MigrationLock,
@@ -42,6 +49,20 @@ pub(crate) trait StorePlan {
 impl StorePlan for PreparedProfileMutation {
     fn changed(&self) -> bool {
         self.changed()
+    }
+    fn connection_target_supported(
+        &self,
+        profile_id: &str,
+    ) -> Result<bool, ProfileTransactionError> {
+        let text = std::str::from_utf8(self.planned_output())
+            .map_err(|_| ProfileTransactionError::Store)?;
+        let store = omavless_domain::private_store::parse_private_store(text)
+            .map_err(|_| ProfileTransactionError::Store)?;
+        match store.managed_connection_compatibility(profile_id) {
+            Ok(()) => Ok(true),
+            Err(PrivateStoreError::TypedCredentialRequired) => Ok(false),
+            Err(_) => Err(ProfileTransactionError::Store),
+        }
     }
 
     fn commit(
@@ -67,6 +88,7 @@ pub enum ProfileTransactionError {
     NotFound,
     InvalidArgument,
     DnsPairRequired,
+    UnsupportedProfile,
     Conflict,
     Store,
     TransitionFailedRestored,
@@ -81,6 +103,7 @@ impl ProfileTransactionError {
             Self::NotFound => StableErrorCode::NotFound,
             Self::InvalidArgument => StableErrorCode::InvalidArgument,
             Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
+            Self::UnsupportedProfile => StableErrorCode::CoreRejected,
             Self::Conflict => StableErrorCode::Conflict,
             Self::Store => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
@@ -96,6 +119,7 @@ impl fmt::Display for ProfileTransactionError {
             Self::NotFound => "Requested profile was not found",
             Self::InvalidArgument => "Profile mutation is not permitted",
             Self::DnsPairRequired => "Set up the managed DNS pair before restarting this profile",
+            Self::UnsupportedProfile => "This profile is not available for connection",
             Self::Conflict => "Profile store changed concurrently",
             Self::Store => "Profile store transaction failed",
             Self::TransitionFailedRestored => "Profile transition failed and was restored",
@@ -122,6 +146,9 @@ impl std::error::Error for ProfileTransactionError {}
 pub(crate) fn store_error(error: ProfileMutationCommitError) -> ProfileTransactionError {
     match error {
         ProfileMutationCommitError::StoreChanged => ProfileTransactionError::Conflict,
+        ProfileMutationCommitError::Mutation(PrivateStoreError::TypedCredentialRequired) => {
+            ProfileTransactionError::UnsupportedProfile
+        }
         ProfileMutationCommitError::Mutation(
             PrivateStoreError::ProfileNotFound | PrivateStoreError::CustomRuleNotFound,
         ) => ProfileTransactionError::NotFound,
@@ -145,6 +172,7 @@ fn lifecycle_error(error: LifecycleError) -> ProfileTransactionError {
     match error {
         LifecycleError::InvalidRequest => ProfileTransactionError::InvalidArgument,
         LifecycleError::DnsPairRequired => ProfileTransactionError::DnsPairRequired,
+        LifecycleError::UnsupportedProfile => ProfileTransactionError::UnsupportedProfile,
         LifecycleError::State => ProfileTransactionError::Store,
         LifecycleError::ManualRecoveryRequired => ProfileTransactionError::ManualRecoveryRequired,
         LifecycleError::TransitionFailedRestored => {
@@ -332,6 +360,9 @@ pub(crate) fn apply_transaction<H: LifecycleHost, P: StorePlan>(
 
     match kind {
         ActionKind::Rename | ActionKind::Replace => {
+            if !plan.connection_target_supported(profile_id)? {
+                return Err(ProfileTransactionError::UnsupportedProfile);
+            }
             lifecycle
                 .quiesce_profile_preserving_desired(profile_id)
                 .map_err(lifecycle_error)?;
@@ -769,6 +800,85 @@ mod tests {
         assert_eq!(document["startup"]["enabled"], false);
         assert_eq!(document["startup"]["profileId"], "");
         assert_eq!(read_desired(&desired, uid).unwrap().profile_id, OTHER);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_uri_to_unsupported_native_refuses_before_quiesce_or_store_change() {
+        let (root, store, desired, uid) = temp("active-wg-candidate");
+        set_desired(&desired, uid, true, PROFILE, 3);
+        let before = fs::read(&store).unwrap();
+        let intent = fs::read(&desired.file).unwrap();
+        let mut owner = OfflineProfileOwner::new(
+            FakeHost::connected(),
+            desired.clone(),
+            &store,
+            cutover(&root, uid),
+            uid,
+        );
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let native = native.replace("10.8.0.2/32", "10.8.0.2/32, fd00::2/128");
+        let result = owner
+            .execute(&request(
+                "profiles.replace",
+                json!({"profileId":PROFILE,"name":"Native","input":native}),
+            ))
+            .unwrap();
+        assert!(matches!(
+            result,
+            ProfileOwnerExecution::Applied {
+                outcome: Err(ProfileTransactionError::UnsupportedProfile),
+                ..
+            }
+        ));
+        assert!(fs::read(&store).unwrap() == before);
+        assert!(fs::read(&desired.file).unwrap() == intent);
+        assert!(
+            !owner
+                .host()
+                .calls
+                .iter()
+                .any(|call| ["stop", "prepare", "start", "commit"].contains(call))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn compatible_active_native_candidate_uses_existing_stop_prepare_start_commit_order() {
+        let (root, store, desired, uid) = temp("active-wg-compatible");
+        set_desired(&desired, uid, true, PROFILE, 3);
+        let mut owner = OfflineProfileOwner::new(
+            FakeHost::connected(),
+            desired.clone(),
+            &store,
+            cutover(&root, uid),
+            uid,
+        );
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let (_, result) = applied(
+            owner
+                .execute(&request(
+                    "profiles.replace",
+                    json!({"profileId":PROFILE,"name":"Native","input":native}),
+                ))
+                .unwrap(),
+        );
+        assert!(result.unwrap().changed);
+        assert_eq!(
+            owner.host().calls,
+            [
+                "observe", "observe", "stop", "discard", "observe", "observe", "prepare", "start",
+                "observe", "commit"
+            ]
+        );
+        let state = read_desired(&desired, uid).unwrap();
+        assert!(state.connected);
+        assert_eq!(state.profile_id, PROFILE);
+        assert_eq!(state.generation, 3);
+        let input = fs::read_to_string(&store).unwrap();
+        let result = omavless_domain::private_store::parse_private_store(&input).unwrap();
+        assert_eq!(result.managed_connection_compatibility(PROFILE), Ok(()));
+        assert!(result.selected_wireguard_flavor(PROFILE).unwrap().is_some());
         fs::remove_dir_all(root).unwrap();
     }
 

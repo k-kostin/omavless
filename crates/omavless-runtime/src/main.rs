@@ -585,6 +585,8 @@ fn run() -> Result<(), CliError> {
                     "trojan": projection.trojan_count,
                     "hysteria2": projection.hysteria2_count,
                     "tuic": projection.tuic_count,
+                    "wireguard": projection.wireguard_count,
+                    "amneziawg": projection.amneziawg_count,
                 },
                 "activePresent": projection.active_present,
                 "lastPresent": projection.last_present,

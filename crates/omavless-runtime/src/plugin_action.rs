@@ -87,6 +87,16 @@ fn tui_private_import_uses_existing_canonical_classification_and_mutation_shapes
             "profiles.import",
         ),
         (
+            json!({"version":1,"kind":"profile","profile":{"version":1,"protocol":"wireguard","transport":"udp","security":"wireguard","credentialHint":"••••","suggestedName":"Synthetic","insecure":false,"experimental":true}}),
+            "profile-import",
+            "profiles.import",
+        ),
+        (
+            json!({"version":1,"kind":"profile","profile":{"version":1,"protocol":"amneziawg","transport":"udp","security":"wireguard","credentialHint":"••••","suggestedName":"Synthetic","insecure":false,"experimental":true}}),
+            "profile-import",
+            "profiles.import",
+        ),
+        (
             json!({"version":1,"kind":"subscription","suggestedName":"Synthetic","duplicate":false}),
             "subscription-add",
             "subscriptions.add",
@@ -99,7 +109,13 @@ fn tui_private_import_uses_existing_canonical_classification_and_mutation_shapes
     ] {
         let mut workspace = Workspace::new("fixture-runtime", 7, 1).unwrap();
         // Public .invalid fixtures only; parsing never contacts this host.
-        let input = if action == "subscription-add" {
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let awg = native.replace("[Peer]", "Jc = 4\nJmin = 10\nJmax = 30\nS1 = 20\nS2 = 25\nH1 = 100\nH2 = 200\nH3 = 300\nH4 = 400\n[Peer]");
+        let input = if preview["profile"]["protocol"] == "wireguard" {
+            native
+        } else if preview["profile"]["protocol"] == "amneziawg" {
+            &awg
+        } else if action == "subscription-add" {
             "https://fixture.invalid/feed"
         } else {
             "trojan://synthetic-not-a-real-key@fixture.invalid:443?security=tls#Synthetic"

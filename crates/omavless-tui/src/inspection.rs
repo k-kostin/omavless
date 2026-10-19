@@ -217,12 +217,22 @@ impl ProfileDetails {
         };
         Some(Self {
             target,
-            protocol: token("protocol", &["vless", "trojan", "hysteria2", "tuic"]),
+            protocol: token(
+                "protocol",
+                &[
+                    "vless",
+                    "trojan",
+                    "hysteria2",
+                    "tuic",
+                    "wireguard",
+                    "amneziawg",
+                ],
+            ),
             transport: token(
                 "transport",
                 &["tcp", "ws", "http", "h2", "grpc", "xhttp", "udp"],
             ),
-            security: token("security", &["none", "tls", "reality"]),
+            security: token("security", &["none", "tls", "reality", "wireguard"]),
         })
     }
 }

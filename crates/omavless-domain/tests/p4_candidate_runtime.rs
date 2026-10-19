@@ -36,11 +36,11 @@ fn native(generation: usize) -> String {
         options.push_str("RandomTrailers = true\nDisableCookies = false\n");
     }
     format!(
-        "[Interface]\nPrivateKey = {}\nAddress = 10.203.0.2/32, fd00:203::2/128\nDNS = 192.0.2.53, 2001:db8::53\nMTU = 1420\n{options}[Peer]\nPublicKey = {}\nPresharedKey = {}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = [2001:db8::2]:51820\nPersistentKeepalive = {}\n",
+        "[Interface]\nPrivateKey = {}\nAddress = 10.203.0.2/32\nDNS = 192.0.2.53\nMTU = 1420\n{options}[Peer]\nPublicKey = {}\nPresharedKey = {}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 203.0.113.2:51820\nPersistentKeepalive = {}\n",
         STANDARD.encode([7_u8; 32]),
         STANDARD.encode([9_u8; 32]),
         STANDARD.encode([11_u8; 32]),
-        if generation >= 3 { "25-35" } else { "25" }
+        "25"
     )
 }
 
@@ -82,14 +82,14 @@ fn all_native_flavors_prepare_three_modes_and_native_export_reimports_identicall
                 .unwrap();
             let expected = assemble_runtime_config(
                 &template_with_mode(TEMPLATE, mode).unwrap(),
-                &profile.render_mihomo_proxy(NAME, None),
+                &profile.render_mihomo_proxy(NAME, None).unwrap(),
                 SOCKET,
                 &rules(),
             )
             .unwrap();
             let reimported = assemble_runtime_config(
                 &template_with_mode(TEMPLATE, mode).unwrap(),
-                &restored.render_mihomo_proxy(NAME, None),
+                &restored.render_mihomo_proxy(NAME, None).unwrap(),
                 SOCKET,
                 &rules(),
             )
@@ -193,7 +193,7 @@ fn connected_native_pointer_and_disconnect_preserve_complete_graph_and_noop_byte
             false,
         );
         assert!(!no_more.changed && no_more.payload() == disconnected.payload());
-        assert!(parse_private_store(std::str::from_utf8(connected.payload()).unwrap()).is_err());
+        assert!(parse_private_store(std::str::from_utf8(connected.payload()).unwrap()).is_ok());
     }
 }
 

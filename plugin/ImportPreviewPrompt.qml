@@ -22,6 +22,7 @@ Item {
   property string hint: ""
   property bool accepted: false
   property var preview: ({})
+  readonly property bool nativeCredential: ["wireguard", "amneziawg"].indexOf(preview.protocol) >= 0
   property alias value: nameField.text
   property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
@@ -126,7 +127,7 @@ Item {
                     + (prompt.preview.experimental ? " / experimental" : "") },
                 { label: "SNI", value: String(prompt.preview.sni || "—") },
                 { label: prompt.textFor("import.tls_check"), value: prompt.preview.insecure
-                    ? prompt.textFor("import.tls_disabled") : prompt.textFor("import.tls_enabled") },
+                    ? prompt.textFor("import.tls_disabled") : prompt.nativeCredential ? prompt.textFor("import.not_tls") : prompt.textFor("import.tls_enabled") },
                 { label: prompt.textFor("import.credential"), value: String(prompt.preview.credentialHint || "••••")
                     + " · " + prompt.textFor("import.hidden") }
               ]
@@ -167,7 +168,7 @@ Item {
         PlainText {
           width: parent.width
           visible: text.length > 0
-          text: String(prompt.preview.compatibilityNote || "")
+          text: prompt.nativeCredential ? prompt.textFor("import.managed_scope") : String(prompt.preview.compatibilityNote || "")
           color: Commons.Color.accent
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.caption

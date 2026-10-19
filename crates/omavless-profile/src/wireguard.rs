@@ -23,7 +23,9 @@ use crate::profile_uri::{canonical_host, parse_endpoint};
 use crate::vless::HostKind;
 use crate::vless_canonical::sha256_hex;
 
+mod managed;
 pub mod private_record;
+pub use managed::ManagedCompatibilityError;
 
 pub const MAX_WIREGUARD_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_VPN_LINK_BYTES: usize = 128 * 1024;
@@ -195,8 +197,9 @@ impl AwgGeneration {
         }
     }
 
-    /// Baseline verified by this adapter. This is deliberately not advertised
-    /// as the first upstream release that ever implemented the generation.
+    /// Historical parser/config baseline, not current managed live acceptance.
+    /// Managed execution targets the separately pinned core in CONTROL_PLANE.
+    /// This is not the first upstream release implementing the generation.
     #[must_use]
     pub const fn verified_mihomo_baseline(self) -> &'static str {
         "1.19.30"
@@ -214,7 +217,7 @@ pub struct WireGuardFacts {
     pub allowed_ip_count: usize,
     pub has_preshared_key: bool,
     pub has_custom_mtu: bool,
-    pub keepalive_range_normalized: bool,
+    pub keepalive_range_unrepresentable: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -256,9 +259,8 @@ struct AwgOptions {
 #[derive(Clone, PartialEq, Eq)]
 enum Keepalive {
     Fixed(u16),
-    /// AmneziaWG 3 accepts a randomized interval. Mihomo 1.19.30 exposes an
-    /// integer here, so the renderer deterministically selects the lower safe
-    /// bound and surfaces that fact in the public projection.
+    /// Data preserves randomized intervals; managed execution refuses a
+    /// nonconstant range because the pinned core exposes only one integer.
     Range {
         minimum: u16,
         maximum: u16,
@@ -266,10 +268,11 @@ enum Keepalive {
 }
 
 impl Keepalive {
-    const fn rendered(&self) -> u16 {
+    const fn fixed(&self) -> Option<u16> {
         match self {
-            Self::Fixed(value) => *value,
-            Self::Range { minimum, .. } => *minimum,
+            Self::Fixed(value) => Some(*value),
+            Self::Range { minimum, maximum } if *minimum == *maximum => Some(*minimum),
+            Self::Range { .. } => None,
         }
     }
 
@@ -615,6 +618,22 @@ fn numeric_range(value: &str) -> Result<(), WireGuardError> {
     }
 }
 
+fn header_range(value: &str) -> Result<(), WireGuardError> {
+    let (minimum, maximum) = value.split_once('-').unwrap_or((value, value));
+    let minimum = minimum
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| WireGuardError::InvalidAmneziaValue)?;
+    let maximum = maximum
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| WireGuardError::InvalidAmneziaValue)?;
+    if minimum > maximum {
+        return Err(WireGuardError::InvalidAmneziaValue);
+    }
+    Ok(())
+}
+
 fn boolean(value: &str) -> Result<bool, WireGuardError> {
     match value.to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
@@ -659,7 +678,7 @@ fn awg_options(fields: &BTreeMap<String, String>) -> Result<Option<AwgOptions>, 
         }
     }
     for name in ["h1", "h2", "h3", "h4"] {
-        numeric_range(required(fields, name)?)?;
+        header_range(required(fields, name)?)?;
     }
     for name in ["i1", "i2", "i3", "i4", "i5"] {
         if fields
@@ -1222,9 +1241,9 @@ impl WireGuardProfile {
             allowed_ip_count: self.allowed_ips.len(),
             has_preshared_key: !self.preshared_key.is_empty(),
             has_custom_mtu: self.mtu.is_some(),
-            keepalive_range_normalized: matches!(
+            keepalive_range_unrepresentable: matches!(
                 self.persistent_keepalive.as_ref(),
-                Some(Keepalive::Range { .. })
+                Some(Keepalive::Range { minimum, maximum }) if minimum != maximum
             ),
         }
     }
@@ -1258,19 +1277,25 @@ impl WireGuardProfile {
         sha256_hex(values.join("\0").as_bytes())
     }
 
-    #[must_use]
-    pub fn render_mihomo_proxy(&self, name: &str, server_override: Option<&str>) -> String {
+    pub fn render_mihomo_proxy(
+        &self,
+        name: &str,
+        server_override: Option<&str>,
+    ) -> Result<String, ManagedCompatibilityError> {
+        self.managed_compatibility()?;
+        if server_override.is_some_and(|host| {
+            host.trim_matches(['[', ']'])
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_ipv6())
+        }) {
+            return Err(ManagedCompatibilityError::Ipv4Only);
+        }
         let mut lines = vec![
             format!("- name: {}", yaml_string(name)),
             "  type: wireguard".to_owned(),
-            format!(
-                "  server: {}",
-                yaml_string(server_override.unwrap_or(&self.endpoint.host))
-            ),
-            format!("  port: {}", self.endpoint.port),
             format!("  private-key: {}", yaml_string(&self.private_key)),
-            format!("  public-key: {}", yaml_string(&self.public_key)),
             "  udp: true".to_owned(),
+            "  ip-version: ipv4".to_owned(),
         ];
         if let Some(ipv4) = self.addresses.iter().find(|item| item.address.is_ipv4()) {
             lines.push(format!("  ip: {}", yaml_string(&ipv4.canonical())));
@@ -1278,14 +1303,24 @@ impl WireGuardProfile {
         if let Some(ipv6) = self.addresses.iter().find(|item| item.address.is_ipv6()) {
             lines.push(format!("  ipv6: {}", yaml_string(&ipv6.canonical())));
         }
+        lines.push("  peers:".to_owned());
+        lines.push(format!(
+            "    - server: {}",
+            yaml_string(server_override.unwrap_or(&self.endpoint.host))
+        ));
+        lines.push(format!("      port: {}", self.endpoint.port));
+        lines.push(format!(
+            "      public-key: {}",
+            yaml_string(&self.public_key)
+        ));
         if !self.preshared_key.is_empty() {
             lines.push(format!(
-                "  pre-shared-key: {}",
+                "      pre-shared-key: {}",
                 yaml_string(&self.preshared_key)
             ));
         }
         lines.push(format!(
-            "  allowed-ips: {}",
+            "      allowed-ips: {}",
             yaml_list(self.allowed_ips.iter().map(IpPrefix::canonical))
         ));
         if !self.dns.is_empty() {
@@ -1296,7 +1331,10 @@ impl WireGuardProfile {
             lines.push(format!("  mtu: {mtu}"));
         }
         if let Some(keepalive) = &self.persistent_keepalive {
-            lines.push(format!("  persistent-keepalive: {}", keepalive.rendered()));
+            lines.push(format!(
+                "  persistent-keepalive: {}",
+                keepalive.fixed().expect("managed compatibility checked")
+            ));
         }
         if let Some(awg) = &self.awg {
             lines.push("  amnezia-wg-option:".to_owned());
@@ -1317,7 +1355,7 @@ impl WireGuardProfile {
                 lines.push(format!("    {output}: {rendered}"));
             }
         }
-        lines.join("\n")
+        Ok(lines.join("\n"))
     }
 }
 
@@ -1382,7 +1420,7 @@ mod tests {
             assert!(native.contains("Address = "));
             assert!(native.contains("AllowedIPs = "));
             assert!(native.contains("PublicKey = "));
-            if original.facts().keepalive_range_normalized {
+            if original.facts().keepalive_range_unrepresentable {
                 assert!(native.contains("PersistentKeepalive = 25-35\n"));
                 assert!(native.contains("ContentPaddingAddition = 10-100\n"));
                 assert!(native.contains("RekeyAfterTime = 100-120\n"));
@@ -1612,6 +1650,23 @@ mod tests {
     }
 
     #[test]
+    fn managed_peer_render_keeps_exact_allowed_ips_psk_and_endpoint_inside_one_peer() {
+        let config = standard()
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace("0.0.0.0/0, ::/0", "192.0.2.0/24")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let profile = parse_wireguard_config(&config).unwrap();
+        let yaml = profile.render_mihomo_proxy("Managed", None).unwrap();
+        assert!(yaml.contains("\n  peers:\n    - server: \"203.0.113.2\""));
+        assert!(yaml.contains("\n      port: 51820"));
+        assert!(yaml.contains("\n      public-key: "));
+        assert!(yaml.contains("\n      pre-shared-key: "));
+        assert!(yaml.contains("\n      allowed-ips: [\"192.0.2.0/24\"]"));
+        assert!(!yaml.lines().any(|line| line.starts_with("  allowed-ips:")));
+    }
+
+    #[test]
     fn parses_standard_one_peer_config_and_renders_mihomo() {
         let profile = parse_wireguard_config(&standard()).unwrap();
         assert_eq!(profile.facts().flavor, WireGuardFlavor::Standard);
@@ -1619,9 +1674,21 @@ mod tests {
         assert!(profile.facts().has_ipv4);
         assert!(profile.facts().has_ipv6);
         assert_eq!(profile.facts().dns_count, 2);
-        let yaml = profile.render_mihomo_proxy("WG node", None);
+        assert_eq!(
+            profile.managed_compatibility(),
+            Err(ManagedCompatibilityError::Ipv4Only)
+        );
+        let ipv4 = standard()
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace(", ::/0", "")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let yaml = parse_wireguard_config(&ipv4)
+            .unwrap()
+            .render_mihomo_proxy("WG node", None)
+            .unwrap();
         assert!(yaml.contains("type: wireguard"));
-        assert!(yaml.contains("allowed-ips: [\"0.0.0.0/0\", \"::/0\"]"));
+        assert!(yaml.contains("allowed-ips: [\"0.0.0.0/0\"]"));
         assert!(yaml.contains("remote-dns-resolve: true"));
         assert!(!yaml.contains("amnezia-wg-option"));
         assert_eq!(profile.subscription_identity().len(), 64);
@@ -1634,8 +1701,16 @@ mod tests {
             profile.facts().flavor,
             WireGuardFlavor::Amnezia(AwgGeneration::V3)
         );
-        assert!(profile.facts().keepalive_range_normalized);
-        let yaml = profile.render_mihomo_proxy("AWG node", None);
+        assert!(profile.facts().keepalive_range_unrepresentable);
+        assert_eq!(
+            profile.managed_compatibility(),
+            Err(ManagedCompatibilityError::KeepaliveRange)
+        );
+        let fixed = awg3().replace("PersistentKeepalive = 25-35", "PersistentKeepalive = 25");
+        let yaml = parse_wireguard_config(&fixed)
+            .unwrap()
+            .render_mihomo_proxy("AWG node", None)
+            .unwrap();
         for expected in [
             "amnezia-wg-option:",
             "version: 3",
@@ -1921,7 +1996,12 @@ mod tests {
 
     #[test]
     fn structured_guest_uses_validated_sibling_mtu_when_native_template_omits_it() {
-        let no_mtu = standard().replace("MTU = 1420\n", "");
+        let no_mtu = standard()
+            .replace("MTU = 1420\n", "")
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace(", ::/0", "")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
         let mut root: serde_json::Value =
             serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &no_mtu)).unwrap();
         root["containers"][0]["wireguard"]["last_config"] =
@@ -1931,6 +2011,7 @@ mod tests {
         assert!(
             profile
                 .render_mihomo_proxy("Synthetic", None)
+                .unwrap()
                 .contains("mtu: 1376")
         );
 
@@ -2097,8 +2178,15 @@ mod tests {
 
     #[test]
     fn yaml_control_values_are_quoted_and_dns_search_domains_reject() {
-        let profile = parse_wireguard_config(&standard()).unwrap();
-        let yaml = profile.render_mihomo_proxy("node:\n- injected", Some("override.example"));
+        let ipv4 = standard()
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace(", ::/0", "")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let profile = parse_wireguard_config(&ipv4).unwrap();
+        let yaml = profile
+            .render_mihomo_proxy("node:\n- injected", Some("override.example"))
+            .unwrap();
         assert!(yaml.starts_with("- name: \"node:\\n- injected\""));
         assert!(yaml.contains("server: \"override.example\""));
 

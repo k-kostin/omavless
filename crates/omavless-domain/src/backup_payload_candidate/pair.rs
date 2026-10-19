@@ -83,6 +83,33 @@ mod tests {
             .replace("\nmode: rule\n", &format!("\nmode: {mode}\n"))
     }
 
+    #[test]
+    fn strict_v4_native_pair_preserves_exact_bytes_for_every_existing_bundled_mode() {
+        use base64::Engine as _;
+        let config = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = {}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n",
+            base64::engine::general_purpose::STANDARD.encode([7u8; 32]),
+            base64::engine::general_purpose::STANDARD.encode([9u8; 32])
+        );
+        for preset in PRESETS {
+            let source = crate::private_store::apply_profile_import(
+                &store(preset),
+                "10000000-0000-4000-8000-000000000001",
+                "Synthetic",
+                &config,
+            )
+            .unwrap();
+            for mode in MODES {
+                let template = template(preset, mode);
+                let wire = encode(source.payload(), template.as_bytes()).unwrap();
+                let pair = decode(&wire).unwrap().validate_bundled_pair().unwrap();
+                assert!(pair.store.bytes == source.payload());
+                assert!(pair.template == template.as_bytes());
+                assert_eq!(pair.store.profiles, 1);
+            }
+        }
+    }
+
     fn managed_template(mode: &str) -> String {
         // Independent exact spelling of the normal default producer.
         template(PRESETS[0], mode).replace(
@@ -238,7 +265,7 @@ mod tests {
             store(""),
             store("unknown"),
             "{}".into(),
-            store(PRESETS[0]).replace("\"version\":3", "\"version\":4"),
+            store(PRESETS[0]).replace("\"version\":3", "\"version\":5"),
         ] {
             let wire = encode(input.as_bytes(), template).unwrap();
             assert!(decode(&wire).unwrap().validate_bundled_pair().is_err());
