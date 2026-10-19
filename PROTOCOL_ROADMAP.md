@@ -24,21 +24,20 @@ A profile is never accepted merely because an upstream core can parse a similar
 option. OmaVLESS must understand, bound, redact and validate every
 share-controlled field it stores or emits.
 
-The current adapters live in Python production code. R2 migrates existing
-VLESS/Trojan/Hysteria2/TUIC adapter semantics into the selected Rust domain
-layer using differential/golden parity. **After R2, new large protocol adapters
-are Rust-first.**
+Existing adapters and the canonical runtime are Rust-owned after completed
+R2/R6; QML is their client. Differential/golden parity retains the earlier
+adapter semantics. **New large protocol adapters remain Rust-first.**
 
 P4 WireGuard/AmneziaWG requires the completed R2 Rust protocol/profile adapter
 boundary. V0 continues as an independent evidence track for already implemented
 VLESS/Trojan/Hysteria2/TUIC families; missing V0 provider fixtures no longer
 block P4 implementation. P4 has its own private-fixture, installed-core,
-security and live-host gates, and remains unavailable in the product until they
-and the compatibility/runtime bridge are complete.
+security and live-host gates. Its current development candidate uses the same
+Rust owner but does not inherit those independent interoperability results.
 
-Do not add P4 as a large new Python-only parser immediately before Python
-runtime retirement. The current QML plugin will consume Rust-owned protocol
-semantics through the compatibility/runtime bridge.
+Do not revive a Python-only P4 implementation. The current QML plugin consumes
+the registered Rust-owned protocol/data path; its installed/live qualification
+is separate from source registration.
 
 A future Xray backend remains a narrow compatibility mechanism for common
 semantics Mihomo cannot represent without loss. It is not a replacement for
@@ -55,9 +54,9 @@ Detailed architecture: [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTUR
 | Trojan | Experimental implementation | R2 Rust parity + independent validation |
 | Hysteria2 | Experimental implementation | R2 Rust parity + UDP-friendly/restricted validation |
 | TUIC v5 | Experimental implementation | R2 Rust parity + independent validation |
-| Standard WireGuard `.conf` | P4a Rust foundation in development | Runtime bridge + private/live/security gates |
-| Native AmneziaWG `.conf` | P4b Rust foundation in development | AWG3 core validation passes; live/runtime gates remain |
-| AmneziaVPN guest `vpn://` | P4c offline Rust adapter | Direct native and explicit structured WG/AWG extraction; product bridge and live gates remain |
+| Standard WireGuard `.conf` | Development native-data/runtime candidate | Exact installed matching-server/mode/lifecycle gates |
+| Native AmneziaWG `.conf` | Experimental managed IPv4 candidate | Exact AWG interoperability and lifecycle gates |
+| AmneziaVPN guest `vpn://` | Bounded direct/structured Rust adapter in the development candidate | Same native-data and narrower managed-execution gates |
 
 Mihomo supporting an outbound does not mean OmaVLESS supports the provider
 key/config format. Manifest/marketplace description lists only implemented
@@ -266,8 +265,9 @@ R2 ports current v5 semantics to Rust before adding unrelated TUIC dialects.
 
 ## Phase P4 — experimental WireGuard and AmneziaWG import
 
-State: **Rust foundation in development after completed R2**. Current 0.7.0
-runtime does not import these formats and the manifest must not advertise them.
+State: **native-data/runtime development candidate after completed R2**.
+This is not a stable release or completed matching-server acceptance; do not
+advertise wider support than the actual accepted experimental scope.
 
 P4 is the first new major credential-family expansion after the Rust adapter
 boundary and is therefore Rust-first. The current QML plugin remains the user
@@ -315,8 +315,9 @@ incomplete/mixed generations and rejects the unvalidated 1.5-only `J1`/`J2`/
 `J3`/`Itime` family. A private AWG3 config maps successfully through
 `amnezia-wg-option` and passes installed-core config validation. Mihomo 1.19.30
 exposes `persistent-keepalive` as one integer while AWG3 configs may carry a
-range; the renderer deterministically uses the lower bound and exposes that
-normalization in safe facts instead of silently dropping the field.
+range. The historical foundation renderer used the lower bound; that behavior
+is superseded. Current managed execution refuses nonconstant ranges rather
+than changing their meaning, while private storage/export preserves them.
 Credential-safe local evidence is recorded in
 [`docs/testing/BARE_METAL_P4_AWG3_FOUNDATION_2026-09-03.md`](docs/testing/BARE_METAL_P4_AWG3_FOUNDATION_2026-09-03.md).
 
@@ -324,13 +325,13 @@ Rare/legacy families remain rejected until real fixtures justify support.
 
 ### P4c — AmneziaVPN guest `vpn://`
 
-Bounded offline Rust adapter only:
+Bounded local Rust decoding, with no provider/admin API access:
 
 - decode Base64URL + Qt `qCompress` with declared-size, compressed-stream and
   decompressed-size bounds;
 - pass a directly decoded native `.conf` through P4a/P4b unchanged;
-- later select exactly one explicit WG/AWG container from structured Amnezia
-  JSON keys;
+- select exactly one supported explicit WG/AWG container matching
+  `defaultContainer` from structured Amnezia JSON keys;
 - recognize signed Amnezia API/subscription guest keys and reject them with a
   credential-safe compatibility result rather than contacting the embedded
   provider service;
@@ -340,7 +341,7 @@ Bounded offline Rust adapter only:
 
 Native WG/AWG config remains first interoperable target.
 
-### Current full-source port: private adapters, not product enablement
+### Current development candidate: native data path and managed subset
 
 The current development port carries the bounded structured guest adapter from
 `08c80c3b3d91482e9d1a413e22cbb6ddc07b937a` and strict versioned private-record
@@ -352,27 +353,39 @@ duplicate JSON keys reject before normalization. API/admin shapes do not cause
 remote access. The explicit private record contains canonical credentials only,
 revalidates on read and has redacted Debug/errors; it is not a share scheme.
 
-These are pure profile-library capabilities: no production import preview,
-private-store version change, filesystem publication, CLI/IPC registration,
-startup or connection path is enabled. Production still refuses WG/AWG and v4
-stores. The old opt-in host-core test is deliberately not carried: its unbounded
-caller-selected child is not part of this offline adapter boundary. No installed
-core, matching-server, TUN, mode or lifecycle result is inferred from unit tests.
+The development candidate integrates these credentials into the existing Rust
+`PrivateStore`, ordinary CLI/IPC owner and QML/TUI clients. Standalone `.conf`
+and supported guest inputs use redacted Preview, confirmed import/replace,
+details/editor reads and explicit private `.conf` export. WG/AWG QR export is
+refused. Product input/canonical export is bounded to32 KiB and actual serialized
+request/response limits; broader private parsing does not grant execution.
 
-The next pure domain tranche adapts the complete mixed-store model retained at
-`d325b0a08d3f6e4e5f51c5f8f233b180ddeb00b4`, including its cross-profile/
-subscription ID rejection. `CandidatePrivateStore` validates original bounded
-v4 bytes as one identity graph and offers explicit in-memory migration from a
-validated v1-v3 store, standalone append/replace/delete, metadata preparation,
-private native editor/export bytes and pure configuration/pointer preparation.
-No candidate is converted into production `PrivateStore`; all existing
-publication, local-bundle, subscription and Backup readers keep their v3
-boundary. Structured rows cannot hide URI credentials, provider ownership or
-unrecognized extensions. Current imported-profile semantics preserve an
-intentional empty Last selection instead of inventing connection history.
-These methods provide data, not owner admission, filesystem writes or lifecycle
-authority. The retained runtime transactions and unrun validator staging are
-not imported by this tranche.
+The first confirmed native insertion or replacement prepares one atomic
+legacy-to-v4-plus-profile transaction under the existing lock, ownership,
+revision and replay guards. URI-only stores retain their existing versions;
+v4 is sticky. Mixed credentials, subscriptions, local bundles and closed Backup
+v3/v4 handling use the shared graph, including cross-profile/subscription ID
+rejection. Structured rows cannot hide URI credentials, provider ownership or
+unknown extensions. An intentional empty Last selection remains empty. There
+is no startup migration, parallel runtime owner or Python production fallback.
+
+Execution is narrower than private-data support. The credential-derived
+predicate runs before intent/quiesce and again at configuration/start
+boundaries. The initial managed subset requires IPv4 interface, AllowedIPs and
+endpoint transport, plus losslessly representable parameters for the pinned
+core. See the [precise managed subset](docs/roadmap/CONTROL_PLANE.md#experimental-managed-wgawg-subset).
+Variable keepalive, incompatible legacy headers/padding and unsupported junk
+expressions refuse execution while remaining private data. Dual-stack parsing
+and export are not IPv6 connection support.
+
+These source capabilities are not installed/live acceptance. Exact-candidate
+matching-server traffic, wrong-key/wrong-header controls, Full/Routing/Direct,
+reconnect and owned cleanup remain required. Fresh-login/autoconnect,
+update/remove/rollback, IPv6, other AWG generations, ARM installation and public
+DNS/internet egress need their own evidence or explicit scope disposition.
+Parser tests and `mihomo -t` cannot prove lazy UAPI initialization or traffic.
+The old unbounded caller-selected opt-in host-core test is not an acceptance
+substitute. Main/release support is unchanged.
 
 The port also refuses unvalidated AWG 1.5-only `J1`/`J2`/`J3`/`Itime` sibling
 settings in structured guests, consistently with native parsing; they cannot be

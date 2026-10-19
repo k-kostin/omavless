@@ -884,10 +884,11 @@ is accepted.
 
 ### P4a — standard one-peer WireGuard `.conf`
 
-State: **Rust foundation active after completed R2; not product-enabled**.
+State: **Rust native-data/runtime development candidate; exact installed/live
+gates pending, not stable-release support**.
 
-V0 is no longer a global implementation blocker. Do not implement P4a as a
-large new Python-only parser simply because the current plugin is Python-backed.
+V0 is no longer a global implementation blocker. Keep P4a Rust-owned; do not
+revive a Python-only implementation beneath the current QML/Rust product.
 
 Scope remains:
 
@@ -908,23 +909,29 @@ reusable keys never reach public UI/logs/diagnostics/argv/environment.
 
 ### P4b — native AmneziaWG `.conf`
 
-State: **shared Rust parser/model/rendering foundation active with P4a; not
-product-enabled**.
+State: **experimental managed IPv4 candidate using the shared P4a data path;
+exact AWG interoperability and lifecycle gates pending**.
 
 Reuse the R2/P4a Rust storage/parser boundary; accept only deterministic AWG
-families and emit documented Mihomo fields. The first private AWG3 fixture and
-installed Mihomo `1.19.30` config-validation gate pass locally. Real connection,
-mode/lifecycle, old-core compatibility and runtime-bridge evidence remain
-mandatory. Retain Experimental product label initially.
+families and emit losslessly representable Mihomo fields. The historical
+AWG3/installed-core config-validation result is not current traffic proof.
+The current owner registers import/replace/read/export and managed execution
+with the [narrower runtime subset](docs/roadmap/CONTROL_PLANE.md#experimental-managed-wgawg-subset).
+Real matching-server, mode/lifecycle and compatibility evidence remain
+mandatory. Retain the Experimental label; unsupported execution parameters
+stay private data instead of being silently normalized.
 
 ### P4c — AmneziaVPN guest `vpn://`
 
-State: **direct native-config decoder foundation active; structured Amnezia
-container extraction remains planned after P4b acceptance**.
+State: **direct native and bounded structured-container extraction implemented
+in the development candidate; the same narrower execution gates apply**.
 
 Bounded offline guest-key decoding only. Direct Qt `qCompress` payloads that
 expand to a native WG/AWG `.conf` feed the exact Rust P4a/P4b validator.
-Structured Amnezia JSON keys must later select exactly one WG/AWG container.
+Structured Amnezia JSON keys select exactly one supported WG/AWG container
+matching `defaultContainer`; conflicting sibling metadata and duplicate keys
+refuse before publication. Confirmed native insertion atomically migrates the
+shared store to sticky v4; there is no automatic startup migration.
 No embedded API call, SSH/root/admin credential handling or implicit protocol
 fallback.
 

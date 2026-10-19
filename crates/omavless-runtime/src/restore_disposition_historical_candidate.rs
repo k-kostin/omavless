@@ -1676,7 +1676,8 @@ mod tests {
                 5 => {
                     let path = f.config.join(LIVE[0]);
                     let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-                    value["version"] = 4.into();
+                    // Strict v4 is supported; a future schema still refuses.
+                    value["version"] = 5.into();
                     fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
                 }
                 6 => {
@@ -1701,6 +1702,89 @@ mod tests {
                 review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err(),
                 "kind={kind}"
             );
+        }
+    }
+
+    #[test]
+    fn current_live_accepts_strict_v4_ordinary_data_without_weakening_semantic_fences() {
+        for native in [false, true] {
+            let (f, lock) = prepared(true);
+            let history: Vec<_> = [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
+                .iter()
+                .map(|name| fs::read(f.paths.state_directory.join(name)).unwrap())
+                .collect();
+            ordinary_edit(&f);
+            let path = f.config.join(LIVE[0]);
+            let input = fs::read_to_string(&path).unwrap();
+            let current = if native {
+                let config = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+                omavless_domain::private_store::apply_profile_import(
+                    &input,
+                    "40000000-0000-4000-8000-000000000001",
+                    "Synthetic native",
+                    config,
+                )
+                .unwrap()
+                .payload()
+                .to_vec()
+            } else {
+                let mut value: serde_json::Value = serde_json::from_str(&input).unwrap();
+                value["version"] = 4.into();
+                serde_json::to_vec(&value).unwrap()
+            };
+            fs::write(&path, &current).unwrap();
+            let template = fs::read(f.config.join(LIVE[1])).unwrap();
+            let desired = fs::read(f.paths.state_directory.join("desired.json")).unwrap();
+            assert!(
+                omavless_domain::private_backup::validate_bundled_data(&current, &template).is_ok()
+            );
+            assert!(review_historical(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err());
+            let mut gates = 0;
+            assert_eq!(
+                review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || {
+                    gates += 1;
+                    true
+                }),
+                Ok(CurrentLiveReview::ValidHistoricalAndCurrentLiveStillFenced)
+            );
+            assert_eq!(gates, 2);
+            assert!(review_current_live(&f.config, &f.paths, f.uid, 3, &lock, || true).is_err());
+            assert!(
+                review_current_live(&f.config, &f.paths, f.uid.wrapping_add(1), 2, &lock, || {
+                    true
+                })
+                .is_err()
+            );
+            assert!(review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || false).is_err());
+            assert_eq!(fs::read(&path).unwrap(), current);
+            assert_eq!(fs::read(f.config.join(LIVE[1])).unwrap(), template);
+            assert_eq!(
+                fs::read(f.paths.state_directory.join("desired.json")).unwrap(),
+                desired
+            );
+            for (name, bytes) in [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
+                .iter()
+                .zip(history)
+            {
+                assert_eq!(fs::read(f.paths.state_directory.join(name)).unwrap(), bytes);
+            }
+            assert!(crate::pending_private_transaction::pending_at(
+                &f.paths.state_directory
+            ));
+            // Supporting v4 never admits unknown state or repaired pointers.
+            for field in ["unexpectedPrivateState", "activeId"] {
+                let mut invalid: serde_json::Value = serde_json::from_slice(&current).unwrap();
+                invalid[field] = if field == "activeId" {
+                    "10000000-0000-4000-8000-000000000099"
+                } else {
+                    "synthetic-invalid"
+                }
+                .into();
+                fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+                assert!(
+                    review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err()
+                );
+            }
         }
     }
 

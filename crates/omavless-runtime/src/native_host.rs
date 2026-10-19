@@ -2328,11 +2328,63 @@ mod tests {
         host.stop_owned().unwrap();
         assert!(host.ping_slot.epoch().unwrap() > first);
         let stopped = host.ping_slot.epoch().unwrap();
+        const ID: &str = "00000000-0000-4000-8000-000000000001";
+        let store = serde_json::json!({"version":3,"profiles":[{
+            "id":ID,"name":"Synthetic ping target",
+            "uri":"trojan://synthetic@192.0.2.1:443","protocol":"trojan"
+        }]})
+        .to_string();
+        fs::write(&host.paths.store, store).unwrap();
+        fs::set_permissions(&host.paths.store, fs::Permissions::from_mode(0o600)).unwrap();
+        host.profile_id = Some(ID.into());
+        let target = DesiredState {
+            connected: true,
+            profile_id: ID.into(),
+            ..DesiredState::default()
+        };
+        assert_eq!(host.connection_preflight_for(&target), Ok(()));
+        // Reach the start boundary without permitting even the inert core to
+        // execute. An unselected target now correctly refuses before revoke.
+        fs::remove_file(&host.paths.core).unwrap();
         assert!(host.start_prepared().is_err());
         assert!(host.ping_slot.epoch().unwrap() > stopped);
+        assert!(host.core.is_none());
         host.ping_slot.poison_for_test();
         assert!(host.stop_owned().is_err());
         assert!(host.start_prepared().is_err());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn early_start_target_refusals_preserve_ping_epoch_and_private_paths() {
+        let (root, mut host) = observation_fixture();
+        const ID: &str = "00000000-0000-4000-8000-000000000002";
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32, fd00::2/128\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let store = omavless_domain::private_store::apply_profile_import(
+            "{\"version\":3,\"profiles\":[]}",
+            ID,
+            "Unsupported dual-stack",
+            native,
+        )
+        .unwrap();
+        fs::write(&host.paths.store, store.payload()).unwrap();
+        fs::set_permissions(&host.paths.store, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&host.paths.staged_config, b"synthetic-preserved-staging").unwrap();
+        fs::set_permissions(&host.paths.staged_config, fs::Permissions::from_mode(0o600)).unwrap();
+        let epoch = host.ping_slot.epoch().unwrap();
+        for selected in [None, Some("00000000-0000-4000-8000-000000000099"), Some(ID)] {
+            host.profile_id = selected.map(str::to_owned);
+            assert_eq!(host.start_prepared(), Err(HostStepError::Start));
+            assert_eq!(host.ping_slot.epoch(), Some(epoch));
+            assert_eq!(host.profile_id.as_deref(), selected);
+            assert!(host.core.is_none());
+            assert_eq!(
+                fs::read(&host.paths.store).unwrap().as_slice(),
+                store.payload()
+            );
+            assert!(fs::read(&host.paths.staged_config).unwrap() == b"synthetic-preserved-staging");
+        }
         drop(host);
         fs::remove_dir_all(root).unwrap();
     }

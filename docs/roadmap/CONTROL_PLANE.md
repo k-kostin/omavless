@@ -827,8 +827,10 @@ selection change.
 The operation replay digest covers method, profile ID, explicit/omitted mode
 and explicit/omitted expected revision. It excludes `operationId` itself and
 uses a fixed 32-byte SHA-256 value, so the bounded cache never retains the
-private action payload. Implementing this parser does not enable mutations;
-daemon dispatch remains disabled until the one-owner cutover gate is present.
+private action payload. This parser was originally an offline foundation; the
+current Rust owner registers these operations through the existing coordinator.
+WG/AWG execution remains constrained by the managed-subset contract and its
+separate exact installed/live gates.
 
 The v1 local-profile mutation parameters are also exact objects:
 
@@ -871,8 +873,10 @@ Active delete first commits durable disconnect and verifies no owned core/TUN,
 then deletes; any result other than a verified changed commit restores and
 reconnects the old profile. Unexpected store bytes, incomplete cleanup or
 failed compensation becomes
-`manual_recovery_required`. This engine remains offline and unregistered; it
-does not make profile mutations a live daemon capability.
+`manual_recovery_required`. The offline/unregistered restriction describes the
+original foundation, not the current registered Rust owner. Current profile
+mutations retain these coordinator/transaction boundaries; the WG/AWG managed
+subset and its installed/live gates remain separate from private-data support.
 
 The v1 subscription mutation parameters are exact objects:
 
