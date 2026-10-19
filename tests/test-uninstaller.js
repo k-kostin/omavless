@@ -56,6 +56,12 @@ for(const [label,digest] of removalIdentities){
  assert.match(digest,/^[a-f0-9]{64}$/);
  classify(label,digest,true,label.startsWith('public082')?{version:'0.8.2-1'}:label.startsWith('selected ')?{version:selectedVersion}:{});
 }
+// Keep the exact previous installed development pair removable for rollback;
+// this is not generic admission for another 0.9.9 rebuild.
+if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','5a6ce1d4fb84c8ff1686d66a5ec754bbd09848ca26adc4c5afe45e5f43a49df3'],
+ ['aarch64','e0d008c5a1b6d065900f36eb07b5346cab870ebb291334f843a3180a6a0f2ec0']
+])classify('retained inspected ee209338 app '+arch,digest,true,{version:selectedVersion});
 for(const [arch,identity] of Object.entries(selected.identities)){
  const changed=identity.appSha.slice(0,-1)+(identity.appSha.endsWith('0')?'1':'0');
  assert(!removalIdentities.some(([,digest])=>digest===changed));

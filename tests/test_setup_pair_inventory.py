@@ -151,6 +151,25 @@ class PairInventoryTests(unittest.TestCase):
             path.write_text(json.dumps(invalid))
             self.assertNotEqual(query().returncode,0)
 
+    def test_selected_candidate_uses_real_frontend_identity_lookup_for_both_architectures(self):
+        metadata = json.loads((ROOT / 'plugin/component-updates.json').read_text())
+        app = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
+        dns = json.loads((ROOT / 'plugin/dns-release.json').read_text())
+        self.assertEqual(metadata['schemaVersion'], 2)
+        self.assertIs(metadata['updatePair'], True)
+        self.assertEqual(set(metadata['identities']), {'x86_64', 'aarch64'})
+        for arch in ('x86_64', 'aarch64'):
+            self.assertEqual(app['packages'][arch]['sourceCommit'], metadata['sourceCommit'])
+            self.assertEqual(dns['packages'][arch]['sourceCommit'], metadata['sourceCommit'])
+            expected = '\t'.join(metadata['identities'][arch][key] for key in
+                                  ('appSha', 'coreSha', 'brokerSha', 'dnsReceiptSha')) + '\n'
+            result = subprocess.run(['/bin/bash', '-c',
+                'source "$1"; _omavless_pair_pins "$2" "$3"',
+                'fixture', str(INSPECTOR), metadata['sourceCommit'], arch],
+                capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, expected)
+
     def test_same_package_version_does_not_hide_a_previous_delivery(self):
         self.assertEqual(self.inspect(), "stale")
         self.delivery(TARGET)
