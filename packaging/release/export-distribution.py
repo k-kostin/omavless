@@ -322,18 +322,28 @@ def export(root, sha, output):
 
 
 def api(path):
+    token = os.environ.get('GH_TOKEN', '')
+    # RFC6750 bearer bytes only: do not trim/extract polluted launcher output
+    # or silently retry anonymously. Refuse BEFORE constructing a request.
+    if token and (len(token) > 4096 or not re.fullmatch(r'[A-Za-z0-9._~+/-]+=*', token, re.ASCII)):
+        raise ValueError('CI API authentication invalid')
     headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'OmaVLESS-distribution-check'}
-    if os.environ.get('GH_TOKEN'):
-        headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
-    request = urllib.request.Request('https://api.github.com/repos/' + REPO + '/' + path, headers=headers)
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             raise ValueError('CI API redirect refused')
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
-        data = response.read(1024 * 1024 + 1)
-    if len(data) > 1024 * 1024:
-        raise ValueError('CI response bound')
-    return decode(data)
+    try:
+        request = urllib.request.Request('https://api.github.com/repos/' + REPO + '/' + path, headers=headers)
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
+            data = response.read(1024 * 1024 + 1)
+        if len(data) > 1024 * 1024:
+            raise ValueError('CI response bound')
+        return decode(data)
+    except Exception:
+        # HTTP protocol exceptions, OS errors and parser failures can all carry
+        # headers or remote text. No payload, repr or chained traceback escapes.
+        raise ValueError('CI API request failed') from None
 
 
 def check_ci(root, sha, record):
@@ -424,8 +434,8 @@ def main():
             run = verify(ROOT, args.output, args.source_ci)
             print('Exact-source CI verified: ' + str(run) if run else
                   'Offline distribution verified; source CI/publication/installed gates remain separate.')
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
-        parser.exit(2, 'Distribution refused: ' + str(error) + '\n')
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        parser.exit(2, 'Distribution refused: check source, output and CI prerequisites.\n')
 
 
 if __name__ == '__main__':

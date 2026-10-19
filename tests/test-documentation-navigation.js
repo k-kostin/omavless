@@ -270,6 +270,15 @@ for (const rule of ['Focused local iteration', 'Full hosted integration gate',
   assert(judgment.includes(rule), 'retain deliberate local/hosted allocation: ' + rule);
 }
 // Discovery/retention only, not evidence that preflights happened or CI sped up.
+const retention = fs.readFileSync(path.join(root, 'docs/development/README.md'), 'utf8');
+assert(guide.includes('](README.md#compact-operational-checkpoints)'),
+  'compact current-state and fixture workflow must be discoverable');
+for (const rule of ['### Compact operational checkpoints', 'complete original bytes',
+  'historical ACTIVE/PENDING', 'tools/source_fixture.py', 'does not import candidate code']) {
+  assert(retention.includes(rule), 'retain operational checkpoint boundary: ' + rule);
+}
+assert(execution.includes('synthetic credentials and inert transports'));
+assert(execution.includes('without\ntrimming, extracting a token or falling back'));
 assert(guide.includes('](EXECUTION_POLICY.md#producer-and-final-integration-checkpoints)'),
   'native producer/final checkpoint procedure must be discoverable');
 assert(judgment.includes('#### Producer and final integration checkpoints'));

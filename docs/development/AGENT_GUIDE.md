@@ -48,6 +48,9 @@ For native delivery, use the
 [producer and final checkpoint procedure](EXECUTION_POLICY.md#producer-and-final-integration-checkpoints)
 to schedule feasible whole-surface review and real package/export preflights
 before final selection, without bypassing automatic Draft or merged-push CI.
+Keep one [compact operational checkpoint](README.md#compact-operational-checkpoints)
+with referenced original receipts; use its offline source-fixture preparation
+instead of another ad-hoc clone/mode/author helper. It grants no VM authority.
 The [source/distribution map](STABLE_DISTRIBUTION_TRANSITION.md) records the
 deployed October16 separation: main serves users and their support agents;
 this full-source checkout owns product development and developer rules.

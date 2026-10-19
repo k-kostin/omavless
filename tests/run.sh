@@ -31,6 +31,7 @@ python3 -m unittest -v \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \
   "$here/test_distribution_export.py" \
+  "$here/test_source_fixture.py" \
   "$here/test_frontend_pair.py" \
   "$here/test_dns_release_pair.py" \
   "$here/test_installed_native_acceptance.py" \

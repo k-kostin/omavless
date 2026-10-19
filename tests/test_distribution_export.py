@@ -1,16 +1,21 @@
 # SPDX-License-Identifier: MIT
 """Real committed-tree export; inert API fixtures, no install/VM/publication."""
 import importlib.util
+import contextlib
+import http.client
+import io
 import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+import urllib.error
+from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('distribution', ROOT / 'packaging/release/export-distribution.py')
@@ -510,6 +515,113 @@ curl() {
         self.assertEqual(after.returncode, 0)
         self.assertEqual(after.stdout.decode().strip(), self.sha)
         self.assertFalse(canary.exists())
+
+
+class ApiPrivacyTests(unittest.TestCase):
+    """Synthetic credentials only; every transport boundary is inert."""
+    TOKEN = 'SYNTHETIC_CANARY_0123456789'
+
+    def setUp(self):
+        environment = patch.dict(os.environ, {}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def response(self, data=b'{"ok":true}'):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = data
+        opener = MagicMock()
+        opener.open.return_value = response
+        return opener
+
+    def test_contaminated_auth_refuses_before_request_or_transport(self):
+        for value in ('launcher\n' + self.TOKEN, self.TOKEN + '\r\n continuation',
+                      self.TOKEN + '\n', ' ' + self.TOKEN, self.TOKEN + '\t',
+                      self.TOKEN + '\x00', self.TOKEN + '\x7f', self.TOKEN + '\u00e9',
+                      self.TOKEN + '\x85', 'x' * 4097):
+            with self.subTest(kind=repr(value[-3:])), patch.object(EXPORT.os, 'environ', {'GH_TOKEN': value}), \
+                    patch.object(EXPORT.urllib.request, 'Request') as request, \
+                    patch.object(EXPORT.urllib.request, 'build_opener') as transport:
+                with self.assertRaisesRegex(ValueError, 'authentication') as error:
+                    EXPORT.api('actions/workflows/test.yml')
+                self.assertNotIn(self.TOKEN, str(error.exception))
+                request.assert_not_called()
+                transport.assert_not_called()
+
+    def test_valid_auth_bytes_and_anonymous_behavior_are_preserved(self):
+        for token in (self.TOKEN, 'synthetic-._~+/token==', '', None):
+            env = {} if token is None else {'GH_TOKEN': token}
+            opener = self.response()
+            with self.subTest(auth=bool(token)), patch.dict(os.environ, env, clear=True), \
+                    patch.object(EXPORT.urllib.request, 'build_opener', return_value=opener):
+                self.assertEqual(EXPORT.api('actions/workflows/test.yml'), {'ok': True})
+            request = opener.open.call_args.args[0]
+            self.assertEqual(request.get_header('Authorization'), 'Bearer ' + token if token else None)
+            self.assertEqual(opener.open.call_args.kwargs, {'timeout': 30})
+            self.assertEqual(request.full_url, 'https://api.github.com/repos/k-kostin/omavless/actions/workflows/test.yml')
+
+    def test_transport_exceptions_never_export_auth_or_remote_reason(self):
+        for failure in (ValueError('Bearer ' + self.TOKEN), OSError(self.TOKEN),
+                        urllib.error.URLError(self.TOKEN),
+                        urllib.error.HTTPError('https://example.invalid', 401, self.TOKEN, {}, None),
+                        http.client.BadStatusLine(self.TOKEN)):
+            if isinstance(failure, urllib.error.HTTPError):
+                self.addCleanup(failure.close)
+            opener = self.response()
+            opener.open.side_effect = failure
+            with self.subTest(error=type(failure).__name__), \
+                    patch.dict(os.environ, {'GH_TOKEN': self.TOKEN}), \
+                    patch.object(EXPORT.urllib.request, 'build_opener', return_value=opener):
+                with self.assertRaisesRegex(ValueError, 'CI API request failed') as error:
+                    EXPORT.api('actions/workflows/test.yml')
+                self.assertNotIn(self.TOKEN, str(error.exception))
+                self.assertTrue(error.exception.__suppress_context__)
+                self.assertIsNone(error.exception.__cause__)
+                self.assertEqual(opener.open.call_count, 1)
+
+    def test_read_decode_size_and_duplicate_key_failures_stay_private(self):
+        for data in (b'not-json-' + self.TOKEN.encode(), b'{"a":1,"a":2}', b'x' * (1024 * 1024 + 1)):
+            opener = self.response(data)
+            with patch.dict(os.environ, {'GH_TOKEN': self.TOKEN}), \
+                    patch.object(EXPORT.urllib.request, 'build_opener', return_value=opener):
+                with self.assertRaisesRegex(ValueError, 'CI API request failed') as error:
+                    EXPORT.api('actions/workflows/test.yml')
+                self.assertNotIn(self.TOKEN, str(error.exception))
+        opener = self.response()
+        opener.open.return_value.read.side_effect = OSError(self.TOKEN)
+        with patch.object(EXPORT.urllib.request, 'build_opener', return_value=opener), \
+                self.assertRaisesRegex(ValueError, 'CI API request failed'):
+            EXPORT.api('actions/workflows/test.yml')
+
+    def test_redirect_handler_still_refuses_without_following(self):
+        opener = self.response()
+        with patch.object(EXPORT.urllib.request, 'build_opener', return_value=opener) as build:
+            EXPORT.api('actions/workflows/test.yml')
+        handler = build.call_args.args[0]()
+        with self.assertRaises(ValueError):
+            handler.redirect_request(None, None, 302, self.TOKEN, {}, 'https://example.invalid')
+
+    def test_cli_refusal_never_formats_exception_payload(self):
+        for command in (['export', '/synthetic-output', 'a' * 40], ['verify', '/synthetic-output', '--source-ci']):
+            target = 'export' if command[0] == 'export' else 'verify'
+            for failure in (ValueError(self.TOKEN), OSError(self.TOKEN), TypeError(self.TOKEN)):
+                stderr = io.StringIO()
+                with patch.object(sys, 'argv', ['exporter', *command]), \
+                        patch.object(EXPORT, target, side_effect=failure), \
+                        contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as result:
+                    EXPORT.main()
+                self.assertEqual(result.exception.code, 2)
+                self.assertIn('Distribution refused', stderr.getvalue())
+                self.assertNotIn(self.TOKEN, stderr.getvalue())
+
+    def test_bootstrap_top_level_refusal_never_formats_filesystem_error(self):
+        script = ROOT / 'packaging/release/distribution/source-bootstrap.py'
+        with patch.object(sys, 'argv', [str(script), '/synthetic-source', '/synthetic-distribution']), \
+                patch.object(Path, 'lstat', side_effect=OSError(self.TOKEN)), \
+                self.assertRaises(SystemExit) as result:
+            runpy.run_path(str(script), run_name='__main__')
+        self.assertIn('Source validator refused', str(result.exception.code))
+        self.assertNotIn(self.TOKEN, str(result.exception.code))
 
 
 if __name__ == '__main__':

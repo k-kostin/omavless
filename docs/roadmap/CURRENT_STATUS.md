@@ -1,15 +1,20 @@
 # Current delivery status
 
-Development-only import successor: selected #733/#737 direct input and local
-raw/Base64 bundles, composed with #742's narrow unresolved-state footer and
-#755's native-wire/PTY checks on the current development base. Rust retains
-classification, preview/store binding, duplicate handling and one atomic Save;
-clients add no parser or tunnel owner. Private input starts masked, explicit
-Reveal/Paste is local, and ambiguous manual-recovery Save remains blocking
-Unknown. Affected UI, exact source/native delivery and installed integration
-remain gates of the owning development PR, not a stable 0.9.8 feature claim.
+Development now includes subscriptions/UX #801, socket fixtures #802/#803,
+direct input/local bundles/TUI #804 and consumer Restore #805. Each final outcome
+earned its own exact PR and independent merged PUSH, new committed export and
+actual fresh-source generated bootstrap. Restore #805 merged at `73746b0c`; all 7
+declared exact-EE x64 functional/installed-PTY recovery branches passed with
+their recorded limits. This is development admission, not stable 0.9.8 delivery,
+default fresh setup, physical-keyboard or installed-ARM acceptance. Owning PRs
+retain exact evidence; completed fixtures must not be replayed for bookkeeping.
 
-Updated 2026-10-17. This is the compact current-state entry point; the detailed
+The next developer-tooling follow-up hardens credential diagnostics with inert
+regressions, provides offline source-fixture preparation and keeps compact
+operational indexes. Its implementation/checks/integration are separate from
+the completed product outcomes; it grants no new native, VM or release scope.
+
+Updated 2026-10-19. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -23,12 +28,12 @@ verified after reboot in the Qt6.12 guest and by an isolated Qt6.11 smoke;
 the separately corrected Omarchy shell remains a local pinned source, not an
 upstream delivery.
 
-The next selected consumer UI port from #751 distinguishes Subscriptions
+The admitted consumer UI port from #751 distinguishes Subscriptions
 loading, failed reads and confirmed-empty metadata. It retains existing cached
 rows, Refresh, action/unknown fences, setup/Help and current Color imports.
 The same change replaces implementation-oriented refresh-failure wording with
-a short reachable Refresh/reopen instruction in EN/RU. The owning new-base PR
-must earn its own source/rendering and integration gates; old-base results do
+a short reachable Refresh/reopen instruction in EN/RU. The owning new-base PR #801
+earned its own source/rendering and integration gates; old-base results did
 not qualify this composition. No runtime API, provider request, VPN transition,
 new import/Restore capability, native package or user-main change follows.
 
