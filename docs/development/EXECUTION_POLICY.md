@@ -332,10 +332,36 @@ Other agents perform source/test work without controlling it. The physical
 owner's network/services are outside VM authorization.
 
 Prefer reproducible disposable VM fixtures and reviewed reusable launchers to
-many ad-hoc privileged wrappers. Bound process lifetimes and collect useful
-diagnostics by design. Ordinary owned build processes may use normal timeout
-and cleanup supervision; that is not an authorization to signal an unknown
-resource-owning worker.
+many ad-hoc privileged wrappers. Bound individual operations and resource use,
+and collect useful diagnostics by design. Ordinary owned build processes may
+use normal timeout and cleanup supervision; that is not an authorization to
+signal an unknown resource-owning worker.
+
+### VM session lifetime
+
+Owner correction, October19: no automatic wall-clock VM termination by default.
+Do not wrap the development guest in a fixed session kill timer such as
+`timeout 4h`; elapsed session age alone must not destroy an otherwise valid
+installed test in progress. Plan completion/restoration and normal guest
+shutdown around the scenario, the owner's stop request and actual resource
+conditions, not an arbitrary number of hours. This is not permission to leave
+an unused VM running indefinitely: retain a named operator and explicit
+shutdown or handoff disposition at each pause/completion.
+
+Keep bounded SSH/API/capture/test commands, authentication and product
+confirmation deadlines, fixture quotas and resource headroom checks. Those
+bounds are independent of VM lifetime; a command timeout must not acquire
+permission to kill its enclosing guest. Fault-injection actors and other
+explicitly bounded safety experiments retain their own reviewed contracts.
+If a particular future scenario needs a whole-VM deadline, explain its reason,
+expiry action and evidence cost and obtain a separate owner decision before
+launch, rather than silently reinstating a generic timer.
+
+This policy changes future launch design only. Do not remove a timer from an
+already running admitted launcher, rewrite an original result or revive a
+terminated/sealed fixture. Existing loss/unknown-effect, original-identity,
+single-operator and recovery boundaries remain unchanged. An interrupted guest
+does not become settled merely because the new default would keep it alive.
 
 Cleanup of a known owned completed fixture can follow its pre-reviewed recipe.
 Uncertain effect-bearing state requires the feature's explicit recovery path,
