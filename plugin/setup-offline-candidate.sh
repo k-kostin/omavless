@@ -30,7 +30,7 @@ setup_components() {
   state=$(candidate_status) || return 1
   if pair_installed; then core=present; fi
   # No unsupported public-predecessor update advisory in this fresh-only lane.
-  printf '%s\t%s\n' "$state" "$core"
+  printf '%s\t%s\toffline-candidate\n' "$state" "$core"
 }
 
 candidate_input_directory() {

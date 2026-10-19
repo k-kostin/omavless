@@ -57,7 +57,11 @@ No package rebuild or fresh download is implied by this procedure.
 The candidate supports only fresh install and the existing guarded continuation
 steps `resume-dns`, `finish-selection` and `start-broker`. It does not offer public
 predecessor updates, package repair, arbitrary reinstall, or helper-access
-recovery. Unknown/mixed/modified installed payloads remain blockers. Actual
+recovery. Unknown/mixed/modified installed payloads remain blockers.
+Candidate inventory explicitly marks this channel so the shared UI hides the
+unsupported helper-access recovery disclosure, while retaining ordinary helper
+Start and the direct native application Start continuation. Public recovery
+visibility and its existing guards are unchanged. Actual
 installed identity includes exact schema-3 version/source, app/core/broker bytes
 and DNS receipt, not just `pacman -Q`.
 

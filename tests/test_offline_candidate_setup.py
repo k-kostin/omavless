@@ -187,7 +187,7 @@ install_package
         self.assertEqual(result.stdout, '')
         self.assertEqual(result.stderr, '')
         self.assertEqual(self.shell('candidate_main status').stdout, 'needs_package\n')
-        self.assertEqual(self.shell('candidate_main components').stdout, 'needs_package\tmissing\n')
+        self.assertEqual(self.shell('candidate_main components').stdout, 'needs_package\tmissing\toffline-candidate\n')
 
     def test_unsupported_actions_refuse_before_any_effect(self):
         for action in ('upgrade', 'update-pair', 'restore-enrollment', '--install', 'arbitrary'):
@@ -200,8 +200,16 @@ install_package
         result = self.shell('package_installed() { echo "omavless 0.8.2-1"; }; '
                             'native_present() { return 0; }; native_target() { echo rust; }; '
                             'candidate_main components')
-        self.assertEqual(result.stdout, 'needs_attention\tmissing\n')
+        self.assertEqual(result.stdout, 'needs_attention\tmissing\toffline-candidate\n')
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_candidate_inventory_retains_channel_across_supported_continuations(self):
+        for state in ('needs_dns_setup', 'needs_selection', 'needs_broker_stopped',
+                      'needs_runtime_start', 'ready', 'needs_attention'):
+            result = self.shell(f'setup_status() {{ echo {state}; }}; '
+                                'pair_installed() { return 0; }; candidate_main components')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, state + '\tpresent\toffline-candidate\n')
 
     def test_dispatcher_uses_only_fixed_entries_and_refuses_unknown_marker(self):
         for name, label in (('setup-runtime.sh', 'PUBLIC'),

@@ -77,6 +77,28 @@ test('recovery disclosure is navigation, and restore retains all existing barrie
     assert.equal(vm.runInNewContext(enabled,c),shown&&recoveryExpanded&&coreInstalled===true&&!effectBusy&&!terminalOpened);
   }
 });
+test('offline inventory hides unsupported recovery but keeps ordinary continuations', () => {
+  const vm=require('node:vm');
+  const toggle=card.slice(card.indexOf('id: recoveryToggle'),card.indexOf('\n      }',card.indexOf('id: recoveryToggle')));
+  const visible=toggle.match(/visible: ([^\n]+)/)[1];
+  for(const channel of ['', '\toffline-candidate'])for(const present of ['present','missing']) {
+    const facts=state.inventory('needs_broker_stopped\t'+present+channel+'\n',0);
+    const restore=channel===''&&present==='present';
+    assert.equal(vm.runInNewContext(visible,{SetupState:state,card:{facts}}),restore);
+    assert.equal(state.canRunAction(facts,'restore-enrollment'),restore);
+    assert.equal(state.canRunAction(facts,'start-broker'),present==='present');
+    assert(!state.hasUpdate(facts));
+  }
+  for(const [status,action] of [['needs_package','install'],['needs_activation','install'],
+      ['needs_dns_setup','resume-dns'],['needs_selection','finish-selection'],['needs_runtime_start','start-app']]) {
+    const facts=state.inventory(status+'\tpresent\toffline-candidate\n',0);
+    assert.equal(facts.channel,'offline-candidate');
+    assert(state.canRunAction(facts,action));
+    assert(!state.canRunAction(facts,'restore-enrollment'));
+    assert(!state.canRunAction(facts,'update-pair'));
+  }
+  assert(card.includes('onFactsChanged: if (!SetupState.canRestoreHelperAccess(facts)) recoveryExpanded = false'));
+});
 test('every web-link label has the same trailing marker, local URL reveal does not', () => {
   for(const locale of ['en','ru'])for(const key of ['help.guide','help.issue','setup.guide','settings.source']) {
     const value=i18n.translate(key,locale,{source:'Synthetic source'});assert(value.endsWith(' ↗'));assert.equal(value.split('↗').length,2);

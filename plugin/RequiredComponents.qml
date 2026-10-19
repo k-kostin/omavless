@@ -33,7 +33,7 @@ ColumnLayout {
   signal terminalClosed()
   signal guideRequested()
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
-  onFactsChanged: if (facts.state !== "needs_broker_stopped") recoveryExpanded = false
+  onFactsChanged: if (!SetupState.canRestoreHelperAccess(facts)) recoveryExpanded = false
   visible: SetupState.needsAttention(facts)
   spacing: Style.space(12)
   component SetupButton: Button {
@@ -111,7 +111,7 @@ ColumnLayout {
         id: recoveryToggle
         objectName: "setupRecoveryOptions"
         Layout.fillWidth: true
-        visible: card.facts.state === "needs_broker_stopped"
+        visible: SetupState.canRestoreHelperAccess(card.facts)
         text: card.tr(card.recoveryExpanded ? "hide_recovery" : "other_options")
         bordered: false
         onClicked: card.recoveryExpanded = !card.recoveryExpanded
