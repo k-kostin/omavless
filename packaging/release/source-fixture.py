@@ -15,14 +15,16 @@ import stat
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def git(root, *args):
     # A local-only fixture must not inherit hooks, auth helpers, global filters,
     # GIT_DIR overrides or automatic maintenance from the operator's shell.
     env = {'PATH': os.defpath, 'HOME': str(Path.home()), 'LC_ALL': 'C',
-           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull}
+           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+           'GIT_NO_LAZY_FETCH': 'true', 'GIT_ALLOW_PROTOCOL': 'file',
+           'GIT_TERMINAL_PROMPT': '0'}
     return subprocess.check_output(
         ['git', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
          '-c', 'core.hooksPath=/dev/null', '-c', 'init.templateDir=',

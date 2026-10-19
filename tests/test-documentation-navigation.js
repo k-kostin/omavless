@@ -274,7 +274,7 @@ const retention = fs.readFileSync(path.join(root, 'docs/development/README.md'),
 assert(guide.includes('](README.md#compact-operational-checkpoints)'),
   'compact current-state and fixture workflow must be discoverable');
 for (const rule of ['### Compact operational checkpoints', 'complete original bytes',
-  'historical ACTIVE/PENDING', 'tools/source_fixture.py', 'does not import candidate code']) {
+  'historical ACTIVE/PENDING', 'packaging/release/source-fixture.py', 'does not import candidate code']) {
   assert(retention.includes(rule), 'retain operational checkpoint boundary: ' + rule);
 }
 assert(execution.includes('synthetic credentials and inert transports'));

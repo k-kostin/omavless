@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location('source_fixture', ROOT / 'tools/source_fixture.py')
+SPEC = importlib.util.spec_from_file_location('source_fixture', ROOT / 'packaging/release/source-fixture.py')
 FIXTURE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIXTURE)
 
@@ -108,6 +108,33 @@ class SourceFixtureTests(unittest.TestCase):
         self.assertEqual(result['sourceCommit'], self.first)
         self.assertEqual(result['localDistributionCommitConfig'],
                          ['-c', 'user.name=OmaVLESS', '-c', 'user.email=devnull@example.invalid'])
+        with patch.object(FIXTURE.subprocess, 'check_output', return_value=b'') as command:
+            FIXTURE.git(self.repo, 'status', '--porcelain=v1')
+        env = command.call_args.kwargs['env']
+        self.assertEqual(env['GIT_NO_LAZY_FETCH'], 'true')
+        self.assertEqual(env['GIT_ALLOW_PROTOCOL'], 'file')
+        self.assertEqual(env['GIT_TERMINAL_PROMPT'], '0')
+        self.assertNotIn('GH_TOKEN', env)
+        self.assertNotIn('GIT_DIR', env)
+
+    def test_missing_promisor_commit_never_invokes_local_transport(self):
+        # Entirely inert: the only configured transport is an owned local
+        # upload-pack witness which records invocation and immediately refuses.
+        witness = self.base / 'upload-pack-witness'
+        witness.write_text('#!/bin/sh\nprintf invoked > "$0.called"\nexit 1\n')
+        witness.chmod(0o755)
+        FIXTURE.git(self.repo, 'config', 'remote.origin.url', str(self.repo))
+        FIXTURE.git(self.repo, 'config', 'remote.origin.promisor', 'true')
+        FIXTURE.git(self.repo, 'config', 'remote.origin.partialclonefilter', 'blob:none')
+        FIXTURE.git(self.repo, 'config', 'remote.origin.uploadpack', str(witness))
+        before = {str(path.relative_to(self.repo)): path.read_bytes()
+                  for path in self.repo.rglob('*') if path.is_file()}
+        with self.assertRaises(FIXTURE.subprocess.SubprocessError):
+            FIXTURE.prepare(self.repo, '1' * 40, self.base)
+        self.assertFalse(witness.with_suffix('.called').exists())
+        self.assertEqual(set(self.base.iterdir()), {self.repo, witness})
+        self.assertEqual(before, {str(path.relative_to(self.repo)): path.read_bytes()
+                                  for path in self.repo.rglob('*') if path.is_file()})
 
 
 if __name__ == '__main__':
