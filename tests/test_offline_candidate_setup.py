@@ -4,9 +4,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import errno
+import pty
+import select
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +77,101 @@ obtain_install_archives {self.names[0]} {app} {self.names[1]} {dns} "$cache"
 
     def cache(self):
         return self.directory / '.cache/omavless/upgrade082' / '.'.join(self.hashes)
+
+    def terminal(self, code, response):
+        if os.geteuid() == 0:
+            self.skipTest('interactive setup deliberately refuses root')
+        master, slave = pty.openpty()
+        process = None
+        output = bytearray()
+        try:
+            process = subprocess.Popen(['/bin/bash', '-c',
+                'source "$1/setup-offline-candidate.sh"\n' + code,
+                'fixture', str(self.plugin)], env={**self.env,
+                'XDG_RUNTIME_DIR': str(self.directory)}, stdin=slave,
+                stdout=slave, stderr=slave)
+            os.close(slave)
+            slave = -1
+            os.write(master, response.encode())
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], 0.05)[0]:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError as error:
+                        if error.errno == errno.EIO:
+                            break
+                        raise
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                    self.assertLessEqual(len(output), 16384)
+                elif process.poll() is not None:
+                    break
+            return process.wait(timeout=1), output.decode().replace('\r\n', '\n')
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()  # Only this inert, fixture-owned test shell.
+                process.wait(timeout=2)
+            os.close(master)
+            if slave != -1:
+                os.close(slave)
+
+    def terminal_leaves(self):
+        return '''
+setup_status() { if [[ -f "$TEST_DIRECTORY/installed" ]]; then echo needs_activation; else echo needs_package; fi; }
+setup_runtime_directory_safe() { return 0; }
+native_present() { return 1; }
+native_target() { echo legacy; }
+native() { echo UNEXPECTED_NATIVE >&2; return 99; }
+dns_package_registered() { return 1; }
+package_installed() { [[ -f "$TEST_DIRECTORY/installed" ]] && echo 'omavless 0.9.9-1'; }
+pair_installed() { [[ -f "$TEST_DIRECTORY/installed" ]]; }
+fresh_user_runtime_absent() { return 0; }
+no_managed_tun() { return 0; }
+package_info() { case "${1##*/}" in omavless-dns-*) echo 'omavless-dns 0.9.9-1';; *) echo 'omavless 0.9.9-1';; esac; }
+app_archive_identity() { return 0; }
+dns_archive_identity() { return 0; }
+package_install() { echo package >> "$TEST_DIRECTORY/trace"; touch "$TEST_DIRECTORY/installed"; }
+reload_units() { echo reload >> "$TEST_DIRECTORY/trace"; }
+prepare_private_store() { return 42; }
+curl() { echo UNEXPECTED_NETWORK >&2; return 99; }
+'''
+
+    def test_real_pty_cancel_at_each_new_input_has_no_package_or_native_effects(self):
+        for locale in ('en', 'ru'):
+            for response in ('\n', 'INSTALL\n\n'):
+                with self.subTest(locale=locale, response=response):
+                    status, output = self.terminal(self.terminal_leaves() +
+                        f'candidate_main install {locale}', response)
+                    self.assertEqual(status, 0 if response == '\n' else 1)
+                    self.assertFalse((self.directory / 'trace').exists())
+                    self.assertFalse((self.directory / 'installed').exists())
+                    self.assertNotIn('UNEXPECTED', output)
+                    self.assertFalse((self.directory / 'omavless-first-run.lock').exists())
+                    self.assertEqual(list(self.directory.glob('omavless-first-run.*')), [])
+                    if self.cache().exists():
+                        self.assertEqual(list(self.cache().iterdir()), [])
+
+    def test_real_pty_partial_success_retains_package_and_offers_only_next_observed_step(self):
+        for locale in ('en', 'ru'):
+            with self.subTest(locale=locale):
+                for name in ('trace', 'installed'):
+                    (self.directory / name).unlink(missing_ok=True)
+                status, output = self.terminal(self.terminal_leaves() +
+                    f'candidate_main install {locale}', 'INSTALL\n' + str(self.input) + '\n')
+                self.assertEqual(status, 1)
+                self.assertTrue((self.directory / 'trace').exists(), output)
+                self.assertEqual((self.directory / 'trace').read_text(), 'package\nreload\n')
+                self.assertTrue((self.directory / 'installed').exists())
+                self.assertIn('private-settings.', output)
+                self.assertNotIn('UNEXPECTED', output)
+                self.assertNotIn('OmaVLESS is ready.', output)
+                self.assertNotIn('OmaVLESS готов.', output)
+                self.assertFalse((self.directory / 'omavless-first-run.lock').exists())
+                result = self.shell('setup_status() { echo needs_activation; }; '
+                    'pair_installed() { return 0; }; candidate_main components')
+                self.assertEqual(result.stdout, 'needs_activation\tpresent\toffline-candidate\n')
 
     def test_explicit_channel_and_real_pair_acquisition(self):
         self.assertEqual((ROOT / 'plugin/setup-channel.json').read_bytes(), CHANNEL)
