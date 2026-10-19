@@ -57,7 +57,7 @@ Detailed architecture: [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTUR
 | TUIC v5 | Experimental implementation | R2 Rust parity + independent validation |
 | Standard WireGuard `.conf` | P4a Rust foundation in development | Runtime bridge + private/live/security gates |
 | Native AmneziaWG `.conf` | P4b Rust foundation in development | AWG3 core validation passes; live/runtime gates remain |
-| AmneziaVPN guest `vpn://` | Partial P4c Rust foundation | Direct native payload supported; structured-container extraction remains |
+| AmneziaVPN guest `vpn://` | P4c offline Rust adapter | Direct native and explicit structured WG/AWG extraction; product bridge and live gates remain |
 
 Mihomo supporting an outbound does not mean OmaVLESS supports the provider
 key/config format. Manifest/marketplace description lists only implemented
@@ -339,6 +339,63 @@ Bounded offline Rust adapter only:
 - never silently choose another protocol container.
 
 Native WG/AWG config remains first interoperable target.
+
+### Current full-source port: private adapters, not product enablement
+
+The current development port carries the bounded structured guest adapter from
+`08c80c3b3d91482e9d1a413e22cbb6ddc07b937a` and strict versioned private-record
+codec from `b0af70a447e88288321b3de5cc184861bdb6a92b`. Exactly one supported
+WG/AWG container must match `defaultContainer`; its embedded native config is
+revalidated by the existing strict parser. Conflicting endpoint, credential,
+address, DNS, MTU, keepalive and AWG sibling metadata reject. Original-byte
+duplicate JSON keys reject before normalization. API/admin shapes do not cause
+remote access. The explicit private record contains canonical credentials only,
+revalidates on read and has redacted Debug/errors; it is not a share scheme.
+
+These are pure profile-library capabilities: no production import preview,
+private-store version change, filesystem publication, CLI/IPC registration,
+startup or connection path is enabled. Production still refuses WG/AWG and v4
+stores. The old opt-in host-core test is deliberately not carried: its unbounded
+caller-selected child is not part of this offline adapter boundary. No installed
+core, matching-server, TUN, mode or lifecycle result is inferred from unit tests.
+
+The next pure domain tranche adapts the complete mixed-store model retained at
+`d325b0a08d3f6e4e5f51c5f8f233b180ddeb00b4`, including its cross-profile/
+subscription ID rejection. `CandidatePrivateStore` validates original bounded
+v4 bytes as one identity graph and offers explicit in-memory migration from a
+validated v1-v3 store, standalone append/replace/delete, metadata preparation,
+private native editor/export bytes and pure configuration/pointer preparation.
+No candidate is converted into production `PrivateStore`; all existing
+publication, local-bundle, subscription and Backup readers keep their v3
+boundary. Structured rows cannot hide URI credentials, provider ownership or
+unrecognized extensions. Current imported-profile semantics preserve an
+intentional empty Last selection instead of inventing connection history.
+These methods provide data, not owner admission, filesystem writes or lifecycle
+authority. The retained runtime transactions and unrun validator staging are
+not imported by this tranche.
+
+The port also refuses unvalidated AWG 1.5-only `J1`/`J2`/`J3`/`Itime` sibling
+settings in structured guests, consistently with native parsing; they cannot be
+silently ignored alongside an otherwise valid WG/AWG native payload. Negative
+controls cover case/order variants and both credential families. Historical
+source acceptance and original failed checks remain separate from this port's
+exact-head evidence in its owning PR.
+
+The October19 upstream recheck read the official
+[Amnezia importer at the pinned source](https://github.com/amnezia-vpn/amnezia-client/blob/398697c101d27d9d4fb2f9a25ebe7749925f0d61/client/core/controllers/selfhosted/importController.cpp),
+the [Mihomo WG documentation](https://wiki.metacubex.one/en/config/proxies/wg/)
+and [pinned v1.19.30 option implementation](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/adapter/outbound/wireguard.go).
+Official [v1.19.31](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.31)
+and [v1.19.32](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.32) notes
+were checked; v1.19.31 includes AWG v3 and WG initialization corrections. This
+does not select a new core, lower a minimum version or qualify current binaries.
+No published advisory was listed on the official advisory page at that check;
+this is not a claim that no relevant bug exists. In particular the open
+[WG reload report #3255](https://github.com/MetaCubeX/mihomo/issues/3255) describes
+old devices surviving `PUT /configs`, including an attributed Linux/AWG
+observation. It is not an OmaVLESS reproduction or a proven fix. Before product
+activation, qualify the actual selected core and lifecycle replacement/cleanup,
+rather than inferring that config reload closes the previous WG device.
 
 ## Later Mihomo-native candidates
 

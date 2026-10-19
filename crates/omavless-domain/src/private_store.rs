@@ -26,10 +26,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub(crate) mod backup_candidate;
+mod candidate;
 mod local_bundle;
 pub use local_bundle::{LocalBundleCounts, LocalBundlePlan};
 mod startup;
 mod support;
+pub use candidate::{
+    CandidateExportFormat, CandidatePrivateStore, CandidateProfileEditInput,
+    CandidateProfileExport, CandidateProfileInput, CandidateRuntimeConfig,
+    apply_candidate_compatibility_pointer_update, migrate_legacy_store_candidate,
+    parse_candidate_private_store,
+};
 pub use startup::{StartupPreferences, apply_startup_preferences};
 
 /// Complete onboarding without changing login policy, profile selection or
