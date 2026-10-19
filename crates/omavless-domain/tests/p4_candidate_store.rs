@@ -581,6 +581,130 @@ fn candidate_private_output_clears_stale_references_without_losing_extensions() 
     );
 }
 
+fn stale_candidate_source(pointers: usize, existing: bool) -> Value {
+    let mut source = mixed();
+    source["profiles"] = if existing {
+        json!([{"id":URI_ID,"name":"Existing","protocol":"vless","uri":URI,"favorite":false}])
+    } else {
+        json!([])
+    };
+    source["activeId"] = if pointers == 0 || pointers >= 3 {
+        WG_ID
+    } else {
+        ""
+    }
+    .into();
+    source["lastId"] = if pointers == 1 || pointers >= 3 {
+        WG_ID
+    } else {
+        ""
+    }
+    .into();
+    source["startup"] = json!({"enabled":pointers != 4,"target":if pointers == 5 {"last"} else {"profile"},
+        "profileId":if pointers == 5 {""} else {WG_ID},"mode":"global","vendorStartup":{"keep":true}});
+    source
+}
+
+fn candidate_input(family: usize) -> CandidateProfileInput {
+    match family {
+        0 => CandidateProfileInput::Uri(URI.to_owned()),
+        _ => {
+            CandidateProfileInput::WireGuard(parse_wireguard_config(&native(family == 2)).unwrap())
+        }
+    }
+}
+
+fn assert_no_resurrected_candidate_pointers(
+    candidate: omavless_domain::private_store::CandidatePrivateStore,
+) {
+    assert!(candidate.pointer_presence() == (false, false, false));
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    assert!(output["activeId"] == "" && output["lastId"] == "");
+    assert!(output["startup"]["enabled"] == false && output["startup"]["profileId"] == "");
+    assert!(output["startup"]["vendorStartup"]["keep"] == true);
+    assert!(output["vendorExtension"]["kept"] == 1);
+}
+
+#[test]
+fn appending_matching_id_cannot_resurrect_stale_connection_or_startup_pointers() {
+    for family in 0..3 {
+        for pointers in 0..6 {
+            let source = stale_candidate_source(pointers, false);
+            let candidate = parse_candidate_private_store(&source.to_string()).unwrap();
+            assert!(candidate.pointer_presence() == (false, false, false));
+            let candidate = candidate
+                .with_profile(WG_ID, "New", candidate_input(family))
+                .unwrap();
+            assert_no_resurrected_candidate_pointers(candidate);
+        }
+    }
+}
+
+#[test]
+fn normalizing_stale_ids_does_not_disable_valid_existing_last_or_pinned_policy() {
+    for family in 0..3 {
+        for pinned in [false, true] {
+            let mut source = stale_candidate_source(5, true);
+            if pinned {
+                source["activeId"] = URI_ID.into();
+                source["lastId"] = URI_ID.into();
+                source["startup"]["target"] = "profile".into();
+                source["startup"]["profileId"] = URI_ID.into();
+            }
+            let before = parse_candidate_private_store(&source.to_string()).unwrap();
+            let expected = if pinned {
+                (true, true, true)
+            } else {
+                (false, false, true)
+            };
+            assert!(before.pointer_presence() == expected);
+            let after = before
+                .with_profile(WG_ID, "New", candidate_input(family))
+                .unwrap();
+            assert!(after.pointer_presence() == expected);
+            let output: Value =
+                serde_json::from_slice(&after.into_private_bytes().unwrap()).unwrap();
+            assert!(output["activeId"] == if pinned { URI_ID } else { "" });
+            assert!(output["lastId"] == if pinned { URI_ID } else { "" });
+            assert!(output["startup"]["profileId"] == if pinned { URI_ID } else { "" });
+            assert!(output["startup"]["enabled"] == true);
+        }
+    }
+}
+
+#[test]
+fn metadata_noop_replace_and_delete_keep_normalized_pointers_before_later_append() {
+    for family in 0..3 {
+        for operation in 0..6 {
+            let source = stale_candidate_source(3, true);
+            let candidate = parse_candidate_private_store(&source.to_string()).unwrap();
+            assert!(candidate.pointer_presence() == (false, false, false));
+            let candidate = match operation {
+                0 => candidate.rename_standalone(URI_ID, "Existing").unwrap().0,
+                1 => candidate.rename_standalone(URI_ID, "Renamed").unwrap().0,
+                2 => candidate.set_favorite(URI_ID, false).unwrap().0,
+                3 => candidate.set_favorite(URI_ID, true).unwrap().0,
+                4 => {
+                    candidate
+                        .replace_standalone(
+                            URI_ID,
+                            "Existing",
+                            CandidateProfileInput::Uri(URI.to_owned()),
+                        )
+                        .unwrap()
+                        .0
+                }
+                _ => candidate.delete_standalone(URI_ID).unwrap(),
+            };
+            assert!(candidate.pointer_presence() == (false, false, false));
+            let candidate = candidate
+                .with_profile(WG_ID, "New", candidate_input(family))
+                .unwrap();
+            assert_no_resurrected_candidate_pointers(candidate);
+        }
+    }
+}
+
 #[test]
 fn standalone_append_refuses_cross_graph_ids_and_duplicate_names() {
     let wg = || parse_wireguard_config(&native(false)).unwrap();

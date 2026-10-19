@@ -345,12 +345,10 @@ impl CandidatePrivateStore {
         !id.is_empty() && self.state.active_id == id
     }
 
-    /// Intentional private byte release for a future owner-bound writer only.
-    /// There is currently no production caller and no filesystem publication.
-    pub fn into_private_bytes(mut self) -> Result<Vec<u8>, PrivateStoreError> {
-        // Admission normalizes stale pointers in memory. Do not serialize the
-        // original pointers again when this candidate is explicitly exported.
-        // Keep unrelated root/row extensions and credential bytes untouched.
+    /// Keep the private document and validated state in the same normalized
+    /// pointer state before any later mutation can make an old dangling ID
+    /// valid again. Unrelated extensions and credentials are not rewritten.
+    fn normalize_document_pointers(&mut self) -> Result<(), PrivateStoreError> {
         let root = self
             .document
             .as_object_mut()
@@ -369,12 +367,25 @@ impl CandidatePrivateStore {
             "enabled".to_owned(),
             Value::from(self.state.startup.enabled),
         );
-        startup.insert("target".to_owned(), Value::from(self.state.startup.target));
+        startup.insert(
+            "target".to_owned(),
+            Value::from(self.state.startup.target.clone()),
+        );
         startup.insert(
             "profileId".to_owned(),
-            Value::from(self.state.startup.profile_id),
+            Value::from(self.state.startup.profile_id.clone()),
         );
-        startup.insert("mode".to_owned(), Value::from(self.state.startup.mode));
+        startup.insert(
+            "mode".to_owned(),
+            Value::from(self.state.startup.mode.clone()),
+        );
+        Ok(())
+    }
+
+    /// Intentional private byte release for a future owner-bound writer only.
+    /// There is currently no production caller and no filesystem publication.
+    pub fn into_private_bytes(mut self) -> Result<Vec<u8>, PrivateStoreError> {
+        self.normalize_document_pointers()?;
         let mut bytes =
             serde_json::to_vec(&self.document).map_err(|_| PrivateStoreError::InvalidJson)?;
         bytes.push(b'\n');
@@ -487,7 +498,12 @@ pub fn apply_candidate_compatibility_pointer_update(
     target: CompatibilityPointerTarget,
 ) -> Result<PrivatePointerMutation, PrivateStoreError> {
     let mut store = parse_candidate_private_store(input)?;
-    let root = object(&store.document)?;
+    // Candidate admission has already bounded and validated the original
+    // bytes, including duplicate keys. Compare against the raw source only
+    // here so pointer repair remains a reported change, not an apparent no-op.
+    let original: Value =
+        serde_json::from_str(input).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let root = object(&original)?;
     let old_active = optional_string(root, "activeId", "")?.to_owned();
     let old_last = optional_string(root, "lastId", "")?.to_owned();
     let old_enabled = root
@@ -796,10 +812,12 @@ pub fn parse_candidate_private_store(
         onboarding_complete,
     })
     .map_err(PrivateStoreError::Store)?;
-    Ok(CandidatePrivateStore {
+    let mut candidate = CandidatePrivateStore {
         document: value,
         state,
         credentials,
         custom_rules,
-    })
+    };
+    candidate.normalize_document_pointers()?;
+    Ok(candidate)
 }
