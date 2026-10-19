@@ -173,6 +173,7 @@ class Peer:
         self.fault_sent = False
         self.post_pending = False
         self.force_save_interleave = force_save_interleave
+        self.interleave_armed = threading.Event()
         self.refresh_held = threading.Event()
         self.interleave_phase = "refresh"
         self.interleaved = False
@@ -184,7 +185,7 @@ class Peer:
             return list(self.calls)
 
     def interleave_response(self, method):
-        if not self.force_save_interleave:
+        if not self.force_save_interleave or not self.interleave_armed.is_set():
             return
         if (method == "capabilities.get" and self.interleave_phase == "refresh"
                 and self.methods().count("imports.classify") == 1):
@@ -456,6 +457,11 @@ def check(binary, locale, kind, fault, force_save_interleave=False):
                     require("plugin.action" not in peer.methods(), "zero-new must not Save")
                 else:
                     if force_save_interleave:
+                        # A counted classify request alone does not establish
+                        # its post-Hello. Arm only after the visible preview
+                        # above proves classification completed. If that first
+                        # refresh already passed, catch the next normal poll.
+                        peer.interleave_armed.set()
                         wait(peer.refresh_held.is_set)
                     if fault.startswith("save-"):
                         # Classification completion triggers a new normal read.

@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('native_wire', ROOT / 'tests/test-tui-native-import-wire.py')
@@ -23,6 +24,29 @@ def interleavings(left, right):
 
 
 class NativeWireOrderingTests(unittest.TestCase):
+    def test_interleave_hook_cannot_arm_on_classify_count_before_visible_preview(self):
+        peer = WIRE.Peer.__new__(WIRE.Peer)
+        peer.force_save_interleave = True
+        peer.interleave_phase = 'refresh'
+        peer.interleave_armed = WIRE.threading.Event()
+        peer.refresh_held = WIRE.threading.Event()
+        peer.interleaved = False
+        peer.lock = WIRE.threading.Lock()
+        peer.calls = ['system.hello', 'imports.classify', 'system.hello', 'capabilities.get']
+        peer.listener = object()
+        with patch.object(WIRE.select, 'select', side_effect=AssertionError('unarmed hook touched listener')):
+            peer.interleave_response('capabilities.get')
+        self.assertFalse(peer.refresh_held.is_set())
+        self.assertEqual(peer.interleave_phase, 'refresh')
+        peer.interleave_armed.set()
+        with patch.object(WIRE.select, 'select', return_value=([peer.listener], [], [])) as selected:
+            peer.interleave_response('capabilities.get')
+            peer.interleave_response('system.hello')
+        self.assertEqual(selected.call_count, 2)
+        self.assertTrue(peer.refresh_held.is_set())
+        self.assertTrue(peer.interleaved)
+        self.assertEqual(peer.interleave_phase, 'done')
+
     def test_all_bounded_per_worker_interleavings_preserve_guards_and_cycles(self):
         count = 0
         for calls in interleavings(SAVE, READ * 2):
