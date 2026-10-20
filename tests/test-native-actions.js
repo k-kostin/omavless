@@ -128,7 +128,7 @@ test('malformed oversized and invalid Unicode inputs fail without throwing or ec
 });
 function serviceHarness() {
   const source=fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
-  const context=vm.createContext({NativeSnapshot:parser,NativePresentation:presentation,nativeOwner:true,nativeSnapshotFailed:false,
+  const context=vm.createContext({NativeSnapshot:parser,NativePresentation:presentation,nativeOwner:true,nativeRuntimeUnavailable:false,nativeSnapshotFailed:false,
     nativeSnapshot:{instanceId:'instance-one',revision:4,lastKnownActual:'disconnected',desired:{connected:false,mode:'rule',generation:3},
       profiles:[{id:'profile-one',missing:false,subscriptionId:'',favorite:false},{id:'profile-missing',missing:true,subscriptionId:''},
         {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}],subscriptions:[],lastProfileId:''},

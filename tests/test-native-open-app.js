@@ -65,7 +65,7 @@ test('Open app is fixed below profile actions, not a Settings or profile mutatio
   assert(footer.includes('visible: !root.bootstrapRequired && vless.nativeOwner && root.page === "main"'));
   assert(footer.includes('anchors.bottom: parent.bottom'));
   assert(footer.includes('text: root.textFor("native.app.open")'));
-  assert(footer.includes('enabled: vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening'));
+  assert(footer.includes('enabled: root.runtimePanelState === "" && vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening'));
   assert(footer.includes('onClicked: vless.refreshNativeAppAvailability()'));
   assert(!footer.includes('nativeActionProfile') && !footer.includes('nativeCanAct'));
   const handler = footer.match(/onClicked: \{ ([^\n]+) \}/)[1];

@@ -197,8 +197,23 @@ Item {
       nativeModeTransition = null
     }
   }
+  // Component-proved stopped app: no stale snapshot/observation may enable a
+  // mutation or be promoted by an old in-flight poll. No service effects here.
+  property bool nativeRuntimeUnavailable: false
+  signal runtimeInventoryRequested()
+  property int nativeAvailabilityGeneration: 0
+  property bool nativeRuntimeRefreshing: false
+  onNativeRuntimeUnavailableChanged: {
+    nativeAvailabilityGeneration++
+    nativeRuntimeRefreshing = false
+    if (nativeRuntimeUnavailable) {
+      nativeSnapshot = null
+      nativeObservation = null
+      nativeSnapshotFailed = true
+    }
+  }
   readonly property bool nativeActionRunning: nativeActionProcess.running
-  readonly property bool nativeFactsCurrent: nativeOwner && !nativeSnapshotFailed
+  readonly property bool nativeFactsCurrent: nativeOwner && !nativeRuntimeUnavailable && !nativeSnapshotFailed
     && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)
     && nativeObservation.availability === "observed"
   readonly property bool nativeCanAct: nativeFactsCurrent && !nativePending && !nativeQuitting
@@ -206,7 +221,7 @@ Item {
     && !nativeObservation.manualRecoveryRequired
   /* Cleanup is a fenced request to the native owner, not a UI claim of safety.
      A broken controller/recovery state must not hide the explicit exit path. */
-  readonly property bool nativeCanStop: nativeOwner && !nativeSnapshotFailed && nativeSnapshot !== null
+  readonly property bool nativeCanStop: nativeOwner && !nativeRuntimeUnavailable && !nativeSnapshotFailed && nativeSnapshot !== null
     && !nativePending && !nativeQuitting && !nativeActionRunning && !nativeOutcomeUnknown
   property int _nativeOperationSerial: 0
   property bool nativeStartupSettingsVisible: false
@@ -820,7 +835,9 @@ Item {
   }
 
   function refreshNativeObservation() {
-    if (!nativeOwner || nativeActionRunning || nativeObservationProcess.running) return false
+    if (!nativeOwner || nativeRuntimeUnavailable || !nativeSnapshot || nativeSnapshotFailed
+        || nativeActionRunning || nativeObservationProcess.running) return false
+    nativeObservationProcess.availabilityGeneration = nativeAvailabilityGeneration
     nativeObservationProcess.running = true
     return true
   }
@@ -1795,6 +1812,7 @@ Item {
     // be parsed is "after the observation" and must keep its marker.
     _statusStartedAt = Date.now()
     _nativeStatusSettled = false
+    statusProcess.availabilityGeneration = nativeAvailabilityGeneration
     statusProcess.running = true
     return true
   }
@@ -2275,6 +2293,7 @@ Item {
   }
 
   function applyStatus(raw) {
+    if (nativeRuntimeUnavailable) { runtimeInventoryRequested(); return false }
     var payload
     try {
       payload = JSON.parse(String(raw || ""))
@@ -4030,11 +4049,17 @@ Item {
 
   Process {
     id: nativeObservationProcess
+    property int availabilityGeneration: -1
     running: false
     command: ["bash", root.backendPath, "native-observation"]
     stdout: StdioCollector { id: nativeObservationStdout; waitForEnd: true }
     onExited: function(exitCode) {
-      root.nativeObservation = exitCode === 0 ? NativeSnapshot.parseObservation(nativeObservationStdout.text) : null
+      if (nativeObservationProcess.availabilityGeneration !== root.nativeAvailabilityGeneration) {
+        if (!root.nativeRuntimeUnavailable) Qt.callLater(root.refreshNativeObservation)
+        return
+      }
+      root.nativeObservation = exitCode === 0 && !root.nativeRuntimeUnavailable ? NativeSnapshot.parseObservation(nativeObservationStdout.text) : null
+      root.nativeRuntimeRefreshing = false
       root.finishNativeModeTransitionObservation()
       root.finishNativeActionTransitionObservation()
     }
@@ -4179,6 +4204,7 @@ Item {
 
   Process {
     id: statusProcess
+    property int availabilityGeneration: -1
     running: false
     command: ["bash", root.backendPath, "status"]
     stdout: StdioCollector {
@@ -4190,12 +4216,18 @@ Item {
       waitForEnd: true
     }
     onExited: function(exitCode) {
+      if (statusProcess.availabilityGeneration !== root.nativeAvailabilityGeneration) {
+        root._refreshAfterStatus = false
+        Qt.callLater(root.refreshAfterChange)
+        return
+      }
       // A failed poll must not read as "disconnected" — keep the last known
       // state and say why it could not be refreshed.
       if (exitCode === 70 || exitCode === 71) root.enterNativeReadOnly()
       if (exitCode === 0 && root.applyStatus(statusStdout.text)) {
         root.statusFailureCount = 0
       } else {
+        root.nativeRuntimeRefreshing = false
         if (root.nativeOwner) root.nativeSnapshotFailed = true
         if (root.nativeModeTransition && !root.nativeActionRunning) {
           nativeModeTransitionTimeout.stop()

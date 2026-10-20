@@ -184,12 +184,14 @@ test('terminal handoff closes only the panel and keeps its barrier until explici
   assert(!page.includes('setup.terminalOpened = code === 0'),'failure cannot silently clear closure barrier');
 });
 test('setup has separate navigation and cannot expose legacy mutation shortcuts', () => {
-  assert(panel.includes('readonly property bool bootstrapRequired: componentSetupReview || SetupState.bootstrapRequired('));
+  assert(panel.includes('readonly property bool bootstrapRequired: componentSetupReview || (runtimePanelState === "" && SetupState.bootstrapRequired('));
   assert(panel.includes('vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown'));
   assert(page.includes('readonly property bool appMissing: SetupState.appMissing(facts)'));
   assert(panel.includes('if (root.bootstrapRequired) return setupPage.focusTargets'));
   assert(panel.includes('root.bootstrapRequired ? setupFlick'));
-  assert(panel.includes('onReady: { vless.enterNativeReadOnly(); vless.refresh() }'));
+  assert(panel.includes('onReady: function(runtimeResumed)'));
+  assert(panel.includes('vless.nativeRuntimeRefreshing = runtimeResumed'));
+  assert(panel.includes('vless.refreshAfterChange()'));
   assert(panel.includes('if (root.bootstrapRequired) root.close()'));
   assert(panel.includes('onTextKey: function(t) {\n        if (root.bootstrapRequired) return'));
   assert(panel.includes('width: Math.max(0, setupFlick.width - root.scrollGutter)'));
@@ -224,7 +226,7 @@ test('known stopped facts supersede a stale snapshot but never waive pending or 
   for (const value of ['ready','checking','needs_attention','needs_broker','needs_runtime_stop'])
     assert(!state.bootstrapRequired({state:value},true,true,false,false,false));
 });
-test('real failed-poll handler refreshes only inventory on the open panel', () => {
+test('failed-poll handler refreshes only inventory even with the panel closed', () => {
   const vm=require('node:vm');
   const start=panel.indexOf('    function onStatusFailureCountChanged()');
   const end=panel.indexOf('\n    }',start)+6;
@@ -232,8 +234,8 @@ test('real failed-poll handler refreshes only inventory on the open panel', () =
   const c=vm.createContext({root:{opened:true},vless:{statusFailureCount:1},setupPage:{checks:0,check(){this.checks++}}});
   vm.runInContext(panel.slice(start,end),c);
   c.onStatusFailureCountChanged(); assert.equal(c.setupPage.checks,1);
-  c.root.opened=false;c.onStatusFailureCountChanged();assert.equal(c.setupPage.checks,1);
-  c.root.opened=true;c.vless.statusFailureCount=0;c.onStatusFailureCountChanged();assert.equal(c.setupPage.checks,1);
+  c.root.opened=false;c.onStatusFailureCountChanged();assert.equal(c.setupPage.checks,2);
+  c.root.opened=true;c.vless.statusFailureCount=0;c.onStatusFailureCountChanged();assert.equal(c.setupPage.checks,2);
 });
 test('all first-use and unavailable states have bounded EN/RU plain text', () => {
   for (const locale of ['en', 'ru']) for (const key of ['title', 'checking', 'ready', 'needs_package',
@@ -304,7 +306,7 @@ test('freshness is advisory and preserves connection admission and stopped actio
       if(action) assert(state.canRunAction(facts,action));
       // Panel admits Connect by operational state, never delivery freshness.
       assert.equal(facts.state !== 'ready', status !== 'ready');
-      assert.equal(state.bootstrapRequired(facts,true,true,false,false,false), status !== 'ready');
+      assert.equal(state.bootstrapRequired(facts,true,true,false,false,false), status === 'needs_broker_stopped');
       const core = {installed:true,version:'1.19.31',tunDevice:'present',fileNetworkCapabilities:'present'};
       if(status==='ready') assert.equal(state.coreReview(core,facts,false,false,false),'ready');
     }
