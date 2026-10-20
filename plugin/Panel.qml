@@ -83,6 +83,11 @@ Panel {
   property bool pointerSelectingConfig: false
   property string hoveredSubscriptionServerUuid: ""
   property string profileFilter: ""
+  property string nativeProtocolFilter: ""
+  // Equal inventories must not rebuild focused Repeater delegates on polls.
+  readonly property string nativeProtocolOptionsKey: nativeAvailableProtocols().join(",")
+  readonly property var nativeProtocolOptions: nativeProtocolOptionsKey === "" ? [] : nativeProtocolOptionsKey.split(",")
+  onNativeProtocolOptionsChanged: reconcileNativeProtocolFilter()
   property bool profileSearchRequested: false
   // Attached scrollbars overlay Flickable content. Reserve a real gutter so
   // latency/status text never sits directly against the thumb.
@@ -210,7 +215,10 @@ Panel {
   property string nativeSelectedProfile: ""
   property string nativeExpandedDetailsId: ""
   onNativeSelectedProfileChanged: nativeExpandedDetailsId = ""
-  onPageChanged: nativeExpandedDetailsId = ""
+  onPageChanged: {
+    nativeExpandedDetailsId = ""
+    if (nativeProtocolChoices) nativeProtocolChoices.collapse(false)
+  }
   property string nativeSubscriptionId: ""
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
@@ -303,6 +311,7 @@ Panel {
       return textFor("native.profiles.unavailable")
     if (page === "subscription" && !nativeSubscription)
       return textFor("native.profiles.subscription_missing")
+    if (nativeProtocolFilter !== "") return textFor("profiles.no_filter_match")
     if (profileFilter !== "")
       return textFor("profiles.no_match", {query:profileFilter})
     return textFor(page === "subscription"
@@ -323,7 +332,7 @@ Panel {
   }
 
   function buildNativeRows() {
-    var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
+    var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter, nativeProtocolFilter)
     if (page === "subscription") return sortNativeProbeProfiles(profiles.filter(function(p) {
       return p.subscriptionId === nativeSubscriptionId
     }), nativeSubscriptionId).map(function(p) { return {kind:"profile", profile:p} })
@@ -331,12 +340,61 @@ Panel {
     profiles.filter(function(p) { return p.subscriptionId === "" }).forEach(function(p) { rows.push({kind:"profile", profile:p}) })
     nativeView.subscriptions.forEach(function(subscription) {
       var children = profiles.filter(function(p) { return p.subscriptionId === subscription.id })
-      if (profileFilter !== "" && children.length === 0) return
-      var expanded = profileFilter !== "" || nativeExpanded[subscription.id] === true
+      if (nativeFiltersActive() && children.length === 0) return
+      var expanded = nativeFiltersActive() || nativeExpanded[subscription.id] === true
       rows.push({kind:"subscription", subscription:subscription, expanded:expanded, count:children.length})
       if (expanded) children.forEach(function(p) { rows.push({kind:"profile", profile:p}) })
     })
     return rows
+  }
+
+  function nativeFiltersActive() {
+    return profileFilter !== "" || nativeProtocolFilter !== ""
+  }
+
+  function nativeFilterSummary() {
+    if (!vless.nativeSnapshot || vless.nativeSnapshotFailed || root.runtimePanelState !== "") return ""
+    var all = nativeView.profiles.filter(function(profile) {
+      return page !== "subscription" || profile.subscriptionId === nativeSubscriptionId
+    })
+    if (page === "subscription" && !nativeSubscription) return ""
+    var matching = NativePresentation.filtered(all, profileFilter, nativeProtocolFilter)
+    return textFor("profiles.filter_count", {matched:matching.length, total:all.length})
+  }
+
+  function nativeAvailableProtocols() {
+    if (root.runtimePanelState !== "" || !vless.nativeSnapshot || vless.nativeSnapshotFailed
+        || (page !== "main" && page !== "subscription")
+        || (page === "subscription" && !nativeSubscription)) return []
+    return NativePresentation.availableProtocols(nativeView.profiles.filter(function(profile) {
+      return page !== "subscription" || profile.subscriptionId === nativeSubscriptionId
+    }))
+  }
+
+  function reconcileNativeProtocolFilter() {
+    if (nativeProtocolOptions.length <= 1 || nativeProtocolOptions.indexOf(nativeProtocolFilter) < 0)
+      nativeProtocolFilter = ""
+  }
+
+  function collapseNativeProtocolChooser() {
+    if (!vless.nativeOwner || root.bootstrapRequired || root.modalInputActive
+        || (page !== "main" && page !== "subscription") || !nativeProtocolChoices.expanded) return false
+    nativeProtocolChoices.collapse(false)
+    return true
+  }
+
+  function setNativeProtocolFilter(protocol) {
+    if (root.runtimePanelState !== "" || !vless.nativeSnapshot || vless.nativeSnapshotFailed
+        || (protocol !== "" && (nativeProtocolOptions.length <= 1 || nativeProtocolOptions.indexOf(protocol) < 0))) return false
+    nativeProtocolFilter = protocol
+    nativeCursor = -1
+    return true
+  }
+
+  function resetNativeFilters() {
+    profileFilter = ""
+    nativeProtocolFilter = ""
+    nativeCursor = -1
   }
 
   function sortNativeProbeProfiles(profiles, subscriptionId) {
@@ -370,7 +428,7 @@ Panel {
   function toggleNativeSubscription(id) {
     // Search exposes every matching child. Do not silently change the saved
     // expansion preference when no collapse can be visible.
-    if (profileFilter !== "") return
+    if (nativeFiltersActive()) return
     var next = Object.assign({}, nativeExpanded)
     next[id] = !next[id]
     nativeExpanded = next
@@ -378,7 +436,7 @@ Panel {
 
   function nativeSubscriptionToggleTooltip(row) {
     if (!row || row.kind !== "subscription") return ""
-    if (profileFilter !== "") return textFor("native.subscriptions.search_expanded")
+    if (nativeFiltersActive()) return textFor("native.subscriptions.search_expanded")
     return safeTooltip(textFor(row.expanded
       ? "native.subscriptions.collapse" : "native.subscriptions.expand",
       {name:row.subscription.name}))
@@ -387,6 +445,7 @@ Panel {
   function browseNativeSubscription(id) {
     if (!nativeView.subscriptions.some(function(s) { return s.id === id })) return false
     profileFilter = ""
+    nativeProtocolFilter = ""
     nativeSubscriptionId = id
     page = "subscription"
     nativeCursor = -1
@@ -720,7 +779,7 @@ Panel {
       : "URL stays private and is shown only in this editor")))
 
   function openSubscriptions() {
-    if (vless.nativeOwner) { nativeSubscriptionId = ""; profileFilter = ""; page = "subscriptions"; nativeFlick.contentY = 0; return true }
+    if (vless.nativeOwner) { nativeSubscriptionId = ""; profileFilter = ""; nativeProtocolFilter = ""; page = "subscriptions"; nativeFlick.contentY = 0; return true }
     if (!vless.supports("subscriptions")) return
     page = "subscriptions"
     cursorActive = false
@@ -920,6 +979,9 @@ Panel {
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
+      var searchIndex = targets.indexOf(nativeSearch)
+      if (searchIndex >= 0)
+        targets = targets.slice(0, searchIndex).concat(nativeProtocolChoices.tabTargets(), targets.slice(searchIndex))
       if (page === "main" && showMainConnectionTest) targets.push(nativeTestButton)
       if (page === "main" && showMainLatencySection) targets.splice(6, 0, nativePingTest)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
@@ -1026,6 +1088,7 @@ Panel {
 
   function handlePanelControlKey(event) {
     if (event.key === Qt.Key_Escape) {
+      if (root.collapseNativeProtocolChooser()) { event.accepted = true; return }
       if (root.page === "subscription") root.openSubscriptions()
       else if (root.page === "subscriptions") root.closeSubscriptions()
       else if (root.page === "settings") root.closeSettings()
@@ -1586,9 +1649,20 @@ Panel {
   function toggleNativeProfileDetails() {
     if (!vless.nativeCanAct || !nativeActionProfile) return false
     var id = nativeActionProfile.id
-    if (nativeExpandedDetailsId === id) { nativeExpandedDetailsId = ""; return true }
-    if (!nativeRows.some(function(row) { return row.kind === "profile" && row.profile.id === id })) {
+    var visible = nativeRows.some(function(row) { return row.kind === "profile" && row.profile.id === id })
+    if (nativeExpandedDetailsId === id && visible) { nativeExpandedDetailsId = ""; return true }
+    if (!visible) {
       profileFilter = ""
+      nativeProtocolFilter = ""
+      // Browsing another provider does not retarget the fixed action dock.
+      // Reveal that dock's exact profile on Main rather than expanding an
+      // invisible row outside the current subscription's scope.
+      if (page === "subscription" && nativeActionProfile.subscriptionId !== nativeSubscriptionId) {
+        nativeSubscriptionId = ""
+        page = "main"
+        nativeCursor = -1
+        nativeFlick.contentY = 0
+      }
       if (page === "main" && nativeActionProfile.subscriptionId && !nativeExpanded[nativeActionProfile.subscriptionId])
         toggleNativeSubscription(nativeActionProfile.subscriptionId)
     }
@@ -2037,6 +2111,7 @@ Panel {
       }
       onActivateRequested: { if (root.bootstrapRequired) root.focusPanelControl(1); else if (vless.nativeOwner) root.activateNativeCursor(); else if (root.cursorActive) root.activateCursor() }
       onCloseRequested: {
+        if (root.collapseNativeProtocolChooser()) return
         if (root.bootstrapRequired) root.close()
         else if (root.page === "subscription") root.openSubscriptions()
         else if (root.page === "subscriptions") root.closeSubscriptions()
@@ -2324,7 +2399,7 @@ Panel {
           PlainText {
             id: nativeConnectedIdentity
             Layout.fillWidth: true
-            visible: root.page === "main" && root.nativeTransitionKind === "" && root.nativeActiveProfile !== null
+            visible: (root.page === "main" || root.page === "subscription") && root.nativeTransitionKind === "" && root.nativeActiveProfile !== null
             text: root.nativeActiveProfile ? root.textFor("native.profile.active", {name:root.nativeActiveProfile.name}) : ""
             textFormat: Text.PlainText
             color: root.foreground
@@ -2752,6 +2827,35 @@ Panel {
               y: Style.space(10)
               width: Math.max(0, nativeProfilesFrame.width - Style.space(20))
               spacing: Style.space(8)
+              ProtocolFilter {
+                id: nativeProtocolChoices
+                Layout.fillWidth: true
+                locale: root.uiLocale
+                protocols: root.nativeProtocolOptions
+                value: root.nativeProtocolFilter
+                canFilter: root.runtimePanelState === ""
+                canReset: root.nativeFiltersActive()
+                onChosen: function(protocol) { root.setNativeProtocolFilter(protocol) }
+                onResetRequested: {
+                  root.resetNativeFilters()
+                  nativeSearch.forceActiveFocus()
+                }
+                onControlKey: function(event) { root.handlePanelControlKey(event) }
+                onSearchFocusRequested: {
+                  if (nativeSearch.visible && nativeSearch.enabled) nativeSearch.forceActiveFocus()
+                  else keyCatcher.forceActiveFocus()
+                }
+              }
+              PlainText {
+                Layout.fillWidth: true
+                visible: root.nativeFiltersActive() && text !== ""
+                text: root.nativeFilterSummary()
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
               SafeTextField {
                 id: nativeSearch
                 locale: root.uiLocale
@@ -2773,7 +2877,10 @@ Panel {
                     event.accepted = true
                   }
                 }
-                Keys.onEscapePressed: function(event) { root.profileFilter = ""; keyCatcher.forceActiveFocus(); event.accepted = true }
+                Keys.onEscapePressed: function(event) {
+                  if (!root.collapseNativeProtocolChooser()) { root.profileFilter = ""; keyCatcher.forceActiveFocus() }
+                  event.accepted = true
+                }
               }
               PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && root.nativeRows.length === 0; text: root.nativeEmptyProfilesText(); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
               Repeater {

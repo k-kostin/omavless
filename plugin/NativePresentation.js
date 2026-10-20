@@ -55,10 +55,20 @@ function activeProfile(view) {
   return view.profiles.find(function(profile) { return profile.id === view.activeId }) || null
 }
 
-function filtered(profiles, query) {
+// Options come from the current list scope BEFORE search/filtering. Never
+// advertise a protocol merely because the application supports importing it.
+function availableProtocols(profiles) {
+  var present = (profiles || []).slice(0,256).map(function(p) { return p.protocol })
+  return ["vless", "trojan", "hysteria2", "tuic", "wireguard", "amneziawg"].filter(function(protocol) {
+    return present.indexOf(protocol) >= 0
+  })
+}
+
+function filtered(profiles, query, protocol) {
   var needle = typeof query === "string" ? query.slice(0,128).toLowerCase() : ""
   return (profiles || []).slice(0,256).filter(function(p) {
-    return p.name.toLowerCase().indexOf(needle) !== -1
+    return (!protocol || p.protocol === protocol)
+      && p.name.toLowerCase().indexOf(needle) !== -1
   }).sort(function(a,b) {
     return Number(b.favorite) - Number(a.favorite)
   })

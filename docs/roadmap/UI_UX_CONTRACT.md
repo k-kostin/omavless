@@ -221,6 +221,36 @@ reads are unavailable, not Off. Invalidate displayed facts across visits,
 runtime/availability epochs and snapshot revisions. Keep the VPN Edit action
 and its existing mutation/confirmation admission separate and unchanged.
 
+### Local profile protocol filter
+
+Profile protocol filtering is session-local presentation, intersecting the name
+query without changing selected or connected identity. Use the present-only
+collapsed disclosure specified below, preserving the fixed dock and the
+connected-profile identity on both profile-list pages.
+Active filters expose matching subscription children without overwriting saved
+expansion. Reset filters clears both local filters; Details reveals its exact
+selected target through both filters. Counts refer to matching profiles within
+the current page scope, not rendered group headers or unavailable metadata.
+
+### Profile protocol filter (owner direction, 2026-10-20)
+
+Offer only protocols present in the user's added profiles, not every protocol
+the application can import. Main uses the whole profile inventory; a browsed
+subscription uses its own profiles. Derive choices before applying name or
+protocol filtering, so typing a search never removes its own filter options.
+With zero or one distinct protocol, omit the protocol selector. If an inventory
+or scope change removes the selected option or the need for a selector, clear
+only that local protocol filter; never retarget selection or the connection.
+
+Use a compact, initially collapsed disclosure next to the search area instead
+of an always-visible protocol strip. Its label retains the current value when
+collapsed. Expanding only reveals choices; selecting filters the list and
+returns focus to the disclosure. Escape first collapses an open chooser; hidden
+choices are not keyboard stops. Reset remains reachable for an active search
+even when no protocol selector is needed, clears both local filters and returns
+to search. Keep the fixed management dock, connected identity, scoped counts
+and temporary group expansion; no runtime, provider or persistent-store effect.
+
 ### Required components (owner direction, 2026-09-15)
 
 Missing OmaVLESS/Mihomo belongs in a bordered **Required components** block
