@@ -156,7 +156,7 @@ class PairInventoryTests(unittest.TestCase):
         app = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
         dns = json.loads((ROOT / 'plugin/dns-release.json').read_text())
         self.assertEqual(metadata['schemaVersion'], 2)
-        self.assertEqual(metadata['sourceCommit'], '5281e02fb89b61e39859b0d4085d34599b848c1c')
+        self.assertEqual(metadata['sourceCommit'], '6dac9b8226b609c0441fd05bbc15e2a8f7f5ca63')
         self.assertIs(metadata['updatePair'], True)
         self.assertEqual(set(metadata['identities']), {'x86_64', 'aarch64'})
         for arch in ('x86_64', 'aarch64'):
@@ -174,7 +174,7 @@ class PairInventoryTests(unittest.TestCase):
             # not an updater predecessor or this frontend's selected identity.
             previous = subprocess.run(['/bin/bash', '-c',
                 'source "$1"; _omavless_pair_pins "$2" "$3"',
-                'fixture', str(INSPECTOR), 'a128524e3fc90561bc04230fba06c91c41fa7e94', arch],
+                'fixture', str(INSPECTOR), '5281e02fb89b61e39859b0d4085d34599b848c1c', arch],
                 capture_output=True, text=True, timeout=5)
             self.assertNotEqual(previous.returncode, 0)
             self.assertEqual(previous.stdout, '')
