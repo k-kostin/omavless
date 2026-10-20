@@ -396,6 +396,23 @@ lazy UAPI initialization, traffic and lifecycle gates remain required; parser
 acceptance or `mihomo -t` alone is not that evidence. This is not full P4/R6 or
 all-generation interoperability acceptance.
 
+The verified normal traffic-ready family adds only the read-only
+`/configs/traffic-ready` report. Local startup and observation require ABI 1
+`ready: true` from the same owned core before and after topology/selector reads.
+Published listeners, DNS ownership and configured rules can precede external
+traffic admission while initial providers and cached selection load. Keep the
+original startup deadline; Running is not remote handshake or egress proof.
+The separately verified conditional-close family retains its own fixed
+`/connections/conditional-capabilities` report and original Session binding;
+the normal traffic-ready family grants NO conditional-close authority.
+Older two-patch and unmanaged URI paths retain configured-only compatibility.
+New WG/AWG activation specifically requires the verified normal traffic-ready
+family before intent/quiesce, repeated at prepare/start/login. Active replacement
+derives this requirement from sealed candidate credentials, not a client label;
+inactive data import/edit and explicit Disconnect/Quit remain available. Invalid
+or missing reports never fall back to legacy configured-only readiness. See
+the [core report contract](../../tests/core_dns_adapter/TRAFFIC_READY.md).
+
 Initial managed admission requires IPv4 interface/AllowedIPs/endpoint transport.
 The renderer fixes one `peers[]` entry with its exact endpoint/public key/PSK
 and AllowedIPs; the adapter's synthesized root-peer path ignores root

@@ -224,6 +224,11 @@ pub trait LifecycleHost {
     fn connection_preflight(&mut self) -> Result<(), HostStepError> {
         Ok(())
     }
+    /// Trusted host qualification for a candidate native WG credential.
+    /// No client family label or configuration flag can provide this proof.
+    fn native_profile_preflight(&mut self) -> Result<(), HostStepError> {
+        Ok(())
+    }
     /// Select from the trusted current store, not caller-provided protocol.
     /// Legacy synthetic hosts keep their existing DNS-only preflight behavior.
     fn connection_preflight_for(

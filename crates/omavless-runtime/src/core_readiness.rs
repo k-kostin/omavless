@@ -10,11 +10,20 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Instant;
 
+/// Fixed protocol selected ONLY by an exact validated package receipt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TrafficReadiness {
+    ConfiguredOnly,
+    ConditionalV1,
+    TrafficV1,
+}
+
 #[derive(Clone)]
 pub(crate) struct ConfigReadiness {
     pub(crate) mode: RoutingMode,
     profile_name: String,
     managed_dns: bool,
+    running_report: TrafficReadiness,
 }
 
 impl ConfigReadiness {
@@ -28,6 +37,7 @@ impl ConfigReadiness {
             mode,
             profile_name,
             managed_dns: false,
+            running_report: TrafficReadiness::ConfiguredOnly,
         }
     }
 
@@ -77,6 +87,12 @@ impl ConfigReadiness {
         }
         expected.managed_dns = true;
         Some(expected)
+    }
+
+    /// Set only from the verified selected package family, never YAML or IPC.
+    pub(crate) fn with_running_report(mut self, required: TrafficReadiness) -> Self {
+        self.running_report = required;
+        self
     }
 
     pub(crate) fn startup_timeout(&self) -> std::time::Duration {
@@ -145,16 +161,27 @@ impl ConfigReadiness {
     }
 
     pub(crate) fn ready_for_pid(&self, socket: &Path, pid: u32, deadline: Instant) -> bool {
-        self.ready_with(deadline, |endpoint| {
-            crate::core_selector::read_configuration(socket, pid, endpoint, deadline)
-        })
+        self.ready_with(
+            deadline,
+            |endpoint| crate::core_selector::read_configuration(socket, pid, endpoint, deadline),
+            |kind| crate::core_selector::read_running(socket, pid, kind, deadline),
+        )
     }
 
     pub(crate) fn ready_with(
         &self,
         deadline: Instant,
         mut read: impl FnMut(ReadOnlyEndpoint) -> Option<Value>,
+        mut running: impl FnMut(TrafficReadiness) -> Option<bool>,
     ) -> bool {
+        // Provider initialization may still restore cached selectors while Inner.
+        // Observe Running BEFORE reading topology, and again after it.
+        if Instant::now() >= deadline
+            || (self.running_report != TrafficReadiness::ConfiguredOnly
+                && running(self.running_report) != Some(true))
+        {
+            return false;
+        }
         for endpoint in [
             ReadOnlyEndpoint::Configs,
             ReadOnlyEndpoint::Rules,
@@ -172,6 +199,9 @@ impl ConfigReadiness {
             }
         }
         Instant::now() < deadline
+            && (self.running_report == TrafficReadiness::ConfiguredOnly
+                || running(self.running_report) == Some(true))
+            && Instant::now() < deadline
     }
 }
 
@@ -338,6 +368,90 @@ mod tests {
                 assert!(!expected.matches(ReadOnlyEndpoint::Configs, &bad));
             }
         }
+    }
+
+    #[test]
+    fn qualified_family_requires_running_after_all_loaded_collections() {
+        let configured = || {
+            |endpoint| {
+                Some(match endpoint {
+                    ReadOnlyEndpoint::Configs => json!({"mode":"global"}),
+                    ReadOnlyEndpoint::Proxies => proxies(),
+                    ReadOnlyEndpoint::Rules => json!({"rules":[]}),
+                    ReadOnlyEndpoint::RuleProviders => json!({"providers":{}}),
+                    _ => panic!("unexpected endpoint"),
+                })
+            }
+        };
+        let deadline = || Instant::now() + std::time::Duration::from_secs(1);
+        let expected = ConfigReadiness::new(RoutingMode::Global, "Synthetic".into())
+            .with_running_report(TrafficReadiness::TrafficV1);
+        for report in [None, Some(false)] {
+            let mut calls = 0;
+            assert!(!expected.ready_with(deadline(), configured(), |_| {
+                calls += 1;
+                report
+            }));
+            assert_eq!(calls, 1);
+        }
+        let mut running_calls = 0;
+        assert!(expected.ready_with(deadline(), configured(), |_| {
+            running_calls += 1;
+            Some(true)
+        }));
+        assert_eq!(running_calls, 2);
+        let mut reports = [Some(true), Some(false)].into_iter();
+        assert!(!expected.ready_with(deadline(), configured(), |_| reports.next().unwrap()));
+        let mut configured_calls = 0;
+        assert!(!expected.ready_with(
+            deadline(),
+            |_| {
+                configured_calls += 1;
+                None
+            },
+            |_| Some(false)
+        ));
+        assert_eq!(configured_calls, 0);
+        assert!(!expected.ready_with(Instant::now(), configured(), |_| panic!("expired")));
+        let legacy = ConfigReadiness::new(RoutingMode::Global, "Synthetic".into());
+        assert!(legacy.ready_with(deadline(), configured(), |_| panic!("legacy query")));
+        assert_eq!(legacy.startup_timeout().as_secs(), 10);
+        let managed = ConfigReadiness::from_generated_config(
+            RoutingMode::Global,
+            "Synthetic".into(),
+            MANAGED,
+        )
+        .unwrap()
+        .with_running_report(TrafficReadiness::TrafficV1);
+        assert_eq!(managed.startup_timeout().as_secs(), 45);
+    }
+
+    #[test]
+    fn running_must_precede_topology_after_cached_selector_restoration() {
+        let expected = ConfigReadiness::new(RoutingMode::Global, "Synthetic".into())
+            .with_running_report(TrafficReadiness::TrafficV1);
+        let selector_restored = std::cell::Cell::new(false);
+        assert!(!expected.ready_with(
+            Instant::now() + std::time::Duration::from_secs(1),
+            |endpoint| Some(match endpoint {
+                ReadOnlyEndpoint::Configs => json!({"mode":"global"}),
+                ReadOnlyEndpoint::Rules => json!({"rules":[]}),
+                ReadOnlyEndpoint::RuleProviders => json!({"providers":{}}),
+                ReadOnlyEndpoint::Proxies => {
+                    let mut value = proxies();
+                    if selector_restored.get() {
+                        value["proxies"]["PROXY"]["now"] = json!("DIRECT");
+                    }
+                    value
+                }
+                _ => panic!("unexpected endpoint"),
+            }),
+            |_| {
+                // updateProfile restores cached state before OnRunning.
+                selector_restored.set(true);
+                Some(true)
+            },
+        ));
     }
 
     fn proxies() -> Value {

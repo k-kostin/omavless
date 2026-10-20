@@ -5,6 +5,7 @@
 //! Root enrollment remains a separate requirement; no legacy fallback follows
 //! a present but invalid selector or a missing/replaced package component.
 
+use crate::core_readiness::TrafficReadiness;
 use crate::lifecycle::HostStepError;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -47,12 +48,14 @@ pub(crate) struct ManagedPair {
     receipt_sha: [u8; 32],
     core_sha: [u8; 32],
     broker_sha: [u8; 32],
+    running_report: TrafficReadiness,
 }
 
 struct PackageHashes {
     receipt: [u8; 32],
     core: [u8; 32],
     broker: [u8; 32],
+    running_report: TrafficReadiness,
 }
 
 fn safe_file(path: &Path, owner: u32, mode: u32, max_bytes: u64) -> Result<File, HostStepError> {
@@ -137,6 +140,22 @@ fn decoded_sha(raw: &str) -> Result<[u8; 32], HostStepError> {
 }
 
 impl ManagedPair {
+    #[cfg(test)]
+    pub(crate) fn test_pair(root: &Path, traffic: bool) -> Self {
+        let (selector, core, broker, receipt, _) = tests::desktop_fixture(root);
+        if traffic {
+            let mut value = crate::managed_traffic_receipt::fixture(std::env::consts::ARCH);
+            value["sha256"]["mihomo"] =
+                serde_json::json!(format!("{:x}", Sha256::digest(fs::read(&core).unwrap())));
+            value["sha256"]["omavless-dns-broker"] =
+                serde_json::json!(format!("{:x}", Sha256::digest(fs::read(&broker).unwrap())));
+            tests::write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
+        }
+        let uid = nix::unistd::getuid().as_raw();
+        Self::detect_at(&selector, &core, &broker, &receipt, uid, uid)
+            .unwrap()
+            .unwrap()
+    }
     pub(crate) fn detect(config_directory: &Path, uid: u32) -> Result<Option<Self>, HostStepError> {
         Self::detect_at(
             &config_directory.join(SELECTOR),
@@ -175,6 +194,7 @@ impl ManagedPair {
             receipt_sha: hashes.receipt,
             core_sha: hashes.core,
             broker_sha: hashes.broker,
+            running_report: hashes.running_report,
         };
         selection.verify()?;
         Ok(Some(selection))
@@ -187,6 +207,19 @@ impl ManagedPair {
         package_owner: u32,
     ) -> Result<PackageHashes, HostStepError> {
         let bytes = bounded_bytes(receipt, package_owner, 0o644, 8192)?;
+        if let Ok(hashes) = crate::managed_traffic_receipt::decode(&bytes, std::env::consts::ARCH) {
+            if sha256_file(core, package_owner, 128 * 1024 * 1024)? != hashes.core
+                || sha256_file(broker, package_owner, 32 * 1024 * 1024)? != hashes.broker
+            {
+                return Err(HostStepError::Prepare);
+            }
+            return Ok(PackageHashes {
+                receipt: Sha256::digest(&bytes).into(),
+                core: hashes.core,
+                broker: hashes.broker,
+                running_report: TrafficReadiness::TrafficV1,
+            });
+        }
         // The new distinct family can continue the existing DNS/TUN path.
         // This validation returns hashes only, NEVER conditional-close authority.
         // Effect qualification independently retains the same original objects.
@@ -200,6 +233,7 @@ impl ManagedPair {
                 receipt: Sha256::digest(&bytes).into(),
                 core: hashes.core,
                 broker: hashes.broker,
+                running_report: TrafficReadiness::ConditionalV1,
             });
         }
         let value: Receipt = serde_json::from_slice(&bytes).map_err(|_| HostStepError::Prepare)?;
@@ -241,6 +275,7 @@ impl ManagedPair {
             receipt: Sha256::digest(&bytes).into(),
             core: core_sha,
             broker: broker_sha,
+            running_report: TrafficReadiness::ConfiguredOnly,
         })
     }
 
@@ -252,6 +287,12 @@ impl ManagedPair {
             0,
         )?;
         Ok(())
+    }
+
+    /// Trusted receipt-family property, not an HTTP capability grant.
+    /// Old two-patch DNS pairs and unmanaged cores retain their legacy contract.
+    pub(crate) fn running_report(&self) -> TrafficReadiness {
+        self.running_report
     }
 
     pub(crate) fn core_path(&self) -> &Path {
@@ -283,12 +324,12 @@ mod tests {
     use serde_json::json;
     use std::os::unix::fs::symlink;
 
-    fn write_mode(path: &Path, bytes: &[u8], mode: u32) {
+    pub(super) fn write_mode(path: &Path, bytes: &[u8], mode: u32) {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
 
-    fn desktop_fixture(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+    pub(super) fn desktop_fixture(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
         let config = root.join("config");
         let package = root.join("package");
         fs::create_dir(&config).unwrap();
@@ -334,6 +375,15 @@ mod tests {
         let (selector, core, broker, receipt, package) = desktop_fixture(root.path());
         let uid = nix::unistd::getuid().as_raw();
         let selected = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid);
+        assert!(
+            selected
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .running_report()
+                == TrafficReadiness::ConfiguredOnly
+        );
         let before = fs::read(&selector).unwrap();
         let local = root.path().join(".local/bin");
         fs::create_dir_all(&local).unwrap();
@@ -435,7 +485,12 @@ mod tests {
             json!(format!("{:x}", Sha256::digest(b"synthetic broker")));
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
         let uid = nix::unistd::getuid().as_raw();
-        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_ok());
+        assert!(
+            ManagedPair::validate_package_at(&core, &broker, &receipt, uid)
+                .unwrap()
+                .running_report
+                == TrafficReadiness::ConditionalV1
+        );
         // The second qualified family shares compatibility verification only,
         // never a permit. No device/consent family may be inferred from ABI.
         value["schema"] = json!(crate::managed_close_receipt::K1_SCHEMA);
@@ -448,7 +503,12 @@ mod tests {
         value["enrollment_policy"] = json!("omavless0-ipv4-development-v1");
         value["managed_device_source"] = json!("08194a275d315db7ca502e50f960c80af6dc163b");
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
-        assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_ok());
+        assert!(
+            ManagedPair::validate_package_at(&core, &broker, &receipt, uid)
+                .unwrap()
+                .running_report
+                == TrafficReadiness::ConditionalV1
+        );
         value["enrollment_policy"] = json!("meta-ipv4-release-v1");
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
         assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_err());

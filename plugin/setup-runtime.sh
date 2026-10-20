@@ -61,7 +61,35 @@ dns_archive_identity() {
     | head -c 4097) || return 1
   [[ ${#receipt} -le 4096 ]] || return 1
   jq -e --arg source "$2" --arg arch "$3" \
-    '.schema == 1 and .omavless_commit == $source and .architecture == $arch and .package_flavor == "release" and .broker_feature == "release-package"' \
+    'def traffic_pair:
+      type == "object"
+      and keys == (["schema", "architecture", "omavless_commit", "mihomo_commit", "mihomo_tag",
+        "sing_tun_commit", "sing_tun_tag", "patch_sha256", "go_version", "go_binary_sha256",
+        "cargo_lock_sha256", "go_build_tags", "go_dependency_mode", "rustc_version",
+        "cargo_version", "sha256", "package_flavor", "broker_feature", "traffic_ready_abi"] | sort)
+      and .schema == "omavless-managed-dns-traffic-ready-pair-v1"
+      and ($arch == "x86_64" or $arch == "aarch64")
+      and (.traffic_ready_abi | type) == "number" and .traffic_ready_abi == 1
+      and (.traffic_ready_abi | tojson) == "1"
+      and .mihomo_commit == "ab405bad5beeeac8b003bb01f60f134f6df54471" and .mihomo_tag == "v1.19.31"
+      and .sing_tun_commit == "b50ae28a1409c7bce8e96e6c6966cf57d8ace754" and .sing_tun_tag == "v0.4.24"
+      and .patch_sha256 == {
+        "mihomo-dns-broker.patch": "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37",
+        "sing-tun-descriptor.patch": "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab",
+        "mihomo-traffic-ready.patch": "e9a2f1ea78046b6f2cfafe574bc2d989a8381d57d3464a0aff2d71507424beb1"}
+      and .go_build_tags == "with_gvisor" and .go_dependency_mode == "vendor"
+      and (.omavless_commit | type == "string" and test("^[0-9a-f]{40}\\z") and test("[1-9a-f]"))
+      and all(.go_binary_sha256, .cargo_lock_sha256;
+        type == "string" and test("^[0-9a-f]{64}\\z") and test("[1-9a-f]"))
+      and (.sha256 | type == "object"
+        and keys == ["corresponding-source.tar.xz", "mihomo", "mihomo.LICENSE",
+          "omavless-dns-broker", "omavless.LICENSE", "sing-tun.LICENSE"]
+        and all(.[]; type == "string" and test("^[0-9a-f]{64}\\z") and test("[1-9a-f]")))
+      and (.go_version | type == "string" and length <= 128
+        and test("^go version go1\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9:]+)? linux/" + (if $arch == "x86_64" then "amd64" else "arm64" end) + "\\z"))
+      and (.rustc_version | type == "string" and length <= 128 and startswith("rustc ") and test("^[ -~]*\\z"))
+      and (.cargo_version | type == "string" and length <= 128 and startswith("cargo ") and test("^[ -~]*\\z"));
+    (.schema == 1 or traffic_pair) and .omavless_commit == $source and .architecture == $arch and .package_flavor == "release" and .broker_feature == "release-package"' \
     >/dev/null 2>&1 <<< "$receipt"
 }
 package_install() { /usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"; }

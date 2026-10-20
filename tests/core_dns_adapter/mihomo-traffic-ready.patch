@@ -1,0 +1,147 @@
+diff --git a/hub/route/configs.go b/hub/route/configs.go
+--- a/hub/route/configs.go
++++ b/hub/route/configs.go
+@@ -26,6 +26,7 @@
+ func configRouter() http.Handler {
+ 	r := chi.NewRouter()
+ 	r.Get("/", getConfigs)
++	r.Get("/traffic-ready", trafficReady)
+ 	if !embedMode { // disallow update/patch configs in embed mode
+ 		r.Put("/", updateConfigs)
+ 		r.Post("/geo", updateGeoDatabases)
+diff --git a/hub/route/traffic_ready.go b/hub/route/traffic_ready.go
+new file mode 100644
+--- /dev/null
++++ b/hub/route/traffic_ready.go
+@@ -0,0 +1,21 @@
++package route
++
++import (
++	"github.com/metacubex/chi/render"
++	"github.com/metacubex/http"
++	"github.com/metacubex/mihomo/tunnel"
++)
++
++// This is only the core's current external-traffic admission state. It is
++// neither a connectivity verdict nor conditional-close authorization.
++func trafficReady(w http.ResponseWriter, r *http.Request) {
++	if r.URL.RawQuery != "" || r.URL.ForceQuery || r.ContentLength != 0 ||
++		len(r.TransferEncoding) != 0 || (r.Body != nil && r.Body != http.NoBody) {
++		w.WriteHeader(http.StatusBadRequest)
++		return
++	}
++	render.JSON(w, r, struct {
++		ABI   uint8 `json:"abi"`
++		Ready bool  `json:"ready"`
++	}{1, tunnel.Status() == tunnel.Running})
++}
+diff --git a/hub/route/traffic_ready_test.go b/hub/route/traffic_ready_test.go
+new file mode 100644
+--- /dev/null
++++ b/hub/route/traffic_ready_test.go
+@@ -0,0 +1,105 @@
++package route
++
++import (
++	"encoding/json"
++	"io"
++	"strings"
++	"testing"
++
++	"github.com/metacubex/http"
++	"github.com/metacubex/http/httptest"
++	"github.com/metacubex/mihomo/tunnel"
++)
++
++func preserveTrafficStatus(t *testing.T) {
++	old := tunnel.Status()
++	t.Cleanup(func() {
++		switch old {
++		case tunnel.Suspend:
++			tunnel.OnSuspend()
++		case tunnel.Inner:
++			tunnel.OnInnerLoading()
++		case tunnel.Running:
++			tunnel.OnRunning()
++		default:
++			t.Fatal("unknown original tunnel status")
++		}
++	})
++}
++
++func TestOmaVLESSTrafficReadyStates(t *testing.T) {
++	preserveTrafficStatus(t)
++	for _, scenario := range []struct {
++		set   func()
++		ready bool
++	}{
++		{tunnel.OnSuspend, false}, {tunnel.OnInnerLoading, false}, {tunnel.OnRunning, true},
++	} {
++		scenario.set()
++		w := httptest.NewRecorder()
++		configRouter().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/traffic-ready", nil))
++		var got map[string]json.RawMessage
++		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil ||
++			len(got) != 2 || string(got["abi"]) != "1" ||
++			string(got["ready"]) != map[bool]string{false: "false", true: "true"}[scenario.ready] {
++			t.Fatal("traffic admission projection mismatch")
++		}
++	}
++}
++
++func TestOmaVLESSTrafficReadyStrictRequest(t *testing.T) {
++	preserveTrafficStatus(t)
++	tunnel.OnInnerLoading()
++	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead} {
++		w := httptest.NewRecorder()
++		configRouter().ServeHTTP(w, httptest.NewRequest(method, "/traffic-ready", nil))
++		if w.Code != http.StatusMethodNotAllowed || tunnel.Status() != tunnel.Inner {
++			t.Fatal("non-GET admission changed or accepted")
++		}
++	}
++	for _, variant := range []string{"query", "empty-query", "body", "unknown-body", "zero-body", "transfer"} {
++		target := "/traffic-ready"
++		if variant == "query" {
++			target += "?x=1"
++		}
++		if variant == "empty-query" {
++			target += "?"
++		}
++		r := httptest.NewRequest(http.MethodGet, target, nil)
++		if variant == "body" {
++			r = httptest.NewRequest(http.MethodGet, target, strings.NewReader("x"))
++		}
++		if variant == "unknown-body" || variant == "zero-body" {
++			r.Body = io.NopCloser(strings.NewReader("x"))
++			if variant == "unknown-body" {
++				r.ContentLength = -1
++			}
++		}
++		if variant == "transfer" {
++			r.TransferEncoding = []string{"chunked"}
++		}
++		w := httptest.NewRecorder()
++		configRouter().ServeHTTP(w, r)
++		if w.Code != http.StatusBadRequest || tunnel.Status() != tunnel.Inner {
++			t.Fatal("ambiguous read accepted or changed tunnel state")
++		}
++	}
++}
++
++func TestOmaVLESSTrafficReadyRouterCORS(t *testing.T) {
++	preserveTrafficStatus(t)
++	tunnel.OnRunning()
++	w := httptest.NewRecorder()
++	router(false, "", "", Cors{}).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/configs/traffic-ready", nil))
++	if w.Code != http.StatusOK || w.Header().Get("Vary") != "Origin" ||
++		w.Header().Get("Content-Type") != "application/json" {
++		t.Fatal("actual router/middleware shape mismatch")
++	}
++	var report struct {
++		ABI   uint8 `json:"abi"`
++		Ready bool  `json:"ready"`
++	}
++	if json.Unmarshal(w.Body.Bytes(), &report) != nil || report.ABI != 1 || !report.Ready {
++		t.Fatal("actual router admission mismatch")
++	}
++}

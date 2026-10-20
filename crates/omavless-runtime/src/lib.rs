@@ -107,6 +107,7 @@ pub mod long_operation_protocol;
 mod managed_pair;
 pub mod managed_selection;
 mod managed_template;
+mod managed_traffic_receipt;
 #[cfg(feature = "t4-manager-actor-service")]
 pub mod manager_actor_service;
 pub mod mutation;

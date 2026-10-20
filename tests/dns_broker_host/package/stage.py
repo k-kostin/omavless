@@ -22,6 +22,9 @@ PINNED_PATCHES = {
     "mihomo-dns-broker.patch": "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37",
     "sing-tun-descriptor.patch": "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab",
 }
+TRAFFIC_SCHEMA = "omavless-managed-dns-traffic-ready-pair-v1"
+TRAFFIC_PATCH = "e9a2f1ea78046b6f2cfafe574bc2d989a8381d57d3464a0aff2d71507424beb1"
+TRAFFIC_PATCHES = PINNED_PATCHES | {"mihomo-traffic-ready.patch": TRAFFIC_PATCH}
 CLOSE_SCHEMA = "omavless-managed-dns-close-pair-v1"
 CLOSE_PATCH = "0858827e1af00c3ed3196f021b0dbc76ce34a8de7aa7130d7085614d149acc8f"
 CLOSE_PATCHES = PINNED_PATCHES | {"mihomo-conditional-close.patch": CLOSE_PATCH}
@@ -37,6 +40,7 @@ RECEIPT_KEYS = {"schema", "architecture", "omavless_commit", "mihomo_commit",
                 "go_build_tags", "go_dependency_mode", "rustc_version",
                 "cargo_version", "sha256"}
 RELEASE_RECEIPT_KEYS = RECEIPT_KEYS | {"package_flavor", "broker_feature"}
+TRAFFIC_RECEIPT_KEYS = RELEASE_RECEIPT_KEYS | {"traffic_ready_abi"}
 CLOSE_RECEIPT_KEYS = RELEASE_RECEIPT_KEYS | {"conditional_close_abi", "go_cgo", "go_buildvcs"}
 K1_CLOSE_RECEIPT_KEYS = CLOSE_RECEIPT_KEYS | {"managed_device", "enrollment_policy", "managed_device_source"}
 
@@ -46,8 +50,10 @@ def pair_policy(flavor):
         return K1_CLOSE_RECEIPT_KEYS, K1_CLOSE_SCHEMA, K1_CLOSE_PATCHES
     if flavor == "release-close":
         return CLOSE_RECEIPT_KEYS, CLOSE_SCHEMA, CLOSE_PATCHES
-    if flavor in ("experimental", "release"):
-        return (RELEASE_RECEIPT_KEYS if flavor == "release" else RECEIPT_KEYS), 1, PINNED_PATCHES
+    if flavor == "release":
+        return TRAFFIC_RECEIPT_KEYS, TRAFFIC_SCHEMA, TRAFFIC_PATCHES
+    if flavor == "experimental":
+        return RECEIPT_KEYS, 1, PINNED_PATCHES
     raise Refused("A supported package flavor is required.")
 
 
@@ -152,7 +158,9 @@ def reviewed_pair(directory, architecture, revision, flavor="experimental"):
             or receipt["schema"] != expected_schema or receipt.get("architecture") != architecture
             or receipt.get("omavless_commit") != revision
             or (flavor == "release" and (receipt.get("package_flavor") != "release"
-                                               or receipt.get("broker_feature") != "release-package"))
+                                               or receipt.get("broker_feature") != "release-package"
+                                               or type(receipt.get("traffic_ready_abi")) is not int
+                                               or receipt["traffic_ready_abi"] != 1))
             or (flavor in ("release-close", "release-close-k1") and (
                 receipt.get("package_flavor") != flavor
                 or receipt.get("broker_feature") != ("k1-managed-device" if flavor == "release-close-k1" else "release-package")
@@ -208,6 +216,10 @@ def reviewed_pair(directory, architecture, revision, flavor="experimental"):
         required |= {"mihomo/listener/sing_tun/system_dns_device_k1.go",
                      "mihomo/listener/sing_tun/system_dns_device_legacy.go",
                      "mihomo/listener/sing_tun/system_dns_device_test.go"}
+    if flavor == "release":
+        required |= {"mihomo/hub/route/configs.go", "mihomo/hub/route/traffic_ready.go",
+                     "mihomo/hub/route/traffic_ready_test.go",
+                     "omavless/tests/core_dns_adapter/mihomo-traffic-ready.patch"}
     seen = set()
     try:
         with tarfile.open(fileobj=io.BytesIO(payload["corresponding-source.tar.xz"]),
@@ -226,8 +238,14 @@ def reviewed_pair(directory, architecture, revision, flavor="experimental"):
                 seen.add(path)
             if not required <= seen:
                 raise Refused("The corresponding-source archive is incomplete.")
-            if flavor in ("release-close", "release-close-k1") and any(not archive.getmember(name).isfile() for name in required):
-                raise Refused("Required conditional sources must be regular files.")
+            if flavor in ("release", "release-close", "release-close-k1") and any(
+                    not archive.getmember(name).isfile() for name in required):
+                raise Refused("Required reviewed sources must be regular files.")
+            if flavor == "release":
+                with archive.extractfile("omavless/tests/core_dns_adapter/mihomo-traffic-ready.patch") as stream:
+                    patch = stream.read(65537)
+                if len(patch) > 65536 or hashlib.sha256(patch).hexdigest() != TRAFFIC_PATCH:
+                    raise Refused("Traffic readiness source patch is not the reviewed input.")
             for source, separate in (("mihomo/LICENSE", "mihomo.LICENSE"),
                                      ("sing-tun/LICENSE", "sing-tun.LICENSE"),
                                      ("omavless/LICENSE", "omavless.LICENSE")):

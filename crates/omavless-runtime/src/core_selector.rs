@@ -25,6 +25,7 @@ enum Request<'a> {
     Rules,
     Providers,
     Connections,
+    Running(crate::core_readiness::TrafficReadiness),
     Profile(&'a str),
     Global,
 }
@@ -71,12 +72,22 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
     {
         return None;
     }
+    let running_report = matches!(request, Request::Running(_));
     let (method, endpoint, body) = match request {
         Request::Configs => ("GET", "/configs", String::new()),
         Request::Proxies => ("GET", "/proxies", String::new()),
         Request::Rules => ("GET", "/rules", String::new()),
         Request::Providers => ("GET", "/providers/rules", String::new()),
         Request::Connections => ("GET", "/connections", String::new()),
+        Request::Running(crate::core_readiness::TrafficReadiness::ConditionalV1) => (
+            "GET",
+            "/connections/conditional-capabilities",
+            String::new(),
+        ),
+        Request::Running(crate::core_readiness::TrafficReadiness::TrafficV1) => {
+            ("GET", "/configs/traffic-ready", String::new())
+        }
+        Request::Running(crate::core_readiness::TrafficReadiness::ConfiguredOnly) => return None,
         Request::Profile(name) => {
             if name.is_empty() || name.len() > 1024 || name.chars().any(char::is_control) {
                 return None;
@@ -117,8 +128,44 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
         response.extend_from_slice(&chunk[..count]);
     }
     remaining()?;
-    let response = parse_controller_response(&response).ok()?;
-    (response.status == if method == "PUT" { 204 } else { 200 }).then_some(response.payload)
+    let parsed = parse_controller_response(&response).ok()?;
+    if running_report {
+        if parsed.status != 200 {
+            return None;
+        }
+        let end = response.windows(4).position(|part| part == b"\r\n\r\n")?;
+        // Decode ORIGINAL bytes, not Value: duplicate keys must be rejected.
+        return decode_running(&response[end + 4..]).map(|ready| json!({"ready": ready}));
+    }
+    (parsed.status == if method == "PUT" { 204 } else { 200 }).then_some(parsed.payload)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunningReport {
+    abi: u8,
+    ready: bool,
+}
+
+pub(crate) fn decode_running(body: &[u8]) -> Option<bool> {
+    // serde's struct visitor also accepts positional arrays; this protocol
+    // promises a JSON object, never an alternate tuple representation.
+    if body.len() > 1024 || body.iter().find(|b| !b.is_ascii_whitespace()) != Some(&b'{') {
+        return None;
+    }
+    let report: RunningReport = serde_json::from_slice(body).ok()?;
+    (report.abi == 1).then_some(report.ready)
+}
+
+/// Read only the patched core's actual external-traffic admission state.
+/// This does not qualify package identity, conditional close or connectivity.
+pub(crate) fn read_running(
+    path: &Path,
+    pid: u32,
+    kind: crate::core_readiness::TrafficReadiness,
+    deadline: Instant,
+) -> Option<bool> {
+    exchange(path, pid, Request::Running(kind), deadline)?["ready"].as_bool()
 }
 
 fn selector<'a>(proxies: &'a Value, group: &str, target: &str) -> Option<&'a str> {
@@ -210,6 +257,29 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    #[test]
+    fn running_report_is_closed_typed_and_duplicate_preserving() {
+        assert_eq!(decode_running(br#"{"abi":1,"ready":true}"#), Some(true));
+        assert_eq!(decode_running(br#"{"abi":1,"ready":false}"#), Some(false));
+        for raw in [
+            br#"{}"#.as_slice(),
+            br#"{"abi":1}"#,
+            br#"{"ready":true}"#,
+            br#"{"abi":2,"ready":true}"#,
+            br#"{"abi":true,"ready":true}"#,
+            br#"{"abi":1,"ready":"true"}"#,
+            br#"{"abi":1,"ready":null}"#,
+            br#"{"abi":1,"ready":true,"other":0}"#,
+            br#"{"abi":1,"abi":1,"ready":true}"#,
+            br#"{"abi":1,"ready":false,"ready":true}"#,
+            b"not-json",
+            b"[1,true]",
+        ] {
+            assert_eq!(decode_running(raw), None);
+        }
+        assert_eq!(decode_running(&vec![b' '; 1025]), None);
+    }
+
     struct Controller {
         root: std::path::PathBuf,
         stop: Arc<AtomicBool>,
@@ -294,6 +364,18 @@ mod tests {
                         json!({"providers":{}})
                     } else if request.starts_with("GET /connections ") {
                         json!({"connections":[{"metadata":{"host":"private.invalid"}}]})
+                    } else if request.starts_with("GET /connections/conditional-capabilities ")
+                        || request.starts_with("GET /configs/traffic-ready ")
+                    {
+                        match broken.as_str() {
+                            "running-missing" => json!({"abi":1}),
+                            "running-abi" => json!({"abi":2,"ready":true}),
+                            "running-status" => {
+                                status = "404 Not Found";
+                                json!({"abi":1,"ready":true})
+                            }
+                            _ => json!({"abi":1,"ready":broken != "running-false"}),
+                        }
                     } else if request.starts_with("GET /proxies ") {
                         proxies.clone()
                     } else {
@@ -356,6 +438,69 @@ mod tests {
             self.worker.take().unwrap().join().unwrap();
             fs::remove_dir_all(&self.root).unwrap();
         }
+    }
+
+    #[test]
+    fn running_read_uses_fixed_authenticated_get_and_original_deadline() {
+        for (broken, expected) in [
+            ("", Some(true)),
+            ("running-false", Some(false)),
+            ("running-missing", None),
+            ("running-abi", None),
+            ("running-status", None),
+        ] {
+            let controller = Controller::new("global", "Synthetic", broken);
+            let path = controller.root.join("mihomo.sock");
+            let deadline = || Instant::now() + Duration::from_secs(1);
+            assert_eq!(
+                read_running(
+                    &path,
+                    std::process::id(),
+                    crate::core_readiness::TrafficReadiness::TrafficV1,
+                    deadline()
+                ),
+                expected
+            );
+            assert!(
+                read_running(
+                    &path,
+                    std::process::id() + 1,
+                    crate::core_readiness::TrafficReadiness::TrafficV1,
+                    deadline()
+                )
+                .is_none()
+            );
+            assert!(
+                read_running(
+                    &path,
+                    std::process::id(),
+                    crate::core_readiness::TrafficReadiness::TrafficV1,
+                    Instant::now()
+                )
+                .is_none()
+            );
+            fs::set_permissions(&controller.root, fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                read_running(
+                    &path,
+                    std::process::id(),
+                    crate::core_readiness::TrafficReadiness::TrafficV1,
+                    deadline()
+                )
+                .is_none()
+            );
+            assert!(controller.puts.lock().unwrap().is_empty());
+        }
+        let controller = Controller::new("global", "Synthetic", "slow");
+        assert!(
+            read_running(
+                &controller.root.join("mihomo.sock"),
+                std::process::id(),
+                crate::core_readiness::TrafficReadiness::TrafficV1,
+                Instant::now() + Duration::from_millis(35),
+            )
+            .is_none()
+        );
     }
 
     #[test]

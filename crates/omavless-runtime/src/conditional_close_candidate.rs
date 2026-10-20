@@ -1914,6 +1914,21 @@ impl Session {
             .flatten()
     }
 
+    /// Read-only traffic-admission report on this original qualified session.
+    /// Does not grant close authority or create an effect permit.
+    pub(crate) fn read_running(
+        &mut self,
+        kind: crate::core_readiness::TrafficReadiness,
+    ) -> Option<bool> {
+        if kind != crate::core_readiness::TrafficReadiness::ConditionalV1 {
+            return None;
+        }
+        let (status, body) = self.exchange_request(Request::Capabilities).ok()?;
+        (status == 200)
+            .then(|| crate::core_selector::decode_running(&body))
+            .flatten()
+    }
+
     fn ready(&mut self) -> Result<bool, Outcome> {
         let (status, body) = self.exchange_request(Request::Capabilities)?;
         if status != 200 || body.len() > 1024 {

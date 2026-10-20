@@ -248,16 +248,23 @@ impl CloseFacts {
             return Err(HostStepError::Observation);
         }
         let mut config = None;
-        if !self
-            .readiness
-            .ready_with(Instant::now() + Duration::from_secs(3), |endpoint| {
-                let result = session.read_fixed(endpoint);
-                if endpoint == omavless_mihomo::ReadOnlyEndpoint::Configs {
-                    config = result.clone();
-                }
-                result
-            })
-        {
+        let configured_ready = {
+            // The two callbacks run sequentially on the SAME qualified session.
+            // No cloned capability, new controller or independently adopted PID.
+            let retained = std::cell::RefCell::new(&mut *session);
+            self.readiness.ready_with(
+                Instant::now() + Duration::from_secs(3),
+                |endpoint| {
+                    let result = retained.borrow_mut().read_fixed(endpoint);
+                    if endpoint == omavless_mihomo::ReadOnlyEndpoint::Configs {
+                        config = result.clone();
+                    }
+                    result
+                },
+                |kind| retained.borrow_mut().read_running(kind),
+            )
+        };
+        if !configured_ready {
             return Err(HostStepError::Observation);
         }
         let config = config.ok_or(HostStepError::Observation)?;
@@ -1527,8 +1534,30 @@ impl LifecycleHost for NativeLifecycleHost {
         store
             .managed_connection_compatibility(&desired.profile_id)
             .map_err(|_| ConnectionPreflightError::UnsupportedProfile)?;
+        if store
+            .selected_wireguard_flavor(&desired.profile_id)
+            .map_err(|_| ConnectionPreflightError::UnsupportedProfile)?
+            .is_some()
+        {
+            self.native_profile_preflight()
+                .map_err(|_| ConnectionPreflightError::DnsPairRequired)?;
+        }
         self.connection_preflight()
             .map_err(|_| ConnectionPreflightError::DnsPairRequired)
+    }
+    fn native_profile_preflight(&mut self) -> Result<(), HostStepError> {
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?;
+        pair.verify()?;
+        // Old configured-only pairs remain valid for their existing URI path,
+        // but do not acquire WG traffic readiness from version or YAML flags.
+        if pair.running_report() != crate::core_readiness::TrafficReadiness::TrafficV1 {
+            return Err(HostStepError::Prepare);
+        }
+        Ok(())
     }
     fn connection_preflight(&mut self) -> Result<(), HostStepError> {
         if !self.paths.require_managed_pair {
@@ -1632,7 +1661,11 @@ impl LifecycleHost for NativeLifecycleHost {
             )
             .map_err(|_| HostStepError::Prepare)?;
         let readiness = ConfigReadiness::from_generated_config(desired.mode, profile_name, &config)
-            .ok_or(HostStepError::Prepare)?;
+            .ok_or(HostStepError::Prepare)?
+            .with_running_report(self.paths.managed_pair.as_ref().map_or(
+                crate::core_readiness::TrafficReadiness::ConfiguredOnly,
+                ManagedPair::running_report,
+            ));
         if self.paths.managed_pair.is_some() && !readiness.managed_dns() {
             return Err(HostStepError::Prepare);
         }
@@ -2121,7 +2154,7 @@ mod tests {
     }
 
     #[test]
-    fn compatible_native_target_uses_same_dns_pair_preflight_without_core_effects() {
+    fn native_target_requires_running_qualified_pair_before_any_core_effects() {
         let (root, mut host) = observation_fixture();
         let id = "00000000-0000-4000-8000-000000000001";
         let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
@@ -2139,12 +2172,31 @@ mod tests {
             profile_id: id.into(),
             ..DesiredState::default()
         };
-        assert_eq!(host.connection_preflight_for(&target), Ok(()));
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
+        assert_eq!(host.prepare(&target), Err(HostStepError::Prepare));
+        assert_eq!(host.validate_startup(&target), Err(HostStepError::Prepare));
         host.paths.require_managed_pair = true;
         assert_eq!(
             host.connection_preflight_for(&target),
             Err(ConnectionPreflightError::DnsPairRequired)
         );
+        assert!(host.core.is_none() && host.profile_id.is_none());
+        assert!(fs::read(&host.paths.store).unwrap() == store.payload());
+        let pair_root = root.join("pair");
+        fs::create_dir(&pair_root).unwrap();
+        host.paths.managed_pair = Some(ManagedPair::test_pair(&pair_root, false));
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
+        host.paths.managed_pair = None;
+        let new_root = root.join("traffic-pair");
+        fs::create_dir(&new_root).unwrap();
+        host.paths.managed_pair = Some(ManagedPair::test_pair(&new_root, true));
+        assert_eq!(host.connection_preflight_for(&target), Ok(()));
         assert!(host.core.is_none() && host.profile_id.is_none());
         assert!(fs::read(&host.paths.store).unwrap() == store.payload());
         drop(host);

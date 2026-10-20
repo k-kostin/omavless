@@ -129,8 +129,11 @@ def inspect_dns_archive(path, version, architecture, source):
         raise ValueError('DNS package identity')
     receipt = metadata(member(path, DNS_MEMBER['source-receipt.json']))
     manifest = metadata(member(path, REVIEWED))
-    if (not isinstance(receipt, dict) or set(receipt) != stage.RELEASE_RECEIPT_KEYS
-            or receipt.get('schema') != 1 or receipt.get('architecture') != architecture
+    if (not isinstance(receipt, dict) or set(receipt) != stage.TRAFFIC_RECEIPT_KEYS
+            or receipt.get('schema') != stage.TRAFFIC_SCHEMA
+            or type(receipt.get('traffic_ready_abi')) is not int
+            or receipt['traffic_ready_abi'] != 1
+            or receipt.get('architecture') != architecture
             or receipt.get('omavless_commit') != source
             or receipt.get('package_flavor') != 'release'
             or receipt.get('broker_feature') != 'release-package'
@@ -138,7 +141,7 @@ def inspect_dns_archive(path, version, architecture, source):
             or receipt.get('mihomo_tag') != 'v1.19.31'
             or receipt.get('sing_tun_commit') != stage.PINNED_SING_TUN
             or receipt.get('sing_tun_tag') != 'v0.4.24'
-            or receipt.get('patch_sha256') != stage.PINNED_PATCHES
+            or receipt.get('patch_sha256') != stage.TRAFFIC_PATCHES
             or receipt.get('go_build_tags') != 'with_gvisor'
             or receipt.get('go_dependency_mode') != 'vendor'
             or not isinstance(receipt.get('go_binary_sha256'), str)

@@ -227,7 +227,8 @@ class PackageTests(unittest.TestCase):
         receipt.update(package_flavor="release", broker_feature="release-package")
         path.write_text(json.dumps(receipt))
         with mock.patch.object(stage, "outside_git_destination", side_effect=lambda p: Path(p)):
-            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-release")
+            with self.assertRaises(stage.Refused):
+                release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-release")
             with self.assertRaises(stage.Refused):
                 release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "legacy-close", "close-qualified")
             receipt.update(schema=stage.CLOSE_SCHEMA, package_flavor="release-close",
@@ -336,6 +337,80 @@ class PackageTests(unittest.TestCase):
         }
         (self.pair / "source-receipt.json").write_text(json.dumps(receipt))
 
+    def traffic_pair(self, missing=None, bad_patch=False):
+        path = self.pair / "source-receipt.json"
+        receipt = json.loads(path.read_text())
+        archive_path = self.pair / "corresponding-source.tar.xz"
+        with tarfile.open(fileobj=io.BytesIO(archive_path.read_bytes()), mode="r:xz") as old:
+            entries = [(member.name, old.extractfile(member).read()) for member in old]
+        extra = {
+            "mihomo/hub/route/configs.go": b"synthetic configuration router",
+            "mihomo/hub/route/traffic_ready.go": b"synthetic traffic projection",
+            "mihomo/hub/route/traffic_ready_test.go": b"synthetic traffic tests",
+            "omavless/tests/core_dns_adapter/mihomo-traffic-ready.patch":
+                b"wrong patch" if bad_patch else (build_pair.PATCHES / "mihomo-traffic-ready.patch").read_bytes(),
+        }
+        entries = [(name, value) for name, value in entries if name not in extra]
+        entries += [(name, value) for name, value in extra.items() if name != missing]
+        source = io.BytesIO()
+        with tarfile.open(fileobj=source, mode="w:xz") as archive:
+            for name, value in entries:
+                member = tarfile.TarInfo(name); member.size = len(value)
+                archive.addfile(member, io.BytesIO(value))
+        archive_path.write_bytes(source.getvalue())
+        receipt.update(schema=stage.TRAFFIC_SCHEMA, traffic_ready_abi=1,
+                       package_flavor="release", broker_feature="release-package",
+                       patch_sha256=stage.TRAFFIC_PATCHES)
+        receipt["sha256"]["corresponding-source.tar.xz"] = hashlib.sha256(source.getvalue()).hexdigest()
+        path.write_text(json.dumps(receipt))
+        return receipt
+
+    def test_traffic_family_is_distinct_strict_and_not_close(self):
+        receipt = self.traffic_pair()
+        stage.reviewed_pair(self.pair, "aarch64", "a"*40, "release")
+        for flavor in ("experimental", "release-close", "release-close-k1"):
+            with self.assertRaises(stage.Refused):
+                stage.reviewed_pair(self.pair, "aarch64", "a"*40, flavor)
+        path = self.pair / "source-receipt.json"
+        for key, value in (("schema",1),("traffic_ready_abi",True),("traffic_ready_abi",2),
+                           ("conditional_close_abi",1),("go_build_tags","with_gvisor,omavless_k1_device"),
+                           ("patch_sha256",stage.PINNED_PATCHES)):
+            bad = dict(receipt); bad[key] = value; path.write_text(json.dumps(bad))
+            with self.assertRaises(stage.Refused):
+                stage.reviewed_pair(self.pair, "aarch64", "a"*40, "release")
+        raw = json.dumps(receipt)
+        path.write_text(raw.replace('"traffic_ready_abi": 1','"traffic_ready_abi": 1, "traffic_ready_abi": 1'))
+        with self.assertRaises(stage.Refused):
+            stage.reviewed_pair(self.pair, "aarch64", "a"*40, "release")
+        self.assertEqual(stage.pair_policy("experimental")[2], build_pair.PATCH_SHA)
+        self.assertEqual(stage.pair_policy("release-close")[2], stage.CLOSE_PATCHES)
+        self.assertNotIn("mihomo-traffic-ready.patch", stage.CLOSE_PATCHES)
+
+    def test_traffic_source_members_and_exact_patch_required(self):
+        for missing in ("mihomo/hub/route/traffic_ready.go", "mihomo/hub/route/traffic_ready_test.go",
+                        "omavless/tests/core_dns_adapter/mihomo-traffic-ready.patch"):
+            self.traffic_pair(missing=missing)
+            with self.assertRaises(stage.Refused):
+                stage.reviewed_pair(self.pair, "aarch64", "a"*40, "release")
+        self.traffic_pair(bad_patch=True)
+        with self.assertRaises(stage.Refused):
+            stage.reviewed_pair(self.pair, "aarch64", "a"*40, "release")
+        self.assertEqual(build_pair.digest(build_pair.PATCHES / "mihomo-traffic-ready.patch"),
+                         stage.TRAFFIC_PATCH)
+
+    def test_traffic_build_requires_all_three_actual_test_completions(self):
+        package = next(iter(build_pair.TRAFFIC_TESTS))
+        events = [{"Action":"start","Package":package}]
+        for name in sorted(build_pair.TRAFFIC_TESTS[package]):
+            events += [{"Action":"run","Package":package,"Test":name},
+                       {"Action":"pass","Package":package,"Test":name}]
+        events.append({"Action":"pass","Package":package})
+        wire = lambda rows: b"".join(json.dumps(row).encode()+b"\n" for row in rows)
+        build_pair.tests_completed(wire(events),build_pair.TRAFFIC_TESTS)
+        for index in range(len(events)):
+            with self.assertRaises(stage.Refused):
+                build_pair.tests_completed(wire(events[:index]+events[index+1:]),build_pair.TRAFFIC_TESTS)
+
     def render(self, output=None, **changes):
         args = {"pair": self.pair, "architecture": "aarch64", "revision": "a" * 40,
                 "output": output or self.root / "staged"}
@@ -364,9 +439,13 @@ class PackageTests(unittest.TestCase):
             release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "release")
         receipt_path = self.pair / "source-receipt.json"
         receipt = json.loads(receipt_path.read_text())
+        # Old two-patch receipts are retained history, not new normal output.
         receipt["package_flavor"] = "release"
         receipt["broker_feature"] = "release-package"
         receipt_path.write_text(json.dumps(receipt))
+        with self.assertRaises(stage.Refused):
+            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "old-release")
+        self.traffic_pair()
         with self.assertRaises(stage.Refused):
             stage.stage(self.pair, "aarch64", "a" * 40, self.root / "experimental")
         destination = self.root / "release"
