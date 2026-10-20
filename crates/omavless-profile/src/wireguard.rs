@@ -3,7 +3,7 @@
 //! Strict, bounded WireGuard/AmneziaWG import primitives for the future Rust
 //! runtime.
 //!
-//! The current Python runtime does not call this module yet.  Keeping parsing,
+//! The production Rust runtime does not call this module yet. Keeping parsing,
 //! generation detection, private canonical state and Mihomo rendering together
 //! prevents a second parser from growing in the compatibility layer.
 
@@ -16,10 +16,16 @@ use std::str::FromStr;
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use flate2::bufread::ZlibDecoder;
+use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 
 use crate::profile_uri::{canonical_host, parse_endpoint};
 use crate::vless::HostKind;
 use crate::vless_canonical::sha256_hex;
+
+mod managed;
+pub mod private_record;
+pub use managed::ManagedCompatibilityError;
 
 pub const MAX_WIREGUARD_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_VPN_LINK_BYTES: usize = 128 * 1024;
@@ -140,7 +146,7 @@ impl fmt::Display for WireGuardError {
                 "AmneziaVPN API subscription keys require unsupported remote provider access"
             }
             Self::UnsupportedVpnContainer => {
-                "Structured AmneziaVPN containers are not supported by this adapter yet"
+                "AmneziaVPN guest does not select exactly one supported WG/AWG container"
             }
         })
     }
@@ -191,8 +197,9 @@ impl AwgGeneration {
         }
     }
 
-    /// Baseline verified by this adapter. This is deliberately not advertised
-    /// as the first upstream release that ever implemented the generation.
+    /// Historical parser/config baseline, not current managed live acceptance.
+    /// Managed execution targets the separately pinned core in CONTROL_PLANE.
+    /// This is not the first upstream release implementing the generation.
     #[must_use]
     pub const fn verified_mihomo_baseline(self) -> &'static str {
         "1.19.30"
@@ -210,7 +217,7 @@ pub struct WireGuardFacts {
     pub allowed_ip_count: usize,
     pub has_preshared_key: bool,
     pub has_custom_mtu: bool,
-    pub keepalive_range_normalized: bool,
+    pub keepalive_range_unrepresentable: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -252,9 +259,8 @@ struct AwgOptions {
 #[derive(Clone, PartialEq, Eq)]
 enum Keepalive {
     Fixed(u16),
-    /// AmneziaWG 3 accepts a randomized interval. Mihomo 1.19.30 exposes an
-    /// integer here, so the renderer deterministically selects the lower safe
-    /// bound and surfaces that fact in the public projection.
+    /// Data preserves randomized intervals; managed execution refuses a
+    /// nonconstant range because the pinned core exposes only one integer.
     Range {
         minimum: u16,
         maximum: u16,
@@ -262,10 +268,11 @@ enum Keepalive {
 }
 
 impl Keepalive {
-    const fn rendered(&self) -> u16 {
+    const fn fixed(&self) -> Option<u16> {
         match self {
-            Self::Fixed(value) => *value,
-            Self::Range { minimum, .. } => *minimum,
+            Self::Fixed(value) => Some(*value),
+            Self::Range { minimum, maximum } if *minimum == *maximum => Some(*minimum),
+            Self::Range { .. } => None,
         }
     }
 
@@ -611,6 +618,22 @@ fn numeric_range(value: &str) -> Result<(), WireGuardError> {
     }
 }
 
+fn header_range(value: &str) -> Result<(), WireGuardError> {
+    let (minimum, maximum) = value.split_once('-').unwrap_or((value, value));
+    let minimum = minimum
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| WireGuardError::InvalidAmneziaValue)?;
+    let maximum = maximum
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| WireGuardError::InvalidAmneziaValue)?;
+    if minimum > maximum {
+        return Err(WireGuardError::InvalidAmneziaValue);
+    }
+    Ok(())
+}
+
 fn boolean(value: &str) -> Result<bool, WireGuardError> {
     match value.to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
@@ -655,7 +678,7 @@ fn awg_options(fields: &BTreeMap<String, String>) -> Result<Option<AwgOptions>, 
         }
     }
     for name in ["h1", "h2", "h3", "h4"] {
-        numeric_range(required(fields, name)?)?;
+        header_range(required(fields, name)?)?;
     }
     for name in ["i1", "i2", "i3", "i4", "i5"] {
         if fields
@@ -827,9 +850,333 @@ fn decode_amnezia_vpn_link(input: &str) -> Result<String, WireGuardError> {
 pub fn parse_amnezia_vpn_link(input: &str) -> Result<WireGuardProfile, WireGuardError> {
     let decoded = decode_amnezia_vpn_link(input)?;
     if decoded.trim_start().starts_with('{') {
-        return Err(WireGuardError::UnsupportedVpnContainer);
+        return parse_structured_amnezia_guest(&decoded);
     }
     parse_wireguard_config(&decoded)
+}
+
+// Amnezia's own importer serializes a native WG/AWG .conf as
+// containers[i].{wireguard,awg}.last_config = JSON({"config": ".conf"}).
+// Only that explicit guest shape is accepted: self-hosted server settings and
+// API subscriptions are not profile credentials and must never be projected.
+#[derive(Deserialize)]
+struct GuestRoot {
+    #[serde(rename = "defaultContainer")]
+    default_container: String,
+    containers: Vec<GuestContainer>,
+    #[serde(rename = "auth_data")]
+    auth_data: Option<serde_json::Value>,
+    #[serde(rename = "api_config")]
+    api_config: Option<serde_json::Value>,
+    api_key: Option<serde_json::Value>,
+    #[serde(rename = "userName")]
+    user_name: Option<serde_json::Value>,
+    password: Option<serde_json::Value>,
+    #[serde(rename = "hostName")]
+    host_name: Option<String>,
+    dns1: Option<String>,
+    dns2: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GuestContainer {
+    container: String,
+    awg: Option<GuestProtocol>,
+    wireguard: Option<GuestProtocol>,
+}
+
+#[derive(Deserialize)]
+struct GuestProtocol {
+    last_config: String,
+}
+
+#[derive(Deserialize)]
+struct GuestLastConfig {
+    config: String,
+    #[serde(flatten)]
+    fields: BTreeMap<String, serde_json::Value>,
+}
+
+struct UniqueJson(serde_json::Value);
+
+impl<'de> Deserialize<'de> for UniqueJson {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct UniqueVisitor;
+        impl<'de> Visitor<'de> for UniqueVisitor {
+            type Value = UniqueJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("JSON without duplicate object keys")
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Null))
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Bool(value)))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Number(value.into())))
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Number(value.into())))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                let number = serde_json::Number::from_f64(value)
+                    .ok_or_else(|| E::custom("invalid JSON number"))?;
+                Ok(UniqueJson(serde_json::Value::Number(number)))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::String(value.to_owned())))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::String(value)))
+            }
+
+            fn visit_seq<S: SeqAccess<'de>>(
+                self,
+                mut sequence: S,
+            ) -> Result<Self::Value, S::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = sequence.next_element::<UniqueJson>()? {
+                    values.push(value.0);
+                }
+                Ok(UniqueJson(serde_json::Value::Array(values)))
+            }
+
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut fields = serde_json::Map::new();
+                while let Some((key, value)) = map.next_entry::<String, UniqueJson>()? {
+                    if fields.insert(key, value.0).is_some() {
+                        return Err(M::Error::custom("duplicate JSON key"));
+                    }
+                }
+                Ok(UniqueJson(serde_json::Value::Object(fields)))
+            }
+        }
+        deserializer.deserialize_any(UniqueVisitor)
+    }
+}
+
+fn unique_json(input: &str) -> Result<serde_json::Value, WireGuardError> {
+    serde_json::from_str::<UniqueJson>(input)
+        .map(|value| value.0)
+        .map_err(|_| WireGuardError::UnsupportedVpnContainer)
+}
+
+/// Parse credential-bearing JSON with duplicate-key rejection at every depth.
+/// The returned value is private material: never log or serialize it to a
+/// public response. Intended for inactive mixed-store candidate validation.
+pub fn parse_unique_private_json(input: &str) -> Result<serde_json::Value, WireGuardError> {
+    unique_json(input)
+}
+
+fn guest_text<'a>(
+    fields: &'a BTreeMap<String, serde_json::Value>,
+    key: &str,
+) -> Result<Option<&'a str>, WireGuardError> {
+    fields
+        .get(key)
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or(WireGuardError::UnsupportedVpnContainer)
+        })
+        .transpose()
+}
+
+fn guest_matches_native_config(
+    root: &GuestRoot,
+    last: &GuestLastConfig,
+    profile: &mut WireGuardProfile,
+) -> Result<(), WireGuardError> {
+    let fields = &last.fields;
+    for (key, expected) in [
+        ("client_priv_key", profile.private_key.as_str()),
+        ("server_pub_key", profile.public_key.as_str()),
+        ("psk_key", profile.preshared_key.as_str()),
+    ] {
+        if guest_text(fields, key)?.is_some_and(|value| value != expected) {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    if let Some(address) = guest_text(fields, "client_ip")? {
+        let canonical = if address.contains('/') {
+            address.to_owned()
+        } else {
+            let ip =
+                IpAddr::from_str(address).map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+            format!("{ip}/{}", if ip.is_ipv4() { 32 } else { 128 })
+        };
+        let parsed =
+            parse_addresses(&canonical).map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+        if parsed != profile.addresses {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    if let Some(allowed) = fields.get("allowed_ips") {
+        let values = allowed
+            .as_array()
+            .ok_or(WireGuardError::UnsupportedVpnContainer)?;
+        let parsed = values
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or(WireGuardError::UnsupportedVpnContainer)
+                    .and_then(|item| {
+                        IpPrefix::parse(item).map_err(|_| WireGuardError::UnsupportedVpnContainer)
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if parsed != profile.allowed_ips {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    if let Some(host) = guest_text(fields, "hostName")? {
+        let canonical =
+            canonical_host(host).map_err(|()| WireGuardError::UnsupportedVpnContainer)?;
+        if canonical.0 != profile.endpoint.host {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    if let Some(host) = root.host_name.as_deref().filter(|host| !host.is_empty()) {
+        let canonical =
+            canonical_host(host).map_err(|()| WireGuardError::UnsupportedVpnContainer)?;
+        if canonical.0 != profile.endpoint.host {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    if let Some(port) = fields.get("port") {
+        let parsed = match port {
+            serde_json::Value::String(value) => value.parse::<u16>().ok(),
+            serde_json::Value::Number(value) => {
+                value.as_u64().and_then(|value| u16::try_from(value).ok())
+            }
+            _ => None,
+        };
+        if parsed != Some(profile.endpoint.port) {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    if let Some(mtu) = guest_text(fields, "mtu")? {
+        let parsed = parse_mtu(Some(&mtu.to_owned()))
+            .map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+        if profile.mtu.is_some() && parsed != profile.mtu {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+        profile.mtu = parsed;
+    }
+    if let Some(keepalive) = guest_text(fields, "persistent_keep_alive")? {
+        let parsed = parse_keepalive(Some(&keepalive.to_owned()), profile.awg.is_some())
+            .map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+        if parsed.map(|value| value.canonical())
+            != profile
+                .persistent_keepalive
+                .as_ref()
+                .map(Keepalive::canonical)
+        {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+    }
+    for (key, value) in fields {
+        let lowercase = key.to_ascii_lowercase();
+        if AWG_BASE_FIELDS
+            .into_iter()
+            .chain(AWG_EXTENDED_FIELDS)
+            .chain(AWG_V1_5_ONLY_FIELDS)
+            .chain(AWG_V3_FIELDS)
+            .chain(AWG_V3_1_FIELDS)
+            .any(|known| known == lowercase)
+        {
+            let text = value
+                .as_str()
+                .ok_or(WireGuardError::UnsupportedVpnContainer)?;
+            if profile
+                .awg
+                .as_ref()
+                .and_then(|awg| awg.values.get(&lowercase))
+                != Some(&text.to_owned())
+            {
+                return Err(WireGuardError::UnsupportedVpnContainer);
+            }
+        }
+    }
+    let root_dns = [root.dns1.as_deref(), root.dns2.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|value| !value.is_empty())
+        .map(|value| IpAddr::from_str(value).map(|ip| ip.to_string()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+    if !root_dns.is_empty() && root_dns != profile.dns {
+        return Err(WireGuardError::UnsupportedVpnContainer);
+    }
+    Ok(())
+}
+
+fn parse_structured_amnezia_guest(input: &str) -> Result<WireGuardProfile, WireGuardError> {
+    let root: GuestRoot = serde_json::from_value(unique_json(input)?)
+        .map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+    if root.auth_data.is_some() || root.api_config.is_some() || root.api_key.is_some() {
+        return Err(WireGuardError::UnsupportedVpnApiKey);
+    }
+    if root.user_name.is_some() || root.password.is_some() || root.containers.len() > 16 {
+        return Err(WireGuardError::UnsupportedVpnContainer);
+    }
+    let selected = match root.default_container.as_str() {
+        "amnezia-wireguard" => WireGuardFlavor::Standard,
+        "amnezia-awg" | "amnezia-awg2" => WireGuardFlavor::Amnezia(AwgGeneration::V1),
+        _ => return Err(WireGuardError::UnsupportedVpnContainer),
+    };
+    let supported = root
+        .containers
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.container.as_str(),
+                "amnezia-wireguard" | "amnezia-awg" | "amnezia-awg2"
+            )
+        })
+        .collect::<Vec<_>>();
+    if supported.len() != 1 || supported[0].container != root.default_container {
+        return Err(WireGuardError::UnsupportedVpnContainer);
+    }
+    let entry = supported[0];
+    let protocol = if selected == WireGuardFlavor::Standard {
+        if entry.awg.is_some() {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+        entry.wireguard.as_ref()
+    } else {
+        if entry.wireguard.is_some() {
+            return Err(WireGuardError::UnsupportedVpnContainer);
+        }
+        entry.awg.as_ref()
+    }
+    .ok_or(WireGuardError::UnsupportedVpnContainer)?;
+    let last: GuestLastConfig = serde_json::from_value(unique_json(&protocol.last_config)?)
+        .map_err(|_| WireGuardError::UnsupportedVpnContainer)?;
+    if last.config.len() > MAX_WIREGUARD_CONFIG_BYTES {
+        return Err(WireGuardError::InputTooLarge);
+    }
+    let mut profile = parse_wireguard_config(&last.config)?;
+    let flavor_matches = matches!(
+        (selected, profile.facts().flavor),
+        (WireGuardFlavor::Standard, WireGuardFlavor::Standard)
+            | (WireGuardFlavor::Amnezia(_), WireGuardFlavor::Amnezia(_))
+    );
+    if !flavor_matches {
+        return Err(WireGuardError::UnsupportedVpnContainer);
+    }
+    guest_matches_native_config(&root, &last, &mut profile)?;
+    Ok(profile)
 }
 
 fn yaml_string(value: &str) -> String {
@@ -894,9 +1241,9 @@ impl WireGuardProfile {
             allowed_ip_count: self.allowed_ips.len(),
             has_preshared_key: !self.preshared_key.is_empty(),
             has_custom_mtu: self.mtu.is_some(),
-            keepalive_range_normalized: matches!(
+            keepalive_range_unrepresentable: matches!(
                 self.persistent_keepalive.as_ref(),
-                Some(Keepalive::Range { .. })
+                Some(Keepalive::Range { minimum, maximum }) if minimum != maximum
             ),
         }
     }
@@ -930,19 +1277,25 @@ impl WireGuardProfile {
         sha256_hex(values.join("\0").as_bytes())
     }
 
-    #[must_use]
-    pub fn render_mihomo_proxy(&self, name: &str, server_override: Option<&str>) -> String {
+    pub fn render_mihomo_proxy(
+        &self,
+        name: &str,
+        server_override: Option<&str>,
+    ) -> Result<String, ManagedCompatibilityError> {
+        self.managed_compatibility()?;
+        if server_override.is_some_and(|host| {
+            host.trim_matches(['[', ']'])
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_ipv6())
+        }) {
+            return Err(ManagedCompatibilityError::Ipv4Only);
+        }
         let mut lines = vec![
             format!("- name: {}", yaml_string(name)),
             "  type: wireguard".to_owned(),
-            format!(
-                "  server: {}",
-                yaml_string(server_override.unwrap_or(&self.endpoint.host))
-            ),
-            format!("  port: {}", self.endpoint.port),
             format!("  private-key: {}", yaml_string(&self.private_key)),
-            format!("  public-key: {}", yaml_string(&self.public_key)),
             "  udp: true".to_owned(),
+            "  ip-version: ipv4".to_owned(),
         ];
         if let Some(ipv4) = self.addresses.iter().find(|item| item.address.is_ipv4()) {
             lines.push(format!("  ip: {}", yaml_string(&ipv4.canonical())));
@@ -950,14 +1303,24 @@ impl WireGuardProfile {
         if let Some(ipv6) = self.addresses.iter().find(|item| item.address.is_ipv6()) {
             lines.push(format!("  ipv6: {}", yaml_string(&ipv6.canonical())));
         }
+        lines.push("  peers:".to_owned());
+        lines.push(format!(
+            "    - server: {}",
+            yaml_string(server_override.unwrap_or(&self.endpoint.host))
+        ));
+        lines.push(format!("      port: {}", self.endpoint.port));
+        lines.push(format!(
+            "      public-key: {}",
+            yaml_string(&self.public_key)
+        ));
         if !self.preshared_key.is_empty() {
             lines.push(format!(
-                "  pre-shared-key: {}",
+                "      pre-shared-key: {}",
                 yaml_string(&self.preshared_key)
             ));
         }
         lines.push(format!(
-            "  allowed-ips: {}",
+            "      allowed-ips: {}",
             yaml_list(self.allowed_ips.iter().map(IpPrefix::canonical))
         ));
         if !self.dns.is_empty() {
@@ -968,7 +1331,10 @@ impl WireGuardProfile {
             lines.push(format!("  mtu: {mtu}"));
         }
         if let Some(keepalive) = &self.persistent_keepalive {
-            lines.push(format!("  persistent-keepalive: {}", keepalive.rendered()));
+            lines.push(format!(
+                "  persistent-keepalive: {}",
+                keepalive.fixed().expect("managed compatibility checked")
+            ));
         }
         if let Some(awg) = &self.awg {
             lines.push("  amnezia-wg-option:".to_owned());
@@ -989,7 +1355,7 @@ impl WireGuardProfile {
                 lines.push(format!("    {output}: {rendered}"));
             }
         }
-        lines.join("\n")
+        Ok(lines.join("\n"))
     }
 }
 
@@ -1009,6 +1375,237 @@ mod tests {
         format!(
             "[Interface]\nPrivateKey = {PRIVATE_KEY}\nAddress = 10.0.0.2/32, fd00::2/128\nDNS = 1.1.1.1, 2606:4700:4700::1111\nMTU = 1420\n\n[Peer]\nPublicKey = {PUBLIC_KEY}\nPresharedKey = {PSK}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = [2001:db8::1]:51820\nPersistentKeepalive = 25\n"
         )
+    }
+
+    #[test]
+    fn private_records_restore_every_generation_without_losing_credentials_or_ranges() {
+        use private_record::parse_private_wireguard_record;
+        for config in [
+            standard(),
+            awg_base(""),
+            awg_base("S3 = 30\nS4 = 35\n"),
+            awg3(),
+            awg3().replace(
+                "[Peer]",
+                "RandomTrailers = true\nDisableCookies = false\n[Peer]",
+            ),
+        ] {
+            let original = parse_wireguard_config(&config).unwrap();
+            let encoded = original.private_record().unwrap();
+            let restored = parse_private_wireguard_record(encoded.expose_private_bytes()).unwrap();
+            assert_eq!(original.facts(), restored.facts());
+            assert!(original.subscription_identity() == restored.subscription_identity());
+            assert!(
+                original.render_mihomo_proxy("test", None)
+                    == restored.render_mihomo_proxy("test", None)
+            );
+            assert!(
+                encoded.expose_private_bytes()
+                    == restored.private_record().unwrap().expose_private_bytes()
+            );
+            assert_eq!(format!("{encoded:?}"), "PrivateWireGuardRecord([REDACTED])");
+            let exported = original.private_config().unwrap();
+            assert_eq!(
+                format!("{exported:?}"),
+                "PrivateWireGuardConfig([REDACTED])"
+            );
+            let native = std::str::from_utf8(exported.expose_private_bytes()).unwrap();
+            let restored = parse_wireguard_config(native).unwrap();
+            assert!(original.subscription_identity() == restored.subscription_identity());
+            assert!(
+                original.render_mihomo_proxy("test", None)
+                    == restored.render_mihomo_proxy("test", None)
+            );
+            assert!(native.contains("PrivateKey = "));
+            assert!(native.contains("Address = "));
+            assert!(native.contains("AllowedIPs = "));
+            assert!(native.contains("PublicKey = "));
+            if original.facts().keepalive_range_unrepresentable {
+                assert!(native.contains("PersistentKeepalive = 25-35\n"));
+                assert!(native.contains("ContentPaddingAddition = 10-100\n"));
+                assert!(native.contains("RekeyAfterTime = 100-120\n"));
+            }
+            assert!(
+                exported.expose_private_bytes()
+                    == restored.private_config().unwrap().expose_private_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn private_record_excludes_guest_metadata_and_unifies_all_import_sources() {
+        let native = standard();
+        let expected = parse_wireguard_config(&native)
+            .unwrap()
+            .private_record()
+            .unwrap();
+        for input in [
+            vpn_link(&native),
+            vpn_link(&guest("amnezia-wireguard", "wireguard", &native)),
+        ] {
+            let profile = parse_amnezia_vpn_link(&input).unwrap();
+            assert!(
+                expected.expose_private_bytes()
+                    == profile.private_record().unwrap().expose_private_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn private_native_export_preserves_all_optional_junk_and_guest_source_equivalence() {
+        let native = awg3().replace(
+            "I1 = <r 2><b 0x0102>\n",
+            "I1 = <r 2><b 0x0102>\nI2 = <r 3>\nI3 = <b 0x1234>\nI4 = <t>\nI5 = <r 4>\n",
+        );
+        let expected = parse_wireguard_config(&native)
+            .unwrap()
+            .private_config()
+            .unwrap();
+        for source in [
+            vpn_link(&native),
+            vpn_link(&guest("amnezia-awg2", "awg", &native)),
+        ] {
+            let actual = parse_amnezia_vpn_link(&source)
+                .unwrap()
+                .private_config()
+                .unwrap();
+            assert!(actual.expose_private_bytes() == expected.expose_private_bytes());
+        }
+        let text = std::str::from_utf8(expected.expose_private_bytes()).unwrap();
+        for field in ["I2 = <r 3>", "I3 = <b 0x1234>", "I4 = <t>", "I5 = <r 4>"] {
+            assert!(text.contains(field));
+        }
+        assert!(!text.contains("defaultContainer"));
+        assert!(!text.contains("last_config"));
+    }
+
+    #[test]
+    fn private_native_export_refuses_canonical_line_growth_without_releasing_text() {
+        use private_record::PrivateRecordError;
+        let mut prefixes = vec!["0.0.0.0/0"; 818];
+        prefixes[0] = "10.0.0.0/0";
+        let input = standard().replace(
+            "AllowedIPs = 0.0.0.0/0, ::/0",
+            &format!("AllowedIPs={}", prefixes.join(",")),
+        );
+        let profile = parse_wireguard_config(&input).expect("source fits native line bound");
+        let error = profile.private_config().unwrap_err();
+        assert_eq!(error, PrivateRecordError::InvalidRecord);
+        assert!(!error.to_string().contains(PRIVATE_KEY));
+        assert!(!error.to_string().contains(PUBLIC_KEY));
+    }
+
+    #[test]
+    fn private_record_rejects_ambiguous_json_versions_and_shapes() {
+        use private_record::{PrivateRecordError, parse_private_wireguard_record};
+        let valid = parse_wireguard_config(&standard())
+            .unwrap()
+            .private_record()
+            .unwrap();
+        let text = std::str::from_utf8(valid.expose_private_bytes()).unwrap();
+        for invalid in [
+            text.replacen(
+                "\"schemaVersion\":1",
+                "\"schemaVersion\":1,\"schemaVersion\":1",
+                1,
+            ),
+            text.replacen(
+                "\"privatekey\":",
+                "\"privatekey\":\"ignored-secret\",\"privatekey\":",
+                1,
+            ),
+            text.replacen("\"peer\":", "\"peer\":{},\"peer\":", 1),
+            text.replacen("\"schemaVersion\":1", "\"schemaVersion\":\"1\"", 1),
+            text.replacen(
+                "\"schemaVersion\":1",
+                "\"schemaVersion\":1,\"rawGuest\":\"secret\"",
+                1,
+            ),
+            format!("{text}{{}}"),
+            "null".to_owned(),
+            "[]".to_owned(),
+        ] {
+            assert_eq!(
+                parse_private_wireguard_record(invalid.as_bytes()).unwrap_err(),
+                PrivateRecordError::InvalidRecord
+            );
+        }
+        assert_eq!(
+            parse_private_wireguard_record(
+                text.replacen("\"schemaVersion\":1", "\"schemaVersion\":2", 1)
+                    .as_bytes()
+            )
+            .unwrap_err(),
+            PrivateRecordError::UnsupportedVersion
+        );
+    }
+
+    #[test]
+    fn private_record_revalidates_fields_and_refuses_line_injection() {
+        use private_record::{PrivateRecordError, parse_private_wireguard_record};
+        let valid = parse_wireguard_config(&standard())
+            .unwrap()
+            .private_record()
+            .unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(valid.expose_private_bytes()).unwrap();
+        for (section, key, value) in [
+            ("interface", "postup", "secret-command"),
+            ("interface", "Address", "10.0.0.3/32"),
+            ("interface", "privatekey", "invalid-secret"),
+            ("interface", "mtu", "-1"),
+            ("interface", "address", "10.0.0.2/32\nDNS = 8.8.8.8"),
+            ("interface", "dns", "1.1.1.1\r[Peer]"),
+            ("peer", "endpoint", " peer.example.invalid:443"),
+            ("peer", "publickey", "secret\0value"),
+            ("peer", "allowedips", "0.0.0.0/33"),
+            ("peer", "persistentkeepalive", "1-2"),
+        ] {
+            let mut invalid = record.clone();
+            invalid[section][key] = serde_json::json!(value);
+            let error =
+                parse_private_wireguard_record(&serde_json::to_vec(&invalid).unwrap()).unwrap_err();
+            assert_eq!(error, PrivateRecordError::InvalidRecord);
+            assert!(!error.to_string().contains(value));
+        }
+    }
+
+    #[test]
+    fn private_record_rejects_missing_fields_invalid_utf8_and_oversized_inputs() {
+        use private_record::{
+            MAX_PRIVATE_RECORD_BYTES, PrivateRecordError, parse_private_wireguard_record,
+        };
+        let valid = parse_wireguard_config(&standard())
+            .unwrap()
+            .private_record()
+            .unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(valid.expose_private_bytes()).unwrap();
+        for (section, field) in [
+            ("interface", "privatekey"),
+            ("interface", "address"),
+            ("peer", "publickey"),
+            ("peer", "endpoint"),
+            ("peer", "allowedips"),
+        ] {
+            let mut invalid = record.clone();
+            invalid[section].as_object_mut().unwrap().remove(field);
+            assert!(
+                parse_private_wireguard_record(&serde_json::to_vec(&invalid).unwrap()).is_err()
+            );
+        }
+        assert_eq!(
+            parse_private_wireguard_record(&[0xff]).unwrap_err(),
+            PrivateRecordError::InvalidRecord
+        );
+        assert_eq!(
+            parse_private_wireguard_record(&vec![b' '; MAX_PRIVATE_RECORD_BYTES + 1]).unwrap_err(),
+            PrivateRecordError::TooLarge
+        );
+        assert_eq!(
+            parse_private_wireguard_record(&vec![b' '; MAX_PRIVATE_RECORD_BYTES]).unwrap_err(),
+            PrivateRecordError::InvalidRecord
+        );
     }
 
     fn awg3() -> String {
@@ -1041,6 +1638,34 @@ mod tests {
         format!("vpn://{}", URL_SAFE_NO_PAD.encode(signed))
     }
 
+    fn guest(container: &str, protocol: &str, config: &str) -> String {
+        serde_json::json!({
+            "defaultContainer": container,
+            "containers": [{
+                "container": container,
+                protocol: {"last_config": serde_json::json!({"config": config}).to_string()}
+            }]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn managed_peer_render_keeps_exact_allowed_ips_psk_and_endpoint_inside_one_peer() {
+        let config = standard()
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace("0.0.0.0/0, ::/0", "192.0.2.0/24")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let profile = parse_wireguard_config(&config).unwrap();
+        let yaml = profile.render_mihomo_proxy("Managed", None).unwrap();
+        assert!(yaml.contains("\n  peers:\n    - server: \"203.0.113.2\""));
+        assert!(yaml.contains("\n      port: 51820"));
+        assert!(yaml.contains("\n      public-key: "));
+        assert!(yaml.contains("\n      pre-shared-key: "));
+        assert!(yaml.contains("\n      allowed-ips: [\"192.0.2.0/24\"]"));
+        assert!(!yaml.lines().any(|line| line.starts_with("  allowed-ips:")));
+    }
+
     #[test]
     fn parses_standard_one_peer_config_and_renders_mihomo() {
         let profile = parse_wireguard_config(&standard()).unwrap();
@@ -1049,9 +1674,21 @@ mod tests {
         assert!(profile.facts().has_ipv4);
         assert!(profile.facts().has_ipv6);
         assert_eq!(profile.facts().dns_count, 2);
-        let yaml = profile.render_mihomo_proxy("WG node", None);
+        assert_eq!(
+            profile.managed_compatibility(),
+            Err(ManagedCompatibilityError::Ipv4Only)
+        );
+        let ipv4 = standard()
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace(", ::/0", "")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let yaml = parse_wireguard_config(&ipv4)
+            .unwrap()
+            .render_mihomo_proxy("WG node", None)
+            .unwrap();
         assert!(yaml.contains("type: wireguard"));
-        assert!(yaml.contains("allowed-ips: [\"0.0.0.0/0\", \"::/0\"]"));
+        assert!(yaml.contains("allowed-ips: [\"0.0.0.0/0\"]"));
         assert!(yaml.contains("remote-dns-resolve: true"));
         assert!(!yaml.contains("amnezia-wg-option"));
         assert_eq!(profile.subscription_identity().len(), 64);
@@ -1064,8 +1701,16 @@ mod tests {
             profile.facts().flavor,
             WireGuardFlavor::Amnezia(AwgGeneration::V3)
         );
-        assert!(profile.facts().keepalive_range_normalized);
-        let yaml = profile.render_mihomo_proxy("AWG node", None);
+        assert!(profile.facts().keepalive_range_unrepresentable);
+        assert_eq!(
+            profile.managed_compatibility(),
+            Err(ManagedCompatibilityError::KeepaliveRange)
+        );
+        let fixed = awg3().replace("PersistentKeepalive = 25-35", "PersistentKeepalive = 25");
+        let yaml = parse_wireguard_config(&fixed)
+            .unwrap()
+            .render_mihomo_proxy("AWG node", None)
+            .unwrap();
         for expected in [
             "amnezia-wg-option:",
             "version: 3",
@@ -1116,7 +1761,351 @@ mod tests {
     }
 
     #[test]
-    fn structured_guest_container_is_explicitly_deferred() {
+    fn structured_guest_selects_one_explicit_wg_or_awg_and_uses_the_conf_parser() {
+        for (container, protocol, config, flavor) in [
+            (
+                "amnezia-wireguard",
+                "wireguard",
+                standard(),
+                WireGuardFlavor::Standard,
+            ),
+            (
+                "amnezia-awg",
+                "awg",
+                awg3(),
+                WireGuardFlavor::Amnezia(AwgGeneration::V3),
+            ),
+            (
+                "amnezia-awg2",
+                "awg",
+                awg3(),
+                WireGuardFlavor::Amnezia(AwgGeneration::V3),
+            ),
+        ] {
+            let link = vpn_link(&guest(container, protocol, &config));
+            let profile = parse_amnezia_vpn_link(&link).unwrap();
+            assert_eq!(profile.facts().flavor, flavor);
+            let imported = crate::import::parse_import(&link).unwrap();
+            assert_eq!(
+                imported.family(),
+                if flavor == WireGuardFlavor::Standard {
+                    crate::import::ImportFamily::WireGuard
+                } else {
+                    crate::import::ImportFamily::AmneziaWg
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn offline_wg_adapters_do_not_expand_the_production_uri_boundary() {
+        for (container, protocol, config) in [
+            ("amnezia-wireguard", "wireguard", standard()),
+            ("amnezia-awg2", "awg", awg3()),
+        ] {
+            let structured = vpn_link(&guest(container, protocol, &config));
+            let native_guest = vpn_link(&config);
+            for input in [&config, &native_guest, &structured] {
+                // Positive adapter admission first: refusal below cannot be
+                // explained by a malformed synthetic credential fixture.
+                assert!(crate::import::parse_import(input).is_ok());
+                assert!(crate::canonical::parse_canonical(input).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn structured_guests_refuse_unvalidated_v1_5_siblings_in_every_spelling_and_order() {
+        for (container, protocol, native) in [
+            ("amnezia-wireguard", "wireguard", standard()),
+            ("amnezia-awg2", "awg", awg3()),
+        ] {
+            let original = guest(container, protocol, &native);
+            assert!(parse_amnezia_vpn_link(&vpn_link(&original)).is_ok());
+            for field in ["j1", "j2", "j3", "itime"] {
+                for spelling in [field.to_owned(), field.to_ascii_uppercase(), {
+                    let mut spelling = field.to_owned();
+                    spelling[..1].make_ascii_uppercase();
+                    spelling
+                }] {
+                    let config = serde_json::to_string(&native).unwrap();
+                    let field = serde_json::to_string(&spelling).unwrap();
+                    for last in [
+                        format!("{{{field}:\"unvalidated-canary\",\"config\":{config}}}"),
+                        format!("{{\"config\":{config},{field}:\"unvalidated-canary\"}}"),
+                    ] {
+                        let mut root: serde_json::Value = serde_json::from_str(&original).unwrap();
+                        root["containers"][0][protocol]["last_config"] = last.into();
+                        let result = parse_amnezia_vpn_link(&vpn_link(&root.to_string()));
+                        assert!(matches!(
+                            result,
+                            Err(WireGuardError::UnsupportedVpnContainer)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn structured_guest_rejects_ambiguous_or_wrong_protocol_without_fallback() {
+        let cases = [
+            "{\"containers\":[]}".to_owned(),
+            guest("amnezia-awg", "wireguard", &awg3()),
+            guest("amnezia-wireguard", "wireguard", &awg3()),
+            guest("amnezia-awg", "awg", &standard()),
+            serde_json::json!({
+                "defaultContainer": "amnezia-xray",
+                "containers": [{"container": "amnezia-awg", "awg": {
+                    "last_config": serde_json::json!({"config": awg3()}).to_string()
+                }}]
+            })
+            .to_string(),
+            serde_json::json!({
+                "defaultContainer": "amnezia-awg",
+                "containers": [
+                    {"container": "amnezia-awg", "awg": {
+                        "last_config": serde_json::json!({"config": awg3()}).to_string()
+                    }},
+                    {"container": "amnezia-wireguard", "wireguard": {
+                        "last_config": serde_json::json!({"config": standard()}).to_string()
+                    }}
+                ]
+            })
+            .to_string(),
+        ];
+        for candidate in cases {
+            assert_eq!(
+                parse_amnezia_vpn_link(&vpn_link(&candidate)).unwrap_err(),
+                WireGuardError::UnsupportedVpnContainer
+            );
+        }
+    }
+
+    #[test]
+    fn structured_guest_ignores_other_protocol_containers_only_when_wg_is_default() {
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &standard())).unwrap();
+        root["containers"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"container": "amnezia-xray", "xray": {}}));
+        let profile = parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap();
+        assert_eq!(profile.facts().flavor, WireGuardFlavor::Standard);
+        root["defaultContainer"] = serde_json::json!("amnezia-xray");
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+    }
+
+    #[test]
+    fn structured_guest_checks_upstream_shaped_sibling_settings_against_native_conf() {
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &standard())).unwrap();
+        root["hostName"] = serde_json::json!("2001:db8::1");
+        root["dns1"] = serde_json::json!("1.1.1.1");
+        root["dns2"] = serde_json::json!("2606:4700:4700::1111");
+        let mut last = serde_json::json!({
+            "config": standard(),
+            "client_priv_key": PRIVATE_KEY,
+            "client_ip": "10.0.0.2/32, fd00::2/128",
+            "server_pub_key": PUBLIC_KEY,
+            "psk_key": PSK,
+            "allowed_ips": ["0.0.0.0/0", "::/0"],
+            "hostName": "2001:db8::1",
+            "port": 51820,
+            "mtu": "1420",
+            "persistent_keep_alive": "25"
+        });
+        let original = last.clone();
+        root["containers"][0]["wireguard"]["last_config"] = serde_json::json!(last.to_string());
+        assert!(parse_amnezia_vpn_link(&vpn_link(&root.to_string())).is_ok());
+
+        for (field, replacement) in [
+            ("client_priv_key", serde_json::json!(PUBLIC_KEY)),
+            ("allowed_ips", serde_json::json!(["10.0.0.0/8"])),
+            ("hostName", serde_json::json!("other.example.invalid")),
+            ("port", serde_json::json!(443)),
+            ("mtu", serde_json::json!("1280")),
+            ("persistent_keep_alive", serde_json::json!("30")),
+        ] {
+            last = original.clone();
+            last[field] = replacement;
+            root["containers"][0]["wireguard"]["last_config"] = serde_json::json!(last.to_string());
+            assert_eq!(
+                parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+                WireGuardError::UnsupportedVpnContainer
+            );
+        }
+        root["containers"][0]["wireguard"]["last_config"] = serde_json::json!(original.to_string());
+        root["dns1"] = serde_json::json!("9.9.9.9");
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+    }
+
+    #[test]
+    fn structured_awg_guest_rejects_conflicting_generation_settings() {
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-awg2", "awg", &awg3())).unwrap();
+        let mut last = serde_json::json!({
+            "config": awg3(),
+            "Jc": "4",
+            "HeaderProtectionKey": HEADER_KEY,
+            "persistent_keep_alive": "25-35"
+        });
+        root["containers"][0]["awg"]["last_config"] = serde_json::json!(last.to_string());
+        assert!(parse_amnezia_vpn_link(&vpn_link(&root.to_string())).is_ok());
+        last["HeaderProtectionKey"] = serde_json::json!(PUBLIC_KEY);
+        root["containers"][0]["awg"]["last_config"] = serde_json::json!(last.to_string());
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+    }
+
+    #[test]
+    fn structured_guest_bounds_containers_and_refuses_invalid_field_types() {
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &standard())).unwrap();
+        for _ in 1..16 {
+            root["containers"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"container": "amnezia-xray"}));
+        }
+        assert!(parse_amnezia_vpn_link(&vpn_link(&root.to_string())).is_ok());
+        root["containers"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"container": "amnezia-xray"}));
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+        let mut invalid: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &standard())).unwrap();
+        invalid["containers"][0]["wireguard"]["last_config"] = serde_json::json!({});
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&invalid.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+    }
+
+    #[test]
+    fn structured_guest_uses_validated_sibling_mtu_when_native_template_omits_it() {
+        let no_mtu = standard()
+            .replace("MTU = 1420\n", "")
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace(", ::/0", "")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &no_mtu)).unwrap();
+        root["containers"][0]["wireguard"]["last_config"] =
+            serde_json::json!(serde_json::json!({"config": no_mtu, "mtu": "1376"}).to_string());
+        let profile = parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap();
+        assert!(profile.facts().has_custom_mtu);
+        assert!(
+            profile
+                .render_mihomo_proxy("Synthetic", None)
+                .unwrap()
+                .contains("mtu: 1376")
+        );
+
+        root["containers"][0]["wireguard"]["last_config"] =
+            serde_json::json!(serde_json::json!({"config": standard(), "mtu": "1376"}).to_string());
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+    }
+
+    #[test]
+    fn structured_guest_refuses_duplicate_nested_fields_in_either_order() {
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &standard())).unwrap();
+        let config = serde_json::to_string(&standard()).unwrap();
+        for (first, second) in [(443, 51820), (51820, 443)] {
+            let last = format!("{{\"config\":{config},\"port\":{first},\"port\":{second}}}");
+            root["containers"][0]["wireguard"]["last_config"] = serde_json::json!(last);
+            assert_eq!(
+                parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+                WireGuardError::UnsupportedVpnContainer
+            );
+        }
+    }
+
+    #[test]
+    fn structured_guest_rejects_api_admin_and_duplicate_selector_fields_without_leak() {
+        let good = guest("amnezia-awg", "awg", &awg3());
+        let cases = [
+            (
+                good.replacen("\"containers\":", "\"api_config\":{},\"containers\":", 1),
+                WireGuardError::UnsupportedVpnApiKey,
+            ),
+            (
+                good.replacen(
+                    "\"containers\":",
+                    "\"userName\":\"admin-secret\",\"containers\":",
+                    1,
+                ),
+                WireGuardError::UnsupportedVpnContainer,
+            ),
+            (
+                good.replacen(
+                    "\"containers\":",
+                    "\"defaultContainer\":\"amnezia-awg\",\"containers\":",
+                    1,
+                ),
+                WireGuardError::UnsupportedVpnContainer,
+            ),
+            (
+                good.replacen(
+                    "\"container\":",
+                    "\"container\":\"amnezia-awg\",\"container\":",
+                    1,
+                ),
+                WireGuardError::UnsupportedVpnContainer,
+            ),
+        ];
+        for (candidate, expected) in cases {
+            let error = parse_amnezia_vpn_link(&vpn_link(&candidate)).unwrap_err();
+            assert_eq!(error, expected);
+            assert!(!error.to_string().contains("admin-secret"));
+        }
+    }
+
+    #[test]
+    fn structured_guest_cannot_launder_unsafe_conf_or_duplicate_nested_config() {
+        let unsafe_conf = standard().replacen(
+            "[Interface]\n",
+            "[Interface]\nPostUp = synthetic-command\n",
+            1,
+        );
+        let link = vpn_link(&guest("amnezia-wireguard", "wireguard", &unsafe_conf));
+        assert_eq!(
+            parse_amnezia_vpn_link(&link).unwrap_err(),
+            WireGuardError::DangerousDirective
+        );
+
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &standard())).unwrap();
+        root["containers"][0]["wireguard"]["last_config"] = serde_json::json!(format!(
+            "{{\"config\":{},\"config\":{}}}",
+            serde_json::to_string(&standard()).unwrap(),
+            serde_json::to_string(&standard()).unwrap()
+        ));
+        assert_eq!(
+            parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+            WireGuardError::UnsupportedVpnContainer
+        );
+    }
+
+    #[test]
+    fn malformed_structured_guest_is_explicitly_rejected() {
         let link = vpn_link("{\"containers\":[]}");
         assert_eq!(
             parse_amnezia_vpn_link(&link).unwrap_err(),
@@ -1189,8 +2178,15 @@ mod tests {
 
     #[test]
     fn yaml_control_values_are_quoted_and_dns_search_domains_reject() {
-        let profile = parse_wireguard_config(&standard()).unwrap();
-        let yaml = profile.render_mihomo_proxy("node:\n- injected", Some("override.example"));
+        let ipv4 = standard()
+            .replace(", fd00::2/128", "")
+            .replace(", 2606:4700:4700::1111", "")
+            .replace(", ::/0", "")
+            .replace("[2001:db8::1]:51820", "203.0.113.2:51820");
+        let profile = parse_wireguard_config(&ipv4).unwrap();
+        let yaml = profile
+            .render_mihomo_proxy("node:\n- injected", Some("override.example"))
+            .unwrap();
         assert!(yaml.starts_with("- name: \"node:\\n- injected\""));
         assert!(yaml.contains("server: \"override.example\""));
 

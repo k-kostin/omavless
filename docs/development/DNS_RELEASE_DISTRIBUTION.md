@@ -38,6 +38,24 @@ artifact is build evidence, not an authenticated release asset or installed
 acceptance. Final frontend bootstrap pins come from immutable published asset
 hashes, never a mutable tag, latest manifest or a self-reported receipt.
 
+### Same-producer CI scheduling
+
+The app and DNS-pair PR workflows use identical ordered path filters matching
+the existing fail-closed complete native-input projection in
+`packaging/release/pair-frontend.py`. Unknown/new protected files, every crate,
+workspace manifests/lockfile, toolchain, Cargo configuration, templates,
+licenses and native packaging therefore schedule both producers. Ordinary
+frontend/docs/test-only edits stay excluded, except the projection's compiled
+data and the explicit shared producer/patch/build/staging inputs. A protected
+runtime-only change must not leave the DNS artifact on a predecessor commit.
+The regression compares every actual protected blob and synthetic new paths
+against both filters; it also preserves ordinary frontend exclusions.
+
+This only aligns automatic PR scheduling. It changes no input-equivalence
+exception, package identity, job/permission/checkout pin, execution deadline,
+artifact contents or release authority. Both workflows still build and inspect
+uninstalled packages; a scheduled run is neither success nor installed proof.
+
 ## Explicit first-use sequence
 
 The panel must distinguish a missing companion, missing explicit enrollment,

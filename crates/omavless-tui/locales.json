@@ -1,4 +1,5 @@
 {
+  "import.managed_scope":{"en":"Experimental managed connections: IPv4 and supported options only. Saving does not connect.","ru":"Экспериментальное подключение: только IPv4 и совместимые параметры. Сохранение не подключает VPN."},
   "tui.settings_recovery_keys":{"en":"b: Backup · R: Restore · Y: recover · l: lang · t: theme · 0: reset","ru":"b:копия · R:восстановить · Y:после сбоя · l:язык · t:тема · 0:сброс"},
   "tui.recovery_off":{"en":"Recovery does not connect VPN. Ordinary app availability is checked separately.","ru":"Восстановление не подключает VPN. Доступность обычного приложения проверяется отдельно."},
   "tui.recovery_return":{"en":"Esc: Settings · Ctrl+C: close client; recovery may be incomplete","ru":"Esc: настройки · Ctrl+C: выйти; завершение не гарантировано"},

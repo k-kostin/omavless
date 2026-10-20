@@ -119,6 +119,9 @@ impl ValidationSnapshot {
         store: &PrivateStore,
         template: &str,
     ) -> Result<Self, ValidationError> {
+        store
+            .managed_connection_compatibility(&desired.profile_id)
+            .map_err(|_| ValidationError::UnsupportedCore)?;
         let names = manifest(template)?;
         desired
             .validate()

@@ -10,7 +10,9 @@
 use crate::core::OwnedCore;
 use crate::core_readiness::ConfigReadiness;
 use crate::desired::{DesiredState, OwnedObservation};
-use crate::lifecycle::{HostStepError, LifecycleHost, NativeLocalObservation};
+use crate::lifecycle::{
+    ConnectionPreflightError, HostStepError, LifecycleHost, NativeLocalObservation,
+};
 use crate::managed_pair::ManagedPair;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
@@ -246,16 +248,23 @@ impl CloseFacts {
             return Err(HostStepError::Observation);
         }
         let mut config = None;
-        if !self
-            .readiness
-            .ready_with(Instant::now() + Duration::from_secs(3), |endpoint| {
-                let result = session.read_fixed(endpoint);
-                if endpoint == omavless_mihomo::ReadOnlyEndpoint::Configs {
-                    config = result.clone();
-                }
-                result
-            })
-        {
+        let configured_ready = {
+            // The two callbacks run sequentially on the SAME qualified session.
+            // No cloned capability, new controller or independently adopted PID.
+            let retained = std::cell::RefCell::new(&mut *session);
+            self.readiness.ready_with(
+                Instant::now() + Duration::from_secs(3),
+                |endpoint| {
+                    let result = retained.borrow_mut().read_fixed(endpoint);
+                    if endpoint == omavless_mihomo::ReadOnlyEndpoint::Configs {
+                        config = result.clone();
+                    }
+                    result
+                },
+                |kind| retained.borrow_mut().read_running(kind),
+            )
+        };
+        if !configured_ready {
             return Err(HostStepError::Observation);
         }
         let config = config.ok_or(HostStepError::Observation)?;
@@ -1510,8 +1519,45 @@ impl LifecycleHost for NativeLifecycleHost {
         Some((pid, Sha256::digest(config).into()))
     }
     fn validate_startup(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
-        self.connection_preflight()?;
+        self.connection_preflight_for(desired)
+            .map_err(|_| HostStepError::Prepare)?;
         crate::startup_validation::validate(&self.paths, self.uid, desired)
+    }
+    fn connection_preflight_for(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<(), ConnectionPreflightError> {
+        let input = read_private_utf8(&self.paths.store, self.uid)
+            .map_err(|_| ConnectionPreflightError::UnsupportedProfile)?;
+        let store = parse_private_store(&input)
+            .map_err(|_| ConnectionPreflightError::UnsupportedProfile)?;
+        store
+            .managed_connection_compatibility(&desired.profile_id)
+            .map_err(|_| ConnectionPreflightError::UnsupportedProfile)?;
+        if store
+            .selected_wireguard_flavor(&desired.profile_id)
+            .map_err(|_| ConnectionPreflightError::UnsupportedProfile)?
+            .is_some()
+        {
+            self.native_profile_preflight()
+                .map_err(|_| ConnectionPreflightError::DnsPairRequired)?;
+        }
+        self.connection_preflight()
+            .map_err(|_| ConnectionPreflightError::DnsPairRequired)
+    }
+    fn native_profile_preflight(&mut self) -> Result<(), HostStepError> {
+        let pair = self
+            .paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?;
+        pair.verify()?;
+        // Old configured-only pairs remain valid for their existing URI path,
+        // but do not acquire WG traffic readiness from version or YAML flags.
+        if pair.running_report() != crate::core_readiness::TrafficReadiness::TrafficV1 {
+            return Err(HostStepError::Prepare);
+        }
+        Ok(())
     }
     fn connection_preflight(&mut self) -> Result<(), HostStepError> {
         if !self.paths.require_managed_pair {
@@ -1556,6 +1602,16 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        self.connection_preflight_for(desired)
+            .map_err(|_| HostStepError::Prepare)?;
+        // Capture and repeat typed admission before revocation, staging or any
+        // core effect. A restored/manually present v4 store is not activation.
+        let store_text =
+            read_private_utf8(&self.paths.store, self.uid).map_err(|_| HostStepError::Prepare)?;
+        let store = parse_private_store(&store_text).map_err(|_| HostStepError::Prepare)?;
+        store
+            .managed_connection_compatibility(&desired.profile_id)
+            .map_err(|_| HostStepError::Prepare)?;
         #[cfg(feature = "product-image-witness")]
         self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
@@ -1573,14 +1629,11 @@ impl LifecycleHost for NativeLifecycleHost {
         remove_owned_file(&self.paths.staged_config, self.uid, false)?;
         self.previous_config = Some(self.read_previous_config()?);
         self.active_install_attempted = false;
-        let store_text =
-            read_private_utf8(&self.paths.store, self.uid).map_err(|_| HostStepError::Prepare)?;
         let template = read_private_utf8(&self.paths.template, self.uid)
             .map_err(|_| HostStepError::Prepare)?;
         if template.len() > MAX_TEMPLATE_BYTES {
             return Err(HostStepError::Prepare);
         }
-        let store = parse_private_store(&store_text).map_err(|_| HostStepError::Prepare)?;
         let profile_name = store
             .list_projection()
             .profiles()
@@ -1608,7 +1661,11 @@ impl LifecycleHost for NativeLifecycleHost {
             )
             .map_err(|_| HostStepError::Prepare)?;
         let readiness = ConfigReadiness::from_generated_config(desired.mode, profile_name, &config)
-            .ok_or(HostStepError::Prepare)?;
+            .ok_or(HostStepError::Prepare)?
+            .with_running_report(self.paths.managed_pair.as_ref().map_or(
+                crate::core_readiness::TrafficReadiness::ConfiguredOnly,
+                ManagedPair::running_report,
+            ));
         if self.paths.managed_pair.is_some() && !readiness.managed_dns() {
             return Err(HostStepError::Prepare);
         }
@@ -1631,6 +1688,14 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn start_prepared(&mut self) -> Result<(), HostStepError> {
+        let selected = self.profile_id.clone().ok_or(HostStepError::Start)?;
+        let target = DesiredState {
+            connected: true,
+            profile_id: selected,
+            ..DesiredState::default()
+        };
+        self.connection_preflight_for(&target)
+            .map_err(|_| HostStepError::Start)?;
         #[cfg(feature = "product-image-witness")]
         self.revoke_product_image();
         #[cfg(all(test, feature = "developer-image-witness"))]
@@ -2027,6 +2092,118 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_native_target_admission_uses_current_credentials_before_any_effects() {
+        let (root, mut host) = observation_fixture();
+        const URI_ID: &str = "00000000-0000-4000-8000-000000000001";
+        const WG_ID: &str = "00000000-0000-4000-8000-000000000002";
+        let input = serde_json::json!({"version":3,"profiles":[{"id":URI_ID,"name":"URI","uri":"trojan://synthetic@192.0.2.1:443","protocol":"trojan"}]}).to_string();
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let mixed = omavless_domain::private_store::apply_profile_import(
+            &input,
+            WG_ID,
+            "Native",
+            &native.replace("10.8.0.2/32", "10.8.0.2/32, fd00::2/128"),
+        )
+        .unwrap();
+        fs::write(&host.paths.store, mixed.payload()).unwrap();
+        fs::set_permissions(&host.paths.store, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&host.paths.staged_config, b"synthetic-preserve-staged").unwrap();
+        fs::set_permissions(&host.paths.staged_config, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&host.paths.store).unwrap();
+        let target = DesiredState {
+            connected: true,
+            profile_id: WG_ID.into(),
+            ..DesiredState::default()
+        };
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::UnsupportedProfile)
+        );
+        assert_eq!(host.prepare(&target), Err(HostStepError::Prepare));
+        assert_eq!(host.validate_startup(&target), Err(HostStepError::Prepare));
+        host.profile_id = Some(WG_ID.into());
+        assert_eq!(host.start_prepared(), Err(HostStepError::Start));
+        host.profile_id = None;
+        assert!(fs::read(&host.paths.staged_config).unwrap() == b"synthetic-preserve-staged");
+        assert!(fs::read(&host.paths.store).unwrap() == before);
+        assert!(host.core.is_none() && host.profile_id.is_none());
+        let uri = DesiredState {
+            profile_id: URI_ID.into(),
+            ..target.clone()
+        };
+        assert_eq!(host.connection_preflight_for(&uri), Ok(()));
+        host.paths.require_managed_pair = true;
+        assert_eq!(
+            host.connection_preflight_for(&uri),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::UnsupportedProfile)
+        );
+        host.paths.require_managed_pair = false;
+        let mut spoofed: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        spoofed["profiles"][1]["protocol"] = "trojan".into();
+        fs::write(&host.paths.store, serde_json::to_vec(&spoofed).unwrap()).unwrap();
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::UnsupportedProfile)
+        );
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_target_requires_running_qualified_pair_before_any_core_effects() {
+        let (root, mut host) = observation_fixture();
+        let id = "00000000-0000-4000-8000-000000000001";
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let store = omavless_domain::private_store::apply_profile_import(
+            "{\"version\":3,\"profiles\":[]}",
+            id,
+            "Native",
+            native,
+        )
+        .unwrap();
+        fs::write(&host.paths.store, store.payload()).unwrap();
+        fs::set_permissions(&host.paths.store, fs::Permissions::from_mode(0o600)).unwrap();
+        let target = DesiredState {
+            connected: true,
+            profile_id: id.into(),
+            ..DesiredState::default()
+        };
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
+        assert_eq!(host.prepare(&target), Err(HostStepError::Prepare));
+        assert_eq!(host.validate_startup(&target), Err(HostStepError::Prepare));
+        host.paths.require_managed_pair = true;
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
+        assert!(host.core.is_none() && host.profile_id.is_none());
+        assert!(fs::read(&host.paths.store).unwrap() == store.payload());
+        let pair_root = root.join("pair");
+        fs::create_dir(&pair_root).unwrap();
+        host.paths.managed_pair = Some(ManagedPair::test_pair(&pair_root, false));
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
+        host.paths.managed_pair = None;
+        let new_root = root.join("traffic-pair");
+        fs::create_dir(&new_root).unwrap();
+        host.paths.managed_pair = Some(ManagedPair::test_pair(&new_root, true));
+        assert_eq!(host.connection_preflight_for(&target), Ok(()));
+        assert!(host.core.is_none() && host.profile_id.is_none());
+        assert!(fs::read(&host.paths.store).unwrap() == store.payload());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn managed_pair_required_host_refuses_legacy_path_before_staging() {
         let (root, mut host) = observation_fixture();
         host.paths.require_managed_pair = true;
@@ -2203,11 +2380,63 @@ mod tests {
         host.stop_owned().unwrap();
         assert!(host.ping_slot.epoch().unwrap() > first);
         let stopped = host.ping_slot.epoch().unwrap();
+        const ID: &str = "00000000-0000-4000-8000-000000000001";
+        let store = serde_json::json!({"version":3,"profiles":[{
+            "id":ID,"name":"Synthetic ping target",
+            "uri":"trojan://synthetic@192.0.2.1:443","protocol":"trojan"
+        }]})
+        .to_string();
+        fs::write(&host.paths.store, store).unwrap();
+        fs::set_permissions(&host.paths.store, fs::Permissions::from_mode(0o600)).unwrap();
+        host.profile_id = Some(ID.into());
+        let target = DesiredState {
+            connected: true,
+            profile_id: ID.into(),
+            ..DesiredState::default()
+        };
+        assert_eq!(host.connection_preflight_for(&target), Ok(()));
+        // Reach the start boundary without permitting even the inert core to
+        // execute. An unselected target now correctly refuses before revoke.
+        fs::remove_file(&host.paths.core).unwrap();
         assert!(host.start_prepared().is_err());
         assert!(host.ping_slot.epoch().unwrap() > stopped);
+        assert!(host.core.is_none());
         host.ping_slot.poison_for_test();
         assert!(host.stop_owned().is_err());
         assert!(host.start_prepared().is_err());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn early_start_target_refusals_preserve_ping_epoch_and_private_paths() {
+        let (root, mut host) = observation_fixture();
+        const ID: &str = "00000000-0000-4000-8000-000000000002";
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32, fd00::2/128\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let store = omavless_domain::private_store::apply_profile_import(
+            "{\"version\":3,\"profiles\":[]}",
+            ID,
+            "Unsupported dual-stack",
+            native,
+        )
+        .unwrap();
+        fs::write(&host.paths.store, store.payload()).unwrap();
+        fs::set_permissions(&host.paths.store, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&host.paths.staged_config, b"synthetic-preserved-staging").unwrap();
+        fs::set_permissions(&host.paths.staged_config, fs::Permissions::from_mode(0o600)).unwrap();
+        let epoch = host.ping_slot.epoch().unwrap();
+        for selected in [None, Some("00000000-0000-4000-8000-000000000099"), Some(ID)] {
+            host.profile_id = selected.map(str::to_owned);
+            assert_eq!(host.start_prepared(), Err(HostStepError::Start));
+            assert_eq!(host.ping_slot.epoch(), Some(epoch));
+            assert_eq!(host.profile_id.as_deref(), selected);
+            assert!(host.core.is_none());
+            assert_eq!(
+                fs::read(&host.paths.store).unwrap().as_slice(),
+                store.payload()
+            );
+            assert!(fs::read(&host.paths.staged_config).unwrap() == b"synthetic-preserved-staging");
+        }
         drop(host);
         fs::remove_dir_all(root).unwrap();
     }

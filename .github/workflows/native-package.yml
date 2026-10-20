@@ -4,15 +4,44 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      # Match pair-frontend.py's fail-closed complete native-input projection:
+      # unknown/new paths stay protected, ordinary frontend/docs stay excluded.
+      - '**'
+      - '!README.md'
+      - '!AGENTS.md'
+      - '!CONTRIBUTING.md'
+      - '!DEVELOPMENT_ROADMAP.md'
+      - '!CHANGELOG.md'
+      - '!GLOSSARY.md'
+      - '!manifest.json'
+      - '!preview.png'
+      - '!backend.sh'
+      - '!install.sh'
+      - '!tools/uninstall.sh'
+      - '!tools/clean-reinstall-098.sh'
+      - '!.github/workflows/native-package.yml'
+      - '!.github/workflows/test.yml'
+      - '!plugin/**'
+      - '!docs/**'
+      - '!tests/**'
+      - '!skills/**'
+      - '!packaging/release/**'
+      # Re-include compiled data and both producers' explicit build inputs.
+      # Both workflows must run for one common app/DNS producer, not borrowed CI.
+      - 'plugin/published-pairs.json'
+      - 'tests/dns_broker_host/omavless-dns-broker.service'
       - '.github/workflows/native-package.yml'
+      - '.github/workflows/dns-pair-native-arm64.yml'
       - 'packaging/release/build-native-ci.sh'
       - 'packaging/release/version-mode.sh'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'crates/**'
-      - 'plugin/published-pairs.json'
-      - 'packaging/arch/**'
-      - 'packaging/systemd/**'
+      - 'packaging/release/client-features.sh'
+      - 'packaging/release/build-candidate.py'
+      - 'packaging/release/pair-frontend.py'
+      - 'tests/installed_native_package.py'
+      - 'tests/human_authorization.py'
+      - 'tests/dns_broker_host/package/**'
+      - 'tests/core_dns_adapter/**'
+      - 'packaging/dns/**'
 
 permissions:
   contents: read

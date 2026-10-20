@@ -28,6 +28,7 @@ pub enum ConnectionTransactionError {
     NotFound,
     InvalidArgument,
     DnsPairRequired,
+    UnsupportedProfile,
     Conflict,
     Store,
     TransitionFailedRestored,
@@ -43,6 +44,7 @@ impl ConnectionTransactionError {
             Self::NotFound => StableErrorCode::NotFound,
             Self::InvalidArgument => StableErrorCode::InvalidArgument,
             Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
+            Self::UnsupportedProfile => StableErrorCode::CoreRejected,
             Self::Conflict => StableErrorCode::Conflict,
             Self::Store => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
@@ -59,6 +61,7 @@ impl fmt::Display for ConnectionTransactionError {
             Self::NotFound => "Requested profile was not found",
             Self::InvalidArgument => "Connection request is invalid",
             Self::DnsPairRequired => "Set up the managed DNS pair before connecting",
+            Self::UnsupportedProfile => "This profile is not available for connection",
             Self::Conflict => "Connection state changed concurrently",
             Self::Store => "Connection metadata update failed",
             Self::TransitionFailedRestored => "Connection transition failed and was restored",
@@ -94,6 +97,7 @@ fn lifecycle_error(error: LifecycleError) -> ConnectionTransactionError {
     match error {
         LifecycleError::InvalidRequest => ConnectionTransactionError::InvalidArgument,
         LifecycleError::DnsPairRequired => ConnectionTransactionError::DnsPairRequired,
+        LifecycleError::UnsupportedProfile => ConnectionTransactionError::UnsupportedProfile,
         LifecycleError::State => ConnectionTransactionError::Store,
         LifecycleError::TransitionFailedRestored => {
             ConnectionTransactionError::TransitionFailedRestored

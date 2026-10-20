@@ -66,7 +66,7 @@ function parseProfileDetails(raw, revision) {
         || !object(p.result, ["version", "name", "protocol", "server", "transport", "security", "sni"])) return null
     var d = p.result
     if (d.version !== 1 || !text(d.name, 80, false) || !editorText(d.name, 320)
-        || ["vless", "trojan", "hysteria2", "tuic"].indexOf(d.protocol) < 0
+        || ["vless", "trojan", "hysteria2", "tuic", "wireguard", "amneziawg"].indexOf(d.protocol) < 0
         || !text(d.server, 259, false) || !editorText(d.server, 1018)
         || !text(d.transport, 32, false) || !editorText(d.transport, 32)
         || !text(d.security, 16, false) || !editorText(d.security, 16)
@@ -136,18 +136,24 @@ function startupCapability(raw, context) {
   } catch (_) { return null }
 }
 
-function parseQrExport(raw, revision) {
+function parsePrivateProfileExport(raw, revision) {
   try {
     if (typeof raw !== "string" || raw.length > 262144 || unescape(encodeURIComponent(raw)).length > 262144) return null
     var p = JSON.parse(raw)
     if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
         || p.api !== "omavless.control" || p.version !== 1 || p.ok !== true
         || !id(p.id, false) || !number(p.revision, 9007199254740991) || p.revision !== revision
-        || !object(p.result, ["format", "content"]) || p.result.format !== "uri"
-        || !text(p.result.content, 32768, false)
+        || !object(p.result, ["format", "content"]) || ["uri", "wireguard-conf"].indexOf(p.result.format) < 0
+        || !editorText(p.result.content, 32768) || p.result.content.length === 0
+        || /[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(p.result.content)
+        || (p.result.format === "uri" && !text(p.result.content, 32768, false))
         || unescape(encodeURIComponent(p.result.content)).length > 32768) return null
-    return p.result.content
+    return {format:p.result.format, content:p.result.content}
   } catch (_) { return null }
+}
+function parseQrExport(raw, revision) {
+  var result = parsePrivateProfileExport(raw, revision)
+  return result && result.format === "uri" ? result.content : null
 }
 function qrDataUri(raw) {
   // The fixed Rust helper emits only PNG, without a trailing newline.
@@ -364,7 +370,7 @@ function parse(raw, previous) {
       var profile = r.profiles[k]
       if (!object(profile, ["id", "name", "protocol", "subscriptionId", "missing", "favorite"])
           || !id(profile.id, false) || seen[profile.id] || !text(profile.name, 80, false)
-          || ["vless", "trojan", "hysteria2", "tuic"].indexOf(profile.protocol) < 0
+          || ["vless", "trojan", "hysteria2", "tuic", "wireguard", "amneziawg"].indexOf(profile.protocol) < 0
           || !id(profile.subscriptionId, true) || (profile.subscriptionId && !subs[profile.subscriptionId])
           || typeof profile.missing !== "boolean" || typeof profile.favorite !== "boolean") return null
       seen[profile.id] = true
@@ -653,16 +659,20 @@ function parseImportPreview(raw, revision) {
     if (!object(r, ["version", "kind", "profile"]) || r.version !== 1 || r.kind !== "profile") return null
     var v = r.profile
     if (!object(v, ["version", "protocol", "server", "port", "transport", "security", "sni", "flow", "insecure", "advancedXhttp", "experimental", "experimentalFeatures", "compatibilityNote", "credentialHint", "suggestedName"])
-        || v.version !== 1 || ["vless", "trojan", "hysteria2", "tuic"].indexOf(v.protocol) < 0
+        || v.version !== 1 || ["vless", "trojan", "hysteria2", "tuic", "wireguard", "amneziawg"].indexOf(v.protocol) < 0
         || !text(v.server, 253, false) || !number(v.port, 65535) || v.port < 1
-        || ["tcp", "ws", "http", "h2", "grpc", "xhttp", "quic"].indexOf(v.transport) < 0
-        || ["none", "tls", "reality"].indexOf(v.security) < 0 || !text(v.sni, 253, true)
+        || ["tcp", "ws", "http", "h2", "grpc", "xhttp", "quic", "udp"].indexOf(v.transport) < 0
+        || ["none", "tls", "reality", "wireguard"].indexOf(v.security) < 0 || !text(v.sni, 253, true)
         || !text(v.flow, 64, true) || typeof v.insecure !== "boolean"
         || typeof v.advancedXhttp !== "boolean" || typeof v.experimental !== "boolean"
         || !Array.isArray(v.experimentalFeatures) || v.experimentalFeatures.length > 8
         || !v.experimentalFeatures.every(function(f) { return text(f, 64, false) })
         || !text(v.compatibilityNote, 1000, true) || !text(v.suggestedName, 80, true)
         || typeof v.credentialHint !== "string" || !/^••••(?:[0-9a-f]{4})?$/i.test(v.credentialHint)) return null
+    var native = v.protocol === "wireguard" || v.protocol === "amneziawg"
+    if (native ? (v.transport !== "udp" || v.security !== "wireguard" || v.sni !== "" || v.flow !== ""
+        || v.insecure || v.advancedXhttp || !v.experimental || v.credentialHint !== "••••")
+        : (v.transport === "udp" || v.security === "wireguard")) return null
     return {kind:"profile", profile:v}
   } catch (_) { return null }
 }

@@ -241,6 +241,20 @@ pub(super) fn app_identity(
     }
     Ok((*digest).to_owned())
 }
+// Archive hash and selected source identity are independently qualified above.
+// Preserve immutable schema1 predecessors; the new family additionally passes
+// its strict raw decoder, never a schema/ABI label alone.
+fn dns_receipt_matches(raw: &[u8], arch: &str, source: &str) -> bool {
+    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(raw) else {
+        return false;
+    };
+    (parsed["schema"] == 1 || crate::managed_traffic_receipt::decode(raw, arch).is_ok())
+        && parsed["architecture"] == arch
+        && parsed["omavless_commit"] == source
+        && parsed["package_flavor"] == "release"
+        && parsed["broker_feature"] == "release-package"
+}
+
 impl Pair {
     fn current(metadata: Metadata) -> Result<Self> {
         let uid = Uid::current().as_raw();
@@ -270,14 +284,7 @@ impl Pair {
         let identity = app.member("usr/share/doc/omavless/build-identity.txt")?;
         let app_digest = app_identity(&identity, arch, &metadata.source, version)?;
         let receipt = dns.member("usr/share/omavless-dns/source-receipt.json")?;
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&receipt).map_err(|_| Blocker::StagingUnavailable)?;
-        if parsed["schema"] != 1
-            || parsed["architecture"] != arch
-            || parsed["omavless_commit"] != metadata.source
-            || parsed["package_flavor"] != "release"
-            || parsed["broker_feature"] != "release-package"
-        {
+        if !dns_receipt_matches(&receipt, arch, &metadata.source) {
             return Err(Blocker::StagingUnavailable);
         }
         app.recheck()?;
@@ -1040,6 +1047,45 @@ fn run_qualified_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dns_package_receipt_accepts_exact_new_family_and_retains_old_delivery() {
+        for arch in ["x86_64", "aarch64"] {
+            let value = crate::managed_traffic_receipt::fixture(arch);
+            let raw = serde_json::to_vec(&value).unwrap();
+            let source = "a".repeat(40);
+            assert!(dns_receipt_matches(&raw, arch, &source));
+            assert!(!dns_receipt_matches(&raw, arch, &"b".repeat(40)));
+            assert!(!dns_receipt_matches(&raw, "unknown", &source));
+            for (field, bad) in [
+                ("traffic_ready_abi", serde_json::json!(true)),
+                ("traffic_ready_abi", serde_json::json!(2)),
+                ("conditional_close_abi", serde_json::json!(1)),
+                ("package_flavor", serde_json::json!("release-close")),
+            ] {
+                let mut changed = value.clone();
+                changed[field] = bad;
+                assert!(!dns_receipt_matches(
+                    &serde_json::to_vec(&changed).unwrap(),
+                    arch,
+                    &source
+                ));
+            }
+            let old = serde_json::json!({"schema":1,"architecture":arch,
+                "omavless_commit":source,"package_flavor":"release","broker_feature":"release-package"});
+            assert!(dns_receipt_matches(
+                &serde_json::to_vec(&old).unwrap(),
+                arch,
+                &source
+            ));
+            let mut spoof = old;
+            spoof["schema"] = serde_json::json!(crate::managed_traffic_receipt::SCHEMA);
+            assert!(!dns_receipt_matches(
+                &serde_json::to_vec(&spoof).unwrap(),
+                arch,
+                &source
+            ));
+        }
+    }
     #[test]
     fn maintenance_admission_never_equates_idle_running_or_residual_socket_with_prepared() {
         let good = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFileDescriptorStore=0\n";

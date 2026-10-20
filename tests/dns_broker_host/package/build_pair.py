@@ -57,6 +57,11 @@ CONDITIONAL_TESTS = {
         "TestConditionalCloseDelayedLeave", "TestConditionalCloseConcurrentConfirm",
         "TestConditionalCloseExhaustionAndFailure"},
 }
+TRAFFIC_TESTS = {
+    "github.com/metacubex/mihomo/hub/route": {
+        "TestOmaVLESSTrafficReadyStates", "TestOmaVLESSTrafficReadyStrictRequest",
+        "TestOmaVLESSTrafficReadyRouterCORS"},
+}
 DEVICE_TESTS = {
     "github.com/metacubex/mihomo/listener/sing_tun": {
         "TestSystemDNSDeviceFlavorExclusive"},
@@ -246,6 +251,8 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         export_git(REPO, revision, sources / "omavless",close)
         plan = [("mihomo-dns-broker.patch", "mihomo"),
                 ("sing-tun-descriptor.patch", "sing-tun")]
+        if flavor == "release":
+            plan.append(("mihomo-traffic-ready.patch", "mihomo"))
         if close:
             plan.append(("mihomo-conditional-close.patch", "mihomo"))
         if k1:
@@ -276,6 +283,13 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         run([go, "test", "-mod=vendor", "-tags="+tags, "./listener/config",
                  "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=1"],
                 cwd=sources / "mihomo", env=go_env)
+        if flavor == "release":
+            traffic_receipt = work / "traffic-ready-tests.json"
+            run([go, "test", "-json", "-mod=vendor", "-tags="+tags, "./hub/route",
+                 "-run", "^TestOmaVLESSTrafficReady", "-count=1"],
+                cwd=sources / "mihomo", env=go_env, output=traffic_receipt)
+            with traffic_receipt.open("rb") as result:
+                tests_completed(result.read(1024 * 1024 + 1), TRAFFIC_TESTS)
         if k1:
             # One explicit original case required, not a successful zero-test
             # command or ABI assertion. Broader DNS tests above remain intact.
@@ -361,6 +375,8 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         if flavor in ("release", "release-close", "release-close-k1"):
             receipt["package_flavor"] = flavor
             receipt["broker_feature"] = "k1-managed-device" if k1 else "release-package"
+        if flavor == "release":
+            receipt["traffic_ready_abi"] = 1
         if close:
             receipt.update(conditional_close_abi=1, go_cgo=False, go_buildvcs=False)
         if k1:

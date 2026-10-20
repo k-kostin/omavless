@@ -31,6 +31,7 @@ pub struct Preview {
     pub duplicates: u16,
     pub skipped: u16,
     pub warning: bool,
+    pub native: bool,
     fingerprint: String,
 }
 fn name(value: &Value, fallback: &str) -> Option<String> {
@@ -58,8 +59,16 @@ fn preview(value: &Value, revision: u64) -> Option<Preview> {
             if p["version"] != 1
                 || !matches!(
                     p["protocol"].as_str()?,
-                    "vless" | "trojan" | "hysteria2" | "tuic"
+                    "vless" | "trojan" | "hysteria2" | "tuic" | "wireguard" | "amneziawg"
                 )
+            {
+                return None;
+            }
+            if matches!(p["protocol"].as_str()?, "wireguard" | "amneziawg")
+                && (p["transport"] != "udp"
+                    || p["security"] != "wireguard"
+                    || p["credentialHint"] != "••••"
+                    || p["experimental"] != true)
             {
                 return None;
             }
@@ -117,6 +126,10 @@ fn preview(value: &Value, revision: u64) -> Option<Preview> {
         duplicates,
         skipped,
         warning,
+        native: matches!(
+            r["profile"]["protocol"].as_str(),
+            Some("wireguard" | "amneziawg")
+        ),
         fingerprint,
     })
 }

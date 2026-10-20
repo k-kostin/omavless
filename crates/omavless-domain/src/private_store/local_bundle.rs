@@ -37,7 +37,7 @@ impl PrivateStore {
         let existing: BTreeSet<_> = self
             .profiles
             .iter()
-            .map(|profile| profile.canonical.subscription_identity())
+            .map(|profile| profile.credential.subscription_identity())
             .collect();
         let mut entries = Vec::new();
         for uri in feed.into_private_uris() {

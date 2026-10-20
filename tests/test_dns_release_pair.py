@@ -16,6 +16,84 @@ PAIR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PAIR)
 
 
+class SelectedDeliveryTests(unittest.TestCase):
+    ARTIFACT_ENV = {
+        'x86_64': ('OMAVLESS_REVIEW_APP_X86_64', 'OMAVLESS_REVIEW_DNS_X86_64'),
+        'aarch64': ('OMAVLESS_REVIEW_APP_AARCH64', 'OMAVLESS_REVIEW_DNS_AARCH64'),
+    }
+
+    def selected(self):
+        app, dns, update = [PAIR.metadata((ROOT / 'plugin' / name).read_bytes())
+                            for name in ('runtime-release.json', 'dns-release.json',
+                                         'component-updates.json')]
+        for value in (app, dns):
+            self.assertEqual(set(value), {'schemaVersion', 'version', 'packages'})
+            self.assertEqual(value['schemaVersion'], 1)
+            self.assertEqual(set(value['packages']), set(self.ARTIFACT_ENV))
+            for pin in value['packages'].values():
+                self.assertEqual(set(pin), {'sha256', 'sourceCommit'})
+                self.assertRegex(pin['sha256'], r'^[0-9a-f]{64}$')
+                self.assertEqual(pin['sourceCommit'], update['sourceCommit'])
+        self.assertEqual(app['version'], dns['version'])
+        self.assertEqual(set(update), {'schemaVersion', 'sourceCommit', 'updatePair', 'identities'})
+        self.assertEqual(update['schemaVersion'], 2)
+        self.assertIs(update['updatePair'], True)
+        self.assertRegex(update['sourceCommit'], r'^[0-9a-f]{40}$')
+        self.assertEqual(set(update['identities']), set(self.ARTIFACT_ENV))
+        for identity in update['identities'].values():
+            self.assertEqual(set(identity), {'appSha', 'coreSha', 'brokerSha', 'dnsReceiptSha'})
+            for digest in identity.values():
+                self.assertRegex(digest, r'^[0-9a-f]{64}$')
+        return app, dns, update
+
+    def test_selected_frontend_tuple_is_closed_and_not_a_compiled_self_hash(self):
+        app, dns, update = self.selected()
+        self.assertEqual(update['sourceCommit'], '6dac9b8226b609c0441fd05bbc15e2a8f7f5ca63')
+        self.assertEqual(app['version'], '0.9.9')
+        for arch, app_sha, dns_sha in (
+            ('x86_64', 'ef53d416ed064c519843e010b9defabe190d9b86fd04180d1bba3ed63a60bb6b',
+             'a64f64fda5cf81e19016dd1b01437143c64430c5ee942fd1fd997acb2602ac3d'),
+            ('aarch64', 'd4ea86bafcc23c43f41869806ce376ac49b01feb70e3466714853bf1232282de',
+             'b6351ee391e0e98a225718e4357c267ca288ce5b7f232483dfec2b29fffdad6c'),
+        ):
+            self.assertEqual(app['packages'][arch]['sha256'], app_sha)
+            self.assertEqual(dns['packages'][arch]['sha256'], dns_sha)
+        published = PAIR.metadata((ROOT / 'plugin/published-pairs.json').read_bytes())
+        self.assertFalse(any(p['sourceCommit'] == update['sourceCommit']
+                             for p in published['pairs']))
+
+    @unittest.skipUnless(any(os.environ.get(name) for names in ARTIFACT_ENV.values()
+                             for name in names), 'explicit reviewed app/DNS archive paths required')
+    def test_both_actual_architecture_archives_match_selected_frontend_tuple_read_only(self):
+        # Opt-in read-only artifact gate. No build, install, extraction to disk,
+        # package scriptlet, payload execution, service or network operation.
+        self.assertTrue(all(os.environ.get(name) for names in self.ARTIFACT_ENV.values()
+                            for name in names), 'all four reviewed archive paths required')
+        app, dns, update = self.selected()
+        for arch, names in self.ARTIFACT_ENV.items():
+            app_path, dns_path = (Path(os.environ[name]) for name in names)
+            self.assertTrue(app_path.is_absolute() and dns_path.is_absolute())
+            for path, pins in ((app_path, app), (dns_path, dns)):
+                self.assertEqual(PAIR.inspection.fingerprint(path, path.lstat().st_uid)[0],
+                                 pins['packages'][arch]['sha256'])
+            app_info = PAIR.inspection.inspect_archive(app_path, arch)
+            self.assertEqual(app_info['source'], update['sourceCommit'])
+            self.assertEqual(app_info['version'], PAIR.release.arch_version(app['version']) + '-1')
+            package = PAIR.package_values(PAIR.member(app_path, '.PKGINFO', 16384))
+            self.assertIn('omavless-dns=' + app_info['version'], package.get('depend', []))
+            self.assertFalse(any('mihomo' in value for value in package.get('depend', [])))
+            actual_app, header = PAIR.member(app_path, 'usr/bin/omavless',
+                                             256 * 1024 * 1024, digest=True)
+            self.assertEqual(header[:6], b'\x7fELF\x02\x01')
+            self.assertEqual(int.from_bytes(header[18:20], 'little'), 62 if arch == 'x86_64' else 183)
+            self.assertEqual(actual_app, app_info['binary'])
+            dns_info = PAIR.inspect_dns_archive(dns_path, PAIR.release.arch_version(dns['version']),
+                                                 arch, update['sourceCommit'])
+            self.assertEqual(update['identities'][arch], {
+                'appSha': actual_app, 'coreSha': dns_info['coreSha256'],
+                'brokerSha': dns_info['brokerSha256'], 'dnsReceiptSha': dns_info['receiptSha256']})
+
+
 class DnsReleasePairTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='omavless-dns-release-')

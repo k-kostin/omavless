@@ -21,7 +21,6 @@ pub struct PreparedProfileMutation {
 }
 
 impl PreparedProfileMutation {
-    #[cfg(feature = "t4-manager-actor-service")]
     pub(crate) fn planned_output(&self) -> &[u8] {
         self.prepared.planned_output()
     }
@@ -63,6 +62,11 @@ pub fn prepare_profile_mutation(
     mutation: ProfileMutation,
 ) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
     let prepared = prepare_private_store_write(store_path, uid, |input| {
+        if let ProfileMutation::Replace { new_input, .. } = &mutation
+            && !crate::profile_import_protocol::admitted_profile_input(new_input)
+        {
+            return Err(omavless_domain::private_store::PrivateStoreError::TypedCredentialRequired);
+        }
         let result = apply_profile_mutation(input, mutation)?;
         Ok((result.payload().to_vec(), result.changed))
     })?;
@@ -77,6 +81,9 @@ pub(crate) fn prepare_profile_import(
     profile_input: &str,
 ) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
     let prepared = prepare_private_store_write(store_path, uid, |input| {
+        if !crate::profile_import_protocol::admitted_profile_input(profile_input) {
+            return Err(omavless_domain::private_store::PrivateStoreError::TypedCredentialRequired);
+        }
         let result = omavless_domain::private_store::apply_profile_import(
             input,
             profile_id,
@@ -169,6 +176,11 @@ pub(crate) fn prepare_startup_preferences(
     preferences: &omavless_domain::private_store::StartupPreferences,
 ) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
     let prepared = prepare_private_store_write(store_path, uid, |input| {
+        if preferences.enabled {
+            let store = omavless_domain::private_store::parse_private_store(input)?;
+            let selected = store.resolve_startup_selection(preferences)?;
+            store.managed_connection_compatibility(&selected)?;
+        }
         omavless_domain::private_store::apply_startup_preferences(input, preferences)
     })?;
     Ok(PreparedProfileMutation { prepared })
@@ -256,6 +268,103 @@ mod tests {
     fn write_store(path: &Path) {
         fs::write(path, serde_json::to_vec(&store()).unwrap()).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn ordinary_native_import_and_replace_prepare_without_any_store_bytes_change() {
+        let (root, uid) = root("wg-inactive");
+        let path = root.join("profiles.json");
+        write_store(&path);
+        let before = fs::read(&path).unwrap();
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        assert!(
+            prepare_profile_import(
+                &path,
+                uid,
+                "00000000-0000-4000-8000-000000000002",
+                "Native",
+                native
+            )
+            .is_ok()
+        );
+        assert!(
+            prepare_profile_mutation(
+                &path,
+                uid,
+                ProfileMutation::Replace {
+                    profile_id: PROFILE.into(),
+                    new_name: "Native".into(),
+                    new_input: native.into()
+                }
+            )
+            .is_ok()
+        );
+        assert!(fs::read(&path).unwrap() == before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_native_rows_cannot_arm_startup_but_data_and_off_cleanup_remain_possible() {
+        let (root, uid) = root("wg-existing-off");
+        let path = root.join("profiles.json");
+        let id = "00000000-0000-4000-8000-000000000002";
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let input = omavless_domain::private_store::apply_profile_import(
+            &store().to_string(),
+            id,
+            "Native",
+            &native.replace("10.8.0.2/32", "10.8.0.2/32, fd00::2/128"),
+        )
+        .unwrap();
+        fs::write(&path, input.payload()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let preferences = omavless_domain::private_store::StartupPreferences {
+            enabled: true,
+            target: "profile".into(),
+            profile_id: id.into(),
+            mode: "global".into(),
+        };
+        assert!(prepare_startup_preferences(&path, uid, &preferences).is_err());
+        assert!(
+            prepare_profile_mutation(
+                &path,
+                uid,
+                ProfileMutation::Replace {
+                    profile_id: id.into(),
+                    new_name: "URI".into(),
+                    new_input: "trojan://synthetic@192.0.2.3:443".into()
+                }
+            )
+            .is_ok()
+        );
+        let off = omavless_domain::private_store::StartupPreferences {
+            enabled: false,
+            ..preferences
+        };
+        assert!(prepare_startup_preferences(&path, uid, &off).is_ok());
+        assert!(
+            prepare_profile_mutation(
+                &path,
+                uid,
+                ProfileMutation::Favorite {
+                    profile_id: id.into(),
+                    enabled: true
+                }
+            )
+            .is_ok()
+        );
+        assert!(
+            prepare_profile_mutation(
+                &path,
+                uid,
+                ProfileMutation::Delete {
+                    profile_id: id.into()
+                }
+            )
+            .is_ok()
+        );
+        assert!(fs::read(&path).unwrap() == input.payload());
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn locked(root: &Path, uid: u32) -> (CutoverPaths, MigrationLock) {

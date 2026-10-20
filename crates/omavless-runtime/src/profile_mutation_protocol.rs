@@ -114,6 +114,8 @@ pub fn parse_profile_mutation_request(
     request: &Value,
 ) -> Result<ProfileMutationRequest, MutationProtocolError> {
     validate_request(request).map_err(|_| MutationProtocolError::InvalidRequest)?;
+    omavless_control_protocol::encode_request(request)
+        .map_err(|_| MutationProtocolError::InvalidRequest)?;
     let method = request["method"]
         .as_str()
         .ok_or(MutationProtocolError::InvalidRequest)?;
@@ -139,10 +141,7 @@ pub fn parse_profile_mutation_request(
                         && s.len() <= crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES
                 })
                 .ok_or(MutationProtocolError::InvalidArgument)?;
-            if !matches!(
-                omavless_domain::import::preview_import(input, &[]),
-                Ok(omavless_domain::import::ImportPreview::Profile(_))
-            ) {
+            if !crate::profile_import_protocol::admitted_profile_input(input) {
                 return Err(MutationProtocolError::InvalidArgument);
             }
             let mut payload = vec![4];

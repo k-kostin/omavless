@@ -217,6 +217,7 @@ fn subscription_lifecycle_error(error: LifecycleError) -> SubscriptionTransactio
         }
         LifecycleError::InvalidRequest
         | LifecycleError::DnsPairRequired
+        | LifecycleError::UnsupportedProfile
         | LifecycleError::State
         | LifecycleError::TransitionFailedRestored => SubscriptionTransactionError::Store,
     }
@@ -285,6 +286,7 @@ pub enum NativeOwnerError {
     Subscription(SubscriptionTransactionError),
     OwnershipBusy,
     RecordNotFound,
+    PrivateDataUnavailable,
     OwnershipUnavailable,
     ManualRecoveryRequired,
     Invariant,
@@ -311,6 +313,7 @@ impl NativeOwnerError {
             Self::Subscription(error) => error.stable_code(),
             Self::OwnershipBusy => StableErrorCode::Busy,
             Self::RecordNotFound => StableErrorCode::NotFound,
+            Self::PrivateDataUnavailable => StableErrorCode::CapabilityUnavailable,
             Self::OwnershipUnavailable => StableErrorCode::CapabilityUnavailable,
             Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
             Self::Invariant => StableErrorCode::InternalError,
@@ -329,6 +332,9 @@ impl fmt::Display for NativeOwnerError {
             Self::Subscription(_) => "Native subscription refresh failed",
             Self::OwnershipBusy => "Native mutation ownership is being changed",
             Self::RecordNotFound => "Requested record was not found",
+            Self::PrivateDataUnavailable => {
+                "Private profile data is unavailable for this operation"
+            }
             Self::OwnershipUnavailable => "Native mutation ownership is unavailable",
             Self::ManualRecoveryRequired => "Native mutation requires manual recovery",
             Self::Invariant => "Native mutation coordinator invariant failed",
@@ -1041,6 +1047,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             let store = omavless_domain::private_store::parse_private_store(&original)
                 .map_err(|_| NativeOwnerError::Invariant)?;
             if let Ok(preview) = store.preview_import(parsed.private_input()) {
+                if matches!(&preview, omavless_domain::import::ImportPreview::Profile(_))
+                    && !crate::profile_import_protocol::admitted_profile_input(parsed.private_input()) {
+                    return Err(NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument));
+                }
                 return Ok(preview.private_ui_value());
             }
             let plan = store.plan_local_bundle(parsed.private_input())
@@ -1490,12 +1500,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn profile_export(
         &mut self,
         request: &Value,
-    ) -> Result<omavless_domain::private_store::PrivateProfileExport, NativeOwnerError> {
+    ) -> Result<omavless_domain::private_store::PrivateCredentialExport, NativeOwnerError> {
         let parsed = crate::profile_export_protocol::parse_profile_export_request(request)?;
         self.with_owned_private_store(|store| {
-            store
-                .profile_export(parsed.private_profile_id())
-                .map_err(|_| NativeOwnerError::RecordNotFound)
+            let export = store
+                .profile_credential_export(parsed.private_profile_id())
+                .map_err(|_| NativeOwnerError::RecordNotFound)?;
+            let text = std::str::from_utf8(export.expose_private_bytes())
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            let native = export.format()
+                != omavless_domain::private_store::ProfileCredentialExportFormat::Uri;
+            if text.len() > omavless_control_protocol::MAX_STRING_BYTES
+                || (native && !crate::profile_import_protocol::admitted_profile_input(text))
+                || (parsed.purpose() == crate::profile_export_protocol::ProfileExportPurpose::Qr
+                    && export.format()
+                        != omavless_domain::private_store::ProfileCredentialExportFormat::Uri)
+            {
+                return Err(NativeOwnerError::PrivateDataUnavailable);
+            }
+            Ok(export)
         })
     }
 
@@ -1505,7 +1528,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<omavless_domain::private_store::ProfileEditInput, NativeOwnerError> {
         let parsed = crate::profile_read_protocol::parse_profile_edit_input_request(request)?;
         self.with_owned_private_store(|store| {
-            store
+            let input = store
                 .profile_edit_input(parsed.private_profile_id())
                 .map_err(|error| match error {
                     PrivateStoreError::ProfileNotFound => NativeOwnerError::RecordNotFound,
@@ -1513,7 +1536,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                         MutationProtocolError::InvalidArgument.into()
                     }
                     _ => NativeOwnerError::Invariant,
-                })
+                })?;
+            let native = store
+                .selected_wireguard_flavor(parsed.private_profile_id())
+                .map_err(|_| NativeOwnerError::Invariant)?
+                .is_some();
+            if input.private_input().len() > omavless_control_protocol::MAX_STRING_BYTES
+                || (native
+                    && !crate::profile_import_protocol::admitted_profile_input(
+                        input.private_input(),
+                    ))
+            {
+                return Err(NativeOwnerError::PrivateDataUnavailable);
+            }
+            Ok(input)
         })
     }
 
@@ -2755,6 +2791,160 @@ mod tests {
 
     fn fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
         fixture_under(&std::env::temp_dir(), label)
+    }
+
+    #[test]
+    fn ordinary_owner_native_preview_cancel_and_confirmed_import_have_no_connection_effects() {
+        let (root, path, mut owner) = support_fixture("native-data-fence");
+        let original = fs::read(&path).unwrap();
+        let desired_path = owner.transaction.desired_paths().file.clone();
+        let desired = fs::read(&desired_path).unwrap();
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let request = |method: &str, params: Value| json!({"api":"omavless.control","version":1,"id":"native-fence","method":method,"params":params});
+        assert!(
+            owner
+                .import_preview(&request("imports.classify", json!({"input":native})))
+                .is_ok()
+        );
+        assert!(fs::read(&path).unwrap() == original);
+        assert_eq!(owner.revision(), 0);
+        let mut generated = 0;
+        let save = request(
+            "profiles.import",
+            json!({"name":"Native","input":native,"operationId":"native-save","expectedRevision":0}),
+        );
+        applied(
+            owner
+                .execute_profile_import(&save, || {
+                    generated += 1;
+                    "00000000-0000-4000-8000-000000000002".into()
+                })
+                .unwrap(),
+        );
+        assert_eq!(generated, 1);
+        let after_save = fs::read(&path).unwrap();
+        assert!(matches!(
+            owner
+                .execute_profile_import(&save, || panic!("replay generated a new id"))
+                .unwrap(),
+            NativeOwnerExecution::Replay(_)
+        ));
+        assert!(fs::read(&path).unwrap() == after_save);
+        applied(owner
+                .execute_profile(&request(
+                    "profiles.replace",
+                    json!({"profileId":PROFILE,"name":"Replaced","input":native,"expectedRevision":1})
+                )).unwrap());
+        let bytes = fs::read(&path).unwrap();
+        let doc: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(doc["version"], 4);
+        assert_eq!(doc["profiles"][0]["protocol"], "wireguard");
+        assert!(fs::read(&desired_path).unwrap() == desired);
+        assert_eq!(owner.revision(), 2);
+        let file = owner
+            .profile_export(&request(
+                "profiles.export",
+                json!({"profileId":PROFILE,"purpose":"file"}),
+            ))
+            .unwrap();
+        assert_eq!(
+            file.format(),
+            omavless_domain::private_store::ProfileCredentialExportFormat::WireGuardConfig
+        );
+        let content = std::str::from_utf8(file.expose_private_bytes()).unwrap();
+        assert!(content.contains("[Interface]"));
+        assert!(crate::profile_import_protocol::admitted_profile_input(
+            content
+        ));
+        assert_eq!(
+            owner
+                .profile_export(&request(
+                    "profiles.export",
+                    json!({"profileId":PROFILE,"purpose":"qr"})
+                ))
+                .err()
+                .unwrap()
+                .stable_code(),
+            StableErrorCode::CapabilityUnavailable
+        );
+        assert!(
+            owner
+                .profile_edit_input(&request(
+                    "profiles.edit_input",
+                    json!({"profileId":PROFILE})
+                ))
+                .is_ok()
+        );
+        assert!(fs::read(&desired_path).unwrap() == desired);
+        // Only read-only target observation is allowed for inactive replacement.
+        assert!(owner.host_mut().calls <= 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_uri_private_reads_preserve_exact_whitespace_fragment_bytes() {
+        let (root, path, mut owner) = support_fixture("legacy-uri-private-read");
+        let uri = "trojan://synthetic@192.0.2.1:443#Legacy Label";
+        let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        doc["profiles"][0]["uri"] = uri.into();
+        doc["profiles"][0]["protocol"] = "trojan".into();
+        fs::write(&path, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let before = fs::read(&path).unwrap();
+        let request = |method: &str, params: Value| json!({"api":"omavless.control","version":1,"id":"legacy-read","method":method,"params":params});
+        for purpose in ["file", "qr"] {
+            let export = owner
+                .profile_export(&request(
+                    "profiles.export",
+                    json!({"profileId":PROFILE,"purpose":purpose}),
+                ))
+                .unwrap();
+            assert!(export.expose_private_bytes() == uri.as_bytes());
+        }
+        let edit = owner
+            .profile_edit_input(&request(
+                "profiles.edit_input",
+                json!({"profileId":PROFILE}),
+            ))
+            .unwrap();
+        assert!(edit.private_input() == uri);
+        assert!(fs::read(&path).unwrap() == before);
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restored_oversized_native_profile_refuses_private_reads_without_rewriting_store() {
+        let (root, path, mut owner) = support_fixture("oversized-native-read");
+        let original = fs::read_to_string(&path).unwrap();
+        let input = crate::profile_import_protocol::tests::oversized_native_fixture();
+        let id = "00000000-0000-4000-8000-000000000002";
+        let plan =
+            omavless_domain::private_store::apply_profile_import(&original, id, "Large", &input)
+                .unwrap();
+        fs::write(&path, plan.payload()).unwrap();
+        let before = fs::read(&path).unwrap();
+        for (method, params) in [
+            ("profiles.export", json!({"profileId":id,"purpose":"file"})),
+            ("profiles.export", json!({"profileId":id,"purpose":"qr"})),
+            ("profiles.edit_input", json!({"profileId":id})),
+        ] {
+            let request = json!({"api":"omavless.control","version":1,"id":"large","method":method,"params":params});
+            let code = if method == "profiles.export" {
+                owner.profile_export(&request).err().unwrap().stable_code()
+            } else {
+                owner
+                    .profile_edit_input(&request)
+                    .err()
+                    .unwrap()
+                    .stable_code()
+            };
+            assert_eq!(code, StableErrorCode::CapabilityUnavailable);
+            assert!(fs::read(&path).unwrap() == before);
+            assert_eq!(owner.revision(), 0);
+        }
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn support_fixture_under(

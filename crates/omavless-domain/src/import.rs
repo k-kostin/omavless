@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-use omavless_profile::canonical::{CanonicalError, CanonicalProfile, parse_canonical};
+use crate::private_store::PrivateProfileCredential;
+use omavless_profile::canonical::{CanonicalError, parse_canonical};
 use omavless_profile::{Protocol, classify_protocol};
 use std::fmt;
 use std::net::{IpAddr, Ipv6Addr};
@@ -12,7 +13,7 @@ pub const MAX_SUBSCRIPTION_URL_BYTES: usize = 8 * 1024;
 /// Debug deliberately uses the canonical profile's redacted representation.
 #[derive(Debug)]
 pub enum ImportPreview {
-    Profile(Box<CanonicalProfile>),
+    Profile(Box<PrivateProfileCredential>),
     Subscription { duplicate: bool },
 }
 
@@ -57,8 +58,24 @@ pub fn preview_import(
     input: &str,
     existing_urls: &[String],
 ) -> Result<ImportPreview, ImportPreviewError> {
-    match classify_import(input, existing_urls).map_err(ImportPreviewError::Input)? {
+    let kind = match classify_import(input, existing_urls) {
+        Ok(kind) => kind,
+        Err(error) => {
+            if input.len() <= MAX_IMPORT_BYTES
+                && let Ok(profile @ PrivateProfileCredential::WireGuard(_)) =
+                    PrivateProfileCredential::parse_input(input)
+            {
+                return Ok(ImportPreview::Profile(Box::new(profile)));
+            }
+            return Err(ImportPreviewError::Input(error));
+        }
+    };
+    match kind {
         ImportKind::Profile(_) => parse_canonical(input.trim())
+            .map(|canonical| PrivateProfileCredential::Uri {
+                original_uri: input.trim().into(),
+                canonical,
+            })
             .map(Box::new)
             .map(ImportPreview::Profile)
             .map_err(ImportPreviewError::Profile),

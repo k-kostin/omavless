@@ -273,12 +273,37 @@ pub(crate) fn respond_to_profile_export<H: LifecycleHost>(
 ) -> Result<Value, ProtocolError> {
     let id = request["id"].as_str().unwrap_or("invalid");
     match owner.profile_export(request) {
-        Ok(export) => profile_export_response(id, owner.revision(), export.private_uri()),
+        Ok(export) => {
+            let format = match export.format() {
+                omavless_domain::private_store::ProfileCredentialExportFormat::Uri => "uri",
+                omavless_domain::private_store::ProfileCredentialExportFormat::WireGuardConfig => {
+                    "wireguard-conf"
+                }
+                _ => {
+                    return error_response(
+                        id,
+                        owner.revision(),
+                        omavless_control_protocol::StableErrorCode::CapabilityUnavailable,
+                        false,
+                        None,
+                    );
+                }
+            };
+            let content = std::str::from_utf8(export.expose_private_bytes()).map_err(|_| {
+                ProtocolError::new(omavless_control_protocol::StableErrorCode::InternalError)
+            })?;
+            profile_export_response(id, owner.revision(), format, content)
+        }
         Err(error) => owner_error_response(id, owner.revision(), error),
     }
 }
 
-fn profile_export_response(id: &str, revision: u64, uri: &str) -> Result<Value, ProtocolError> {
+fn profile_export_response(
+    id: &str,
+    revision: u64,
+    format: &str,
+    uri: &str,
+) -> Result<Value, ProtocolError> {
     if uri.len() > omavless_control_protocol::MAX_STRING_BYTES {
         return error_response(
             id,
@@ -288,7 +313,9 @@ fn profile_export_response(id: &str, revision: u64, uri: &str) -> Result<Value, 
             None,
         );
     }
-    success_response(id, revision, json!({"format":"uri", "content":uri}))
+    let response = success_response(id, revision, json!({"format":format, "content":uri}))?;
+    omavless_control_protocol::encode_response(&response)?;
+    Ok(response)
 }
 
 pub(crate) fn respond_to_profile_details<H: LifecycleHost>(
@@ -458,11 +485,11 @@ mod tests {
     #[test]
     fn profile_export_response_bounds_do_not_truncate_or_echo_oversized_material() {
         let maximum = "\u{0001}".repeat(omavless_control_protocol::MAX_STRING_BYTES);
-        let accepted = profile_export_response("export", 0, &maximum).unwrap();
+        let accepted = profile_export_response("export", 0, "uri", &maximum).unwrap();
         assert!(accepted["result"]["content"] == maximum);
         assert!(omavless_control_protocol::encode_response(&accepted).is_ok());
         let oversized = format!("{maximum}private-token");
-        let rejected = profile_export_response("export", 0, &oversized).unwrap();
+        let rejected = profile_export_response("export", 0, "uri", &oversized).unwrap();
         assert_eq!(rejected["error"]["code"], "capability_unavailable");
         assert!(!rejected.to_string().contains("private-token"));
     }

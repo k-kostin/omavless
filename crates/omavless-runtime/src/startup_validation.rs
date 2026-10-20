@@ -92,6 +92,11 @@ pub(crate) fn validate(
     uid: u32,
     desired: &DesiredState,
 ) -> Result<(), HostStepError> {
+    let store = read_private_utf8(&paths.store, uid).map_err(|_| HostStepError::Prepare)?;
+    let store = parse_private_store(&store).map_err(|_| HostStepError::Prepare)?;
+    store
+        .managed_connection_compatibility(&desired.profile_id)
+        .map_err(|_| HostStepError::Prepare)?;
     // Current host contract relies on file capabilities at exec. Do not report
     // ready from getcap alone when the service prevents acquiring them.
     let status = fs::read_to_string("/proc/self/status").map_err(|_| HostStepError::Prepare)?;
@@ -107,8 +112,6 @@ pub(crate) fn validate(
     if !tun_capabilities(Path::new("/usr/bin/getcap"), &paths.core) {
         return Err(HostStepError::Prepare);
     }
-    let store = read_private_utf8(&paths.store, uid).map_err(|_| HostStepError::Prepare)?;
-    let store = parse_private_store(&store).map_err(|_| HostStepError::Prepare)?;
     let template = read_private_utf8(&paths.template, uid).map_err(|_| HostStepError::Prepare)?;
     crate::isolated_validation::ValidationSnapshot::capture(
         &paths.data_directory,

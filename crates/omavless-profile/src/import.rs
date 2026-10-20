@@ -138,10 +138,13 @@ impl ImportedProfile {
         }
     }
 
-    #[must_use]
-    pub fn render_mihomo_proxy(&self, name: &str, server_override: Option<&str>) -> String {
+    pub fn render_mihomo_proxy(
+        &self,
+        name: &str,
+        server_override: Option<&str>,
+    ) -> Result<String, crate::wireguard::ManagedCompatibilityError> {
         match self {
-            Self::Uri(profile) => profile.render_mihomo_proxy(name, server_override),
+            Self::Uri(profile) => Ok(profile.render_mihomo_proxy(name, server_override)),
             Self::WireGuard(profile) => profile.render_mihomo_proxy(name, server_override),
         }
     }
@@ -171,6 +174,7 @@ mod tests {
         assert!(
             wireguard
                 .render_mihomo_proxy("WG", None)
+                .unwrap()
                 .contains("type: wireguard")
         );
     }

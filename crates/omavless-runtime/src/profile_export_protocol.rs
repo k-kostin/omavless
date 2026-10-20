@@ -9,9 +9,19 @@ use serde_json::Value;
 
 pub struct ProfileExportRequest {
     profile_id: String,
+    purpose: ProfileExportPurpose,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ProfileExportPurpose {
+    Qr,
+    File,
 }
 
 impl ProfileExportRequest {
+    pub(crate) fn purpose(&self) -> ProfileExportPurpose {
+        self.purpose
+    }
     pub(crate) fn private_profile_id(&self) -> &str {
         &self.profile_id
     }
@@ -43,6 +53,11 @@ pub fn parse_profile_export_request(
         .ok_or(MutationProtocolError::InvalidArgument)?;
     Ok(ProfileExportRequest {
         profile_id: profile_id.to_owned(),
+        purpose: if params["purpose"] == "qr" {
+            ProfileExportPurpose::Qr
+        } else {
+            ProfileExportPurpose::File
+        },
     })
 }
 
@@ -57,10 +72,10 @@ mod tests {
     #[test]
     fn only_explicit_qr_or_file_release_is_accepted() {
         for purpose in ["qr", "file"] {
-            assert!(
+            let parsed =
                 parse_profile_export_request(&request(json!({"profileId":ID,"purpose":purpose})))
-                    .is_ok()
-            );
+                    .unwrap();
+            assert!((parsed.purpose() == ProfileExportPurpose::Qr) == (purpose == "qr"));
         }
         for params in [
             json!({}),

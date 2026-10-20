@@ -80,6 +80,9 @@ pub fn plan_login_intent(
         next.profile_id = store
             .resolve_startup_selection(&preferences)
             .map_err(|_| LoginIntentError::InvalidStartupSelection)?;
+        store
+            .managed_connection_compatibility(&next.profile_id)
+            .map_err(|_| LoginIntentError::InvalidStartupSelection)?;
         next.mode = match preferences.mode.as_str() {
             "rule" => RoutingMode::Rule,
             "global" => RoutingMode::Global,
@@ -132,6 +135,62 @@ mod tests {
 
     fn store(document: &Value) -> PrivateStore {
         parse_private_store(&document.to_string()).expect("valid synthetic store")
+    }
+
+    #[test]
+    fn unsupported_native_first_login_selection_refuses_before_connected_intent() {
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let id = "00000000-0000-4000-8000-000000000003";
+        let mixed = omavless_domain::private_store::apply_profile_import(
+            &document().to_string(),
+            id,
+            "Native",
+            &native.replace("10.8.0.2/32", "10.8.0.2/32, fd00::2/128"),
+        )
+        .unwrap();
+        for target in ["last", "profile"] {
+            let mut source: Value = serde_json::from_slice(mixed.payload()).unwrap();
+            source["lastId"] = id.into();
+            source["startup"]["target"] = target.into();
+            source["startup"]["profileId"] = if target == "profile" { id } else { "" }.into();
+            let store = store(&source);
+            let current = DesiredState::default();
+            assert_eq!(
+                plan_login_intent(LoginTrigger::FirstLogin, &current, &store),
+                Err(LoginIntentError::InvalidStartupSelection)
+            );
+            assert_eq!(
+                plan_login_intent(LoginTrigger::DaemonRestart, &current, &store),
+                Ok(None)
+            );
+            assert_eq!(current, DesiredState::default());
+        }
+    }
+
+    #[test]
+    fn compatible_native_first_login_uses_existing_pure_intent_and_restart_policy() {
+        let id = "00000000-0000-4000-8000-000000000003";
+        let native = "[Interface]\nPrivateKey = BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n";
+        let mixed = omavless_domain::private_store::apply_profile_import(
+            &document().to_string(),
+            id,
+            "Native",
+            native,
+        )
+        .unwrap();
+        let mut source: Value = serde_json::from_slice(mixed.payload()).unwrap();
+        source["lastId"] = id.into();
+        let store = store(&source);
+        let current = DesiredState::default();
+        let next = plan_login_intent(LoginTrigger::FirstLogin, &current, &store)
+            .unwrap()
+            .unwrap();
+        assert!(next.connected && next.profile_id == id);
+        assert_eq!(
+            plan_login_intent(LoginTrigger::DaemonRestart, &current, &store),
+            Ok(None)
+        );
+        assert_eq!(current, DesiredState::default());
     }
 
     fn desired(connected: bool, mode: RoutingMode, generation: u64) -> DesiredState {

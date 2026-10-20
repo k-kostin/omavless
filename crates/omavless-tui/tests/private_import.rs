@@ -75,6 +75,67 @@ fn render(app: &App, now: Instant, width: u16, height: u16) -> String {
 }
 
 #[test]
+fn native_profile_preview_uses_existing_confirmation_and_cancel_without_connecting() {
+    for protocol in ["wireguard", "amneziawg"] {
+        let now = Instant::now();
+        let mut w = draft(1);
+        let mut result = profile();
+        result["result"]["profile"]["protocol"] = protocol.into();
+        result["result"]["profile"]["experimental"] = true.into();
+        result["result"]["profile"]["transport"] = "udp".into();
+        result["result"]["profile"]["security"] = "wireguard".into();
+        result["result"]["profile"]["credentialHint"] = "••••".into();
+        preview(&mut w, result, now);
+        assert_eq!(w.state(), State::Preview);
+        assert_eq!(
+            w.preview().unwrap().kind,
+            omavless_tui::private_import::Kind::Profile
+        );
+        w.cancel();
+        assert_eq!(w.input_bytes(), 0);
+        assert!(w.preview().is_none());
+    }
+}
+
+#[test]
+fn native_preview_discloses_managed_subset_in_both_locales_without_private_input() {
+    for locale in [Locale::En, Locale::Ru] {
+        for protocol in ["wireguard", "amneziawg"] {
+            let (mut app, now) = app(locale);
+            let desired = app.snapshot.as_ref().unwrap().metadata.desired.clone();
+            press(&mut app, KeyCode::F(3), now);
+            app.import_paste(PRIVATE.into());
+            assert_eq!(press(&mut app, KeyCode::Enter, now), Action::SubmitImport);
+            let request = app.take_import_request().unwrap();
+            let mut result = profile();
+            let p = &mut result["result"]["profile"];
+            p["protocol"] = protocol.into();
+            p["experimental"] = true.into();
+            p["transport"] = "udp".into();
+            p["security"] = "wireguard".into();
+            p["credentialHint"] = "••••".into();
+            app.finish_import(request.settle(Ok(result)));
+            let text = render(&app, now, 70, 24);
+            assert!(text.contains("IPv4"));
+            assert!(!text.contains(PRIVATE));
+            assert!(!text.contains("TLS"));
+            assert!(text.contains("Esc"));
+            assert!(app.import.as_ref().unwrap().preview().unwrap().native);
+            press(&mut app, KeyCode::Esc, now);
+            assert!(app.take_import_request().is_none());
+            assert_eq!(
+                app.snapshot.as_ref().unwrap().metadata.desired.connected,
+                desired.connected
+            );
+            assert_eq!(
+                app.snapshot.as_ref().unwrap().metadata.desired.profile_id,
+                desired.profile_id
+            );
+        }
+    }
+}
+
+#[test]
 fn entry_is_discoverable_in_ordinary_control_client_and_never_navigates_by_search_typing() {
     for locale in [Locale::En, Locale::Ru] {
         let (mut app, now) = app(locale);

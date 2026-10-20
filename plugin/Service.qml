@@ -1389,7 +1389,7 @@ Item {
     trojanExperimental: true,
     hysteria2Experimental: true,
     tuicExperimental: true,
-    protocols: ["vless", "trojan", "hysteria2", "tuic"],
+    protocols: ["vless", "trojan", "hysteria2", "tuic", "wireguard", "amneziawg"],
     core: "mihomo"
   })
 
@@ -3582,8 +3582,9 @@ Item {
         return
       }
       var content = nativeFileExportCurrent(context) && code === 0
-        ? (context.kind === "report" ? NativeSnapshot.configurationReport(output, context.revision) : NativeSnapshot.parseQrExport(output, context.revision)) : null
+        ? (context.kind === "report" ? NativeSnapshot.configurationReport(output, context.revision) : NativeSnapshot.parsePrivateProfileExport(output, context.revision)) : null
       if (content === null) { nativeFileExportStatus = "failed"; nativeFileExportContext = null; return }
+      if (context.kind !== "report") content = content.content
       nativeFileExportProcess = nativeFileExportComponent.createObject(root, {
         writing:true, privateInput:context.path + "\n" + content,
         stdinEnabled:true, command:["bash", backendPath, "native-export-write"]})
@@ -4426,8 +4427,8 @@ Item {
           || typeof value.server !== "string" || value.server === ""
           || value.server.length > 253 || typeof value.port !== "number"
           || !isFinite(value.port) || value.port < 1 || value.port > 65535
-          || ["tcp", "ws", "http", "h2", "grpc", "xhttp", "quic"].indexOf(value.transport) < 0
-          || ["none", "tls", "reality"].indexOf(value.security) < 0
+          || ["tcp", "ws", "http", "h2", "grpc", "xhttp", "quic", "udp"].indexOf(value.transport) < 0
+          || ["none", "tls", "reality", "wireguard"].indexOf(value.security) < 0
           || typeof value.sni !== "string" || value.sni.length > 253
           || typeof value.flow !== "string" || value.flow.length > 64
           || typeof value.insecure !== "boolean"

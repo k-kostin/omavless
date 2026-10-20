@@ -79,8 +79,19 @@ pub fn apply_startup_preferences(
     }
     let previous = store.document.clone();
     store.document["startupConfigured"] = Value::Bool(true);
-    store.document["startup"] = serde_json::json!({"enabled":preferences.enabled,
-        "target":preferences.target,"profileId":preferences.profile_id,"mode":preferences.mode});
+    let mut startup = if store.version == 4 {
+        store.document["startup"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        Map::new()
+    };
+    startup.insert("enabled".into(), preferences.enabled.into());
+    startup.insert("target".into(), preferences.target.clone().into());
+    startup.insert("profileId".into(), preferences.profile_id.clone().into());
+    startup.insert("mode".into(), preferences.mode.clone().into());
+    store.document["startup"] = Value::Object(startup);
     // Revalidate complete candidate and normalize disabled stale selections.
     let result = parse_private_store(&store.document.to_string())?;
     let changed = result.document != previous;

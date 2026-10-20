@@ -103,7 +103,9 @@ fn private_awg3_fixture_is_accepted_by_installed_mihomo() {
         return;
     };
     let profile = parse_wireguard_config(&config).expect("private AWG fixture must parse");
-    let proxy = profile.render_mihomo_proxy("Private AWG validation", None);
+    let proxy = profile
+        .render_mihomo_proxy("Private AWG validation", None)
+        .expect("private fixture must satisfy managed compatibility before installed validation");
     let full_config = format!(
         "mixed-port: 7890\nmode: rule\nlog-level: silent\nproxies:\n{proxy}\nproxy-groups:\n  - name: Validation\n    type: select\n    proxies:\n      - Private AWG validation\nrules:\n  - MATCH,Validation\n"
     );

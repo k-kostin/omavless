@@ -6,6 +6,13 @@ const details=()=>({version:1,name:'Synthetic',protocol:'vless',server:'server.i
 const frame=(d=details(),revision=7)=>JSON.stringify({api:'omavless.control',version:1,id:'details',ok:true,revision,result:d});
 let count=0;function test(name,fn){try{fn();count++}catch(e){e.message=name+': '+e.message;throw e}}
 test('explicit bounded metadata shape with no credentials',()=>{const d=parser.parseProfileDetails(frame(),7);assert(d);assert.equal(d.server,'server.invalid:443');assert.equal(d.uri,undefined);assert.equal(d.address,undefined)});
+test('native details retain only selected WG/AWG display facts',()=>{
+ for(const protocol of ['wireguard','amneziawg']) {
+  const d=parser.parseProfileDetails(frame({...details(),protocol,transport:'udp',security:'wireguard',sni:''}),7);
+  assert(d);assert.equal(d.protocol,protocol);assert.equal(d.transport,'udp');assert.equal(d.security,'wireguard');
+  assert.equal(d.privateKey,undefined);assert.equal(d.allowedIps,undefined);
+ }
+});
 test('unknown fields and oversized/private replies fail closed',()=>{
  for(const [key,value]of[['uri','private-token'],['uuid','private-token'],['password','private-token'],['address','private-token'],['name','x'.repeat(81)],['server','x'.repeat(260)],['protocol','private-token'],['sni','x'.repeat(254)]]){const d=details();d[key]=value;assert.equal(parser.parseProfileDetails(frame(d),7),null)}
  assert.equal(parser.parseProfileDetails(frame(),8),null);assert.equal(parser.parseProfileDetails('private-token',7),null);assert.equal(parser.parseProfileDetails('x'.repeat(16385),7),null);

@@ -23,6 +23,8 @@ pub fn parse_import_preview_request(
     request: &Value,
 ) -> Result<ImportPreviewRequest<'_>, MutationProtocolError> {
     validate_request(request).map_err(|_| MutationProtocolError::InvalidRequest)?;
+    omavless_control_protocol::encode_request(request)
+        .map_err(|_| MutationProtocolError::InvalidRequest)?;
     if request["method"] != "imports.classify" {
         return Err(MutationProtocolError::UnknownMethod);
     }
@@ -65,7 +67,7 @@ mod tests {
         let value = request(
             json!({"input": format!("x{}", "\u{0001}".repeat(MAX_IMPORT_STDIN_BYTES - 1))}),
         );
-        assert!(parse_import_preview_request(&value).is_ok());
+        assert!(parse_import_preview_request(&value).is_err());
         assert!(omavless_control_protocol::encode_request(&value).is_err());
     }
 
