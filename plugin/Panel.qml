@@ -915,7 +915,7 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeAppStartupRow.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -1727,6 +1727,7 @@ Panel {
     nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
     nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible || root.componentSetupReview) && vless.nativeOwner
     nativeStartupSettingsVisible: root.opened && (root.page === "settings" || startupPrompt.visible) && vless.nativeOwner
+    nativeAppStartupVisible: root.opened && root.page === "settings" && vless.nativeOwner
     nativeDetailsProfileId: root.opened && nativeOwner && nativeCanAct && root.nativeExpandedDetailsId === root.nativeSelectedProfile
       && (root.page === "main" || root.page === "subscription") ? root.nativeExpandedDetailsId : ""
     diagnosticsPageVisible: root.opened && root.page === "diagnostics"
@@ -2477,10 +2478,21 @@ Panel {
             onAction: root.openOnboarding(1)
           }
           SettingsActionRow {
+            id: nativeAppStartupRow
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("native.startup.app_title")
+            description: root.textFor(vless.nativeAppStartupState === "loading" ? "common.loading"
+              : "native.startup.app_" + vless.nativeAppStartupState) + "\n" + root.textFor("native.startup.app_scope")
+            actionText: root.textFor("native.setup.check_facts")
+            actionEnabled: vless.nativeAppStartupCanRead
+            onAction: vless.refreshNativeAppStartup()
+          }
+          SettingsActionRow {
             id: nativeStartupSummaryRow
             Layout.fillWidth: true
             visible: root.page === "settings"
-            title: root.textFor("settings.start_at_login")
+            title: root.textFor("native.startup.vpn_title")
             description: root.nativeStartupSummaryText() + "\n" + root.textFor(vless.nativeStartupAvailable ? "native.startup.configure_scope" : "native.startup.scope")
             actionVisible: vless.nativeStartupAvailable
             actionText: root.textFor("common.edit")

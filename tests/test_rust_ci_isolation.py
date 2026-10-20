@@ -10,10 +10,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns"
 
 
 class RustCiIsolationTests(unittest.TestCase):
-    def runner_trace(self, fail_test=False):
+    def runner_trace(self, fail_test=False, fail_canonical_stage=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -30,6 +31,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "    stream.write(json.dumps(row) + '\\n')\n"
                 "if row[:2] == ['cargo', 'test'] and os.environ.get('RECIPE_FAIL') == '1':\n"
                 "    sys.exit(17)\n"
+                "if os.environ.get('RECIPE_FAIL_CANONICAL_STAGE') == '1' and '--exact' in row and "
+                + repr(CANONICAL_STAGE_TEST) + " in row:\n"
+                "    sys.exit(19)\n"
             )
             stub.chmod(0o755)
             for name in ("cargo", "rustfmt", "python3", "cc", "bash"):
@@ -38,7 +42,8 @@ class RustCiIsolationTests(unittest.TestCase):
                 ["/bin/bash", str(ROOT / "tests/run-rust.sh")], cwd=ROOT,
                 env={"PATH": str(tools) + ":/usr/bin:/bin", "HOME": directory,
                      "CARGO_TARGET_DIR": "target", "RECIPE_TRACE": str(trace),
-                     "RECIPE_FAIL": "1" if fail_test else "0"},
+                     "RECIPE_FAIL": "1" if fail_test else "0",
+                     "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0"},
                 capture_output=True, text=True, timeout=10,
             )
             return result, [json.loads(line) for line in trace.read_text().splitlines()]
@@ -72,6 +77,17 @@ class RustCiIsolationTests(unittest.TestCase):
         for command in additions:
             self.assertEqual(normalized.count(command), 1, command)
             normalized.remove(command)
+        # Explicitly reconcile the independently asserted serial fixture below;
+        # keep the unchanged prior recipe hash instead of blessing a new hash.
+        for command in normalized[:]:
+            if CANONICAL_STAGE_TEST not in command:
+                continue
+            if "--exact" in command:
+                normalized.remove(command)
+            else:
+                index = command.index(CANONICAL_STAGE_TEST)
+                self.assertEqual(command[index - 1], "--skip")
+                del command[index - 1:index + 1]
         # Captured from the pre-optimization recipe: all expanded commands,
         # features, filters, skips, isolated deadlines, lint and parity entries.
         payload = json.dumps(normalized, separators=(",", ":")).encode()
@@ -83,6 +99,33 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 17, result.stderr)
         self.assertEqual([row[:2] for row in commands],
                          [["cargo", "fmt"], ["cargo", "test"]])
+
+    def test_canonical_stage_retention_executes_once_in_the_same_union(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        selected = [c for c in commands if CANONICAL_STAGE_TEST in c]
+        self.assertEqual(len(selected), 2)
+        skipped, isolated = selected
+        index = skipped.index(CANONICAL_STAGE_TEST)
+        self.assertEqual(skipped[index - 1], "--skip")
+        for command in selected:
+            self.assertEqual(command[:2], ["cargo", "test"])
+            self.assertEqual(command[command.index("-p") + 1], "omavless-runtime")
+            self.assertIn("--locked", command)
+            self.assertIn("--lib", command)
+            self.assertEqual(command[command.index("--features") + 1],
+                             "product-image-witness,t4-manager-actor-service")
+            self.assertNotIn("--ignored", command)
+        self.assertEqual(isolated[-4:], [CANONICAL_STAGE_TEST, "--", "--exact", "--test-threads=1"])
+        self.assertEqual(commands[-1][:3], ["cargo", "run", "--quiet"])
+        self.assertEqual(commands[-2], isolated)
+
+    def test_canonical_stage_failure_stops_before_parity(self):
+        result, commands = self.runner_trace(fail_canonical_stage=True)
+        self.assertEqual(result.returncode, 19, result.stderr)
+        self.assertEqual(commands[-1][-4:],
+                         [CANONICAL_STAGE_TEST, "--", "--exact", "--test-threads=1"])
+        self.assertFalse(any(c[:2] == ["cargo", "run"] for c in commands))
 
     def test_full_source_push_lane_is_development_not_the_user_distribution(self):
         source = (ROOT / ".github/workflows/test.yml").read_text()
