@@ -2798,8 +2798,13 @@ mod tests {
     // Exact waitid(WNOWAIT) + waitpid below deliberately replace Child::wait.
     #[allow(clippy::zombie_processes)]
     fn original_cloexec_elf_fd_executes_without_path_fallback() {
-        let tool = TrustedExecutable::capture("/usr/bin/true").unwrap();
+        // Some distributions provide `true` as a symlink to a multicall ELF.
+        // Keep capture's no-symlink/root-owned boundary; select a regular ELF
+        // required by this project's test runner, without startup-file effects.
+        let tool = TrustedExecutable::capture("/usr/bin/bash").unwrap();
         let child = Command::new(tool.exec_path())
+            .arg0("/usr/bin/bash")
+            .args(["--noprofile", "--norc", "-c", "exit 0"])
             .env_clear()
             .stdin(Stdio::null())
             .stdout(Stdio::null())

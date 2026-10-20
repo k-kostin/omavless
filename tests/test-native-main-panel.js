@@ -13,7 +13,7 @@ function context(){
   const c=vm.createContext({NativePresentation:presentation,subscriptionSortModes:{},profileFilter:'',nativeProtocolFilter:'',nativeExpanded:{},nativeSelectedProfile:'local',nativeSubscriptionId:'',pendingSubscriptionDelete:null,
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
-    nativeCursor:-1,nativeExpandedDetailsId:'',nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
+    nativeCursor:-1,nativeExpandedDetailsId:'',nativeProtocolChoices:{expanded:false,collapse(){this.expanded=false}},nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
   c.root=c;c.runtimePanelState='';c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
   vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
@@ -23,11 +23,12 @@ function context(){
   c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
   const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
   vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
-  for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','nativeFiltersActive','nativeFilterSummary','setNativeProtocolFilter','resetNativeFilters','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
+  for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','nativeFiltersActive','nativeFilterSummary','nativeAvailableProtocols','reconcileNativeProtocolFilter','collapseNativeProtocolChooser','setNativeProtocolFilter','resetNativeFilters','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
   }
   Object.defineProperty(c,'nativeRows',{get:()=>c.buildNativeRows()});
+  Object.defineProperty(c,'nativeProtocolOptions',{get:()=>c.nativeAvailableProtocols()});
   Object.defineProperty(c,'nativeActionProfile',{get:()=>c.nativeView.profiles.find(p=>p.id===c.nativeSelectedProfile)||null});
   Object.defineProperty(c,'nativeSubscription',{get:()=>c.nativeView.subscriptions.find(s=>s.id===c.nativeSubscriptionId)||null});
   return c;
@@ -50,7 +51,8 @@ test('protocol and name intersect, groups expand temporarily and Reset restores 
 });
 test('filter controls cannot retarget selection/connection or misreport unavailable as empty',()=>{
   const c=context();c.nativeView.connected=true;c.nativeView.activeId='managed';
-  assert(c.setNativeProtocolFilter('trojan'));assert.equal(c.nativeRows.length,0);
+  c.nativeView.profiles[1]={...managed,protocol:'wireguard'};
+  assert(c.setNativeProtocolFilter('wireguard'));c.profileFilter='absent';assert.equal(c.nativeRows.length,0);
   assert.equal(c.nativeSelectedProfile,'local');assert.equal(c.nativeView.activeId,'managed');
   assert.equal(c.nativeEmptyProfilesText(),c.textFor('profiles.no_filter_match'));
   assert.equal(c.nativeFilterSummary(),c.textFor('profiles.filter_count',{matched:0,total:2}));
@@ -64,14 +66,50 @@ test('subscription scope counts only its profiles, removal stays missing and nav
   const c=context();c.profileFilter='no match';c.setNativeProtocolFilter('tuic');
   assert(c.browseNativeSubscription('sub'));assert.equal(c.profileFilter,'');assert.equal(c.nativeProtocolFilter,'');
   assert.equal(c.nativeFilterSummary(),c.textFor('profiles.filter_count',{matched:1,total:1}));
-  c.setNativeProtocolFilter('wireguard');assert.equal(c.nativeRows.length,0);
+  assert.equal(c.setNativeProtocolFilter('wireguard'),false);assert.equal(c.nativeRows.length,1);
   c.nativeView.subscriptions=[];assert.equal(c.nativeFilterSummary(),'');
   assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.subscription_missing'));
   c.openSubscriptions();assert.equal(c.nativeProtocolFilter,'');assert.equal(c.calls.length,0);
 });
+test('protocol choices reflect unfiltered inventory in the current scope, not search or connection',()=>{
+  const c=context();
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless']);
+  assert.equal(c.setNativeProtocolFilter('vless'),false);
+  c.nativeView.profiles.push({...managed,id:'wg',protocol:'wireguard'});
+  c.profileFilter='absent';
+  c.nativeView.connected=true;c.nativeView.activeId='local';
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless','wireguard']);
+  assert.equal(c.setNativeProtocolFilter('trojan'),false);
+  assert(c.setNativeProtocolFilter('wireguard'));assert.equal(c.nativeRows.length,0);
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless','wireguard']);
+  assert(c.browseNativeSubscription('sub'));
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless','wireguard']);
+  c.nativeView.profiles=c.nativeView.profiles.filter(p=>p.id!=='wg');
+  c.nativeProtocolFilter='wireguard';c.profileFilter='keep this search';
+  c.reconcileNativeProtocolFilter();
+  assert.equal(c.nativeProtocolFilter,'');assert.equal(c.profileFilter,'keep this search');
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless']);
+  c.nativeView.subscriptions=[];
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),[]);
+  c.page='main';c.vless.nativeSnapshotFailed=true;
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),[]);
+  assert.equal(c.setNativeProtocolFilter('vless'),false);
+  c.vless.nativeSnapshotFailed=false;c.runtimePanelState='appStopped';
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),[]);
+  assert.equal(c.calls.length,0);
+});
+test('protocols present only outside the browsed subscription are not offered',()=>{
+  const c=context();c.nativeView.profiles[0]={...standalone,protocol:'amneziawg'};
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless','amneziawg']);
+  assert(c.browseNativeSubscription('sub'));
+  assert.deepEqual(Array.from(c.nativeProtocolOptions),['vless']);
+  assert.equal(c.setNativeProtocolFilter('amneziawg'),false);
+  assert.equal(c.setNativeProtocolFilter('vless'),false);
+});
 test('Details reveals the same selected target through both filters without changing connection',()=>{
   const c=context();c.nativeView.connected=true;c.nativeView.activeId='managed';
-  c.profileFilter='Other';c.setNativeProtocolFilter('trojan');
+  c.nativeView.profiles[1]={...managed,protocol:'wireguard'};
+  c.profileFilter='Other';assert(c.setNativeProtocolFilter('wireguard'));
   c.scrollPanelControlIntoView=()=>{};
   assert(c.toggleNativeProfileDetails());assert.equal(c.nativeExpandedDetailsId,'local');
   assert.equal(c.profileFilter,'');assert.equal(c.nativeProtocolFilter,'');
@@ -82,9 +120,10 @@ test('already-open Details hidden by filters reveals instead of closing; visible
   for(const filter of ['name','protocol','both']) for(const selected of ['local','managed']) {
     const c=context();c.nativeSelectedProfile=selected;c.nativeExpandedDetailsId=selected;
     c.nativeView.connected=true;c.nativeView.activeId=selected==='local'?'managed':'local';
+    c.nativeView.profiles[1]={...managed,protocol:'wireguard'};
     c.nativeExpanded.sub=false;c.scrollPanelControlIntoView=()=>{};
     if(filter!=='protocol')c.profileFilter='absent';
-    if(filter!=='name')c.setNativeProtocolFilter('trojan');
+    if(filter!=='name')assert(c.setNativeProtocolFilter(selected==='local'?'wireguard':'vless'));
     assert(c.toggleNativeProfileDetails());assert.equal(c.nativeExpandedDetailsId,selected);
     assert.equal(c.profileFilter,'');assert.equal(c.nativeProtocolFilter,'');
     assert(c.nativeRows.some(r=>r.kind==='profile'&&r.profile.id===selected));
@@ -92,6 +131,45 @@ test('already-open Details hidden by filters reveals instead of closing; visible
     assert(c.toggleNativeProfileDetails());assert.equal(c.nativeExpandedDetailsId,'');
     assert.equal(c.calls.length,0);
   }
+});
+test('Details navigates out of a different subscription to its exact preserved target',()=>{
+  for(const selected of ['local','managed']) for(const expanded of [false,true])
+    for(const filter of ['none','name','protocol','both']) {
+      const c=context();c.nativeSelectedProfile=selected;
+      // Model the real synchronous onPageChanged clear before the handler
+      // restores the exact Details ID on the newly visible Main page.
+      let page=c.page;
+      Object.defineProperty(c,'page',{get:()=>page,set:value=>{
+        if(page!==value)c.nativeExpandedDetailsId='';page=value;
+      }});
+      c.nativeView.subscriptions.push({id:'other',name:'Other subscription'});
+      c.nativeView.profiles.push({...managed,id:'other-profile',subscriptionId:'other'});
+      c.nativeView.profiles.push({...managed,id:'other-protocol',protocol:'trojan',subscriptionId:'other'});
+      c.nativeView.connected=true;c.nativeView.activeId='other-profile';
+      c.nativeExpanded={sub:false,other:true};
+      assert(c.browseNativeSubscription('other'));
+      c.nativeExpandedDetailsId=expanded?selected:'';
+      if(filter==='name'||filter==='both')c.profileFilter='absent';
+      if(filter==='protocol'||filter==='both')assert(c.setNativeProtocolFilter('trojan'));
+      c.scrollPanelControlIntoView=()=>{};
+      assert(c.toggleNativeProfileDetails());
+      assert.equal(c.page,'main');assert.equal(c.nativeSubscriptionId,'');
+      assert.equal(c.nativeExpandedDetailsId,selected);
+      assert(c.nativeRows.some(r=>r.kind==='profile'&&r.profile.id===selected));
+      assert.equal(c.nativeSelectedProfile,selected);assert.equal(c.nativeView.activeId,'other-profile');
+      assert.equal(c.profileFilter,'');assert.equal(c.nativeProtocolFilter,'');
+      assert.equal(c.nativeExpanded.other,true);
+      assert(c.toggleNativeProfileDetails());assert.equal(c.nativeExpandedDetailsId,'');
+      assert.equal(c.calls.length,0);
+    }
+});
+test('Details in its own subscription preserves that browsing scope',()=>{
+  const c=context();c.nativeSelectedProfile='managed';
+  assert(c.browseNativeSubscription('sub'));c.profileFilter='absent';
+  assert(c.toggleNativeProfileDetails());assert.equal(c.page,'subscription');
+  assert.equal(c.nativeSubscriptionId,'sub');assert.equal(c.nativeExpandedDetailsId,'managed');
+  assert(c.nativeRows.some(r=>r.kind==='profile'&&r.profile.id==='managed'));
+  assert.equal(c.calls.length,0);
 });
 test('protocol filters join Main and subscription Tab order before name search',()=>{
   const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
@@ -509,6 +587,31 @@ test('detail Back and both Escape routes return overview rather than closing pan
     }
     assert.equal(c.page,'subscriptions');assert.equal(c.nativeSubscriptionId,'');assert.equal(closed,0);assert.equal(c.calls.length,0);
   }
+});
+test('first Escape collapses an expanded chooser from search, row/dock or catcher without clearing query',()=>{
+  for(const route of ['search','control','catcher']) {
+    const c=context();c.browseNativeSubscription('sub');c.profileFilter='retain';
+    c.nativeProtocolChoices.expanded=true;c.Qt.Key_Escape=27;
+    if(route==='search') {
+      const start=source.indexOf('id: nativeSearch'),from=source.indexOf('Keys.onEscapePressed: function(event) {',start);
+      const to=source.indexOf('\n                }',from)+18;
+      vm.runInContext('this.escape = '+source.slice(from,to).replace('Keys.onEscapePressed: ',''),c);
+    } else if(route==='control') {
+      const from=source.indexOf('  function handlePanelControlKey(event) {'),to=source.indexOf('\n  }',from)+4;
+      vm.runInContext(source.slice(from,to),c);c.escape=c.handlePanelControlKey;
+    } else {
+      const from=source.indexOf('      onCloseRequested: {'),to=source.indexOf('\n      }',from)+8;
+      vm.runInContext('this.escape = function() '+source.slice(from,to).replace('      onCloseRequested: ',''),c);
+    }
+    c.escape({key:27,accepted:false});assert.equal(c.nativeProtocolChoices.expanded,false);
+    assert.equal(c.profileFilter,'retain');assert.equal(c.page,'subscription');
+    c.escape({key:27,accepted:false});
+    if(route==='search') { assert.equal(c.profileFilter,'');assert.equal(c.page,'subscription'); }
+    else assert.equal(c.page,'subscriptions');
+    assert.equal(c.calls.length,0);
+  }
+  const c=context();c.nativeProtocolChoices.expanded=true;c.modalInputActive=true;
+  assert.equal(c.collapseNativeProtocolChooser(),false);assert(c.nativeProtocolChoices.expanded);
 });
 test('arrow selection is local; Enter uses fenced native actions or toggles a group',()=>{
   const c=context();c.moveNativeCursor(1);assert.equal(c.nativeCursor,0);assert.equal(c.calls.length,0);
