@@ -254,6 +254,7 @@ printf 'finished\\n' >> "$BRIDGE_TEST_TRACE"
             (("native-clipboard-copy",), ["desktop", "clipboard-copy"]),
             (("native-routing-check",), ["routing", "check"]),
             (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
+            (("native-subscription-usage", "synthetic-record"), ["subscription", "usage", "synthetic-record"]),
             (("native-profile-qr", "synthetic-record"), ["profile", "export", "synthetic-record", "qr"]),
             (("native-profile-file", "synthetic-record"), ["profile", "export", "synthetic-record", "file"]),
             (("native-export-write",), ["desktop", "export-file"]),
@@ -339,7 +340,7 @@ exec /usr/bin/cat
             self.assertEqual(result.returncode, 0)
             self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + value for value in expected]])
             self.trace.unlink()
-        for args in [("native-profile-edit-input",), ("native-profile-edit-input", "id", "private-token"), ("native-profile-editor", "private-token"), ("native-subscription-edit-input",), ("native-subscription-edit-input", "id", "private-token")]:
+        for args in [("native-profile-edit-input",), ("native-profile-edit-input", "id", "private-token"), ("native-profile-editor", "private-token"), ("native-subscription-edit-input",), ("native-subscription-edit-input", "id", "private-token"), ("native-subscription-usage",), ("native-subscription-usage", "id", "private-token")]:
             result = self.run_launcher(*args)
             self.assertEqual(result.returncode, 71)
             self.assertNotIn("private-token", result.stderr)

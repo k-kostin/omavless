@@ -386,12 +386,15 @@ test('first-use wizard has its own bounded height rather than the empty inventor
  const expression=panel.slice(start,end+6).replace('    contentHeight: ','');
  for(const visible of [false,true]) {
   const c=vm.createContext({panel:{fittedContentHeight:(h,max)=>Math.min(h,max)},
-   Style:{space:n=>n},onboardingWizard:{visible},helpPrompt:{visible:false},root:{page:'main'},vless:{nativeOwner:true},
+   Style:{space:n=>n},onboardingWizard:{visible},helpPrompt:{visible:false},subscriptionUsagePrompt:{visible:false},root:{page:'main'},vless:{nativeOwner:true},
    nativeColumn:{implicitHeight:280},nativeProfileActions:{visible:false},nativeAppFooter:{visible:false}});
   assert.equal(vm.runInContext(expression,c),visible?600:280);
   c.nativeProfileActions={visible:true,height:70};c.nativeAppFooter={visible:true,height:36};
   assert.equal(vm.runInContext(expression,c),visible?600:410);
   c.helpPrompt.visible=true;assert.equal(vm.runInContext(expression,c),600);
+  c.helpPrompt.visible=false;c.subscriptionUsagePrompt.visible=true;
+  assert.equal(vm.runInContext(expression,c),600,'subscription usage owns the same bounded modal height');
+  c.subscriptionUsagePrompt.visible=false;c.helpPrompt.visible=true;
   c.root.bootstrapRequired=true;c.setupPage={implicitHeight:250};
   assert.equal(vm.runInContext(expression,c),600,'help owns its bounded height before native setup too');
  }

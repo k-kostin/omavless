@@ -7,6 +7,20 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "usage.check": {"en":"Check usage","ru":"Проверить расход"},
+  "usage.title": {"en":"Subscription data","ru":"Данные подписки"},
+  "usage.scope": {"en":"Reported by the provider, not local VPN traffic. Check again requests fresh provider data.","ru":"По данным провайдера, не счётчики VPN. Повторная проверка запрашивает данные у провайдера."},
+  "usage.loading": {"en":"Requesting provider data…","ru":"Запрос данных провайдера…"},
+  "usage.not_provided": {"en":"The provider did not supply usage or expiry data.","ru":"Провайдер не передал данные о расходе и сроке."},
+  "usage.failed": {"en":"Data is unavailable. You can check again.","ru":"Данные недоступны. Можно проверить снова."},
+  "usage.unavailable_value": {"en":"Unavailable","ru":"Нет данных"},
+  "usage.again": {"en":"Check again","ru":"Проверить снова"},
+  "usage.used": {"en":"Used","ru":"Использовано"},
+  "usage.limit": {"en":"Limit","ru":"Лимит"},
+  "usage.remaining": {"en":"Remaining","ru":"Осталось"},
+  "usage.expiry": {"en":"Expiry (UTC)","ru":"Срок действия (UTC)"},
+  "usage.upload": {"en":"Uploaded","ru":"Отправлено"},
+  "usage.download": {"en":"Downloaded","ru":"Получено"},
   "import.entry.title": {"en":"Enter VPN access","ru":"Ввести VPN-доступ"},
   "import.entry.show": {"en":"Show input","ru":"Показать ввод"},
   "import.entry.hide": {"en":"Hide input","ru":"Скрыть ввод"},

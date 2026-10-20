@@ -124,6 +124,10 @@ pub fn parse_semantic_read(
             method: "subscriptions.list",
             params: json!({}),
         }),
+        ["subscription", "usage", id] => Some(SemanticRequest {
+            method: "subscriptions.usage",
+            params: json!({"subscriptionId": record_id(id)?}),
+        }),
         ["subscription", "edit-input", id] => Some(SemanticRequest {
             method: "subscriptions.edit_input",
             params: json!({"subscriptionId": record_id(id)?}),
@@ -817,6 +821,38 @@ mod tests {
             for private in ["remote.invalid", "provider.invalid", "private"] {
                 assert!(!rendered.contains(private));
             }
+        }
+    }
+
+    #[test]
+    fn subscription_usage_read_is_fixed_id_only_and_never_accepts_url_or_extra_input() {
+        let request = parse_semantic_read(&args(&["subscription", "usage", SUBSCRIPTION]))
+            .unwrap()
+            .expect("explicit fixed usage read");
+        assert_eq!(
+            request.into_parts(),
+            (
+                "subscriptions.usage",
+                json!({"subscriptionId":SUBSCRIPTION})
+            )
+        );
+        for value in [
+            "",
+            "private-token",
+            "https://provider.invalid/private",
+            "../record",
+        ] {
+            let error = parse_semantic_read(&args(&["subscription", "usage", value]))
+                .err()
+                .unwrap();
+            let rendered = format!("{error:?} {error}");
+            assert!(!rendered.contains(value) || value.is_empty());
+        }
+        for parts in [
+            vec!["subscription", "usage"],
+            vec!["subscription", "usage", SUBSCRIPTION, "extra"],
+        ] {
+            assert!(parse_semantic_read(&args(&parts)).unwrap().is_none());
         }
     }
 

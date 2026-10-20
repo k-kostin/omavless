@@ -77,6 +77,7 @@ CASES = (
     fixed("native-qr-render", ("desktop", "qr-data-uri"), private_stdin=True),
     fixed("native-profile-edit-input", ("profile", "edit-input"), RECORD),
     fixed("native-subscription-edit-input", ("subscription", "edit-input"), RECORD),
+    fixed("native-subscription-usage", ("subscription", "usage"), RECORD),
     fixed("native-profile-editor", ("desktop", "edit"), private_stdin=True),
     fixed("native-observation", ("runtime", "observation")),
     fixed("native-import-preview", ("import", "preview"), private_stdin=True),

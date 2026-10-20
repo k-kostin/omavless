@@ -836,6 +836,87 @@ fn explicit_profile_reads_cli_keep_sensitive_success_off_stderr() {
 }
 
 #[test]
+fn subscription_usage_cli_is_one_fixed_private_read_with_no_url_or_extra_arguments() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let id = "11111111-1111-4111-8111-111111111111";
+    for args in [
+        vec!["subscription", "usage"],
+        vec!["subscription", "usage", id, "private-token"],
+        vec![
+            "subscription",
+            "usage",
+            "https://provider.invalid/private-token",
+        ],
+    ] {
+        let output = isolated_command(&base).args(args).output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+        assert!(!paths.socket.exists());
+    }
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let worker = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(std::time::Instant::now() < deadline, "no fixed CLI request");
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => panic!("fixture listener unavailable"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "subscriptions.usage");
+        assert_eq!(request["params"], serde_json::json!({"subscriptionId":id}));
+        let result = serde_json::json!({"schemaVersion":1,"scope":"private_provider_reported_usage",
+            "instanceId":"fixture-instance","availability":"reported",
+            "usage":{"uploadBytes":"18446744073709551615","downloadBytes":"2","totalBytes":"0","expiryUnixSeconds":null}});
+        let response = success_response(request["id"].as_str().unwrap(), 7, result).unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let output = isolated_command(&base)
+        .args(["subscription", "usage", id])
+        .output()
+        .unwrap();
+    worker.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["result"]["usage"]["uploadBytes"],
+        "18446744073709551615"
+    );
+    assert_eq!(response["revision"], 7);
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("provider.invalid"));
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn import_preview_cli_sends_only_fixed_private_request_and_prints_response() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,
@@ -1096,6 +1177,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "store-compatibility",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
+        "subscription usage SUBSCRIPTION_ID",
         "subscription add",
         "subscription update SUBSCRIPTION_ID",
         "subscription delete SUBSCRIPTION_ID",
