@@ -577,6 +577,14 @@ function configurationReport(raw, revision) {
     return JSON.stringify(report, null, 2) + "\n"
   } catch (_) { return null }
 }
+// Use the full strict report validator. Missing host facts are not disabled.
+function appStartupEnabled(raw, revision) {
+  var report = configurationReport(raw, revision)
+  if (report === null) return null
+  var host = JSON.parse(report).host
+  return host && host.loginService && host.loginService.loaded
+    ? host.loginService.enabled : null
+}
 function parseCustomRules(raw, revision) {
   try {
     var r = routingResult(raw, revision)

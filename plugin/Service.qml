@@ -225,6 +225,73 @@ Item {
     && !nativePending && !nativeQuitting && !nativeActionRunning && !nativeOutcomeUnknown
   property int _nativeOperationSerial: 0
   property bool nativeStartupSettingsVisible: false
+  // Explicit local service read, not a successful future login/VPN claim.
+  property bool nativeAppStartupVisible: false
+  property var nativeAppStartupFact: null
+  property bool nativeAppStartupFailed: false
+  property var _nativeAppStartupRead: null
+  property int _nativeAppStartupGeneration: 0
+  readonly property bool nativeAppStartupCanRead: nativeFactsCurrent && nativeAppStartupVisible
+    && !nativePending && !nativeQuitting && !nativeOutcomeUnknown && !nativeActionRunning
+    && _nativeAppStartupRead === null
+  readonly property string nativeAppStartupState: {
+    if (!nativeFactsCurrent) return "unavailable"
+    if (_nativeAppStartupRead !== null) return "loading"
+    var fact = nativeAppStartupFact
+    if (fact && fact.instanceId === nativeSnapshot.instanceId && fact.revision === nativeSnapshot.revision
+        && fact.epoch === nativeAvailabilityGeneration && fact.generation === _nativeAppStartupGeneration)
+      return fact.enabled ? "on" : "off"
+    return nativeAppStartupFailed ? "unavailable" : "not_checked"
+  }
+  onNativeAppStartupVisibleChanged: {
+    _nativeAppStartupGeneration++
+    nativeAppStartupFact = null
+    nativeAppStartupFailed = false
+    if (_nativeAppStartupRead) _nativeAppStartupRead.running = false
+  }
+  function refreshNativeAppStartup() {
+    if (!nativeFactsCurrent || !nativeAppStartupVisible || nativePending || nativeQuitting
+        || nativeOutcomeUnknown || nativeActionRunning || _nativeAppStartupRead !== null) return false
+    nativeAppStartupFact = null
+    nativeAppStartupFailed = false
+    _nativeAppStartupRead = nativeAppStartupComponent.createObject(root, {
+      command:["bash", backendPath, "native-support-report"], instanceId:nativeSnapshot.instanceId,
+      revision:nativeSnapshot.revision, epoch:nativeAvailabilityGeneration, generation:_nativeAppStartupGeneration})
+    if (!_nativeAppStartupRead) { nativeAppStartupFailed = true; return false }
+    _nativeAppStartupRead.running = true
+    return true
+  }
+  function completeNativeAppStartupRead(process, code, output) {
+    if (_nativeAppStartupRead !== process) return false
+    _nativeAppStartupRead = null
+    if (!nativeFactsCurrent || !nativeAppStartupVisible || nativePending || nativeQuitting
+        || nativeOutcomeUnknown || nativeActionRunning || process.instanceId !== nativeSnapshot.instanceId
+        || process.revision !== nativeSnapshot.revision || process.epoch !== nativeAvailabilityGeneration
+        || process.generation !== _nativeAppStartupGeneration) return false
+    var enabled = code === 0 ? NativeSnapshot.appStartupEnabled(output, process.revision) : null
+    nativeAppStartupFailed = enabled === null
+    if (enabled === null) return false
+    nativeAppStartupFact = {enabled:enabled, instanceId:process.instanceId, revision:process.revision,
+      epoch:process.epoch, generation:process.generation}
+    return true
+  }
+  Component {
+    id: nativeAppStartupComponent
+    Process {
+      id: process
+      property string instanceId
+      property double revision
+      property int epoch
+      property int generation
+      property bool timedOut: false
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer timeout: Timer { interval: 15000; running: process.running; onTriggered: { process.timedOut = true; process.running = false } }
+      onExited: function(code) {
+        try { root.completeNativeAppStartupRead(process, timedOut ? -1 : code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
   property var nativeStartupCapability: null
   property var _nativeStartupCapabilityRead: null
   readonly property bool nativeStartupAvailable: nativeCanAct && nativeStartupCapability !== null

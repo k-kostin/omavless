@@ -209,6 +209,17 @@ Test cold boot without a snapshot, prior Connected cache, ordinary stop/start,
 failed/refused Start, duplicate activation, ready and truly incomplete setup,
 plus affected EN/RU normal/constrained and keyboard/return states.
 
+### Application-login and VPN-autoconnect settings
+
+Show application launch at login separately from the saved VPN autoconnect
+preference. An explicit Check reads only the existing bounded local support
+report; it neither enables a service nor connects a VPN or copies a report.
+Report the login service setting when checked, not guaranteed persistence or
+successful future login. Missing/older host coverage, stale replies and failed
+reads are unavailable, not Off. Invalidate displayed facts across visits,
+runtime/availability epochs and snapshot revisions. Keep the VPN Edit action
+and its existing mutation/confirmation admission separate and unchanged.
+
 ### Required components (owner direction, 2026-09-15)
 
 Missing OmaVLESS/Mihomo belongs in a bordered **Required components** block
