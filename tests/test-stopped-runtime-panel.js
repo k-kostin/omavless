@@ -178,6 +178,11 @@ test('ordinary panel Start is visible, bordered, keyboard-reachable and has one 
   assert(button.includes('bordered: true'));
   assert(button.includes('focusable: true'));
   assert(button.includes('setupPage.install("start-app")'));
+  for (const id of ['nativeStartApp','nativeStartCheck','nativeStartHelp']) {
+    const from=panel.indexOf('id: '+id+'\n');
+    const control=panel.slice(from,panel.indexOf('\n            }',from));
+    assert(control.includes('Keys.onPressed: function(event) { root.handlePanelControlKey(event) }'),id);
+  }
   assert(panel.includes('targets = [nativeStartApp, nativeStartCheck, nativeStartHelp].concat(targets)'));
   assert(panel.includes('root.runtimePanelState !== ""'));
 });
@@ -200,5 +205,31 @@ test('EN/RU describe app state, not installation or VPN connection', () => {
     assert(!text.startsWith('Missing translation:'));
     assert(!/setup|установ|VPN connected/i.test(text));
   }
+});
+test('unavailable familiar controls are visibly disabled without changing ready styling', () => {
+  const modes=panel.slice(panel.indexOf('id: nativeModeButtons'),panel.indexOf('id: nativeRoutingPresetSetting'));
+  assert(modes.includes('opacity: root.runtimePanelState !== "" ? 0.45 : 1'));
+  for (const id of ['nativeStartApp','nativeStartCheck','nativeSearch','nativeOpenAppButton']) {
+    const from=panel.indexOf('id: '+id+'\n');
+    const control=panel.slice(from,panel.indexOf('\n            }',from));
+    assert(control.includes('opacity: enabled ? 1 : 0.45'),id);
+  }
+  const search=panel.slice(panel.indexOf('id: nativeSearch'),panel.indexOf('id: nativeProfiles\n'));
+  assert(search.includes('enabled: root.runtimePanelState === ""'));
+});
+test('stopped Settings counts do not fabricate zero rules or subscriptions', () => {
+  for(const id of ['nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeSubscriptionsSetting']) {
+    const from=panel.indexOf('id: '+id);
+    const row=panel.slice(from,panel.indexOf('onAction:',from));
+    assert(row.includes('root.runtimePanelState !== "" ? root.runtimeDataUnavailableText()'),id);
+  }
+  const c=vm.createContext({runtimePanelState:'appStopped',textFor:key=>key});c.root=c;
+  vm.runInContext(method(panel,'runtimeDataUnavailableText'),c);
+  for(const state of ['appStopped','appStarting','appStartFailed']) {
+    c.runtimePanelState=state;assert.equal(c.runtimeDataUnavailableText(),'native.profiles.after_start');
+  }
+  c.runtimePanelState='unavailable';assert.equal(c.runtimeDataUnavailableText(),'native.state.unavailable');
+  vm.runInContext(method(panel,'nativeProviderUpdateDescription'),c);
+  assert.equal(c.nativeProviderUpdateDescription(),'native.state.unavailable');
 });
 console.log('stopped runtime panel: '+n+' passed');

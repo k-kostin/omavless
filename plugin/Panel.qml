@@ -309,6 +309,11 @@ Panel {
       ? "native.profiles.subscription_empty" : "native.profiles.empty")
   }
 
+  function runtimeDataUnavailableText() {
+    return textFor(root.runtimePanelState === "unavailable"
+      ? "native.state.unavailable" : "native.profiles.after_start")
+  }
+
   function nativeEmptySubscriptionsText() {
     if (vless.nativeSnapshotFailed)
       return textFor("native.subscriptions.unavailable")
@@ -849,6 +854,7 @@ Panel {
   }
 
   function nativeProviderUpdateDescription() {
+    if (root.runtimePanelState !== "") return root.runtimeDataUnavailableText()
     var job = vless.nativeBatchJob
     if (!job || job.kind !== "providers") return root.textFor("settings.rules_automatic")
     var status = root.textFor("native.batch." + (vless.nativeBatchUnknown ? "unknown" : job.state))
@@ -2281,6 +2287,8 @@ Panel {
               focusable: true
               foreground: Commons.Color.accent
               enabled: root.runtimePanelState === "appStopped" && !setupPage.busy && !setupPage.nativeEffectBlocked && !setupPage.terminalOpened
+              opacity: enabled ? 1 : 0.45
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: setupPage.install("start-app")
             }
             Button {
@@ -2289,6 +2297,8 @@ Panel {
               bordered: true
               focusable: true
               enabled: !setupPage.busy
+              opacity: enabled ? 1 : 0.45
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: setupPage.check()
             }
             Button {
@@ -2296,6 +2306,7 @@ Panel {
               text: root.textFor("setup.guide_short")
               bordered: true
               focusable: true
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: root.openHelp("install", nativeStartHelp)
             }
           }
@@ -2412,6 +2423,7 @@ Panel {
           RowLayout {
             id: nativeModeButtons
             visible: root.page === "main" || root.page === "settings"
+            opacity: root.runtimePanelState !== "" ? 0.45 : 1
             Layout.fillWidth: true
             spacing: Style.space(6)
             Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "global" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
@@ -2424,7 +2436,7 @@ Panel {
             Layout.fillWidth: true
             visible: root.page === "settings"
             title: root.textFor("settings.routing_profile_label")
-            description: vless.nativeSnapshot && vless.nativeSnapshot.routing.storedPreset !== ""
+            description: root.runtimePanelState !== "" ? root.runtimeDataUnavailableText() : vless.nativeSnapshot && vless.nativeSnapshot.routing.storedPreset !== ""
               ? root.textFor("settings.routing_selected", {name: root.routingPresetCountryText(vless.routingPresetById(vless.nativeSnapshot.routing.storedPreset))})
               : root.textFor("settings.routing_choose")
             actionText: root.textFor("common.configure")
@@ -2436,13 +2448,13 @@ Panel {
             Layout.fillWidth: true
             visible: root.page === "settings"
             title: root.textFor("settings.routing_tools")
-            description: root.textFor("settings.routing_tools_description", {count: root.localizedCount("custom_rule", vless.nativeSnapshot ? vless.nativeSnapshot.routing.customRuleCount : 0)})
+            description: root.runtimePanelState !== "" ? root.runtimeDataUnavailableText() : root.textFor("settings.routing_tools_description", {count: root.localizedCount("custom_rule", vless.nativeSnapshot ? vless.nativeSnapshot.routing.customRuleCount : 0)})
             actionText: root.textFor("common.open")
             onAction: root.openRoutingTools()
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings" && vless.nativeRoutingErrorCode !== ""; text: root.textFor(vless.nativeRoutingErrorCode); color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           SettingsActionRow { id: nativeProvidersRefresh; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.remote_rules"); description: root.nativeProviderUpdateDescription(); actionText: root.textFor("common.refresh"); actionEnabled: vless.nativeCanAct && !vless.nativeBatchBusy; onAction: vless.refreshRuleProviders() }
-          SettingsActionRow { id: nativeSubscriptionsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.subscriptions"); description: root.localizedCount("provider", root.nativeView.subscriptions.length); actionText: root.textFor("common.open"); onAction: root.openSubscriptions() }
+          SettingsActionRow { id: nativeSubscriptionsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.subscriptions"); description: root.runtimePanelState !== "" ? root.runtimeDataUnavailableText() : root.localizedCount("provider", root.nativeView.subscriptions.length); actionText: root.textFor("common.open"); onAction: root.openSubscriptions() }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.setup_startup"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow {
             id: nativeCoreSetupRow
@@ -2734,6 +2746,8 @@ Panel {
                 Layout.fillWidth: true
                 visible: root.page === "main" || root.page === "subscription"
                 maximumLength: 128
+                enabled: root.runtimePanelState === ""
+                opacity: enabled ? 1 : 0.45
                 placeholderText: root.textFor("profiles.search")
                 text: root.profileFilter
                 color: root.foreground
@@ -2957,6 +2971,7 @@ Panel {
             bordered: true
             focusable: true
             enabled: root.runtimePanelState === "" && vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening
+            opacity: enabled ? 1 : 0.45
             Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
             onClicked: { if (vless.openNativeApp()) root.close() }
           }
