@@ -33,6 +33,12 @@ test('native Preview and saved rows disclose managed scope without mislabeling W
   assert(panel.includes('["wireguard", "amneziawg"].indexOf(nativeRow.profile.protocol) >= 0'));
   assert(panel.includes('root.textFor("import.managed_scope")'));
 });
+test('native authentication explanation wraps without changing provider-value elision',()=>{
+  const prompt=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
+  assert(prompt.includes('wrap: prompt.nativeCredential'));
+  assert(prompt.includes('wrapMode: parent.modelData.wrap ? Text.WordWrap : Text.NoWrap'));
+  assert(prompt.includes('elide: parent.modelData.wrap ? Text.ElideNone : Text.ElideMiddle'));
+});
 function harness() {
   const source = fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
   const c = vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeSnapshotFailed:false,

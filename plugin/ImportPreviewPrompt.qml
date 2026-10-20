@@ -126,7 +126,7 @@ Item {
                     + (prompt.preview.advancedXhttp ? " / advanced" : "")
                     + (prompt.preview.experimental ? " / experimental" : "") },
                 { label: "SNI", value: String(prompt.preview.sni || "—") },
-                { label: prompt.textFor("import.tls_check"), value: prompt.preview.insecure
+                { label: prompt.textFor("import.tls_check"), wrap: prompt.nativeCredential, value: prompt.preview.insecure
                     ? prompt.textFor("import.tls_disabled") : prompt.nativeCredential ? prompt.textFor("import.not_tls") : prompt.textFor("import.tls_enabled") },
                 { label: prompt.textFor("import.credential"), value: String(prompt.preview.credentialHint || "••••")
                     + " · " + prompt.textFor("import.hidden") }
@@ -149,7 +149,8 @@ Item {
                   color: prompt.foreground
                   font.family: prompt.fontFamily
                   font.pixelSize: Style.font.caption
-                  elide: Text.ElideMiddle
+                  wrapMode: parent.modelData.wrap ? Text.WordWrap : Text.NoWrap
+                  elide: parent.modelData.wrap ? Text.ElideNone : Text.ElideMiddle
                 }
               }
             }
