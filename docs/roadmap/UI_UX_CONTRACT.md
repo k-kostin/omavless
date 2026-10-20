@@ -188,6 +188,27 @@ into Disconnected or claim shutdown success. General metadata/ownership recovery
 can still refuse cleanup; the UI must keep that failure visible. No layout,
 confirmation, selection or ordinary panel-close semantics change.
 
+### Configured but stopped application (owner direction, 2026-10-20)
+
+Installation readiness, application availability and VPN connection are three
+different states. A compatible installed/configured pair with a component-proved
+`needs_runtime_start` belongs in the ordinary panel, not Finish setup or a new
+error page. Show a neutral Application stopped status and one primary bordered
+Start application command; keep familiar controls and the fixed profile dock.
+Check again is a secondary local read, Help is secondary local navigation with
+origin/focus return. Unavailable dependent controls remain disabled.
+
+No RPC snapshot means profiles are unavailable, not an empty database. Discard
+the stopped process's cached connection identity and require fresh metadata
+before enabling actions. Starting is progress, not Connected; a failed Start
+stays visible on the ordinary panel with Check again/Help, never an automatic
+resend. Reuse the native session-only app Start: no VPN connection, enablement,
+preference reset or package effect. Real missing/mixed/incomplete installation,
+pending/unknown outcomes and genuine failures retain their existing fences.
+Test cold boot without a snapshot, prior Connected cache, ordinary stop/start,
+failed/refused Start, duplicate activation, ready and truly incomplete setup,
+plus affected EN/RU normal/constrained and keyboard/return states.
+
 ### Required components (owner direction, 2026-09-15)
 
 Missing OmaVLESS/Mihomo belongs in a bordered **Required components** block

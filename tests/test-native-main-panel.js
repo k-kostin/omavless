@@ -14,7 +14,7 @@ function context(){
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
     nativeCursor:-1,nativeExpandedDetailsId:'',nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
-  c.root=c;c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
+  c.root=c;c.runtimePanelState='';c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
   vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
   const subscriptionEmptyStart=source.indexOf('  function nativeEmptySubscriptionsText(');
@@ -83,7 +83,7 @@ test('Subscriptions label distinguishes loading, failed reads and confirmed empt
     assert.equal(c.calls.length,0);
   }
   assert.match(source,/id: nativeRefresh;[^\n]*onClicked: vless.refresh\(\)/);
-  assert.match(source,/visible: vless.nativeSnapshotFailed; text: root.textFor\("native.refreshFailed"\)/);
+  assert(source.includes('visible: vless.nativeSnapshotFailed && root.runtimePanelState === "" && !vless.nativeRuntimeRefreshing; text: root.textFor("native.refreshFailed")'));
 });
 test('Subscriptions actions form one compact group and preserve actual targets and gates',()=>{
   const start=source.indexOf('id: nativeSubscriptionActions\n');

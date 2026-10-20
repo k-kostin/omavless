@@ -27,20 +27,24 @@ Item {
   property string launchAction: "install"
   property bool nativeEffectBlocked: false
   property bool probing: true
-  readonly property bool busy: probing || probe.running || launching || startApp.running
+  // Preserve the ordinary panel while Start completes and its fresh component
+  // read settles. Failure is not a missing installation or a retry permission.
+  property string runtimeAttempt: ""
+  readonly property string runtimePanelState: SetupState.runtimePanelState(facts, runtimeAttempt, nativeEffectBlocked || terminalOpened)
+  readonly property bool busy: probing || probe.running || launching || startApp.running || runtimeAttempt === "starting"
   readonly property bool reviewReady: setup.state === "ready" && setup.reviewCoreState === "ready"
     && !setup.busy && !setup.terminalOpened && !setup.nativeEffectBlocked
   readonly property string script: String(Qt.resolvedUrl("setup-entry.sh")).replace(/^file:\/\//, "")
   readonly property var focusTargets: requirements.focusTargets.concat([reviewTerminalButton, reviewCheckButton, reviewGuideButton, closeButton])
   implicitHeight: content.implicitHeight
-  signal ready()
+  signal ready(bool runtimeResumed)
   signal closeRequested()
   signal terminalRequested()
   signal factsRefreshRequested()
   signal helpRequested(string section)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   function check() {
-    if (!probe.running && !launch.running) {
+    if (!probe.running && !launch.running && !startApp.running && runtimeAttempt !== "starting") {
       probing = true
       probe.running = true
     }
@@ -58,7 +62,7 @@ Item {
     if (!allowed || busy || launching || terminalOpened) return
     if (action === "update-help") { guide(); return }
     if (nativeEffectBlocked) return
-    if (action === "start-app") { startApp.running = true; return }
+    if (action === "start-app") { runtimeAttempt = "starting"; startApp.running = true; return }
     launchAction = action
     launching = true
     // Submission is not completion. Keep the closure barrier even when the
@@ -73,8 +77,13 @@ Item {
     stdout: StdioCollector { id: startOutput; waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(code) {
-      if (code === 0 && startOutput.text === "ready\n") setup.check()
-      else setup.facts = {state:"needs_attention", coreInstalled:setup.facts.coreInstalled}
+      if (code === 0 && startOutput.text === "ready\n") {
+        setup.runtimeAttempt = "verifying"
+        setup.check()
+      } else {
+        setup.runtimeAttempt = "failed"
+        setup.facts = {state:"needs_attention", coreInstalled:setup.facts.coreInstalled}
+      }
     }
   }
   onPanelOpenChanged: if (panelOpen) check()
@@ -84,9 +93,12 @@ Item {
     stdout: StdioCollector { id: statusOutput; waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(code) {
+      var runtimeResumed = setup.runtimePanelState !== ""
       setup.facts = SetupState.inventory(statusOutput.text, code)
+      if (setup.state !== "needs_attention") setup.runtimeAttempt = ""
+      else if (setup.runtimeAttempt === "verifying") setup.runtimeAttempt = "verifyFailed"
       setup.probing = false
-      if (setup.state === "ready") setup.ready()
+      if (setup.state === "ready") setup.ready(runtimeResumed)
     }
   }
   Process {

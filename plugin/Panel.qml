@@ -62,9 +62,11 @@ Panel {
   // A prior parsed snapshot is historical DATA after an independently proved
   // stopped state. Do not leave its failed poll looking like a broken VPN.
   property bool componentSetupReview: false
-  readonly property bool bootstrapRequired: componentSetupReview || SetupState.bootstrapRequired(
+  readonly property string runtimePanelState: setupPage.runtimePanelState
+  onRuntimePanelStateChanged: if (runtimePanelState !== "") vless.enterNativeReadOnly()
+  readonly property bool bootstrapRequired: componentSetupReview || (runtimePanelState === "" && SetupState.bootstrapRequired(
     setupPage.facts, vless.nativeOwner, vless.nativeSnapshot !== null,
-    vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown)
+    vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown))
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
   property string page: "main"
@@ -215,7 +217,12 @@ Panel {
   property var nativeExpanded: ({})
   readonly property var nativeLifecyclePending: vless.nativePending
     && ["connect", "disconnect", "mode"].indexOf(vless.nativePending.action) >= 0 ? vless.nativePending : null
-  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed, nativeLifecyclePending, vless.nativeOutcomeUnknown)
+  readonly property var nativeView: {
+    var view = NativePresentation.project(root.runtimePanelState !== "" ? null : vless.nativeSnapshot,
+      vless.nativeObservation, vless.nativeSnapshotFailed, nativeLifecyclePending, vless.nativeOutcomeUnknown)
+    if (root.runtimePanelState !== "") view.state = root.runtimePanelState
+    return view
+  }
   readonly property string nativeSwitchTarget: vless.nativeModeSwitching ? nativeModeLabel(vless.nativeModeTransition.targetMode) : ""
   readonly property bool nativeRealFailure: {
     if (vless.nativeOutcomeUnknown || vless.nativeSnapshotFailed) return true
@@ -228,6 +235,12 @@ Panel {
       || vless.nativeSnapshot.revision > vless.nativeConnectionTransition.revision
   }
   readonly property string nativeTransitionKind: {
+    if (runtimePanelState !== "") return ""
+    if (vless.nativeRuntimeRefreshing) {
+      if (vless.nativeOutcomeUnknown || (vless.nativeSnapshot
+          && ["failed", "manualRecoveryRequired"].indexOf(vless.nativeSnapshot.lastKnownActual) >= 0)) return ""
+      return "refreshState"
+    }
     if (nativeRealFailure) return ""
     if (vless.nativeRefusalVerification !== null) return "refreshState"
     if (vless.nativeModeSwitching) return "mode"
@@ -285,6 +298,7 @@ Panel {
   }
 
   function nativeEmptyProfilesText() {
+    if (root.runtimePanelState !== "" && root.runtimePanelState !== "unavailable") return textFor("native.profiles.after_start")
     if (!vless.nativeSnapshot || vless.nativeSnapshotFailed)
       return textFor("native.profiles.unavailable")
     if (page === "subscription" && !nativeSubscription)
@@ -559,15 +573,15 @@ Panel {
   // mark, so the failure state survives the bar's small pixel size.
   readonly property string problemIcon: ""
   readonly property string transitionIcon: "󰑓"
-  readonly property string barStatusIcon: vless.nativeOwner ? (nativeStatusWaiting ? transitionIcon : nativeView.connected ? barConnectedIcon : nativeView.state === "disconnected" ? barDisconnectedIcon : problemIcon) : vless.lastError !== ""
+  readonly property string barStatusIcon: runtimePanelState === "appStopped" ? barDisconnectedIcon : runtimePanelState === "appStarting" ? transitionIcon : vless.nativeOwner ? (nativeStatusWaiting ? transitionIcon : nativeView.connected ? barConnectedIcon : nativeView.state === "disconnected" ? barDisconnectedIcon : problemIcon) : vless.lastError !== ""
     ? problemIcon
     : (vless.active ? barConnectedIcon : barDisconnectedIcon)
-  readonly property string heroStatusIcon: vless.nativeOwner ? (nativeStatusWaiting ? transitionIcon : nativeView.connected ? heroConnectedIcon : nativeView.state === "disconnected" ? heroDisconnectedIcon : problemIcon) : vless.lastError !== ""
+  readonly property string heroStatusIcon: runtimePanelState === "appStopped" ? heroDisconnectedIcon : runtimePanelState === "appStarting" ? transitionIcon : vless.nativeOwner ? (nativeStatusWaiting ? transitionIcon : nativeView.connected ? heroConnectedIcon : nativeView.state === "disconnected" ? heroDisconnectedIcon : problemIcon) : vless.lastError !== ""
     ? problemIcon
     : (vless.active ? heroConnectedIcon : heroDisconnectedIcon)
   // Urgent trumps everything: a failed operation or an externally dropped
   // tunnel must be visible without opening the panel.
-  readonly property color barIconColor: vless.nativeOwner ? (nativeStatusWaiting ? Commons.Color.accent : nativeView.connected ? barForeground : nativeView.state === "disconnected" ? Qt.darker(barForeground, 1.55) : (bar ? bar.urgent : Commons.Color.urgent)) : vless.lastError !== ""
+  readonly property color barIconColor: runtimePanelState === "appStopped" ? Qt.darker(barForeground, 1.55) : runtimePanelState === "appStarting" ? Commons.Color.accent : vless.nativeOwner ? (nativeStatusWaiting ? Commons.Color.accent : nativeView.connected ? barForeground : nativeView.state === "disconnected" ? Qt.darker(barForeground, 1.55) : (bar ? bar.urgent : Commons.Color.urgent)) : vless.lastError !== ""
     ? (bar ? bar.urgent : Commons.Color.urgent)
     : (vless.active ? barForeground : Qt.darker(barForeground, 1.55))
   readonly property string toggleHint: vless.active
@@ -913,6 +927,7 @@ Panel {
         if (row) targets = targets.concat(row.focusTargets)
       }
       if (page === "main") targets = targets.concat(nativeRequiredComponents.focusTargets)
+      if (page === "main") targets = [nativeStartApp, nativeStartCheck, nativeStartHelp].concat(targets)
       if (page === "main" || page === "subscription")
         targets = targets.concat([rowPin, rowRename, rowEdit, rowQr, rowExport, rowDetails, rowDelete])
       if (page === "main") targets = targets.concat([nativeOpenAppButton, nativeAppRefresh])
@@ -1702,6 +1717,7 @@ Panel {
     objectName: "omavlessService"
     settings: root.settings
     panelVisible: root.opened
+    nativeRuntimeUnavailable: root.runtimePanelState !== ""
     nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
     nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible || root.componentSetupReview) && vless.nativeOwner
     nativeStartupSettingsVisible: root.opened && (root.page === "settings" || startupPrompt.visible) && vless.nativeOwner
@@ -1716,9 +1732,10 @@ Panel {
 
   Connections {
     target: vless
+    function onRuntimeInventoryRequested() { setupPage.check() }
     function onStatusFailureCountChanged() {
       // Read-only inventory only; never start/reinstall/clear uncertain work.
-      if (root.opened && vless.statusFailureCount > 0) setupPage.check()
+      if (vless.statusFailureCount > 0) setupPage.check()
     }
     function onNativeExportPickerFinished() {
       root.open()
@@ -2151,7 +2168,11 @@ Panel {
           panelOpen: root.opened
           nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null
             || vless.nativeOutcomeUnknown || vless.nativeQuitting
-          onReady: { vless.enterNativeReadOnly(); vless.refresh() }
+          onReady: function(runtimeResumed) {
+            vless.enterNativeReadOnly()
+            vless.nativeRuntimeRefreshing = runtimeResumed
+            vless.refreshAfterChange()
+          }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
           onHelpRequested: function(section) { root.openHelp(section, setupPage) }
           onTerminalRequested: root.close()
@@ -2247,6 +2268,47 @@ Panel {
             }
           }
 
+          // Ordinary app lifecycle, not setup or VPN connection. Keep the
+          // existing panel, mode selector and fixed profile dock in place.
+          Flow {
+            Layout.fillWidth: true
+            visible: root.page === "main" && root.runtimePanelState !== ""
+            spacing: Style.space(8)
+            Button {
+              id: nativeStartApp
+              text: root.textFor(root.runtimePanelState === "appStarting" ? "native.state.appStarting" : "native.app.start")
+              bordered: true
+              focusable: true
+              foreground: Commons.Color.accent
+              enabled: root.runtimePanelState === "appStopped" && !setupPage.busy && !setupPage.nativeEffectBlocked && !setupPage.terminalOpened
+              onClicked: setupPage.install("start-app")
+            }
+            Button {
+              id: nativeStartCheck
+              text: root.textFor("setup.check")
+              bordered: true
+              focusable: true
+              enabled: !setupPage.busy
+              onClicked: setupPage.check()
+            }
+            Button {
+              id: nativeStartHelp
+              text: root.textFor("setup.guide_short")
+              bordered: true
+              focusable: true
+              onClicked: root.openHelp("install", nativeStartHelp)
+            }
+          }
+          PlainText {
+            Layout.fillWidth: true
+            visible: root.page === "main" && root.runtimePanelState === "appStartFailed"
+            text: root.textFor("native.app.start_failed")
+            color: root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: Text.Wrap
+          }
+
           PlainText {
             id: nativeConnectedIdentity
             Layout.fillWidth: true
@@ -2337,7 +2399,7 @@ Panel {
             actionText: root.textFor(vless.showBarThroughput ? "common.on" : "common.off")
             onAction: root.setWidgetSetting("showBarThroughput", !vless.showBarThroughput, true)
           }
-          PlainText { Layout.fillWidth: true; visible: vless.nativeSnapshotFailed; text: root.textFor("native.refreshFailed"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeSnapshotFailed && root.runtimePanelState === "" && !vless.nativeRuntimeRefreshing; text: root.textFor("native.refreshFailed"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionRunning && root.nativeTransitionKind === "" && !vless.nativeMetadataBusy; text: root.textFor("native.pending"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.unknownOutcome"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: vless.nativeActionCode === "dns_pair_required" ? root.foreground : root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
@@ -2817,7 +2879,7 @@ Panel {
           RequiredComponents {
             id: nativeRequiredComponents
             Layout.fillWidth: true
-            visible: root.page === "main" && setupPage.needsAttention
+            visible: root.page === "main" && setupPage.needsAttention && root.runtimePanelState === ""
             locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
             onInstallRequested: function(action) { setupPage.install(action) }
             onCheckRequested: setupPage.check()
@@ -2894,7 +2956,7 @@ Panel {
             fontFamily: root.fontFamily
             bordered: true
             focusable: true
-            enabled: vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening
+            enabled: root.runtimePanelState === "" && vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening
             Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
             onClicked: { if (vless.openNativeApp()) root.close() }
           }

@@ -41,7 +41,7 @@ test('native authentication explanation wraps without changing provider-value el
 });
 function harness() {
   const source = fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
-  const c = vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeSnapshotFailed:false,
+  const c = vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeRuntimeUnavailable:false,nativeSnapshotFailed:false,
     nativeSnapshot:{instanceId:'instance-one',revision:4,lastKnownActual:'disconnected',
       desired:{connected:false,mode:'rule',generation:3},profiles:[{id:'existing-id',name:'Existing',missing:false,subscriptionId:''}]},
     nativeObservation:{instanceId:'instance-one',revision:4,lastKnownActual:'disconnected',

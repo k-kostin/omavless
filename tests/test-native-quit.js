@@ -3,7 +3,7 @@ const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:a
 const service = fs.readFileSync(__dirname + '/../plugin/Service.qml', 'utf8');
 const panel = fs.readFileSync(__dirname + '/../plugin/Panel.qml', 'utf8');
 function context() {
-  const c = vm.createContext({nativeCanAct:true,nativeCanStop:true,nativeEditorRunning:false,nativeImportBusy:false,
+  const c = vm.createContext({nativeCanAct:true,nativeCanStop:true,nativeRuntimeUnavailable:false,nativeEditorRunning:false,nativeImportBusy:false,
     nativeQuitFailed:true,nativeQuitPending:false,nativeQuitProcess:{running:false},_nativeOperationSerial:0,
     nativeSnapshot:{instanceId:'synthetic-instance',revision:7},backendPath:'/synthetic/backend.sh'});
   const start=service.indexOf('  function quitNativeApplication('),end=service.indexOf('\n  }',start)+4;

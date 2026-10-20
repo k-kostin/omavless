@@ -84,6 +84,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-qml-color-namespace.js"
   node "$here/test-tui-i18n.js"
   node "$here/test-marketplace-setup.js"
+  node "$here/test-stopped-runtime-panel.js"
   node "$here/test-panel-search.js"
   node "$here/test-native-snapshot.js"
   node "$here/test-native-actions.js"

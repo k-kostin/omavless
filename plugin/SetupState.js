@@ -62,10 +62,21 @@ function coreReview(core, facts, busy, failed, terminalOpened) {
   if (hasUpdate(facts)) return "update"
   return "attention"
 }
+// Only the fixed component probe can establish configured-but-stopped. An RPC
+// failure (including a missing cold-boot snapshot) cannot establish this state.
+function runtimePanelState(facts, attempt, blocked) {
+  if (blocked) return ""
+  if (attempt === "starting") return "appStarting"
+  if (attempt === "failed") return "appStartFailed"
+  if (attempt === "verifying") return "appStarting"
+  if (attempt === "verifyFailed") return "unavailable"
+  return facts.state === "needs_runtime_start" && facts.coreInstalled === true ? "appStopped" : ""
+}
 function bootstrapRequired(facts, nativeOwner, hasSnapshot, actionRunning, pending, outcomeUnknown) {
+  if (runtimePanelState(facts, "", actionRunning || pending || outcomeUnknown) !== "") return false
   if (facts.state === "ready") return false
   var stopped = (facts.state === "needs_runtime_start" || facts.state === "needs_broker_stopped" || facts.state === "needs_dns_setup")
     && !actionRunning && !pending && !outcomeUnknown
   return appMissing(facts) || !nativeOwner || !hasSnapshot || stopped
 }
-if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, hasUpdate:hasUpdate, updateMessage:updateMessage, canOfferPairUpdate:canOfferPairUpdate, appMissing:appMissing, missingAction:missingAction, canRestoreHelperAccess:canRestoreHelperAccess, canRunAction:canRunAction, needsAttention:needsAttention, coreReview:coreReview, bootstrapRequired:bootstrapRequired}
+if (typeof module !== "undefined") module.exports = {parse:parse, canInstall:canInstall, inventory:inventory, hasUpdate:hasUpdate, updateMessage:updateMessage, canOfferPairUpdate:canOfferPairUpdate, appMissing:appMissing, missingAction:missingAction, canRestoreHelperAccess:canRestoreHelperAccess, canRunAction:canRunAction, needsAttention:needsAttention, coreReview:coreReview, runtimePanelState:runtimePanelState, bootstrapRequired:bootstrapRequired}

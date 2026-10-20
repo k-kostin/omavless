@@ -68,7 +68,7 @@ test('actual Service applyStatus does not replace snapshot on failed parse', () 
   const start=source.indexOf('  function applyStatus(raw) {');
   const end=source.indexOf('  function rejectStatus()',start);
   const context=vm.createContext({NativeSnapshot:parser,nativeOwner:false,nativeSnapshot:null,nativeSnapshotFailed:false,
-    lastError:'',_pollError:false, rejectStatus(){return false;}, Qt:{callLater(){}}, refreshNativeObservation(){}});
+    lastError:'',_pollError:false,nativeRuntimeUnavailable:false, rejectStatus(){return false;}, Qt:{callLater(){}}, refreshNativeObservation(){}});
   vm.runInContext('function enterNativeReadOnly() { nativeOwner=true; }',context);
   vm.runInContext(source.slice(start,end),context);
   assert.equal(context.applyStatus(JSON.stringify(fixture())),true);

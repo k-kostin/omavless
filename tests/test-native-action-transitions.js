@@ -117,7 +117,7 @@ function visibleState(actual, overrides={}) {
     nativeSnapshot:{lastKnownActual:actual,revision:5},nativeModeSwitching:false,
     nativeConnectionSwitching:false,nativeConnectionTransition:null,
     nativeRefusalVerification:null}, overrides)
-  const c = vm.createContext({vless,nativeRealFailure:false})
+  const c = vm.createContext({vless,nativeRealFailure:false,runtimePanelState:''})
   c.nativeRealFailure = vm.runInContext('(function(){' + realFailureExpression + '\n})()',c)
   const kind = vm.runInContext('(function(){' + transitionExpression + '\n})()',c)
   return {failure:c.nativeRealFailure,kind}
