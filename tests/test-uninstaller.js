@@ -64,7 +64,9 @@ if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
  ['x86_64','4254775ce5b4902d02dbb104056f1b201d8f6fa3b6a4ffce1aa8f3df50acd75b'],
  ['aarch64','6e8245e60751c5484728bde5cbe1d5d795269ef27bf5cbfefc45cee2ace8390d'],
  ['x86_64','b0cca9a8e6b86eb5b842d62c9732c104bf0663e4db20b2abb4da88393add670c'],
- ['aarch64','c0306c0f7ccee558ba4cbe7b2bd70d6c38e4126f25741174ad4900a8cde31788']
+ ['aarch64','c0306c0f7ccee558ba4cbe7b2bd70d6c38e4126f25741174ad4900a8cde31788'],
+ ['x86_64','09059067789ccc0ce29d0cdcdaef319afde992221137fdffd117e57ff2847565'],
+ ['aarch64','9c9d616cacf4c9c0143e59f045454babbcb33d515930e83ff9f062af016953e4']
 ]){
  classify('retained inspected nonpublic app '+arch,digest,true,{version:selectedVersion});
  classify('retained nonpublic app cannot acquire public label '+arch,digest,false,{version:'0.9.8-1'});
