@@ -111,12 +111,20 @@ cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --featur
 # Run ordinary synthetic/private-file tests only; all VM/resource gates stay ignored.
 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service
 cargo clippy --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service -- -D warnings
+# This real-crypto fixture checks downstream canonical-stage retention after
+# authentication. Keep its five-second budget and every assertion, but avoid
+# spending that budget beside unrelated crypto/process-heavy union tests.
+# It exists only with t4-manager-actor-service, not in the default runtime.
+canonical_stage_retention_test='manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns'
 cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
+  --skip "$canonical_stage_retention_test" \
   "${close_drain_skips[@]}"
 for close_drain_test in "${close_drain_tests[@]}"; do
   cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
     "$close_drain_test" -- --exact --test-threads=1
 done
+cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+  "$canonical_stage_retention_test" -- --exact --test-threads=1
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json
