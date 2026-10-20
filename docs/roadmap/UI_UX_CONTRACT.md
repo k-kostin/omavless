@@ -214,7 +214,8 @@ plus affected EN/RU normal/constrained and keyboard/return states.
 Show application launch at login separately from the saved VPN autoconnect
 preference. An explicit Check reads only the existing bounded local support
 report; it neither enables a service nor connects a VPN or copies a report.
-Report the login service setting when checked, not guaranteed persistence or
+Use the report's runtimeService (omavless-runtime.service), not its static
+loginService preparation dependency. Report the service setting when checked, not guaranteed persistence or
 successful future login. Missing/older host coverage, stale replies and failed
 reads are unavailable, not Off. Invalidate displayed facts across visits,
 runtime/availability epochs and snapshot revisions. Keep the VPN Edit action

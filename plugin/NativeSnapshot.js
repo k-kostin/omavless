@@ -582,8 +582,10 @@ function appStartupEnabled(raw, revision) {
   var report = configurationReport(raw, revision)
   if (report === null) return null
   var host = JSON.parse(report).host
-  return host && host.loginService && host.loginService.loaded
-    ? host.loginService.enabled : null
+  // The runtime unit has WantedBy=default.target. loginService is the static
+  // once-per-login VPN intent preparation dependency, NOT app enablement.
+  return host && host.runtimeService && host.runtimeService.loaded
+    ? host.runtimeService.enabled : null
 }
 function parseCustomRules(raw, revision) {
   try {

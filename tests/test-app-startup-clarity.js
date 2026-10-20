@@ -10,9 +10,10 @@ function report(enabled){return JSON.stringify({api:'omavless.control',version:1
  startup:{configured:true,enabled:false,target:'last',mode:'rule'},updates:{latestSubscription:0},onboardingComplete:true},
  localObservation:{availability:'unavailable',desired:{connected:false,mode:'global'},facts:null,
  verification:{serviceOwnership:false,tunOwnership:false,routes:false,dns:false,internet:false}},
- host:{core:null,runtimeService:null,loginService:{loaded:true,active:false,enabled,ownsCurrentProcess:null},files:null,configuredPolicy:null},
+ host:{core:null,runtimeService:{loaded:true,active:true,enabled,ownsCurrentProcess:true},
+ loginService:{loaded:true,active:true,enabled:!enabled,ownsCurrentProcess:null},files:null,configuredPolicy:null},
  coverage:{privateStoreValidated:true,liveHostObservation:false,controllerQuery:false,loginActivationVerified:false,
- coreSetupVerified:false,serviceEnablementVerified:false,loadedPolicyCounts:false,fileReadiness:false}}});}
+ coreSetupVerified:false,serviceEnablementVerified:true,loadedPolicyCounts:false,fileReadiness:false}}});}
 let count=0;
 function test(name,fn){try{fn();count++}catch(e){e.message=name+': '+e.message;throw e}}
 function context(){
@@ -27,11 +28,17 @@ function context(){
   const end=service.indexOf('\n  }',start)+4;vm.runInContext(service.slice(start,end),c);
  }return c;
 }
-test('actual strict host projection admits only observed loaded service facts',()=>{
+test('actual service wiring: app enablement is not the static login-intent dependency',()=>{
+ const runtime=fs.readFileSync(__dirname+'/../packaging/systemd/omavless-runtime.service','utf8');
+ const login=fs.readFileSync(__dirname+'/../packaging/systemd/omavless-login-prepare.service','utf8');
+ assert(runtime.includes('WantedBy=default.target'));assert(runtime.includes('Requires=omavless-login-prepare.service'));
+ assert(!login.includes('[Install]'));assert(login.includes('ExecStart=/usr/bin/omavless login-prepare'));
+});
+test('actual strict host projection uses runtime service despite opposite login intent flags',()=>{
  for(const enabled of [true,false])assert.equal(parser.appStartupEnabled(report(enabled),7),enabled);
- for(const mutate of [p=>p.result.host.loginService=null,p=>p.result.host.loginService.enabled='yes',
-  p=>p.result.host.loginService.private='secret',p=>p.result.coverage.serviceEnablementVerified=true,
-  p=>p.result.host.loginService.loaded=false]){
+ for(const mutate of [p=>{p.result.host.runtimeService=null;p.result.coverage.serviceEnablementVerified=false},p=>p.result.host.runtimeService.enabled='yes',
+  p=>p.result.host.runtimeService.private='secret',p=>p.result.coverage.serviceEnablementVerified=false,
+  p=>p.result.host.runtimeService.loaded=false]){
   const p=JSON.parse(report(true));mutate(p);assert.equal(parser.appStartupEnabled(JSON.stringify(p),7),null);
  }
  assert.equal(parser.appStartupEnabled(report(true),8),null);
