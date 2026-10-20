@@ -55,6 +55,11 @@ class LocalArchPackageTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="omavless-package-")
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
+        # Host coreutils may expose true through a symlink. The package inputs
+        # must remain regular, caller-owned prebuilt ELF files; never execute it.
+        self.binary = self.base / "prebuilt-true"
+        shutil.copyfile("/usr/bin/true", self.binary)
+        self.binary.chmod(0o755)
         self.repo = self.base / "source"
         self.repo.mkdir()
         for name in ("packaging/arch/stage-payload.sh", "packaging/arch/build-local-package.sh",
@@ -77,9 +82,9 @@ class LocalArchPackageTests(unittest.TestCase):
         self.build = self.base / "build"
         self.build.mkdir()
 
-    def invoke(self, binary="/usr/bin/true", sha=None, build=None, candidate=False, stable=False, product_helper=None):
+    def invoke(self, binary=None, sha=None, build=None, candidate=False, stable=False, product_helper=None):
         return subprocess.run(["bash", str(self.repo / "packaging/arch/build-local-package.sh"),
-                               str(build or self.build), str(binary), sha or self.sha,
+                               str(build or self.build), str(self.binary if binary is None else binary), sha or self.sha,
                                *(["--product-image-witness", str(product_helper)] if product_helper else ["--stable"] if stable else ["--candidate"] if candidate else [])],
                               capture_output=True, text=True, timeout=120)
 
@@ -88,14 +93,14 @@ class LocalArchPackageTests(unittest.TestCase):
         product = self.base / "product"
         plain.mkdir(); product.mkdir()
         script = self.repo / "packaging/arch/stage-payload.sh"
-        subprocess.run(["bash", str(script), str(plain), "/usr/bin/true"], check=True)
-        subprocess.run(["bash", str(script), str(product), "/usr/bin/true", "--product-image-witness", "/usr/bin/true"], check=True)
+        subprocess.run(["bash", str(script), str(plain), str(self.binary)], check=True)
+        subprocess.run(["bash", str(script), str(product), str(self.binary), "--product-image-witness", str(self.binary)], check=True)
         self.assertFalse((plain / "usr/lib/omavless-image").exists())
         self.assertEqual((plain / "usr/share/doc/omavless/README.md").read_bytes(),
                          (ROOT / "packaging/arch/USER_README.md").read_bytes())
         self.assertEqual((product / "usr/share/doc/omavless/README.md").read_bytes(),
                          (ROOT / "packaging/arch/USER_README.md").read_bytes())
-        self.assertEqual((product / "usr/lib/omavless-image/omavless-image-witness").read_bytes(), Path("/usr/bin/true").read_bytes())
+        self.assertEqual((product / "usr/lib/omavless-image/omavless-image-witness").read_bytes(), self.binary.read_bytes())
         for node in ("omavless-runtime.service", "omavless-login-prepare.service"):
             self.assertEqual((plain / "usr/lib/systemd/user" / node).read_bytes(), (product / "usr/lib/systemd/user" / node).read_bytes())
         self.assertFalse((product / "var").exists())
@@ -115,18 +120,38 @@ class LocalArchPackageTests(unittest.TestCase):
         self.assertNotIn("[Install]", helper_unit)
         self.assertNotIn("CAP_NET_ADMIN", helper_unit)
 
+    def test_symlinked_source_requires_owned_regular_copy_without_relaxing_staging(self):
+        source = self.base / "host-true-link"
+        source.symlink_to(self.binary)
+        script = self.repo / "packaging/arch/stage-payload.sh"
+        refused = subprocess.run(["bash", str(script), str(self.build), str(source)],
+                                 capture_output=True, timeout=10)
+        self.assertEqual(refused.returncode, 2)
+        self.assertFalse(any(self.build.iterdir()))
+        owned = self.base / "owned-from-symlink"
+        shutil.copyfile(source, owned)
+        owned.chmod(0o755)
+        self.assertFalse(owned.is_symlink())
+        self.assertEqual(owned.read_bytes(), self.binary.read_bytes())
+        accepted = subprocess.run(["bash", str(script), str(self.build), str(owned),
+                                   "--product-image-witness", str(owned)],
+                                  capture_output=True, timeout=10)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual((self.build / "usr/bin/omavless").read_bytes(), owned.read_bytes())
+        self.assertEqual((self.build / "usr/lib/omavless-image/omavless-image-witness").read_bytes(), owned.read_bytes())
+
     def test_product_stage_refuses_helper_symlink_and_unknown_option_before_writes(self):
         link = self.base / "helper-link"
-        link.symlink_to("/usr/bin/true")
+        link.symlink_to(self.binary)
         script = self.repo / "packaging/arch/stage-payload.sh"
-        for flag, helper in [("--product-image-witness", link), ("--arbitrary", Path("/usr/bin/true"))]:
-            result = subprocess.run(["bash", str(script), str(self.build), "/usr/bin/true", flag, str(helper)], capture_output=True)
+        for flag, helper in [("--product-image-witness", link), ("--arbitrary", self.binary)]:
+            result = subprocess.run(["bash", str(script), str(self.build), str(self.binary), flag, str(helper)], capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(any(self.build.iterdir()))
 
     def test_explicit_product_empty_helper_refuses_stage_and_builder_without_writes(self):
-        for arguments in (["bash", str(self.repo / "packaging/arch/stage-payload.sh"), str(self.build), "/usr/bin/true", "--product-image-witness", ""],
-                          ["bash", str(self.repo / "packaging/arch/build-local-package.sh"), str(self.build), "/usr/bin/true", self.sha, "--product-image-witness", ""]):
+        for arguments in (["bash", str(self.repo / "packaging/arch/stage-payload.sh"), str(self.build), str(self.binary), "--product-image-witness", ""],
+                          ["bash", str(self.repo / "packaging/arch/build-local-package.sh"), str(self.build), str(self.binary), self.sha, "--product-image-witness", ""]):
             result = subprocess.run(arguments, capture_output=True)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(any(self.build.iterdir()))
@@ -134,12 +159,12 @@ class LocalArchPackageTests(unittest.TestCase):
     def test_offline_product_makepkg_records_both_elf_hashes_without_hooks(self):
         if os.geteuid() == 0 or not all(shutil.which(t) for t in ("makepkg", "fakeroot", "bsdtar", "readelf", "zstd")):
             self.skipTest("non-root Arch packaging tools required")
-        result = self.invoke(product_helper="/usr/bin/true")
+        result = self.invoke(product_helper=self.binary)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         archive, = self.build.glob("omavless-*.pkg.tar.zst")
         identity = subprocess.check_output(["bsdtar", "-xOf", str(archive), "usr/share/doc/omavless/build-identity.txt"], text=True)
         self.assertIn("schemaVersion=4\n", identity)
-        self.assertIn("helperSha256=" + hashlib.sha256(Path("/usr/bin/true").read_bytes()).hexdigest(), identity)
+        self.assertIn("helperSha256=" + hashlib.sha256(self.binary.read_bytes()).hexdigest(), identity)
         listing = subprocess.check_output(["bsdtar", "-tf", str(archive)], text=True).splitlines()
         self.assertNotIn(".INSTALL", listing)
         self.assertFalse(any(path.startswith(("var/", "etc/")) for path in listing))
@@ -157,7 +182,7 @@ class LocalArchPackageTests(unittest.TestCase):
         self.assertNotEqual(self.invoke().returncode, 0)
         (self.repo / "unreviewed").unlink()
         link = self.base / "binary-link"
-        link.symlink_to("/usr/bin/true")
+        link.symlink_to(self.binary)
         self.assertNotEqual(self.invoke(binary=link).returncode, 0)
         self.assertNotEqual(self.invoke(build=self.repo).returncode, 0)
         not_elf = self.base / "not-elf"
@@ -239,7 +264,7 @@ class LocalArchPackageTests(unittest.TestCase):
         listing = subprocess.check_output(["bsdtar", "-tf", str(archive)], text=True).splitlines()
         self.assertNotIn(".INSTALL", listing)
         self.assertFalse(any("backend.py" in path or path.startswith("etc/") for path in listing))
-        binary_hash = hashlib.sha256(Path("/usr/bin/true").read_bytes()).hexdigest()
+        binary_hash = hashlib.sha256(self.binary.read_bytes()).hexdigest()
         self.assertEqual(hashlib.sha256(content("usr/bin/omavless")).hexdigest(), binary_hash)
         identity = content("usr/share/doc/omavless/build-identity.txt").decode()
         self.assertIn(f"sourceCommit={self.sha}\n", identity)
