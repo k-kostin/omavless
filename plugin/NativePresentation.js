@@ -55,10 +55,11 @@ function activeProfile(view) {
   return view.profiles.find(function(profile) { return profile.id === view.activeId }) || null
 }
 
-function filtered(profiles, query) {
+function filtered(profiles, query, protocol) {
   var needle = typeof query === "string" ? query.slice(0,128).toLowerCase() : ""
   return (profiles || []).slice(0,256).filter(function(p) {
-    return p.name.toLowerCase().indexOf(needle) !== -1
+    return (!protocol || p.protocol === protocol)
+      && p.name.toLowerCase().indexOf(needle) !== -1
   }).sort(function(a,b) {
     return Number(b.favorite) - Number(a.favorite)
   })

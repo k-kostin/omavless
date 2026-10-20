@@ -221,6 +221,17 @@ reads are unavailable, not Off. Invalidate displayed facts across visits,
 runtime/availability epochs and snapshot revisions. Keep the VPN Edit action
 and its existing mutation/confirmation admission separate and unchanged.
 
+### Local profile protocol filter
+
+Profile protocol filtering is session-local presentation, intersecting the name
+query without changing selected or connected identity. Use wrapping shared
+selection buttons (All and the six supported protocol families), preserving
+the fixed dock and the connected-profile identity on both profile-list pages.
+Active filters expose matching subscription children without overwriting saved
+expansion. Reset filters clears both local filters; Details reveals its exact
+selected target through both filters. Counts refer to matching profiles within
+the current page scope, not rendered group headers or unavailable metadata.
+
 ### Required components (owner direction, 2026-09-15)
 
 Missing OmaVLESS/Mihomo belongs in a bordered **Required components** block
