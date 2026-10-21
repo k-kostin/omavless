@@ -98,6 +98,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-probe-semantics.js"
   node "$here/test-native-import.js"
   node "$here/test-native-subscriptions.js"
+  node "$here/test-native-subscription-usage.js"
   node "$here/test-native-routing.js"
   node "$here/test-native-batch.js"
   node "$here/test-native-support.js"

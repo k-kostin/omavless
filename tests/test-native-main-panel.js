@@ -13,7 +13,8 @@ function context(){
   const c=vm.createContext({NativePresentation:presentation,subscriptionSortModes:{},profileFilter:'',nativeProtocolFilter:'',nativeExpanded:{},nativeSelectedProfile:'local',nativeSubscriptionId:'',pendingSubscriptionDelete:null,
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
-    nativeCursor:-1,nativeExpandedDetailsId:'',nativeProtocolChoices:{expanded:false,collapse(){this.expanded=false}},nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
+    nativeCursor:-1,nativeExpandedDetailsId:'',nativeUsageVisit:0,nativeUsageQueued:false,nativeUsageTargetId:'',subscriptionUsagePrompt:{visible:false},nativeSubscriptionUsage:{visible:false,enabled:false},nativeProtocolChoices:{expanded:false,collapse(){this.expanded=false}},nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
+  c.vless.clearNativeSubscriptionUsage=()=>{c.usageCleared=(c.usageCleared||0)+1};
   c.root=c;c.runtimePanelState='';c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
   vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
@@ -23,7 +24,7 @@ function context(){
   c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
   const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
   vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
-  for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','nativeFiltersActive','nativeFilterSummary','nativeAvailableProtocols','reconcileNativeProtocolFilter','collapseNativeProtocolChooser','setNativeProtocolFilter','resetNativeFilters','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
+  for(const name of ['closeNativeUsage','nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','nativeFiltersActive','nativeFilterSummary','nativeAvailableProtocols','reconcileNativeProtocolFilter','collapseNativeProtocolChooser','setNativeProtocolFilter','resetNativeFilters','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
   }
@@ -466,6 +467,7 @@ test('reopening main resets both scrollers without erasing search',()=>{
   const body=source.slice(start+'  onOpenedChanged: {'.length,source.indexOf('\n  }',start));
   vm.runInContext(body,c);
   assert.equal(c.page,'main');assert.equal(c.nativeFlick.contentY,0);assert.equal(c.panelFlick.contentY,0);assert.equal(c.profileFilter,'kept');
+  assert.equal(c.usageCleared,1);assert.equal(c.subscriptionUsagePrompt.visible,false);
 });
 test('standalone and collapsed subscriptions preserve grouping',()=>{
   const c=context();let rows=c.buildNativeRows();assert.equal(rows.length,2);assert.equal(rows[0].profile.id,'local');assert.equal(rows[1].subscription.id,'sub');
@@ -569,8 +571,8 @@ test('overview has only open actions and detail owns one refresh edit delete set
   const from=source.indexOf('id: nativeSubscriptions\n'),to=source.indexOf('id: nativeSubscriptionRefresh;',from);
   const overview=source.slice(from,source.indexOf('          PlainText {',from));
   assert(!overview.includes('requestNativeSubscriptionAction'));assert(!overview.includes('nativeSubscriptionEdit'));assert(!overview.includes('nativeSubscriptionDelete'));
-  assert(to>from);for(const id of ['nativeSubscriptionRefresh','nativeSubscriptionEdit','nativeSubscriptionDelete'])assert.equal(source.split('id: '+id+';').length-1,1);
-  assert.match(source,/page === "subscription" \? \[nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch\]/);
+  assert(to>from);for(const id of ['nativeSubscriptionRefresh','nativeSubscriptionUsage','nativeSubscriptionEdit','nativeSubscriptionDelete'])assert.equal(source.split('id: '+id+';').length-1,1);
+  assert.match(source,/page === "subscription" \? \[nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionUsage, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch\]/);
 });
 test('detail Back and both Escape routes return overview rather than closing panel',()=>{
   for(const route of ['control','catcher','back']){

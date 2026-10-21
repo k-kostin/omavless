@@ -140,6 +140,7 @@ Panel {
   // the page Flickables interactive underneath a translucent sheet lets one
   // wheel gesture move two surfaces and exposes two competing scrollbars.
   readonly property bool modalInputActive: helpPrompt.visible || onboardingWizard.visible
+    || subscriptionUsagePrompt.visible
     || startupPrompt.visible || routingToolsPrompt.visible
     || routingPresetPrompt.visible || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible
     || subscriptionPrompt.visible || pendingEdit !== null
@@ -218,6 +219,42 @@ Panel {
   onPageChanged: {
     nativeExpandedDetailsId = ""
     if (nativeProtocolChoices) nativeProtocolChoices.collapse(false)
+    if (subscriptionUsagePrompt && subscriptionUsagePrompt.visible) closeNativeUsage()
+  }
+  property string nativeUsageTargetId: ""
+  property int nativeUsageVisit: 0
+  property bool nativeUsageQueued: false
+  onNativeSubscriptionIdChanged: if (subscriptionUsagePrompt && subscriptionUsagePrompt.visible) closeNativeUsage()
+  function openNativeUsage() {
+    if (!opened || page !== "subscription" || modalInputActive || !vless.nativeCanAct
+        || nativeSubscription === null || vless.nativeSubscriptionUsageBusy) return false
+    nativeUsageTargetId = nativeSubscriptionId
+    nativeUsageQueued = true
+    var visit = ++nativeUsageVisit
+    subscriptionUsagePrompt.visible = true
+    Qt.callLater(function() {
+      if (visit !== root.nativeUsageVisit || !subscriptionUsagePrompt.visible) return
+      root.requestNativeUsage()
+    })
+    return true
+  }
+  function requestNativeUsage() {
+    nativeUsageQueued = false
+    if (!opened || page !== "subscription" || !subscriptionUsagePrompt.visible
+        || nativeUsageTargetId !== nativeSubscriptionId || nativeSubscription === null) return false
+    return vless.requestNativeSubscriptionUsage()
+  }
+  function closeNativeUsage() {
+    nativeUsageVisit++
+    nativeUsageQueued = false
+    if (subscriptionUsagePrompt) subscriptionUsagePrompt.visible = false
+    nativeUsageTargetId = ""
+    if (vless) vless.clearNativeSubscriptionUsage()
+    Qt.callLater(function() {
+      if (!root.opened || root.modalInputActive) return
+      if (root.page === "subscription" && nativeSubscriptionUsage.visible && nativeSubscriptionUsage.enabled) nativeSubscriptionUsage.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
   }
   property string nativeSubscriptionId: ""
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
@@ -976,7 +1013,7 @@ Panel {
     if (vless.nativeOwner) {
       var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeAppStartupRow.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
-        : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
+        : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionUsage, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
       var searchIndex = targets.indexOf(nativeSearch)
@@ -1738,6 +1775,7 @@ Panel {
   // or a `pickConfigFile` landing) would be invisible, unclickable and
   // unfocused until it went away.
   onOpenedChanged: {
+    closeNativeUsage()
     importEntryPrompt.dismiss()
     componentSetupReview = false
     quitConfirmation = false
@@ -1802,6 +1840,8 @@ Panel {
     nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible || root.componentSetupReview) && vless.nativeOwner
     nativeStartupSettingsVisible: root.opened && (root.page === "settings" || startupPrompt.visible) && vless.nativeOwner
     nativeAppStartupVisible: root.opened && root.page === "settings" && vless.nativeOwner
+    nativeUsageSubscriptionId: root.opened && root.page === "subscription" && subscriptionUsagePrompt.visible
+      && root.nativeUsageTargetId === root.nativeSubscriptionId ? root.nativeUsageTargetId : ""
     nativeDetailsProfileId: root.opened && nativeOwner && nativeCanAct && root.nativeExpandedDetailsId === root.nativeSelectedProfile
       && (root.page === "main" || root.page === "subscription") ? root.nativeExpandedDetailsId : ""
     diagnosticsPageVisible: root.opened && root.page === "diagnostics"
@@ -2088,7 +2128,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      helpPrompt.visible ? Style.space(600) : root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      helpPrompt.visible || subscriptionUsagePrompt.visible ? Style.space(600) : root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -2098,7 +2138,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: helpPrompt.visible || root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
+      blocked: helpPrompt.visible || subscriptionUsagePrompt.visible || root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
@@ -2786,6 +2826,7 @@ Panel {
             Button { id: nativeSubscriptionTest; text: root.textFor("native.probe.test"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && !vless.nativeBatchRequestRunning && root.nativeSubscription !== null && root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && !p.missing }); onClicked: vless.startNativeBatch("probe", root.nativeSubscriptionId) }
             Button { id: nativeSubscriptionSort; text: root.textFor("native.probe.sort") + (root.subscriptionSortMode(root.nativeSubscriptionId) === "pingDesc" ? " ↓" : " ↑"); focusable: true; bordered: true; enabled: root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && vless.probeResult(p.id) !== null }); onClicked: root.sortNativeProbeResults() }
             Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: vless.requestNativeSubscriptionAction("subscription-refresh", root.nativeSubscriptionId, "", "") }
+            Button { id: nativeSubscriptionUsage; text: root.textFor("usage.check"); focusable: true; bordered: true; enabled: vless.nativeSubscriptionUsageEligible && !vless.nativeSubscriptionUsageBusy && root.nativeSubscription !== null; opacity: enabled ? 1 : 0.45; onClicked: root.openNativeUsage() }
             Button { id: nativeSubscriptionEdit; text: root.textFor("common.edit"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.editSubscription(root.nativeSubscription) }
             Button { id: nativeSubscriptionDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: root.requestNativeSubscriptionDelete(root.nativeSubscription) }
           }
@@ -4370,6 +4411,20 @@ Panel {
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }
         onFinishRequested: root.finishOnboarding()
         onCanceled: root.dismissOnboarding()
+      }
+
+      SubscriptionUsagePrompt {
+        id: subscriptionUsagePrompt
+        anchors.fill: parent
+        z: 20
+        locale: root.uiLocale
+        targetName: visible && root.nativeSubscription && root.nativeSubscription.id === root.nativeUsageTargetId ? root.nativeSubscription.name : ""
+        status: root.nativeUsageQueued ? "loading" : vless.nativeSubscriptionUsageStatus
+        usage: visible ? vless.nativeSubscriptionUsage : null
+        requestEnabled: visible && !root.nativeUsageQueued && vless.nativeSubscriptionUsageEligible
+          && !vless.nativeSubscriptionUsageBusy && root.nativeSubscription !== null
+        onRequested: root.requestNativeUsage()
+        onCanceled: root.closeNativeUsage()
       }
 
       HelpPrompt {

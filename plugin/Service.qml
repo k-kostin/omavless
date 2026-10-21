@@ -9,6 +9,7 @@ import Quickshell
 import Quickshell.Io
 import "NativeSnapshot.js" as NativeSnapshot
 import "NativePresentation.js" as NativePresentation
+import "SubscriptionUsage.js" as SubscriptionUsage
 
 // Headless state for the OmaVLESS widget. backend.sh keeps private links in a
 // 0600 store and runs a dedicated Mihomo user service.
@@ -1206,6 +1207,7 @@ Item {
   property int statusFailureCount: 0
   property bool panelVisible: false
   onPanelVisibleChanged: {
+    if (!panelVisible) clearNativeSubscriptionUsage()
     if (panelVisible) refreshNativeAppAvailability()
     if (!panelVisible) {
       clearNativeTest()
@@ -1270,6 +1272,76 @@ Item {
       nativeCoreSetupFacts = code === 0 ? NativeSnapshot.parseCoreSetupFacts(output) : null
       nativeCoreSetupStatus = nativeCoreSetupFacts === null ? "failed" : ""
     } finally { process.destroy() }
+  }
+  // Explicit provider read only. No on-open/poll/selection request or retry.
+  property string nativeUsageSubscriptionId: ""
+  property var nativeSubscriptionUsage: null
+  property string nativeSubscriptionUsageStatus: ""
+  property var _nativeUsageRead: null
+  property var _nativeUsageContext: null
+  property int _nativeUsageGeneration: 0
+  readonly property bool nativeSubscriptionUsageBusy: _nativeUsageRead !== null
+  readonly property bool nativeSubscriptionUsageEligible: panelVisible && nativeCanAct
+    && !nativeOutcomeUnknown && !nativeActionRunning
+  onNativeSubscriptionUsageEligibleChanged: if (!nativeSubscriptionUsageEligible) clearNativeSubscriptionUsage()
+  onNativeUsageSubscriptionIdChanged: clearNativeSubscriptionUsage()
+  function clearNativeSubscriptionUsage() {
+    _nativeUsageGeneration++
+    _nativeUsageContext = null
+    nativeSubscriptionUsage = null
+    nativeSubscriptionUsageStatus = ""
+  }
+  function nativeSubscriptionUsageCurrent(context) {
+    // QML dynamic Process properties may copy JS objects. The process handle
+    // and these sealed value fences, not JS reference identity, bind its reply.
+    return context !== null && _nativeUsageContext !== null && panelVisible && nativeCanAct
+      && context.id === _nativeUsageContext.id && context.generation === _nativeUsageContext.generation
+      && context.instanceId === _nativeUsageContext.instanceId && context.revision === _nativeUsageContext.revision
+      && !nativeOutcomeUnknown && !nativeActionRunning
+      && context.generation === _nativeUsageGeneration && nativeUsageSubscriptionId === context.id
+      && nativeSnapshot.instanceId === context.instanceId && nativeSnapshot.revision === context.revision
+      && nativeSnapshot.subscriptions.some(function(s) { return s.id === context.id })
+  }
+  function requestNativeSubscriptionUsage() {
+    if (!panelVisible || !nativeCanAct || nativeOutcomeUnknown || nativeActionRunning
+        || !NativeSnapshot.id(nativeUsageSubscriptionId, false) || _nativeUsageRead !== null) return false
+    clearNativeSubscriptionUsage()
+    var context = {id:nativeUsageSubscriptionId, instanceId:nativeSnapshot.instanceId,
+      revision:nativeSnapshot.revision, generation:_nativeUsageGeneration}
+    _nativeUsageContext = context
+    if (!nativeSubscriptionUsageCurrent(context)) { clearNativeSubscriptionUsage(); return false }
+    nativeSubscriptionUsageStatus = "loading"
+    _nativeUsageRead = nativeSubscriptionUsageComponent.createObject(root, {
+      context:context, command:["bash", backendPath, "native-subscription-usage", context.id]})
+    if (_nativeUsageRead === null) { nativeSubscriptionUsageStatus = "failed"; return false }
+    _nativeUsageRead.running = true
+    return true
+  }
+  function finishNativeSubscriptionUsage(process, code, output) {
+    try {
+      if (_nativeUsageRead !== process) return
+      _nativeUsageRead = null
+      if (!nativeSubscriptionUsageCurrent(process.context)) return
+      var result = code === 0 ? SubscriptionUsage.parse(output, process.context) : null
+      nativeSubscriptionUsage = result && result.status === "reported" ? result : null
+      nativeSubscriptionUsageStatus = result ? result.status : "failed"
+    } finally { process.destroy() }
+  }
+  Component {
+    id: nativeSubscriptionUsageComponent
+    Process {
+      id: process
+      property var context
+      property bool timedOut: false
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      // Consume/discard stderr with this child; never forward it to UI/logs.
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer watchdog: Timer {
+        interval: 6000; running: process.running
+        onTriggered: { process.timedOut = true; process.running = false }
+      }
+      onExited: function(code) { root.finishNativeSubscriptionUsage(process, timedOut ? -1 : code, output.text) }
+    }
   }
   property string nativeDetailsProfileId: ""
   property var nativeProfileDetails: null
@@ -3475,6 +3547,7 @@ Item {
   property var nativeQrExportProcess: null
   property var nativeQrRenderProcess: null
   onNativeOwnerChanged: {
+    clearNativeSubscriptionUsage()
     clearProbeResults("")
     _nativeProbeCacheFence = null
     clearNativeRouting()
@@ -3482,6 +3555,7 @@ Item {
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    if (_nativeUsageContext !== null && !nativeSubscriptionUsageCurrent(_nativeUsageContext)) clearNativeSubscriptionUsage()
     if (_nativeProbeCacheFence && (!nativeSnapshot || nativeSnapshot.instanceId !== _nativeProbeCacheFence.instanceId || nativeSnapshot.revision !== _nativeProbeCacheFence.revision)) { clearProbeResults(""); _nativeProbeCacheFence = null }
     if (nativeTestFence && (!nativeSnapshot || nativeSnapshot.instanceId !== nativeTestFence.instanceId || nativeSnapshot.revision !== nativeTestFence.revision)) clearNativeTest()
     if (_nativeDetailsContext !== null && !nativeProfileDetailsCurrent(_nativeDetailsContext)) clearNativeProfileDetails()
@@ -3494,10 +3568,12 @@ Item {
   }
   onNativeSnapshotFailedChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
   onNativeFactsCurrentChanged: {
+    if (!nativeFactsCurrent) clearNativeSubscriptionUsage()
     if (!nativeFactsCurrent) clearNativeRouting()
     else if (nativeRoutingToolsVisible && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
   }
   onNativePendingChanged: {
+    if (nativePending) clearNativeSubscriptionUsage()
     if (nativePending) {
       nativeMetadataErrorAction = ""
       nativeMetadataErrorCode = ""

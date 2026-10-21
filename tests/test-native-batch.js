@@ -30,7 +30,7 @@ test('legacy measurements cannot enter native cache across ownership changes',()
  const before=JSON.stringify(c.profileProbes);
  assert.equal(c.applyProbeEvent('{}',subscription),false);assert.equal(c.applyProbeResults('{}',subscription),null);
  assert.equal(JSON.stringify(c.profileProbes),before);
- assert(source.includes('onNativeOwnerChanged: {\n    clearProbeResults("")\n    _nativeProbeCacheFence = null'));
+ assert(source.includes('onNativeOwnerChanged: {\n    clearNativeSubscriptionUsage()\n    clearProbeResults("")\n    _nativeProbeCacheFence = null'));
  assert(source.includes('root._probeName = ""\n      if (root.nativeOwner) return'));
 });
 test('exact start/get/cancel projection schema with method bounds',()=>{

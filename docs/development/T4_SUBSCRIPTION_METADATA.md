@@ -1,8 +1,44 @@
 # T4 subscription usage metadata foundation
 
-Status: selected 0.9.5 beta implementation: explicit, transient private read.
+Status: selected 0.9.5 beta foundation: explicit, transient private read.
 Ordinary refresh still consumes only the body. No usage enters storage,
-scheduling, ordinary status, support reports or the QML plugin.
+scheduling, ordinary status or support reports. The original TUI slice is
+retained below; the separate development QML slice is explicit and transient too.
+
+## Development QML slice: explicit subscription usage
+
+On one browsed subscription, the bordered **Check usage** action opens a private
+**Subscription data** dialog and makes one explicit request. Ordinary page
+opening, selection, local polling and locale changes do not request provider
+data. **Check again** starts one new read only when the previous child has ended;
+there is no automatic retry or feed refresh. The fixed CLI command is
+`omavless subscription usage SUBSCRIPTION_ID`, forwarded by the launcher's
+`native-subscription-usage` command. Only the saved opaque ID crosses argv;
+the existing runtime resolves the URL privately. No generic RPC escape hatch,
+new provider parser, persistent field or runtime ownership policy is introduced.
+
+The dialog distinguishes loading, provider-reported data, metadata not supplied
+and unavailable reads. It identifies the current subscription and attributes
+values to the provider, not locally measured VPN traffic or verified entitlement.
+Closing/Escape, page/target changes, lost admission and owner/revision changes
+erase the result. The single active child handle plus generation, opaque ID,
+instance and revision fences reject late replies, including copied QML Process
+contexts; completion cannot schedule another request. The child has a bounded
+client watchdog without weakening the runtime's existing request budget.
+
+Counters remain canonical u64 decimal strings through checked sum/subtraction
+and binary-unit formatting. The presentation marks approximate byte values,
+uses an English decimal point or Russian comma, and never coerces a whole u64
+counter to a floating-point Number. Missing/zero limits and expiry remain
+unavailable, not unlimited service or no expiry. Gregorian date/time is explicit
+UTC; no entitlement verdict or countdown is added. Provider labels stay plain
+text and untranslated. Data scrolls while Close and Check again remain fixed.
+
+This changes the compiled CLI, so final integration requires a newly matched
+both-architecture native pair and its applicable installed journey, not assumed
+equivalence with the preceding packages. Source/function tests, isolated actual
+QML rendering and installed new-pair acceptance are separate evidence classes;
+the feature's owning PR must state their exact candidate and unrun gaps.
 
 ## First working slice: explicit provider information
 

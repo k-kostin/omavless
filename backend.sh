@@ -143,6 +143,10 @@ if command -v omavless >/dev/null 2>&1; then
           [ "$#" -eq 2 ] || blocked
           exec omavless subscription edit-input "$2"
           ;;
+        native-subscription-usage)
+          [ "$#" -eq 2 ] || blocked
+          exec omavless subscription usage "$2"
+          ;;
         native-profile-editor)
           [ "$#" -eq 1 ] || blocked
           exec omavless desktop edit
