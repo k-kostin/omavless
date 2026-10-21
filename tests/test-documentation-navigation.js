@@ -192,6 +192,19 @@ const operatingRules = [
   'normally within 25 lines',
   'do no VM probes, closed-CI replay or memory imports',
   'Pause only the completed continuation',
+  'queued is not started',
+  'last material progress time',
+  'two consecutive observations show no progress, or after 30 minutes',
+  'review checkpoints, NOT operation timeouts',
+  'resource/dependency map',
+  'block only actions whose safety depends on that outcome',
+  'A shared Git directory can be a real dependency',
+  'remaining authority must come from the owner, not this triage',
+  'missing status/completion API is a concrete tool blocker',
+  'Report once when productive work stops',
+  'scheduled observation is not development progress',
+  'plain-language outcome, last actual change and time',
+  'GitHub branches, local branches and working folders separately',
 ];
 function requireOperatingWorkflow(text, rootEntry, agentGuide, policy) {
   const normalized = text.replace(/\s+/g, ' ');
@@ -205,6 +218,12 @@ function requireOperatingWorkflow(text, rootEntry, agentGuide, policy) {
 }
 const operatingPolicy = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
 requireOperatingWorkflow(operating, entry, guide, operatingPolicy);
+assert(anchors(operating).has('stalled-operation-triage'), 'stalled-operation triage anchor');
+assert(guide.includes('](AGENT_OPERATING_WORKFLOW.md#stalled-operation-triage)'),
+  'stalled-operation triage must be discoverable');
+assert.throws(() => assert(guide.replace('#stalled-operation-triage', '#missing-triage')
+  .includes('](AGENT_OPERATING_WORKFLOW.md#stalled-operation-triage)'),
+  'stalled-operation triage must be discoverable'), /stalled-operation triage/);
 for (const rule of operatingRules)
   assert.throws(() => requireOperatingWorkflow(
     operating.replace(/\s+/g, ' ').replace(rule, '[removed]'), entry, guide, operatingPolicy),
@@ -494,4 +513,5 @@ for (const file of ['CONTRIBUTING.md', 'docs/development/README.md', 'DEVELOPMEN
   assert(fs.readFileSync(path.join(root, file), 'utf8').includes('reconciliation'),
     'release documentation reconciliation must remain discoverable: ' + file);
 }
-console.log('documentation navigation: ' + links + ' local links, agent discovery and retained policy PASS');
+console.log('documentation navigation: ' + links + ' local links, ' + operatingRules.length +
+  ' operating-rule removal controls, agent discovery and retained policy PASS');

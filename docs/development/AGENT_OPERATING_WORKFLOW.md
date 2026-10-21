@@ -124,6 +124,54 @@ dependency, original operation/attempt IDs, next admissible action, real missing
 input and completion disposition. Do not copy old receipts or credentials.
 Use the product's scheduler/wait mechanism; retain one observer per dependency.
 
+### Stalled-operation triage
+
+Before waiting, record the original operation/attempt, queued/running/unknown
+state, observable progress signal, last material progress time, next check and
+the exact outcomes it blocks. In particular, queued is not started, and a
+still-present folder proves neither execution nor failure. Never invent a
+completion API, operation ID or proof of absence.
+
+When two consecutive observations show no progress, or after 30 minutes without
+an observable start/progress signal, reassess instead of repeating the same
+poll. These are review checkpoints, NOT operation timeouts: they do not permit
+kill, resend, compensating cleanup, deadline changes or a late PASS. A known
+running compile/test may legitimately take longer; compare its actual phase
+and recorded durations before calling it stalled. Preserve the original result.
+
+1. Draw a small resource/dependency map: operation, potentially affected paths,
+   refs/registrations, required completion proof and blocked next actions. For
+   an unknown mutation, block only actions whose safety depends on that outcome.
+   A shared Git directory can be a real dependency; document it rather than
+   assuming every other task is either safe or blocked. Independent reads,
+   preservation planning and separately authorized source work remain eligible.
+2. Use one bounded supported status/diagnostic path if available. A missing
+   status/completion API is a concrete tool blocker, not evidence of success,
+   failure or ownerlessness. Keep the original operation fenced. Any new recovery
+   or remaining authority must come from the owner, not this triage.
+3. Replan all requested outcomes. Execute authorized independent work; list
+   exhausted alternatives and the exact unavailable input/tool where none remain.
+   Preserve useful future work with its source carrier and next task before
+   retiring a working folder; branch deletion is a separate decision/check.
+4. Report once when productive work stops: last actual result/time, what is
+   waiting, what cannot safely proceed, and the smallest required decision or
+   external change. An unanswered question is not repeated on each pulse. A
+   scheduled observation is not development progress. Keep an explicitly
+   requested monitor active, but back off unchanged observations (normally up
+   to hourly) and notify only a meaningful change. Respect an owner's explicit
+   cadence; absence of that cadence is not a reason for frequent empty polls.
+
+### Outcome reporting
+
+Lead with the plain-language outcome, last actual change and time, then the
+blocker and next action. If no development or cleanup occurred since the last
+checkpoint, say so when asked; do not substitute tool-call counts or "continuing"
+for progress. Report GitHub branches, local branches and working folders
+separately. Explain a working folder as a local project copy when that distinction
+matters; a reviewed catalogue, saved future-work plan, removed folder and deleted
+remote branch are different outcomes. Avoid internal identifiers unless they
+help the owner make the next decision; retain exact technical receipts below.
+
 For unchanged external waits, do no VM probes, closed-CI replay or memory imports.
 Notify only material completion, a new real error or a needed decision, subject
 to higher-priority required progress updates. A scheduled wakeup is not renewed

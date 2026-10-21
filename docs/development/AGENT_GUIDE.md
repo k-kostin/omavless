@@ -36,6 +36,9 @@ Apply [technical judgment before execution](EXECUTION_POLICY.md#technical-judgme
 evaluate proposed means against the owner's goal, explain meaningful conflicts
 and alternatives before expensive action, and do not confuse a tentative idea
 with an approved standing technical policy.
+For queued or stagnant operations use
+[stalled-operation triage](AGENT_OPERATING_WORKFLOW.md#stalled-operation-triage)
+before another unchanged polling cycle; preserve the original effect boundaries.
 For installed development-VM work use the
 [VM operations skill](../../skills/omavless-dev-vm/SKILL.md), including graphical
 preflight, actual installed interface discovery and encrypted reboot. Before
