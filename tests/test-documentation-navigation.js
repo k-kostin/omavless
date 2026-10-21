@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/development/EXECUTION_POLICY.md',
+  'docs/development/AGENT_OPERATING_WORKFLOW.md',
   'docs/roadmap/UI_UX_CONTRACT.md',
   'skills/omavless-ui-review/SKILL.md', 'skills/omavless-dev-vm/SKILL.md',
   'docs/development/POST_FIX8_RETROSPECTIVE.md',
@@ -167,6 +168,72 @@ for (const target of ['docs/development/AGENT_GUIDE.md', 'DEVELOPMENT_ROADMAP.md
   assert(entry.includes('](' + target + ')'), 'agent discovery must retain ' + target);
 }
 const guide = fs.readFileSync(path.join(root, 'docs/development/AGENT_GUIDE.md'), 'utf8');
+// October21 process regression: routing/content controls, NOT a simulation of
+// agent decisions, OS authorization, installed acceptance or improved CI time.
+const operating = fs.readFileSync(path.join(root, 'docs/development/AGENT_OPERATING_WORKFLOW.md'), 'utf8');
+const operatingRules = [
+  'do not ask for it again',
+  'request only the missing input once',
+  'compaction or unchanged heartbeat is not revocation',
+  'Agent-entered authorization is not physical-human acceptance',
+  'service active AND enabled state',
+  'Separate files-installed proof from distinct loaded-feature proof',
+  'Exclude ONLY the demonstrated volatile field',
+  'reject every other changed field',
+  'old comparison RED and the corrected one GREEN',
+  'bool-versus-int receipts',
+  'Aggregate success follows original child/server EXIT0',
+  'both the product child outcome and the harness qualification separately',
+  'Preserve UNKNOWN',
+  'ALL selected-tuple consumers',
+  'hosted runner discovers new tests',
+  'Stop polling a completed gate',
+  'independent exact merged-push checks',
+  'normally within 25 lines',
+  'do no VM probes, closed-CI replay or memory imports',
+  'Pause only the completed continuation',
+  'queued is not started',
+  'last material progress time',
+  'two consecutive observations show no progress, or after 30 minutes',
+  'review checkpoints, NOT operation timeouts',
+  'resource/dependency map',
+  'block only actions whose safety depends on that outcome',
+  'A shared Git directory can be a real dependency',
+  'remaining authority must come from the owner, not this triage',
+  'missing status/completion API is a concrete tool blocker',
+  'Report once when productive work stops',
+  'scheduled observation is not development progress',
+  'plain-language outcome, last actual change and time',
+  'GitHub branches, local branches and working folders separately',
+];
+function requireOperatingWorkflow(text, rootEntry, agentGuide, policy) {
+  const normalized = text.replace(/\s+/g, ' ');
+  for (const rule of operatingRules)
+    assert(normalized.includes(rule), 'retain operating rule: ' + rule);
+  assert(rootEntry.includes('](docs/development/AGENT_OPERATING_WORKFLOW.md)'), 'operating root route');
+  assert(agentGuide.includes('](AGENT_OPERATING_WORKFLOW.md)'), 'operating guide route');
+  assert(policy.includes('](AGENT_OPERATING_WORKFLOW.md)'), 'operating policy route');
+  for (let step = 1; step <= 7; step++)
+    assert(new RegExp('^## ' + step + '\\. ', 'm').test(text), 'operating step ' + step);
+}
+const operatingPolicy = fs.readFileSync(path.join(root, 'docs/development/EXECUTION_POLICY.md'), 'utf8');
+requireOperatingWorkflow(operating, entry, guide, operatingPolicy);
+assert(anchors(operating).has('stalled-operation-triage'), 'stalled-operation triage anchor');
+assert(guide.includes('](AGENT_OPERATING_WORKFLOW.md#stalled-operation-triage)'),
+  'stalled-operation triage must be discoverable');
+assert.throws(() => assert(guide.replace('#stalled-operation-triage', '#missing-triage')
+  .includes('](AGENT_OPERATING_WORKFLOW.md#stalled-operation-triage)'),
+  'stalled-operation triage must be discoverable'), /stalled-operation triage/);
+for (const rule of operatingRules)
+  assert.throws(() => requireOperatingWorkflow(
+    operating.replace(/\s+/g, ' ').replace(rule, '[removed]'), entry, guide, operatingPolicy),
+  /retain operating rule/);
+assert.throws(() => requireOperatingWorkflow(operating,
+  entry.replace('AGENT_OPERATING_WORKFLOW.md', 'missing.md'), guide, operatingPolicy), /root route/);
+assert.throws(() => requireOperatingWorkflow(operating, entry,
+  guide.replace('AGENT_OPERATING_WORKFLOW.md', 'missing.md'), operatingPolicy), /guide route/);
+assert.throws(() => requireOperatingWorkflow(operating, entry, guide,
+  operatingPolicy.replace('AGENT_OPERATING_WORKFLOW.md', 'missing.md')), /policy route/);
 // Mandatory discovery/content, not proof of an agent's actual visual judgment.
 const uiContract = fs.readFileSync(path.join(root, 'docs/roadmap/UI_UX_CONTRACT.md'), 'utf8');
 const uiReviewSkill = fs.readFileSync(path.join(root, 'skills/omavless-ui-review/SKILL.md'), 'utf8');
@@ -446,4 +513,5 @@ for (const file of ['CONTRIBUTING.md', 'docs/development/README.md', 'DEVELOPMEN
   assert(fs.readFileSync(path.join(root, file), 'utf8').includes('reconciliation'),
     'release documentation reconciliation must remain discoverable: ' + file);
 }
-console.log('documentation navigation: ' + links + ' local links, agent discovery and retained policy PASS');
+console.log('documentation navigation: ' + links + ' local links, ' + operatingRules.length +
+  ' operating-rule removal controls, agent discovery and retained policy PASS');

@@ -114,6 +114,10 @@ assertions, deadlines and cryptographic parameters unchanged.
 
 ## 1. Plan around executable outcomes
 
+Use the [operating workflow](AGENT_OPERATING_WORKFLOW.md) to execute this policy.
+Its authority/preflight/result decision tables address the October20–21 failures;
+keep those operational rules there rather than adding another session checklist.
+
 For each active feature write a short completion matrix: supported scope,
 required behavior, selected exact head, deterministic checks, installed/VM
 checks and genuinely unavailable host cases. Broad roadmap headings are not
