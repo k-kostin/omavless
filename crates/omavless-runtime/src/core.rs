@@ -21,6 +21,16 @@ use std::time::{Duration, Instant};
 const MAX_PATH_BYTES: usize = 4096;
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
+// Only tests with an explicit observation scope retain evidence. Release
+// expansion is the same fixed error; never emit private OS/process details.
+macro_rules! stop_failure {
+    ($stage:ident, $errno:expr) => {{
+        #[cfg(test)]
+        crate::core_stop_observation::record(crate::core_stop_observation::Stage::$stage, $errno);
+        CoreError::StopFailed
+    }};
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreError {
     InvalidArgument,
@@ -133,8 +143,10 @@ impl OwnedCore {
     }
 
     pub fn running(&mut self) -> Result<bool, CoreError> {
-        let pid = self.pid().ok_or(CoreError::StopFailed)?;
-        let pid = i32::try_from(pid).map_err(|_| CoreError::StopFailed)?;
+        let Some(pid) = self.pid() else {
+            return Err(stop_failure!(ChildIdentity, None));
+        };
+        let pid = i32::try_from(pid).map_err(|_| stop_failure!(ChildIdentity, None))?;
         // Do not reap on observation. The waitable leader pins its process-group
         // ID until stop has drained its helpers, including post-exit helpers.
         let observation = match waitid(
@@ -143,7 +155,8 @@ impl OwnedCore {
         ) {
             Ok(WaitStatus::StillAlive) => Ok(true),
             Ok(WaitStatus::Exited(..) | WaitStatus::Signaled(..)) => Ok(false),
-            _ => Err(CoreError::StopFailed),
+            Err(_error) => Err(stop_failure!(ChildObservation, Some(_error as i32))),
+            _ => Err(stop_failure!(ChildObservation, None)),
         };
         if !matches!(observation, Ok(true))
             && let Some(lifetime) = &self.conditional_lifetime
@@ -253,15 +266,19 @@ impl OwnedCore {
         // Establish that this is still our unreaped child before signalling.
         // No path in OwnedCore reaps before group cleanup succeeds.
         let _ = self.running()?;
-        let pid = i32::try_from(self.pid().ok_or(CoreError::StopFailed)?)
-            .map_err(|_| CoreError::StopFailed)?;
+        let Some(pid) = self.pid() else {
+            return Err(stop_failure!(ChildIdentity, None));
+        };
+        let pid = i32::try_from(pid).map_err(|_| stop_failure!(ChildIdentity, None))?;
         if pid <= 1
-            || getpgid(Some(Pid::from_raw(pid))).map_err(|_| CoreError::StopFailed)?
+            || getpgid(Some(Pid::from_raw(pid)))
+                .map_err(|_error| stop_failure!(ProcessGroup, Some(_error as i32)))?
                 != Pid::from_raw(pid)
         {
-            return Err(CoreError::StopFailed);
+            return Err(stop_failure!(ProcessGroup, None));
         }
-        kill(Pid::from_raw(-pid), Signal::SIGTERM).map_err(|_| CoreError::StopFailed)?;
+        kill(Pid::from_raw(-pid), Signal::SIGTERM)
+            .map_err(|_error| stop_failure!(TermSignal, Some(_error as i32)))?;
         let deadline = Instant::now() + timeout;
         let grace_deadline = Instant::now() + timeout.mul_f32(0.8);
         let mut forced = false;
@@ -269,15 +286,16 @@ impl OwnedCore {
         while Instant::now() < deadline {
             if !self.running()?
                 && !crate::core_group::group_has_live_members(Path::new("/proc"), pid)
-                    .map_err(|_| CoreError::StopFailed)?
+                    .map_err(|_| stop_failure!(InventoryRoot, None))?
             {
                 empty_observations += 1;
                 if empty_observations >= 2 {
-                    self.child
-                        .as_mut()
-                        .ok_or(CoreError::StopFailed)?
+                    let Some(child) = self.child.as_mut() else {
+                        return Err(stop_failure!(Reap, None));
+                    };
+                    child
                         .wait()
-                        .map_err(|_| CoreError::StopFailed)?;
+                        .map_err(|_error| stop_failure!(Reap, _error.raw_os_error()))?;
                     self.child.take();
                     return Ok(StopOutcome { graceful: !forced });
                 }
@@ -287,14 +305,15 @@ impl OwnedCore {
             if Instant::now() >= grace_deadline {
                 // The leader remains unreaped, so even after its exit this
                 // cannot address a recycled PGID. Repeat for late-forked helpers.
-                kill(Pid::from_raw(-pid), Signal::SIGKILL).map_err(|_| CoreError::StopFailed)?;
+                kill(Pid::from_raw(-pid), Signal::SIGKILL)
+                    .map_err(|_error| stop_failure!(KillSignal, Some(_error as i32)))?;
                 forced = true;
             }
             thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
         }
         // Keep the identity pinned for retry/manual recovery, never pretend
         // the tree is gone merely because the direct child exited.
-        Err(CoreError::StopFailed)
+        Err(stop_failure!(Deadline, None))
     }
 }
 
@@ -460,6 +479,8 @@ mod tests {
 
     #[test]
     fn lost_waitable_child_identity_refuses_group_signal() {
+        use crate::core_stop_observation::{Failure, Scope, Stage};
+        let observation = Scope::enter();
         let root = root("reaped-identity");
         let executable = script(&root, "exit 0");
         let config = config(&root);
@@ -469,6 +490,14 @@ mod tests {
         assert_eq!(
             core.stop(Duration::from_secs(1)),
             Err(CoreError::StopFailed)
+        );
+        assert_eq!(
+            observation.failure(),
+            Some(Failure {
+                stage: Stage::ChildObservation,
+                errno: Some(nix::errno::Errno::ECHILD as i32),
+                injected: false,
+            })
         );
         core.child.take();
         fs::remove_dir_all(root).unwrap();
