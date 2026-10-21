@@ -236,6 +236,39 @@ assert(guide.includes('](POST_FIX8_RETROSPECTIVE.md)'));
 assert(entry.includes('Developer rules and retrospectives stay in full source'));
 assert(entry.includes('](docs/development/DEVELOPMENT_INVENTORY.md)'));
 const developmentInventory = fs.readFileSync(path.join(root, 'docs/development/DEVELOPMENT_INVENTORY.md'), 'utf8');
+// Clone-only discovery, not proof that an agent read the ledger or that its
+// dated statuses remain current. Do not duplicate the individual disposition table.
+function requireCurrentBacklogRoute(agentEntry, agentGuide, inventory) {
+  assert(agentEntry.includes('](docs/development/DEVELOPMENT_INVENTORY.md)'),
+    'root entry must discover the backlog inventory');
+  assert(agentGuide.includes('](DEVELOPMENT_INVENTORY.md)'),
+    'mandatory guide must discover the backlog inventory');
+  const current = inventory.split('## Current backlog (October 21, 2026)')[1]?.split('## New-base queue')[0];
+  assert(current, 'inventory must identify the dated current backlog');
+  assert(current.includes('https://github.com/k-kostin/omavless/issues/553#issuecomment-6312681149'),
+    'inventory must reach the exact individual disposition ledger');
+  for (const boundary of ['7932893eff9a3184ce4cc65c8e61045be9947174',
+    'Refresh actual GitHub heads, bases and states', 'not an active task',
+    'not implementation or merge authority']) {
+    assert(current.replace(/\s+/g, ' ').includes(boundary),
+      'retain dated-backlog boundary: ' + boundary);
+  }
+  assert(inventory.split('## New-base queue')[1].split('## Retained track entries')[0]
+    .includes('](#current-backlog-october-21-2026)'),
+  'older queue entry points must reach the current backlog before the historical map');
+}
+requireCurrentBacklogRoute(entry, guide, developmentInventory);
+for (const [agentEntry, agentGuide, inventory] of [
+  [entry.replace('](docs/development/DEVELOPMENT_INVENTORY.md)', '](removed.md)'), guide, developmentInventory],
+  [entry, guide.replace('](DEVELOPMENT_INVENTORY.md)', '](removed.md)'), developmentInventory],
+  [entry, guide, developmentInventory.replace('## Current backlog (October 21, 2026)', '## Removed backlog')],
+  [entry, guide, developmentInventory.replace('issuecomment-6312681149', 'issuecomment-removed')],
+  [entry, guide, developmentInventory.replace('](#current-backlog-october-21-2026)', '](#removed-backlog)')],
+  [entry, guide, developmentInventory.replace('not implementation or merge authority', 'automatic merge authority')],
+]) {
+  assert.throws(() => requireCurrentBacklogRoute(agentEntry, agentGuide, inventory),
+    /backlog|ledger/);
+}
 assert(developmentInventory.includes('## Admission of old-base work'));
 assert(developmentInventory.includes('## Source CI before the next export'));
 assert(developmentInventory.includes('## Verified missing-port boundaries'));

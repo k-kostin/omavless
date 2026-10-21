@@ -14,9 +14,38 @@ were inspected; this inventory does not claim exhaustive semantic/security
 review of every branch. Full per-ref logs/statistics and local worktree custody
 inventories stay outside Git. Use the owning contracts before implementation.
 
+## Current backlog (October 21, 2026)
+
+Start with the [individual PR/issue disposition ledger](https://github.com/k-kostin/omavless/issues/553#issuecomment-6312681149).
+The complete remaining-queue review is dated against development source
+`7932893eff9a3184ce4cc65c8e61045be9947174`. It distinguishes carried source,
+partial ports with a concrete remainder, distinct missing changes and retained
+research/evidence. Closed issue #553 is its historical journal, not an active task
+or a new implementation queue. The table is linked here rather than duplicated.
+
+Refresh actual GitHub heads, bases and states before acting. Dated dispositions,
+source presence and green historical checks are different evidence; preserve
+original failures and deferred/unknown checks. In particular, the old import,
+Restore and fixture selections below must not restart completed new-base ports.
+Use each ledger row's owning successor and remaining scope instead.
+
+The owner-selected planning order is [#808](https://github.com/k-kostin/omavless/issues/808)
+then [#256](https://github.com/k-kostin/omavless/issues/256) and
+[#721](https://github.com/k-kostin/omavless/pull/721), followed by the remaining
+Remove UI scope in [#774](https://github.com/k-kostin/omavless/pull/774).
+This is not implementation or merge authority. Rules [#815](https://github.com/k-kostin/omavless/pull/815)
+and its separate cleanup-test diagnosis [#816](https://github.com/k-kostin/omavless/pull/816)
+have their own ownership, exact inputs and gates; do not duplicate or silently
+expand them. Current work is coordinated in owning PRs, not this dated index.
+
 ## New-base queue
 
-This is the continuation order after the owner-approved repository organization,
+Read the [current backlog](#current-backlog-october-21-2026) first. The older
+selection map below retains its historical requirements and dependencies; it
+is not today's list of missing implementations. In particular, closed carried
+predecessors are not independent tasks to re-create.
+
+This was the continuation order after the owner-approved repository organization,
 not feature implementation authority, a new release promise or acceptance of
 old prototypes. The [delivery ledger](../../DEVELOPMENT_ROADMAP.md) keeps the
 owner-selected product requirements. `development` is the source home;
@@ -103,6 +132,9 @@ adding a permanent benchmark diary to source.
 
 ## Retained track entries
 
+This is the earlier source-retention snapshot, not a fresh PR-state inventory;
+the [current backlog](#current-backlog-october-21-2026) owns later dispositions.
+
 The exact tips below are observed checkpoints, not moving declarations of
 readiness. Common ancestors are measured Git relationships, not a claim about
 the author's original branch-creation intent. Ancestor tags are historical
@@ -127,7 +159,13 @@ not automatically enabled or accepted either.
 
 ## Verified missing-port boundaries
 
-These are selected source-comparison findings, not implementation authority or
+These are dated comparisons against the named old snapshots, not current
+development793 absence claims. Later ports and closures, especially #520/#751
+and the partially carried #684, are reconciled in the
+[current backlog](#current-backlog-october-21-2026). Do not turn an older
+"absent" row into a new port without checking its owning successor.
+
+These were selected source-comparison findings, not implementation authority or
 new vulnerability/acceptance claims. The referenced PRs retain exact old tips,
 original failures and evidence. Compare again with current development before
 porting: a shared concept, ancestor or filename does not establish incorporation.
