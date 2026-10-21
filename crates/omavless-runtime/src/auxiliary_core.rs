@@ -492,6 +492,7 @@ mod tests {
 
     #[test]
     fn admission_is_exclusive_and_quiesce_revokes_before_spawn() {
+        let observation = crate::core_stop_observation::Scope::enter();
         let fixture = Fixture::new();
         let slot = Arc::<AuxiliarySlot>::default();
         let old = slot.reserve().unwrap();
@@ -505,8 +506,73 @@ mod tests {
         drop(old);
         fixture.spawn(&new).unwrap();
         assert!(new.running().unwrap());
-        new.finish().unwrap();
+        assert_eq!(new.finish(), Ok(()), "{:?}", observation.failure());
         assert_eq!(slot.verified_pid(), Ok(None));
+        assert_eq!(observation.failure(), None);
+    }
+
+    #[test]
+    fn finish_inventory_refusal_retains_owned_child_and_first_failure_evidence() {
+        use crate::core_stop_observation::{Failure, Scope, Stage};
+
+        let observation = Scope::enter();
+        let fixture = Fixture::new();
+        let slot = Arc::<AuxiliarySlot>::default();
+        let lease = slot.reserve().unwrap();
+        fixture.spawn(&lease).unwrap();
+        let original_pid = lease.pid().unwrap();
+        observation.reject_inventory(true);
+        let result = lease.finish();
+        let first_failure = observation.failure();
+        let retained = {
+            let state = slot.0.lock().unwrap();
+            (
+                state.failed,
+                state
+                    .reservation
+                    .as_ref()
+                    .and_then(|r| r.core.as_ref())
+                    .and_then(|c| c.child.pid()),
+                lease.signal.finished.load(Ordering::Acquire),
+            )
+        };
+        let empty = slot.verified_pid();
+        let admission = matches!(slot.reserve(), Err(AuxiliaryError::Cleanup));
+        let repeated = lease.finish();
+        let later_failure = observation.failure();
+
+        // Teardown uses the very same retained Child, outside the slot mutex.
+        // Remove only the test's reject-only fault, not the quarantine barrier.
+        observation.reject_inventory(false);
+        let mut owned = slot
+            .0
+            .lock()
+            .unwrap()
+            .reservation
+            .as_mut()
+            .unwrap()
+            .core
+            .take()
+            .unwrap();
+        let teardown = owned.child.stop(STOP_BUDGET);
+        assert!(teardown.is_ok(), "original owned teardown failed");
+        assert_eq!(owned.child.pid(), None);
+
+        assert_eq!(result, Err(AuxiliaryError::Cleanup));
+        assert_eq!(retained, (true, Some(original_pid), false));
+        assert_eq!(empty, Err(AuxiliaryError::Cleanup));
+        assert!(admission);
+        assert_eq!(repeated, Err(AuxiliaryError::Cleanup));
+        assert_eq!(
+            first_failure,
+            Some(Failure {
+                stage: Stage::InventoryRoot,
+                errno: Some(nix::errno::Errno::EACCES as i32),
+                injected: true,
+            })
+        );
+        assert_eq!(later_failure, first_failure);
+        assert_eq!(observation.failure(), first_failure);
     }
 
     #[test]

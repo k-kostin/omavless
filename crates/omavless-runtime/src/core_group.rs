@@ -13,20 +13,62 @@ const MAX_PROC_ENTRIES: usize = 32_768;
 const MAX_STAT_BYTES: usize = 4096;
 const MAX_LIVE_MEMBERS: usize = 64;
 
+macro_rules! scan_failure {
+    ($stage:ident, $errno:expr) => {{
+        #[cfg(test)]
+        crate::core_stop_observation::record(crate::core_stop_observation::Stage::$stage, $errno);
+    }};
+}
+
+// Inspect the already-produced error, never perform an extra host observation.
+// The existing absent/error classifiers still own every return value.
+macro_rules! observed_absent {
+    ($stage:ident, $result:expr) => {{
+        let result = $result;
+        #[cfg(test)]
+        if let Err(error) = &result
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            scan_failure!($stage, error.raw_os_error());
+        }
+        absent_ok(result)
+    }};
+    (stat $stage:ident, $result:expr) => {{
+        let result = $result;
+        #[cfg(test)]
+        if let Err(error) = &result
+            && error.kind() != io::ErrorKind::NotFound
+            && error.raw_os_error() != Some(nix::errno::Errno::ESRCH as i32)
+        {
+            scan_failure!($stage, error.raw_os_error());
+        }
+        stat_absent_ok(result)
+    }};
+}
+
 pub(crate) fn group_has_live_members(proc_root: &Path, group: i32) -> Result<bool, ()> {
+    #[cfg(test)]
+    if crate::core_stop_observation::inventory_refusal() {
+        return Err(());
+    }
     scan(proc_root, group, MAX_PROC_ENTRIES, MAX_LIVE_MEMBERS)
 }
 
 fn scan(proc_root: &Path, group: i32, entry_limit: usize, member_limit: usize) -> Result<bool, ()> {
     if group <= 1 {
+        scan_failure!(InventoryPid, None);
         return Err(());
     }
     let mut live_members = 0;
-    for (index, entry) in fs::read_dir(proc_root).map_err(|_| ())?.enumerate() {
+    for (index, entry) in fs::read_dir(proc_root)
+        .map_err(|_error| scan_failure!(InventoryRoot, _error.raw_os_error()))?
+        .enumerate()
+    {
         if index >= entry_limit {
+            scan_failure!(InventoryEntryBound, None);
             return Err(());
         }
-        let Some(entry) = absent_ok(entry)? else {
+        let Some(entry) = observed_absent!(InventoryEntry, entry)? else {
             continue;
         };
         let name = entry.file_name();
@@ -34,32 +76,37 @@ fn scan(proc_root: &Path, group: i32, entry_limit: usize, member_limit: usize) -
         if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
             continue;
         }
-        let Some(kind) = absent_ok(entry.file_type())? else {
+        let Some(kind) = observed_absent!(InventoryType, entry.file_type())? else {
             continue;
         };
         if !kind.is_dir() {
             continue;
         }
-        let pid = positive_pid(bytes)?;
-        let Some(file) = stat_absent_ok(File::open(entry.path().join("stat")))? else {
+        let pid = positive_pid(bytes).map_err(|_| scan_failure!(InventoryPid, None))?;
+        let Some(file) =
+            observed_absent!(stat InventoryOpenStat, File::open(entry.path().join("stat")))?
+        else {
             // A process may disappear between directory enumeration and open.
             continue;
         };
         let mut raw = Vec::new();
-        let Some(_) = stat_absent_ok(file.take((MAX_STAT_BYTES + 1) as u64).read_to_end(&mut raw))?
+        let Some(_) = observed_absent!(stat InventoryReadStat, file.take((MAX_STAT_BYTES + 1) as u64).read_to_end(&mut raw))?
         else {
             continue;
         };
         if raw.len() > MAX_STAT_BYTES {
+            scan_failure!(InventoryStatSize, None);
             return Err(());
         }
-        let stat = parse_stat(&raw)?;
+        let stat = parse_stat(&raw).map_err(|_| scan_failure!(InventoryParseStat, None))?;
         if stat.pid != pid {
+            scan_failure!(InventoryIdentity, None);
             return Err(());
         }
         if stat.group == group && stat.live {
             live_members += 1;
             if live_members > member_limit {
+                scan_failure!(InventoryMemberBound, None);
                 return Err(());
             }
         }
@@ -381,5 +428,93 @@ mod tests {
         assert_eq!(scan(&fixture.0, 42, 2, 64), Err(()));
         assert_eq!(scan(&fixture.0, 42, 3, 64), Ok(false));
         assert_eq!(MAX_PROC_ENTRIES, 32_768);
+    }
+
+    #[test]
+    fn scoped_inventory_diagnostics_distinguish_real_refusal_boundaries() {
+        use crate::core_stop_observation::{Scope, Stage};
+
+        let fixture = ProcFixture::new();
+        {
+            let observation = Scope::enter();
+            assert_eq!(
+                group_has_live_members(&fixture.0.join("absent"), 42),
+                Err(())
+            );
+            let failure = observation.failure().unwrap();
+            assert_eq!(failure.stage, Stage::InventoryRoot);
+            assert_eq!(failure.errno, Some(nix::errno::Errno::ENOENT as i32));
+            assert!(!failure.injected);
+        }
+        fixture.process(10, 42, 'S');
+        let path = fixture.0.join("10/stat");
+        for (bytes, expected) in [
+            (vec![b'0'; MAX_STAT_BYTES + 1], Stage::InventoryStatSize),
+            (b"malformed".to_vec(), Stage::InventoryParseStat),
+            (
+                b"11 (different pid) S 1 42\n".to_vec(),
+                Stage::InventoryIdentity,
+            ),
+        ] {
+            fs::write(&path, bytes).unwrap();
+            let observation = Scope::enter();
+            assert_eq!(group_has_live_members(&fixture.0, 42), Err(()));
+            assert_eq!(observation.failure().unwrap().stage, expected);
+        }
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        {
+            let observation = Scope::enter();
+            assert_eq!(group_has_live_members(&fixture.0, 42), Err(()));
+            assert_eq!(
+                observation.failure().unwrap().stage,
+                Stage::InventoryReadStat
+            );
+            assert_eq!(
+                observation.failure().unwrap().errno,
+                Some(nix::errno::Errno::EISDIR as i32)
+            );
+        }
+        fs::remove_dir(&path).unwrap();
+        fs::write(&path, b"10 (same pid) S 1 42\n").unwrap();
+        for (entries, members, expected) in [
+            (0, MAX_LIVE_MEMBERS, Stage::InventoryEntryBound),
+            (MAX_PROC_ENTRIES, 0, Stage::InventoryMemberBound),
+        ] {
+            let observation = Scope::enter();
+            assert_eq!(scan(&fixture.0, 42, entries, members), Err(()));
+            assert_eq!(observation.failure().unwrap().stage, expected);
+        }
+    }
+
+    #[test]
+    fn scoped_io_diagnostics_do_not_record_accepted_task_disappearance() {
+        use crate::core_stop_observation::{Scope, Stage};
+
+        let observation = Scope::enter();
+        assert_eq!(
+            observed_absent!(
+                InventoryEntry,
+                Err::<(), _>(io::Error::from_raw_os_error(2))
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            observed_absent!(stat InventoryReadStat, Err::<(), _>(io::Error::from_raw_os_error(3))),
+            Ok(None)
+        );
+        assert_eq!(observation.failure(), None);
+        assert_eq!(
+            observed_absent!(InventoryType, Err::<(), _>(io::Error::from_raw_os_error(3))),
+            Err(())
+        );
+        assert_eq!(observation.failure().unwrap().stage, Stage::InventoryType);
+        assert_eq!(observation.failure().unwrap().errno, Some(3));
+        // A later unrelated error cannot replace the first errno/boundary.
+        assert_eq!(
+            observed_absent!(stat InventoryOpenStat, Err::<(), _>(io::Error::from_raw_os_error(13))),
+            Err(())
+        );
+        assert_eq!(observation.failure().unwrap().errno, Some(3));
     }
 }

@@ -81,6 +81,8 @@ pub mod core_diagnostics;
 mod core_group;
 mod core_readiness;
 mod core_selector;
+#[cfg(test)]
+mod core_stop_observation;
 mod custom_rule_protocol;
 pub mod cutover;
 pub mod cutover_activation;
