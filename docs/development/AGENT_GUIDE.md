@@ -29,6 +29,9 @@ policy or useful implementation.
 Read the durable [execution policy](EXECUTION_POLICY.md) before development or
 diagnostic work. It distinguishes ordinary build failures from uncertain effects
 and retains risk-proportionate review and explicit single-operator VM custody.
+Use the [operating workflow](AGENT_OPERATING_WORKFLOW.md) for authority triage,
+measured preflight, harness qualification and compact continuation. It sequences
+the existing gates; it does not replace their contracts or grant new authority.
 Apply [technical judgment before execution](EXECUTION_POLICY.md#technical-judgment-before-execution):
 evaluate proposed means against the owner's goal, explain meaningful conflicts
 and alternatives before expensive action, and do not confuse a tentative idea

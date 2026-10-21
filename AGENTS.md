@@ -10,6 +10,7 @@ not replaced by this short entry point.
 2. Read the [detailed agent guide](docs/development/AGENT_GUIDE.md) completely.
    Also read the owner-approved [execution policy](docs/development/EXECUTION_POLICY.md)
    for failure classification, risk-based review and agent/VM coordination.
+   Execute new work through the [operating workflow](docs/development/AGENT_OPERATING_WORKFLOW.md).
 3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
    [current status](docs/roadmap/CURRENT_STATUS.md),
    [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and
