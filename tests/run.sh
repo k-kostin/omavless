@@ -25,6 +25,7 @@ python3 -m unittest -v \
   "$here/test_install_picker_policy.py" \
   "$here/test_marketplace_setup.py" \
   "$here/test_offline_candidate_setup.py" \
+  "$here/test_remove_entry.py" \
   "$here/test_setup_upgrade_frontend.py" \
   "$here/test_setup_predecessor.py" \
   "$here/test_setup_pair_inventory.py" \
@@ -80,6 +81,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-uninstall-guided.js"
   node "$here/test-i18n.js"
   node "$here/test-help-prompt.js"
+  node "$here/test-remove-review.js"
   node "$here/test-safe-text.js"
   node "$here/test-qml-color-namespace.js"
   node "$here/test-tui-i18n.js"

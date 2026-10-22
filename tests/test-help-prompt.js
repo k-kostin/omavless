@@ -199,8 +199,8 @@ test('panel restores the originating focus and does not mark onboarding or termi
   assert(c.hidden && c.originFocus); assert(c.onboardingWizard.visible); assert.equal(c.helpReturnFocus, null);
   c.openHelp('install', null); c.closeHelp(); assert(c.wizardFocus);
   c.onboardingWizard.visible = false; c.closeHelp(); assert(c.panelFocus);
-  assert(panel.includes('readonly property bool modalInputActive: helpPrompt.visible || onboardingWizard.visible'));
-  assert(panel.includes('blocked: helpPrompt.visible || subscriptionUsagePrompt.visible || root.quitConfirmation'));
+  assert(panel.includes('readonly property bool modalInputActive: removeReview.visible || helpPrompt.visible || onboardingWizard.visible'));
+  assert(panel.includes('blocked: removeReview.visible || helpPrompt.visible || subscriptionUsagePrompt.visible || root.quitConfirmation'));
   assert(panel.includes('helpPrompt.visible || subscriptionUsagePrompt.visible ? Style.space(600) : root.bootstrapRequired'));
   assert(panel.includes('onHelpRequested: function(section) { root.openHelp(section, setupPage) }'));
   assert(panel.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));

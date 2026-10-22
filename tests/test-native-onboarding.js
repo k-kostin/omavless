@@ -130,6 +130,7 @@ function context(){
   page:'settings',opened:true,onboardingDismissed:false,nativeOnboardingPresetPending:'',nativeOnboardingCompletionPending:null,nativeOnboardingCompletionUnconfirmed:false,
   onboardingCompletionTimeout:{stop(){},restart(){}},
   onboardingWizard:{visible:false,step:1,openAt(step){this.visible=true;this.step=step},dismiss(){this.visible=false}},
+  removeReview:{visible:false,terminalOpened:false},
   importDialog:{visible:false},importEntryPrompt:{visible:false},bundleImportPrompt:{visible:false},subscriptionPrompt:{visible:false},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
  c.root=c;functions(panel,c,['openOnboarding','syncNativeOnboarding','chooseOnboardingPreset',
   'dismissOnboarding','finishOnboarding','markOnboardingCompletionUnconfirmed','reviewComponentSetup']);return c;
@@ -150,6 +151,15 @@ test('component review is navigation with fresh inventory, no install or connect
  assert.equal(c.setupPage.checks,before+1);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
  assert(panel.includes('onComponentSetupRequested: root.reviewComponentSetup()'));
  assert(panel.includes('nativeSetupFacts: setupPage.facts'));
+});
+test('a removal review or unsettled terminal cannot lose focus to late onboarding facts',()=>{
+ for(const [visible,terminalOpened] of [[true,false],[false,true],[true,true]]) {
+  const c=context();c.removeReview={visible,terminalOpened};
+  c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+  assert.equal(c.vless.helperReads,undefined);assert.equal(c.setupPage.checks,0);
+  assert.equal(c.openOnboarding(3),false);assert(!c.onboardingWizard.visible);
+  assert.equal(c.nativeOnboardingCompletionPending,null);
+ }
 });
 test('render fixtures refuse stale captures after an unadmitted scenario',()=>{
  for(const file of ['onboarding-visual/shell.qml','setup-visual/shell.qml']) {
@@ -386,7 +396,7 @@ test('first-use wizard has its own bounded height rather than the empty inventor
  const expression=panel.slice(start,end+6).replace('    contentHeight: ','');
  for(const visible of [false,true]) {
   const c=vm.createContext({panel:{fittedContentHeight:(h,max)=>Math.min(h,max)},
-   Style:{space:n=>n},onboardingWizard:{visible},helpPrompt:{visible:false},subscriptionUsagePrompt:{visible:false},root:{page:'main'},vless:{nativeOwner:true},
+   Style:{space:n=>n},onboardingWizard:{visible},removeReview:{visible:false},helpPrompt:{visible:false},subscriptionUsagePrompt:{visible:false},root:{page:'main'},vless:{nativeOwner:true},
    nativeColumn:{implicitHeight:280},nativeProfileActions:{visible:false},nativeAppFooter:{visible:false}});
   assert.equal(vm.runInContext(expression,c),visible?600:280);
   c.nativeProfileActions={visible:true,height:70};c.nativeAppFooter={visible:true,height:36};
@@ -403,7 +413,8 @@ test('wizard buttons share native keyboard activation without changing callbacks
  assert(wizard.includes('component WizardButton: Button {'));
  assert(wizard.includes('    focusable: true'));
  assert.equal((wizard.match(/\bButton \{/g)||[]).length,1);
- assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,12);
+ assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,13);
+ assert(wizard.includes('objectName: "onboardingRemove"'), 'the additional shared button is explicit removal review');
  assert(wizard.includes('onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)'));
  assert(wizard.includes('Keys.onEscapePressed: canceled()'));
 });
