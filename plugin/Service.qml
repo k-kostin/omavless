@@ -672,6 +672,22 @@ Item {
   property string nativeSubscriptionCode: ""
   property var nativeSubscriptionSummary: null
   property var nativeSubscriptionReasons: null
+  property var _nativeSubscriptionResultFence: null
+
+  function clearNativeSubscriptionResult() {
+    nativeSubscriptionSummary = null
+    nativeSubscriptionReasons = null
+    _nativeSubscriptionResultFence = null
+  }
+
+  function invalidateNativeSubscriptionResult() {
+    if (_nativeSubscriptionResultFence && (!nativeOwner || !nativeSnapshot ||
+        nativeSnapshot.instanceId !== _nativeSubscriptionResultFence.instanceId ||
+        nativeSnapshot.revision !== _nativeSubscriptionResultFence.revision)) {
+      clearNativeSubscriptionResult()
+      if (nativeSubscriptionDraft === null) nativeSubscriptionCode = ""
+    }
+  }
   Timer {
     id: nativeSubscriptionSuccessTimeout
     interval: 5000
@@ -686,12 +702,14 @@ Item {
   function cancelNativeSubscription() {
     nativeSubscriptionDraft = null
     nativeSubscriptionCode = ""
+    clearNativeSubscriptionResult()
   }
 
   function startNativeSubscription(id, name, url, kind) {
     if (!nativeCanAct || nativeSubscriptionLoading || nativeSubscriptionDraft !== null) return false
     if (id !== "" && !nativeSnapshot.subscriptions.some(function(s) { return s.id === id })) return false
     nativeSubscriptionCode = ""
+    clearNativeSubscriptionResult()
     nativeSubscriptionDraft = {token:"subscription-" + (++_nativeOperationSerial), id:id,
       instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
     if (id === "") nativeSubscriptionReady(name || "", url || "", kind || "manual", false)
@@ -753,8 +771,7 @@ Item {
     nativeSubscriptionCode = ""
     nativeSubscriptionSuccessTimeout.stop()
     nativeSubscriptionStatusId = id
-    nativeSubscriptionSummary = null
-    nativeSubscriptionReasons = null
+    clearNativeSubscriptionResult()
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
     nativeActionProcess.stdinEnabled = true
@@ -764,6 +781,7 @@ Item {
 
   function finishNativeSubscriptionAction(result, unknown) {
     if (!nativePending || nativePending.action.indexOf("subscription-") !== 0) return
+    clearNativeSubscriptionResult()
     if (unknown) {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = true
       nativeSubscriptionCode = "unknown"
@@ -771,12 +789,14 @@ Item {
     else if (result.ok) {
       nativeSubscriptionDraft = null
       nativeSubscriptionSummary = result.importSummary || null
+      _nativeSubscriptionResultFence = {instanceId:nativePending.instanceId, revision:result.revision}
       nativeSubscriptionCode = "saved"
       nativeSubscriptionSuccessTimeout.restart()
       nativeSubscriptionSaved()
     } else {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false
       nativeSubscriptionReasons = result.importReasons || null
+      _nativeSubscriptionResultFence = {instanceId:nativePending.instanceId, revision:result.revision}
       // Refresh/delete are not editor saves. Keep their failure actionable
       // without blaming the VPN core or inviting the user to reopen an editor.
       nativeSubscriptionCode = result.code === "subscription_unavailable" ? "fetchFailed"
@@ -3564,11 +3584,13 @@ Item {
     clearNativeSubscriptionUsage()
     clearProbeResults("")
     _nativeProbeCacheFence = null
+    clearNativeSubscriptionResult()
     clearNativeRouting()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    invalidateNativeSubscriptionResult()
     if (_nativeUsageContext !== null && !nativeSubscriptionUsageCurrent(_nativeUsageContext)) clearNativeSubscriptionUsage()
     if (_nativeProbeCacheFence && (!nativeSnapshot || nativeSnapshot.instanceId !== _nativeProbeCacheFence.instanceId || nativeSnapshot.revision !== _nativeProbeCacheFence.revision)) { clearProbeResults(""); _nativeProbeCacheFence = null }
     if (nativeTestFence && (!nativeSnapshot || nativeSnapshot.instanceId !== nativeTestFence.instanceId || nativeSnapshot.revision !== nativeTestFence.revision)) clearNativeTest()

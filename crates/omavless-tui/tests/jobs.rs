@@ -5,6 +5,20 @@ use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 const TARGET: &str = "10000000-0000-4000-8000-000000000001";
+
+#[test]
+fn incomplete_import_error_is_unknown_without_panicking() {
+    let req = request(Kind::RefreshAll);
+    for missing in ["code", "message", "retryable", "details"] {
+        let mut value = receipt(Kind::RefreshAll, "failed", 0, 1);
+        let mut error = json!({"code":"invalid_argument","message":"synthetic-private",
+            "retryable":false,"details":{"importReasons":{"unsupported_field":1}}});
+        error.as_object_mut().unwrap().remove(missing);
+        error["extra"] = json!("synthetic-private");
+        value["result"]["operation"]["error"] = error;
+        assert_eq!(req.progress(Ok(value)), Update::Unknown);
+    }
+}
 #[test]
 fn manual_reads_can_resume_expired_watch_but_are_rate_limited() {
     let now = Instant::now();

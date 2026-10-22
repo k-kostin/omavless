@@ -470,7 +470,16 @@ pub fn decode_local_profile_lines(
             reasons,
         }));
     }
-    let mut feed = decode_candidates(candidates.iter().map(String::as_str).collect())?;
+    let mut feed = match decode_candidates(candidates.iter().map(String::as_str).collect()) {
+        Err(SubscriptionFeedError::Rejected(mut summary)) => {
+            summary.skipped += unsupported;
+            for _ in 0..unsupported {
+                summary.reasons.record(ImportReason::UnsupportedProtocol);
+            }
+            return Err(SubscriptionFeedError::Rejected(summary));
+        }
+        other => other?,
+    };
     feed.skipped += unsupported;
     for _ in 0..unsupported {
         feed.reasons
@@ -647,6 +656,20 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn all_rejected_local_bundle_retains_unsupported_and_invalid_counts() {
+        let Err(SubscriptionFeedError::Rejected(summary)) =
+            decode_local_profile_lines("ss://opaque\nvless://broken")
+        else {
+            panic!("expected closed rejection");
+        };
+        assert_eq!(
+            summary.value(),
+            serde_json::json!({"accepted":0,"duplicates":0,"skipped":2,
+            "skipReasons":{"unsupported_protocol":1,"invalid_profile":1}})
+        );
     }
 
     #[test]

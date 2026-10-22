@@ -50,6 +50,29 @@ fn import_summary_lines(
     lines
 }
 
+fn profile_import_outcome(app: &App) -> Option<Vec<Line<'static>>> {
+    if app.page != crate::inspection::Page::Profiles
+        || app.running
+        || app.unknown
+        || app.searching
+        || app.confirmation.is_some()
+        || (app.import_summary.is_none() && app.import_reasons.is_none())
+    {
+        return None;
+    }
+    let mut lines = vec![Line::from(app.locale.text(app.notice))];
+    if let Some(summary) = app.import_summary {
+        lines.extend(import_summary_lines(app.locale, summary));
+    }
+    if let Some(reasons) = app.import_reasons {
+        lines.extend(import_reason_lines(app.locale, reasons));
+    }
+    lines.push(Line::from(app.locale.text("tui.action_keys")));
+    lines.push(Line::from(app.locale.text(page_keys_key(app))));
+    lines.push(Line::from(app.locale.text("tui.action_close_hint")));
+    Some(lines)
+}
+
 /// Retain the actual wrapped scroll offset before the next key event, so Up
 /// immediately works after End, resize or replacement by a shorter snapshot.
 pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
@@ -148,10 +171,19 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         );
         return;
     }
+    let import_outcome = profile_import_outcome(app);
+    let outcome_height = import_outcome.as_ref().map(|lines| {
+        Paragraph::new(lines.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(area.width)
+            .min(16) as u16
+    });
     let sections = Layout::vertical([
         Constraint::Length(5),
         Constraint::Min(3),
-        Constraint::Length(if app.confirmation.is_some() {
+        Constraint::Length(if let Some(height) = outcome_height {
+            height
+        } else if app.confirmation.is_some() {
             4
         } else if app.actions_enabled {
             if app.import_enabled { 9 } else { 8 }
@@ -632,7 +664,10 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             })),
         );
     }
-    frame.render_widget(Paragraph::new(footer), sections[2]);
+    frame.render_widget(
+        Paragraph::new(import_outcome.unwrap_or(footer)).wrap(Wrap { trim: false }),
+        sections[2],
+    );
 }
 
 fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Workspace) {

@@ -124,7 +124,6 @@ impl ImportReasons {
         }
         (total == expected).then_some(result)
     }
-    #[must_use]
     pub fn entries(self) -> impl Iterator<Item = (ImportReason, usize)> {
         ImportReason::ALL
             .into_iter()

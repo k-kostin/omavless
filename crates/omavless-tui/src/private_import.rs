@@ -13,13 +13,13 @@ pub(crate) fn import_error(
     let error = value["error"].as_object()?;
     if value["ok"] != false
         || error.len() != 4
-        || error["code"] != "invalid_argument"
-        || !error["retryable"].is_boolean()
-        || error["message"].as_str()?.len() > 512
+        || error.get("code")? != "invalid_argument"
+        || !error.get("retryable")?.is_boolean()
+        || error.get("message")?.as_str()?.len() > 512
     {
         return None;
     }
-    let details = error["details"].as_object()?;
+    let details = error.get("details")?.as_object()?;
     if details.len() != 1 {
         return None;
     }
@@ -260,7 +260,7 @@ impl Request {
             .as_ref()
             .ok()
             .filter(|v| v["revision"].as_u64() == Some(self.revision))
-            .and_then(|v| import_error(v));
+            .and_then(import_error);
         let result = if let Some(operation) = &self.operation {
             let mut outcome = Saved::Unknown;
             if let Ok(value) = response {
