@@ -160,7 +160,7 @@ Item {
             KeyNavigation.priority: KeyNavigation.BeforeItem
             text: prompt.tr("import.bundle.save")
             bordered: true
-            foreground: Commons.Color.foreground
+            foreground: enabled ? Commons.Color.accent : Commons.Color.foreground
             accent: Commons.Color.accent
             focusable: true
             enabled: prompt.available && !!prompt.counts && prompt.counts.accepted > 0

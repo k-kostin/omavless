@@ -24,6 +24,7 @@ test('bundle review bounds details while preserving fixed actions and readable c
   assert(source.slice(start,actions).includes('clip: true'));
   assert(source.slice(start,actions).includes('ScrollBar.vertical: OmaScrollBar'));
   assert(source.slice(actions).includes('foreground: Commons.Color.foreground'));
+  assert(source.slice(source.indexOf('id: save')).includes('foreground: enabled ? Commons.Color.accent : Commons.Color.foreground'));
   const fnStart=source.indexOf('  function scrollDetails('),fnEnd=source.indexOf('\n  }',fnStart)+4;
   assert(fnStart>=0 && fnEnd>fnStart);
   const c=vm.createContext({detailsScroll:{height:200,contentHeight:500,contentY:0}});
