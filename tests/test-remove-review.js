@@ -43,10 +43,12 @@ test('review and Escape return are navigation, never terminal acknowledgement', 
   const source = fs.readFileSync(__dirname + '/../plugin/RemoveReview.qml', 'utf8');
   for (const terminalOpened of [false, true]) {
     const c = vm.createContext({visible: false, terminalOpened,
-      removeScroll: {contentY: 123}, closeButton: {forceActiveFocus() { c.focusedClose = true; }},
+      removeScroll: {contentY: 123, contentItem: {}, contentHeight: 100, height: 200},
+      closeButton: {activeFocus: true, height: 40, mapToItem: () => ({y: 0}),
+        forceActiveFocus() { c.focusedClose = true; }},
       launch: {running: false}, Qt: {callLater: f => f()}});
     c.removal = c;
-    for (const name of ['openReview', 'dismiss']) loadFunction(source, name, c);
+    for (const name of ['openReview', 'dismiss', 'reveal']) loadFunction(source, name, c);
     c.openReview();
     assert(c.visible && c.focusedClose, 'safe return action owns initial focus');
     assert.equal(c.removeScroll.contentY, 0);
@@ -193,5 +195,31 @@ test('keyboard scrolling exposes the whole review without changing focus or subm
 test('both modal pointer surfaces consume hover instead of exposing underlying tooltips', () => {
   const source = fs.readFileSync(__dirname + '/../plugin/RemoveReview.qml', 'utf8');
   assert.equal((source.match(/MouseArea \{ anchors.fill: parent; hoverEnabled: true;/g) || []).length, 2);
+});
+test('layout changes reveal the existing focus without undoing deliberate keyboard scrolling', () => {
+  const source = fs.readFileSync(__dirname + '/../plugin/RemoveReview.qml', 'utf8');
+  const c = vm.createContext({visible: true, Qt: {callLater: f => f(), Key_Home: 12},
+    removeScroll: {contentItem: {}, contentY: 0, contentHeight: 800, height: 200}});
+  c.removal = c;
+  let top = 550;
+  const close = {activeFocus: true, height: 40, mapToItem: () => ({y: top})};
+  c.focusTargets = [{activeFocus: false}, close];
+  for (const name of ['reveal', 'revealFocused', 'navigate']) loadFunction(source, name, c);
+  c.revealFocused(); assert.equal(c.removeScroll.contentY, 390);
+  c.removeScroll.height = 100;
+  c.revealFocused(); assert.equal(c.removeScroll.contentY, 490, 'resize retains visible focus');
+  top = 650; c.removeScroll.contentHeight = 900;
+  c.revealFocused(); assert.equal(c.removeScroll.contentY, 590, 'content growth retains visible focus');
+  c.navigate({key: 12}); assert.equal(c.removeScroll.contentY, 0, 'Home remains intentional reading');
+  assert(source.includes('onHeightChanged: removal.revealFocused()'));
+  assert(source.includes('onContentHeightChanged: removal.revealFocused()'));
+  assert(!source.includes('onContentYChanged:'), 'manual scrolling must not snap back');
+  c.visible = false; c.revealFocused(); assert.equal(c.removeScroll.contentY, 0);
+  let reveals = 0;
+  const opened = vm.createContext({visible: false, removeScroll: {contentY: 99},
+    closeButton: {forceActiveFocus() {}}, reveal() { reveals++; }, Qt: {callLater: f => f()}});
+  opened.removal = opened;
+  loadFunction(source, 'openReview', opened);
+  opened.openReview(); assert.equal(reveals, 1, 'already-focused Close must be revealed on reopening');
 });
 console.log('remove review: ' + count + ' controls PASS');

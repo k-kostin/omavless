@@ -33,7 +33,11 @@ Item {
     if (visible) return
     removeScroll.contentY = 0
     visible = true
-    Qt.callLater(function() { if (removal.visible) closeButton.forceActiveFocus() })
+    Qt.callLater(function() {
+      if (!removal.visible) return
+      closeButton.forceActiveFocus()
+      removal.reveal(closeButton)
+    })
   }
   function dismiss() { visible = false }
   function blockReason() {
@@ -94,6 +98,12 @@ Item {
       removeScroll.contentY = Math.max(0, Math.min(next, Math.max(0, removeScroll.contentHeight - removeScroll.height)))
     })
   }
+  function revealFocused() {
+    if (!visible) return
+    for (var i = 0; i < focusTargets.length; i++) {
+      if (focusTargets[i].activeFocus) { reveal(focusTargets[i]); return }
+    }
+  }
   Keys.onPressed: function(event) { navigate(event) }
   Process {
     id: launch
@@ -136,6 +146,8 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
+        onHeightChanged: removal.revealFocused()
+        onContentHeightChanged: removal.revealFocused()
         ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
         Column {
           id: content
