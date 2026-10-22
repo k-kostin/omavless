@@ -190,4 +190,8 @@ test('keyboard scrolling exposes the whole review without changing focus or subm
   c.removeScroll.contentHeight = 50;
   c.navigate({key: 13, modifiers: 0}); assert.equal(c.removeScroll.contentY, 0);
 });
+test('both modal pointer surfaces consume hover instead of exposing underlying tooltips', () => {
+  const source = fs.readFileSync(__dirname + '/../plugin/RemoveReview.qml', 'utf8');
+  assert.equal((source.match(/MouseArea \{ anchors.fill: parent; hoverEnabled: true;/g) || []).length, 2);
+});
 console.log('remove review: ' + count + ' controls PASS');

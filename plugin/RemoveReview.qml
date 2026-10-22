@@ -112,7 +112,7 @@ Item {
   Rectangle {
     anchors.fill: parent
     color: Util.alpha(Commons.Color.background, 0.82)
-    MouseArea { anchors.fill: parent; onClicked: removal.canceled() }
+    MouseArea { anchors.fill: parent; hoverEnabled: true; onClicked: removal.canceled() }
     BorderSurface {
       id: card
       width: Math.min(parent.width - Style.space(24), Style.space(440))
@@ -122,7 +122,7 @@ Item {
       borderSpec: Border.flat(Commons.Color.urgent, Style.normalBorderWidth)
       padding: Style.space(18)
       radius: Style.cornerRadius
-      MouseArea { anchors.fill: parent; onClicked: {} }
+      MouseArea { anchors.fill: parent; hoverEnabled: true; onClicked: {} }
       Flickable {
         id: removeScroll
         objectName: "removeScroll"
