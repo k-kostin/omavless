@@ -64,6 +64,14 @@ Item {
     return true
   }
   function navigate(event) {
+    if ([Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Home, Qt.Key_End].indexOf(event.key) >= 0) {
+      var maximum = Math.max(0, removeScroll.contentHeight - removeScroll.height)
+      var nextY = event.key === Qt.Key_Home ? 0 : event.key === Qt.Key_End ? maximum
+        : removeScroll.contentY + (event.key === Qt.Key_PageUp ? -1 : 1) * removeScroll.height
+      removeScroll.contentY = Math.max(0, Math.min(maximum, nextY))
+      event.accepted = true
+      return
+    }
     if (event.key === Qt.Key_Escape) { canceled(); event.accepted = true; return }
     if (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab) return
     if (focusTargets.length === 0) return

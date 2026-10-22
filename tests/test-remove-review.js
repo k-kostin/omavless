@@ -178,4 +178,16 @@ test('fixed local terminal entry and native/setup fences have no arbitrary argum
     }
   }
 });
+test('keyboard scrolling exposes the whole review without changing focus or submitting', () => {
+  const source = fs.readFileSync(__dirname + '/../plugin/RemoveReview.qml', 'utf8');
+  const c = vm.createContext({visible: true, Qt: {Key_PageUp: 10, Key_PageDown: 11, Key_Home: 12, Key_End: 13},
+    removeScroll: {contentY: 500, height: 200, contentHeight: 800}, focusTargets: []});
+  loadFunction(source, 'navigate', c);
+  for (const [key, expected] of [[12, 0], [11, 200], [13, 600], [11, 600], [10, 400], [12, 0], [10, 0]]) {
+    const event = {key, modifiers: 0, accepted: false}; c.navigate(event);
+    assert.equal(c.removeScroll.contentY, expected); assert(event.accepted);
+  }
+  c.removeScroll.contentHeight = 50;
+  c.navigate({key: 13, modifiers: 0}); assert.equal(c.removeScroll.contentY, 0);
+});
 console.log('remove review: ' + count + ' controls PASS');
