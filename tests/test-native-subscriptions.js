@@ -177,6 +177,10 @@ test('new editor and changed owner or revision cannot inherit prior import reaso
   assert.equal(c.nativeSubscriptionReasons,null);assert.equal(c.nativeSubscriptionSummary,null);
   c.finishNativeSubscriptionRead({...c.nativeSubscriptionDraft},1,'synthetic-private');
   assert.equal(c.nativeSubscriptionCode,'unavailable');assert.equal(c.nativeSubscriptionReasons,null);
+  const pending=context();pending.nativeSubscriptionSummary={accepted:2,skipped:1};
+  pending._nativeSubscriptionResultFence={instanceId:'instance',revision:5};
+  pending.invalidateNativeSubscriptionResult();assert(pending.nativeSubscriptionSummary);
+  pending.nativeSnapshot.revision=5;pending.invalidateNativeSubscriptionResult();assert(pending.nativeSubscriptionSummary);
   for(const change of [d=>d.nativeSnapshot.instanceId='replacement',d=>d.nativeSnapshot.revision=5,d=>d.nativeOwner=false]) {
     const d=context();d.nativeSubscriptionReasons={invalid_profile:1};
     d._nativeSubscriptionResultFence={instanceId:'instance',revision:4};

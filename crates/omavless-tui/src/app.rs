@@ -277,6 +277,8 @@ impl App {
                 if changed {
                     self.selected_subscription = None;
                     self.subscription_attempts.clear();
+                    self.import_summary = None;
+                    self.import_reasons = None;
                 }
                 if self.accepted.as_ref().is_some_and(|(id, revision)| {
                     *id != next.metadata.instance_id || *revision != next.revision
@@ -321,6 +323,8 @@ impl App {
                 }
             }
             Err(error) => {
+                self.import_summary = None;
+                self.import_reasons = None;
                 if self.error != Some(error) {
                     self.activity.record(Event::ReadFailed(error), started);
                 }

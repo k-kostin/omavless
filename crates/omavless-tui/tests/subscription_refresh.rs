@@ -80,6 +80,34 @@ fn profile_refresh_outcome_shows_every_reason_without_hiding_close_at_70x24() {
 }
 
 #[test]
+fn ordinary_long_search_and_name_do_not_wrap_away_close_keys() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut a, now) = app();
+        a.locale = locale;
+        a.query = "x".repeat(80);
+        a.snapshot.as_mut().unwrap().metadata.profiles[1].name = "y".repeat(80);
+        for searching in [false, true] {
+            a.searching = searching;
+            let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+            terminal.draw(|f| view::draw(f, &a, now)).unwrap();
+            let output = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(70)
+                .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(output.contains(locale.text(if searching {
+                "tui.action_search_exit"
+            } else {
+                "tui.action_close_hint"
+            })));
+        }
+    }
+}
+
+#[test]
 fn refresh_is_exact_confirmed_subscription_not_connect_or_reload() {
     let (mut a, now) = app();
     assert_eq!(key(&mut a, KeyCode::Char('r'), now), Action::Refresh);

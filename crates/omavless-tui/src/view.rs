@@ -55,6 +55,7 @@ fn profile_import_outcome(app: &App) -> Option<Vec<Line<'static>>> {
         || app.running
         || app.unknown
         || app.searching
+        || app.import_unresolved()
         || app.confirmation.is_some()
         || (app.import_summary.is_none() && app.import_reasons.is_none())
     {
@@ -664,10 +665,14 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             })),
         );
     }
-    frame.render_widget(
-        Paragraph::new(import_outcome.unwrap_or(footer)).wrap(Wrap { trim: false }),
-        sections[2],
-    );
+    if let Some(lines) = import_outcome {
+        frame.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: false }),
+            sections[2],
+        );
+    } else {
+        frame.render_widget(Paragraph::new(footer), sections[2]);
+    }
 }
 
 fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Workspace) {

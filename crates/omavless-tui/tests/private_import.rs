@@ -410,6 +410,12 @@ fn hidden_unresolved_import_footer_keeps_state_review_and_close_visible_at_minim
     for locale in [Locale::En, Locale::Ru] {
         for unknown in [false, true] {
             let (mut app, now) = app(locale);
+            app.import_reasons = Some(
+                omavless_domain::subscription_feed::ImportSummary::rejected(
+                    omavless_domain::subscription_feed::ImportReason::UnsupportedField,
+                )
+                .reasons,
+            );
             let mut w = draft(1);
             preview(&mut w, profile(), now);
             let request = w.confirm("original-op".into(), now).unwrap();

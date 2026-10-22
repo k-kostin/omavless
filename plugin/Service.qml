@@ -683,7 +683,7 @@ Item {
   function invalidateNativeSubscriptionResult() {
     if (_nativeSubscriptionResultFence && (!nativeOwner || !nativeSnapshot ||
         nativeSnapshot.instanceId !== _nativeSubscriptionResultFence.instanceId ||
-        nativeSnapshot.revision !== _nativeSubscriptionResultFence.revision)) {
+        nativeSnapshot.revision > _nativeSubscriptionResultFence.revision)) {
       clearNativeSubscriptionResult()
       if (nativeSubscriptionDraft === null) nativeSubscriptionCode = ""
     }
