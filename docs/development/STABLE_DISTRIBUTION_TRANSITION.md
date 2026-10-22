@@ -29,9 +29,9 @@ governs retained decisions and their actual distribution.
   [the retrospective](POST_FIX8_RETROSPECTIVE.md) for correction/distribution
   status. Reconcile old stacked PRs before retargeting or deleting their bases.
 
-## Development import-reason candidate — #256
+## Development import-reason selection — #256
 
-[PR #818](https://github.com/k-kostin/omavless/pull/818) selects the unpublished
+[PR #818](https://github.com/k-kostin/omavless/pull/818) selected the unpublished
 app/DNS producer `4b6318cdfc584d271876bfd169f65acf770efb3b` for strict import
 reason reporting. Strict app/DNS archive inspection passed on both architectures;
 the owning PR retains the exact workflow completion status. The selected
@@ -48,11 +48,28 @@ this cfg(test)-only Rust change requires a new producer under the full native-in
 projection; the old archives are not relabelled. No protocol/runtime behavior,
 build/trust policy or public predecessor inventory changes follow from this fix.
 
-This is prepared development delivery, not a published release or installed
-acceptance. The owning PR retains actual VM/rendering, final CI, integration and
-fresh generated distribution admission outcomes. The stable map above and all
-immutable historical packages stay unchanged; no new pair is a public updater
-predecessor merely because it was built.
+The owning PR records actual installed checks, checked development integration
+and completed fresh merged-source distribution admission. This is not a public
+release. The stable map above and immutable historical packages stay unchanged;
+no new pair is a public updater predecessor merely because it was built.
+
+## Development Connections-order selection — #721
+
+[PR #819](https://github.com/k-kostin/omavless/pull/819) narrowly ports local TUI
+Connections ordering onto current development, not the old beta assembly.
+It selects inspected app/DNS producer
+`fb47cd807d9aa31bf9aba12dd8b7775809cceda3` on both architectures. Its exact PR
+Test, Native and DNS workflows completed successfully. The actual four archives,
+ELF machines/identities, source receipts, units and ABI were checked independently;
+the three metadata consumers above now identify this tuple. The standalone
+remover admits both new app ELFs and retains exact4b,419 and earlier inspected
+nonpublic pairs, without broadening public/version-label admission.
+
+The source/render/PTY controls are not installed acceptance. The owning PR keeps
+remaining candidate, installed, final-head CI and merged-admission gates current.
+Full native-input equivalence to the pin successor must include cfg(test), not
+exclude test blobs. No Rust, workflow, trust or public predecessor registry is
+changed merely to select these packages; previous evidence is not relabelled.
 
 ## Current source composition — 2026-10-15
 
