@@ -102,6 +102,7 @@ impl PairOperations {
             return Err(CoordinatorError::InvalidToken);
         }
         let result = CachedOutcome {
+            import_summary: None,
             revision,
             error: match outcome {
                 Outcome::Completed => None,

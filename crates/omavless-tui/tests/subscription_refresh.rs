@@ -41,6 +41,73 @@ fn key(a: &mut App, code: KeyCode, now: Instant) -> Action {
 }
 
 #[test]
+fn profile_refresh_outcome_shows_every_reason_without_hiding_close_at_70x24() {
+    use omavless_domain::subscription_feed::{ImportReason, ImportReasons, ImportSummary};
+    let mut reasons = ImportReasons::default();
+    for reason in ImportReason::ALL {
+        reasons.record(reason);
+    }
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut a, now) = app();
+        a.locale = locale;
+        a.prepare(Kind::RefreshSubscription, None, now);
+        assert_eq!(a.confirm(now, "refresh-reasons".into()), Action::Submit);
+        a.finish(
+            Outcome::ImportApplied(ImportSummary {
+                accepted: 1,
+                duplicates: 1,
+                skipped: 5,
+                reasons,
+            }),
+            now,
+        );
+        assert!(a.page == Page::Profiles);
+        let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        terminal.draw(|f| view::draw(f, &a, now)).unwrap();
+        let output = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(70)
+            .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for reason in ImportReason::ALL {
+            assert!(output.contains(locale.text(&format!("import.reason.{}", reason.code()))));
+        }
+        assert!(output.contains(locale.text("tui.action_close_hint")));
+    }
+}
+
+#[test]
+fn ordinary_long_search_and_name_do_not_wrap_away_close_keys() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut a, now) = app();
+        a.locale = locale;
+        a.query = "x".repeat(80);
+        a.snapshot.as_mut().unwrap().metadata.profiles[1].name = "y".repeat(80);
+        for searching in [false, true] {
+            a.searching = searching;
+            let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+            terminal.draw(|f| view::draw(f, &a, now)).unwrap();
+            let output = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(70)
+                .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(output.contains(locale.text(if searching {
+                "tui.action_search_exit"
+            } else {
+                "tui.action_close_hint"
+            })));
+        }
+    }
+}
+
+#[test]
 fn refresh_is_exact_confirmed_subscription_not_connect_or_reload() {
     let (mut a, now) = app();
     assert_eq!(key(&mut a, KeyCode::Char('r'), now), Action::Refresh);

@@ -21,6 +21,18 @@ function context(){
 }
 function reply(c,result,code=0,kind){const req=c._nativeBatchProcess;c._nativeBatchProcess=null;c.finishNativeBatchRequest(kind||req.requestKind,req.operation,code,result)}
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
+test('batch exposes only terminal original import summaries and closed failure reasons',()=>{
+  const job={kind:'subscriptions',instanceId:'instance',operationId:'batch-reasons',revision:4};
+  const summary={accepted:2,duplicates:1,skipped:1,skipReasons:{duplicate:1,unsupported_transport:1}};
+  const terminal=operation(job,{state:'succeeded',outcomeRevision:5,progress:{completed:2,total:2},cancellable:false,importSummary:summary});
+  assert(parser.parseOperation(frame({operation:terminal},5),job,'get').importSummary);
+  assert.equal(parser.parseOperation(frame({operation:operation(job,{importSummary:summary})}),job,'get'),null);
+  const failed=operation(job,{state:'failed',outcomeRevision:4,cancellable:false,error:{code:'invalid_argument',message:'private-sentinel',retryable:false,details:{importReasons:{unsupported_field:1}}}});
+  const result=parser.parseOperation(frame({operation:failed}),job,'get');
+  assert(result.importReasons); assert.equal(result.importSummary,undefined);
+  assert(!JSON.stringify(result).includes('private-sentinel'));
+  assert.equal(parser.parseOperation(frame({operation:{...failed,importSummary:summary}}),job,'get'),null);
+});
 test('legacy measurements cannot enter native cache across ownership changes',()=>{
  const c=context(); c.profileProbes={sentinel:{reachable:true,latencyMs:1}};
  for(const name of ['applyProbeEvent','applyProbeResults']){

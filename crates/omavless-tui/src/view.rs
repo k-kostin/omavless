@@ -13,6 +13,67 @@ use ratatui::{
 };
 use std::time::Instant;
 
+fn import_reason_lines(
+    locale: crate::i18n::Locale,
+    reasons: omavless_domain::subscription_feed::ImportReasons,
+) -> Vec<Line<'static>> {
+    reasons
+        .entries()
+        .map(|(reason, count)| {
+            let key = match reason.code() {
+                "unsupported_field" => "import.reason.unsupported_field",
+                "unsupported_transport" => "import.reason.unsupported_transport",
+                "unsupported_option" => "import.reason.unsupported_option",
+                "unsupported_protocol" => "import.reason.unsupported_protocol",
+                "duplicate" => "import.reason.duplicate",
+                _ => "import.reason.invalid_profile",
+            };
+            Line::from(format!("{}: {count}", locale.text(key)))
+        })
+        .collect()
+}
+
+fn import_summary_lines(
+    locale: crate::i18n::Locale,
+    summary: omavless_domain::subscription_feed::ImportSummary,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(format!(
+        "{}: {} · {}: {} · {}: {}",
+        locale.text("tui.import_accepted"),
+        summary.accepted,
+        locale.text("tui.import_duplicates"),
+        summary.duplicates,
+        locale.text("tui.import_skipped"),
+        summary.skipped
+    ))];
+    lines.extend(import_reason_lines(locale, summary.reasons));
+    lines
+}
+
+fn profile_import_outcome(app: &App) -> Option<Vec<Line<'static>>> {
+    if app.page != crate::inspection::Page::Profiles
+        || app.running
+        || app.unknown
+        || app.searching
+        || app.import_unresolved()
+        || app.confirmation.is_some()
+        || (app.import_summary.is_none() && app.import_reasons.is_none())
+    {
+        return None;
+    }
+    let mut lines = vec![Line::from(app.locale.text(app.notice))];
+    if let Some(summary) = app.import_summary {
+        lines.extend(import_summary_lines(app.locale, summary));
+    }
+    if let Some(reasons) = app.import_reasons {
+        lines.extend(import_reason_lines(app.locale, reasons));
+    }
+    lines.push(Line::from(app.locale.text("tui.action_keys")));
+    lines.push(Line::from(app.locale.text(page_keys_key(app))));
+    lines.push(Line::from(app.locale.text("tui.action_close_hint")));
+    Some(lines)
+}
+
 /// Retain the actual wrapped scroll offset before the next key event, so Up
 /// immediately works after End, resize or replacement by a shorter snapshot.
 pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
@@ -111,10 +172,19 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         );
         return;
     }
+    let import_outcome = profile_import_outcome(app);
+    let outcome_height = import_outcome.as_ref().map(|lines| {
+        Paragraph::new(lines.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(area.width)
+            .min(16) as u16
+    });
     let sections = Layout::vertical([
         Constraint::Length(5),
         Constraint::Min(3),
-        Constraint::Length(if app.confirmation.is_some() {
+        Constraint::Length(if let Some(height) = outcome_height {
+            height
+        } else if app.confirmation.is_some() {
             4
         } else if app.actions_enabled {
             if app.import_enabled { 9 } else { 8 }
@@ -595,7 +665,14 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             })),
         );
     }
-    frame.render_widget(Paragraph::new(footer), sections[2]);
+    if let Some(lines) = import_outcome {
+        frame.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: false }),
+            sections[2],
+        );
+    } else {
+        frame.render_widget(Paragraph::new(footer), sections[2]);
+    }
 }
 
 fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Workspace) {
@@ -666,6 +743,9 @@ fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Wor
                     tr("tui.import_skipped"),
                     preview.skipped
                 )));
+                if let Some(reasons) = preview.skip_reasons {
+                    lines.extend(import_reason_lines(app.locale, reasons));
+                }
                 lines.push(Line::from(tr(if preview.accepted == 0 {
                     "tui.import_no_new"
                 } else {
@@ -674,8 +754,18 @@ fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Wor
             }
         }
         State::Submitting => lines.push(Line::from(tr("tui.import_submitting"))),
-        State::Completed => lines.push(Line::from(tr("tui.import_saved"))),
-        State::Rejected => lines.push(Line::from(tr("tui.import_rejected"))),
+        State::Completed => {
+            lines.push(Line::from(tr("tui.import_saved")));
+            if let Some(summary) = import.import_summary {
+                lines.extend(import_summary_lines(app.locale, summary));
+            }
+        }
+        State::Rejected => {
+            lines.push(Line::from(tr("tui.import_rejected")));
+            if let Some(reasons) = import.rejection_reasons {
+                lines.extend(import_reason_lines(app.locale, reasons));
+            }
+        }
         State::Changed => lines.push(Line::from(tr("tui.import_changed"))),
         State::Unknown => lines.push(Line::from(tr("tui.import_unknown"))),
     }
@@ -721,6 +811,12 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 "tui.progress",
                 format!("{} / {}", p.completed, p.total),
             ));
+            if let Some(summary) = p.import_summary {
+                lines.extend(import_summary_lines(app.locale, summary));
+            }
+            if let Some(reasons) = p.import_reasons {
+                lines.extend(import_reason_lines(app.locale, reasons));
+            }
         }
         lines.push(Line::from(tr("tui.job_close")));
         if job.intent.kind != crate::jobs::Kind::RefreshAll {
@@ -1556,6 +1652,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             } else {
                 "tui.subscription_scope"
             }))];
+            // Outcomes belong in the scrollable body, not the fixed-height
+            // key footer: all six reasons must remain reachable at 70x24.
+            if let Some(summary) = app.import_summary {
+                lines.extend(import_summary_lines(app.locale, summary));
+            }
+            if let Some(reasons) = app.import_reasons {
+                lines.extend(import_reason_lines(app.locale, reasons));
+            }
             if s.metadata.subscriptions.is_empty() {
                 lines.push(Line::from(tr("tui.no_subscriptions")));
             }

@@ -111,6 +111,7 @@ pub enum BatchWorkStep {
 
 /// Private resumable preparation state. Intentionally not Debug/serializable.
 pub struct SubscriptionBatchWork {
+    import_summary: omavless_domain::subscription_feed::ImportSummary,
     snapshot: Option<SubscriptionRefreshBatchSnapshot>,
     updates: Vec<SubscriptionRefreshBatchEntries>,
     retained_bytes: usize,
@@ -146,11 +147,16 @@ fn check_worker(
 
 impl SubscriptionBatchWork {
     #[must_use]
+    pub fn import_summary(&self) -> omavless_domain::subscription_feed::ImportSummary {
+        self.import_summary
+    }
+    #[must_use]
     pub fn new(
         snapshot: SubscriptionRefreshBatchSnapshot,
         cancellation: BatchCancellation,
     ) -> Self {
         Self {
+            import_summary: Default::default(),
             total: snapshot.len(),
             snapshot: Some(snapshot),
             updates: Vec::new(),
@@ -245,11 +251,13 @@ impl SubscriptionBatchWork {
             ))?;
         check_worker(&self.cancellation, self.deadline, clock())?;
         let skipped = feed.counts().skipped;
+        let import_summary = feed.import_summary();
         let entries = feed.into_private_entries(next_record_id);
         check_worker(&self.cancellation, self.deadline, clock())?;
         self.updates
             .push(SubscriptionRefreshBatchEntries { entries, skipped });
         self.retained_bytes = retained_bytes;
+        self.import_summary.merge(import_summary);
         self.completed += 1;
         Ok(if self.completed == self.total {
             BatchWorkStep::Ready
@@ -390,7 +398,10 @@ mod tests {
             let (store, counts) = apply_subscription_refresh_batch(&self.0, snapshot, updates, now)
                 .map_err(SubscriptionMutationCommitError::Mutation)?;
             self.0 = String::from_utf8(store.payload().to_vec()).unwrap();
-            Ok(SubscriptionRefreshCommit { counts })
+            Ok(SubscriptionRefreshCommit {
+                counts,
+                import_summary: None,
+            })
         }
     }
 

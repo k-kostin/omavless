@@ -187,6 +187,54 @@ function object(value, keys) {
   return found.length === keys.length && found.every(function(k) { return keys.indexOf(k) >= 0 })
 }
 
+// Only closed reason/count pairs are public. Reject unknown names, booleans,
+// negative/fractional counts and a total inconsistent with the owning result.
+function parseImportReasons(value, total) {
+  var allowed = ["unsupported_field", "unsupported_transport", "unsupported_option", "invalid_profile", "unsupported_protocol", "duplicate"]
+  if (!value || typeof value !== "object" || Array.isArray(value) || !number(total, 65536)) return null
+  var keys = Object.keys(value), result = {}, sum = 0
+  if (keys.length > allowed.length) return null
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i], count = value[key]
+    if (allowed.indexOf(key) < 0 || !number(count, total) || count < 1) return null
+    sum += count
+    result[key] = count
+  }
+  return sum === total ? result : null
+}
+
+function parseImportSummary(value) {
+  if (!object(value, ["accepted", "duplicates", "skipped", "skipReasons"])
+      || !number(value.accepted, 65536) || !number(value.duplicates, 65536) || !number(value.skipped, 65536)
+      || value.accepted + value.duplicates + value.skipped > 65536) return null
+  var reasons = parseImportReasons(value.skipReasons, value.duplicates + value.skipped)
+  if (reasons === null || (reasons.duplicate || 0) !== value.duplicates) return null
+  return {accepted:value.accepted, duplicates:value.duplicates, skipped:value.skipped, skipReasons:reasons}
+}
+
+function importRejection(error) {
+  if (!object(error, ["code", "message", "retryable", "details"]) || error.code !== "invalid_argument"
+      || typeof error.retryable !== "boolean" || !text(error.message, 512, false)
+      || !object(error.details, ["importReasons"])) return null
+  var value = error.details.importReasons
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  var total = 0, keys = Object.keys(value)
+  for (var i = 0; i < keys.length; i++) {
+    if (!number(value[keys[i]], 1024) || value[keys[i]] < 1) return null
+    total += value[keys[i]]
+  }
+  return total > 0 && total <= 1024 ? parseImportReasons(value, total) : null
+}
+
+function parseImportRejection(raw, revision) {
+  try {
+    var p = envelope(raw)
+    if (!p || !object(p, ["api", "version", "id", "ok", "revision", "error"])
+        || p.ok !== false || p.revision !== revision) return null
+    return importRejection(p.error)
+  } catch (_) { return null }
+}
+
 // Version-one long-operation projection, shared by fixed start/get/cancel.
 // Private provider data and backend messages are never retained.
 function parseOperation(raw, job, kind) {
@@ -195,6 +243,7 @@ function parseOperation(raw, job, kind) {
     if (!p || !job || !number(job.revision, 9007199254740991)) return null
     var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     function error(value) {
+      if (job.kind === "subscriptions" && importRejection(value) !== null) return true
       return object(value, ["code", "message", "retryable"]) && codes.indexOf(value.code) >= 0
         && text(value.message, 512, false) && typeof value.retryable === "boolean"
     }
@@ -206,7 +255,10 @@ function parseOperation(raw, job, kind) {
         || !object(p.result, kind === "cancel" ? ["accepted", "operation"] : ["operation"])
         || (kind === "cancel" && typeof p.result.accepted !== "boolean")) return null
     var o = p.result.operation, method = job.kind === "subscriptions" ? "subscriptions.refresh_all" : job.kind === "providers" ? "routing.refresh_providers" : job.kind === "probe" ? "subscriptions.probe" : ""
-    if (!object(o, ["instanceId", "operationId", "method", "state", "baseRevision", "outcomeRevision", "progress", "cancelRequested", "cancellable", "error"])
+    var operationKeys = ["instanceId", "operationId", "method", "state", "baseRevision", "outcomeRevision", "progress", "cancelRequested", "cancellable", "error"]
+    var summary = o.importSummary === undefined ? null : parseImportSummary(o.importSummary)
+    if (o.importSummary !== undefined && (summary === null || job.kind !== "subscriptions" || o.state !== "succeeded")) return null
+    if (!(object(o, operationKeys) || (summary !== null && object(o, operationKeys.concat(["importSummary"]))))
         || !text(o.instanceId, 128, false) || !/^[\x21-\x7e]+$/.test(o.instanceId) || !id(o.operationId, false)
         || o.instanceId !== job.instanceId || o.operationId !== job.operationId || o.method !== method || method === ""
         || !number(o.baseRevision, 9007199254740991) || o.baseRevision !== job.revision
@@ -222,9 +274,12 @@ function parseOperation(raw, job, kind) {
     if (p.revision < o.baseRevision || (terminal && p.revision < o.outcomeRevision)) return null
     if (job.acknowledged && (o.progress.completed < job.completed || o.progress.total < job.total
         || (job.state === "running" && o.state === "queued") || (job.cancelRequested && !o.cancelRequested))) return null
-    return {ok:true, state:o.state, completed:o.progress.completed, total:o.progress.total,
+    var result = {ok:true, state:o.state, completed:o.progress.completed, total:o.progress.total,
       cancelRequested:o.cancelRequested, cancellable:o.cancellable, terminal:terminal,
       errorCode:o.error === null ? "" : o.error.code, outcomeRevision:o.outcomeRevision}
+    if (summary !== null) result.importSummary = summary
+    if (o.state === "failed" && importRejection(o.error) !== null) result.importReasons = importRejection(o.error)
+    return result
   } catch (_) { return null }
 }
 // Explicit private probe-result response, never a status/support projection.
@@ -623,19 +678,27 @@ function parseAction(raw, pending) {
         || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-bundle-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete", "onboarding-complete", "startup-configure"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
+      var actionKeys = ["schemaVersion", "instanceId", "operationId", "action", "applied"]
+      var summary = r.importSummary === undefined ? null : parseImportSummary(r.importSummary)
+      if (r.importSummary !== undefined && (summary === null || ["subscription-add", "subscription-update", "subscription-refresh"].indexOf(pending.action) < 0)) return null
       if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
-          || !object(r, ["schemaVersion", "instanceId", "operationId", "action", "applied"])
+          || !(object(r, actionKeys) || (summary !== null && object(r, actionKeys.concat(["importSummary"]))))
           || r.schemaVersion !== 1 || r.instanceId !== pending.instanceId || r.operationId !== pending.operationId
           || r.action !== pending.action || r.applied !== true || p.revision < pending.revision) return null
-      return {ok:true, revision:p.revision, code:""}
+      var result = {ok:true, revision:p.revision, code:""}
+      if (summary !== null) result.importSummary = summary
+      return result
     }
     var e = p.error
+    var importReasons = ["profile-import", "subscription-add", "subscription-update", "subscription-refresh"].indexOf(pending.action) >= 0 ? importRejection(e) : null
     var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     if (p.ok !== false || !object(p, ["api", "version", "id", "ok", "revision", "error"])
-        || !object(e, ["code", "message", "retryable"]) || codes.indexOf(e.code) < 0
+        || !(object(e, ["code", "message", "retryable"]) || importReasons !== null) || codes.indexOf(e.code) < 0
         || typeof e.retryable !== "boolean" || !text(e.message, 512, false)) return null
     // Never render the backend message, even from an otherwise valid envelope.
-    return {ok:false, revision:p.revision, code:e.code}
+    var rejected = {ok:false, revision:p.revision, code:e.code}
+    if (importReasons !== null) rejected.importReasons = importReasons
+    return rejected
   } catch (_) { return null }
 }
 
@@ -655,13 +718,16 @@ function parseImportPreview(raw, revision) {
         || p.api !== "omavless.control" || p.version !== 1 || !id(p.id, false)
         || p.ok !== true || !number(p.revision, 9007199254740991) || p.revision !== revision) return null
     var r = p.result
-    if (object(r, ["version", "kind", "counts", "previewFingerprint"]) && r.version === 1 && r.kind === "bundle") {
+    if ((object(r, ["version", "kind", "counts", "previewFingerprint"])
+        || object(r, ["version", "kind", "counts", "previewFingerprint", "skipReasons"])) && r.version === 1 && r.kind === "bundle") {
       var c = r.counts
       if (!object(c, ["accepted", "duplicates", "skipped"])
           || !number(c.accepted, 256) || !number(c.duplicates, 1024) || !number(c.skipped, 1024)
           || c.accepted + c.duplicates + c.skipped < 1 || c.accepted + c.duplicates + c.skipped > 1024
           || typeof r.previewFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(r.previewFingerprint)) return null
-      return {kind:"bundle", counts:c, previewFingerprint:r.previewFingerprint}
+      var reasons = r.skipReasons === undefined ? null : parseImportReasons(r.skipReasons, c.duplicates + c.skipped)
+      if (r.skipReasons !== undefined && reasons === null) return null
+      return {kind:"bundle", counts:c, skipReasons:reasons, previewFingerprint:r.previewFingerprint}
     }
     if (object(r, ["version", "kind", "suggestedName", "duplicate"]) && r.version === 1
         && r.kind === "subscription" && text(r.suggestedName, 80, false)

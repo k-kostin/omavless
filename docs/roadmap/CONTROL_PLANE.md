@@ -329,6 +329,33 @@ unsupported/invalid entries are skipped only when the bundle contains a valid
 profile. Canonical duplicates are counted separately, including existing
 records; one UUID on different servers is not a duplicate.
 
+Development #256 adds an optional closed `skipReasons` object to the bundle
+preview. Its six keys are `unsupported_field`, `unsupported_transport`,
+`unsupported_option`, `invalid_profile`, `unsupported_protocol`, and `duplicate`;
+only positive bounded integer counters are allowed. They never contain provider
+text, unknown field names, values, links, endpoints or line indexes. Their sum
+equals `counts.skipped + counts.duplicates`. EN/RU clients translate fixed keys,
+never backend messages. The existing input budgets and strict canonical parser
+are unchanged; no unsupported transport or option becomes accepted.
+
+Applied subscription add/update/single-refresh replies optionally carry a sibling
+`importSummary` with exactly `accepted`, `duplicates`, `skipped`, `skipReasons`.
+Here skipped excludes duplicates, even though the legacy feed's internal skipped
+count included them. Exact mutation replay retains the original typed summary in
+the original outcome cache without another fetch. Refresh-all exposes the same
+summary only on its successfully committed terminal operation record (maximum
+64 feeds × 1,024 candidates); failed/cancelled prefixes are not reported as saved.
+No new RPC, persisted profile field or independent cache is introduced.
+
+An all-rejected import/feed retains `invalid_argument` with optional
+`error.details = {"importReasons": COUNTERS}` (1–1,024 rejected candidates).
+The producer and validator share this exact allowlist; other error codes and
+arbitrary details remain refused. All-rejected refresh preserves the old private
+store, timestamp and revision. A failed refresh-all may show only its original
+rejected-feed reasons, not the uncommitted preceding prefix. Remote feed scanning
+still ignores unknown schemes before canonical decoding; it does not promise an
+unsupported-protocol count for text it never treated as a profile candidate.
+
 `profiles.importBundle` requires exactly `input`, `previewFingerprint`,
 `operationId` and `expectedRevision`. The lowercase 64-hex fingerprint binds
 the exact original store bytes and input using a domain-separated, length-framed

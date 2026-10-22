@@ -223,6 +223,7 @@ where
         .map_err(SubscriptionRefreshError::Store)?;
     if snapshot.is_empty() {
         return Ok(SubscriptionRefreshCommit {
+            import_summary: None,
             counts: SubscriptionRefreshCounts {
                 added: 0,
                 removed: 0,
@@ -336,7 +337,10 @@ mod tests {
             self.in_lease.set(false);
             let (result, counts) = result?;
             self.input = std::str::from_utf8(result.payload()).unwrap().to_owned();
-            Ok(SubscriptionRefreshCommit { counts })
+            Ok(SubscriptionRefreshCommit {
+                counts,
+                import_summary: None,
+            })
         }
     }
 
@@ -366,7 +370,10 @@ mod tests {
             self.in_lease.set(false);
             let (result, counts) = result?;
             self.input = std::str::from_utf8(result.payload()).unwrap().to_owned();
-            Ok(SubscriptionRefreshCommit { counts })
+            Ok(SubscriptionRefreshCommit {
+                counts,
+                import_summary: None,
+            })
         }
     }
 

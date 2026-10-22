@@ -41,6 +41,34 @@ pub fn parse_import_preview_request(
     Ok(ImportPreviewRequest { input })
 }
 
+/// A second pure parse is used only after ordinary admission already refused.
+/// It cannot make rejected input valid and never retains input-derived strings.
+pub(crate) fn rejected_import(
+    input: &str,
+) -> Option<omavless_domain::subscription_feed::ImportSummary> {
+    if input.len() > MAX_IMPORT_STDIN_BYTES {
+        return None;
+    }
+    use omavless_domain::subscription_feed::{SubscriptionFeedError, decode_local_profile_lines};
+    if let Err(SubscriptionFeedError::Rejected(summary)) = decode_local_profile_lines(input) {
+        return Some(summary);
+    }
+    // A single visibly intended profile with a broken delimiter is still a
+    // profile refusal, not an envelope/name error. Do not scan prose or invent
+    // remote-feed candidates, and never repair the rejected input.
+    let input = input.trim();
+    if !input.contains(['\n', '\r'])
+        && ["vless:", "trojan:", "hy2:", "hysteria2:", "tuic:"]
+            .iter()
+            .any(|prefix| input.starts_with(prefix))
+    {
+        return Some(omavless_domain::subscription_feed::ImportSummary::rejected(
+            omavless_domain::subscription_feed::ImportReason::InvalidProfile,
+        ));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,6 +97,20 @@ mod tests {
         );
         assert!(parse_import_preview_request(&value).is_err());
         assert!(omavless_control_protocol::encode_request(&value).is_err());
+    }
+
+    #[test]
+    fn malformed_profile_delimiter_has_a_closed_reason_without_repair() {
+        let input = "vless:/synthetic-private";
+        assert!(!crate::profile_import_protocol::admitted_profile_input(
+            input
+        ));
+        assert_eq!(
+            rejected_import(input).unwrap().value(),
+            serde_json::json!({
+            "accepted":0,"duplicates":0,"skipped":1,"skipReasons":{"invalid_profile":1}})
+        );
+        assert!(rejected_import("arbitrary prose synthetic-private").is_none());
     }
 
     #[test]

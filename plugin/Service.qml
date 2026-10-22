@@ -522,6 +522,7 @@ Item {
   property var _nativeSourceContext: null
   property var _nativePreviewContext: null
   property string nativeImportCode: ""
+  property var nativeImportReasons: null
   property var nativeBundlePreview: null
   signal nativeBundleReady()
   readonly property bool nativeImportBusy: nativeImportSource.running || nativeImportPreview.running
@@ -540,6 +541,7 @@ Item {
     if (!nativeCanAct || nativeImportBusy || _nativeImportContext) return false
     if (!NativeSnapshot.importInput(input)) { nativeImportCode = "input"; return false }
     nativeImportCode = ""
+    nativeImportReasons = null
     importPreview = ({})
     _nativeImportContext = {kind:"entry", instanceId:nativeSnapshot.instanceId,
       revision:nativeSnapshot.revision, input:input}
@@ -556,6 +558,7 @@ Item {
         || !NativeSnapshot.editorText(path, 4096) || /[\u0000-\u001f\u007f]/.test(path)
         || path.split("/").indexOf("..") >= 0)) return false
     nativeImportCode = ""
+    nativeImportReasons = null
     importPreview = ({})
     _nativeImportContext = {kind:kind, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
     _nativeSourceContext = _nativeImportContext
@@ -598,7 +601,10 @@ Item {
     if (context !== _nativeImportContext || context === null) return
     if (!nativeImportCurrent(context)) { nativeImportCode = "stale"; cancelNativeImport(); return }
     var result = exitCode === 0 ? NativeSnapshot.parseImportPreview(output, context.revision) : null
-    if (!result) { nativeImportCode = "input"; cancelNativeImport(); return }
+    if (!result) {
+      nativeImportReasons = NativeSnapshot.parseImportRejection(output, context.revision)
+      nativeImportCode = "input"; cancelNativeImport(); return
+    }
     if (result.kind === "subscription") {
       if (result.duplicate) {
         nativeImportCode = "duplicateSubscription"
@@ -615,7 +621,11 @@ Item {
     context.previewKind = result.kind
     if (result.kind === "bundle") {
       context.previewFingerprint = result.previewFingerprint
-      nativeBundlePreview = result.counts
+      // Publish the complete value once: QML does not notify bindings when a
+      // member of a var-held JavaScript object is changed after assignment.
+      nativeBundlePreview = {accepted:result.counts.accepted,
+        duplicates:result.counts.duplicates, skipped:result.counts.skipped,
+        skipReasons:result.skipReasons}
       nativeBundleReady()
       return
     }
@@ -663,11 +673,30 @@ Item {
   property var nativeSubscriptionDraft: null
   property var nativeSubscriptionReadProcess: null
   property string nativeSubscriptionCode: ""
+  property var nativeSubscriptionSummary: null
+  property var nativeSubscriptionReasons: null
+  property var _nativeSubscriptionResultFence: null
+
+  function clearNativeSubscriptionResult() {
+    nativeSubscriptionSummary = null
+    nativeSubscriptionReasons = null
+    _nativeSubscriptionResultFence = null
+  }
+
+  function invalidateNativeSubscriptionResult() {
+    if (_nativeSubscriptionResultFence && (!nativeOwner || !nativeSnapshot ||
+        nativeSnapshot.instanceId !== _nativeSubscriptionResultFence.instanceId ||
+        nativeSnapshot.revision > _nativeSubscriptionResultFence.revision)) {
+      clearNativeSubscriptionResult()
+      if (nativeSubscriptionDraft === null) nativeSubscriptionCode = ""
+    }
+  }
   Timer {
     id: nativeSubscriptionSuccessTimeout
     interval: 5000
     repeat: false
-    onTriggered: if (root.nativeSubscriptionCode === "saved") root.nativeSubscriptionCode = ""
+    onTriggered: if (root.nativeSubscriptionCode === "saved" && (!root.nativeSubscriptionSummary ||
+      root.nativeSubscriptionSummary.skipped + root.nativeSubscriptionSummary.duplicates === 0)) root.nativeSubscriptionCode = ""
   }
   readonly property bool nativeSubscriptionLoading: nativeSubscriptionReadProcess !== null
   signal nativeSubscriptionReady(string name, string url, string kind, bool editing)
@@ -676,12 +705,14 @@ Item {
   function cancelNativeSubscription() {
     nativeSubscriptionDraft = null
     nativeSubscriptionCode = ""
+    clearNativeSubscriptionResult()
   }
 
   function startNativeSubscription(id, name, url, kind) {
     if (!nativeCanAct || nativeSubscriptionLoading || nativeSubscriptionDraft !== null) return false
     if (id !== "" && !nativeSnapshot.subscriptions.some(function(s) { return s.id === id })) return false
     nativeSubscriptionCode = ""
+    clearNativeSubscriptionResult()
     nativeSubscriptionDraft = {token:"subscription-" + (++_nativeOperationSerial), id:id,
       instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
     if (id === "") nativeSubscriptionReady(name || "", url || "", kind || "manual", false)
@@ -743,6 +774,7 @@ Item {
     nativeSubscriptionCode = ""
     nativeSubscriptionSuccessTimeout.stop()
     nativeSubscriptionStatusId = id
+    clearNativeSubscriptionResult()
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
     nativeActionProcess.stdinEnabled = true
@@ -752,17 +784,22 @@ Item {
 
   function finishNativeSubscriptionAction(result, unknown) {
     if (!nativePending || nativePending.action.indexOf("subscription-") !== 0) return
+    clearNativeSubscriptionResult()
     if (unknown) {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = true
       nativeSubscriptionCode = "unknown"
     }
     else if (result.ok) {
       nativeSubscriptionDraft = null
+      nativeSubscriptionSummary = result.importSummary || null
+      _nativeSubscriptionResultFence = {instanceId:nativePending.instanceId, revision:result.revision}
       nativeSubscriptionCode = "saved"
       nativeSubscriptionSuccessTimeout.restart()
       nativeSubscriptionSaved()
     } else {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false
+      nativeSubscriptionReasons = result.importReasons || null
+      _nativeSubscriptionResultFence = {instanceId:nativePending.instanceId, revision:result.revision}
       // Refresh/delete are not editor saves. Keep their failure actionable
       // without blaming the VPN core or inviting the user to reopen an editor.
       nativeSubscriptionCode = result.code === "subscription_unavailable" ? "fetchFailed"
@@ -3550,11 +3587,13 @@ Item {
     clearNativeSubscriptionUsage()
     clearProbeResults("")
     _nativeProbeCacheFence = null
+    clearNativeSubscriptionResult()
     clearNativeRouting()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    invalidateNativeSubscriptionResult()
     if (_nativeUsageContext !== null && !nativeSubscriptionUsageCurrent(_nativeUsageContext)) clearNativeSubscriptionUsage()
     if (_nativeProbeCacheFence && (!nativeSnapshot || nativeSnapshot.instanceId !== _nativeProbeCacheFence.instanceId || nativeSnapshot.revision !== _nativeProbeCacheFence.revision)) { clearProbeResults(""); _nativeProbeCacheFence = null }
     if (nativeTestFence && (!nativeSnapshot || nativeSnapshot.instanceId !== nativeTestFence.instanceId || nativeSnapshot.revision !== nativeTestFence.revision)) clearNativeTest()

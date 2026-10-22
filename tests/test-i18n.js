@@ -1,5 +1,12 @@
 const assert = require("assert")
 const I18n = require("../plugin/I18n.js")
+for (const locale of ["en", "ru"]) {
+  const summary = I18n.importReasons({unsupported_field:2, unsupported_transport:1, duplicate:3}, locale)
+  assert.strictEqual(summary.split("\n").length, 3)
+  assert(!summary.includes("Missing translation"))
+  assert(summary.length <= I18n.MAX_TEXT_LENGTH)
+  assert.strictEqual(I18n.importReasons({"private-provider-token":1, duplicate:true, invalid_profile:-1}, locale), "")
+}
 // Normal setup is user copy, not a protocol/acceptance report. These budget
 // checks supplement actual EN/RU rendering; they do not certify usability.
 for (const locale of ["en", "ru"]) {

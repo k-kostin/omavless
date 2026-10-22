@@ -50,6 +50,8 @@ impl App {
             return;
         };
         self.import = Workspace::new(&snapshot.metadata.instance_id, snapshot.revision, serial);
+        self.import_summary = None;
+        self.import_reasons = None;
         self.import_serial = serial;
         self.import_open = self.import.is_some();
         self.notice = "";

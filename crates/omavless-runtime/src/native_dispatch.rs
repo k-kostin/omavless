@@ -49,8 +49,22 @@ fn retryable(code: StableErrorCode) -> bool {
 
 fn cached_response(request_id: &str, outcome: CachedOutcome) -> Result<Value, ProtocolError> {
     match outcome.error {
-        Some(code) => error_response(request_id, outcome.revision, code, retryable(code), None),
-        None => success_response(request_id, outcome.revision, json!({"accepted": true})),
+        Some(code) => error_response(
+            request_id,
+            outcome.revision,
+            code,
+            retryable(code),
+            outcome
+                .import_summary
+                .map(|summary| json!({"importReasons":summary.reasons.value()})),
+        ),
+        None => {
+            let mut result = json!({"accepted": true});
+            if let Some(summary) = outcome.import_summary {
+                result["importSummary"] = summary.value();
+            }
+            success_response(request_id, outcome.revision, result)
+        }
     }
 }
 
@@ -83,7 +97,14 @@ fn owner_error_response(
     error: NativeOwnerError,
 ) -> Result<Value, ProtocolError> {
     let code = error.stable_code();
-    error_response(request_id, revision, code, retryable(code), None)
+    let details = match error {
+        NativeOwnerError::ImportRejected(summary) => {
+            Some(json!({"importReasons":summary.reasons.value()}))
+        }
+        NativeOwnerError::Protocol(error) => error.details(),
+        _ => None,
+    };
+    error_response(request_id, revision, code, retryable(code), details)
 }
 
 pub(crate) enum RemoteSubscriptionPreflight {
@@ -750,7 +771,12 @@ mod tests {
         assert_eq!(added["ok"], true);
         assert_eq!(added["revision"], 4);
         assert_eq!(transport.calls.get(), 1);
-        assert_eq!(added["result"], json!({"accepted": true}));
+        assert_eq!(
+            added["result"],
+            json!({"accepted": true, "importSummary": {
+                "accepted": 1, "duplicates": 0, "skipped": 0, "skipReasons": {}
+            }})
+        );
         let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();
         assert_eq!(store["profiles"][0]["favorite"], true);
         assert_eq!(store["subscriptions"].as_array().unwrap().len(), 1);

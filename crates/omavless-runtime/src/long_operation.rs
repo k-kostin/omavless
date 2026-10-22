@@ -110,6 +110,8 @@ pub struct CancelOutcome {
 }
 
 struct OperationRecord {
+    import_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
+    import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
     method: LongOperationMethod,
     token: LongOperationToken,
     operation_id: String,
@@ -127,6 +129,8 @@ struct OperationRecord {
 impl OperationRecord {
     fn projection<'a>(&'a self, instance_id: &'a str) -> LongOperationProjection<'a> {
         LongOperationProjection {
+            import_reasons: self.import_reasons,
+            import_summary: self.import_summary,
             method: self.method,
             instance_id,
             operation_id: &self.operation_id,
@@ -330,6 +334,8 @@ impl LongOperationRegistry {
             .checked_add(1)
             .ok_or(LongOperationError::TokenExhausted)?;
         self.active = Some(OperationRecord {
+            import_reasons: None,
+            import_summary: None,
             method,
             token,
             operation_id: operation_id.to_owned(),
@@ -473,6 +479,15 @@ impl LongOperationRegistry {
         token: LongOperationToken,
         outcome_revision: u64,
     ) -> Result<(), LongOperationError> {
+        self.finish_success_with_import_summary(token, outcome_revision, None)
+    }
+
+    pub(crate) fn finish_success_with_import_summary(
+        &mut self,
+        token: LongOperationToken,
+        outcome_revision: u64,
+        import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
+    ) -> Result<(), LongOperationError> {
         let record = self.active_mut(token)?;
         if record.state != LongOperationState::Running
             || record.cancellable
@@ -480,7 +495,21 @@ impl LongOperationRegistry {
         {
             return Err(LongOperationError::InvalidState);
         }
-        self.finish_active(token, LongOperationState::Succeeded, outcome_revision, None)
+        if import_summary.is_some() && record.method != LongOperationMethod::SubscriptionRefreshAll
+        {
+            return Err(LongOperationError::InvalidState);
+        }
+        // Validate the terminal transition before storing any successful facts.
+        self.finish_active(token, LongOperationState::Succeeded, outcome_revision, None)?;
+        let completed = self
+            .completed
+            .back_mut()
+            .ok_or(LongOperationError::InvalidState)?;
+        if completed.token != token {
+            return Err(LongOperationError::InvalidState);
+        }
+        completed.import_summary = import_summary;
+        Ok(())
     }
 
     pub fn finish_failure(
@@ -489,7 +518,23 @@ impl LongOperationRegistry {
         outcome_revision: u64,
         error: StableErrorCode,
     ) -> Result<LongOperationState, LongOperationError> {
+        self.finish_failure_with_import_reasons(token, outcome_revision, error, None)
+    }
+
+    pub(crate) fn finish_failure_with_import_reasons(
+        &mut self,
+        token: LongOperationToken,
+        outcome_revision: u64,
+        error: StableErrorCode,
+        import_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
+    ) -> Result<LongOperationState, LongOperationError> {
         let record = self.active_mut(token)?;
+        if import_reasons.is_some()
+            && (record.method != LongOperationMethod::SubscriptionRefreshAll
+                || error != StableErrorCode::InvalidArgument)
+        {
+            return Err(LongOperationError::InvalidState);
+        }
         if record.state.terminal() {
             return Err(LongOperationError::InvalidState);
         }
@@ -503,6 +548,14 @@ impl LongOperationRegistry {
                 outcome_revision,
                 Some(error),
             )?;
+            let completed = self
+                .completed
+                .back_mut()
+                .ok_or(LongOperationError::InvalidState)?;
+            if completed.token != token {
+                return Err(LongOperationError::InvalidState);
+            }
+            completed.import_reasons = import_reasons;
             Ok(LongOperationState::Failed)
         }
     }
@@ -528,6 +581,85 @@ mod tests {
 
     fn digest(value: u8) -> MutationDigest {
         MutationDigest::new([value; 32])
+    }
+
+    #[test]
+    fn import_outcomes_replay_only_terminal_committed_success_or_original_failure() {
+        use omavless_domain::subscription_feed::{ImportReason, ImportReasons, ImportSummary};
+        let mut reasons = ImportReasons::default();
+        reasons.record(ImportReason::UnsupportedField);
+        let summary = ImportSummary {
+            accepted: 2,
+            skipped: 1,
+            duplicates: 0,
+            reasons,
+        };
+        let mut registry = LongOperationRegistry::default();
+        let token = registry
+            .start(INSTANCE, "reason-success", digest(1), Some(7), 7, 1, false)
+            .unwrap()
+            .token();
+        assert!(
+            registry
+                .projection(INSTANCE, "reason-success")
+                .unwrap()
+                .import_summary
+                .is_none()
+        );
+        registry.begin(token, 7).unwrap();
+        registry.advance(token, 1).unwrap();
+        assert_eq!(registry.fence_commit(token, 7), Ok(CommitFence::Ready));
+        registry
+            .finish_success_with_import_summary(token, 8, Some(summary))
+            .unwrap();
+        let original = registry
+            .projection(INSTANCE, "reason-success")
+            .unwrap()
+            .result_value()
+            .unwrap();
+        assert_eq!(original["operation"]["importSummary"], summary.value());
+        registry
+            .start(INSTANCE, "reason-success", digest(1), Some(7), 8, 1, false)
+            .unwrap();
+        assert_eq!(
+            registry
+                .projection(INSTANCE, "reason-success")
+                .unwrap()
+                .result_value()
+                .unwrap(),
+            original
+        );
+
+        for (id, cancelled) in [("reason-failed", false), ("reason-cancelled", true)] {
+            let token = registry
+                .start(INSTANCE, id, digest(2), Some(8), 8, 2, false)
+                .unwrap()
+                .token();
+            registry.begin(token, 8).unwrap();
+            registry.advance(token, 1).unwrap();
+            if cancelled {
+                registry.request_cancel(INSTANCE, id).unwrap();
+            }
+            registry
+                .finish_failure_with_import_reasons(
+                    token,
+                    8,
+                    StableErrorCode::InvalidArgument,
+                    Some(reasons),
+                )
+                .unwrap();
+            let outcome = registry.projection(INSTANCE, id).unwrap();
+            assert!(outcome.import_summary.is_none());
+            assert_eq!(outcome.import_reasons, (!cancelled).then_some(reasons));
+            let value = outcome.result_value().unwrap();
+            assert!(value["operation"].get("importSummary").is_none());
+            if !cancelled {
+                assert_eq!(
+                    value["operation"]["error"]["details"]["importReasons"],
+                    reasons.value()
+                );
+            }
+        }
     }
 
     #[test]

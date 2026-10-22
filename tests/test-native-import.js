@@ -14,6 +14,47 @@ function profile() { return {version:1,protocol:'vless',server:'192.0.2.1',port:
 function frame(result={version:1,kind:'profile',profile:profile()}) {
   return JSON.stringify({api:'omavless.control',version:1,id:'preview',ok:true,revision:4,result});
 }
+test('bundle review bounds details while preserving fixed actions and readable controls',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/BundleImportPrompt.qml'),'utf8');
+  assert(source.includes('height: Math.min('));
+  assert(source.includes('readonly property alias flickable: detailsScroll'));
+  const start=source.indexOf('      Flickable {');
+  const actions=source.indexOf('        id: actions');
+  assert(start>=0 && actions>start);
+  assert(source.slice(start,actions).includes('clip: true'));
+  assert(source.slice(start,actions).includes('ScrollBar.vertical: OmaScrollBar'));
+  assert(source.slice(actions).includes('foreground: Commons.Color.foreground'));
+  assert(source.slice(source.indexOf('id: save')).includes('foreground: enabled ? Commons.Color.accent : Commons.Color.foreground'));
+  const fnStart=source.indexOf('  function scrollDetails('),fnEnd=source.indexOf('\n  }',fnStart)+4;
+  assert(fnStart>=0 && fnEnd>fnStart);
+  const c=vm.createContext({detailsScroll:{height:200,contentHeight:500,contentY:0}});
+  vm.runInContext(source.slice(fnStart,fnEnd),c);
+  c.scrollDetails(160);assert.equal(c.detailsScroll.contentY,160);
+  c.scrollDetails(1000);assert.equal(c.detailsScroll.contentY,300);
+  c.scrollDetails(-1000);assert.equal(c.detailsScroll.contentY,0);
+  c.detailsScroll.contentHeight=100;c.scrollDetails(160);assert.equal(c.detailsScroll.contentY,0);
+});
+test('bundle reasons are closed, bounded and account for every skipped or duplicate entry',()=>{
+  const result={version:1,kind:'bundle',counts:{accepted:1,duplicates:1,skipped:2},
+    previewFingerprint:'a'.repeat(64),skipReasons:{duplicate:1,unsupported_field:1,unsupported_transport:1}};
+  const parsed=parser.parseImportPreview(frame(result),4);
+  assert(parsed);
+  assert.equal(JSON.stringify(parsed.skipReasons),JSON.stringify(result.skipReasons));
+  for(const bad of [{secret:3},{duplicate:true},{duplicate:3.5},{duplicate:-1},{duplicate:2},
+      {duplicate:0,unsupported_field:3},[],null,{unsupported_field:'3'}])
+    assert.equal(parser.parseImportPreview(frame({...result,skipReasons:bad}),4),null);
+  assert.equal(parser.parseImportPreview(frame(result),5),null);
+});
+test('rejected import accepts only safe reasons on the current revision, never backend message data',()=>{
+  const value={api:'omavless.control',version:1,id:'preview',ok:false,revision:4,
+    error:{code:'invalid_argument',message:'private-sentinel',retryable:false,details:{importReasons:{unsupported_field:1}}}};
+  assert.equal(JSON.stringify(parser.parseImportRejection(JSON.stringify(value),4)),JSON.stringify({unsupported_field:1}));
+  assert(!JSON.stringify(parser.parseImportRejection(JSON.stringify(value),4)).includes('private-sentinel'));
+  assert.equal(parser.parseImportRejection(JSON.stringify(value),5),null);
+  for(const reasons of [{private:1},{duplicate:true},{duplicate:0},{duplicate:1.2},{duplicate:1025},{}])
+    assert.equal(parser.parseImportRejection(JSON.stringify({...value,error:{...value.error,details:{importReasons:reasons}}}),4),null);
+  assert.equal(parser.parseImportRejection(JSON.stringify({...value,error:{...value.error,code:'core_rejected'}}),4),null);
+});
 test('native preview schema accepts WG and AWG masked facts, rejects cross-family combinations',()=>{
   for(const protocol of ['wireguard','amneziawg']) {
     const p={...profile(),protocol,transport:'udp',security:'wireguard',experimental:true,
@@ -69,6 +110,28 @@ function sourced(c, input='synthetic-private-link', kind='clipboard') {
   assert.equal(c.startNativeImport(kind),true);c.nativeImportSource.running=false;
   c.finishNativeImportSource(0,input,'');
 }
+test('bundle property notification publishes reasons together with counts',()=>{
+  for(const accepted of [0,1]) {
+    const c=harness(), notifications=[];
+    let current=null;
+    // QML bindings observe the property assignment, not later mutations of a
+    // JavaScript object's members. Snapshot each delivered value immediately.
+    Object.defineProperty(c,'nativeBundlePreview',{
+      get:()=>current,
+      set:value=>{current=value;notifications.push(JSON.parse(JSON.stringify(value)));}
+    });
+    sourced(c);
+    c.nativeImportPreview.running=false;
+    c.finishNativeImportPreview(0,frame({version:1,kind:'bundle',
+      counts:{accepted,duplicates:1,skipped:1},previewFingerprint:'a'.repeat(64),
+      skipReasons:{duplicate:1,unsupported_field:1}}));
+    assert.equal(c.bundleReady,1);
+    assert.deepEqual(notifications.filter(value=>value!==null),[
+      {accepted,duplicates:1,skipped:1,skipReasons:{duplicate:1,unsupported_field:1}}
+    ]);
+    assert.equal(c.nativePending,null);
+  }
+});
 function previewed(c, input='synthetic-private-link', kind='clipboard') {
   sourced(c,input,kind);c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
 }

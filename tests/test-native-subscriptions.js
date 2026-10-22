@@ -15,7 +15,7 @@ function context(){
     nativeSubscriptionReadComponent:{createObject:(_parent,properties)=>({...properties,running:false})},
     nativeSubscriptionCode:'',_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',ready:[],saved:0});
   c.nativeSubscriptionReady=(...args)=>c.ready.push(args);c.nativeSubscriptionSaved=()=>c.saved++;
-  for(const name of ['cancelNativeSubscription','startNativeSubscription','nativeSubscriptionCurrent','finishNativeSubscriptionRead',
+  for(const name of ['clearNativeSubscriptionResult','invalidateNativeSubscriptionResult','cancelNativeSubscription','startNativeSubscription','nativeSubscriptionCurrent','finishNativeSubscriptionRead',
     'requestNativeSubscriptionAction','finishNativeSubscriptionAction','reconcileNativeAction','acceptRefreshedNativeState','isValidName']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;assert(start>=0&&end>start,name);vm.runInContext(source.slice(start,end),c);
   }
@@ -169,5 +169,22 @@ test('private confirmation explanation has full width below URL controls',()=>{
   assert(hint[0].includes('width: parent.width'));
   assert(!hint[0].includes('Layout.fillWidth'));
   assert(prompt.indexOf('id: privateHint')>prompt.indexOf('id: pasteUrl'));
+});
+test('new editor and changed owner or revision cannot inherit prior import reasons',()=>{
+  const c=context();
+  c.nativeSubscriptionReasons={unsupported_field:1};c.nativeSubscriptionSummary={accepted:2};
+  assert(c.startNativeSubscription('record'));
+  assert.equal(c.nativeSubscriptionReasons,null);assert.equal(c.nativeSubscriptionSummary,null);
+  c.finishNativeSubscriptionRead({...c.nativeSubscriptionDraft},1,'synthetic-private');
+  assert.equal(c.nativeSubscriptionCode,'unavailable');assert.equal(c.nativeSubscriptionReasons,null);
+  const pending=context();pending.nativeSubscriptionSummary={accepted:2,skipped:1};
+  pending._nativeSubscriptionResultFence={instanceId:'instance',revision:5};
+  pending.invalidateNativeSubscriptionResult();assert(pending.nativeSubscriptionSummary);
+  pending.nativeSnapshot.revision=5;pending.invalidateNativeSubscriptionResult();assert(pending.nativeSubscriptionSummary);
+  for(const change of [d=>d.nativeSnapshot.instanceId='replacement',d=>d.nativeSnapshot.revision=5,d=>d.nativeOwner=false]) {
+    const d=context();d.nativeSubscriptionReasons={invalid_profile:1};
+    d._nativeSubscriptionResultFence={instanceId:'instance',revision:4};
+    change(d);d.invalidateNativeSubscriptionResult();assert.equal(d.nativeSubscriptionReasons,null);
+  }
 });
 console.log('native subscriptions: '+count+' passed');

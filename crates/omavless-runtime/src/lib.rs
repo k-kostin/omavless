@@ -2273,7 +2273,11 @@ impl RuntimeServer {
             let mut response =
                 self.dispatch_remote_subscription(&action.canonical, Some(&action.instance))?;
             if response["ok"] == true {
+                let summary = response["result"].get("importSummary").cloned();
                 response["result"] = json!({"schemaVersion":1,"instanceId":self.instance_id,"operationId":action.operation,"action":action.action,"applied":true});
+                if let Some(summary) = summary {
+                    response["result"]["importSummary"] = summary;
+                }
             }
             omavless_control_protocol::validate_response(&response)?;
             return Ok(response);
@@ -3174,7 +3178,13 @@ fn dispatch_native(
             let action = match plugin_action::parse(request) {
                 Ok(action) => action,
                 Err(error) => {
-                    return error_response(id, revision, error.stable_code(), false, None);
+                    return error_response(
+                        id,
+                        revision,
+                        error.stable_code(),
+                        false,
+                        error.details(),
+                    );
                 }
             };
             if action.instance != instance_id {
@@ -3197,8 +3207,12 @@ fn dispatch_native(
             }
             let mut response = owner.mutate(&action.canonical)?;
             if response["ok"] == true {
+                let summary = response["result"].get("importSummary").cloned();
                 response["result"] = json!({"schemaVersion":1, "instanceId":instance_id,
                     "operationId":action.operation, "action":action.action, "applied":true});
+                if let Some(summary) = summary {
+                    response["result"]["importSummary"] = summary;
+                }
             }
             omavless_control_protocol::validate_response(&response)?;
             return Ok(response);
@@ -5477,6 +5491,52 @@ mod tests {
         assert_eq!(fs::read(&store_path).unwrap(), committed);
         assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
         assert_eq!(effects.load(Ordering::Relaxed), 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn rejected_import_reasons_cross_the_real_owner_socket_without_store_or_host_effects() {
+        let base = temporary_base("import-reason-wire");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        let baseline = calls.load(Ordering::Relaxed);
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let input = "vless://11111111-1111-4111-8111-111111111111@fixture.invalid:443?security=none&type=tcp&fm=synthetic-private";
+        for (method, params) in [
+            ("imports.classify", json!({"input":input})),
+            ("profiles.import", json!({"name":"Synthetic","input":input})),
+            (
+                "plugin.action",
+                json!({"instanceId":hello["result"]["instanceId"],
+                "operationId":"rejected-input","expectedRevision":0,"action":"profile-import","name":"Synthetic","input":input}),
+            ),
+        ] {
+            let response = call(&paths, method, params).unwrap();
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["revision"], 0);
+            assert_eq!(response["error"]["code"], "invalid_argument");
+            assert_eq!(
+                response["error"]["details"],
+                json!({"importReasons":{"unsupported_field":1}})
+            );
+            let text = response.to_string();
+            for private in ["fixture.invalid", "synthetic-private", "11111111", "fm"] {
+                assert!(!text.contains(private));
+            }
+        }
+        // A malformed envelope/name is not blamed on the profile payload.
+        let response = call(&paths, "profiles.import", json!({"name":"","input":input})).unwrap();
+        assert!(response["error"].get("details").is_none());
+        worker.join().unwrap();
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -7796,7 +7856,8 @@ mod tests {
             assert_eq!(applied["ok"], true);
             assert_eq!(
                 applied["result"],
-                json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":params["operationId"],"action":action,"applied":true})
+                json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":params["operationId"],"action":action,"applied":true,
+                    "importSummary":{"accepted":1,"duplicates":0,"skipped":0,"skipReasons":{}}})
             );
             let replay = call_plugin_action(&paths, params).unwrap();
             assert_eq!(replay["result"], applied["result"]);
