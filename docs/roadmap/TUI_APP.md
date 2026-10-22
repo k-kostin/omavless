@@ -495,6 +495,34 @@ The saved-override subview uses the separate explicit private
 these as configured rules rather than loaded core policy; it has no edit/delete
 action or shareable output.
 
+The current-development Connections ordering slice is ported independently from
+the eight-file #721 carrier (`e7821541488898ac92a711ad1ab26d94bfabcf12` over
+`2a49ec0322502465c04aa7d842437d050713b559`), not by merging the old beta stack.
+On ordinary read-only Connections, `o` cycles **As received / Destination /
+Network / Route**. This is a window-local display preference for the already
+received maximum128 rows, not a request to the core, a persisted endpoint cache,
+a route decision or close authority. As received remains the default and
+returning choice. Search still filters only that received subset;
+total/shown/partial coverage stays explicit.
+
+Destination compares literal displayed host/IP case-insensitively, then numeric
+port, with missing destination/port last. Network groups TCP/UDP/other; Route
+groups VPN/direct/blocked/unclassified, with destination tie-breakers. Complete
+ties retain received order. Sorting borrows the canonical rows for rendering;
+it does not reorder the snapshot, clone private rows or retain row identities.
+Existing owner/revision, freshness and leaving-page disposal remain authoritative.
+The preference resets with a new TUI window and creates no activity/history
+event. Search, modifiers, repeat events and modal input retain their priorities;
+only Connections scroll resets when its order changes.
+
+The focused source controls and synthetic TestBackend rendering are separate
+from installed acceptance. The owning current-base PR must earn EN/RU narrow
+rendering and normal Open app → Connections → order/filter/clear/scroll →
+observation loss/reload → leave/reopen, with unchanged VPN/Desired and no stale
+private rows. Package provenance, exact candidate CI and independent merged-PUSH
+source/distribution admission remain required. No main/release, conditional-close
+activation or whole T3 acceptance follows from this source port.
+
 ### T4
 
 Later management candidates:
