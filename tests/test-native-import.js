@@ -14,6 +14,25 @@ function profile() { return {version:1,protocol:'vless',server:'192.0.2.1',port:
 function frame(result={version:1,kind:'profile',profile:profile()}) {
   return JSON.stringify({api:'omavless.control',version:1,id:'preview',ok:true,revision:4,result});
 }
+test('bundle review bounds details while preserving fixed actions and readable controls',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/BundleImportPrompt.qml'),'utf8');
+  assert(source.includes('height: Math.min('));
+  assert(source.includes('readonly property alias flickable: detailsScroll'));
+  const start=source.indexOf('      Flickable {');
+  const actions=source.indexOf('        id: actions');
+  assert(start>=0 && actions>start);
+  assert(source.slice(start,actions).includes('clip: true'));
+  assert(source.slice(start,actions).includes('ScrollBar.vertical: OmaScrollBar'));
+  assert(source.slice(actions).includes('foreground: Commons.Color.foreground'));
+  const fnStart=source.indexOf('  function scrollDetails('),fnEnd=source.indexOf('\n  }',fnStart)+4;
+  assert(fnStart>=0 && fnEnd>fnStart);
+  const c=vm.createContext({detailsScroll:{height:200,contentHeight:500,contentY:0}});
+  vm.runInContext(source.slice(fnStart,fnEnd),c);
+  c.scrollDetails(160);assert.equal(c.detailsScroll.contentY,160);
+  c.scrollDetails(1000);assert.equal(c.detailsScroll.contentY,300);
+  c.scrollDetails(-1000);assert.equal(c.detailsScroll.contentY,0);
+  c.detailsScroll.contentHeight=100;c.scrollDetails(160);assert.equal(c.detailsScroll.contentY,0);
+});
 test('bundle reasons are closed, bounded and account for every skipped or duplicate entry',()=>{
   const result={version:1,kind:'bundle',counts:{accepted:1,duplicates:1,skipped:2},
     previewFingerprint:'a'.repeat(64),skipReasons:{duplicate:1,unsupported_field:1,unsupported_transport:1}};
