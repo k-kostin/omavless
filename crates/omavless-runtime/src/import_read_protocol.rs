@@ -41,6 +41,21 @@ pub fn parse_import_preview_request(
     Ok(ImportPreviewRequest { input })
 }
 
+/// A second pure parse is used only after ordinary admission already refused.
+/// It cannot make rejected input valid and never retains input-derived strings.
+pub(crate) fn rejected_import(
+    input: &str,
+) -> Option<omavless_domain::subscription_feed::ImportSummary> {
+    if input.len() > MAX_IMPORT_STDIN_BYTES {
+        return None;
+    }
+    use omavless_domain::subscription_feed::{SubscriptionFeedError, decode_local_profile_lines};
+    if let Err(SubscriptionFeedError::Rejected(summary)) = decode_local_profile_lines(input) {
+        return Some(summary);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,6 +17,7 @@ pub struct LocalBundlePlan {
     store: PrivateStore,
     entries: Vec<(String, CanonicalProfile)>,
     counts: LocalBundleCounts,
+    reasons: omavless_profile::import_reason::ImportReasons,
 }
 
 impl PrivateStore {
@@ -29,6 +30,7 @@ impl PrivateStore {
             _ => PrivateStoreError::InvalidShape,
         })?;
         let duplicates = feed.duplicate_count();
+        let mut reasons = feed.skip_reasons();
         let mut counts = LocalBundleCounts {
             accepted: 0,
             duplicates,
@@ -44,6 +46,7 @@ impl PrivateStore {
             let canonical = parse_canonical(&uri).map_err(PrivateStoreError::Profile)?;
             if existing.contains(&canonical.subscription_identity()) {
                 counts.duplicates += 1;
+                reasons.record(omavless_profile::import_reason::ImportReason::Duplicate);
             } else {
                 entries.push((uri, canonical));
             }
@@ -56,11 +59,16 @@ impl PrivateStore {
             store: self,
             entries,
             counts,
+            reasons,
         })
     }
 }
 
 impl LocalBundlePlan {
+    #[must_use]
+    pub fn skip_reasons(&self) -> omavless_profile::import_reason::ImportReasons {
+        self.reasons
+    }
     #[must_use]
     pub const fn counts(&self) -> LocalBundleCounts {
         self.counts

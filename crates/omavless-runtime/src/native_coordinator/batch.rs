@@ -550,6 +550,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             let token = job.token;
             let base_revision = job.base_revision;
             let completed = job.work.progress().0;
+            let import_summary = job.work.import_summary();
             state
                 .registry
                 .advance(token, completed)
@@ -561,13 +562,26 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             match outcome {
                 Ok(true) => state
                     .registry
-                    .finish_success(token, self.revision())
+                    .finish_success_with_import_summary(
+                        token,
+                        self.revision(),
+                        Some(import_summary),
+                    )
                     .map_err(NativeOwnerError::LongOperation),
                 Ok(false) => Ok(()), // the registry already recorded cancellation
                 Err(error) => {
+                    let reasons = match error {
+                        NativeOwnerError::ImportRejected(summary) => Some(summary.reasons),
+                        _ => None,
+                    };
                     state
                         .registry
-                        .finish_failure(token, self.revision(), error.stable_code())
+                        .finish_failure_with_import_reasons(
+                            token,
+                            self.revision(),
+                            error.stable_code(),
+                            reasons,
+                        )
                         .map_err(NativeOwnerError::LongOperation)?;
                     Err(error)
                 }
@@ -654,6 +668,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 }
 
 fn batch_work_error(error: BatchWorkError) -> NativeOwnerError {
+    if let BatchWorkError::Preparation(
+        crate::subscription_refresh::SubscriptionRefreshError::Feed(
+            omavless_domain::subscription_feed::SubscriptionFeedError::Rejected(summary),
+        ),
+    ) = error
+    {
+        return NativeOwnerError::ImportRejected(summary);
+    }
     NativeOwnerError::Subscription(match error {
         BatchWorkError::Cancelled => SubscriptionTransactionError::Conflict,
         BatchWorkError::Deadline | BatchWorkError::Preparation(_) => {

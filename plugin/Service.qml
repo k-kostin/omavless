@@ -522,6 +522,7 @@ Item {
   property var _nativeSourceContext: null
   property var _nativePreviewContext: null
   property string nativeImportCode: ""
+  property var nativeImportReasons: null
   property var nativeBundlePreview: null
   signal nativeBundleReady()
   readonly property bool nativeImportBusy: nativeImportSource.running || nativeImportPreview.running
@@ -540,6 +541,7 @@ Item {
     if (!nativeCanAct || nativeImportBusy || _nativeImportContext) return false
     if (!NativeSnapshot.importInput(input)) { nativeImportCode = "input"; return false }
     nativeImportCode = ""
+    nativeImportReasons = null
     importPreview = ({})
     _nativeImportContext = {kind:"entry", instanceId:nativeSnapshot.instanceId,
       revision:nativeSnapshot.revision, input:input}
@@ -556,6 +558,7 @@ Item {
         || !NativeSnapshot.editorText(path, 4096) || /[\u0000-\u001f\u007f]/.test(path)
         || path.split("/").indexOf("..") >= 0)) return false
     nativeImportCode = ""
+    nativeImportReasons = null
     importPreview = ({})
     _nativeImportContext = {kind:kind, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
     _nativeSourceContext = _nativeImportContext
@@ -598,7 +601,10 @@ Item {
     if (context !== _nativeImportContext || context === null) return
     if (!nativeImportCurrent(context)) { nativeImportCode = "stale"; cancelNativeImport(); return }
     var result = exitCode === 0 ? NativeSnapshot.parseImportPreview(output, context.revision) : null
-    if (!result) { nativeImportCode = "input"; cancelNativeImport(); return }
+    if (!result) {
+      nativeImportReasons = NativeSnapshot.parseImportRejection(output, context.revision)
+      nativeImportCode = "input"; cancelNativeImport(); return
+    }
     if (result.kind === "subscription") {
       if (result.duplicate) {
         nativeImportCode = "duplicateSubscription"
@@ -616,6 +622,7 @@ Item {
     if (result.kind === "bundle") {
       context.previewFingerprint = result.previewFingerprint
       nativeBundlePreview = result.counts
+      nativeBundlePreview.skipReasons = result.skipReasons
       nativeBundleReady()
       return
     }
@@ -663,11 +670,14 @@ Item {
   property var nativeSubscriptionDraft: null
   property var nativeSubscriptionReadProcess: null
   property string nativeSubscriptionCode: ""
+  property var nativeSubscriptionSummary: null
+  property var nativeSubscriptionReasons: null
   Timer {
     id: nativeSubscriptionSuccessTimeout
     interval: 5000
     repeat: false
-    onTriggered: if (root.nativeSubscriptionCode === "saved") root.nativeSubscriptionCode = ""
+    onTriggered: if (root.nativeSubscriptionCode === "saved" && (!root.nativeSubscriptionSummary ||
+      root.nativeSubscriptionSummary.skipped + root.nativeSubscriptionSummary.duplicates === 0)) root.nativeSubscriptionCode = ""
   }
   readonly property bool nativeSubscriptionLoading: nativeSubscriptionReadProcess !== null
   signal nativeSubscriptionReady(string name, string url, string kind, bool editing)
@@ -743,6 +753,8 @@ Item {
     nativeSubscriptionCode = ""
     nativeSubscriptionSuccessTimeout.stop()
     nativeSubscriptionStatusId = id
+    nativeSubscriptionSummary = null
+    nativeSubscriptionReasons = null
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
     nativeActionProcess.stdinEnabled = true
@@ -758,11 +770,13 @@ Item {
     }
     else if (result.ok) {
       nativeSubscriptionDraft = null
+      nativeSubscriptionSummary = result.importSummary || null
       nativeSubscriptionCode = "saved"
       nativeSubscriptionSuccessTimeout.restart()
       nativeSubscriptionSaved()
     } else {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false
+      nativeSubscriptionReasons = result.importReasons || null
       // Refresh/delete are not editor saves. Keep their failure actionable
       // without blaming the VPN core or inviting the user to reopen an editor.
       nativeSubscriptionCode = result.code === "subscription_unavailable" ? "fetchFailed"

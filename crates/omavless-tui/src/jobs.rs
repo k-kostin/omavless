@@ -173,7 +173,7 @@ impl Request {
         let op = &value["result"]["operation"];
         let parsed = (|| {
             let fields = op.as_object()?;
-            if fields.len() != 10
+            if !(fields.len() == 10 || (fields.len() == 11 && fields.contains_key("importSummary")))
                 || ![
                     "instanceId",
                     "operationId",
@@ -204,6 +204,14 @@ impl Request {
                 "cancelled" => State::Cancelled,
                 _ => return None,
             };
+            let import_summary = if let Some(value) = op.get("importSummary") {
+                if self.kind != Kind::RefreshAll || state != State::Succeeded {
+                    return None;
+                }
+                Some(omavless_domain::subscription_feed::ImportSummary::from_value(value)?)
+            } else {
+                None
+            };
             let completed = usize::try_from(op["progress"]["completed"].as_u64()?).ok()?;
             let total = usize::try_from(op["progress"]["total"].as_u64()?).ok()?;
             let cancel_requested = op["cancelRequested"].as_bool()?;
@@ -217,7 +225,13 @@ impl Request {
                 None
             } else {
                 let error = op["error"].as_object()?;
-                if error.len() != 3
+                if !(error.len() == 3
+                    || (error.len() == 4
+                        && self.kind == Kind::RefreshAll
+                        && crate::private_import::import_error(
+                            &json!({"ok":false,"error":op["error"]}),
+                        )
+                        .is_some()))
                     || !opaque(error.get("code")?.as_str()?, 64)
                     || error.get("message")?.as_str()?.len() > 1024
                     || !error.get("retryable")?.is_boolean()
@@ -245,6 +259,12 @@ impl Request {
                 return None;
             }
             Some(Progress {
+                import_reasons: if state == State::Failed && self.kind == Kind::RefreshAll {
+                    crate::private_import::import_error(&json!({"ok":false,"error":op["error"]}))
+                } else {
+                    None
+                },
+                import_summary,
                 state,
                 completed,
                 total,
@@ -348,6 +368,8 @@ impl State {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Progress {
+    pub import_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
     pub state: State,
     pub completed: usize,
     pub total: usize,

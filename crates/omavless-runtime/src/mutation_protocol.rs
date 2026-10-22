@@ -20,15 +20,25 @@ const SET_MODE_FIELDS: &[&str] = &["mode", "operationId", "expectedRevision"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationProtocolError {
+    ImportRejected(omavless_domain::subscription_feed::ImportSummary),
     InvalidRequest,
     UnknownMethod,
     InvalidArgument,
 }
 
 impl MutationProtocolError {
+    pub(crate) fn details(self) -> Option<Value> {
+        match self {
+            Self::ImportRejected(summary) => {
+                Some(serde_json::json!({"importReasons": summary.reasons.value()}))
+            }
+            _ => None,
+        }
+    }
     #[must_use]
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
+            Self::ImportRejected(_) => StableErrorCode::InvalidArgument,
             Self::InvalidRequest => StableErrorCode::InvalidRequest,
             Self::UnknownMethod => StableErrorCode::UnknownMethod,
             Self::InvalidArgument => StableErrorCode::InvalidArgument,
@@ -39,6 +49,7 @@ impl MutationProtocolError {
 impl fmt::Display for MutationProtocolError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::ImportRejected(_) => "No supported profiles were accepted",
             Self::InvalidRequest => "Runtime mutation request is invalid",
             Self::UnknownMethod => "Runtime mutation method is unsupported",
             Self::InvalidArgument => "Runtime mutation argument is invalid",

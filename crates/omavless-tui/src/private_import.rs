@@ -7,6 +7,33 @@ use zeroize::{Zeroize, Zeroizing};
 
 pub const MAX_INPUT: usize = 32 * 1024;
 
+pub(crate) fn import_error(
+    value: &Value,
+) -> Option<omavless_domain::subscription_feed::ImportReasons> {
+    let error = value["error"].as_object()?;
+    if value["ok"] != false
+        || error.len() != 4
+        || error["code"] != "invalid_argument"
+        || !error["retryable"].is_boolean()
+        || error["message"].as_str()?.len() > 512
+    {
+        return None;
+    }
+    let details = error["details"].as_object()?;
+    if details.len() != 1 {
+        return None;
+    }
+    let reasons = details.get("importReasons")?;
+    let total = reasons
+        .as_object()?
+        .values()
+        .try_fold(0u64, |total, count| total.checked_add(count.as_u64()?))?;
+    if !(1..=1024).contains(&total) {
+        return None;
+    }
+    omavless_domain::subscription_feed::ImportReasons::from_value(reasons, total as usize)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum State {
     Editing,
@@ -30,6 +57,7 @@ pub struct Preview {
     pub accepted: u16,
     pub duplicates: u16,
     pub skipped: u16,
+    pub skip_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
     pub warning: bool,
     pub native: bool,
     fingerprint: String,
@@ -94,7 +122,10 @@ fn preview(value: &Value, revision: u64) -> Option<Preview> {
                 String::new(),
             )
         }
-        "bundle" if r.as_object()?.len() == 4 => {
+        "bundle"
+            if r.as_object()?.len() == 4
+                || (r.as_object()?.len() == 5 && r.get("skipReasons").is_some()) =>
+        {
             let c = &r["counts"];
             if c.as_object()?.len() != 3 {
                 return None;
@@ -125,6 +156,16 @@ fn preview(value: &Value, revision: u64) -> Option<Preview> {
         accepted,
         duplicates,
         skipped,
+        skip_reasons: if let Some(value) = r.get("skipReasons") {
+            Some(
+                omavless_domain::subscription_feed::ImportReasons::from_value(
+                    value,
+                    usize::from(duplicates) + usize::from(skipped),
+                )?,
+            )
+        } else {
+            None
+        },
         warning,
         native: matches!(
             r["profile"]["protocol"].as_str(),
@@ -172,6 +213,8 @@ impl Request {
         Completion {
             serial: self.serial,
             result,
+            rejection_reasons: None,
+            import_summary: None,
         }
     }
     pub fn params(&self) -> Value {
@@ -204,12 +247,34 @@ impl Request {
     }
     /// Discard raw errors and private response fields before returning to UI.
     pub fn settle(self, response: Result<Value, ReadError>) -> Completion {
+        let import_summary = response
+            .as_ref()
+            .ok()
+            .filter(|v| self.kind == Some(Kind::Subscription) && v["ok"] == true)
+            .and_then(|v| {
+                omavless_domain::subscription_feed::ImportSummary::from_value(
+                    &v["result"]["importSummary"],
+                )
+            });
+        let rejection_reasons = response
+            .as_ref()
+            .ok()
+            .filter(|v| v["revision"].as_u64() == Some(self.revision))
+            .and_then(|v| import_error(v));
         let result = if let Some(operation) = &self.operation {
             let mut outcome = Saved::Unknown;
             if let Ok(value) = response {
                 let r = &value["result"];
                 if value["ok"] == true
-                    && r.as_object().is_some_and(|o| o.len() == 5)
+                    && r.as_object().is_some_and(|o| {
+                        o.len() == 5
+                            || (o.len() == 6
+                                && self.kind == Some(Kind::Subscription)
+                                && omavless_domain::subscription_feed::ImportSummary::from_value(
+                                    &r["importSummary"],
+                                )
+                                .is_some())
+                    })
                     && r["schemaVersion"] == 1
                     && r["applied"] == true
                     && r["instanceId"] == self.instance
@@ -254,6 +319,8 @@ impl Request {
         Completion {
             serial: self.serial,
             result,
+            rejection_reasons,
+            import_summary,
         }
     }
 }
@@ -267,12 +334,16 @@ enum ResultValue {
     Saved(Saved),
 }
 pub struct Completion {
+    import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
+    rejection_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
     serial: u64,
     result: ResultValue,
 }
 
 /// Bounded private draft; UI cancellation never cancels a submitted mutation.
 pub struct Workspace {
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
+    pub rejection_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
     input: Zeroizing<String>,
     instance: String,
     revision: u64,
@@ -288,6 +359,8 @@ impl Workspace {
             return None;
         }
         Some(Self {
+            import_summary: None,
+            rejection_reasons: None,
             input: Zeroizing::new(String::with_capacity(MAX_INPUT)),
             instance: instance.into(),
             revision,
@@ -429,6 +502,9 @@ impl Workspace {
         if completion.serial != self.serial {
             return;
         }
+        if matches!(self.state, State::Classifying | State::Submitting) {
+            self.rejection_reasons = completion.rejection_reasons;
+        }
         match (self.state, completion.result) {
             (State::Classifying, ResultValue::Preview(Some(value))) => {
                 self.preview = Some(value);
@@ -441,6 +517,7 @@ impl Workspace {
             (State::Submitting, ResultValue::Saved(outcome)) => {
                 self.state = match outcome {
                     Saved::Applied(revision) => {
+                        self.import_summary = completion.import_summary;
                         self.applied_revision = Some(revision);
                         State::Completed
                     }

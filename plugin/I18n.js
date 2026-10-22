@@ -7,6 +7,13 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "import.summary": {"en":"Accepted profiles: {accepted}\nDuplicates: {duplicates}\nSkipped: {skipped}","ru":"Принято профилей: {accepted}\nПовторы: {duplicates}\nПропущены: {skipped}"},
+  "import.reason.unsupported_field": {"en":"Unsupported profile field","ru":"Неподдерживаемый параметр профиля"},
+  "import.reason.unsupported_transport": {"en":"Unsupported transport","ru":"Неподдерживаемый транспорт"},
+  "import.reason.unsupported_option": {"en":"Unsupported connection option","ru":"Неподдерживаемый параметр подключения"},
+  "import.reason.invalid_profile": {"en":"Invalid or incomplete profile","ru":"Некорректный или неполный профиль"},
+  "import.reason.unsupported_protocol": {"en":"Unsupported protocol","ru":"Неподдерживаемый протокол"},
+  "import.reason.duplicate": {"en":"Duplicate profile","ru":"Повторяющийся профиль"},
   "usage.check": {"en":"Check usage","ru":"Проверить расход"},
   "usage.title": {"en":"Subscription data","ru":"Данные подписки"},
   "usage.scope": {"en":"Reported by the provider, not local VPN traffic. Check again requests fresh provider data.","ru":"По данным провайдера, не счётчики VPN. Повторная проверка запрашивает данные у провайдера."},
@@ -748,6 +755,25 @@ function publicErrorKey(code, fallback) {
     ? key : ""
 }
 
+function importReasons(value, locale) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return ""
+  var keys = ["unsupported_field", "unsupported_transport", "unsupported_option", "invalid_profile", "unsupported_protocol", "duplicate"]
+  var lines = []
+  keys.forEach(function(key) {
+    var count = value[key]
+    if (typeof count === "number" && isFinite(count) && Math.floor(count) === count && count > 0 && count <= 65536)
+      lines.push(translate("import.reason." + key, locale) + ": " + count)
+  })
+  return lines.join("\n").substring(0, MAX_TEXT_LENGTH)
+}
+
+function importSummary(value, locale) {
+  if (!value) return ""
+  var counts = translate("import.summary", locale, value)
+  var reasons = importReasons(value.skipReasons, locale)
+  return counts + (reasons ? "\n" + reasons : "")
+}
+
 function plural(baseKey, count, locale) {
   var amount = Math.max(0, Math.floor(Number(count) || 0))
   var selected = normalizeLocale(locale)
@@ -770,6 +796,8 @@ if (typeof module !== "undefined" && module.exports) {
     boundedValue: boundedValue,
     translate: translate,
     publicErrorKey: publicErrorKey,
+    importReasons: importReasons,
+    importSummary: importSummary,
     plural: plural
   }
 }

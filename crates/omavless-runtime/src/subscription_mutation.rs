@@ -47,11 +47,13 @@ impl std::error::Error for SubscriptionMutationCommitError {}
 pub struct SubscriptionMutationCommit {
     pub changed: bool,
     pub counts: SubscriptionMutationCounts,
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubscriptionRefreshCommit {
     pub counts: SubscriptionRefreshCounts,
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
 }
 
 fn private_parent(path: &Path, uid: u32) -> bool {
@@ -103,6 +105,7 @@ pub fn commit_subscription_mutation(
     let result = apply_subscription_mutation(&input, mutation, context)
         .map_err(SubscriptionMutationCommitError::Mutation)?;
     let commit = SubscriptionMutationCommit {
+        import_summary: None,
         changed: result.changed,
         counts: result.counts,
     };
@@ -181,7 +184,10 @@ pub fn commit_subscription_refresh(
         apply_subscription_refresh(&input, snapshot, entries, updated_at, skipped)
             .map_err(SubscriptionMutationCommitError::Mutation)?;
     atomic_replace_private(store_path, result.payload(), uid).map_err(map_io)?;
-    Ok(SubscriptionRefreshCommit { counts })
+    Ok(SubscriptionRefreshCommit {
+        counts,
+        import_summary: None,
+    })
 }
 
 /// Re-read and revalidate the entire ordered subscription set, prepare every
@@ -263,6 +269,7 @@ pub(crate) struct CommittedSubscriptionBatch {
 impl CommittedSubscriptionBatch {
     pub(crate) fn outcome(&self) -> SubscriptionRefreshCommit {
         SubscriptionRefreshCommit {
+            import_summary: None,
             counts: self.plan.counts,
         }
     }

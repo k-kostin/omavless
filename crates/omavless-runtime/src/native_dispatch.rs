@@ -49,8 +49,22 @@ fn retryable(code: StableErrorCode) -> bool {
 
 fn cached_response(request_id: &str, outcome: CachedOutcome) -> Result<Value, ProtocolError> {
     match outcome.error {
-        Some(code) => error_response(request_id, outcome.revision, code, retryable(code), None),
-        None => success_response(request_id, outcome.revision, json!({"accepted": true})),
+        Some(code) => error_response(
+            request_id,
+            outcome.revision,
+            code,
+            retryable(code),
+            outcome
+                .import_summary
+                .map(|summary| json!({"importReasons":summary.reasons.value()})),
+        ),
+        None => {
+            let mut result = json!({"accepted": true});
+            if let Some(summary) = outcome.import_summary {
+                result["importSummary"] = summary.value();
+            }
+            success_response(request_id, outcome.revision, result)
+        }
     }
 }
 
@@ -83,7 +97,14 @@ fn owner_error_response(
     error: NativeOwnerError,
 ) -> Result<Value, ProtocolError> {
     let code = error.stable_code();
-    error_response(request_id, revision, code, retryable(code), None)
+    let details = match error {
+        NativeOwnerError::ImportRejected(summary) => {
+            Some(json!({"importReasons":summary.reasons.value()}))
+        }
+        NativeOwnerError::Protocol(error) => error.details(),
+        _ => None,
+    };
+    error_response(request_id, revision, code, retryable(code), details)
 }
 
 pub(crate) enum RemoteSubscriptionPreflight {

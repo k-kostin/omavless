@@ -16,6 +16,8 @@ fn backup_navigation_key(code: KeyCode) -> bool {
 }
 
 pub struct App {
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
+    pub import_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
     pub import_enabled: bool,
     pub import_open: bool,
     pub import: Option<crate::private_import::Workspace>,
@@ -217,6 +219,8 @@ impl App {
             running: false,
             unknown: false,
             notice: "",
+            import_summary: None,
+            import_reasons: None,
             minimum_sample: None,
         }
     }
@@ -1253,6 +1257,8 @@ impl App {
     }
 
     pub fn prepare(&mut self, kind: Kind, mode: Option<Mode>, now: Instant) {
+        self.import_summary = None;
+        self.import_reasons = None;
         if !self.eligible(kind, now) {
             self.notice = "tui.action_blocked";
             return;
@@ -1480,23 +1486,32 @@ impl App {
         }
         // A rejection of an exact retry (e.g. restarted daemon/evicted receipt)
         // does not prove whether the original request was applied.
-        if self.unknown && matches!(outcome, Outcome::Rejected(_)) {
+        if self.unknown && matches!(outcome, Outcome::Rejected(_) | Outcome::ImportRejected(_)) {
             outcome = Outcome::Unknown;
         }
         self.running = false;
         self.sampled_at = None;
         self.minimum_sample = Some(now);
         self.unknown = outcome == Outcome::Unknown;
+        self.import_summary = match outcome {
+            Outcome::ImportApplied(summary) => Some(summary),
+            _ => None,
+        };
+        self.import_reasons = match outcome {
+            Outcome::ImportRejected(reasons) => Some(reasons),
+            _ => None,
+        };
         self.activity.record(
             match outcome {
-                Outcome::Applied => Event::Applied,
-                Outcome::Rejected(_) => Event::Rejected,
+                Outcome::Applied | Outcome::ImportApplied(_) => Event::Applied,
+                Outcome::Rejected(_) | Outcome::ImportRejected(_) => Event::Rejected,
                 Outcome::Unknown => Event::Unknown,
             },
             now,
         );
         self.notice = match outcome {
-            Outcome::Applied => "tui.action_applied",
+            Outcome::Applied | Outcome::ImportApplied(_) => "tui.action_applied",
+            Outcome::ImportRejected(_) => "tui.action_rejected",
             Outcome::Rejected(key) => key,
             Outcome::Unknown => "tui.action_unknown",
         };

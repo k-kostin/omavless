@@ -75,6 +75,81 @@ fn render(app: &App, now: Instant, width: u16, height: u16) -> String {
 }
 
 #[test]
+fn closed_import_reasons_render_both_locales_at_minimum_size_and_reject_private_keys() {
+    let reasons = json!({"unsupported_field":1,"unsupported_transport":1,
+        "unsupported_option":1,"invalid_profile":1,"unsupported_protocol":1,"duplicate":1});
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = app(locale);
+        press(&mut app, KeyCode::F(3), now);
+        app.import_paste(PRIVATE.into());
+        press(&mut app, KeyCode::Enter, now);
+        let request = app.take_import_request().unwrap();
+        let mut value = bundle(1);
+        value["result"]["counts"] = json!({"accepted":1,"duplicates":1,"skipped":5});
+        value["result"]["skipReasons"] = reasons.clone();
+        app.finish_import(request.settle(Ok(value)));
+        assert_eq!(app.import.as_ref().unwrap().state(), State::Preview);
+        let output = render(&app, now, 70, 24);
+        for key in [
+            "unsupported_field",
+            "unsupported_transport",
+            "unsupported_option",
+            "invalid_profile",
+            "unsupported_protocol",
+            "duplicate",
+        ] {
+            assert!(
+                output.contains(locale.text(&format!("import.reason.{key}"))),
+                "missing reason {key}"
+            );
+        }
+        assert!(output.contains("Esc"));
+        assert!(!output.contains(PRIVATE));
+    }
+    let now = Instant::now();
+    let mut workspace = draft(100);
+    let request = workspace.classify(now).unwrap();
+    let value = json!({"ok":false,"revision":7,"error":{"code":"invalid_argument",
+        "message":PRIVATE,"retryable":false,"details":{"importReasons":{"unsupported_field":1}}}});
+    workspace.accept(request.settle(Ok(value)));
+    assert_eq!(workspace.state(), State::Rejected);
+    assert!(workspace.rejection_reasons.is_some());
+    for invalid in [
+        json!({"private-secret":1}),
+        json!({"invalid_profile":true}),
+        json!({"invalid_profile":0}),
+        json!({"invalid_profile":1025}),
+    ] {
+        let mut workspace = draft(101);
+        let request = workspace.classify(now).unwrap();
+        workspace.accept(request.settle(Ok(json!({"ok":false,"revision":7,"error":{
+            "code":"invalid_argument","message":PRIVATE,"retryable":false,"details":{"importReasons":invalid}}}))));
+        assert!(workspace.rejection_reasons.is_none());
+    }
+}
+
+#[test]
+fn subscription_save_preserves_only_applied_typed_summary() {
+    let now = Instant::now();
+    let mut workspace = draft(201);
+    preview(
+        &mut workspace,
+        envelope(json!({"version":1,"kind":"subscription",
+        "suggestedName":"Subscription","duplicate":false})),
+        now,
+    );
+    let request = workspace.confirm("summary-save".into(), now).unwrap();
+    let p = request.params();
+    let summary =
+        json!({"accepted":1,"duplicates":0,"skipped":1,"skipReasons":{"unsupported_field":1}});
+    workspace.accept(request.settle(Ok(json!({"ok":true,"revision":8,"result":{
+        "schemaVersion":1,"applied":true,"instanceId":p["instanceId"],
+        "operationId":p["operationId"],"action":"subscription-add","importSummary":summary}}))));
+    assert_eq!(workspace.state(), State::Completed);
+    assert_eq!(workspace.import_summary.unwrap().value(), summary);
+}
+
+#[test]
 fn native_profile_preview_uses_existing_confirmation_and_cancel_without_connecting() {
     for protocol in ["wireguard", "amneziawg"] {
         let now = Instant::now();

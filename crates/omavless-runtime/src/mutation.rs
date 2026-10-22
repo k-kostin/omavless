@@ -179,6 +179,7 @@ pub struct MutationToken(u64);
 pub struct CachedOutcome {
     pub revision: u64,
     pub error: Option<StableErrorCode>,
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
 }
 
 impl CachedOutcome {
@@ -716,6 +717,7 @@ impl MutationCoordinator {
         };
         if self.revision == MAX_REVISION {
             let outcome = CachedOutcome {
+                import_summary: None,
                 revision: self.revision,
                 error: Some(StableErrorCode::InternalError),
             };
@@ -729,6 +731,7 @@ impl MutationCoordinator {
             .is_some_and(|expected| expected != self.revision)
         {
             let outcome = CachedOutcome {
+                import_summary: None,
                 revision: self.revision,
                 error: Some(StableErrorCode::Conflict),
             };
@@ -748,6 +751,15 @@ impl MutationCoordinator {
         &mut self,
         token: MutationToken,
         result: MutationResult,
+    ) -> Result<CachedOutcome, CoordinatorError> {
+        self.finish_with_import_summary(token, result, None)
+    }
+
+    pub(crate) fn finish_with_import_summary(
+        &mut self,
+        token: MutationToken,
+        result: MutationResult,
+        import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
     ) -> Result<CachedOutcome, CoordinatorError> {
         if self.active.as_ref().map(|active| active.token) != Some(token) {
             return Err(CoordinatorError::InvalidToken);
@@ -775,6 +787,7 @@ impl MutationCoordinator {
         let outcome = CachedOutcome {
             revision: self.revision,
             error,
+            import_summary,
         };
         self.cache(active.request.operation_id, active.request.digest, outcome);
         Ok(outcome)
@@ -1098,6 +1111,7 @@ mod tests {
                 ))
                 .unwrap(),
             ExternalWorkPreflight::Replay(CachedOutcome {
+                import_summary: None,
                 revision: 1,
                 error: None,
             })
@@ -1156,6 +1170,7 @@ mod tests {
             BeginOutcome::Rejected {
                 token: stale,
                 outcome: CachedOutcome {
+                    import_summary: None,
                     revision: 1,
                     error: Some(StableErrorCode::Conflict)
                 }
@@ -1449,6 +1464,7 @@ mod tests {
             BeginOutcome::Rejected {
                 token,
                 outcome: CachedOutcome {
+                    import_summary: None,
                     revision: MAX_REVISION,
                     error: Some(StableErrorCode::InternalError),
                 },

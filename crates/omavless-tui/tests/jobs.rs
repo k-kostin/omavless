@@ -285,6 +285,8 @@ fn all_results_bound_rows_distinguish_unresolved_unreachable_and_reject_duplicat
 
 fn progress(state: State, completed: usize) -> Progress {
     Progress {
+        import_reasons: None,
+        import_summary: None,
         state,
         completed,
         total: 2,

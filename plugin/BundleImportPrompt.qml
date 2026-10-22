@@ -78,6 +78,15 @@ Item {
         }
         PlainText {
           width: parent.width
+          visible: text !== ""
+          text: I18n.importReasons(prompt.counts ? prompt.counts.skipReasons : null, prompt.locale)
+          color: Commons.Color.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.Wrap
+        }
+        PlainText {
+          width: parent.width
           visible: !!prompt.counts && prompt.counts.accepted === 0
           text: prompt.tr("import.bundle.no_new")
           color: Commons.Color.foreground

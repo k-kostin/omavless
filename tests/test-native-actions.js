@@ -22,6 +22,18 @@ function pending() { return {instanceId:'instance-one', operationId:'operation-o
 function action() { return frame({schemaVersion:1, instanceId:'instance-one', operationId:'operation-one', action:'connect', applied:true}); }
 function parseObservation(p) { return parser.parseObservation(JSON.stringify(p)); }
 function parseAction(p, q=pending()) { return parser.parseAction(JSON.stringify(p), q); }
+test('subscription result keeps fixed import counts and refuses unrelated or malformed summaries',()=>{
+  const q={...pending(),action:'subscription-refresh'};
+  const p=action(); p.result.action=q.action;
+  p.result.importSummary={accepted:2,duplicates:1,skipped:1,skipReasons:{duplicate:1,unsupported_transport:1}};
+  assert.deepEqual(JSON.parse(JSON.stringify(parseAction(p,q).importSummary)),p.result.importSummary);
+  assert.equal(parseAction(p),null);
+  for(const summary of [{...p.result.importSummary,accepted:true},
+    {...p.result.importSummary,skipReasons:{private:2}},
+    {...p.result.importSummary,duplicates:2},
+    {...p.result.importSummary,skipped:1024.5}])
+    assert.equal(parseAction({...p,result:{...p.result,importSummary:summary}},q),null);
+});
 test('observed facts stay local and cached state remains separate', () => {
   const p=observation(); p.result.lastKnownActual='failed';
   const r=parseObservation(p);

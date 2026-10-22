@@ -370,6 +370,8 @@ pub struct LongOperationProgress {
 /// It deliberately has no `Debug` implementation because operation IDs must
 /// not drift into ordinary logs.
 pub struct LongOperationProjection<'a> {
+    pub import_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
+    pub import_summary: Option<omavless_domain::subscription_feed::ImportSummary>,
     pub method: LongOperationMethod,
     pub instance_id: &'a str,
     pub operation_id: &'a str,
@@ -384,6 +386,19 @@ pub struct LongOperationProjection<'a> {
 
 impl LongOperationProjection<'_> {
     pub fn validate(&self) -> Result<(), MutationProtocolError> {
+        if self.import_reasons.is_some()
+            && (self.method != LongOperationMethod::SubscriptionRefreshAll
+                || self.state != LongOperationState::Failed
+                || self.error != Some(StableErrorCode::InvalidArgument))
+        {
+            return Err(MutationProtocolError::InvalidArgument);
+        }
+        if self.import_summary.is_some()
+            && (self.method != LongOperationMethod::SubscriptionRefreshAll
+                || self.state != LongOperationState::Succeeded)
+        {
+            return Err(MutationProtocolError::InvalidArgument);
+        }
         instance_id(Some(&Value::String(self.instance_id.to_owned())))?;
         operation_id(Some(&Value::String(self.operation_id.to_owned())))?;
         if self.base_revision > MAX_REVISION
@@ -431,7 +446,13 @@ impl LongOperationProjection<'_> {
                 ),
             })
         });
-        Ok(json!({
+        let error = error.map(|mut error| {
+            if let Some(reasons) = self.import_reasons {
+                error["details"] = json!({"importReasons":reasons.value()});
+            }
+            error
+        });
+        let mut result = json!({
             "operation": {
                 "instanceId": self.instance_id,
                 "operationId": self.operation_id,
@@ -447,7 +468,11 @@ impl LongOperationProjection<'_> {
                 "cancellable": self.cancellable,
                 "error": error,
             }
-        }))
+        });
+        if let Some(summary) = self.import_summary {
+            result["operation"]["importSummary"] = summary.value();
+        }
+        Ok(result)
     }
 
     pub fn start_result_value(&self) -> Result<Value, MutationProtocolError> {
@@ -685,6 +710,8 @@ mod tests {
     #[test]
     fn projections_are_exact_bounded_and_credential_safe() {
         let projection = LongOperationProjection {
+            import_reasons: None,
+            import_summary: None,
             method: LongOperationMethod::SubscriptionRefreshAll,
             instance_id: INSTANCE,
             operation_id: "refresh-all-1",
@@ -775,6 +802,8 @@ mod tests {
     #[test]
     fn terminal_failure_and_cancel_responses_are_fixed_and_bounded() {
         let failed = LongOperationProjection {
+            import_reasons: None,
+            import_summary: None,
             method: LongOperationMethod::SubscriptionRefreshAll,
             instance_id: INSTANCE,
             operation_id: "failed-1",
@@ -798,6 +827,8 @@ mod tests {
             })
         );
         let cancelled = LongOperationProjection {
+            import_reasons: None,
+            import_summary: None,
             method: LongOperationMethod::SubscriptionRefreshAll,
             instance_id: INSTANCE,
             operation_id: "cancelled-1",

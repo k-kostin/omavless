@@ -191,6 +191,17 @@ Panel {
   function textFor(key, values) {
     return I18n.translate(key, uiLocale, values || {})
   }
+  function nativeSubscriptionResultText() {
+    var base = textFor("native.subscription." + vless.nativeSubscriptionCode)
+    var reasons = I18n.importReasons(vless.nativeSubscriptionReasons, root.uiLocale)
+    return base + (vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionSummary
+      ? "\n" + I18n.importSummary(vless.nativeSubscriptionSummary, root.uiLocale) : reasons ? "\n" + reasons : "")
+  }
+  function nativeImportErrorText() {
+    var base = textFor("native.importError." + vless.nativeImportCode)
+    var reasons = I18n.importReasons(vless.nativeImportReasons, root.uiLocale)
+    return reasons ? reasons + "\n" + base : base
+  }
 
   function visibleErrorText() {
     var key = I18n.publicErrorKey(vless.desktopHelperErrorCode, vless.lastError)
@@ -764,7 +775,7 @@ Panel {
     ? textFor("import.from_clipboard")
     : textFor("import.from_file", { name: String(importPayload).split("/").pop() })
   readonly property string importHintText: vless.nativeOwner
-    ? (vless.nativeImportCode !== "" ? textFor("native.importError." + vless.nativeImportCode) : !importNameValid ? textFor("rename.invalid_name") : importNameCount > 0
+    ? (vless.nativeImportCode !== "" ? nativeImportErrorText() : !importNameValid ? textFor("rename.invalid_name") : importNameCount > 0
        ? textFor("rename.duplicate", {name:importNameClean}) : textFor("native.importName", {name:importNameClean})) : !importNameValid
     ? "Use a non-empty name up to 80 characters"
     : (importAmbiguous
@@ -804,7 +815,7 @@ Panel {
   readonly property bool subscriptionAccepted: subscriptionNameValid && subscriptionUrlValid
     && (!vless.nativeOwner || (vless.nativeSubscriptionCurrent() && !vless.nativePending))
   readonly property string subscriptionHint: vless.nativeOwner
-    ? (vless.nativeSubscriptionCode !== "" ? textFor("native.subscription." + vless.nativeSubscriptionCode)
+    ? (vless.nativeSubscriptionCode !== "" ? nativeSubscriptionResultText()
       : textFor("native.subscription.private")) : vless.subscriptionError !== ""
     ? vless.subscriptionError
     : (!subscriptionNameValid
@@ -2531,7 +2542,7 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.unknownOutcome"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: vless.nativeActionCode === "dns_pair_required" ? root.foreground : root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportBusy; text: root.textFor("native.importBusy"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.textFor("native.importError." + vless.nativeImportCode) : ""; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.nativeImportErrorText() : ""; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Button { id: nativeRecoveryDisconnect; visible: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed && root.nativeTransitionKind === "" && !vless.nativeMetadataBusy && root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanStop; onClicked: vless.requestNativeAction("disconnect", "", "") }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.connections"); foreground: root.foreground; fontFamily: root.fontFamily }
           // Primary connection controls stay on the main page, like the
@@ -2787,6 +2798,8 @@ Panel {
             visible: vless.nativeBatchJob !== null
             PlainText { Layout.fillWidth: true; text: vless.nativeBatchJob ? root.textFor(vless.nativeBatchJob.kind === "probe" ? "action.test" : "native.batch." + vless.nativeBatchJob.kind) + " · " + root.textFor("native.batch." + (vless.nativeBatchUnknown ? "unknown" : vless.nativeBatchJob.state)) : ""; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
             PlainText { Layout.fillWidth: true; text: vless.nativeBatchJob ? root.textFor("native.batch.progress", {completed:vless.nativeBatchJob.completed,total:vless.nativeBatchJob.total}) : ""; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeBatchJob !== null && vless.nativeBatchJob.importSummary !== undefined && !vless.nativeBatchUnknown; text: visible ? I18n.importSummary(vless.nativeBatchJob.importSummary, root.uiLocale) : ""; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeBatchJob !== null && vless.nativeBatchJob.importReasons !== undefined && !vless.nativeBatchUnknown; text: visible ? I18n.importReasons(vless.nativeBatchJob.importReasons, root.uiLocale) : ""; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
             PlainText { Layout.fillWidth: true; visible: vless.nativeBatchErrorCode !== "" || (vless.nativeBatchJob !== null && vless.nativeBatchJob.errorCode !== ""); text: root.textFor(vless.nativeBatchErrorCode !== "" ? vless.nativeBatchErrorCode : "error." + (vless.nativeBatchJob ? vless.nativeBatchJob.errorCode : "capability_unavailable")); color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
             Flow {
               Layout.fillWidth: true
@@ -2797,7 +2810,7 @@ Panel {
               Button { id: nativeBatchAbandon; visible: vless.nativeBatchAbandonable; text: root.textFor("native.acceptState"); focusable: true; bordered: true; onClicked: vless.abandonNativeBatch() }
             }
           }
-          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== "" && !(root.page === "main" && vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionStatusId !== ""); text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== "" && !(root.page === "main" && vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionStatusId !== ""); text: root.nativeSubscriptionResultText(); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0 && !(root.page === "main" && root.nativeMetadataTargetId !== ""); text: root.nativeMetadataText; textFormat: Text.PlainText; color: Commons.Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.nativeEmptySubscriptionsText(); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Repeater {
@@ -2987,7 +3000,7 @@ Panel {
                       || (vless.nativeSubscriptionStatusId === nativeRow.modelData.subscription.id
                         && ["saved", "refreshFailed", "fetchFailed"].indexOf(vless.nativeSubscriptionCode) >= 0))
                     text: root.nativeMetadataAction === "subscription-refresh" && root.nativeMetadataTargetId === nativeRow.modelData.subscription.id
-                      ? root.nativeMetadataText : root.textFor("native.subscription." + vless.nativeSubscriptionCode)
+                      ? root.nativeMetadataText : root.nativeSubscriptionResultText()
                     textFormat: Text.PlainText
                     color: root.dim
                     font.family: root.fontFamily
@@ -4383,7 +4396,7 @@ Panel {
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
           : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)
           : root.nativeOnboardingCompletionUnconfirmed ? root.textFor("onboarding.finish_unconfirmed")
-          : vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
+          : vless.nativeImportCode !== "" ? root.nativeImportErrorText() : ""
         coreSetup: vless.coreSetup
         filePicker: vless.filePicker
         presets: vless.routingPresets
@@ -4524,7 +4537,7 @@ Panel {
         locale: root.uiLocale
         counts: vless.nativeBundlePreview
         available: vless.nativeCanAct && !vless.nativeImportBusy
-        errorText: vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
+        errorText: vless.nativeImportCode !== "" ? root.nativeImportErrorText() : ""
         onConfirmed: { if (vless.confirmNativeBundle()) { dismiss(); keyCatcher.forceActiveFocus() } }
         onCanceled: root.cancelImport()
       }

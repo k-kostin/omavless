@@ -91,6 +91,9 @@ pub fn parse_profile_import_request(
         .ok_or(MutationProtocolError::InvalidArgument)?;
     let metadata = metadata(params)?;
     if !admitted_profile_input(input) {
+        if let Some(summary) = crate::import_read_protocol::rejected_import(input) {
+            return Err(MutationProtocolError::ImportRejected(summary));
+        }
         return Err(MutationProtocolError::InvalidArgument);
     }
     let mut bytes = b"omavless.control/profile-import/v1\0".to_vec();

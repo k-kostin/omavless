@@ -100,8 +100,15 @@ impl Request {
         }
         if v["ok"] == true {
             let r = &v["result"];
-            if r.as_object().is_some_and(|o| o.len() == 5)
-                && r["schemaVersion"] == 1
+            let summary = r
+                .get("importSummary")
+                .and_then(omavless_domain::subscription_feed::ImportSummary::from_value);
+            if r.as_object().is_some_and(|o| {
+                o.len() == 5
+                    || (o.len() == 6
+                        && self.command.kind == Kind::RefreshSubscription
+                        && summary.is_some())
+            }) && r["schemaVersion"] == 1
                 && r["applied"] == true
                 && r["instanceId"] == self.command.instance
                 && r["operationId"] == self.operation
@@ -110,9 +117,14 @@ impl Request {
                     .as_u64()
                     .is_some_and(|r| r >= self.command.revision)
             {
-                return Outcome::Applied;
+                return summary.map_or(Outcome::Applied, Outcome::ImportApplied);
             }
         } else if v["ok"] == false {
+            if self.command.kind == Kind::RefreshSubscription
+                && let Some(reasons) = crate::private_import::import_error(&v)
+            {
+                return Outcome::ImportRejected(reasons);
+            }
             // Never render remote message/details or unfamiliar codes.
             return match v["error"]["code"].as_str() {
                 Some("conflict" | "daemon_restarting") => Outcome::Rejected("tui.action_changed"),
@@ -132,6 +144,8 @@ impl Request {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Outcome {
     Applied,
+    ImportApplied(omavless_domain::subscription_feed::ImportSummary),
+    ImportRejected(omavless_domain::subscription_feed::ImportReasons),
     Rejected(&'static str),
     Unknown,
 }

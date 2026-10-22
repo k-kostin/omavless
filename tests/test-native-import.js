@@ -14,6 +14,27 @@ function profile() { return {version:1,protocol:'vless',server:'192.0.2.1',port:
 function frame(result={version:1,kind:'profile',profile:profile()}) {
   return JSON.stringify({api:'omavless.control',version:1,id:'preview',ok:true,revision:4,result});
 }
+test('bundle reasons are closed, bounded and account for every skipped or duplicate entry',()=>{
+  const result={version:1,kind:'bundle',counts:{accepted:1,duplicates:1,skipped:2},
+    previewFingerprint:'a'.repeat(64),skipReasons:{duplicate:1,unsupported_field:1,unsupported_transport:1}};
+  const parsed=parser.parseImportPreview(frame(result),4);
+  assert(parsed);
+  assert.equal(JSON.stringify(parsed.skipReasons),JSON.stringify(result.skipReasons));
+  for(const bad of [{secret:3},{duplicate:true},{duplicate:3.5},{duplicate:-1},{duplicate:2},
+      {duplicate:0,unsupported_field:3},[],null,{unsupported_field:'3'}])
+    assert.equal(parser.parseImportPreview(frame({...result,skipReasons:bad}),4),null);
+  assert.equal(parser.parseImportPreview(frame(result),5),null);
+});
+test('rejected import accepts only safe reasons on the current revision, never backend message data',()=>{
+  const value={api:'omavless.control',version:1,id:'preview',ok:false,revision:4,
+    error:{code:'invalid_argument',message:'private-sentinel',retryable:false,details:{importReasons:{unsupported_field:1}}}};
+  assert.equal(JSON.stringify(parser.parseImportRejection(JSON.stringify(value),4)),JSON.stringify({unsupported_field:1}));
+  assert(!JSON.stringify(parser.parseImportRejection(JSON.stringify(value),4)).includes('private-sentinel'));
+  assert.equal(parser.parseImportRejection(JSON.stringify(value),5),null);
+  for(const reasons of [{private:1},{duplicate:true},{duplicate:0},{duplicate:1.2},{duplicate:1025},{}])
+    assert.equal(parser.parseImportRejection(JSON.stringify({...value,error:{...value.error,details:{importReasons:reasons}}}),4),null);
+  assert.equal(parser.parseImportRejection(JSON.stringify({...value,error:{...value.error,code:'core_rejected'}}),4),null);
+});
 test('native preview schema accepts WG and AWG masked facts, rejects cross-family combinations',()=>{
   for(const protocol of ['wireguard','amneziawg']) {
     const p={...profile(),protocol,transport:'udp',security:'wireguard',experimental:true,

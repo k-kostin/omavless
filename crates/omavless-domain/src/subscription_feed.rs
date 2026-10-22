@@ -11,6 +11,7 @@ use base64::Engine;
 use base64::alphabet;
 use base64::engine::{GeneralPurpose, GeneralPurposeConfig};
 use omavless_profile::canonical::{CanonicalError, parse_canonical};
+pub use omavless_profile::import_reason::{ImportReason, ImportReasons};
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -31,6 +32,7 @@ pub enum SubscriptionFeedError {
     InvalidUtf8,
     TooManyCandidates,
     NoSupportedProfiles,
+    Rejected(ImportSummary),
 }
 
 impl SubscriptionFeedError {
@@ -40,7 +42,9 @@ impl SubscriptionFeedError {
             Self::TooLarge => "subscription_feed_too_large",
             Self::InvalidUtf8 => "subscription_feed_invalid_utf8",
             Self::TooManyCandidates => "too_many_subscription_entries",
-            Self::NoSupportedProfiles => "subscription_contains_no_supported_profiles",
+            Self::NoSupportedProfiles | Self::Rejected(_) => {
+                "subscription_contains_no_supported_profiles"
+            }
         }
     }
 }
@@ -51,7 +55,9 @@ impl fmt::Display for SubscriptionFeedError {
             Self::TooLarge => "Subscription response is too large",
             Self::InvalidUtf8 => "Subscription response is not UTF-8 text",
             Self::TooManyCandidates => "Subscription contains too many supported links",
-            Self::NoSupportedProfiles => "Subscription contains no supported profiles",
+            Self::NoSupportedProfiles | Self::Rejected(_) => {
+                "Subscription contains no supported profiles"
+            }
         })
     }
 }
@@ -63,6 +69,68 @@ impl std::error::Error for SubscriptionFeedError {}
 pub struct SubscriptionFeedCounts {
     pub accepted: usize,
     pub skipped: usize,
+}
+
+/// Safe outcome facts, held only with the original volatile operation result.
+/// `skipped` excludes duplicates, consistently for feeds and local bundles.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ImportSummary {
+    pub accepted: usize,
+    pub duplicates: usize,
+    pub skipped: usize,
+    pub reasons: ImportReasons,
+}
+impl ImportSummary {
+    #[must_use]
+    pub fn rejected(reason: ImportReason) -> Self {
+        let mut reasons = ImportReasons::default();
+        reasons.record(reason);
+        Self {
+            accepted: 0,
+            duplicates: 0,
+            skipped: 1,
+            reasons,
+        }
+    }
+    #[must_use]
+    pub fn from_value(value: &serde_json::Value) -> Option<Self> {
+        let object = value.as_object()?;
+        if object.len() != 4 {
+            return None;
+        }
+        let count = |key: &str| {
+            usize::try_from(value[key].as_u64()?)
+                .ok()
+                .filter(|n| *n <= 65536)
+        };
+        let accepted = count("accepted")?;
+        let duplicates = count("duplicates")?;
+        let skipped = count("skipped")?;
+        if accepted + duplicates + skipped > 65536 {
+            return None;
+        }
+        let reasons = ImportReasons::from_value(&value["skipReasons"], duplicates + skipped)?;
+        if value["skipReasons"]["duplicate"].as_u64().unwrap_or(0) != duplicates as u64 {
+            return None;
+        }
+        Some(Self {
+            accepted,
+            duplicates,
+            skipped,
+            reasons,
+        })
+    }
+    pub fn merge(&mut self, other: Self) {
+        self.accepted += other.accepted;
+        self.duplicates += other.duplicates;
+        self.skipped += other.skipped;
+        self.reasons.merge(other.reasons);
+    }
+    #[must_use]
+    pub fn value(self) -> serde_json::Value {
+        serde_json::json!({"accepted":self.accepted,"duplicates":self.duplicates,
+            "skipped":self.skipped,"skipReasons":self.reasons.value()})
+    }
 }
 
 /// Already-fetched private response bytes. Construction applies the exact
@@ -88,9 +156,23 @@ pub struct DecodedSubscriptionFeed {
     entries: Vec<PrivateFeedEntry>,
     skipped: usize,
     duplicates: usize,
+    reasons: omavless_profile::import_reason::ImportReasons,
 }
 
 impl DecodedSubscriptionFeed {
+    #[must_use]
+    pub fn import_summary(&self) -> ImportSummary {
+        ImportSummary {
+            accepted: self.entries.len(),
+            duplicates: self.duplicates,
+            skipped: self.skipped - self.duplicates,
+            reasons: self.reasons,
+        }
+    }
+    #[must_use]
+    pub fn skip_reasons(&self) -> omavless_profile::import_reason::ImportReasons {
+        self.reasons
+    }
     pub(crate) fn duplicate_count(&self) -> usize {
         self.duplicates
     }
@@ -256,6 +338,7 @@ fn decode_candidates(
     let mut entries = Vec::with_capacity(candidates.len());
     let mut skipped = 0;
     let mut duplicates = 0;
+    let mut reasons = omavless_profile::import_reason::ImportReasons::default();
     for candidate in candidates {
         match parse_candidate(candidate) {
             Ok((uri, identity)) if seen.insert(identity.clone()) => {
@@ -264,24 +347,38 @@ fn decode_candidates(
             Ok(_) => {
                 skipped += 1;
                 duplicates += 1;
+                reasons.record(omavless_profile::import_reason::ImportReason::Duplicate);
             }
-            Err(_) => skipped += 1,
+            Err(error) => {
+                skipped += 1;
+                reasons
+                    .record(omavless_profile::import_reason::ImportReason::from_canonical(error));
+            }
         }
     }
     if entries.is_empty() {
+        if skipped > 0 {
+            return Err(SubscriptionFeedError::Rejected(ImportSummary {
+                accepted: 0,
+                duplicates,
+                skipped: skipped - duplicates,
+                reasons,
+            }));
+        }
         return Err(SubscriptionFeedError::NoSupportedProfiles);
     }
     Ok(DecodedSubscriptionFeed {
         entries,
         skipped,
         duplicates,
+        reasons,
     })
 }
 
 /// Local input is a list of complete links, not a provider document in which
 /// links can be embedded. Reuse the feed's Base64 and canonical identity rules,
 /// but refuse prose, JSON/YAML and mixed subscription URLs as a whole.
-pub(crate) fn decode_local_profile_lines(
+pub fn decode_local_profile_lines(
     input: &str,
 ) -> Result<DecodedSubscriptionFeed, SubscriptionFeedError> {
     if input.len() > 32 * 1024 {
@@ -361,8 +458,24 @@ pub(crate) fn decode_local_profile_lines(
             unsupported += 1;
         }
     }
+    if candidates.is_empty() && unsupported > 0 {
+        let mut reasons = ImportReasons::default();
+        for _ in 0..unsupported {
+            reasons.record(ImportReason::UnsupportedProtocol);
+        }
+        return Err(SubscriptionFeedError::Rejected(ImportSummary {
+            accepted: 0,
+            duplicates: 0,
+            skipped: unsupported,
+            reasons,
+        }));
+    }
     let mut feed = decode_candidates(candidates.iter().map(String::as_str).collect())?;
     feed.skipped += unsupported;
+    for _ in 0..unsupported {
+        feed.reasons
+            .record(omavless_profile::import_reason::ImportReason::UnsupportedProtocol);
+    }
     Ok(feed)
 }
 
@@ -506,6 +619,34 @@ mod tests {
                 skipped: 2,
             }
         );
+    }
+
+    #[test]
+    fn mixed_feed_explains_each_rejection_without_relaxing_acceptance() {
+        let raw = format!(
+            "{URI}\n{URI}\n{}\n{}\nvless://broken",
+            URI.replace("#Example", "&fm=secret#Example"),
+            URI.replace("type=tcp", "type=kcp")
+        );
+        for input in [raw.clone(), STANDARD.encode(&raw)] {
+            let feed = decode_subscription_feed(
+                PrivateSubscriptionBody::from_bytes(input.into_bytes()).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                feed.counts(),
+                SubscriptionFeedCounts {
+                    accepted: 1,
+                    skipped: 4
+                }
+            );
+            assert_eq!(
+                feed.skip_reasons().value(),
+                serde_json::json!({
+                    "duplicate": 1, "unsupported_field": 1, "unsupported_transport": 1, "invalid_profile": 1
+                })
+            );
+        }
     }
 
     #[test]

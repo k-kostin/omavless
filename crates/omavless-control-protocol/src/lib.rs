@@ -28,6 +28,43 @@ const SUCCESS_RESPONSE_FIELDS: &[&str] = &["api", "version", "id", "ok", "revisi
 const ERROR_RESPONSE_FIELDS: &[&str] = &["api", "version", "id", "ok", "revision", "error"];
 const ERROR_FIELDS: &[&str] = &["code", "message", "retryable", "details"];
 
+fn safe_error_details(code: StableErrorCode, details: &Value) -> bool {
+    if code == StableErrorCode::UnsupportedVersion {
+        return details == &json!({"supported": [1]});
+    }
+    if code != StableErrorCode::InvalidArgument {
+        return false;
+    }
+    let Some(object) = details.as_object().filter(|o| o.len() == 1) else {
+        return false;
+    };
+    let Some(reasons) = object.get("importReasons").and_then(Value::as_object) else {
+        return false;
+    };
+    let allowed = [
+        "unsupported_field",
+        "unsupported_transport",
+        "unsupported_option",
+        "invalid_profile",
+        "unsupported_protocol",
+        "duplicate",
+    ];
+    let mut total = 0u64;
+    if reasons.is_empty() {
+        return false;
+    }
+    for (key, value) in reasons {
+        if !allowed.contains(&key.as_str()) {
+            return false;
+        }
+        let Some(count) = value.as_u64().filter(|n| (1..=1024).contains(n)) else {
+            return false;
+        };
+        total += count;
+    }
+    total <= 1024
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StableErrorCode {
     InvalidRequest,
@@ -579,9 +616,12 @@ pub fn validate_response(value: &Value) -> Result<()> {
         .is_none()
         || !valid_public_message(&error["message"])
         || !error["retryable"].is_boolean()
-        || error
-            .get("details")
-            .is_some_and(|details| !details.is_object())
+        || error.get("details").is_some_and(|details| {
+            !error["code"]
+                .as_str()
+                .and_then(StableErrorCode::parse)
+                .is_some_and(|code| safe_error_details(code, details))
+        })
     {
         return Err(ProtocolError::new(StableErrorCode::InvalidRequest));
     }
@@ -619,9 +659,10 @@ pub fn error_response(
     retryable: bool,
     details: Option<Value>,
 ) -> Result<Value> {
-    if details.as_ref().is_some_and(|details| {
-        code != StableErrorCode::UnsupportedVersion || details != &json!({"supported": [1]})
-    }) {
+    if details
+        .as_ref()
+        .is_some_and(|details| !safe_error_details(code, details))
+    {
         return Err(ProtocolError::new(StableErrorCode::InvalidArgument));
     }
     let mut error = Map::new();
@@ -747,6 +788,48 @@ mod tests {
 
         let mut two = Cursor::new([frame.as_slice(), frame.as_slice()].concat());
         assert!(read_unary_frame(&mut two, FrameKind::Request).is_err());
+    }
+
+    #[test]
+    fn import_reason_details_are_closed_on_both_encode_and_decode() {
+        let accepted = error_response(
+            "import",
+            0,
+            StableErrorCode::InvalidArgument,
+            false,
+            Some(json!({"importReasons":{"unsupported_field":2,"invalid_profile":1}})),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_response(&encode_response(&accepted).unwrap()).unwrap(),
+            accepted
+        );
+        for details in [
+            json!({"importReasons":{"secret":1}}),
+            json!({"importReasons":{"duplicate":true}}),
+            json!({"importReasons":{"duplicate":1.5}}),
+            json!({"importReasons":{"duplicate":0}}),
+            json!({"importReasons":{"duplicate":1025}}),
+            json!({"importReasons":{}}),
+            json!({"importReasons":{"duplicate":1},"raw":"private-input"}),
+        ] {
+            assert!(
+                error_response(
+                    "import",
+                    0,
+                    StableErrorCode::InvalidArgument,
+                    false,
+                    Some(details.clone())
+                )
+                .is_err()
+            );
+            let mut invalid = accepted.clone();
+            invalid["error"]["details"] = details;
+            assert!(validate_response(&invalid).is_err());
+        }
+        let mut wrong_code = accepted;
+        wrong_code["error"]["code"] = json!("core_rejected");
+        assert!(validate_response(&wrong_code).is_err());
     }
 
     #[test]

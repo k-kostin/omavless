@@ -225,6 +225,7 @@ fn subscription_lifecycle_error(error: LifecycleError) -> SubscriptionTransactio
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeTransactionError {
+    ImportRejected(omavless_domain::subscription_feed::ImportSummary),
     Connection(ConnectionTransactionError),
     Profile(ProfileTransactionError),
     Subscription(SubscriptionTransactionError),
@@ -234,6 +235,7 @@ impl NativeTransactionError {
     #[must_use]
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
+            Self::ImportRejected(_) => StableErrorCode::InvalidArgument,
             Self::Connection(error) => error.stable_code(),
             Self::Profile(error) => error.stable_code(),
             Self::Subscription(error) => error.stable_code(),
@@ -253,6 +255,7 @@ impl NativeTransactionError {
 impl fmt::Display for NativeTransactionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ImportRejected(_) => formatter.write_str("No supported profiles were accepted"),
             Self::Connection(error) => error.fmt(formatter),
             Self::Profile(error) => error.fmt(formatter),
             Self::Subscription(error) => error.fmt(formatter),
@@ -278,6 +281,7 @@ pub enum NativeOwnerExecution {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeOwnerError {
+    ImportRejected(omavless_domain::subscription_feed::ImportSummary),
     Probe(StableErrorCode),
     Provider(crate::provider_refresh::ProviderRefreshError),
     Protocol(MutationProtocolError),
@@ -296,6 +300,7 @@ impl NativeOwnerError {
     #[must_use]
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
+            Self::ImportRejected(_) => StableErrorCode::InvalidArgument,
             Self::Probe(code) => code,
             Self::Provider(error) => match error {
                 crate::provider_refresh::ProviderRefreshError::Unavailable
@@ -324,6 +329,7 @@ impl NativeOwnerError {
 impl fmt::Display for NativeOwnerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::ImportRejected(_) => "No supported profiles were accepted",
             Self::Probe(_) => "Native subscription probe failed",
             Self::Provider(_) => "Native rule provider refresh failed",
             Self::Protocol(_) => "Native mutation request is invalid",
@@ -1054,10 +1060,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Ok(preview.private_ui_value());
             }
             let plan = store.plan_local_bundle(parsed.private_input())
-                .map_err(|_| NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument))?;
+                .map_err(|_| crate::import_read_protocol::rejected_import(parsed.private_input())
+                    .map(NativeOwnerError::ImportRejected)
+                    .unwrap_or(NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument)))?;
             let counts = plan.counts();
             Ok(serde_json::json!({"version":1,"kind":"bundle", "counts":{
                 "accepted":counts.accepted,"duplicates":counts.duplicates,"skipped":counts.skipped},
+                "skipReasons":plan.skip_reasons().value(),
                 "previewFingerprint":crate::profile_bundle_protocol::fingerprint(&original, parsed.private_input())}))
         })
     }
@@ -1779,7 +1788,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             Err(error) => MutationResult::Failure(error.stable_code()),
         };
-        let cached = self.coordinator.finish(token, result)?;
+        let import_summary = match outcome {
+            Ok(NativeMutationOutcome::Subscription(value)) => value.import_summary,
+            Ok(NativeMutationOutcome::SubscriptionRefresh(value)) => value.import_summary,
+            Err(NativeTransactionError::ImportRejected(summary)) => Some(summary),
+            _ => None,
+        };
+        let cached = self
+            .coordinator
+            .finish_with_import_summary(token, result, import_summary)?;
         if cached.error != outcome.as_ref().err().map(|error| error.stable_code()) {
             return Err(NativeOwnerError::Invariant);
         }
@@ -2097,7 +2114,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     where
         G: FnMut() -> String,
     {
-        let parsed = crate::profile_import_protocol::parse_profile_import_request(request)?;
+        let parsed = crate::profile_import_protocol::parse_profile_import_request(request)
+            .map_err(|error| match error {
+                MutationProtocolError::ImportRejected(summary) => {
+                    NativeOwnerError::ImportRejected(summary)
+                }
+                _ => NativeOwnerError::Protocol(error),
+            })?;
         let token = match self.admit(
             MutationKind::Other,
             parsed.operation_id.as_deref(),
@@ -2254,6 +2277,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return Ok(outcome);
         }
 
+        let mut import_summary = None;
         let mutation_and_lock = match intent {
             SubscriptionMutationIntent::Add { name, url } => {
                 // Reject an already-busy store owner before issuing a remote
@@ -2279,17 +2303,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 };
                 let feed = match decode_subscription_feed(body) {
                     Ok(feed) => feed,
-                    Err(_error) => {
-                        return self.finish(
-                            token,
-                            Err(NativeTransactionError::Subscription(
+                    Err(error) => {
+                        let rejected = match error {
+                            omavless_domain::subscription_feed::SubscriptionFeedError::Rejected(
+                                summary,
+                            ) => NativeTransactionError::ImportRejected(summary),
+                            _ => NativeTransactionError::Subscription(
                                 SubscriptionTransactionError::Transport,
-                            )),
-                            false,
-                        );
+                            ),
+                        };
+                        return self.finish(token, Err(rejected), false);
                     }
                 };
                 let subscription_id = next_record_id();
+                import_summary = Some(feed.import_summary());
                 let entries = feed.into_private_entries(&mut next_record_id);
                 let lock = match self.preflight_lock(token, |error| {
                     NativeTransactionError::Subscription(subscription_lock_error(error))
@@ -2334,16 +2361,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 };
                 let feed = match decode_subscription_feed(body) {
                     Ok(feed) => feed,
-                    Err(_error) => {
-                        return self.finish(
-                            token,
-                            Err(NativeTransactionError::Subscription(
+                    Err(error) => {
+                        let rejected = match error {
+                            omavless_domain::subscription_feed::SubscriptionFeedError::Rejected(
+                                summary,
+                            ) => NativeTransactionError::ImportRejected(summary),
+                            _ => NativeTransactionError::Subscription(
                                 SubscriptionTransactionError::Transport,
-                            )),
-                            false,
-                        );
+                            ),
+                        };
+                        return self.finish(token, Err(rejected), false);
                     }
                 };
+                import_summary = Some(feed.import_summary());
                 let entries = feed.into_private_entries(&mut next_record_id);
                 let lock = match self.preflight_lock(token, |error| {
                     NativeTransactionError::Subscription(subscription_lock_error(error))
@@ -2392,6 +2422,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             mutation,
             SubscriptionMutationContext { active_service },
         )
+        .map(|mut value| {
+            value.import_summary = import_summary;
+            value
+        })
         .map_err(subscription_store_error);
         self.finish(
             token,
@@ -2499,17 +2533,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         };
         let feed = match decode_subscription_feed(body) {
             Ok(feed) => feed,
-            Err(_error) => {
-                return self.finish(
-                    token,
-                    Err(NativeTransactionError::Subscription(
+            Err(error) => {
+                let rejected = match error {
+                    omavless_domain::subscription_feed::SubscriptionFeedError::Rejected(
+                        summary,
+                    ) => NativeTransactionError::ImportRejected(summary),
+                    _ => NativeTransactionError::Subscription(
                         SubscriptionTransactionError::Transport,
-                    )),
-                    false,
-                );
+                    ),
+                };
+                return self.finish(token, Err(rejected), false);
             }
         };
         let skipped = feed.counts().skipped;
+        let import_summary = Some(feed.import_summary());
         let entries = feed.into_private_entries(&mut next_record_id);
         let lock = match self.preflight_lock(token, |error| {
             NativeTransactionError::Subscription(subscription_lock_error(error))
@@ -2525,6 +2562,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             now_millis(),
             skipped,
         )
+        .map(|mut value| {
+            value.import_summary = import_summary;
+            value
+        })
         .map_err(subscription_store_error);
         drop(lock);
         self.finish(
@@ -5120,6 +5161,7 @@ mod tests {
         assert!(matches!(
             owner.preflight_subscription_fetch(&request).unwrap(),
             SubscriptionFetchPreflight::Replay(CachedOutcome {
+                import_summary: Some(_),
                 revision: 1,
                 error: None
             })
@@ -5185,6 +5227,7 @@ mod tests {
         assert!(matches!(
             owner.preflight_subscription_refresh(&request).unwrap(),
             SubscriptionRefreshPreflight::Replay(CachedOutcome {
+                import_summary: Some(_),
                 revision: 2,
                 error: None
             })
@@ -5192,6 +5235,82 @@ mod tests {
         let written = fs::read(store_path).unwrap();
         let rendered = String::from_utf8(written).unwrap();
         assert!(rendered.contains("1800000000001"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn subscription_import_reasons_replay_without_fetch_or_new_store_changes() {
+        let (root, store_path, mut owner) = fixture("import-reason-replay");
+        let mut transport = FakeTransport::success(&owner);
+        transport.body = Some(concat!(
+            "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed\n",
+            "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed\n",
+            "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?fm=private-sentinel#Hidden\n",
+            "vless://broken"
+        ).as_bytes());
+        let request = subscription_add("safe-reasons", 0);
+        let mut ids = [SUBSCRIPTION.to_owned(), SUBSCRIPTION_PROFILE.to_owned()].into_iter();
+        let (cached, _) = applied(
+            owner
+                .execute_subscription(&request, &transport, || ids.next().unwrap(), || 100)
+                .unwrap(),
+        );
+        assert_eq!(
+            cached.import_summary.unwrap().value(),
+            json!({"accepted":1,"duplicates":1,"skipped":2,
+            "skipReasons":{"duplicate":1,"unsupported_field":1,"invalid_profile":1}})
+        );
+        let written = fs::read(&store_path).unwrap();
+        assert_eq!(
+            owner
+                .execute_subscription(&request, &transport, || unreachable!(), || unreachable!())
+                .unwrap(),
+            NativeOwnerExecution::Replay(cached)
+        );
+        assert_eq!(transport.calls.get(), 1);
+        assert_eq!(fs::read(&store_path).unwrap(), written);
+        assert_eq!(owner.revision(), 1);
+        let mut conflict = request;
+        conflict["params"]["name"] = json!("Different");
+        assert!(
+            owner
+                .execute_subscription(&conflict, &transport, || unreachable!(), || unreachable!())
+                .is_err()
+        );
+        assert_eq!(transport.calls.get(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn subscription_all_rejected_preserves_store_revision_and_original_reasons() {
+        let (root, store_path, mut owner) = fixture("import-all-rejected");
+        let before = fs::read(&store_path).unwrap();
+        let mut transport = FakeTransport::success(&owner);
+        transport.body = Some(b"vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?fm=private-sentinel#Hidden");
+        let request = subscription_add("all-rejected", 0);
+        let NativeOwnerExecution::Applied {
+            cached,
+            outcome: Err(NativeTransactionError::ImportRejected(summary)),
+        } = owner
+            .execute_subscription(&request, &transport, || unreachable!(), || unreachable!())
+            .unwrap()
+        else {
+            panic!("expected closed rejection");
+        };
+        assert_eq!(summary.reasons.value(), json!({"unsupported_field":1}));
+        assert_eq!(cached.import_summary, Some(summary));
+        assert_eq!(cached.error, Some(StableErrorCode::InvalidArgument));
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(fs::read(&store_path).unwrap(), before);
+        assert_eq!(
+            owner
+                .execute_subscription(&request, &transport, || unreachable!(), || unreachable!())
+                .unwrap(),
+            NativeOwnerExecution::Replay(cached)
+        );
+        assert_eq!(transport.calls.get(), 1);
+        assert_eq!(fs::read(&store_path).unwrap(), before);
+        assert!(!format!("{cached:?}").contains("private-sentinel"));
         fs::remove_dir_all(root).unwrap();
     }
 

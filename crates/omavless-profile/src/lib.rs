@@ -13,6 +13,7 @@ mod base64url;
 pub mod canonical;
 pub mod hysteria2;
 pub mod import;
+pub mod import_reason;
 mod profile_uri;
 pub mod trojan;
 pub mod tuic;
