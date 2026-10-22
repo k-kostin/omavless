@@ -7856,7 +7856,8 @@ mod tests {
             assert_eq!(applied["ok"], true);
             assert_eq!(
                 applied["result"],
-                json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":params["operationId"],"action":action,"applied":true})
+                json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":params["operationId"],"action":action,"applied":true,
+                    "importSummary":{"accepted":1,"duplicates":0,"skipped":0,"skipReasons":{}}})
             );
             let replay = call_plugin_action(&paths, params).unwrap();
             assert_eq!(replay["result"], applied["result"]);

@@ -771,7 +771,12 @@ mod tests {
         assert_eq!(added["ok"], true);
         assert_eq!(added["revision"], 4);
         assert_eq!(transport.calls.get(), 1);
-        assert_eq!(added["result"], json!({"accepted": true}));
+        assert_eq!(
+            added["result"],
+            json!({"accepted": true, "importSummary": {
+                "accepted": 1, "duplicates": 0, "skipped": 0, "skipReasons": {}
+            }})
+        );
         let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();
         assert_eq!(store["profiles"][0]["favorite"], true);
         assert_eq!(store["subscriptions"].as_array().unwrap().len(), 1);
