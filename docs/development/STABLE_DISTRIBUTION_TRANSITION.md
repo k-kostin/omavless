@@ -29,6 +29,23 @@ governs retained decisions and their actual distribution.
   [the retrospective](POST_FIX8_RETROSPECTIVE.md) for correction/distribution
   status. Reconcile old stacked PRs before retargeting or deleting their bases.
 
+## Development import-reason candidate — #256
+
+[PR #818](https://github.com/k-kostin/omavless/pull/818) selects the unpublished
+app/DNS producer `419ee7efe9ca51f106d54af521d22a76bdd84fdb` for strict import
+reason reporting. Both architecture build workflows and strict app/DNS archive
+inspection passed. The selected package/ELF/receipt identities are in
+`plugin/runtime-release.json`, `plugin/dns-release.json` and
+`plugin/component-updates.json`; the standalone remover admits both new app
+ELFs while retaining the previous inspected nonpublic pairs. Public predecessor
+and modified/mixed/version-label refusals remain separate controls.
+
+This is prepared development delivery, not a published release or installed
+acceptance. The owning PR retains actual VM/rendering, final CI, integration and
+fresh generated distribution admission outcomes. The stable map above and all
+immutable historical packages stay unchanged; no new pair is a public updater
+predecessor merely because it was built.
+
 ## Current source composition — 2026-10-15
 
 Historical preparation ledger below: earlier pending gates and publication
