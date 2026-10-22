@@ -110,6 +110,28 @@ function sourced(c, input='synthetic-private-link', kind='clipboard') {
   assert.equal(c.startNativeImport(kind),true);c.nativeImportSource.running=false;
   c.finishNativeImportSource(0,input,'');
 }
+test('bundle property notification publishes reasons together with counts',()=>{
+  for(const accepted of [0,1]) {
+    const c=harness(), notifications=[];
+    let current=null;
+    // QML bindings observe the property assignment, not later mutations of a
+    // JavaScript object's members. Snapshot each delivered value immediately.
+    Object.defineProperty(c,'nativeBundlePreview',{
+      get:()=>current,
+      set:value=>{current=value;notifications.push(JSON.parse(JSON.stringify(value)));}
+    });
+    sourced(c);
+    c.nativeImportPreview.running=false;
+    c.finishNativeImportPreview(0,frame({version:1,kind:'bundle',
+      counts:{accepted,duplicates:1,skipped:1},previewFingerprint:'a'.repeat(64),
+      skipReasons:{duplicate:1,unsupported_field:1}}));
+    assert.equal(c.bundleReady,1);
+    assert.deepEqual(notifications.filter(value=>value!==null),[
+      {accepted,duplicates:1,skipped:1,skipReasons:{duplicate:1,unsupported_field:1}}
+    ]);
+    assert.equal(c.nativePending,null);
+  }
+});
 function previewed(c, input='synthetic-private-link', kind='clipboard') {
   sourced(c,input,kind);c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame());
 }

@@ -621,8 +621,11 @@ Item {
     context.previewKind = result.kind
     if (result.kind === "bundle") {
       context.previewFingerprint = result.previewFingerprint
-      nativeBundlePreview = result.counts
-      nativeBundlePreview.skipReasons = result.skipReasons
+      // Publish the complete value once: QML does not notify bindings when a
+      // member of a var-held JavaScript object is changed after assignment.
+      nativeBundlePreview = {accepted:result.counts.accepted,
+        duplicates:result.counts.duplicates, skipped:result.counts.skipped,
+        skipReasons:result.skipReasons}
       nativeBundleReady()
       return
     }
