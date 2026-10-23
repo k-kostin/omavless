@@ -156,7 +156,7 @@ class PairInventoryTests(unittest.TestCase):
         app = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
         dns = json.loads((ROOT / 'plugin/dns-release.json').read_text())
         self.assertEqual(metadata['schemaVersion'], 2)
-        self.assertEqual(metadata['sourceCommit'], 'cfd6b76a3709d59c31f6e7f9f9d2aff800df3055')
+        self.assertEqual(metadata['sourceCommit'], '1c1daac35908c756bb061fd89fd57dc2c3efe717')
         self.assertIs(metadata['updatePair'], True)
         self.assertEqual(set(metadata['identities']), {'x86_64', 'aarch64'})
         for arch in ('x86_64', 'aarch64'):
