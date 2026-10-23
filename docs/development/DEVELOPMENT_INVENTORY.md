@@ -38,6 +38,16 @@ and its separate cleanup-test diagnosis [#816](https://github.com/k-kostin/omavl
 have their own ownership, exact inputs and gates; do not duplicate or silently
 expand them. Current work is coordinated in owning PRs, not this dated index.
 
+The selected current-development #720 port has its own
+[successor #821](https://github.com/k-kostin/omavless/pull/821): specific TUI
+Restore readiness reasons and the existing explicit Disconnect confirmation,
+followed by a fresh verified Off state and a new Restore keypress. Its
+nonpublic package tuple uses producer `72151a78730c83950205a5664aa7967066b81a4b`
+for both architectures; exact archive identities live in the three frontend
+metadata consumers. The owning PR records pending versus earned source,
+installed and integration gates. This is not the full #739 recovery engine,
+public 0.9.8 Restore support or acceptance of the old stacked #720 branch.
+
 ## New-base queue
 
 Read the [current backlog](#current-backlog-october-21-2026) first. The older
