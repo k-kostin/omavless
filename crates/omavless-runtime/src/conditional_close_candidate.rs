@@ -2718,7 +2718,12 @@ while True:
   head=b'HTTP/1.0 200 OK\r\n'
  elif line.startswith(b'GET /connections '):body=b'{"connections":[{"id":"11111111-1111-4111-8111-111111111111","omavlessCloseToken":"42"}]}';head=b'HTTP/1.0 200 OK\r\n'
  else:
-  with open(root+'/effects','ab') as f:f.write(b'1\n')
+  with open(root+'/effects','ab') as f:
+   if variant=='hold-effect-record':
+    open(root+'/effect-opened','wb').close(); deadline=time.monotonic()+3
+    while not os.path.exists(root+'/release-effect-record') and time.monotonic()<deadline:time.sleep(0.002)
+   f.write(b'1\n')
+  open(root+'/effect-recorded','wb').close()
   if variant=='stall-reply':
    open(root+'/effect-entered','wb').close(); deadline=time.monotonic()+10
    while not os.path.exists(root+'/release') and time.monotonic()<deadline:time.sleep(0.002)
@@ -2768,6 +2773,18 @@ while True:
             );
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+    fn wait_effect_record(root: &Path) {
+        wait_effect_record_with_pending(root, || {});
+    }
+    fn wait_effect_record_with_pending(root: &Path, pending: impl FnOnce()) {
+        // Python creates effects before its buffered append is closed. The
+        // separate marker orders observation after close; bytes remain checked.
+        let marker = root.join("effect-recorded");
+        if !marker.exists() {
+            pending();
+        }
+        wait_marker(&marker);
     }
     fn prepared(core: &mut OwnedCore) -> (Session, BoundTarget) {
         let mut session = Session::bind(core, nix::unistd::Uid::current().as_raw()).unwrap();
@@ -3163,6 +3180,39 @@ while True:
     }
 
     #[test]
+    fn effect_record_wait_does_not_accept_an_open_but_unflushed_file() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("hold-effect-record");
+        let (session, target) = prepared(&mut core);
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit::owned_fixture())
+            .unwrap();
+        wait_marker(&root.join("effect-opened"));
+        let unflushed = fs::read(root.join("effects")).unwrap();
+        let mut observed_pending = false;
+        wait_effect_record_with_pending(&root, || {
+            observed_pending = true;
+            fs::write(root.join("release-effect-record"), b"").unwrap();
+        });
+        let observed = fs::read(root.join("effects")).unwrap();
+        // Release and settle the original peer even for the old-waiter RED.
+        if !observed_pending {
+            fs::write(root.join("release-effect-record"), b"").unwrap();
+        }
+        let outcome = worker_result(&mut worker);
+        let recorded = fs::read(root.join("effects")).unwrap();
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+        assert!(unflushed.is_empty());
+        assert!(observed_pending, "file creation is not completed recording");
+        assert_eq!(observed, b"1\n");
+        assert_eq!(outcome, Outcome::Closed);
+        assert_eq!(recorded, b"1\n");
+    }
+
+    #[test]
     fn actual_partial_write_then_restored_identity_cannot_become_prewrite_refusal() {
         let _fixture = FIXTURE.lock().unwrap();
         let (root, mut core) = peer_fixture("ok");
@@ -3189,7 +3239,7 @@ while True:
         fs::rename(root.join("old.sock"), root.join("mihomo.sock")).unwrap();
         finishing.wait();
         assert_eq!(worker_result(&mut worker), Outcome::Unknown);
-        wait_marker(&root.join("effects"));
+        wait_effect_record(&root);
         assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
         assert!(
             core.conditional_lifetime()
