@@ -141,7 +141,15 @@ impl Fixture {
         f
     }
     fn from_members(case: &str, new_output: bool, members: [&[u8]; 4]) -> Self {
-        let root = crate::test_temp::directory("final-old").unwrap();
+        let root = if case == "authenticated-preview" {
+            crate::test_temp::directory_under(
+                &crate::test_temp::home_parent().unwrap(),
+                "final-old",
+            )
+            .unwrap()
+        } else {
+            crate::test_temp::directory("final-old").unwrap()
+        };
         let config = root.join("c");
         let state = root.join("s");
         let run = root.join("r");
@@ -1942,6 +1950,11 @@ fn native_new_complete_postqualification_caller_refuses_recaptured_prior_history
             [MEMBERS[0], MEMBERS[1], &new, backup.template()],
         )
         .with_complete(NewCompletePresence::ClosureTicketComplete);
+        assert_eq!(
+            f.root.parent(),
+            Some(crate::test_temp::home_parent().unwrap().as_path()),
+            "authenticated inspection requires trusted ancestry independent of TMPDIR"
+        );
         let past = prior_audits(&f.state, 1);
         let uid = nix::unistd::getuid().as_raw();
         let runtime = f.root.join("r");
