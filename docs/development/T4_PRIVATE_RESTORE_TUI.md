@@ -22,6 +22,31 @@ whole T4 or add connected Restore, OS recovery, K1, App proxy or a GUI.
 
 ## User decision and real entry
 
+### Current-development readiness port (#720)
+
+The narrow current-base client port uses the old `b5361e4a` proposal as a
+reference, not as a whole-stack merge or acceptance proof. Settings explains
+the current Restore blocker: unavailable/stale state, absent capability,
+active operation or import, unresolved outcome, transition, recovery,
+unverified disconnection or terminal size. The current import-open and
+unresolved-import fences are retained alongside all existing owner barriers.
+This is presentation of existing admission, not a new restore permission.
+
+In a fresh verified Connected state, and only while the existing Disconnect
+admission is valid, `d` opens that ordinary confirmation. Escape does nothing;
+only its separate explicit confirmation submits Disconnect. Even known Applied
+completion requires a new fresh verified Off sample and another explicit `R`
+before a new empty Restore editor opens. No automatic Disconnect-to-Restore,
+retained archive/passphrase, unknown acknowledgement or recovery-engine port.
+
+Blocked `R` may show short footer guidance without hiding the UI-only exit hint.
+Only that ephemeral advice clears when current Restore readiness becomes ready;
+original command/Backup/Restore/import/job outcomes are not acknowledged or
+replaced. Existing editor/modal/search priorities, modifiers and held-key
+fences remain. The source, rendered and installed current-candidate checks,
+new matching native packages and exact PR/merged-push admission are separate;
+historical proposal results below do not qualify this port.
+
 The user wants to replace current profiles/subscriptions and the supported
 routing template with an authenticated archive. The primary action first asks
 the runtime for Preview; a separate explicit confirmation requests Restore.
