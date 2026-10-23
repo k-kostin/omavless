@@ -15,7 +15,10 @@ mod native_history;
 mod native_new_complete;
 #[path = "native_new_ticket.rs"]
 mod native_new_ticket;
+#[path = "native_removal_watch.rs"]
+mod native_removal_watch;
 use native_new_complete::{FreshNewComplete, NativeCompleteRole, NewCompletePresence};
+use native_removal_watch::RemovalWatch;
 pub(crate) const NATIVE_HISTORY_SLOTS: usize = native_history::CAPACITY;
 // Legacy first basename retained for exact historical source controls only.
 #[cfg(test)]
@@ -245,6 +248,48 @@ fn native_recovery_existing_singleton_busy_and_named_drift_are_real_files() {
         drop((engine, socket, lock));
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn native_recovery_retains_existing_removal_watch_lock() {
+    use std::fs;
+    use std::os::unix::fs::OpenOptionsExt;
+    let root =
+        crate::test_temp::directory_under(&crate::test_temp::home_parent().unwrap(), "rw").unwrap();
+    let paths = crate::RuntimePaths::below(&root);
+    let server = crate::RuntimeServer::bind(paths.clone()).unwrap();
+    let watch = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(paths.directory.join("plugin-removal.lock"))
+        .unwrap();
+    let before = watch.metadata().unwrap();
+    drop(server); // actual normal Drop leaves both persistent lock names
+    let mut engine = NativeEngine::reserve();
+    engine.uid = Some(nix::unistd::getuid().as_raw());
+    engine.gid = Some(nix::unistd::getgid().as_raw());
+    engine.recovery = true;
+    engine.lower.io.native_admit().unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(10);
+    engine
+        .clone_file(Slot::Run, &File::open(&root).unwrap(), true, until)
+        .unwrap();
+    engine
+        .capture_recovery_singleton(until)
+        .expect("normal persistent watcher lock is qualified comparison data");
+    engine.check_recovery_singleton(until).unwrap();
+    engine.check_bindings(until).unwrap();
+    engine.check_original_bytes(until).unwrap();
+    let after = fs::symlink_metadata(paths.directory.join("plugin-removal.lock")).unwrap();
+    assert!(same_member(&before, &after));
+    assert_eq!(after.len(), 0);
+    assert!(!paths.socket.exists());
+    assert!(engine.lower.io.test_retains_original(Slot::ManagerImage));
+    drop((engine, watch));
+    fs::remove_dir_all(root).unwrap(); // wholly synthetic owned fixture only
 }
 
 #[cfg(test)]
@@ -2229,6 +2274,7 @@ pub(crate) struct NativeEngine {
     current_intent: CurrentIntentPhase,
     singleton_locked: bool,
     recovery_endpoint: RecoveryEndpoint,
+    recovery_removal_watch: RemovalWatch,
     unlinked: [bool; IO_SLOTS],
     completed: bool,
     retirement: bool,
@@ -2477,6 +2523,7 @@ impl NativeEngine {
             current_intent: CurrentIntentPhase::None,
             singleton_locked: false,
             recovery_endpoint: RecoveryEndpoint::Unselected,
+            recovery_removal_watch: RemovalWatch::Unselected,
             unlinked: [false; IO_SLOTS],
             completed: false,
             retirement: false,
@@ -3116,6 +3163,13 @@ impl NativeEngine {
                 n if n == NATIVE_CURRENT_STORE as usize && self.current_store => {
                     NATIVE_CURRENT_STORE
                 }
+                n if n == Slot::ManagerImage as usize
+                    && self.recovery
+                    && self.singleton_locked
+                    && self.recovery_removal_watch == RemovalWatch::Retained =>
+                {
+                    Slot::ManagerImage
+                }
                 _ => return Err(FirstError::StillFenced),
             };
             let file = self
@@ -3353,8 +3407,7 @@ impl NativeEngine {
         self.lower
             .binding(Slot::Root, Slot::Lock, crate::OWNER_LOCK_NAME, false, until)?;
         if absent {
-            self.lower
-                .catalogue_inner(Slot::Root, &[crate::OWNER_LOCK_NAME], until)?;
+            self.check_recovery_catalogue(true, until)?;
             // The same held parent/lock binding and full catalogue bracket
             // named absence on every origin, even before the main catalogues.
             return self.check_recovery_socket_absence(until);
@@ -3362,11 +3415,7 @@ impl NativeEngine {
         self.check_existing_recovery_socket(until)
     }
     fn check_existing_recovery_socket(&mut self, until: Instant) -> Result<(), Unavailable> {
-        self.lower.catalogue_inner(
-            Slot::Root,
-            &[crate::OWNER_LOCK_NAME, crate::SOCKET_NAME],
-            until,
-        )?;
+        self.check_recovery_catalogue(false, until)?;
         let socket = self.lower.original[Slot::Scratch6 as usize]
             .as_ref()
             .ok_or(Unavailable)?;
@@ -3580,6 +3629,7 @@ impl NativeEngine {
         self.lower
             .binding(Slot::Root, Slot::Lock, crate::OWNER_LOCK_NAME, false, until)
             .map_err(|_| FirstError::Admission)?;
+        self.capture_recovery_removal_watch(until)?;
         // Classify only the nofollow named lookup after positive SAME existing
         // singleton flock. Never catch FileIo.child/O_PATH errors as absence:
         // those errors revoke the ledger and retain its acquired prefix.

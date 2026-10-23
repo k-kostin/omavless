@@ -8,6 +8,9 @@ use crate::restore_old_stopped::NativeOldRecoveryQuiescence;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
+#[cfg(test)]
+#[path = "restore_recovery_observation_tests.rs"]
+mod observation_tests;
 static RECOVERY_RESERVED: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static CLOSURE_CUT_CAPTURE_BOUNDARY_REACHED: AtomicBool = AtomicBool::new(false);
@@ -1329,7 +1332,9 @@ impl NativeRecoveryOrigin<'_> {
                 !observation.owned_core_running
                     && observation.owned_auxiliary_mihomo_count == 0
                     && observation.visible_mihomo_count == 0
-                    && observation.visible_tun_count == 0
+                    // The real observer still inventories every interface and
+                    // refuses incomplete/ambiguous scope. A known foreign TUN
+                    // alone is neither our resource nor recovery authority.
                     && observation.managed_tun_count == 0
                     && !observation.owned_controller_config_verified
                     && !observation.desired_profile_matches_owned

@@ -271,6 +271,9 @@ impl Fixture {
                 .push((directory.clone(), file.metadata().unwrap()));
             engine.clone_file(slot, &file, true, until).unwrap();
         }
+        if case == "watch-lock" {
+            drop(write(&run.join("omavless/plugin-removal.lock"), b""));
+        }
         engine.capture_recovery_singleton(until).unwrap();
         for (index, (slot, _)) in LIVE.into_iter().enumerate() {
             engine.clone_file(slot, &live[index], false, until).unwrap();
@@ -1600,6 +1603,32 @@ const COMPLETE_SHAPES: [NewCompletePresence; 3] = [
     NewCompletePresence::TicketComplete,
     NewCompletePresence::CompleteOnly,
 ];
+
+#[test]
+fn native_new_complete_retained_watch_crosses_complete_capture_and_full_gate() {
+    let mut f = Fixture::new_committed("watch-lock")
+        .with_complete(NewCompletePresence::ClosureTicketComplete);
+    let path = f.root.join("r/omavless/plugin-removal.lock");
+    let original = fs::symlink_metadata(&path).unwrap();
+    f.capture("positive").unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(10);
+    f.engine
+        .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+        .unwrap();
+    f.engine
+        .check_native_completed_inner(&mut f.gate, until)
+        .unwrap();
+    f.engine.check_original_bytes(until).unwrap();
+    assert!(same_member(
+        &original,
+        &fs::symlink_metadata(&path).unwrap()
+    ));
+    assert_eq!(fs::read(&path).unwrap(), b"");
+    assert!(f.engine.lower.io.test_retains_original(Slot::ManagerImage));
+    assert!(!f.engine.ordinary_handoff && !f.engine.history);
+    f.retained();
+    f.cleanup();
+}
 
 #[test]
 fn native_new_complete_fixed_closure_cut_preserves_ticket_complete_and_new_without_release() {
