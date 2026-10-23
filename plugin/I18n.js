@@ -7,6 +7,20 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "remove.entry": {"en":"Remove OmaVLESS…","ru":"Удалить OmaVLESS…"},
+  "remove.description": {"en":"Review what will be removed before opening a terminal.","ru":"Проверьте, что будет удалено, перед открытием терминала."},
+  "remove.title": {"en":"Remove OmaVLESS","ru":"Удаление OmaVLESS"},
+  "remove.scope": {"en":"Removes the application, its bundled VPN core, DNS helper and widget.","ru":"Будут удалены приложение, его встроенное ядро VPN, DNS-помощник и виджет."},
+  "remove.data": {"en":"Saved profiles and settings will be permanently deleted. No backup is made.","ru":"Сохранённые профили и настройки будут удалены безвозвратно. Резервная копия не создаётся."},
+  "remove.kept": {"en":"Other VPN clients and a separately installed Mihomo stay installed.","ru":"Другие VPN-клиенты и отдельно установленный Mihomo останутся."},
+  "remove.continuation": {"en":"The terminal will ask for confirmation. A restart may be required; continue with the same removal command after logging back in.","ru":"Терминал запросит подтверждение. Может потребоваться перезагрузка; после входа продолжите той же командой удаления."},
+  "remove.launch": {"en":"Open removal in terminal","ru":"Открыть удаление в терминале"},
+  "remove.opening": {"en":"Opening the removal terminal…","ru":"Открываем терминал удаления…"},
+  "remove.terminal": {"en":"Finish or cancel removal in its original terminal and close all system prompts. Keep its continuation command if a restart is needed.","ru":"Завершите или отмените удаление в исходном терминале и закройте все запросы системы. Сохраните команду продолжения, если нужна перезагрузка."},
+  "remove.native_blocked": {"en":"Finish or resolve the current application operation before removal.","ru":"Завершите текущую операцию приложения или уточните её результат перед удалением."},
+  "remove.setup_busy": {"en":"Wait for the component check or setup operation to finish.","ru":"Дождитесь завершения проверки компонентов или настройки."},
+  "remove.setup_terminal": {"en":"Finish or cancel setup and close its terminal and system prompts first.","ru":"Сначала завершите или отмените настройку и закройте её терминал и запросы системы."},
+  "remove.launch_failed": {"en":"Could not confirm the terminal opened. Finish or cancel any open prompts before continuing.","ru":"Не удалось подтвердить запуск терминала. Завершите или отмените открытые запросы перед продолжением."},
   "import.summary": {"en":"Accepted profiles: {accepted}\nDuplicates: {duplicates}\nSkipped: {skipped}","ru":"Принято профилей: {accepted}\nПовторы: {duplicates}\nПропущены: {skipped}"},
   "import.reason.unsupported_field": {"en":"Unsupported profile field","ru":"Неподдерживаемый параметр профиля"},
   "import.reason.unsupported_transport": {"en":"Unsupported transport","ru":"Неподдерживаемый транспорт"},

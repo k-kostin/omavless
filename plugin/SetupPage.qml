@@ -35,13 +35,14 @@ Item {
   readonly property bool reviewReady: setup.state === "ready" && setup.reviewCoreState === "ready"
     && !setup.busy && !setup.terminalOpened && !setup.nativeEffectBlocked
   readonly property string script: String(Qt.resolvedUrl("setup-entry.sh")).replace(/^file:\/\//, "")
-  readonly property var focusTargets: requirements.focusTargets.concat([reviewTerminalButton, reviewCheckButton, reviewGuideButton, closeButton])
+  readonly property var focusTargets: requirements.focusTargets.concat([reviewTerminalButton, reviewCheckButton, reviewGuideButton, removeButton, closeButton])
   implicitHeight: content.implicitHeight
   signal ready(bool runtimeResumed)
   signal closeRequested()
   signal terminalRequested()
   signal factsRefreshRequested()
   signal helpRequested(string section)
+  signal removeRequested(var control)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   function check() {
     if (!probe.running && !launch.running && !startApp.running && runtimeAttempt !== "starting") {
@@ -187,6 +188,14 @@ Item {
       visible: setup.componentReview && !setup.needsAttention && !setup.reviewReady
       text: setup.tr("guide_short"); bordered: true; focusable: true
       onClicked: setup.guide()
+    }
+    Button {
+      id: removeButton
+      objectName: "setupRemove"
+      Layout.fillWidth: true
+      text: I18n.translate("remove.entry", setup.locale, {})
+      bordered: true; focusable: true
+      onClicked: setup.removeRequested(removeButton)
     }
     Button { id: closeButton; Layout.fillWidth: true; text: setup.tr(setup.componentReview ? "back_to_panel" : "later"); foreground: setup.componentReview && setup.reviewReady ? Commons.Color.accent : Commons.Color.foreground; bordered: true; focusable: true; onClicked: setup.closeRequested() }
   }

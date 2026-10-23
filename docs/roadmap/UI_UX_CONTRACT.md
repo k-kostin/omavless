@@ -320,6 +320,32 @@ disabling ordinary Start/Continue, and make preparation explicit inside the
 update flow rather than promising immediate replacement. Its entry is named
 Update components…; the ellipsis indicates subsequent steps and confirmations.
 
+### Full-removal review (development #774)
+
+Remove OmaVLESS… is explicit local review navigation, not immediate deletion.
+The same runtime-independent review is reachable from the setup/error shell,
+every native onboarding step and normal Settings, including a configured but
+stopped application. Its secondary navigation entry is also available in the
+ready wizard; required setup controls retain their Close/Continue-only rule.
+Opening/closing review does not reset the wizard, acknowledge an unknown native
+operation or change the VPN. Return focus/scroll to the initiating control.
+
+Explain the full existing removal: application, bundled core/DNS helper, widget
+and saved profiles/settings, without a backup; other VPNs and standalone Mihomo
+remain. Open removal in terminal invokes only the locally verified no-argument
+shipped helper. Its existing confirmations, privileges, shutdown, restart and
+same-command continuation remain authoritative; do not duplicate the remover.
+Current native/setup activity or unknown outcomes block submission, not access
+to the explanation. The review owns input/scroll while visible.
+
+Terminal submission/launcher failure retains a closure barrier across panel
+hide/reopen. Close/Escape with that barrier closes only the panel; reopening
+returns to review until the user explicitly settles its terminal/system prompts.
+That acknowledgement is not removal success or recovery permission. Never
+announce removed from a launched/closed terminal or a fresh component read.
+Test cancellation at the actual helper confirmation without deleting private
+data for screenshots; label synthetic blocked/first-run states separately.
+
 ## Three independent checks before calling a change ready
 
 ### Agent-first help (owner direction, October16)

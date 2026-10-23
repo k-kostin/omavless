@@ -55,6 +55,7 @@ Item {
   signal refreshRequested()
   signal setupGuideRequested()
   signal componentSetupRequested()
+  signal removeRequested(var control)
   signal presetChosen(string preset)
   signal pasteRequested()
   signal fileRequested()
@@ -548,6 +549,18 @@ Item {
             font.family: wizard.fontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
+          }
+
+          WizardButton {
+            id: onboardingRemoveButton
+            objectName: "onboardingRemove"
+            visible: wizard.nativeContext
+            width: parent.width
+            text: wizard.textFor("remove.entry")
+            bordered: true
+            foreground: wizard.foreground
+            fontFamily: wizard.fontFamily
+            onClicked: wizard.removeRequested(onboardingRemoveButton)
           }
 
           Item {

@@ -71,6 +71,7 @@ Panel {
   property string focusSection: "header"
   property string page: "main"
   property var helpReturnFocus: null
+  property var removalReturnFocus: null
   property int subscriptionIndex: 0
   property int configIndex: 0
   property var expandedSubscriptions: ({})
@@ -139,7 +140,7 @@ Panel {
   // Sheets and confirmations own pointer/scroll input while visible. Keeping
   // the page Flickables interactive underneath a translucent sheet lets one
   // wheel gesture move two surfaces and exposes two competing scrollbars.
-  readonly property bool modalInputActive: helpPrompt.visible || onboardingWizard.visible
+  readonly property bool modalInputActive: removeReview.visible || helpPrompt.visible || onboardingWizard.visible
     || subscriptionUsagePrompt.visible
     || startupPrompt.visible || routingToolsPrompt.visible
     || routingPresetPrompt.visible || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible
@@ -853,6 +854,7 @@ Panel {
   }
 
   function openOnboarding(step) {
+    if (removeReview.visible || removeReview.terminalOpened) return false
     if (vless.nativeOwner && (!vless.nativeSnapshot || vless.nativeSnapshotFailed || vless.nativePending)) return false
     onboardingDismissed = false
     onboardingWizard.openAt(step || 1)
@@ -874,6 +876,7 @@ Panel {
   }
 
   function syncNativeOnboarding() {
+    if (removeReview.visible || removeReview.terminalOpened) return
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
     if (vless.nativeStatusRefreshing) return
     if (nativeOnboardingCompletionPending !== null) {
@@ -984,6 +987,25 @@ Panel {
     helpPrompt.openHelp(section)
   }
 
+  function openRemoval(returnFocus) {
+    if (!root.opened || removeReview.visible) return
+    removalReturnFocus = returnFocus || null
+    removeReview.openReview()
+  }
+
+  function closeRemoval() {
+    if (removeReview.terminalOpened) { root.close(); return }
+    removeReview.dismiss()
+    var target = removalReturnFocus
+    removalReturnFocus = null
+    root.syncNativeOnboarding()
+    Qt.callLater(function() {
+      if (target && target.visible) target.forceActiveFocus()
+      else if (onboardingWizard.visible) onboardingWizard.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
+  }
+
   function closeHelp() {
     helpPrompt.dismiss()
     var target = helpReturnFocus
@@ -1026,6 +1048,7 @@ Panel {
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionUsage, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
+      if (page === "settings") targets.push(nativeRemoveSetting.focusTarget)
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
       var searchIndex = targets.indexOf(nativeSearch)
       if (searchIndex >= 0)
@@ -1801,6 +1824,8 @@ Panel {
     subscriptionPrompt.dismiss()
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
+    removeReview.dismiss()
+    removalReturnFocus = null
     helpPrompt.dismiss()
     helpReturnFocus = null
     onboardingWizard.dismiss()
@@ -1821,6 +1846,7 @@ Panel {
       if (nativeFlick) nativeFlick.contentY = 0
       vless.refresh()
       Qt.callLater(function() {
+        if (removeReview.terminalOpened) { removeReview.openReview(); return }
         keyCatcher.forceActiveFocus()
         if (vless.onboardingNeeded && !root.onboardingDismissed) root.openOnboarding(1)
         root.syncNativeOnboarding()
@@ -2139,7 +2165,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      helpPrompt.visible || subscriptionUsagePrompt.visible ? Style.space(600) : root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      removeReview.visible || helpPrompt.visible || subscriptionUsagePrompt.visible ? Style.space(600) : root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -2149,7 +2175,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: helpPrompt.visible || subscriptionUsagePrompt.visible || root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
+      blocked: removeReview.visible || helpPrompt.visible || subscriptionUsagePrompt.visible || root.quitConfirmation || root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || importEntryPrompt.visible || bundleImportPrompt.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
@@ -2299,7 +2325,7 @@ Panel {
           componentReview: root.componentSetupReview
           reviewCoreState: onboardingWizard.nativeCoreState
           panelOpen: root.opened
-          nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null
+          nativeEffectBlocked: removeReview.terminalOpened || vless.nativeActionRunning || vless.nativePending !== null
             || vless.nativeOutcomeUnknown || vless.nativeQuitting
           onReady: function(runtimeResumed) {
             vless.enterNativeReadOnly()
@@ -2308,6 +2334,7 @@ Panel {
           }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
           onHelpRequested: function(section) { root.openHelp(section, setupPage) }
+          onRemoveRequested: function(control) { root.openRemoval(control) }
           onTerminalRequested: root.close()
           onCloseRequested: {
             if (root.componentSetupReview) {
@@ -2772,6 +2799,15 @@ Panel {
             actionText: root.textFor(vless.nativeQuitting ? "native.quit.running" : "native.quit.action")
             actionEnabled: vless.nativeCanStop && !vless.nativeEditorRunning && !vless.nativeImportBusy
             onAction: root.quitConfirmation = true
+          }
+          SettingsActionRow {
+            id: nativeRemoveSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("remove.title")
+            description: root.textFor("remove.description")
+            actionText: root.textFor("remove.entry")
+            onAction: root.openRemoval(nativeRemoveSetting.focusTarget)
           }
           PlainText {
             id: nativeReleaseCredit
@@ -4419,6 +4455,7 @@ Panel {
         }
         onSetupGuideRequested: root.openHelp("install", onboardingWizard)
         onComponentSetupRequested: root.reviewComponentSetup()
+        onRemoveRequested: function(control) { root.openRemoval(control) }
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }
@@ -4448,6 +4485,23 @@ Panel {
         onGuideRequested: function(section) { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md#" + section) }
         onIssueRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/issues/new")
         onCanceled: root.closeHelp()
+      }
+
+      RemoveReview {
+        id: removeReview
+        anchors.fill: parent
+        z: 30
+        locale: root.uiLocale
+        nativeEffectBlocked: vless.nativeActionRunning || vless.nativePending !== null
+          || vless.nativeOutcomeUnknown || vless.nativeQuitting || vless.nativeImportBusy
+          || vless.nativeBatchBusy || vless.nativeBatchUnknown || vless.nativeBatchRequestRunning
+          || vless.nativeEditorRunning || vless.nativeFileExportProcess !== null
+          || vless.nativeQrExportProcess !== null
+        setupBusy: setupPage.busy
+        setupTerminalOpened: setupPage.terminalOpened
+        onCanceled: root.closeRemoval()
+        onTerminalRequested: root.close()
+        onRecheckRequested: { setupPage.check(); vless.refresh() }
       }
 
       StartupPrompt {
