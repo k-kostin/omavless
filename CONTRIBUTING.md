@@ -85,6 +85,12 @@ its debug assertions and overflow checks. Runtime code keeps its default debug
 profile; release builds, lint/check commands and the parity executable are not
 changed. Every original test configuration/filter remains required. A focused
 speed measurement is not evidence of whole-CI speed or timing-sensitive coverage.
+Static format/type/lint checks run before executable tests. Each command emits
+an `OVT_CHECK_END` line with its closed label, elapsed seconds and original exit
+status; arguments are not repeated. This is command wall time, not a separate
+compile/test measurement. Follow [early feedback and timings](docs/development/AGENT_OPERATING_WORKFLOW.md#early-feedback-and-timings)
+and [hosted CI completion](docs/development/AGENT_OPERATING_WORKFLOW.md#hosted-ci-completion)
+to diagnose the next ordinary run without duplicating a full matrix.
 When probing an isolated Rust toolchain, bind its `CARGO_HOME`/`RUSTUP_HOME` and
 disable automatic installation (`RUSTUP_AUTO_INSTALL=0`): even `--version` on a
 rustup shim can otherwise initialize the ordinary user's toolchain store.

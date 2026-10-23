@@ -116,6 +116,18 @@ better than inventing a breakdown. Optimize only a measured bottleneck, keeping
 assertions, fault/configuration coverage, crypto, trust and deadlines. No
 automatic full local duplicate matrix or speculative cache/CI redesign.
 
+### Early feedback and timings
+
+The maintained Rust runner executes all existing format/type/lint configurations
+before long tests. Its `OVT_CHECK_START` / `OVT_CHECK_END` records identify each
+command, elapsed seconds and original exit status without echoing arguments.
+Use these command wall times with Cargo's build/test output; a command duration
+alone does not distinguish compilation, fixture setup and test execution.
+Preserve the complete recipe and serial deadline-sensitive fixtures when changing
+scheduling. Inert recipe tests prove command preservation and fail-fast behavior,
+not a hosted speedup. Measure total CI time on the next ordinary candidate;
+start a separate profiling experiment only for a remaining specific question.
+
 ## 7. Wait quietly, close explicitly
 
 Keep a continuation compact, normally within 25 lines, with links to the current
@@ -123,6 +135,35 @@ checkpoint and canonical procedure. Store only scope/boundaries, current exact
 dependency, original operation/attempt IDs, next admissible action, real missing
 input and completion disposition. Do not copy old receipts or credentials.
 Use the product's scheduler/wait mechanism; retain one observer per dependency.
+
+### Hosted CI completion
+
+For a NEW exact public-source CI dependency, prefer one supported completion wait
+over coarse scheduled wakeups when the current tool session can remain active.
+After binding its repository, full head, workflow, event and attempt, an existing
+GitHub CLI session can use [the documented run wait](https://cli.github.com/manual/gh_run_watch):
+
+```sh
+timeout 30m gh run watch RUN_ID --repo OWNER/REPO --compact --exit-status --interval 30
+```
+
+Replace the three placeholders with the already discovered dependency. Keep the
+original local child/session and consume output through waits of at most 60s;
+stay quiet on unchanged progress. Start no second observer or custom service.
+The 30-minute bound ends only this read-only observer, never the hosted run.
+An observer timeout, transport/auth refusal or lost result is not a CI outcome:
+retain it, apply stalled-operation triage and use the existing scheduler if a
+live wait is unavailable. Keep existing authentication unchanged; unsupported
+credentials are a tool limitation, not a reason to obtain different credentials.
+
+Completion is a signal to read back the bound run/attempt and ALL actual jobs
+and steps once through the existing evidence path. CLI exit success alone does
+not admit a gate. An unexpected head/event/attempt invalidates this wait's
+applicability; preserve the observation rather than adopting the new attempt.
+Stop at terminal state; completed gates stay closed. Frozen attempts retain their
+original observation restrictions. PR, independent merged-push and distribution
+admission remain separate. Record actual completion-to-observation lag; a shorter
+poll interval is an expected improvement, not measured time saved.
 
 ### Stalled-operation triage
 

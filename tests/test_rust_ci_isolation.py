@@ -14,7 +14,7 @@ CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical
 
 
 class RustCiIsolationTests(unittest.TestCase):
-    def runner_trace(self, fail_test=False, fail_canonical_stage=False):
+    def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -31,6 +31,8 @@ class RustCiIsolationTests(unittest.TestCase):
                 "    stream.write(json.dumps(row) + '\\n')\n"
                 "if row[:2] == ['cargo', 'test'] and os.environ.get('RECIPE_FAIL') == '1':\n"
                 "    sys.exit(17)\n"
+                "if row[:2] == ['cargo', 'clippy'] and os.environ.get('RECIPE_FAIL_CLIPPY') == '1':\n"
+                "    sys.exit(23)\n"
                 "if os.environ.get('RECIPE_FAIL_CANONICAL_STAGE') == '1' and '--exact' in row and "
                 + repr(CANONICAL_STAGE_TEST) + " in row:\n"
                 "    sys.exit(19)\n"
@@ -43,10 +45,46 @@ class RustCiIsolationTests(unittest.TestCase):
                 env={"PATH": str(tools) + ":/usr/bin:/bin", "HOME": directory,
                      "CARGO_TARGET_DIR": "target", "RECIPE_TRACE": str(trace),
                      "RECIPE_FAIL": "1" if fail_test else "0",
+                     "RECIPE_FAIL_CLIPPY": "1" if fail_clippy else "0",
                      "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0"},
                 capture_output=True, text=True, timeout=10,
             )
             return result, [json.loads(line) for line in trace.read_text().splitlines()]
+
+    def test_lint_failure_is_reported_before_any_test_or_fixture(self):
+        result, commands = self.runner_trace(fail_clippy=True)
+        self.assertEqual(result.returncode, 23, result.stderr)
+        self.assertEqual([row[:2] for row in commands],
+                         [["cargo", "fmt"], ["cargo", "clippy"]])
+        self.assertRegex(result.stderr,
+                         r"OVT_CHECK_END lint-workspace-2 elapsed_s=\d+ exit=23")
+
+    def test_static_preflight_precedes_all_execution_without_changing_commands(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        static = [c for c in commands if c[:2] in
+                  [["cargo", "fmt"], ["cargo", "clippy"], ["cargo", "check"]]
+                  or c[0] == "rustfmt"]
+        execution = [c for c in commands if c not in static]
+        self.assertEqual(commands, static + execution)
+        # Original expanded commands captured at 6d382b9a, before scheduling:
+        # all 12 static checks and all 45 executable gates, same order within
+        # each group, exact arguments/configurations/skips and multiplicities.
+        for rows, digest in [(static, "15533c34bf33cb3189a3b4bca162f6b165786bff2e4f9f84f449e99b94dd59a7"),
+                             (execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
+            payload = json.dumps(rows, separators=(",", ":")).encode()
+            self.assertEqual(hashlib.sha256(payload).hexdigest(), digest)
+
+    def test_every_command_has_a_paired_closed_label_timing(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        starts = re.findall(r"^OVT_CHECK_START ([a-z0-9-]+)$", result.stderr, re.M)
+        ends = re.findall(r"^OVT_CHECK_END ([a-z0-9-]+) elapsed_s=(\d+) exit=(\d+)$",
+                          result.stderr, re.M)
+        self.assertEqual(len(starts), len(commands))
+        self.assertEqual(starts, [row[0] for row in ends])
+        self.assertEqual(len(set(starts)), len(starts))
+        self.assertTrue(all(row[2] == "0" for row in ends))
 
     def test_sha2_test_profile_preserves_the_complete_recipe(self):
         result, commands = self.runner_trace()
@@ -64,7 +102,7 @@ class RustCiIsolationTests(unittest.TestCase):
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
         # Assert each bounded import addition explicitly, then retain the exact
-        # pre-import recipe hash: no prior feature/filter/deadline/parity gate
+        # pre-import command multiset: no prior feature/filter/deadline/parity gate
         # may disappear behind an opaque replacement digest.
         additions = [
             ["cargo", "build", "--locked", "-p", "omavless-tui", "--example", "private_import_preview"],
@@ -78,7 +116,7 @@ class RustCiIsolationTests(unittest.TestCase):
             self.assertEqual(normalized.count(command), 1, command)
             normalized.remove(command)
         # Explicitly reconcile the independently asserted serial fixture below;
-        # keep the unchanged prior recipe hash instead of blessing a new hash.
+        # retain its skip/exact relationship rather than hiding it in a digest.
         for command in normalized[:]:
             if CANONICAL_STAGE_TEST not in command:
                 continue
@@ -90,15 +128,19 @@ class RustCiIsolationTests(unittest.TestCase):
                 del command[index - 1:index + 1]
         # Captured from the pre-optimization recipe: all expanded commands,
         # features, filters, skips, isolated deadlines, lint and parity entries.
-        payload = json.dumps(normalized, separators=(",", ":")).encode()
+        # Scheduling now puts static checks first. Preserve the historical
+        # command multiset; the exact new two-group order is checked separately.
+        payload = json.dumps(sorted(normalized), separators=(",", ":")).encode()
         self.assertEqual(hashlib.sha256(payload).hexdigest(),
-                         "320a9b1a338fb1f4f0aa66f35741bbb98ef1ed47e533a6403ccb43294b03af83")
+                         "f4ec4499885b7d90fe30a81d5e8462a7ed13b4f04e7f76256f1097a5eccffd4d")
 
     def test_sha2_runner_stops_on_the_original_test_failure(self):
         result, commands = self.runner_trace(fail_test=True)
         self.assertEqual(result.returncode, 17, result.stderr)
-        self.assertEqual([row[:2] for row in commands],
-                         [["cargo", "fmt"], ["cargo", "test"]])
+        self.assertEqual(commands[-1][:2], ["cargo", "test"])
+        self.assertFalse(any(c[:2] in [["cargo", "test"], ["cargo", "build"],
+                                     ["cargo", "run"]] for c in commands[:-1]))
+        self.assertRegex(result.stderr, r"OVT_CHECK_END test-default-workspace-13 elapsed_s=\d+ exit=17")
 
     def test_canonical_stage_retention_executes_once_in_the_same_union(self):
         result, commands = self.runner_trace()
@@ -162,8 +204,8 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(shlex.split(declaration.group(1)), names)
         self.assertIn('close_drain_skips+=(--skip "$close_drain_test")', source)
         self.assertEqual(source.count('for close_drain_test in "${close_drain_tests[@]}"; do'), 3)
-        commands = [shlex.split(line) for line in re.sub(r"\\\n", " ", source).splitlines()
-                    if line.lstrip().startswith("cargo test ")]
+        commands = [shlex.split(line)[2:] for line in re.sub(r"\\\n", " ", source).splitlines()
+                    if re.match(r"\s*run_check [a-z0-9-]+ cargo test ", line)]
         isolated = [c for c in commands if "$close_drain_test" in c]
         skipped = [c for c in commands if "${close_drain_skips[@]}" in c]
         self.assertEqual(len(isolated), 2)
