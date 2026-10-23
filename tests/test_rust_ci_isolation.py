@@ -1,4 +1,4 @@
-"""Timing-fixture isolation retains execution in both runtime configurations."""
+"""Test-only crypto profiles and fixture isolation preserve the complete recipe."""
 import hashlib
 import json
 import re
@@ -11,6 +11,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns"
+ARGON2_TEST_PROFILE = [
+    "--config", "profile.test.package.argon2.opt-level=3",
+    "--config", "profile.test.package.argon2.debug-assertions=true",
+    "--config", "profile.test.package.argon2.overflow-checks=true",
+]
 
 
 class RustCiIsolationTests(unittest.TestCase):
@@ -70,8 +75,16 @@ class RustCiIsolationTests(unittest.TestCase):
         # Original expanded commands captured at 6d382b9a, before scheduling:
         # all 12 static checks and all 45 executable gates, same order within
         # each group, exact arguments/configurations/skips and multiplicities.
+        # Remove ONLY the exact new Argon2 argv before comparing the original
+        # recipe. Do not regenerate the baseline digest to conceal other changes.
+        legacy_execution = []
+        for command in execution:
+            if command[:2] == ["cargo", "test"]:
+                self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
+                command = command[:8] + command[14:]
+            legacy_execution.append(command)
         for rows, digest in [(static, "15533c34bf33cb3189a3b4bca162f6b165786bff2e4f9f84f449e99b94dd59a7"),
-                             (execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
+                             (legacy_execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
             payload = json.dumps(rows, separators=(",", ":")).encode()
             self.assertEqual(hashlib.sha256(payload).hexdigest(), digest)
 
@@ -86,19 +99,19 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(len(set(starts)), len(starts))
         self.assertTrue(all(row[2] == "0" for row in ends))
 
-    def test_sha2_test_profile_preserves_the_complete_recipe(self):
+    def test_crypto_test_profile_preserves_the_complete_recipe(self):
         result, commands = self.runner_trace()
         self.assertEqual(result.returncode, 0, result.stderr)
         profile = [
             "--config", "profile.test.package.sha2.opt-level=3",
             "--config", "profile.test.package.sha2.debug-assertions=true",
             "--config", "profile.test.package.sha2.overflow-checks=true",
-        ]
+        ] + ARGON2_TEST_PROFILE
         normalized = []
         for command in commands:
             if command[:2] == ["cargo", "test"]:
-                self.assertEqual(command[2:8], profile)
-                command = command[:2] + command[8:]
+                self.assertEqual(command[2:2 + len(profile)], profile)
+                command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
         # Assert each bounded import addition explicitly, then retain the exact
@@ -134,7 +147,7 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(payload).hexdigest(),
                          "f4ec4499885b7d90fe30a81d5e8462a7ed13b4f04e7f76256f1097a5eccffd4d")
 
-    def test_sha2_runner_stops_on_the_original_test_failure(self):
+    def test_crypto_runner_stops_on_the_original_test_failure(self):
         result, commands = self.runner_trace(fail_test=True)
         self.assertEqual(result.returncode, 17, result.stderr)
         self.assertEqual(commands[-1][:2], ["cargo", "test"])
