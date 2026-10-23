@@ -12,7 +12,7 @@ fn write(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
-fn final_shape(commit: bool) -> (Fixture, MigrationLock, Ticket, CompleteRecord) {
+pub(crate) fn final_shape(commit: bool) -> (Fixture, MigrationLock, Ticket, CompleteRecord) {
     let f = Fixture::new();
     let lock = f.lock();
     let old_store = fs::read(f.config.join("profiles.json")).unwrap();
