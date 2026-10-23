@@ -516,12 +516,18 @@ fn consumer_recovery_self(command: &[u8]) -> Result<()> {
 fn closure_cut_self(command: &[u8]) -> Result<()> {
     let args = arguments(command)?;
     if args.len() != 4
-        || args[1..]
-            != [
+        || !(args[1..]
+            == [
                 b"developer".as_slice(),
                 b"cut-new-complete-after-closure",
                 b"--confirm-private-closure-cut",
             ]
+            || args[1..]
+                == [
+                    b"developer".as_slice(),
+                    b"cut-new-complete-after-closure-with-history",
+                    b"--confirm-private-history-closure-cut",
+                ])
     {
         return Err(());
     }
@@ -2258,12 +2264,15 @@ mod tests {
         assert!(invocation.validate(command).is_ok());
         assert!(invocation.lost_owner_recovery());
         assert!(invocation.progress().enabled());
+        let history_command = b"/usr/bin/omavless\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-history-closure-cut\0";
+        assert!(invocation.validate(history_command).is_ok());
         for other in [
             SelfInvocation::Recovery,
             SelfInvocation::OldRecovery,
             SelfInvocation::ConsumerRecovery,
         ] {
             assert!(other.validate(command).is_err());
+            assert!(other.validate(history_command).is_err());
         }
         for wrong in [
             b"binary\0restore\0recover-complete-new\0--confirm-disposition\0".as_slice(),
@@ -2274,6 +2283,9 @@ mod tests {
             b"binary\0developer\0cut-new-complete-after-closure\0".as_slice(),
             b"binary\0developer\0cut-new-complete-after-closure\0--confirm-private-closure-cut".as_slice(),
             b"\0developer\0cut-new-complete-after-closure\0--confirm-private-closure-cut\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-closure-cut\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-history-closure-cut\0extra\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-history-closure-cut".as_slice(),
         ] { assert!(invocation.validate(wrong).is_err()); }
     }
 

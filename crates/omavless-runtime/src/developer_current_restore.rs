@@ -281,6 +281,7 @@ pub(crate) fn wipe_request(request: &mut Value) {
 }
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     crate::restore_old_cli::closure_cut_arguments_admitted(arguments)
+        || crate::restore_old_cli::history_closure_cut_arguments_admitted(arguments)
         || arguments == ["developer", "restore-current", "--confirm-private-pair"]
         || arguments == ["developer", "backup-current", "--confirm-private-export"]
         || arguments
@@ -347,6 +348,13 @@ pub fn from_private_input(
         crate::restore_old_cli::cut_new_complete_after_closure_from_private_input(input)
             .map_err(|_| "developer_closure_cut_unknown_or_refused_do_not_repeat")?;
         return Ok("t4_new_complete_closure_cut_reached_still_fenced");
+    }
+    if crate::restore_old_cli::history_closure_cut_arguments_admitted(arguments) {
+        crate::restore_old_cli::cut_new_complete_after_closure_with_history_from_private_input(
+            input,
+        )
+        .map_err(|_| "developer_history_closure_cut_unknown_or_refused_do_not_repeat")?;
+        return Ok("t4_new_complete_history_closure_cut_reached_still_fenced");
     }
     let abort = matches!(
         arguments[1].to_str(),

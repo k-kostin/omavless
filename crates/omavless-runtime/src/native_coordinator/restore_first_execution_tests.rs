@@ -409,6 +409,54 @@ fn native_new_complete_real_all_three_cut_and_noop_never_unlink_complete_or_gran
     not(feature = "product-private-backup")
 ))]
 #[test]
+fn native_new_complete_genuine_current_owner_cut_preserves_prior_audit_before_stage() {
+    let (past_fixture, past_lock, _, past) =
+        crate::restore_recovery_preview::tests::final_shape(true);
+    let raw = past.encode();
+    drop((past_lock, past_fixture));
+    for prior in [1, 7, 8] {
+        let mut f = Fixture::new();
+        ticket_new_input(&f);
+        let mut originals = Vec::new();
+        for index in 0..prior {
+            let name = if index == 0 {
+                "restore-disposition.history".to_owned()
+            } else {
+                format!("restore-disposition.history.{index}")
+            };
+            let path = f.state().join(name);
+            private(&path, &raw);
+            originals.push((path.clone(), fs::metadata(path).unwrap().ino()));
+        }
+        let result = f.owner.cut_current_committed_complete(&f.backup, PASSWORD);
+        assert_eq!(
+            result.is_ok(),
+            prior < 8,
+            "genuine producer with {prior} audits: {result:?}"
+        );
+        for (path, inode) in originals {
+            assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+            assert_eq!(fs::read(path).unwrap(), raw);
+        }
+        assert!(!f.stage().exists());
+        for name in [
+            crate::restore_closure_model::CLOSURE_MEMBER,
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+        ] {
+            assert_eq!(f.state().join(name).exists(), prior < 8);
+        }
+        if prior < 8 {
+            assert!(f.owner.retained_restore_busy() && f.owner.transaction.independently_blocked());
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "t4-manager-actor-service",
+    not(feature = "product-private-backup")
+))]
+#[test]
 fn native_new_complete_actual_partial_complete_write_error_and_unwind_retain_all_three() {
     for panic in [false, true] {
         let mut f = Fixture::new();

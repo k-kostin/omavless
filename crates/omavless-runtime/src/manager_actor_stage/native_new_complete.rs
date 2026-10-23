@@ -41,6 +41,13 @@ enum NewCompleteDisposition {
     CutAfterClosure,
 }
 
+// Two fixed producer contracts. Neither audit bytes nor a UI-selected step can
+// construct ordinary release authority; the original History stays retained.
+enum ClosureCutHistory {
+    Empty,
+    NonEmpty,
+}
+
 impl NativeEngine {
     fn complete_presence(&self) -> Result<NewCompletePresence, Unavailable> {
         match &self.complete_role {
@@ -499,13 +506,38 @@ impl NativeEngine {
         origin: &mut NativeRecoveryOrigin<'_>,
         quiescence: &mut NativeOldRecoveryQuiescence,
     ) -> Result<(), FirstError> {
+        self.cut_native_new_complete_after_closure_bound(
+            origin,
+            quiescence,
+            ClosureCutHistory::Empty,
+        )
+    }
+
+    pub(crate) fn cut_native_new_complete_after_closure_with_history(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        self.cut_native_new_complete_after_closure_bound(
+            origin,
+            quiescence,
+            ClosureCutHistory::NonEmpty,
+        )
+    }
+
+    fn cut_native_new_complete_after_closure_bound(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+        history: ClosureCutHistory,
+    ) -> Result<(), FirstError> {
         if !crate::product_scope::restore_enabled() {
             return Err(FirstError::Admission);
         }
         let uid = origin.uid();
         let generation = origin.generation();
         let desired = zeroize::Zeroizing::new(origin.desired_bytes().to_vec());
-        self.cut_new_complete_after_closure_inner(
+        self.cut_new_complete_after_closure_bound(
             &mut NativeRecoveryGate {
                 origin,
                 quiescence: Some(quiescence),
@@ -514,9 +546,30 @@ impl NativeEngine {
             generation,
             &desired,
             Instant::now() + std::time::Duration::from_secs(15),
+            history,
         )
     }
 
+    #[cfg(test)]
+    pub(super) fn cut_new_complete_after_closure_with_history_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        self.cut_new_complete_after_closure_bound(
+            origin,
+            uid,
+            generation,
+            desired,
+            until,
+            ClosureCutHistory::NonEmpty,
+        )
+    }
+
+    #[cfg(test)]
     pub(super) fn cut_new_complete_after_closure_inner<O: NativeGate>(
         &mut self,
         origin: &mut O,
@@ -525,9 +578,33 @@ impl NativeEngine {
         desired: &[u8],
         until: Instant,
     ) -> Result<(), FirstError> {
+        self.cut_new_complete_after_closure_bound(
+            origin,
+            uid,
+            generation,
+            desired,
+            until,
+            ClosureCutHistory::Empty,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // closed producer contract, never a cut-step selector
+    fn cut_new_complete_after_closure_bound<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+        history: ClosureCutHistory,
+    ) -> Result<(), FirstError> {
         let result = (|| {
+            let expected_history = self.audit.target().is_ok_and(|target| match history {
+                ClosureCutHistory::Empty => target == native_history::NAMES[0],
+                ClosureCutHistory::NonEmpty => native_history::NAMES[1..].contains(&target),
+            });
             if self.complete_presence().ok() != Some(NewCompletePresence::ClosureTicketComplete)
-                || self.audit.target().ok() != Some(native_history::NAMES[0])
+                || !expected_history
                 || self.history
                 || self.disposition_done
             {

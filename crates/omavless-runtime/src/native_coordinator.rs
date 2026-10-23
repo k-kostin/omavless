@@ -38,6 +38,22 @@ pub(crate) use restore_candidate::{NativeAbortedDisposition, NativeCommittedDisp
 pub(crate) use restore_candidate::{NativeCompletedOff, NativeRecoveryOrigin};
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{NativeFirstError, PreparedRestorePair};
+
+/// Closed cut composition: qualification cannot silently replace the original
+/// authenticated graph. Returns no capability or replacement observation.
+#[cfg(feature = "t4-manager-actor-service")]
+pub(crate) fn qualify_then_recheck_cut(
+    original: &crate::restore_recovery_preview::Preview,
+    qualify: impl FnOnce() -> Result<(), NativeFirstError>,
+    inspect: impl FnOnce() -> Result<crate::restore_recovery_preview::Preview, NativeFirstError>,
+) -> Result<(), NativeFirstError> {
+    qualify()?;
+    let current = inspect()?;
+    if !original.same(&current) {
+        return Err(NativeFirstError::Admission);
+    }
+    Ok(())
+}
 #[cfg(feature = "t4-manager-actor-service")]
 pub(crate) use restore_candidate::{
     NativeLeaseError, NativeMigrationBorrow, NativeMutationLease, NativeOrdinaryLease,

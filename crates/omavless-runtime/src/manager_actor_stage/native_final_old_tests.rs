@@ -283,7 +283,11 @@ impl Fixture {
                 Slot::Owner,
                 &state,
                 "ownership.json",
-                b"synthetic owner".as_slice(),
+                if case == "authenticated-preview" {
+                    br#"{"schemaVersion":1,"generation":2,"phase":"rust"}"#.as_slice()
+                } else {
+                    b"synthetic owner".as_slice()
+                },
             ),
             (Slot::Desired, &state, "desired.json", DESIRED),
             (
@@ -1705,6 +1709,66 @@ fn native_new_complete_fixed_closure_cut_preserves_ticket_complete_and_new_witho
 }
 
 #[test]
+fn native_new_complete_history_preserving_closure_cut_keeps_every_prior_original() {
+    for prior in 1..native_history::CAPACITY {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, prior);
+        let closure =
+            File::open(f.state.join(crate::restore_closure_model::CLOSURE_MEMBER)).unwrap();
+        let ticket_path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let ticket = File::open(&ticket_path).unwrap();
+        let complete = File::open(&complete_path).unwrap();
+        let ticket_raw = fs::read(&ticket_path).unwrap();
+        let complete_raw = fs::read(&complete_path).unwrap();
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let result = f.engine.cut_new_complete_after_closure_with_history_inner(
+            &mut f.gate,
+            nix::unistd::getuid().as_raw(),
+            2,
+            DESIRED,
+            until,
+        );
+        assert!(
+            result.is_ok(),
+            "history-preserving cut with {prior} prior records: {result:?}"
+        );
+        assert_eq!(closure.metadata().unwrap().nlink(), 0);
+        assert!(
+            !f.state
+                .join(crate::restore_closure_model::CLOSURE_MEMBER)
+                .exists()
+        );
+        assert_eq!(
+            fs::metadata(&ticket_path).unwrap().ino(),
+            ticket.metadata().unwrap().ino()
+        );
+        assert_eq!(
+            fs::metadata(&complete_path).unwrap().ino(),
+            complete.metadata().unwrap().ino()
+        );
+        assert_eq!(fs::read(ticket_path).unwrap(), ticket_raw);
+        assert_eq!(fs::read(complete_path).unwrap(), complete_raw);
+        assert_past_unchanged(&f.state, &past);
+        assert!(!f.state.join(native_history::NAMES[prior]).exists());
+        assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+        assert!(!f.engine.history && !f.engine.disposition_done);
+        f.retained();
+        drop((past, closure, ticket, complete));
+        f.cleanup();
+    }
+}
+
+#[test]
 fn native_new_complete_fixed_closure_cut_refuses_other_prefixes_and_nonempty_history() {
     for (presence, history) in [
         (NewCompletePresence::TicketComplete, 0),
@@ -1734,6 +1798,233 @@ fn native_new_complete_fixed_closure_cut_refuses_other_prefixes_and_nonempty_his
         assert_past_unchanged(&f.state, &past);
         f.retained();
         drop(past);
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_complete_history_preserving_cut_refuses_empty_or_other_shapes() {
+    for (presence, prior) in [
+        (NewCompletePresence::ClosureTicketComplete, 0),
+        (NewCompletePresence::TicketComplete, 1),
+        (NewCompletePresence::CompleteOnly, 1),
+    ] {
+        let mut f = Fixture::new_committed("positive").with_complete(presence);
+        let past = prior_audits(&f.state, prior);
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        assert!(
+            f.engine
+                .cut_new_complete_after_closure_with_history_inner(
+                    &mut f.gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    until,
+                )
+                .is_err()
+        );
+        assert!(!f.engine.disposition && !f.engine.unlinked[Slot::Scratch3 as usize]);
+        assert!(f.engine.sealed && !f.engine.disposition_ready());
+        assert_past_unchanged(&f.state, &past);
+        f.retained();
+        drop(past);
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_complete_history_preserving_cut_keeps_originals_across_gate_failures() {
+    let mut refused = 0;
+    let mut after_unlink = 0;
+    let mut succeeded = false;
+    for offset in 1..40 {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, 1);
+        let ticket_path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let ticket = fs::read(&ticket_path).unwrap();
+        let complete = fs::read(&complete_path).unwrap();
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        f.gate.fail = Some(f.gate.calls + offset);
+        let result = f.engine.cut_new_complete_after_closure_with_history_inner(
+            &mut f.gate,
+            nix::unistd::getuid().as_raw(),
+            2,
+            DESIRED,
+            until,
+        );
+        if result.is_err() {
+            refused += 1;
+            after_unlink += usize::from(f.engine.unlinked[Slot::Scratch3 as usize]);
+        } else {
+            succeeded = true;
+        }
+        assert_past_unchanged(&f.state, &past);
+        assert_eq!(fs::read(ticket_path).unwrap(), ticket);
+        assert_eq!(fs::read(complete_path).unwrap(), complete);
+        assert!(!f.state.join(native_history::NAMES[1]).exists());
+        assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+        assert!(
+            !f.engine.history
+                && !f.engine.disposition_done
+                && !f.engine.unlinked[Slot::Scratch0 as usize]
+        );
+        f.retained();
+        drop(past);
+        f.cleanup();
+        if succeeded {
+            break;
+        }
+    }
+    assert!(succeeded && refused > 0 && after_unlink > 0);
+}
+
+#[test]
+fn native_new_complete_history_preserving_cut_never_adopts_replaced_prior_inode() {
+    let mut f = Fixture::new_committed("positive")
+        .with_complete(NewCompletePresence::ClosureTicketComplete);
+    let past = prior_audits(&f.state, 1);
+    f.capture("positive").unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(10);
+    f.engine
+        .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+        .unwrap();
+    let path = f.state.join(past[0].name);
+    fs::rename(&path, f.root.join("retained-prior-audit")).unwrap();
+    drop(write(&path, &past[0].bytes));
+    let replacement = fs::metadata(&path).unwrap().ino();
+    assert_ne!(replacement, past[0].metadata.ino());
+    assert!(
+        f.engine
+            .cut_new_complete_after_closure_with_history_inner(
+                &mut f.gate,
+                nix::unistd::getuid().as_raw(),
+                2,
+                DESIRED,
+                until,
+            )
+            .is_err()
+    );
+    assert_eq!(fs::metadata(path).unwrap().ino(), replacement);
+    assert_eq!(
+        past[0].file.metadata().unwrap().ino(),
+        past[0].metadata.ino()
+    );
+    assert!(f.engine.sealed && !f.engine.disposition && !f.engine.ordinary_handoff);
+    assert!(!f.engine.unlinked[Slot::Scratch3 as usize]);
+    f.retained();
+    drop(past);
+    f.cleanup();
+}
+
+#[test]
+fn native_new_complete_postqualification_caller_refuses_recaptured_prior_history() {
+    use crate::restore_recovery_preview::inspect_authenticated;
+    for case in ["unchanged", "recapture", "qualify-error", "inspect-error"] {
+        let backup = crate::restore_executor_candidate::successor::tests::second();
+        let new = backup.restore_store_off().unwrap();
+        let mut f = Fixture::from_members(
+            "authenticated-preview",
+            true,
+            [MEMBERS[0], MEMBERS[1], &new, backup.template()],
+        )
+        .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, 1);
+        let uid = nix::unistd::getuid().as_raw();
+        let runtime = f.root.join("r");
+        let paths = crate::cutover::CutoverPaths {
+            runtime_base: runtime.clone(),
+            operation_lock: runtime.join(format!("omavless.{uid}.lock")),
+            state_directory: f.state.clone(),
+            ownership_marker: f.state.join("ownership.json"),
+        };
+        let lease = crate::cutover::MigrationLock::acquire(&paths, uid).unwrap();
+        let config = f.config.clone();
+        let original =
+            inspect_authenticated(&config, &paths, uid, &lease, backup, [42; 32]).unwrap();
+        assert!(original.is_history_preserving_closure_cut_source());
+        let closure_path = f.state.join(crate::restore_closure_model::CLOSURE_MEMBER);
+        let closure = File::open(&closure_path).unwrap();
+        let ticket_path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let ticket = fs::read(&ticket_path).unwrap();
+        let complete = fs::read(&complete_path).unwrap();
+        let qualified = std::cell::Cell::new(false);
+        let result = crate::native_coordinator::qualify_then_recheck_cut(
+            &original,
+            || {
+                if case == "qualify-error" {
+                    return Err(FirstError::Admission);
+                }
+                if case == "recapture" {
+                    let path = f.state.join(past[0].name);
+                    fs::rename(&path, f.root.join("prior-before-capture")).unwrap();
+                    drop(write(&path, &past[0].bytes));
+                    assert_ne!(fs::metadata(path).unwrap().ino(), past[0].metadata.ino());
+                }
+                // Actual NativeEngine captures/qualifies the current inode. LocalGate
+                // replaces only unavailable manager/host observation, not file IO.
+                f.capture("positive")?;
+                let until = Instant::now() + std::time::Duration::from_secs(10);
+                f.engine
+                    .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)?;
+                f.engine.check_native_completed_inner(&mut f.gate, until)?;
+                qualified.set(true);
+                Ok(())
+            },
+            || {
+                assert_ne!(
+                    case, "qualify-error",
+                    "failed qualification must not inspect or continue"
+                );
+                if case == "inspect-error" {
+                    return Err(FirstError::Admission);
+                }
+                inspect_authenticated(&config, &paths, uid, &lease, backup, [42; 32])
+                    .map_err(|_| FirstError::Admission)
+            },
+        );
+        assert_eq!(
+            qualified.get(),
+            case != "qualify-error",
+            "actual qualification outcome for {case}"
+        );
+        assert_eq!(
+            result.is_ok(),
+            case == "unchanged",
+            "final caller result: {result:?}"
+        );
+        assert_eq!(closure.metadata().unwrap().nlink(), 1);
+        assert!(closure_path.exists());
+        assert_eq!(fs::read(ticket_path).unwrap(), ticket);
+        assert_eq!(fs::read(complete_path).unwrap(), complete);
+        assert_eq!(
+            past[0].file.metadata().unwrap().ino(),
+            past[0].metadata.ino()
+        );
+        assert!(!f.state.join(native_history::NAMES[1]).exists());
+        assert!(!f.engine.disposition && !f.engine.history && !f.engine.ordinary_handoff);
+        if qualified.get() {
+            f.retained();
+        }
+        drop((lease, closure, past));
         f.cleanup();
     }
 }
