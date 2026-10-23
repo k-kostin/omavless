@@ -99,6 +99,8 @@ enum SelfInvocation {
     OldRecovery,
     #[cfg(feature = "t4-manager-actor-service")]
     ConsumerRecovery,
+    #[cfg(feature = "t4-manager-actor-service")]
+    ClosureCut,
     #[cfg(test)]
     Diagnostic,
 }
@@ -121,7 +123,7 @@ impl RecoveryProgress {
 impl SelfInvocation {
     #[cfg(feature = "t4-manager-actor-service")]
     fn progress(self) -> RecoveryProgress {
-        if matches!(self, Self::OldRecovery) {
+        if matches!(self, Self::OldRecovery | Self::ClosureCut) {
             RecoveryProgress::DiagnosticCli
         } else {
             RecoveryProgress::ConsumerSilent
@@ -129,7 +131,10 @@ impl SelfInvocation {
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn lost_owner_recovery(self) -> bool {
-        matches!(self, Self::OldRecovery | Self::ConsumerRecovery)
+        matches!(
+            self,
+            Self::OldRecovery | Self::ConsumerRecovery | Self::ClosureCut
+        )
     }
 
     fn validate(self, command: &[u8]) -> Result<()> {
@@ -139,6 +144,8 @@ impl SelfInvocation {
             Self::OldRecovery => old_recovery_self(command),
             #[cfg(feature = "t4-manager-actor-service")]
             Self::ConsumerRecovery => consumer_recovery_self(command),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::ClosureCut => closure_cut_self(command),
             #[cfg(test)]
             Self::Diagnostic => super::diagnostic::exact_self(&arguments(command)?),
         }
@@ -500,6 +507,22 @@ fn old_recovery_self(command: &[u8]) -> Result<()> {
 fn consumer_recovery_self(command: &[u8]) -> Result<()> {
     let args = arguments(command)?;
     if args.len() != 2 || args[1] != b"tui" {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn closure_cut_self(command: &[u8]) -> Result<()> {
+    let args = arguments(command)?;
+    if args.len() != 4
+        || args[1..]
+            != [
+                b"developer".as_slice(),
+                b"cut-new-complete-after-closure",
+                b"--confirm-private-closure-cut",
+            ]
+    {
         return Err(());
     }
     Ok(())
@@ -1540,6 +1563,10 @@ impl OldRecoveryOwner {
         Self::prepare_inner(uid, socket, SelfInvocation::ConsumerRecovery)
     }
 
+    pub(crate) fn prepare_closure_cut(uid: u32, socket: &Path) -> Result<Self> {
+        Self::prepare_inner(uid, socket, SelfInvocation::ClosureCut)
+    }
+
     fn prepare_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
         // Reserve original command custody without a process query/capture.
         // The caller installs this guard before qualification can spawn a child.
@@ -2221,6 +2248,33 @@ mod tests {
         ] {
             assert!(SelfInvocation::ConsumerRecovery.validate(command).is_err());
         }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn closure_cut_self_is_distinct_fixed_and_uses_full_lost_owner_custody() {
+        let command = b"/usr/bin/omavless\0developer\0cut-new-complete-after-closure\0--confirm-private-closure-cut\0";
+        let invocation = SelfInvocation::ClosureCut;
+        assert!(invocation.validate(command).is_ok());
+        assert!(invocation.lost_owner_recovery());
+        assert!(invocation.progress().enabled());
+        for other in [
+            SelfInvocation::Recovery,
+            SelfInvocation::OldRecovery,
+            SelfInvocation::ConsumerRecovery,
+        ] {
+            assert!(other.validate(command).is_err());
+        }
+        for wrong in [
+            b"binary\0restore\0recover-complete-new\0--confirm-disposition\0".as_slice(),
+            b"binary\0restore\0abort\0--confirm-rollback\0".as_slice(),
+            b"binary\0tui\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure\0--confirm-disposition\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure\0--confirm-private-closure-cut\0extra\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-after-closure\0--confirm-private-closure-cut".as_slice(),
+            b"\0developer\0cut-new-complete-after-closure\0--confirm-private-closure-cut\0".as_slice(),
+        ] { assert!(invocation.validate(wrong).is_err()); }
     }
 
     #[test]

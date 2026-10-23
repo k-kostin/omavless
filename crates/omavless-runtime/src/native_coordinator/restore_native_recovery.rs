@@ -61,6 +61,52 @@ enum FreshRecoveryMode {
     CutNewCompleteAfterClosure,
 }
 
+type QuiescencePreparer = fn(
+    &CutoverPaths,
+    u32,
+    Arc<OnceLock<MigrationLock>>,
+) -> Result<NativeOldRecoveryQuiescence, FirstError>;
+
+fn quiescence_preparer(mode: FreshRecoveryMode, previewed: bool) -> QuiescencePreparer {
+    if mode == FreshRecoveryMode::CutNewCompleteAfterClosure {
+        NativeOldRecoveryQuiescence::prepare_closure_cut
+    } else if previewed {
+        NativeOldRecoveryQuiescence::prepare_consumer
+    } else {
+        NativeOldRecoveryQuiescence::prepare
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn closure_cut_mode_selects_only_its_fixed_stopped_owner_constructor() {
+    // Closed invocation identity is the boundary under test. Calling a real
+    // stopped-owner constructor here would query host processes/manager.
+    let fixed: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_closure_cut;
+    for previewed in [false, true] {
+        assert!(std::ptr::fn_addr_eq(
+            quiescence_preparer(FreshRecoveryMode::CutNewCompleteAfterClosure, previewed),
+            fixed
+        ));
+    }
+    for mode in [
+        FreshRecoveryMode::NewCompleteOutput,
+        FreshRecoveryMode::NewTicketOutput,
+        FreshRecoveryMode::RecoverOldToCompletion,
+    ] {
+        let legacy: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare;
+        let consumer: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_consumer;
+        assert!(std::ptr::fn_addr_eq(
+            quiescence_preparer(mode, false),
+            legacy
+        ));
+        assert!(std::ptr::fn_addr_eq(
+            quiescence_preparer(mode, true),
+            consumer
+        ));
+    }
+}
+
 #[derive(Clone, Copy)]
 enum RecoveredPairChoice {
     Old,
@@ -2330,11 +2376,7 @@ impl FreshRecovery {
             // Only the authenticated, same-graph consumer preview above selects
             // the ordinary TUI invocation. Legacy CLI and Abort guards retain
             // their exact argument grammar and all stopped-owner observations.
-            let prepare = if self.preview_binding.is_some() {
-                NativeOldRecoveryQuiescence::prepare_consumer
-            } else {
-                NativeOldRecoveryQuiescence::prepare
-            };
+            let prepare = quiescence_preparer(mode, self.preview_binding.is_some());
             self.old_quiescence = Some(Box::new(prepare(&paths, uid, Arc::clone(lock))?));
             let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
             phase(b"Restore recovery: engine\n");
